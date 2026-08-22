@@ -36,6 +36,12 @@ interface CoachChatContextValue {
   messages: CoachMessage[];
   isStreaming: boolean;
   send: (text: string) => void;
+  /**
+   * Aborts the in-flight reply: keeps whatever text already streamed as a
+   * finished message (drops a still-empty bubble) and unlocks the input.
+   * No-op when nothing is streaming.
+   */
+  stop: () => void;
   /** Looks up an AI recipe suggestion received this session (by card id). */
   getRecipeSuggestion: (id: string) => AiRecipeSuggestion | undefined;
   /** Caches a generated photo on a suggestion so re-opens don't regenerate. */
@@ -65,6 +71,10 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
   // Single-flight guard: refs update synchronously, so rapid double-taps
   // cannot race ahead of the isStreaming re-render.
   const inFlightRef = useRef(false);
+  // Controller for the in-flight request; doubles as the stream generation
+  // token — callbacks from a stopped stream see a different controller here
+  // and drop themselves, so they can never touch a later exchange's state.
+  const abortRef = useRef<AbortController | null>(null);
   const nextId = () => `coach-${++idRef.current}`;
 
   useEffect(() => {
@@ -75,6 +85,9 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
     const text = rawText.trim();
     if (!text || inFlightRef.current) return;
     inFlightRef.current = true;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     const userMessage: CoachMessage = { id: nextId(), role: 'user', text, status: 'done' };
     const assistantId = nextId();
@@ -94,15 +107,21 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
       { id: assistantId, role: 'assistant', text: '', status: 'streaming' },
     ]);
 
+    // Callbacks from a stream the user already stopped must not run: stop()
+    // finalized the UI and may even have let a new exchange begin.
+    const isStale = () => abortRef.current !== controller;
+
     void streamCoachChat(
       { messages: request },
       {
         onDelta: delta => {
+          if (isStale()) return;
           setMessages(current =>
             current.map(m => (m.id === assistantId ? { ...m, text: m.text + delta } : m)),
           );
         },
         onCard: card => {
+          if (isStale()) return;
           if (card.kind === 'recipe') {
             // Defensive re-parse; a malformed payload drops the card rather
             // than crashing the preview screen later.
@@ -116,6 +135,8 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
           );
         },
         onDone: () => {
+          if (isStale()) return;
+          abortRef.current = null;
           // Trim trailing whitespace left when a control marker was stripped
           // from the end of the streamed text.
           setMessages(current =>
@@ -127,6 +148,8 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
           setIsStreaming(false);
         },
         onError: message => {
+          if (isStale()) return;
+          abortRef.current = null;
           setMessages(current =>
             current.map(m =>
               m.id === assistantId ? { ...m, status: 'error', text: message } : m,
@@ -136,7 +159,28 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
           setIsStreaming(false);
         },
       },
+      { signal: controller.signal },
     );
+  }, []);
+
+  const stop = useCallback(() => {
+    if (!inFlightRef.current) return;
+    const controller = abortRef.current;
+    abortRef.current = null;
+    controller?.abort();
+    // Finalize locally — the aborted stream stays silent (no onDone/onError).
+    // Single-flight means at most one message is mid-stream: keep its partial
+    // text as a finished reply, or drop the bubble if nothing arrived yet.
+    setMessages(current =>
+      current.flatMap(m => {
+        if (m.status !== 'streaming') return [m];
+        const text = m.text.trimEnd();
+        if (text.length === 0 && !m.card) return [];
+        return [{ ...m, status: 'done' as const, text }];
+      }),
+    );
+    inFlightRef.current = false;
+    setIsStreaming(false);
   }, []);
 
   const getRecipeSuggestion = useCallback(
@@ -150,8 +194,8 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ messages, isStreaming, send, getRecipeSuggestion, setSuggestionPhoto }),
-    [messages, isStreaming, send, getRecipeSuggestion, setSuggestionPhoto],
+    () => ({ messages, isStreaming, send, stop, getRecipeSuggestion, setSuggestionPhoto }),
+    [messages, isStreaming, send, stop, getRecipeSuggestion, setSuggestionPhoto],
   );
 
   return <CoachChatContext.Provider value={value}>{children}</CoachChatContext.Provider>;

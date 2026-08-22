@@ -63,7 +63,7 @@ export default function CoachChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { messages, isStreaming, send } = useCoachChat();
+  const { messages, isStreaming, send, stop } = useCoachChat();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
@@ -219,23 +219,44 @@ export default function CoachChatScreen() {
               },
             ]}
           />
-          <Pressable
-            testID="coach-send"
-            accessibilityRole="button"
-            accessibilityLabel="Send message"
-            disabled={isStreaming || draft.trim().length === 0}
-            onPress={submitDraft}
-            style={({ pressed }) => [
-              styles.sendBtn,
-              {
-                backgroundColor:
-                  isStreaming || draft.trim().length === 0 ? colors.cobaltMuted : colors.cobalt,
-              },
-              pressed && { opacity: 0.85 },
-            ]}
-          >
-            <Feather name="arrow-up" size={18} color={colors.primaryForeground} />
-          </Pressable>
+          {isStreaming ? (
+            <Pressable
+              testID="coach-stop"
+              accessibilityRole="button"
+              accessibilityLabel="Stop response"
+              onPress={() => {
+                Haptics.selectionAsync();
+                stop();
+              }}
+              style={({ pressed }) => [
+                styles.sendBtn,
+                { backgroundColor: colors.navy },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <View
+                style={[styles.stopGlyph, { backgroundColor: colors.primaryForeground }]}
+              />
+            </Pressable>
+          ) : (
+            <Pressable
+              testID="coach-send"
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
+              disabled={draft.trim().length === 0}
+              onPress={submitDraft}
+              style={({ pressed }) => [
+                styles.sendBtn,
+                {
+                  backgroundColor:
+                    draft.trim().length === 0 ? colors.cobaltMuted : colors.cobalt,
+                },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <Feather name="arrow-up" size={18} color={colors.primaryForeground} />
+            </Pressable>
+          )}
         </View>
       </InputAboveKeyboard>
     </View>
@@ -495,5 +516,9 @@ const styles = StyleSheet.create({
     height: 42,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  stopGlyph: {
+    width: 12,
+    height: 12,
   },
 });

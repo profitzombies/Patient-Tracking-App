@@ -31,6 +31,14 @@ export interface CoachStreamCallbacks {
   onCard?: (card: CoachCardEvent) => void;
 }
 
+export interface CoachStreamOptions {
+  /**
+   * Aborts the request. Once the signal fires, no further callbacks are
+   * invoked — the caller owns the UI transition for a user-initiated stop.
+   */
+  signal?: AbortSignal;
+}
+
 const FRIENDLY_ERROR = 'The coach is unavailable right now. Please try again.';
 
 function isCardEvent(card: unknown): card is CoachCardEvent {
@@ -83,10 +91,16 @@ function drainSseBuffer(
   return tail;
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
 export async function streamCoachChat(
   body: { messages: CoachRequestMessage[] },
   callbacks: CoachStreamCallbacks,
+  options: CoachStreamOptions = {},
 ): Promise<void> {
+  const { signal } = options;
   const state = { finished: false };
   try {
     const doFetch =
@@ -97,6 +111,7 @@ export async function streamCoachChat(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
     if (!response.ok) {
       throw new Error(`Coach request failed with status ${response.status}`);
@@ -121,11 +136,13 @@ export async function streamCoachChat(
 
     if (!state.finished) {
       state.finished = true;
-      callbacks.onDone();
+      // A stop that lands between the last read and here still stays silent.
+      if (!signal?.aborted) callbacks.onDone();
     }
   } catch (error) {
     if (!state.finished) {
       state.finished = true;
+      if (signal?.aborted || isAbortError(error)) return;
       console.error('Coach chat request failed', error);
       callbacks.onError(FRIENDLY_ERROR);
     }

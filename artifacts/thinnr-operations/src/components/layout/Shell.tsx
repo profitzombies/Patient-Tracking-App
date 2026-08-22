@@ -107,7 +107,7 @@ export function Shell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-[#eef1f6] font-sans text-[#1b2f55] flex">
+    <div className="min-h-[100dvh] max-w-full overflow-x-hidden bg-[#eef1f6] font-sans text-[#1b2f55] flex">
       {/* Sidebar - Hidden on very small screens, visible md and up */}
       <aside className="hidden w-[226px] shrink-0 border-r border-[#b7c3d7] bg-[#e3e8f1] px-4 py-5 md:flex md:flex-col">
         <button 
@@ -208,7 +208,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </header>
 
         {/* The scrollable content */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+        <div ref={scrollContainerRef} className="flex-1 overflow-x-hidden overflow-y-auto">
           {children}
         </div>
 

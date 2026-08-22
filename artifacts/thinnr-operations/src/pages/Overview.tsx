@@ -319,7 +319,7 @@ export default function Overview() {
               View all roster <ArrowUpRight size={13} className="inline" />
             </Link>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[540px] text-left text-xs">
               <thead className="border-b border-[#d5deeb] text-[10px] uppercase tracking-[.11em] text-[#8290a7]">
                 <tr>
@@ -352,6 +352,28 @@ export default function Overview() {
                 })}
               </tbody>
             </table>
+          </div>
+          <div className="divide-y divide-[#e4e8f0] md:hidden">
+            {filteredPatients.slice(0, 5).map((patient) => {
+              const provider = MOCK_PROVIDERS.find((candidate) => candidate.id === patient.providerId);
+              const lbsLost = patient.startingWeight - patient.currentWeight;
+              return (
+                <Link
+                  key={patient.id}
+                  href={`/patients/${patient.id}`}
+                  className="flex items-center justify-between gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#315fc0]"
+                >
+                  <span className="min-w-0">
+                    <b className="block truncate text-xs text-[#3b5686]">{patient.name}</b>
+                    <span className="mt-1 block truncate text-[10px] text-[#8793a8]">{provider?.name.split(',')[0]} · {patient.stage === 'protocol' ? `Week ${patient.protocolWeek}` : 'Maintenance'}</span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <StatusBadge status={patient.status} />
+                    <span className="mt-1 block font-mono text-[10px] text-[#53698f]">{lbsLost.toFixed(1)} lbs lost</span>
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         </section>
       </div>

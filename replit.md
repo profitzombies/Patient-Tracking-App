@@ -22,7 +22,7 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `docs/thinnr-program/` — verbatim archive of the official THINNR Protocol materials: complete 72-page manual transcription, program-instructions and approved-foods extracts, knowledge-base Q&A, and the canonical PDF/paste sources (see its README for page mapping and fidelity notes). Quote official program wording from these files — never paraphrase or "fix" it.
 
 ## Architecture decisions
 

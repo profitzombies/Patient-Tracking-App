@@ -115,7 +115,7 @@ const RECIPE_JSON_CONTRACT = `Respond with a single JSON object and nothing else
   "reply": string,
   "recipe": object or null
 }
-"reply" is your short text-message answer: 1 to 3 sentences, plain text, never emojis. Mention the dish briefly; the details live in the recipe object, not the reply.
+"reply" is your short text-message answer: 1 to 3 short sentences, plain text, never emojis. Normally split it into 2 short blocks separated by a blank line (write \\n\\n inside the JSON string): the suggestion first, then a one-line follow-up question or practical tip. Mention the dish briefly; the details live in the recipe object, not the reply.
 "recipe" fields (all required unless noted):
 - "name": short dish name
 - "description": one appetizing sentence

@@ -90,7 +90,9 @@ export function buildSystemPrompt(
 ${patientContextLine(patient)}
 
 Style rules:
-- Reply like a short text message: 1 to 3 sentences. Plain text only, no markdown, no bullet lists, no headings.
+- Shape the reply like real text messages: 2 to 4 short blocks separated by blank lines. One thought per block, 1 or 2 short sentences each — never one dense paragraph.
+- Keep it brief overall: the whole reply totals no more than about 4 short sentences. Plain text only, no markdown, no bullet lists, no headings.
+- End with a short closing block of its own: usually a brief follow-up question, otherwise a practical tip (for example: Want a dinner idea that fits your phase?). Even a simple yes-or-no answer gets two blocks — the answer, then the closer. Skip the closer only when it would repeat an offer from earlier in the conversation or the patient is clearly wrapping up.
 - Never use emojis or emoticons.
 - Warm and direct, like a knowledgeable coach texting back. No filler phrases.
 

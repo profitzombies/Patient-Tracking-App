@@ -194,6 +194,21 @@ export default function CoachChatScreen() {
   );
 }
 
+/**
+ * Assistant replies arrive as short thought blocks separated by blank lines
+ * (the server prompt asks for that shape). Split on blank lines so each
+ * thought renders as its own paragraph with breathing room. While streaming,
+ * the trailing partial block simply grows in place; whitespace-only
+ * fragments (e.g. a just-arrived blank line) are skipped rather than
+ * rendered as empty paragraphs.
+ */
+function splitIntoBlocks(text: string): string[] {
+  return text
+    .split(/\n\s*\n/)
+    .map(block => block.trim())
+    .filter(block => block.length > 0);
+}
+
 function MessageBubble({ message }: { message: CoachMessage }) {
   const colors = useColors();
   const isUser = message.role === 'user';
@@ -207,7 +222,8 @@ function MessageBubble({ message }: { message: CoachMessage }) {
   }
 
   const isError = message.status === 'error';
-  const isThinking = message.status === 'streaming' && message.text.length === 0;
+  const blocks = splitIntoBlocks(message.text);
+  const isThinking = message.status === 'streaming' && blocks.length === 0;
   return (
     <View
       style={[
@@ -222,9 +238,16 @@ function MessageBubble({ message }: { message: CoachMessage }) {
       {isThinking ? (
         <Text style={[styles.thinkingText, { color: colors.subtleText }]}>Thinking…</Text>
       ) : (
-        <Text style={[styles.bubbleText, { color: isError ? colors.riskText : colors.navy }]}>
-          {message.text}
-        </Text>
+        <View style={styles.blockStack}>
+          {blocks.map((block, index) => (
+            <Text
+              key={index}
+              style={[styles.bubbleText, { color: isError ? colors.riskText : colors.navy }]}
+            >
+              {block}
+            </Text>
+          ))}
+        </View>
       )}
       {message.card ? <CoachCardSlot card={message.card} /> : null}
     </View>
@@ -370,6 +393,9 @@ const styles = StyleSheet.create({
   assistantBubble: {
     alignSelf: 'flex-start',
     borderWidth: 1,
+  },
+  blockStack: {
+    gap: 9,
   },
   bubbleText: {
     fontSize: 14.5,

@@ -9,3 +9,4 @@
 - [OpenAPI codegen zod quirk](openapi-codegen-zod.md) — never use type: integer in openapi.yaml (orval emits zod-4 zod.int(), workspace is zod 3); use type: number + server-side clamp.
 - [Validation gate](validation-gate.md) — demo-parity/approved-foods are validation commands; configureWorkflow can't touch them — use setValidationCommand and check result.success.
 - [Coach card attachments](coach-card-attachments.md) — rich chat cards ride a separate SSE card event: model emits only a marker id, server allow-lists offered ids and builds payloads from curated data.
+- [Coach reply shape](coach-reply-shape.md) — replies are blank-line-separated thought blocks + follow-up closer; phrase optional reply behaviors default-on and verify with real model calls.

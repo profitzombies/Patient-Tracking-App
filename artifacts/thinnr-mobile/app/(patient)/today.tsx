@@ -15,12 +15,13 @@ import {
   type TextStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
+import { APPROVED_FOODS_HREF } from '@/constants/links';
 import { MacroBar } from '@/components/patient/MacroBar';
 import { WaterTracker } from '@/components/patient/WaterTracker';
 import { Divider, LedgerCard, ProgressBar, SectionHeader } from '@/components/ui/LedgerPrimitives';
@@ -147,6 +148,17 @@ export default function TodayScreen() {
     router.push('/check-in');
   };
 
+  const openRestaurantGuide = () => {
+    Haptics.selectionAsync();
+    router.push('/restaurant-guide');
+  };
+
+  // Deep-link into the food library's Approved Foods view (see constants/links).
+  const openApprovedList = () => {
+    Haptics.selectionAsync();
+    router.push(APPROVED_FOODS_HREF);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={{ paddingBottom: bottomPad }}>
@@ -169,12 +181,10 @@ export default function TodayScreen() {
             ]}
             locations={[0, 0.45, 0.75, 1]}
             style={[styles.heroTopScrim, { height: heroTopPad + 205 }]}
-            pointerEvents="none"
           />
           <LinearGradient
             colors={['rgba(238,241,246,0)', 'rgba(238,241,246,0.45)']}
             style={[styles.heroBottomScrim, { bottom: PILL_OVERLAP }]}
-            pointerEvents="none"
           />
 
           <View style={[styles.heroContent, { paddingTop: heroTopPad + 8 }]}>
@@ -243,10 +253,44 @@ export default function TodayScreen() {
                 </Text>
               </Pressable>
             )}
+
+            {/* ── Quick-link chips (reference design: hero shortcuts) ── */}
+            <View style={styles.chipRow}>
+              <Pressable
+                testID="today-restaurant-guide"
+                onPress={openRestaurantGuide}
+                style={({ pressed }) => [
+                  styles.chip,
+                  { backgroundColor: 'rgba(251,252,255,0.95)', borderColor: 'rgba(23,44,86,0.14)' },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <MaterialCommunityIcons name="silverware-fork-knife" size={14} color={colors.navy} />
+                <Text numberOfLines={1} style={[styles.chipText, { color: colors.navyLight }]}>
+                  Restaurant guide
+                </Text>
+                <Feather name="chevron-right" size={13} color={colors.subtleText} />
+              </Pressable>
+              <Pressable
+                testID="today-approved-list"
+                onPress={openApprovedList}
+                style={({ pressed }) => [
+                  styles.chip,
+                  { backgroundColor: 'rgba(251,252,255,0.95)', borderColor: 'rgba(23,44,86,0.14)' },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <MaterialCommunityIcons name="check-circle" size={14} color={colors.navy} />
+                <Text numberOfLines={1} style={[styles.chipText, { color: colors.navyLight }]}>
+                  Approved list
+                </Text>
+                <Feather name="chevron-right" size={13} color={colors.subtleText} />
+              </Pressable>
+            </View>
           </View>
 
           {/* ── Floating check-in prompt ── */}
-          <View style={styles.pillWrap} pointerEvents="box-none">
+          <View style={styles.pillWrap}>
             <Pressable
               testID="today-checkin-pill"
               onPress={openCheckIn}
@@ -504,12 +548,15 @@ const styles = StyleSheet.create({
     right: 0,
   },
   heroTopScrim: {
+    // react-native-web deprecates the pointerEvents *prop*; use the style key.
+    pointerEvents: 'none',
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
   },
   heroBottomScrim: {
+    pointerEvents: 'none',
     position: 'absolute',
     left: 0,
     right: 0,
@@ -577,8 +624,41 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     textDecorationLine: 'underline',
   },
+  // ── Hero quick-link chips ──
+  chipRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  chip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 11,
+    ...Platform.select({
+      web: { boxShadow: '0 4px 10px rgba(23,44,86,0.16)' },
+      default: {
+        shadowColor: '#172c56',
+        shadowOpacity: 0.14,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: 3,
+      },
+    }),
+  },
+  chipText: {
+    flex: 1,
+    fontSize: 12.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
   // ── Check-in pill ──
   pillWrap: {
+    pointerEvents: 'box-none',
     position: 'absolute',
     left: 0,
     right: 0,

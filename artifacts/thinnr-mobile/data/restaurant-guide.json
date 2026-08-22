@@ -1,0 +1,229 @@
+{
+  "sections": [
+    {
+      "key": "ground-rules",
+      "title": "The ground rules",
+      "quotes": [
+        {
+          "question": "What Foods Are OK to Eat?",
+          "lines": [
+            "Foods listed in the Thinnr Nutrition Strategy Approved Foods list are the only foods allowed to be consumed while a person is on the Thinnr Protocol. If it is not on the list, it is not allowed unless it is specifically listed as an integral part of a Thinnr-Approved recipe. Anything with 0 calories is automatically approved."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        },
+        {
+          "question": "What happens if my patient cheats?",
+          "lines": [
+            "They will experience a slowing or stall of their weight loss."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        }
+      ]
+    },
+    {
+      "key": "plate",
+      "title": "Build your plate — Metabolic Thinning Phase",
+      "quotes": [
+        {
+          "lines": [
+            "Lunch:",
+            "Protein: 5-6 oz. of Thinnr Nutrition Strategy-approved lean protein",
+            "Vegetables: 5-6 oz. of Thinnr Nutrition Strategy-approved vegetables",
+            "Fruit: 5-6 oz. of Thinnr Nutrition Strategy-approved fresh fruit",
+            "Bread (optional): Thinnr Nutrition Strategy-approved grain"
+          ],
+          "source": "THINNR Protocol Manual — printed page 7"
+        },
+        {
+          "lines": [
+            "Dinner: (Recommended to eat different items than consumed at lunch)",
+            "Protein: 5-6 oz. of Thinnr Nutrition Strategy-approved lean protein",
+            "Vegetables: 5-6 oz. of Thinnr Nutrition Strategy-approved vegetables",
+            "Fruit: 5-6 oz. of Thinnr Nutrition Strategy-approved fresh fruit",
+            "Bread (optional): Thinnr Nutrition Strategy-approved grain"
+          ],
+          "source": "THINNR Protocol Manual — printed page 7"
+        },
+        {
+          "lines": [
+            "It is important to vary and rotate your protein, vegetable, and fruit selections for each meal. Basically, avoid eating the same food multiple meals in a row, meaning don’t eat chicken as your protein selection for more than 2 consecutive meals."
+          ],
+          "source": "THINNR Protocol Manual — printed page 7"
+        },
+        {
+          "question": "Can a person eat extra vegetables, or are there free vegetables?",
+          "lines": [
+            "Free vegetables are listed in the Thinnr-approved foods list and can be consumed ONLY with meals in reasonable quantities. If a person is experiencing hunger and feels like they need more food, they are most likely not following the program as instructed and are either not eating all of the foods or not drinking enough water."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        }
+      ]
+    },
+    {
+      "key": "timing",
+      "title": "Timing your meals",
+      "quotes": [
+        {
+          "lines": [
+            "This means you will eat 2 times per day, and your goal is to eat both meals within a 6 to 7-hour window of time. For example, if you eat your first meal at noon, you will want to ensure you have eaten your second meal by 7:00 PM. We recommend that you eat lunch and dinner so that a large portion of your intermittent fasting is while you sleep."
+          ],
+          "source": "THINNR Protocol Manual — printed page 7"
+        },
+        {
+          "lines": [
+            "Breakfast:",
+            "No food. Drink coffee, tea, or water. Use no-calorie cream substitutes and/or no-calorie flavorings if you choose. We recommend using Stevia as an alternative to sugar, as adding sugar to your drinks is prohibited."
+          ],
+          "source": "THINNR Protocol Manual — printed page 7"
+        },
+        {
+          "question": "Can free foods be consumed as snacks between meals?",
+          "lines": [
+            "No. Snacking between meals is prohibited, whether the foods consumed are free or not."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        }
+      ]
+    },
+    {
+      "key": "cooked",
+      "title": "How it's cooked",
+      "quotes": [
+        {
+          "question": "Can a person have or why no healthy fats like nuts, olive oil, or avocado oil?",
+          "lines": [
+            "These are not allowed during the Thinnr Metabolic Thinning phase because the body will metabolize the consumed oils instead of the abnormal fat deposits in the body. The result is that the patient will lose less weight."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        },
+        {
+          "question": "Will smoking fish on the approved foods list have any effect?",
+          "lines": [
+            "Hot-smoked fish is approved as it renders out the fat. Cold-smoked fish is not approved as the fat is not rendered out."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        }
+      ]
+    },
+    {
+      "key": "dressings",
+      "title": "Dressings & condiments",
+      "quotes": [
+        {
+          "question": "Can a person have salad dressing?",
+          "lines": [
+            "Yes, but it must be zero calories."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        },
+        {
+          "question": "Can a person have mayonnaise?",
+          "lines": [
+            "Yes, but it must be zero calories. We recommend the Walden Farms brand."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        },
+        {
+          "question": "Can a person have yellow mustard?",
+          "lines": [
+            "Yes, as long as it is 0 calories."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        }
+      ]
+    },
+    {
+      "key": "drinks",
+      "title": "What to drink",
+      "quotes": [
+        {
+          "lines": [
+            "You can still enjoy coffee, water, iced tea, or diet soda, but no added sugar or fats. If you need cream for your coffee, opt for a non-fat, calorie-free version and a sweetener with Stevia instead of sugar."
+          ],
+          "source": "THINNR Protocol Manual — printed page 7"
+        },
+        {
+          "question": "Can a patient drink diet soda?",
+          "lines": [
+            "Diet soda is approved as long as it is 0 calories. We recommend diet soda that contains stevia; however, other artificial sweeteners are OK."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        },
+        {
+          "question": "Can my patient have Sucralose or Dextrose?",
+          "lines": [
+            "Both are okay, but it is recommended that you avoid them if possible, as they both have been shown to slow weight loss."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        },
+        {
+          "question": "Can a person have Kombucha?",
+          "lines": [
+            "Most kombucha contains calories, so that would be a “no”. If they can find a 0-calorie kombucha, they can have it."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        }
+      ]
+    },
+    {
+      "key": "deli",
+      "title": "Deli & lunch meat",
+      "quotes": [
+        {
+          "question": "My patient asked me if a particular lunch meat is allowed.",
+          "lines": [
+            "All protein, including lunch meat, must be at least 93% lean. This means that it must be at least 93% protein. To determine if a protein is at least 93% lean, perform the following calculation:",
+            "Step 1: Protein / (Total Fat + Total Carbohydrates + Protein) = \"Y\"",
+            "Step 2: \"Y\" x 100 = % Protein (Must be equal to or more than 93 to be approved!)"
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        }
+      ]
+    },
+    {
+      "key": "normalization",
+      "title": "Metabolic Normalization Phase (Day 43 and Beyond)",
+      "quotes": [
+        {
+          "lines": [
+            "All food selections should continue to be selected from the Nutrition Strategy Approved Selections at the back of this book."
+          ],
+          "source": "THINNR Protocol Manual — printed page 9"
+        },
+        {
+          "lines": [
+            "Breakfast (Optional): 300-400 calories composed of a combination of lean protein and/or eggs and fruit from the Nutrition Strategy. Approved Selections and plant-based healthy fats like avocado."
+          ],
+          "source": "THINNR Protocol Manual — printed page 9"
+        },
+        {
+          "lines": [
+            "Lunch:",
+            "Protein: 7-8 oz. of Thinnr Nutrition Strategy-approved lean protein",
+            "Vegetables: 7-8 oz. of Thinnr Nutrition Strategy-approved vegetables",
+            "Fruit: 7-8 oz. of Thinnr Nutrition Strategy-approved fresh fruit",
+            "Bread (optional): Thinnr Nutrition Strategy-approved grain"
+          ],
+          "source": "THINNR Protocol Manual — printed page 9"
+        },
+        {
+          "lines": [
+            "Dinner: (Recommended to eat different items than consumed at lunch)",
+            "Protein: 7-8 oz. of Thinnr Nutrition Strategy-approved lean protein",
+            "Vegetables: 7-8 oz. of Thinnr Nutrition Strategy-approved vegetables",
+            "Fruit: 7-8 oz. of Thinnr Nutrition Strategy-approved fresh fruit",
+            "Bread (optional): Thinnr Nutrition Strategy-approved grain"
+          ],
+          "source": "THINNR Protocol Manual — printed page 9"
+        },
+        {
+          "question": "Is it okay for a person to add healthy fats during maintenance?",
+          "lines": [
+            "Yes, and it is actually encouraged and recommended. During the metabolic normalization phase, patients will continue to eat off the Thinnr Nutrition Strategy Approved Foods list. If a patient would like to start adding in healthy fats, we suggest they do it gradually. They can begin using small amounts of oils for cooking or use small amounts of oil in a homemade salad dressing a couple of times a week. Another example of a healthy fat they could introduce would be avocado."
+          ],
+          "source": "THINNR Protocol Knowledge Base"
+        }
+      ]
+    }
+  ]
+}

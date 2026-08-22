@@ -82,10 +82,12 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
             styles.button,
             {
               backgroundColor: colors.primary,
-              shadowColor: colors.navy,
               opacity: pressed ? 0.9 : 1,
               transform: [{ scale: pressed ? 0.98 : 1 }],
             },
+            // react-native-web deprecates shadow* props; web uses the CSS
+            // boxShadow shorthand set in styles.button instead.
+            Platform.OS !== 'web' && { shadowColor: colors.navy },
           ]}
         >
           <Text
@@ -211,13 +213,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 24,
     minWidth: 200,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    ...Platform.select({
+      web: { boxShadow: '0 2px 4px rgba(23,44,86,0.1)' },
+      default: {
+        shadowOffset: {
+          width: 0,
+          height: 2,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+      },
+    }),
   },
   buttonText: {
     fontWeight: '600',

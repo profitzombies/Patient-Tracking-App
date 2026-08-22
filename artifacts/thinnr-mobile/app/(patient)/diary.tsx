@@ -17,23 +17,14 @@ import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { usePatient } from '@/context/PatientContext';
 import { isApprovedFood } from '@/data/approved-foods';
 import {
-  addDays,
+  DIARY_MIN_KEY,
   formatDateKey,
   MEAL_LABELS,
   MEAL_SLOTS,
-  SEED_DAYS,
-  subDays,
-  toDateKey,
-  TODAY,
+  shiftDateKey,
   TODAY_KEY,
   type MealSlot,
 } from '@/data/patient-data';
-
-const MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
-
-function shiftKey(dateKey: string, days: number): string {
-  return toDateKey(addDays(new Date(`${dateKey}T12:00:00.000Z`), days));
-}
 
 export default function DiaryScreen() {
   const colors = useColors();
@@ -65,7 +56,7 @@ export default function DiaryScreen() {
   );
 
   const isToday = dateKey === TODAY_KEY;
-  const atMin = dateKey <= MIN_KEY;
+  const atMin = dateKey <= DIARY_MIN_KEY;
 
   const openLogFood = (meal: MealSlot) => {
     router.push({ pathname: '/log-food', params: { date: dateKey, meal } });
@@ -80,7 +71,7 @@ export default function DiaryScreen() {
           <Pressable
             testID="diary-prev-day"
             disabled={atMin}
-            onPress={() => setDateKey(k => shiftKey(k, -1))}
+            onPress={() => setDateKey(k => shiftDateKey(k, -1))}
             style={({ pressed }) => [
               styles.dateArrow,
               { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
@@ -104,7 +95,7 @@ export default function DiaryScreen() {
           <Pressable
             testID="diary-next-day"
             disabled={isToday}
-            onPress={() => setDateKey(k => shiftKey(k, 1))}
+            onPress={() => setDateKey(k => shiftDateKey(k, 1))}
             style={({ pressed }) => [
               styles.dateArrow,
               { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },

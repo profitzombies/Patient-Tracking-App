@@ -1,8 +1,9 @@
 /**
  * EntryEditPanel — inline controls that expand under a diary entry row so a
- * patient can fix a logged entry in place: switch the meal slot or step the
- * quantity. Calories/macros rescale from the entry's own logged snapshot
- * (via rescaleEntrySnapshot), so the correction stays faithful even if the
+ * patient can fix a logged entry in place: switch the meal slot, step the
+ * quantity, or move it to a different day (clamped to the diary's range).
+ * Calories/macros rescale from the entry's own logged snapshot (via
+ * rescaleEntrySnapshot), so the correction stays faithful even if the
  * library food has been edited since logging.
  */
 import React, { useState } from 'react';
@@ -12,9 +13,24 @@ import { useColors } from '@/hooks/useColors';
 import { PillSelector } from '@/components/ui/LedgerPrimitives';
 import { usePatient } from '@/context/PatientContext';
 import { formatQty, rescaleEntrySnapshot } from '@/data/diary-entries';
-import { MEAL_LABELS, MEAL_SLOTS, type MealLogEntry, type MealSlot } from '@/data/patient-data';
+import {
+  DIARY_MIN_KEY,
+  formatDateKey,
+  MEAL_LABELS,
+  MEAL_SLOTS,
+  shiftDateKey,
+  TODAY_KEY,
+  type MealLogEntry,
+  type MealSlot,
+} from '@/data/patient-data';
 
 const MEAL_OPTIONS = MEAL_SLOTS.map(slot => ({ label: MEAL_LABELS[slot], value: slot }));
+
+function dayLabel(dateKey: string): string {
+  if (dateKey === TODAY_KEY) return 'Today';
+  if (dateKey === shiftDateKey(TODAY_KEY, -1)) return 'Yesterday';
+  return formatDateKey(dateKey);
+}
 
 interface EntryEditPanelProps {
   entry: MealLogEntry;
@@ -27,16 +43,20 @@ export function EntryEditPanel({ entry, onDone }: EntryEditPanelProps) {
   const patient = usePatient();
   const [meal, setMeal] = useState<MealSlot>(entry.meal);
   const [qty, setQty] = useState(entry.quantity);
+  const [dateKey, setDateKey] = useState(entry.dateKey);
   const [saving, setSaving] = useState(false);
 
   const preview = rescaleEntrySnapshot(entry, qty);
-  const dirty = meal !== entry.meal || qty !== entry.quantity;
+  const moved = dateKey !== entry.dateKey;
+  const dirty = meal !== entry.meal || qty !== entry.quantity || moved;
+  const atMin = dateKey <= DIARY_MIN_KEY;
+  const atMax = dateKey >= TODAY_KEY;
 
   const save = async () => {
     if (saving || !dirty) return;
     setSaving(true);
     try {
-      await patient.updateEntry(entry.id, { meal, quantity: qty });
+      await patient.updateEntry(entry.id, { meal, quantity: qty, dateKey });
       onDone();
     } finally {
       setSaving(false);
@@ -46,6 +66,38 @@ export function EntryEditPanel({ entry, onDone }: EntryEditPanelProps) {
   return (
     <View style={[styles.panel, { backgroundColor: colors.sidebarBg }]}>
       <PillSelector options={MEAL_OPTIONS} selected={meal} onSelect={setMeal} style={{ marginBottom: 10 }} />
+      <View style={[styles.controls, { marginBottom: 10 }]}>
+        <Pressable
+          testID="entryedit-day-prev"
+          onPress={() => setDateKey(k => shiftDateKey(k, -1))}
+          disabled={atMin}
+          style={({ pressed }) => [
+            styles.stepBtn,
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            atMin && { opacity: 0.35 },
+          ]}
+        >
+          <Feather name="chevron-left" size={13} color={colors.bodyText} />
+        </Pressable>
+        <View style={styles.dayCenter}>
+          <Feather name="calendar" size={11} color={colors.subtleText} />
+          <Text testID="entryedit-day" style={[styles.dayValue, { color: moved ? colors.cobalt : colors.navy }]}>
+            {dayLabel(dateKey)}
+          </Text>
+        </View>
+        <Pressable
+          testID="entryedit-day-next"
+          onPress={() => setDateKey(k => shiftDateKey(k, 1))}
+          disabled={atMax}
+          style={({ pressed }) => [
+            styles.stepBtn,
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            atMax && { opacity: 0.35 },
+          ]}
+        >
+          <Feather name="chevron-right" size={13} color={colors.bodyText} />
+        </Pressable>
+      </View>
       <View style={styles.controls}>
         <Pressable
           testID="entryedit-qty-minus"
@@ -90,6 +142,7 @@ export function EntryEditPanel({ entry, onDone }: EntryEditPanelProps) {
       </View>
       <Text style={[styles.hint, { color: colors.subtleText }]}>
         Saves as {preview.detail} · {preview.calories} cal · {MEAL_LABELS[meal]}
+        {moved ? ` · moves to ${dayLabel(dateKey)}` : ''}
       </Text>
     </View>
   );
@@ -119,6 +172,18 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     minWidth: 30,
     textAlign: 'center',
+  },
+  dayCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  dayValue: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
   },
   saveBtn: {
     flex: 1,

@@ -112,7 +112,7 @@ interface PatientContextValue {
   checkInFor: (dateKey: string) => CheckIn | undefined;
   addEntry: (entry: Omit<MealLogEntry, 'id'>) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
-  updateEntry: (id: string, changes: { meal: MealSlot; quantity: number }) => Promise<void>;
+  updateEntry: (id: string, changes: { meal: MealSlot; quantity: number; dateKey?: string }) => Promise<void>;
   setWater: (dateKey: string, oz: number) => Promise<void>;
   addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<void>;
   addPhoto: (photo: { dateKey: string; uri: string; label: string }) => Promise<void>;
@@ -190,12 +190,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     await commit(next);
   }, [commit]);
 
-  // Fixes a logged entry in place (meal slot and/or quantity). Macros rescale
-  // from the entry's own logged snapshot — never the current library food,
-  // which may have changed since. Seeded entries can't be mutated (they're
-  // rebuilt from the seed each launch), so they're tombstoned via
+  // Fixes a logged entry in place (meal slot, quantity, and/or day). Macros
+  // rescale from the entry's own logged snapshot — never the current library
+  // food, which may have changed since. Seeded entries can't be mutated
+  // (they're rebuilt from the seed each launch), so they're tombstoned via
   // removedEntryIds and re-added as a user entry with a fresh id.
-  const updateEntry = useCallback(async (id: string, changes: { meal: MealSlot; quantity: number }): Promise<void> => {
+  const updateEntry = useCallback(async (id: string, changes: { meal: MealSlot; quantity: number; dateKey?: string }): Promise<void> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
     const prev = stateRef.current;
@@ -206,6 +206,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       ...source,
       ...rescaleEntrySnapshot(source, changes.quantity),
       meal: changes.meal,
+      dateKey: changes.dateKey ?? source.dateKey,
     };
     const next: PersistedState = added
       ? { ...prev, addedEntries: prev.addedEntries.map(e => (e.id === id ? updated : e)) }

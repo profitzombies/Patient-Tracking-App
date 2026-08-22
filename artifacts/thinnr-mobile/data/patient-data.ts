@@ -39,6 +39,11 @@ export function formatDateKey(dateKey: string, includeYear = false): string {
     : { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
+/** Shift a YYYY-MM-DD key by whole days (UTC-safe). */
+export function shiftDateKey(dateKey: string, days: number): string {
+  return toDateKey(addDays(new Date(`${dateKey}T12:00:00.000Z`), days));
+}
+
 const seededFraction = (seed: number): number => {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
   return value - Math.floor(value);
@@ -780,6 +785,9 @@ const SNACK_RECIPES = RECIPES.filter(r => r.meal === 'snacks');
 // ─── Seeded history ──────────────────────────────────────────────────────────
 
 export const SEED_DAYS = 60;
+
+/** Oldest day reachable in the diary — the horizon of the seeded history. */
+export const DIARY_MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
 
 function entryFromRecipe(dateKey: string, meal: MealSlot, recipe: Recipe, n: number): MealLogEntry {
   return {

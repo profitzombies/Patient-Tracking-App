@@ -9,6 +9,7 @@
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:approved-foods": "tsx scripts/verify-approved-foods.ts",
+    "test:custom-food-undo": "tsx scripts/verify-custom-food-undo.ts",
     "test:diary-copy": "tsx scripts/verify-diary-copy.ts",
     "test:diary-edit": "tsx scripts/verify-diary-edit.ts",
     "test:diary-undo": "tsx scripts/verify-diary-undo.ts",

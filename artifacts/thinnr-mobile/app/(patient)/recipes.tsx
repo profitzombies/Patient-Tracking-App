@@ -22,6 +22,7 @@ import { usePatient } from '@/context/PatientContext';
 import { APPROVED_BADGE_EXPLANATION, isApprovedFood } from '@/data/approved-foods';
 import { MEAL_LABELS, MEAL_SLOTS, RECIPES, type FoodItem, type MealSlot, type Recipe } from '@/data/patient-data';
 import { RECIPE_IMAGES } from '@/data/recipe-images';
+import { type RemovedCustomFood } from '@/data/custom-food-state';
 
 type MealFilter = 'all' | MealSlot;
 type LibraryView = 'recipes' | 'foods';
@@ -56,6 +57,10 @@ export default function LibraryScreen() {
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
+  // Last deleted custom food (with its favorite/recents references), kept
+  // for the lifetime of the confirmation banner so the deletion can be
+  // undone from it.
+  const [lastDeleted, setLastDeleted] = useState<RemovedCustomFood | null>(null);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -63,10 +68,17 @@ export default function LibraryScreen() {
     },
     [],
   );
-  const showConfirmation = (message: string) => {
+  // A confirmation with an `undoable` snapshot renders an UNDO button and
+  // stays up a little longer; any newer confirmation replaces the banner and
+  // with it the undo offer.
+  const showConfirmation = (message: string, undoable: RemovedCustomFood | null = null) => {
     setConfirmation(message);
+    setLastDeleted(undoable);
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    confirmTimer.current = setTimeout(() => setConfirmation(null), 3200);
+    confirmTimer.current = setTimeout(() => {
+      setConfirmation(null);
+      setLastDeleted(null);
+    }, undoable ? UNDO_WINDOW_MS : CONFIRMATION_MS);
   };
 
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
@@ -134,11 +146,23 @@ export default function LibraryScreen() {
   // customFoods, not the category label, is what makes a row "My Foods".
   const customFoodIds = useMemo(() => new Set(patient.customFoods.map(f => f.id)), [patient.customFoods]);
 
+  // Offer the Undo only after the deletion has committed, so a fast Undo tap
+  // always acts on the recorded removal (restoreCustomFood no-ops unless the
+  // food is actually gone). The snapshot comes back from the delete itself,
+  // so it carries exactly the favorite/recents references the removal
+  // stripped.
   const confirmDeleteFood = async (food: FoodItem) => {
-    await patient.removeCustomFood(food.id);
+    const removed = await patient.removeCustomFood(food.id);
     setPendingDeleteId(null);
     setSelectedRowKey(null);
-    showConfirmation(`Deleted ${food.name} from My Foods`);
+    showConfirmation(`Deleted ${food.name} from My Foods`, removed);
+  };
+
+  const handleUndoDelete = () => {
+    if (!lastDeleted) return;
+    const removed = lastDeleted;
+    void patient.restoreCustomFood(removed);
+    showConfirmation(`Restored ${removed.food.name} to My Foods`);
   };
 
   const renderRecipeCard = (recipe: Recipe) => {
@@ -393,6 +417,20 @@ export default function LibraryScreen() {
                 <Text style={[styles.confirmText, { color: colors.activeGreen }]} numberOfLines={1}>
                   {confirmation}
                 </Text>
+                {lastDeleted && (
+                  <Pressable
+                    testID="library-undo-delete"
+                    onPress={handleUndoDelete}
+                    hitSlop={8}
+                    style={({ pressed }) => [
+                      styles.undoBtn,
+                      { borderColor: colors.activeBorder },
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Text style={[styles.undoText, { color: colors.activeGreen }]}>UNDO</Text>
+                  </Pressable>
+                )}
               </View>
             )}
 
@@ -816,4 +854,20 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     marginBottom: 8,
   },
+  undoBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  undoText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    fontFamily: 'Inter_700Bold',
+  },
 });
+
+const CONFIRMATION_MS = 3200;
+// Deletion confirmations stay up longer: they carry the Undo offer, and the
+// window matches the diary's undo snackbar.
+const UNDO_WINDOW_MS = 5000;

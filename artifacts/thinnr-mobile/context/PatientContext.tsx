@@ -17,6 +17,12 @@ import React, {
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import {
+  applyRemoveCustomFood,
+  applyRestoreCustomFood,
+  captureRemovedCustomFood,
+  type RemovedCustomFood,
+} from '@/data/custom-food-state';
 import { cloneEntriesForCopy } from '@/data/diary-entries';
 import {
   applyRemoveEntry,
@@ -135,7 +141,8 @@ interface PatientContextValue {
   toggleFavorite: (id: string) => Promise<void>;
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
-  removeCustomFood: (id: string) => Promise<void>;
+  removeCustomFood: (id: string) => Promise<RemovedCustomFood | null>;
+  restoreCustomFood: (removed: RemovedCustomFood) => Promise<void>;
   addSavedRecipe: (recipe: Omit<SavedRecipe, 'id'>) => Promise<SavedRecipe>;
   setCustomFoodPhoto: (id: string, photoUri: string) => Promise<void>;
   setSavedRecipePhoto: (id: string, photoUri: string) => Promise<void>;
@@ -357,18 +364,39 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   }, [commit, runSerialized]);
 
   // Existing diary entries keep their logged values; only the library item
-  // (plus any dangling favorite/recent references) goes away.
-  const removeCustomFood = useCallback(async (id: string): Promise<void> => {
+  // (plus any dangling favorite/recent references) goes away. Returns the
+  // pre-removal snapshot — food, favorite and recents references with their
+  // positions — so the caller can offer an Undo; the capture happens inside
+  // the serialized mutation, so it reflects exactly what this delete
+  // stripped. Returns null when the id isn't a custom food (double-tap).
+  const removeCustomFood = useCallback(async (id: string): Promise<RemovedCustomFood | null> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await hydrationGate.current!.promise;
+    return runSerialized(async () => {
+      const prev = stateRef.current;
+      const removed = captureRemovedCustomFood(prev, id);
+      const next = applyRemoveCustomFood(prev, id);
+      if (next !== prev) {
+        await commit({ ...prev, ...next });
+      }
+      return removed;
+    });
+  }, [commit, runSerialized]);
+
+  // Undo for removeCustomFood. Re-inserts the exact snapshot under its
+  // original id and re-attaches the favorite/recents references the removal
+  // stripped. Only an actual recorded deletion is undone: a double-tapped
+  // Undo no-ops instead of inserting a duplicate (see applyRestoreCustomFood).
+  const restoreCustomFood = useCallback(async (removed: RemovedCustomFood): Promise<void> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
     await runSerialized(async () => {
       const prev = stateRef.current;
-      await commit({
-        ...prev,
-        customFoods: prev.customFoods.filter(f => f.id !== id),
-        favorites: prev.favorites.filter(f => f !== id),
-        recents: prev.recents.filter(r => r !== id),
-      });
+      const next = applyRestoreCustomFood(prev, removed);
+      if (next === prev) {
+        return; // nothing to undo
+      }
+      await commit({ ...prev, ...next });
     });
   }, [commit, runSerialized]);
 
@@ -501,6 +529,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addCustomFood,
       updateCustomFood,
       removeCustomFood,
+      restoreCustomFood,
       addSavedRecipe,
       setCustomFoodPhoto,
       setSavedRecipePhoto,
@@ -533,6 +562,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addCustomFood,
       updateCustomFood,
       removeCustomFood,
+      restoreCustomFood,
       addSavedRecipe,
       setCustomFoodPhoto,
       setSavedRecipePhoto,

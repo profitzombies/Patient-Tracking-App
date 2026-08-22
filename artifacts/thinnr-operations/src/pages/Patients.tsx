@@ -2,11 +2,13 @@ import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { Search, Filter, ArrowUpDown, ChevronRight } from "lucide-react";
 import { MOCK_PATIENTS, MOCK_PROVIDERS, type Status } from "@/data/mock-data";
+import { usePatientSession } from "@/contexts/patient-session";
 
 type SortField = 'name' | 'startDate' | 'status' | 'weightLoss';
 type SortOrder = 'asc' | 'desc';
 
 export default function Patients() {
+  const { getCurrentWeight } = usePatientSession();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all');
   const [sortField, setSortField] = useState<SortField>('startDate');
@@ -29,15 +31,15 @@ export default function Patients() {
       } else if (sortField === 'status') {
         comparison = a.status.localeCompare(b.status);
       } else if (sortField === 'weightLoss') {
-        const aLoss = a.startingWeight - a.currentWeight;
-        const bLoss = b.startingWeight - b.currentWeight;
+        const aLoss = a.startingWeight - getCurrentWeight(a);
+        const bLoss = b.startingWeight - getCurrentWeight(b);
         comparison = aLoss - bLoss;
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
     return result;
-  }, [search, statusFilter, sortField, sortOrder]);
+  }, [search, statusFilter, sortField, sortOrder, getCurrentWeight]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -115,7 +117,7 @@ export default function Patients() {
         <div className="divide-y divide-[#e4e8f0] md:hidden">
           {filteredAndSortedPatients.map((patient) => {
             const provider = MOCK_PROVIDERS.find((candidate) => candidate.id === patient.providerId);
-            const weightLoss = patient.startingWeight - patient.currentWeight;
+            const weightLoss = patient.startingWeight - getCurrentWeight(patient);
             const percentLoss = ((weightLoss / patient.startingWeight) * 100).toFixed(1);
             return (
               <Link
@@ -191,7 +193,7 @@ export default function Patients() {
             <tbody>
               {filteredAndSortedPatients.map((patient) => {
                 const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
-                const weightLoss = patient.startingWeight - patient.currentWeight;
+                const weightLoss = patient.startingWeight - getCurrentWeight(patient);
                 const percentLoss = ((weightLoss / patient.startingWeight) * 100).toFixed(1);
                 
                 return (

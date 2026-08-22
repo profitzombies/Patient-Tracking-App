@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { Trophy, ChevronRight } from "lucide-react";
 import { MOCK_PATIENTS, MOCK_PROVIDERS } from "@/data/mock-data";
+import { usePatientSession } from "@/contexts/patient-session";
 
 export default function Leaderboard() {
+  const { getCurrentWeight } = usePatientSession();
   const [metric, setMetric] = useState<'percent' | 'pounds' | 'goal' | 'adherence'>('percent');
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [stageFilter, setStageFilter] = useState<'all' | 'protocol' | 'maintenance'>('all');
@@ -12,21 +14,21 @@ export default function Leaderboard() {
     .filter(p => (providerFilter === 'all' || p.providerId === providerFilter) && (stageFilter === 'all' || p.stage === stageFilter))
     .sort((a, b) => {
       if (metric === 'pounds') {
-        const aLoss = a.startingWeight - a.currentWeight;
-        const bLoss = b.startingWeight - b.currentWeight;
+        const aLoss = a.startingWeight - getCurrentWeight(a);
+        const bLoss = b.startingWeight - getCurrentWeight(b);
         return bLoss - aLoss;
       }
       if (metric === 'goal') {
-        const aGoal = (a.startingWeight - a.currentWeight) / (a.startingWeight - a.goalWeight);
-        const bGoal = (b.startingWeight - b.currentWeight) / (b.startingWeight - b.goalWeight);
+        const aGoal = (a.startingWeight - getCurrentWeight(a)) / (a.startingWeight - a.goalWeight);
+        const bGoal = (b.startingWeight - getCurrentWeight(b)) / (b.startingWeight - b.goalWeight);
         return bGoal - aGoal;
       }
       if (metric === 'adherence') {
         return b.adherence - a.adherence;
       }
       {
-        const aPercent = ((a.startingWeight - a.currentWeight) / a.startingWeight) * 100;
-        const bPercent = ((b.startingWeight - b.currentWeight) / b.startingWeight) * 100;
+        const aPercent = ((a.startingWeight - getCurrentWeight(a)) / a.startingWeight) * 100;
+        const bPercent = ((b.startingWeight - getCurrentWeight(b)) / b.startingWeight) * 100;
         return bPercent - aPercent;
       }
     });
@@ -85,7 +87,7 @@ export default function Leaderboard() {
         <div className="divide-y divide-[#e4e8f0]">
           {rankedPatients.map((patient, idx) => {
             const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
-            const weightLoss = patient.startingWeight - patient.currentWeight;
+            const weightLoss = patient.startingWeight - getCurrentWeight(patient);
             const percentLoss = ((weightLoss / patient.startingWeight) * 100).toFixed(1);
             const goalProgress = Math.max(0, Math.min(100, ((weightLoss / (patient.startingWeight - patient.goalWeight)) * 100)));
             const milestone = patient.stage === 'maintenance'

@@ -1,7 +1,12 @@
-import { addDays, subDays, subMonths, format } from 'date-fns';
+import { addDays, subDays, subMonths } from 'date-fns';
 
 export type Status = 'active' | 'paused' | 'overdue' | 'cancelled' | 'graduated';
 export type Tone = 'healthy' | 'watch' | 'risk';
+
+export interface WeightEntry {
+  date: string;
+  weight: number;
+}
 
 export interface Patient {
   id: string;
@@ -24,8 +29,20 @@ export interface Patient {
   revenue: number;
   notes: string[];
   activity: ActivityItem[];
-  progressHistory: { date: string; weight: number }[];
+  progressHistory: WeightEntry[];
   checkIns: { date: string; summary: string; mood: string }[];
+  carePlan: {
+    name: string;
+    focus: string;
+    cadence: string;
+    protocolStatus: string;
+    nextMilestone: string;
+  };
+  adherenceDetail: {
+    checkInRate: number;
+    recentPattern: string;
+    lastCheckIn: string;
+  };
 }
 
 export interface ActivityItem {
@@ -102,22 +119,39 @@ export const MOCK_PATIENTS: Patient[] = Array.from({ length: 32 }).map((_, i) =>
   const initials = name.split(' ').map(n => n[0]).join('');
   const startWeight = 180 + (i * 7 % 100);
   const goalWeight = startWeight - 30 - (i % 20);
-  const currentWeight = startWeight - (i * 3.5 % 35);
-  const startDate = subDays(today, 10 + (i * 12)).toISOString();
-  
-  // Progress history
-  const history = [];
-  let w = startWeight;
-  for (let j = 0; j < 6; j++) {
-    w = w - (seededFraction((i + 1) * 100 + j) * 2 + 1);
-    if (w < currentWeight) w = currentWeight;
+  const isGraduated = i % 8 === 0;
+  const enrollmentDays = isGraduated
+    ? 94 + (i * 17 % 168)
+    : 13 + (i * 9 % 35);
+  const startDate = subDays(today, enrollmentDays).toISOString();
+  const totalGoalLoss = startWeight - goalWeight;
+  const enrolledWeeks = enrollmentDays / 7;
+  const protocolWeeklyLoss = 1.15 + seededFraction(i + 206) * 0.9;
+  const expectedLoss = isGraduated
+    ? protocolWeeklyLoss * 6 + Math.max(0, enrolledWeeks - 6) * (0.35 + seededFraction(i + 208) * 0.25)
+    : protocolWeeklyLoss * enrolledWeeks;
+  const currentWeight = parseFloat((startWeight - Math.min(totalGoalLoss * 0.92, expectedLoss)).toFixed(1));
+
+  // Start with a true enrollment baseline, take weekly readings, and always end at
+  // today's summary weight. Variation remains modest so the fictional trend reads
+  // like a plausible monitored program rather than a perfectly straight line.
+  const history: WeightEntry[] = [];
+  const intervals = Math.max(1, Math.ceil(enrollmentDays / 7));
+  for (let j = 0; j <= intervals; j++) {
+    const isFinal = j === intervals;
+    const elapsedDays = isFinal ? enrollmentDays : Math.min(j * 7, enrollmentDays);
+    const progress = elapsedDays / enrollmentDays;
+    const taper = isGraduated ? Math.pow(progress, 0.78) : Math.pow(progress, 0.91);
+    const variation = j === 0 || isFinal ? 0 : (seededFraction(i * 41 + j) - 0.5) * 1.2;
+    const weight = isFinal
+      ? currentWeight
+      : parseFloat(Math.max(currentWeight + 0.2, startWeight - (startWeight - currentWeight) * taper + variation).toFixed(1));
     history.push({
-      date: addDays(new Date(startDate), j * 7).toISOString(),
-      weight: parseFloat(w.toFixed(1))
+      date: addDays(new Date(startDate), elapsedDays).toISOString(),
+      weight: j === 0 ? startWeight : weight,
     });
   }
 
-  const isGraduated = i % 8 === 0;
   const isRisk = i % 7 === 0;
   
   let status: Status = 'active';
@@ -127,6 +161,44 @@ export const MOCK_PATIENTS: Patient[] = Array.from({ length: 32 }).map((_, i) =>
 
   const providerId = MOCK_PROVIDERS[i % MOCK_PROVIDERS.length].id;
   
+  const providerName = MOCK_PROVIDERS.find(p => p.id === providerId)?.name || 'Care team';
+  const recentCheckInDays = Math.min(enrollmentDays - 1, 2 + (i % 6));
+  const checkIns = [21, 12, recentCheckInDays]
+    .filter((daysAgo, index, values) => daysAgo < enrollmentDays && values.indexOf(daysAgo) === index)
+    .map((daysAgo, index) => ({
+      date: subDays(today, daysAgo).toISOString(),
+      summary: index === 0
+        ? 'Reviewed routine and reported steady progress with the current plan.'
+        : isRisk && index === 2
+          ? 'Reported a busy week and requested a simple reset plan for the coming days.'
+          : 'Check-in completed; energy and routine are stable with no new concerns noted.',
+      mood: isRisk && index === 2 ? 'needs follow-up' : index === 1 ? 'neutral' : 'positive',
+    }))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const activity: ActivityItem[] = [
+    {
+      id: `act_${i}_1`,
+      date: subDays(today, recentCheckInDays).toISOString(),
+      type: 'check_in',
+      description: 'Weekly check-in reviewed and care-plan status confirmed',
+      user: name,
+    },
+    {
+      id: `act_${i}_2`,
+      date: subDays(today, Math.min(enrollmentDays - 1, recentCheckInDays + 3)).toISOString(),
+      type: 'note',
+      description: isRisk ? 'Care team noted a missed touchpoint and queued outreach.' : 'Care team documented routine and adherence update.',
+      user: providerName,
+    },
+    {
+      id: `act_${i}_3`,
+      date: subDays(today, Math.min(enrollmentDays - 1, recentCheckInDays + 8)).toISOString(),
+      type: 'fulfillment',
+      description: 'Latest protocol order marked delivered.',
+      user: 'THINNR fulfillment',
+    },
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
   return {
     id: `pat_${i + 100}`,
     name,
@@ -136,7 +208,7 @@ export const MOCK_PATIENTS: Patient[] = Array.from({ length: 32 }).map((_, i) =>
     providerId,
     startDate,
     status,
-    protocolWeek: Math.min(6, Math.floor((new Date().getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24 * 7)) + 1),
+    protocolWeek: Math.min(6, Math.floor(enrollmentDays / 7) + 1),
     stage: isGraduated ? 'maintenance' : 'protocol',
     startingWeight: startWeight,
     currentWeight,
@@ -147,33 +219,48 @@ export const MOCK_PATIENTS: Patient[] = Array.from({ length: 32 }).map((_, i) =>
     subscriptionId: `sub_${i + 100}`,
     revenue: 400 + (i * 150 % 1000),
     notes: [
-      'Patient responding well to drops.',
-      isRisk ? 'Missed last two check-ins.' : 'Energy levels reported as stable.'
+      isRisk ? 'Outreach is planned after the most recent missed touchpoint.' : 'Patient reports the current routine is manageable.',
+      isGraduated ? 'Maintenance routines reviewed at the last scheduled check-in.' : 'Care team will revisit progress at the next check-in.',
     ],
-    activity: [
-      { id: `act_${i}_1`, date: subDays(today, 1).toISOString(), type: 'check_in', description: 'Weekly check-in completed', user: name },
-      { id: `act_${i}_2`, date: subDays(today, 3).toISOString(), type: 'note', description: 'Added new dietary note', user: MOCK_PROVIDERS.find(p => p.id === providerId)?.name || 'System' }
-    ],
+    activity,
     progressHistory: history,
-    checkIns: [
-      { date: subDays(today, 7).toISOString(), summary: 'Feeling good, slight cravings at night.', mood: 'positive' }
-    ]
+    checkIns,
+    carePlan: {
+      name: isGraduated ? 'THINNR Maintenance Plan' : 'THINNR Six-Week Protocol',
+      focus: isGraduated ? 'Maintain routines and monitor long-term progress.' : i % 3 === 0 ? 'Build a predictable daily routine and regular check-ins.' : 'Support consistent protocol routines and weekly reflection.',
+      cadence: isGraduated ? 'Monthly care review' : 'Weekly check-in',
+      protocolStatus: isRisk ? 'Needs outreach' : isGraduated ? 'Maintenance monitoring' : `Week ${Math.min(6, Math.floor(enrollmentDays / 7) + 1)} in progress`,
+      nextMilestone: isGraduated ? 'Review maintenance routine' : `Complete week ${Math.min(6, Math.floor(enrollmentDays / 7) + 1)} check-in`,
+    },
+    adherenceDetail: {
+      checkInRate: isRisk ? 67 : 83 + Math.floor(seededFraction(i + 260) * 17),
+      recentPattern: isRisk ? 'One recent touchpoint needs follow-up.' : 'Recent check-ins and routine tracking are on track.',
+      lastCheckIn: checkIns[0]?.date ?? startDate,
+    },
   };
 });
 
-export const MOCK_SUBSCRIPTIONS: Subscription[] = MOCK_PATIENTS.map((p, index) => ({
-  id: p.subscriptionId,
-  patientId: p.id,
-  products: p.products,
-  status: p.status === 'graduated' || p.status === 'active' ? 'active' : p.status === 'paused' ? 'paused' : 'overdue',
-  nextShipment: addDays(today, Math.floor(seededFraction(index + 160) * 15) + 1).toISOString(),
-  cadence: 'monthly',
-  monthlyValue: p.products.reduce((acc, curr) => acc + (MOCK_PRODUCTS.find(pr => pr.id === curr)?.price || 0), 0),
-  paymentStatus: p.status === 'overdue' ? 'failed' : 'paid',
-  shipmentHistory: [
-    { date: subMonths(today, 1).toISOString(), status: 'delivered' }
-  ]
-}));
+export const MOCK_SUBSCRIPTIONS: Subscription[] = MOCK_PATIENTS.map((p, index) => {
+  const enrollmentDays = Math.max(1, Math.floor((today.getTime() - new Date(p.startDate).getTime()) / 86_400_000));
+  const deliveryOffsets = enrollmentDays > 42
+    ? [8 + (index % 5), 36 + (index % 6)]
+    : [Math.min(enrollmentDays - 1, 5 + (index % 5))];
+
+  return {
+    id: p.subscriptionId,
+    patientId: p.id,
+    products: p.products,
+    status: p.status === 'graduated' || p.status === 'active' ? 'active' : p.status === 'paused' ? 'paused' : p.status === 'cancelled' ? 'cancelled' : 'overdue',
+    nextShipment: addDays(today, Math.floor(seededFraction(index + 160) * 15) + 1).toISOString(),
+    cadence: 'monthly',
+    monthlyValue: p.products.reduce((acc, curr) => acc + (MOCK_PRODUCTS.find(pr => pr.id === curr)?.price || 0), 0),
+    paymentStatus: p.status === 'overdue' ? 'failed' : 'paid',
+    shipmentHistory: deliveryOffsets.map((daysAgo) => ({
+      date: subDays(today, Math.min(enrollmentDays - 1, daysAgo)).toISOString(),
+      status: 'delivered' as const,
+    })),
+  };
+});
 
 export const MOCK_ANALYTICS = {
   monthlyRevenue: 184200,

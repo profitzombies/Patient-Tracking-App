@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { MOCK_ANALYTICS, MOCK_PATIENTS, MOCK_PROVIDERS, MOCK_SUBSCRIPTIONS } from "@/data/mock-data";
 import { useToast } from "@/hooks/use-toast";
+import { usePatientSession } from "@/contexts/patient-session";
 
 type Range = "12 months" | "6 months" | "30 days";
 
@@ -101,6 +102,7 @@ function TrendChart({ range }: { range: Range }) {
 }
 
 export default function Overview() {
+  const { getCurrentWeight } = usePatientSession();
   const [range, setRange] = useState<Range>("12 months");
   const [showNotice, setShowNotice] = useState(true);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -116,7 +118,7 @@ export default function Overview() {
   const overduePatients = filteredPatients.filter(p => p.status === 'overdue');
   const selectedProvider = MOCK_PROVIDERS.find((provider) => provider.id === providerFilter);
   const averagePoundsLost = filteredPatients.length
-    ? filteredPatients.reduce((total, patient) => total + patient.startingWeight - patient.currentWeight, 0) / filteredPatients.length
+    ? filteredPatients.reduce((total, patient) => total + patient.startingWeight - getCurrentWeight(patient), 0) / filteredPatients.length
     : 0;
   const filteredMrr = MOCK_SUBSCRIPTIONS
     .filter((subscription) => filteredPatients.some((patient) => patient.id === subscription.patientId))
@@ -193,7 +195,7 @@ export default function Overview() {
         <Metric 
           icon={<Activity size={14} />} 
           label="Avg Pounds Lost" 
-          value={`${providerFilter === 'all' ? MOCK_ANALYTICS.averagePoundsLost : averagePoundsLost.toFixed(1)} lbs`}
+          value={`${averagePoundsLost.toFixed(1)} lbs`}
           change="+3.2%" 
           detail="Across all active cohorts" 
         />
@@ -335,7 +337,7 @@ export default function Overview() {
               <tbody>
                 {filteredPatients.slice(0, 5).map((patient) => {
                   const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
-                  const lbsLost = patient.startingWeight - patient.currentWeight;
+                   const lbsLost = patient.startingWeight - getCurrentWeight(patient);
                   return (
                     <tr key={patient.id} className="group border-b border-[#e4e8f0] last:border-0 hover:bg-[#f0f3f9]">
                       <td className="py-3 font-semibold text-[#3b5686]">
@@ -358,7 +360,7 @@ export default function Overview() {
           <div className="divide-y divide-[#e4e8f0] md:hidden">
             {filteredPatients.slice(0, 5).map((patient) => {
               const provider = MOCK_PROVIDERS.find((candidate) => candidate.id === patient.providerId);
-              const lbsLost = patient.startingWeight - patient.currentWeight;
+               const lbsLost = patient.startingWeight - getCurrentWeight(patient);
               return (
                 <Link
                   key={patient.id}

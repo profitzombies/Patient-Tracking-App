@@ -17,7 +17,6 @@ export const coachChatBodyMessagesItemContentMax = 4000;
 export const coachChatBodyMessagesMax = 30;
 
 
-
 export const CoachChatBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant']),
@@ -35,5 +34,4 @@ export const CoachChatResponse = zod.unknown()
 export const HealthCheckResponse = zod.object({
   "status": zod.string()
 })
-
 

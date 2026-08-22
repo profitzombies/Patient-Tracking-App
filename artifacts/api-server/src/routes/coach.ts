@@ -5,6 +5,8 @@ import { selectCompartments } from "../coach/select";
 import { buildSystemPrompt } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
 import { acquireChatSlot } from "../coach/limits";
+import { findProduct, matchProducts, productCardPayload } from "../coach/products";
+import { ProductMarkerFilter } from "../coach/product-marker";
 
 const router: IRouter = Router();
 
@@ -39,7 +41,14 @@ router.post("/coach/chat", async (req, res) => {
       .filter((m) => m.role === "user")
       .map((m) => m.content);
     const selection = selectCompartments(latest.content, earlierUserMessages);
-    req.log.info({ compartments: selection.ids }, "coach chat compartments selected");
+    // Products are offered to the model only when the LATEST message matches
+    // their intent topics; ordinary program questions get no product
+    // instructions at all.
+    const offeredProducts = matchProducts(latest.content);
+    req.log.info(
+      { compartments: selection.ids, offeredProducts: offeredProducts.map((p) => p.id) },
+      "coach chat compartments selected",
+    );
 
     // Patient context is derived server-side from the fixed demo seed; the
     // client is never trusted for it.
@@ -64,7 +73,7 @@ router.post("/coach/chat", async (req, res) => {
           messages: [
             {
               role: "system",
-              content: buildSystemPrompt(selection.compartments, patientContext),
+              content: buildSystemPrompt(selection.compartments, patientContext, offeredProducts),
             },
             ...history.map((m) => ({ role: m.role, content: m.content })),
           ],
@@ -72,11 +81,36 @@ router.post("/coach/chat", async (req, res) => {
         { signal: abort.signal },
       );
 
+      // Product markers are control signals, never visible text: the filter
+      // strips them from the stream (even split across chunks) and records
+      // the ids for validation below.
+      const markerFilter = new ProductMarkerFilter();
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta?.content;
         if (delta) {
-          res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
+          const visible = markerFilter.push(delta);
+          if (visible) {
+            res.write(`data: ${JSON.stringify({ content: visible })}\n\n`);
+          }
         }
+      }
+      const tail = markerFilter.flush();
+      if (tail) {
+        res.write(`data: ${JSON.stringify({ content: tail })}\n\n`);
+      }
+
+      // Server-side enforcement: a card is sent only for the first marker id
+      // that was actually offered for this message (unknown or unsolicited
+      // ids are dropped), and never more than one. The payload is built from
+      // the catalog, not from model output.
+      const offeredIds = new Set(offeredProducts.map((p) => p.id));
+      const chosenId = markerFilter.ids.find((id) => offeredIds.has(id));
+      const chosen = chosenId ? findProduct(chosenId) : undefined;
+      if (chosen) {
+        res.write(
+          `data: ${JSON.stringify({ card: { kind: "product", payload: productCardPayload(chosen) } })}\n\n`,
+        );
+        req.log.info({ product: chosen.id }, "coach chat product card attached");
       }
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     } catch (error) {

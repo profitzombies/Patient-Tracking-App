@@ -21,9 +21,12 @@ paths:
       description: >-
         Stateless SSE endpoint. The client sends its in-session message history
         and receives a text/event-stream of assistant chunks
-        ("data: {\"content\": \"...\"}" lines followed by
-        "data: {\"done\": true}"). Patient program context is derived
-        server-side from the demo seed; rate limits apply.
+        ("data: {\"content\": \"...\"}" lines, optionally a single
+        "data: {\"card\": {\"kind\": \"product\", \"payload\": {\"id\", \"name\",
+        \"line\", \"price\"}}}" event when the coach attaches a curated THINNR
+        product suggestion, followed by "data: {\"done\": true}"). Patient
+        program context is derived server-side from the demo seed; rate limits
+        apply.
       requestBody:
         required: true
         content:

@@ -22,6 +22,8 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { CoachCardSlot } from '@/components/coach/CoachCardSlot';
+// Registers the "product" card renderer into the card slot (side effect).
+import '@/components/coach/ProductSuggestionCard';
 import { useColors } from '@/hooks/useColors';
 import { useCoachChat, type CoachMessage } from '@/context/CoachChatContext';
 

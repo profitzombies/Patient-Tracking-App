@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { repoRoot } from "./repo-paths";
+import { productGroundingText } from "./products";
 
 /**
  * Knowledge compartments for the THINNR coach.
@@ -19,19 +21,6 @@ export interface Compartment {
   load: () => string;
 }
 
-function findRepoRoot(): string {
-  let dir = process.cwd();
-  for (;;) {
-    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) {
-      throw new Error("Could not locate repo root (pnpm-workspace.yaml not found)");
-    }
-    dir = parent;
-  }
-}
-
-const repoRoot = findRepoRoot();
 const docsDir = path.join(repoRoot, "docs", "thinnr-program");
 
 function readDoc(relPath: string): string {
@@ -332,5 +321,19 @@ export const COMPARTMENTS: Compartment[] = [
       /party|event|wedding|holiday/i,
     ],
     load: cached("restaurant-guide", loadRestaurantGuide),
+  },
+  {
+    id: "product-catalog",
+    title: "THINNR product catalog (quoted from getthinnr.com; demo pricing)",
+    keywords: [
+      /\bthinnr (protocol|boost|control|detox|regulate|b[- ]?active|creatine|fiber|maintenance)/i,
+      /\b(boost|detox|regulate)\b/i,
+      /\bb[- ]?active\b|creatine\+?|maintenance stack/i,
+      /\b(creatine|hmb|berberine|psyllium|methylfolate|5[- ]?mthf)\b/i,
+      /\bsupplement|capsule|vitamin\b/i,
+      /\b(buy|purchase|order|shop|store)\b.{0,40}\b(product|supplement|boost|detox|regulate|creatine|fiber|stack)\b/i,
+      /getthinnr/i,
+    ],
+    load: cached("product-catalog", productGroundingText),
   },
 ];

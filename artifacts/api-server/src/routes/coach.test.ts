@@ -2,12 +2,17 @@
  * Route tests for POST /api/coach/chat.
  *
  * The OpenAI client is mocked (no credits spent). Covers: invalid bodies,
- * origin allow-listing, a normal SSE turn, and rate limiting. The rate-limit
- * test runs last because it drains the shared per-IP bucket.
+ * origin allow-listing, a normal SSE turn, product-card enforcement, and rate
+ * limiting. The rate-limit test runs last because it drains the shared
+ * per-IP bucket.
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+
+/** Per-test control over what the mocked model streams back. */
+const DEFAULT_CHUNKS = ["Hello ", "Emma."];
+const streamState = vi.hoisted(() => ({ chunks: ["Hello ", "Emma."] }));
 
 vi.mock("@workspace/integrations-openai-ai-server", () => ({
   openai: {
@@ -15,8 +20,9 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
       completions: {
         create: vi.fn(async () => ({
           async *[Symbol.asyncIterator]() {
-            yield { choices: [{ delta: { content: "Hello " } }] };
-            yield { choices: [{ delta: { content: "Emma." } }] };
+            for (const content of streamState.chunks) {
+              yield { choices: [{ delta: { content } }] };
+            }
           },
         })),
       },
@@ -101,6 +107,68 @@ describe("POST /api/coach/chat", () => {
     expect(text).toContain('data: {"content":"Hello "}');
     expect(text).toContain('data: {"content":"Emma."}');
     expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
+  });
+
+  describe("product cards", () => {
+    afterEach(() => {
+      streamState.chunks = [...DEFAULT_CHUNKS];
+    });
+
+    const muscleBody = {
+      messages: [{ role: "user", content: "I've been lifting and want to build muscle" }],
+    };
+
+    it("attaches one card when the model marks an offered product", async () => {
+      streamState.chunks = [
+        "Creatine+ supports ",
+        "muscle maintenance.",
+        "\n[[produ",
+        "ct:prod7]]",
+      ];
+      const res = await postChat(muscleBody);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain('"card":{"kind":"product","payload":{"id":"prod7"');
+      expect(text).not.toContain("[[product");
+      expect(text.indexOf('"card"')).toBeLessThan(text.indexOf('"done":true'));
+    });
+
+    it("drops the marker and card for an ordinary program question", async () => {
+      streamState.chunks = ["Yes, grapefruit is approved.", "\n[[product:prod7]]"];
+      const res = await postChat(validBody);
+      const text = await res.text();
+      expect(text).not.toContain('"card"');
+      expect(text).not.toContain("[[product");
+      expect(text).toContain('data: {"done":true}');
+    });
+
+    it("ignores marker ids that are not in the catalog", async () => {
+      streamState.chunks = ["Try this.", "\n[[product:prod999]]"];
+      const res = await postChat(muscleBody);
+      const text = await res.text();
+      expect(text).not.toContain('"card"');
+      expect(text).not.toContain("[[product");
+    });
+
+    it("keeps at most one card even if the model emits several markers", async () => {
+      streamState.chunks = [
+        "Regulate can help with those spikes.",
+        "\n[[product:prod5]]",
+        "\n[[product:prod7]]",
+      ];
+      const res = await postChat({
+        messages: [
+          {
+            role: "user",
+            content: "I want to build muscle and my blood sugar spikes after meals",
+          },
+        ],
+      });
+      const text = await res.text();
+      expect(text.split('"card"').length - 1).toBe(1);
+      expect(text).toContain('"payload":{"id":"prod5"');
+      expect(text).not.toContain('"id":"prod7"');
+    });
   });
 
   it("rate limits rapid-fire requests with 429", async () => {

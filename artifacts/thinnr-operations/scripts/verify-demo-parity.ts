@@ -12,7 +12,8 @@
  *
  *   pnpm --filter @workspace/thinnr-operations run test:parity
  */
-import { MOCK_PATIENTS } from '../src/data/mock-data';
+import fs from 'node:fs';
+import { MOCK_PATIENTS, MOCK_PRODUCTS } from '../src/data/mock-data';
 import {
   TODAY_KEY,
   getLoggingStats,
@@ -91,6 +92,27 @@ check('baseline photo weight = starting weight', profile.photos[0]?.weight, 180)
 const weights = profile.photos.map((p) => p.weight);
 check('photo weights strictly decreasing', weights.every((w, i) => i === 0 || w < weights[i - 1]), true);
 check('all demo photos have images', profile.photos.every((p) => Boolean(p.imageUrl)), true);
+
+// ─── Product catalog (coach shop) vs staff product dataset ──────────────────
+// The mobile app's curated catalog powers coach suggestions and the demo shop
+// PDP; its names and demo prices must stay identical to MOCK_PRODUCTS, which
+// the staff dashboard uses for subscription monthly values.
+const catalog = JSON.parse(
+  fs.readFileSync(
+    new URL('../../thinnr-mobile/data/product-catalog.json', import.meta.url),
+    'utf8',
+  ),
+) as { products: { id: string; name: string; price: number }[] };
+
+check('catalog product count', catalog.products.length, MOCK_PRODUCTS.length);
+for (const product of catalog.products) {
+  const staff = MOCK_PRODUCTS.find((p) => p.id === product.id);
+  check(
+    `catalog ${product.id} matches staff dataset`,
+    { name: product.name, price: product.price },
+    staff ? { name: staff.name, price: staff.price } : '(missing)',
+  );
+}
 
 if (failures > 0) {
   console.error(`\n${failures} parity check(s) failed.`);

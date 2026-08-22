@@ -1,0 +1,383 @@
+{
+  "$comment": "Curated THINNR product catalog. Copy, taglines, ingredients, and facts are quoted verbatim from getthinnr.com product pages (retrieved 2026-08-22); only products actually on the site are listed. Product images were downloaded from those pages into assets/images/products/. Prices are demo values consistent with the staff operations dataset (getthinnr.com lists no public prices; products sell through licensed providers). The API server reads this file at runtime for coach grounding and product-card enforcement; topics are the intent keywords that make a product eligible for suggestion.",
+  "products": [
+    {
+      "id": "prod1",
+      "slug": "protocol",
+      "name": "Protocol",
+      "category": "drops",
+      "tagline": "Comprehensive Weight Management Support",
+      "cardLine": "Homeopathic OTC medication for weight management support.*",
+      "description": "Thinnr Protocol is a homeopathic OTC medication formulated according to traditional homeopathic principles to support the body during a weight management program and is an integral component of the Thinnr Weight Loss Protocol.**",
+      "format": "Homeopathic OTC Medication · Sublingual Drops · 6-Week Protocol",
+      "price": 199,
+      "factsTitle": "Active Ingredients (HPUS)",
+      "facts": [
+        { "name": "Adeps Suillus" },
+        { "name": "Adrenalinum" },
+        { "name": "Adrenocorticotrophin (ACTH)" },
+        { "name": "Agrimonia eupatoria flos" },
+        { "name": "Ammonium bromatum" },
+        { "name": "Anacardium orientale" },
+        { "name": "Antimonium crudum" },
+        { "name": "Calcarea carbonica" },
+        { "name": "Castanea sativa flos" },
+        { "name": "Coenzyme A (CoA)" },
+        { "name": "Cortisone" },
+        { "name": "Fucus vesiculosus" },
+        { "name": "Hypothalamus" },
+        { "name": "Kali bichromicum" },
+        { "name": "Pituitarum" },
+        { "name": "RNA" },
+        { "name": "Sabadilla" },
+        { "name": "Staphysagria" },
+        { "name": "Thyroidinum" }
+      ],
+      "benefits": [
+        "Homeopathic OTC medication formulated according to HPUS standards*",
+        "Contains 19 traditional homeopathic ingredients*",
+        "Part of a comprehensive 6-week weight management protocol",
+        "Designed to be used alongside the THINNR nutrition strategy",
+        "Sublingual drops - easy administration, no injections",
+        "Available through certified THINNR healthcare providers"
+      ],
+      "disclaimer": "*Claims for this product are based on traditional homeopathic practice, not accepted modern medical evidence. The FDA has not evaluated these claims.",
+      "sourceUrl": "https://getthinnr.com/products/protocol",
+      "sourceNote": "Copy and ingredient list quoted verbatim from the THINNR Protocol product page; price is demo pricing.",
+      "topics": [
+        "second round",
+        "another round",
+        "restart the protocol",
+        "start the protocol again",
+        "do the protocol again",
+        "new bottle",
+        "protocol drops"
+      ]
+    },
+    {
+      "id": "prod2",
+      "slug": "boost",
+      "name": "Boost",
+      "category": "drops",
+      "tagline": "Supports Any Weight Loss, Including Prescription Programs",
+      "cardLine": "Helps support any weight management program.*",
+      "description": "THINNR Boost has many of the benefits of Thinnr Protocol with the exception of hunger support. Thinnr Boost is meant to be used in conjunction with any other weight management program, including prescription options.",
+      "format": "Homeopathic OTC Medication · Sublingual Drops",
+      "price": 49,
+      "factsTitle": "Active Ingredients (HPUS)",
+      "facts": [
+        { "name": "Adrenocorticotrophin (ACTH)" },
+        { "name": "Adeps suillus" },
+        { "name": "Adrenalinum" },
+        { "name": "Calcarea carbonica" },
+        { "name": "Pituitarum" },
+        { "name": "Thyroidinum" },
+        { "name": "Chelidonium" }
+      ],
+      "benefits": [
+        "Homeopathic OTC formulation using HPUS-listed ingredients*",
+        "Designed to support the body during any weight management program*",
+        "Can be used alongside prescription weight management programs",
+        "Sublingual drops - easy administration, no injections required"
+      ],
+      "disclaimer": "*Claims for this product are based on traditional homeopathic practice, not accepted modern medical evidence. The FDA has not evaluated these claims.",
+      "sourceUrl": "https://getthinnr.com/products/boost",
+      "sourceNote": "Copy and ingredient list quoted verbatim from the THINNR Boost product page; price is demo pricing.",
+      "topics": [
+        "thinnr boost",
+        "glp-1",
+        "ozempic",
+        "wegovy",
+        "semaglutide",
+        "tirzepatide",
+        "mounjaro",
+        "zepbound",
+        "prescription weight loss",
+        "weight loss injection",
+        "weight loss injections",
+        "weight loss shot"
+      ]
+    },
+    {
+      "id": "prod3",
+      "slug": "control",
+      "name": "Control",
+      "category": "supplement",
+      "tagline": "Metabolic & Appetite Support",
+      "cardLine": "Helps support healthy appetite and metabolic function.**",
+      "description": "Thinnr Control helps support healthy appetite and metabolic function through a blend of natural ingredients including African Mango, Raspberry Ketones, Green Coffee Bean, and Green Tea.**",
+      "format": "Dietary Supplement · 60 Vegetarian Capsules",
+      "price": 59,
+      "factsTitle": "Key Ingredients",
+      "facts": [
+        { "name": "African Mango", "detail": "Helps support healthy appetite and metabolic function.**" },
+        { "name": "Raspberry Ketones", "detail": "Helps support healthy metabolic function.**" },
+        { "name": "Green Coffee Bean Extract", "detail": "Rich in chlorogenic acids to help support healthy glucose metabolism.**" },
+        { "name": "Green Tea Extract", "detail": "Contains catechins and caffeine to help support healthy energy levels.**" }
+      ],
+      "benefits": [
+        "Helps support healthy appetite**",
+        "Helps support healthy metabolic function**",
+        "Helps support healthy blood sugar levels already within normal range**",
+        "Helps support healthy energy levels**"
+      ],
+      "disclaimer": "**These statements have not been evaluated by the US FDA. This product is not intended to diagnose, treat, prevent, or cure any disease.",
+      "sourceUrl": "https://getthinnr.com/products/control",
+      "sourceNote": "Copy and ingredient details quoted verbatim from the THINNR Control product page; price is demo pricing.",
+      "topics": [
+        "appetite",
+        "hungry all the time",
+        "always hungry",
+        "snacking urges",
+        "urge to snack",
+        "portion control",
+        "thinnr control"
+      ]
+    },
+    {
+      "id": "prod4",
+      "slug": "detox",
+      "name": "Detox",
+      "category": "supplement",
+      "tagline": "Liver & Kidney Support",
+      "cardLine": "Helps support liver health and digestive wellness.**",
+      "description": "Thinnr Detox helps support your body's natural detoxification processes. This formula helps support liver health and digestive wellness.**",
+      "format": "Dietary Supplement · 90 Vegetarian Capsules",
+      "price": 45,
+      "factsTitle": "Key Ingredients",
+      "facts": [
+        { "name": "Solarplast®", "detail": "Proprietary chloroplast complex from spinach that helps support cellular energy and liver health.**" },
+        { "name": "Artichoke Leaf", "detail": "Helps support healthy bile function and digestive wellness.**" },
+        { "name": "Dandelion Leaf", "detail": "Helps support healthy fluid balance and the body's natural processes.**" },
+        { "name": "Milk Thistle", "detail": "Contains silymarin that helps provide antioxidant support for liver health.**" },
+        { "name": "Protease SP", "detail": "Digestive enzyme that helps support protein digestion.**" },
+        { "name": "Lipase", "detail": "Helps support fat digestion and nutrient absorption.**" }
+      ],
+      "benefits": [
+        "Helps support cellular energy and liver health*",
+        "Helps support healthy bile function and digestion*",
+        "Helps support healthy fluid balance*",
+        "Helps provide antioxidant support for liver health*",
+        "Helps support protein and fat digestion with digestive enzymes*"
+      ],
+      "disclaimer": "**These statements have not been evaluated by the US FDA. This product is not intended to diagnose, treat, prevent, or cure any disease.",
+      "sourceUrl": "https://getthinnr.com/products/detox",
+      "sourceNote": "Copy and ingredient details quoted verbatim from the THINNR Detox product page; price is demo pricing.",
+      "topics": [
+        "detox",
+        "liver",
+        "bloated",
+        "bloating",
+        "water retention",
+        "puffy",
+        "sluggish digestion",
+        "thinnr detox"
+      ]
+    },
+    {
+      "id": "prod5",
+      "slug": "regulate",
+      "name": "Regulate",
+      "category": "supplement",
+      "tagline": "Glucose Stabilization & Metabolic Support",
+      "cardLine": "Helps support healthy glucose levels and metabolic function.**",
+      "description": "Thinnr Regulate helps support healthy glucose levels and metabolic function with Berberine, Bitter Melon, and Banaba Leaf.**",
+      "format": "Dietary Supplement · 60 Vegetarian Capsules",
+      "price": 65,
+      "factsTitle": "Key Ingredients",
+      "facts": [
+        { "name": "Berberine", "detail": "Helps support healthy glucose levels and metabolic function.**" },
+        { "name": "Bitter Melon", "detail": "Helps support healthy metabolic function and digestive wellness.**" },
+        { "name": "Banaba Leaf", "detail": "Contains corosolic acid that may help support healthy glucose metabolism.**" }
+      ],
+      "benefits": [
+        "Helps support healthy metabolic function*",
+        "Helps support healthy blood sugar levels already within normal range*",
+        "Helps support digestive wellness*",
+        "Helps support a healthy gut microbiome**"
+      ],
+      "disclaimer": "**These statements have not been evaluated by the US FDA. This product is not intended to diagnose, treat, prevent, or cure any disease.",
+      "sourceUrl": "https://getthinnr.com/products/regulate",
+      "sourceNote": "Copy and ingredient details quoted verbatim from the THINNR Regulate product page; price is demo pricing.",
+      "topics": [
+        "blood sugar",
+        "glucose",
+        "sugar spikes",
+        "sugar crash",
+        "insulin resistance",
+        "a1c",
+        "berberine",
+        "thinnr regulate"
+      ]
+    },
+    {
+      "id": "prod6",
+      "slug": "b-active",
+      "name": "B-Active",
+      "category": "supplement",
+      "tagline": "Multi-B with 5-MTHF",
+      "cardLine": "Multi-B with 5-MTHF for energy and wellness support.**",
+      "description": "Highly absorbable, bioactive forms of essential B vitamins in a convenient liquid formula. Uses methylated forms for maximum bioavailability, making them easier for your body to absorb and utilize.**",
+      "format": "Dietary Supplement · Liquid Formula",
+      "price": 39,
+      "factsTitle": "Ingredients",
+      "facts": [
+        { "name": "5-MTHF (Methylfolate)", "detail": "The methylated, active form of folic acid needed for protein metabolism, RNA and DNA repair, and red blood cell formation." },
+        { "name": "Vitamin B12 (Methylcobalamin)", "detail": "Required for red blood cell formation, DNA synthesis, and proper neurological function." },
+        { "name": "Vitamin B6 (Pyridoxal 5-Phosphate)", "detail": "Bioactive, water-soluble vitamin utilized by the nervous and immune systems." },
+        { "name": "Vitamin B6 (Pyridoxine HCl)", "detail": "Essential for red blood cell metabolism and hemoglobin production." }
+      ],
+      "benefits": [
+        "Supports cellular energy metabolism and reduces fatigue**",
+        "Promotes healthy brain function and mental clarity**",
+        "Supports healthy homocysteine levels and heart function**",
+        "Helps support healthy neurological function**",
+        "Supports balanced mood, stress resilience, and restful sleep**"
+      ],
+      "disclaimer": "**These statements have not been evaluated by the US FDA. This product is not intended to diagnose, treat, prevent, or cure any disease.",
+      "sourceUrl": "https://getthinnr.com/products/b-active",
+      "sourceNote": "Copy and ingredient details quoted verbatim from the THINNR B-Active product page; price is demo pricing.",
+      "topics": [
+        "fatigue",
+        "low energy",
+        "no energy",
+        "exhausted",
+        "energy levels",
+        "brain fog",
+        "b vitamins",
+        "vitamin b",
+        "b12",
+        "b-active",
+        "feeling tired",
+        "so tired",
+        "tired all the time",
+        "tired lately",
+        "sluggish"
+      ]
+    },
+    {
+      "id": "prod7",
+      "slug": "creatine-plus",
+      "name": "Creatine+",
+      "category": "supplement",
+      "tagline": "Powerful Muscle & Mind Support",
+      "cardLine": "Creatine + HMB for muscle maintenance and cognitive support.**",
+      "description": "A formula that combines two ingredients to help support muscle maintenance, energy production, and cognitive function.** Made for everyday strength.",
+      "format": "Dietary Supplement · 480 Grams · 5g Creatine + 3g HMB Formula",
+      "price": 55,
+      "factsTitle": "Supplement Facts · Per Serving",
+      "facts": [
+        { "name": "Creatine Monohydrate", "detail": "5 g — helps support lean muscle maintenance, energy during workouts, and cognitive function.**" },
+        { "name": "HMB (β-Hydroxy β-Methylbutyrate)", "detail": "3 g — helps support muscle maintenance, recovery, and strength during calorie restriction.**" }
+      ],
+      "benefits": [
+        "Creatine helps support ATP production, while HMB helps support muscle maintenance**",
+        "Creatine helps support brain energy metabolism and cognitive function**",
+        "HMB helps support lean mass during weight management programs**",
+        "Together, these compounds help support post-workout recovery**",
+        "Helps support muscle maintenance for those transitioning off weight management programs**"
+      ],
+      "suggestedUse": "Take 1 serving daily (5g Creatine Monohydrate + 3g HMB). Can be mixed into water, shakes, or your favorite beverage.",
+      "disclaimer": "**These statements have not been evaluated by the US FDA. This product is not intended to diagnose, treat, prevent, or cure any disease.",
+      "sourceUrl": "https://getthinnr.com/products/creatine-plus",
+      "sourceNote": "Copy, serving facts, and suggested use quoted verbatim from the THINNR Creatine+ product page; price is demo pricing.",
+      "topics": [
+        "muscle",
+        "muscles",
+        "lifting",
+        "lift weights",
+        "weight training",
+        "strength training",
+        "gym",
+        "workout",
+        "workouts",
+        "working out",
+        "work out",
+        "creatine",
+        "lean mass",
+        "toned",
+        "tone up",
+        "strength",
+        "post workout recovery",
+        "hmb"
+      ]
+    },
+    {
+      "id": "prod8",
+      "slug": "fiber",
+      "name": "Fiber",
+      "category": "supplement",
+      "tagline": "Plant-Based Colon & Digestive Support",
+      "cardLine": "Plant-based digestive support.**",
+      "description": "A superior dietary supplement designed to naturally soothe and regulate your digestive system. Its primary ingredient, derived from the Plantago ovata plant, offers a gentle yet effective solution for digestive health.",
+      "format": "Dietary Supplement · 120 Capsules · Psyllium-Based Formula",
+      "price": 35,
+      "factsTitle": "Key Ingredient",
+      "facts": [
+        { "name": "Psyllium (Plantago ovata)", "detail": "Derived from the Plantago ovata plant, psyllium is renowned for its effectiveness in increasing stool bulk and softening, making it easier to pass without the harsh side effects often associated with synthetic laxatives." }
+      ],
+      "benefits": [
+        "Free from artificial sweeteners, sugar, and harmful chemicals**",
+        "Psyllium is resistant to fermentation, helping to support digestive comfort**",
+        "Helps support digestive regularity and comfort**",
+        "Helps support healthy cholesterol levels already within normal range**",
+        "Helps support colon health as part of a healthy diet**"
+      ],
+      "disclaimer": "**These statements have not been evaluated by the US FDA. This product is not intended to diagnose, treat, prevent, or cure any disease.",
+      "sourceUrl": "https://getthinnr.com/products/fiber",
+      "sourceNote": "Copy and ingredient details quoted verbatim from the THINNR Fiber product page; price is demo pricing.",
+      "topics": [
+        "constipation",
+        "constipated",
+        "irregular",
+        "regularity",
+        "fiber",
+        "psyllium",
+        "thinnr fiber"
+      ]
+    },
+    {
+      "id": "prod9",
+      "slug": "maintenance-stack",
+      "name": "Maintenance Stack",
+      "category": "bundle",
+      "tagline": "Long-Term Weight Maintenance",
+      "cardLine": "A comprehensive 3-part system designed to support long-term weight maintenance.",
+      "description": "A comprehensive 3-part system designed to support long-term weight maintenance, metabolic health, and overall wellness after completing your weight management journey.",
+      "format": "3-Part Dietary Supplement System · Regulate + Detox + Control",
+      "price": 149,
+      "factsTitle": "What's in the Stack",
+      "facts": [
+        { "name": "Regulate", "detail": "Combines the power of Berberine, Bitter Melon, and Banaba Leaf to support sustainable weight management and metabolic health." },
+        { "name": "Detox", "detail": "Designed to support liver health, detoxification, and weight maintenance with Solarplast, Artichoke Leaf, Dandelion Leaf, Milk Thistle, Protease, and Lipase." },
+        { "name": "Control", "detail": "Crafted to help support appetite regulation, hormonal balance, and metabolism with African Mango, Raspberry Ketone, Green Coffee Bean, and Green Tea.**" }
+      ],
+      "benefits": [
+        "Helps support healthy metabolic function and blood sugar levels already within normal range*",
+        "Helps support healthy digestion and feelings of fullness*",
+        "Helps support liver health and digestive wellness*",
+        "Helps support healthy appetite for easier maintenance*",
+        "Helps support healthy energy levels*"
+      ],
+      "disclaimer": "**These statements have not been evaluated by the US FDA. This product is not intended to diagnose, treat, prevent, or cure any disease.",
+      "sourceUrl": "https://getthinnr.com/products/maintenance-stack",
+      "sourceNote": "Copy and formula details quoted verbatim from the THINNR Maintenance Stack product page; price is demo pricing.",
+      "topics": [
+        "maintenance stack",
+        "keep the weight off",
+        "keeping the weight off",
+        "keep my weight off",
+        "keep it off",
+        "maintain my weight",
+        "maintain my results",
+        "after the program ends",
+        "finished the program",
+        "program is over",
+        "regain",
+        "gaining it back",
+        "gained some back",
+        "stay at this weight"
+      ]
+    }
+  ]
+}

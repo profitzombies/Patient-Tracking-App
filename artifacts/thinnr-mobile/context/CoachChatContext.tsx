@@ -93,9 +93,19 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
             current.map(m => (m.id === assistantId ? { ...m, text: m.text + delta } : m)),
           );
         },
-        onDone: () => {
+        onCard: card => {
+          // First card wins; the server sends at most one per reply anyway.
           setMessages(current =>
-            current.map(m => (m.id === assistantId ? { ...m, status: 'done' } : m)),
+            current.map(m => (m.id === assistantId && !m.card ? { ...m, card } : m)),
+          );
+        },
+        onDone: () => {
+          // Trim trailing whitespace left when a control marker was stripped
+          // from the end of the streamed text.
+          setMessages(current =>
+            current.map(m =>
+              m.id === assistantId ? { ...m, status: 'done', text: m.text.trimEnd() } : m,
+            ),
           );
           inFlightRef.current = false;
           setIsStreaming(false);

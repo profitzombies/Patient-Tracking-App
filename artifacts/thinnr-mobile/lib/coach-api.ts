@@ -2,8 +2,9 @@
  * Streaming client for the THINNR coach endpoint (POST /api/coach/chat).
  *
  * The endpoint is stateless SSE: the client sends its in-session history plus
- * patient program context and receives `data: {"content": "..."}` chunks
- * followed by `data: {"done": true}` (or `data: {"error": "..."}`).
+ * patient program context and receives `data: {"content": "..."}` chunks,
+ * optionally one `data: {"card": {...}}` event (e.g. a product suggestion),
+ * then `data: {"done": true}` (or `data: {"error": "..."}`).
  *
  * Web uses the browser's streaming fetch; native uses expo/fetch, which
  * supports ReadableStream bodies on device. If a body stream is unavailable,
@@ -17,13 +18,28 @@ export interface CoachRequestMessage {
   content: string;
 }
 
+export interface CoachCardEvent {
+  kind: string;
+  payload: unknown;
+}
+
 export interface CoachStreamCallbacks {
   onDelta: (text: string) => void;
   onDone: () => void;
   onError: (message: string) => void;
+  /** Rich card attached to this reply (sent by the server before done). */
+  onCard?: (card: CoachCardEvent) => void;
 }
 
 const FRIENDLY_ERROR = 'The coach is unavailable right now. Please try again.';
+
+function isCardEvent(card: unknown): card is CoachCardEvent {
+  return (
+    typeof card === 'object' &&
+    card !== null &&
+    typeof (card as { kind?: unknown }).kind === 'string'
+  );
+}
 
 function apiBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -44,7 +60,7 @@ function drainSseBuffer(
   for (const event of events) {
     for (const line of event.split('\n')) {
       if (!line.startsWith('data: ')) continue;
-      let payload: { content?: string; done?: boolean; error?: string };
+      let payload: { content?: string; card?: unknown; done?: boolean; error?: string };
       try {
         payload = JSON.parse(line.slice(6));
       } catch {
@@ -53,6 +69,8 @@ function drainSseBuffer(
       if (state.finished) continue;
       if (typeof payload.content === 'string' && payload.content.length > 0) {
         callbacks.onDelta(payload.content);
+      } else if (isCardEvent(payload.card)) {
+        callbacks.onCard?.(payload.card);
       } else if (payload.error) {
         state.finished = true;
         callbacks.onError(payload.error);

@@ -26,6 +26,7 @@ _Replace the heading above with the project's name, and this line with one sente
 
 - `docs/thinnr-program/` — verbatim archive of the official THINNR Protocol materials: complete 72-page manual transcription, program-instructions and approved-foods extracts, knowledge-base Q&A, and the canonical PDF/paste sources (see its README for page mapping and fidelity notes). Quote official program wording from these files — never paraphrase or "fix" it.
 - `artifacts/thinnr-mobile/data/approved-foods.ts` — machine-readable Approved Foods list (categories, verbatim item names, portions) powering the mobile Library tab's Approved Foods screen, the checkmark badges (library / Add Food search / diary), and the Add Food "approved only" filter. Guarded by the `test:approved-foods` verbatim check above.
+- `artifacts/thinnr-mobile/data/product-catalog.json` — curated THINNR product catalog (copy, supplement facts, disclaimers quoted verbatim from getthinnr.com; prices are demo values matching the staff dataset). Powers coach product suggestions and the `/product/[id]` demo shop page; the API server reads it at runtime for grounding. Name/price parity with the staff `MOCK_PRODUCTS` is enforced by `test:parity`.
 
 ## Architecture decisions
 

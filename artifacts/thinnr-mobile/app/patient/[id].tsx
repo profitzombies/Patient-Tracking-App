@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Platform,
   Pressable,
@@ -11,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -23,35 +23,61 @@ import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { MOCK_PRODUCTS, MOCK_PROVIDERS } from '@/data/mock-data';
 import { useOperations } from '@/context/OperationsContext';
 
-function WeightBarChart({ history, startWeight, goalWeight }: {
+const formatDate = (date: string, includeYear = false) =>
+  new Date(date).toLocaleDateString('en-US', includeYear
+    ? { month: 'short', day: 'numeric', year: 'numeric' }
+    : { month: 'short', day: 'numeric' });
+
+function WeightTrendChart({ history, startWeight, goalWeight }: {
   history: { date: string; weight: number }[];
   startWeight: number;
   goalWeight: number;
 }) {
   const colors = useColors();
-  const range = startWeight - goalWeight;
+  const chartWidth = Math.max(330, history.length * 52);
+  const chartHeight = 166;
+  const top = 16;
+  const bottom = 34;
+  const side = 22;
+  const values = [...history.map(entry => entry.weight), startWeight, goalWeight];
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const padding = Math.max(2, (high - low) * 0.14);
+  const min = low - padding;
+  const max = high + padding;
+  const range = Math.max(1, max - min);
+  const plotHeight = chartHeight - top - bottom;
+  const xFor = (index: number) => history.length < 2
+    ? chartWidth / 2
+    : side + (index / (history.length - 1)) * (chartWidth - side * 2);
+  const yFor = (weight: number) => top + ((max - weight) / range) * plotHeight;
+  const path = history.map((entry, index) => `${index === 0 ? 'M' : 'L'} ${xFor(index)} ${yFor(entry.weight)}`).join(' ');
+  const goalY = yFor(goalWeight);
 
   return (
-    <View style={{ height: 100, flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
-      {history.map((entry, idx) => {
-        const h = ((entry.weight - goalWeight) / range) * 100;
-        const clipped = Math.max(8, Math.min(98, h));
-        return (
-          <View key={`${entry.date}-${idx}`} style={{ flex: 1, height: '100%', justifyContent: 'flex-end', alignItems: 'center' }}>
-            <Text style={{ fontSize: 8, color: colors.subtleText, marginBottom: 2, fontFamily: 'Inter_400Regular' }}>
-              {entry.weight}
-            </Text>
-            <View style={{ width: '80%', height: `${clipped}%`, backgroundColor: colors.cobalt }} />
-            <Text
-              style={{ fontSize: 8, color: colors.subtleText, marginTop: 3, fontFamily: 'Inter_400Regular' }}
-              numberOfLines={1}
-            >
-              {new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingRight: 8 }}
+      accessibilityLabel="Weight trend chart; swipe horizontally to review all weigh-ins"
+    >
+      <Svg width={chartWidth} height={chartHeight}>
+        <Line x1={side} x2={chartWidth - side} y1={goalY} y2={goalY} stroke={colors.cobaltMuted} strokeWidth={1} strokeDasharray="4 4" />
+        <SvgText x={chartWidth - side} y={Math.max(12, goalY - 5)} textAnchor="end" fill={colors.subtleText} fontSize="9">
+          Goal {goalWeight.toFixed(1)}
+        </SvgText>
+        <Line x1={side} x2={chartWidth - side} y1={top + plotHeight} y2={top + plotHeight} stroke={colors.divider} strokeWidth={1} />
+        <Path d={path} fill="none" stroke={colors.cobalt} strokeWidth={2.5} />
+        {history.map((entry, index) => (
+          <React.Fragment key={`${entry.date}-${index}`}>
+            <Circle cx={xFor(index)} cy={yFor(entry.weight)} r={3.5} fill={colors.card} stroke={colors.cobalt} strokeWidth={2} />
+            <SvgText x={xFor(index)} y={chartHeight - 12} textAnchor="middle" fill={colors.subtleText} fontSize="8">
+              {formatDate(entry.date)}
+            </SvgText>
+          </React.Fragment>
+        ))}
+      </Svg>
+    </ScrollView>
   );
 }
 
@@ -96,13 +122,21 @@ export default function PatientDetailScreen() {
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
+  const modalAnimation = Platform.OS === 'web' ? 'none' as const : 'slide' as const;
+  const returnToRoster = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/patients');
+  };
 
   // Guard: don't render interactive content before hydration to avoid acting on default state
   if (!ops.hydrated) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <View style={[styles.header, { paddingTop: topPad + 8, backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border }]}>
-          <Pressable testID="patient-back-btn" onPress={() => router.back()}
+          <Pressable testID="patient-back-btn" onPress={returnToRoster}
             style={({ pressed }) => [styles.headerBtn, { backgroundColor: pressed ? colors.accent : colors.card, borderColor: colors.border }]}>
             <Feather name="arrow-left" size={16} color={colors.bodyText} />
           </Pressable>
@@ -119,7 +153,7 @@ export default function PatientDetailScreen() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
         <Text style={{ color: colors.foreground, fontSize: 16, fontFamily: 'Inter_600SemiBold' }}>Patient not found.</Text>
-        <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
+        <Pressable onPress={returnToRoster} style={{ marginTop: 16 }}>
           <Text style={{ color: colors.cobalt, fontSize: 14, fontFamily: 'Inter_600SemiBold' }}>Go back</Text>
         </Pressable>
       </View>
@@ -128,7 +162,9 @@ export default function PatientDetailScreen() {
 
   // Merged patient already carries contact overrides and latest weight
   const contact = { email: patient.email, phone: patient.phone };
-  const weightHistory = patient.progressHistory;
+  const weightHistory = [...patient.progressHistory].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
   const localNotes = ops.getPatientNotes(patient.id);
   // Merged subscription already carries status override
   const subStatus = subscription?.status ?? 'active';
@@ -137,6 +173,19 @@ export default function PatientDetailScreen() {
   const weightLoss = patient.startingWeight - currentWeight;
   const percentLoss = ((weightLoss / patient.startingWeight) * 100).toFixed(1);
   const goalProgress = Math.min(100, Math.max(0, (weightLoss / (patient.startingWeight - patient.goalWeight)) * 100));
+  const poundsToGoal = Math.max(0, currentWeight - patient.goalWeight);
+  const orderedWeights = [...weightHistory].reverse();
+  const orderedActivity = [
+    ...localNotes.map(note => ({
+      id: note.id,
+      date: note.date,
+      type: 'note',
+      description: note.text,
+      user: note.user,
+    })),
+    ...patient.activity,
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const latestReadingDate = weightHistory.at(-1)?.date ?? patient.startDate;
 
   // ─── Actions ───────────────────────────────────────────────────────────────
   const openEdit = () => {
@@ -224,7 +273,7 @@ export default function PatientDetailScreen() {
           testID="patient-back-btn"
           onPress={() => {
             Haptics.selectionAsync();
-            router.back();
+            returnToRoster();
           }}
           style={({ pressed }) => [styles.headerBtn, { backgroundColor: pressed ? colors.accent : colors.card, borderColor: colors.border }]}
         >
@@ -269,6 +318,9 @@ export default function PatientDetailScreen() {
               <Feather name="user" size={12} color={colors.subtleText} />
               <Text style={[styles.contactText, { color: colors.bodyText }]}>{provider?.name}</Text>
             </View>
+            <Text style={[styles.recordId, { color: colors.labelText }]}>
+              SYNTHETIC RECORD #{patient.id.replace('pat_', '')} · ENROLLED {formatDate(patient.startDate, true).toUpperCase()}
+            </Text>
           </View>
         </View>
 
@@ -276,31 +328,44 @@ export default function PatientDetailScreen() {
         <View style={styles.section}>
           <LedgerCard style={{ padding: 16 }}>
             <View style={styles.progressTitleRow}>
-              <SectionHeader label="Protocol Progress" />
+              <View style={{ flex: 1 }}>
+                <SectionHeader label="Progress at a glance" />
+                <Text style={[styles.sectionIntro, { color: colors.subtleText }]}>
+                  {patient.stage === 'protocol'
+                    ? `Week ${patient.protocolWeek} of 6 · ${patient.carePlan.protocolStatus}`
+                    : `Maintenance phase · ${patient.carePlan.protocolStatus}`}
+                </Text>
+              </View>
               <View style={[styles.stagePill, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
                 <Text style={[styles.stagePillText, { color: colors.cobalt }]}>
-                  {patient.stage === 'protocol' ? `Wk ${patient.protocolWeek} of 6` : 'Maintenance Phase'}
+                  {formatDate(latestReadingDate)} reading
                 </Text>
               </View>
             </View>
 
-            <View style={styles.weightRow}>
-              <View style={styles.weightCell}>
+            <View style={[styles.metricGrid, { borderColor: colors.divider }]}>
+              <View style={[styles.metricCell, { borderColor: colors.divider }]}>
                 <Text style={[styles.weightLabel, { color: colors.labelText }]}>STARTING</Text>
                 <Text style={[styles.weightValue, { color: colors.navy }]}>
-                  {patient.startingWeight}<Text style={[styles.weightUnit, { color: colors.subtleText }]}> lbs</Text>
+                  {patient.startingWeight.toFixed(1)}<Text style={[styles.weightUnit, { color: colors.subtleText }]}> lbs</Text>
                 </Text>
               </View>
-              <View style={[styles.weightCell, { borderLeftWidth: 1, borderLeftColor: colors.divider, paddingLeft: 16 }]}>
+              <View style={[styles.metricCell, { borderColor: colors.divider }]}>
                 <Text style={[styles.weightLabel, { color: colors.labelText }]}>CURRENT</Text>
                 <Text style={[styles.weightValue, { color: colors.cobalt }]}>
                   {currentWeight.toFixed(1)}<Text style={[styles.weightUnit, { color: colors.subtleText }]}> lbs</Text>
                 </Text>
               </View>
-              <View style={[styles.weightCell, { borderLeftWidth: 1, borderLeftColor: colors.divider, paddingLeft: 16 }]}>
-                <Text style={[styles.weightLabel, { color: colors.labelText }]}>GOAL</Text>
+              <View style={[styles.metricCell, { borderColor: colors.divider }]}>
+                <Text style={[styles.weightLabel, { color: colors.labelText }]}>LOST TO DATE</Text>
                 <Text style={[styles.weightValue, { color: colors.navy }]}>
-                  {patient.goalWeight}<Text style={[styles.weightUnit, { color: colors.subtleText }]}> lbs</Text>
+                  {weightLoss.toFixed(1)}<Text style={[styles.weightUnit, { color: colors.subtleText }]}> lbs</Text>
+                </Text>
+              </View>
+              <View style={[styles.metricCell, { borderColor: colors.divider }]}>
+                <Text style={[styles.weightLabel, { color: colors.labelText }]}>TO GOAL</Text>
+                <Text style={[styles.weightValue, { color: colors.navy }]}>
+                  {poundsToGoal.toFixed(1)}<Text style={[styles.weightUnit, { color: colors.subtleText }]}> lbs</Text>
                 </Text>
               </View>
             </View>
@@ -312,7 +377,7 @@ export default function PatientDetailScreen() {
               </View>
               <ProgressBar value={goalProgress} style={{ marginTop: 6, height: 10 }} />
               <Text style={[styles.goalDetail, { color: colors.subtleText }]}>
-                Total loss: {weightLoss.toFixed(1)} lbs ({percentLoss}%)
+                {percentLoss}% of baseline · Goal reference {patient.goalWeight.toFixed(1)} lbs
               </Text>
             </View>
           </LedgerCard>
@@ -322,7 +387,10 @@ export default function PatientDetailScreen() {
         <View style={styles.section}>
           <LedgerCard>
             <View style={[styles.cardTitleRow, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.cardTitle, { color: colors.labelText }]}>WEIGHT HISTORY</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cardTitle, { color: colors.labelText }]}>WEIGHT TREND</Text>
+                <Text style={[styles.cardSubtitle, { color: colors.subtleText }]}>Enrollment through latest reading</Text>
+              </View>
               <Pressable
                 testID="log-weight-btn"
                 onPress={openWeightModal}
@@ -335,46 +403,136 @@ export default function PatientDetailScreen() {
                 <Text style={[styles.actionLinkText, { color: colors.cobalt }]}>Log Entry</Text>
               </Pressable>
             </View>
-            <View style={{ padding: 16 }}>
-              <WeightBarChart
+            <View style={{ paddingHorizontal: 12, paddingTop: 12 }}>
+              <WeightTrendChart
                 history={weightHistory}
                 startWeight={patient.startingWeight}
                 goalWeight={patient.goalWeight}
               />
             </View>
+            <View style={[styles.historyHeader, { backgroundColor: colors.paperCardAlt, borderTopColor: colors.divider, borderBottomColor: colors.divider }]}>
+              <Text style={[styles.historyHeaderText, { color: colors.labelText }]}>WEIGH-IN LOG · NEWEST FIRST</Text>
+            </View>
+            {orderedWeights.map((entry, index) => {
+              const fromBaseline = patient.startingWeight - entry.weight;
+              const baselineText = Math.abs(fromBaseline) < 0.05
+                ? 'Baseline'
+                : fromBaseline > 0
+                  ? `${fromBaseline.toFixed(1)} lbs lost`
+                  : `${Math.abs(fromBaseline).toFixed(1)} lbs above`;
+              return (
+                <View
+                  key={`${entry.date}-${index}`}
+                  testID={`weight-history-row-${index}`}
+                  style={[styles.historyRow, { borderBottomColor: colors.divider }]}
+                >
+                  <View style={styles.historyDate}>
+                    <Text style={[styles.historyDatePrimary, { color: colors.navy }]}>{formatDate(entry.date, true)}</Text>
+                    <Text style={[styles.historyDateSecondary, { color: colors.subtleText }]}>
+                      {index === 0 ? 'Latest reading' : baselineText}
+                    </Text>
+                  </View>
+                  <View style={styles.historyNumbers}>
+                    <Text style={[styles.historyWeight, { color: colors.navy }]}>{entry.weight.toFixed(1)} lbs</Text>
+                    <Text style={[styles.historyToGoal, { color: colors.bodyText }]}>
+                      {Math.max(0, entry.weight - patient.goalWeight).toFixed(1)} to goal
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
           </LedgerCard>
         </View>
 
-        {/* Patient details sidebar info */}
+        {/* Care plan */}
+        <View style={styles.section}>
+          <LedgerCard>
+            <View style={[styles.cardTitleRow, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.cardTitle, { color: colors.labelText }]}>CARE PLAN</Text>
+              <View style={[styles.stagePill, { backgroundColor: patient.status === 'overdue' ? colors.warnBg : colors.activeBg, borderColor: patient.status === 'overdue' ? colors.warnBorder : colors.activeBorder }]}>
+                <Text style={[styles.stagePillText, { color: patient.status === 'overdue' ? colors.warnText : colors.cobalt }]}>
+                  {patient.carePlan.protocolStatus}
+                </Text>
+              </View>
+            </View>
+            <View style={{ padding: 16 }}>
+              <Text style={[styles.planName, { color: colors.navy }]}>{patient.carePlan.name}</Text>
+              <Text style={[styles.planFocus, { color: colors.bodyText }]}>{patient.carePlan.focus}</Text>
+              <Divider style={{ marginVertical: 14 }} />
+              <View style={styles.planGrid}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.detailLabel, { color: colors.labelText }]}>CARE CADENCE</Text>
+                  <Text style={[styles.detailValue, { color: colors.navyLight }]}>{patient.carePlan.cadence}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.detailLabel, { color: colors.labelText }]}>NEXT ACTION</Text>
+                  <Text style={[styles.detailValue, { color: colors.navyLight }]}>{patient.carePlan.nextMilestone}</Text>
+                </View>
+              </View>
+            </View>
+          </LedgerCard>
+        </View>
+
+        {/* Adherence and check-ins */}
+        <View style={styles.section}>
+          <LedgerCard>
+            <View style={[styles.cardTitleRow, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.cardTitle, { color: colors.labelText }]}>ADHERENCE & CHECK-INS</Text>
+            </View>
+            <View style={styles.adherenceSummary}>
+              <View style={[styles.adherenceScore, { borderColor: patient.adherence > 80 ? colors.activeBorder : colors.warnBorder, backgroundColor: patient.adherence > 80 ? colors.activeBg : colors.warnBg }]}>
+                <Text style={[styles.adherenceScoreText, { color: patient.adherence > 80 ? colors.cobalt : colors.warnText }]}>
+                  {patient.adherence}%
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.adherenceTitle, { color: colors.navy }]}>Routine adherence</Text>
+                <Text style={[styles.adherencePattern, { color: colors.bodyText }]}>{patient.adherenceDetail.recentPattern}</Text>
+                <Text style={[styles.adherenceRate, { color: colors.subtleText }]}>
+                  Check-in completion {patient.adherenceDetail.checkInRate}% · Last {formatDate(patient.adherenceDetail.lastCheckIn)}
+                </Text>
+              </View>
+            </View>
+            {patient.checkIns.map((checkIn, index) => (
+              <View key={`${checkIn.date}-${index}`} style={[styles.checkInRow, { borderTopColor: colors.divider }]}>
+                <View style={styles.checkInMeta}>
+                  <View style={[styles.moodPill, { backgroundColor: checkIn.mood === 'needs follow-up' ? colors.warnBg : colors.activeBg, borderColor: checkIn.mood === 'needs follow-up' ? colors.warnBorder : colors.activeBorder }]}>
+                    <Text style={[styles.moodText, { color: checkIn.mood === 'needs follow-up' ? colors.warnText : colors.cobalt }]}>
+                      {checkIn.mood.toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={[styles.checkInDate, { color: colors.subtleText }]}>{formatDate(checkIn.date, true)}</Text>
+                </View>
+                <Text style={[styles.checkInSummary, { color: colors.bodyText }]}>{checkIn.summary}</Text>
+              </View>
+            ))}
+          </LedgerCard>
+        </View>
+
+        {/* Patient details */}
         <View style={styles.section}>
           <LedgerCard style={{ padding: 16 }}>
             <SectionHeader label="Patient Details" />
-            <View style={{ marginTop: 12, gap: 12 }}>
-              <View>
-                <Text style={[styles.detailLabel, { color: colors.labelText }]}>START DATE</Text>
+            <View style={styles.detailGrid}>
+              <View style={styles.detailBlock}>
+                <Text style={[styles.detailLabel, { color: colors.labelText }]}>ENROLLMENT</Text>
                 <View style={styles.detailValueRow}>
                   <Feather name="calendar" size={13} color={colors.bodyText} />
-                  <Text style={[styles.detailValue, { color: colors.navyLight }]}>
-                    {new Date(patient.startDate).toLocaleDateString()}
-                  </Text>
+                  <Text style={[styles.detailValue, { color: colors.navyLight }]}>{formatDate(patient.startDate, true)}</Text>
                 </View>
               </View>
-              <View>
-                <Text style={[styles.detailLabel, { color: colors.labelText }]}>ADHERENCE SCORE</Text>
-                <View style={styles.detailValueRow}>
-                  <Feather name="activity" size={13} color={patient.adherence > 80 ? colors.cobalt : colors.warnText} />
-                  <Text style={[styles.detailValue, { color: patient.adherence > 80 ? colors.navyLight : colors.warnText }]}>
-                    {patient.adherence}/100
-                  </Text>
-                </View>
-              </View>
-              <View>
+              <View style={styles.detailBlock}>
                 <Text style={[styles.detailLabel, { color: colors.labelText }]}>NEXT CHECK-IN</Text>
                 <View style={styles.detailValueRow}>
                   <Feather name="target" size={13} color={colors.bodyText} />
-                  <Text style={[styles.detailValue, { color: colors.navyLight }]}>
-                    {new Date(patient.nextCheckIn).toLocaleDateString()}
-                  </Text>
+                  <Text style={[styles.detailValue, { color: colors.navyLight }]}>{formatDate(patient.nextCheckIn, true)}</Text>
+                </View>
+              </View>
+              <View style={styles.detailBlock}>
+                <Text style={[styles.detailLabel, { color: colors.labelText }]}>ASSIGNED PROVIDER</Text>
+                <View style={styles.detailValueRow}>
+                  <Feather name="user" size={13} color={colors.bodyText} />
+                  <Text style={[styles.detailValue, { color: colors.navyLight }]}>{provider?.name ?? 'Unassigned'}</Text>
                 </View>
               </View>
             </View>
@@ -424,29 +582,27 @@ export default function PatientDetailScreen() {
                 <Text style={[styles.actionLinkText, { color: colors.cobalt }]}>Add Note</Text>
               </Pressable>
             </View>
-            {/* Persisted local notes first */}
-            {localNotes.map(note => (
-              <View key={note.id} style={[styles.activityItem, { borderBottomColor: colors.divider }]}>
-                <Feather name="file-text" size={15} color={colors.subtleText} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.activityDesc, { color: colors.navy }]}>{note.text}</Text>
-                  <Text style={[styles.activityMeta, { color: colors.subtleText }]}>
-                    {new Date(note.date).toLocaleDateString()} · {note.user}
-                  </Text>
+            <View style={[styles.careSummary, { backgroundColor: colors.paperCardAlt, borderColor: colors.divider }]}>
+              <Text style={[styles.detailLabel, { color: colors.labelText }]}>CARE SUMMARY</Text>
+              {patient.notes.map(note => (
+                <View key={note} style={[styles.summaryNote, { borderLeftColor: colors.activeBorder }]}>
+                  <Text style={[styles.summaryText, { color: colors.bodyText }]}>{note}</Text>
                 </View>
-              </View>
-            ))}
-            {patient.activity.map(act => (
+              ))}
+            </View>
+            {orderedActivity.map(act => (
               <View key={act.id} style={[styles.activityItem, { borderBottomColor: colors.divider }]}>
                 {act.type === 'check_in' ? (
                   <Feather name="check-circle" size={15} color={colors.cobalt} />
+                ) : act.type === 'fulfillment' ? (
+                  <Feather name="truck" size={15} color={colors.subtleText} />
                 ) : (
                   <Feather name="file-text" size={15} color={colors.subtleText} />
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.activityDesc, { color: colors.navy }]}>{act.description}</Text>
                   <Text style={[styles.activityMeta, { color: colors.subtleText }]}>
-                    {new Date(act.date).toLocaleDateString()} · {act.user}
+                    {formatDate(act.date, true)} · {act.user}
                   </Text>
                 </View>
               </View>
@@ -467,7 +623,7 @@ export default function PatientDetailScreen() {
                 <Text style={[styles.subUnit, { color: colors.subtleText }]}>/mo</Text>
               </Text>
               <Text style={[styles.subCadence, { color: colors.bodyText }]}>
-                {subscription.cadence} fulfillment
+                {subscription.cadence} fulfillment · payment {subscription.paymentStatus}
               </Text>
               <Divider style={{ marginVertical: 12 }} />
               <View style={styles.subMetaRow}>
@@ -475,6 +631,21 @@ export default function PatientDetailScreen() {
                 <Text style={[styles.subMetaValue, { color: colors.navy }]}>
                   {new Date(subscription.nextShipment).toLocaleDateString()}
                 </Text>
+              </View>
+              <View style={[styles.shipmentHistory, { borderColor: colors.divider, backgroundColor: colors.paperCardAlt }]}>
+                <Text style={[styles.detailLabel, { color: colors.labelText }]}>RECENT SHIPMENTS</Text>
+                {subscription.shipmentHistory
+                  .slice()
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .map((shipment, index) => (
+                    <View key={`${shipment.date}-${index}`} style={styles.shipmentRow}>
+                      <View style={styles.shipmentStatus}>
+                        <Feather name="package" size={13} color={colors.cobalt} />
+                        <Text style={[styles.shipmentStatusText, { color: colors.navyLight }]}>{shipment.status}</Text>
+                      </View>
+                      <Text style={[styles.shipmentDate, { color: colors.subtleText }]}>{formatDate(shipment.date, true)}</Text>
+                    </View>
+                  ))}
               </View>
               <Pressable
                 testID="manage-subscription-btn"
@@ -494,14 +665,21 @@ export default function PatientDetailScreen() {
       </KeyboardAwareScrollViewCompat>
 
       {/* ── Edit Contact Modal ── */}
-      <Modal visible={editOpen} animationType="slide" presentationStyle="formSheet">
+      <Modal visible={editOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setEditOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
-            <Pressable testID="edit-cancel-btn" onPress={() => setEditOpen(false)}>
+            <Pressable
+              testID="edit-cancel-btn"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPressIn={() => setEditOpen(false)}
+              onPress={() => setEditOpen(false)}
+              style={styles.modalHeaderAction}
+            >
               <Text style={[styles.modalCancel, { color: colors.bodyText }]}>Cancel</Text>
             </Pressable>
             <Text style={[styles.modalTitle, { color: colors.navy }]}>Edit Contact</Text>
-            <Pressable testID="edit-save-btn" onPress={saveContact}>
+            <Pressable testID="edit-save-btn" onPress={saveContact} style={[styles.modalHeaderAction, styles.modalHeaderActionEnd]}>
               <Text style={[styles.modalSave, { color: colors.cobalt }]}>Save</Text>
             </Pressable>
           </View>
@@ -531,14 +709,21 @@ export default function PatientDetailScreen() {
       </Modal>
 
       {/* ── Log Weight Modal ── */}
-      <Modal visible={weightModalOpen} animationType="slide" presentationStyle="formSheet">
+      <Modal visible={weightModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setWeightModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
-            <Pressable testID="weight-cancel-btn" onPress={() => setWeightModalOpen(false)}>
+            <Pressable
+              testID="weight-cancel-btn"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPressIn={() => setWeightModalOpen(false)}
+              onPress={() => setWeightModalOpen(false)}
+              style={styles.modalHeaderAction}
+            >
               <Text style={[styles.modalCancel, { color: colors.bodyText }]}>Cancel</Text>
             </Pressable>
             <Text style={[styles.modalTitle, { color: colors.navy }]}>Log Weight Entry</Text>
-            <Pressable testID="weight-save-btn" onPress={saveWeight} disabled={weightSaved}>
+            <Pressable testID="weight-save-btn" onPress={saveWeight} disabled={weightSaved} style={[styles.modalHeaderAction, styles.modalHeaderActionEnd]}>
               <Text style={[styles.modalSave, { color: weightSaved ? colors.subtleText : colors.cobalt }]}>
                 {weightSaved ? 'Saved' : 'Save'}
               </Text>
@@ -560,14 +745,21 @@ export default function PatientDetailScreen() {
       </Modal>
 
       {/* ── Add Note Modal ── */}
-      <Modal visible={noteModalOpen} animationType="slide" presentationStyle="formSheet">
+      <Modal visible={noteModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setNoteModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
-            <Pressable testID="note-cancel-btn" onPress={() => setNoteModalOpen(false)}>
+            <Pressable
+              testID="note-cancel-btn"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPressIn={() => setNoteModalOpen(false)}
+              onPress={() => setNoteModalOpen(false)}
+              style={styles.modalHeaderAction}
+            >
               <Text style={[styles.modalCancel, { color: colors.bodyText }]}>Cancel</Text>
             </Pressable>
             <Text style={[styles.modalTitle, { color: colors.navy }]}>Add Clinical Note</Text>
-            <Pressable testID="note-save-btn" onPress={saveNote} disabled={noteSaved}>
+            <Pressable testID="note-save-btn" onPress={saveNote} disabled={noteSaved} style={[styles.modalHeaderAction, styles.modalHeaderActionEnd]}>
               <Text style={[styles.modalSave, { color: noteSaved ? colors.subtleText : colors.cobalt }]}>
                 {noteSaved ? 'Saved' : 'Save'}
               </Text>
@@ -591,14 +783,21 @@ export default function PatientDetailScreen() {
       </Modal>
 
       {/* ── Subscription Status Modal ── */}
-      <Modal visible={subModalOpen} animationType="slide" presentationStyle="formSheet">
+      <Modal visible={subModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setSubModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
-            <Pressable testID="sub-cancel-btn" onPress={() => setSubModalOpen(false)}>
+            <Pressable
+              testID="sub-cancel-btn"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPressIn={() => setSubModalOpen(false)}
+              onPress={() => setSubModalOpen(false)}
+              style={styles.modalHeaderAction}
+            >
               <Text style={[styles.modalCancel, { color: colors.bodyText }]}>Cancel</Text>
             </Pressable>
             <Text style={[styles.modalTitle, { color: colors.navy }]}>Manage Subscription</Text>
-            <Pressable testID="sub-save-btn" onPress={saveSubStatus}>
+            <Pressable testID="sub-save-btn" onPress={saveSubStatus} style={[styles.modalHeaderAction, styles.modalHeaderActionEnd]}>
               <Text style={[styles.modalSave, { color: colors.cobalt }]}>Save</Text>
             </Pressable>
           </View>
@@ -698,6 +897,15 @@ const styles = StyleSheet.create({
   contactText: {
     fontSize: 12,
     fontFamily: 'Inter_400Regular',
+    flexShrink: 1,
+  },
+  recordId: {
+    fontSize: 8,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.8,
+    marginTop: 8,
+    lineHeight: 13,
   },
   section: {
     paddingHorizontal: 14,
@@ -708,23 +916,37 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 16,
+    gap: 8,
+  },
+  sectionIntro: {
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+    lineHeight: 15,
+    marginTop: 4,
   },
   stagePill: {
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    maxWidth: '48%',
   },
   stagePillText: {
     fontSize: 10,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
+    textAlign: 'center',
   },
-  weightRow: {
+  metricGrid: {
     flexDirection: 'row',
-    gap: 0,
+    flexWrap: 'wrap',
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
   },
-  weightCell: {
-    flex: 1,
+  metricCell: {
+    width: '50%',
+    padding: 12,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
   },
   weightLabel: {
     fontSize: 9,
@@ -777,6 +999,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
     fontFamily: 'Inter_700Bold',
   },
+  cardSubtitle: {
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 4,
+  },
   actionLink: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -786,6 +1013,129 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
+  },
+  historyHeader: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+  },
+  historyHeaderText: {
+    fontSize: 8,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 1,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    gap: 12,
+  },
+  historyDate: {
+    flex: 1,
+  },
+  historyDatePrimary: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  historyDateSecondary: {
+    fontSize: 9,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 3,
+  },
+  historyNumbers: {
+    alignItems: 'flex-end',
+  },
+  historyWeight: {
+    fontSize: 13,
+    fontFamily: 'Inter_700Bold',
+  },
+  historyToGoal: {
+    fontSize: 9,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 3,
+  },
+  planName: {
+    fontSize: 15,
+    fontFamily: 'Inter_700Bold',
+  },
+  planFocus: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 5,
+  },
+  planGrid: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  adherenceSummary: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 12,
+    alignItems: 'center',
+  },
+  adherenceScore: {
+    width: 52,
+    height: 52,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  adherenceScoreText: {
+    fontSize: 15,
+    fontFamily: 'Inter_700Bold',
+  },
+  adherenceTitle: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  adherencePattern: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 3,
+  },
+  adherenceRate: {
+    fontSize: 9,
+    lineHeight: 14,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 5,
+  },
+  checkInRow: {
+    padding: 14,
+    borderTopWidth: 1,
+  },
+  checkInMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  moodPill: {
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  moodText: {
+    fontSize: 8,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.5,
+  },
+  checkInDate: {
+    fontSize: 9,
+    fontFamily: 'Inter_400Regular',
+  },
+  checkInSummary: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 8,
   },
   detailLabel: {
     fontSize: 9,
@@ -802,6 +1152,15 @@ const styles = StyleSheet.create({
   detailValue: {
     fontSize: 13,
     fontFamily: 'Inter_500Medium',
+    lineHeight: 18,
+    flexShrink: 1,
+  },
+  detailGrid: {
+    marginTop: 12,
+    gap: 14,
+  },
+  detailBlock: {
+    flex: 1,
   },
   productRow: {
     flexDirection: 'row',
@@ -826,6 +1185,21 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     marginTop: 2,
     textTransform: 'capitalize',
+  },
+  careSummary: {
+    margin: 14,
+    padding: 12,
+    borderWidth: 1,
+  },
+  summaryNote: {
+    borderLeftWidth: 2,
+    paddingLeft: 10,
+    marginTop: 8,
+  },
+  summaryText: {
+    fontSize: 11,
+    lineHeight: 17,
+    fontFamily: 'Inter_400Regular',
   },
   activityItem: {
     flexDirection: 'row',
@@ -881,6 +1255,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
   },
+  shipmentHistory: {
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 12,
+  },
+  shipmentRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  shipmentStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  shipmentStatusText: {
+    fontSize: 11,
+    textTransform: 'capitalize',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  shipmentDate: {
+    fontSize: 9,
+    fontFamily: 'Inter_400Regular',
+  },
   manageBtn: {
     borderWidth: 1,
     paddingVertical: 10,
@@ -903,6 +1303,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 14,
     borderBottomWidth: 1,
+  },
+  modalHeaderAction: {
+    minWidth: 60,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  modalHeaderActionEnd: {
+    alignItems: 'flex-end',
   },
   modalCancel: {
     fontSize: 15,

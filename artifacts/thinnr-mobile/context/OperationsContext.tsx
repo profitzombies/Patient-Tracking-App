@@ -20,6 +20,12 @@ import {
 
 const STORAGE_KEY = 'thinnr_ops_state_v1';
 
+type WeightPoint = { date: string; weight: number };
+
+function mergeWeightHistory(entries: WeightPoint[]): WeightPoint[] {
+  return [...entries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
 async function readPersistedState(): Promise<string | null> {
   if (Platform.OS === 'web') {
     return globalThis.localStorage?.getItem(STORAGE_KEY) ?? null;
@@ -113,11 +119,8 @@ function buildMergedPatients(state: PersistedState): Patient[] {
     const appendedWeights = state.weightEntries
       .filter(e => e.patientId === p.id)
       .map(e => ({ date: e.date, weight: e.weight }));
-    const fullHistory = [...p.progressHistory, ...appendedWeights];
-    const latestWeight =
-      appendedWeights.length > 0
-        ? appendedWeights[appendedWeights.length - 1].weight
-        : p.currentWeight;
+    const fullHistory = mergeWeightHistory([...p.progressHistory, ...appendedWeights]);
+    const latestWeight = fullHistory.at(-1)?.weight ?? p.currentWeight;
     return {
       ...p,
       email: contactOverride?.email ?? p.email,
@@ -233,7 +236,7 @@ export function OperationsProvider({ children }: { children: ReactNode }) {
       const appended = state.weightEntries
         .filter(e => e.patientId === patientId)
         .map(e => ({ date: e.date, weight: e.weight }));
-      return [...baseHistory, ...appended];
+      return mergeWeightHistory([...baseHistory, ...appended]);
     },
     [state.weightEntries],
   );

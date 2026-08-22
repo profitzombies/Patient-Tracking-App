@@ -1,1 +1,2 @@
 - [THINNR dashboard visual direction](dashboard-design-system-direction.md) — Use Cobalt Ledger as the approved visual foundation, with the earlier guided-operations hierarchy retained.
+- [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.

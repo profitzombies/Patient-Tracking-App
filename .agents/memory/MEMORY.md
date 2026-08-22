@@ -1,1 +1,1 @@
-- [Dashboard design-system direction](dashboard-design-system-direction.md) — Anchor the system in a guided-operations hybrid rather than any single dashboard concept.
+- [THINNR dashboard visual direction](dashboard-design-system-direction.md) — Use Cobalt Ledger as the approved visual foundation, with the earlier guided-operations hierarchy retained.

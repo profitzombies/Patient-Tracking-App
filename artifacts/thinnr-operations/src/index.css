@@ -1,0 +1,181 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@400;500;600&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+  --font-serif: 'Playfair Display', serif;
+  --font-mono: 'Spline Sans Mono', monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: 218 27% 95%; /* #eef1f6 */
+  --foreground: 219 52% 22%; /* #1b2f55 */
+  
+  --border: 217 33% 80%; /* #bdc9dc */
+  --input: 217 33% 80%;
+  --ring: 221 59% 47%; /* #315fc0 */
+
+  --card: 220 100% 99%; /* #fbfcff */
+  --card-foreground: 219 52% 22%;
+  --card-border: 217 33% 80%;
+
+  --popover: 220 100% 99%;
+  --popover-foreground: 219 52% 22%;
+  --popover-border: 217 33% 80%;
+
+  --primary: 221 59% 47%; /* #315fc0 */
+  --primary-foreground: 220 100% 99%; /* #fbfcff */
+
+  --secondary: 220 50% 98%; /* #f8f9fc */
+  --secondary-foreground: 219 52% 22%;
+
+  --muted: 218 27% 95%;
+  --muted-foreground: 218 16% 59%; /* #8793a8 */
+
+  --accent: 219 31% 92%; /* #e3e8f1 */
+  --accent-foreground: 219 52% 22%;
+
+  --destructive: 0 39% 45%; /* #a04646 */
+  --destructive-foreground: 0 100% 99%;
+
+  --sidebar: 219 31% 92%; /* #e3e8f1 */
+  --sidebar-foreground: 219 52% 22%;
+  --sidebar-border: 217 33% 80%;
+  --sidebar-primary: 221 59% 47%;
+  --sidebar-primary-foreground: 220 100% 99%;
+  --sidebar-accent: 218 31% 88%; /* #d4ddec */
+  --sidebar-accent-foreground: 219 52% 22%;
+  --sidebar-ring: 221 59% 47%;
+
+  --radius: 0rem; /* crisp geometry */
+
+  --chart-1: 221 59% 47%; /* #315fc0 */
+  --chart-2: 223 48% 54%; /* #5576c2 */
+  --chart-3: 221 48% 70%; /* #8da4d6 */
+  --chart-4: 220 40% 85%; /* #c7d2e8 */
+  --chart-5: 218 31% 88%; /* #d4ddec */
+}
+
+.dark {
+  /* Enforce light mode mostly, or invert properly if needed. 
+     The brief says "Default to light mode... 
+     Never default to pure white/black neutrals"
+     Cobalt Ledger is light.
+     We will just use light mode variables for dark to enforce the brand, 
+     or provide a darker cobalt theme if really necessary.
+     Let's define a rich dark navy theme just in case. */
+  --background: 220 58% 12%; /* #0c152a */
+  --foreground: 218 27% 95%; /* #eef1f6 */
+  
+  --border: 217 33% 25%;
+  --input: 217 33% 25%;
+  --ring: 221 59% 47%; 
+
+  --card: 220 58% 15%;
+  --card-foreground: 218 27% 95%;
+  --card-border: 217 33% 25%;
+
+  --popover: 220 58% 15%;
+  --popover-foreground: 218 27% 95%;
+  --popover-border: 217 33% 25%;
+
+  --primary: 221 59% 47%; 
+  --primary-foreground: 220 100% 99%; 
+
+  --secondary: 220 58% 18%; 
+  --secondary-foreground: 218 27% 95%;
+
+  --muted: 220 58% 18%;
+  --muted-foreground: 218 16% 59%;
+
+  --accent: 220 58% 22%;
+  --accent-foreground: 218 27% 95%;
+
+  --destructive: 0 39% 45%;
+  --destructive-foreground: 0 100% 99%;
+
+  --sidebar: 220 58% 12%;
+  --sidebar-foreground: 218 27% 95%;
+  --sidebar-border: 217 33% 25%;
+  --sidebar-primary: 221 59% 47%;
+  --sidebar-primary-foreground: 220 100% 99%;
+  --sidebar-accent: 220 58% 22%;
+  --sidebar-accent-foreground: 218 27% 95%;
+  --sidebar-ring: 221 59% 47%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+  
+  /* Scrollbar styling for that crisp app feel */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}

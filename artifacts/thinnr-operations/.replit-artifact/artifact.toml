@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "THINNR Med Spa Operations"
+description = "A responsive med spa operations dashboard for tracking synthetic THINNR patient progress, revenue and outcomes, patient leaderboards, and recurring supplement deliveries across the six-week weight management protocol."
+version = "1.0.0"
+id = "artifacts/thinnr-operations"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21456
+
+[services.development]
+run = "pnpm --filter @workspace/thinnr-operations run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/thinnr-operations", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/thinnr-operations/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21456"
+BASE_PATH = "/"

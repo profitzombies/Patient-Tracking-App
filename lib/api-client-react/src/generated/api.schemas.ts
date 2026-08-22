@@ -31,3 +31,18 @@ export interface CoachChatInput {
   messages: CoachChatMessage[];
 }
 
+export interface CoachRecipeImageInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /** @maxLength 200 */
+  description?: string;
+}
+
+export interface CoachRecipeImageResult {
+  /** JPEG photo as a data URI */
+  image: string;
+}
+

@@ -131,3 +131,28 @@ export async function streamCoachChat(
     }
   }
 }
+
+/**
+ * Generates a dish photo for an AI recipe suggestion. Returns a JPEG data
+ * URI small enough to persist with a saved recipe. Throws on any failure —
+ * the preview screen owns the loading/failed presentation.
+ */
+export async function fetchRecipeImage(name: string, description: string): Promise<string> {
+  const doFetch =
+    Platform.OS === 'web'
+      ? globalThis.fetch.bind(globalThis)
+      : (expoFetch as unknown as typeof globalThis.fetch);
+  const response = await doFetch(`${apiBase()}/coach/recipe-image`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description }),
+  });
+  if (!response.ok) {
+    throw new Error(`Recipe image request failed with status ${response.status}`);
+  }
+  const json = (await response.json()) as { image?: string };
+  if (typeof json.image !== 'string' || !json.image.startsWith('data:image/')) {
+    throw new Error('Recipe image response missing image data');
+  }
+  return json.image;
+}

@@ -38,7 +38,10 @@ export default function RecipeDetailScreen() {
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const recipe = findRecipe(id ?? '');
+  // Seeded recipes first; recipes saved from coach (AI) suggestions fall back.
+  const staticRecipe = findRecipe(id ?? '');
+  const savedRecipe = staticRecipe ? undefined : patient.savedRecipes.find(r => r.id === id);
+  const recipe = staticRecipe ?? savedRecipe;
 
   const [meal, setMeal] = useState<MealSlot>(recipe?.meal ?? 'lunch');
   const [servings, setServings] = useState(1);
@@ -59,6 +62,8 @@ export default function RecipeDetailScreen() {
   };
 
   if (!recipe) {
+    // Saved recipes hydrate async — don't flash "not found" before load.
+    if (!patient.hydrated) return null;
     return (
       <View style={[styles.container, styles.missing, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <Text style={[styles.missingText, { color: colors.bodyText }]}>Recipe not found.</Text>
@@ -82,7 +87,7 @@ export default function RecipeDetailScreen() {
         kind: 'recipe',
         refId: recipe.id,
         name: recipe.name,
-        detail: `${servings} serving${servings === 1 ? '' : 's'} · recipe`,
+        detail: `${servings} serving${servings === 1 ? '' : 's'} · ${savedRecipe ? 'AI estimate' : 'recipe'}`,
         quantity: servings,
         calories: totalCals,
         protein: Math.round(recipe.protein * servings),
@@ -109,7 +114,9 @@ export default function RecipeDetailScreen() {
         >
           <Feather name="chevron-left" size={17} color={colors.bodyText} />
         </Pressable>
-        <Text style={[styles.topTitle, { color: colors.labelText }]}>RECIPE</Text>
+        <Text style={[styles.topTitle, { color: colors.labelText }]}>
+          {savedRecipe ? 'COACH RECIPE · AI' : 'RECIPE'}
+        </Text>
         <Pressable
           testID="recipe-detail-fav"
           onPress={() => patient.toggleFavorite(recipe.id)}
@@ -126,7 +133,15 @@ export default function RecipeDetailScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: bottomPad }}>
-        <Image source={RECIPE_IMAGES[recipe.id]} style={styles.hero} contentFit="cover" transition={150} />
+        {savedRecipe?.photoUri ? (
+          <Image source={{ uri: savedRecipe.photoUri }} style={styles.hero} contentFit="cover" transition={150} />
+        ) : RECIPE_IMAGES[recipe.id] ? (
+          <Image source={RECIPE_IMAGES[recipe.id]} style={styles.hero} contentFit="cover" transition={150} />
+        ) : (
+          <View style={[styles.hero, styles.heroEmpty, { backgroundColor: colors.sidebarBg }]}>
+            <Feather name="image" size={20} color={colors.subtleText} />
+          </View>
+        )}
 
         <View style={styles.body}>
           <Text style={[styles.name, { color: colors.navy }]}>{recipe.name}</Text>
@@ -148,7 +163,9 @@ export default function RecipeDetailScreen() {
 
           {/* ── Nutrition per serving ── */}
           <LedgerCard style={{ padding: 16, marginTop: 16 }}>
-            <Text style={[styles.cardLabel, { color: colors.labelText }]}>NUTRITION · PER SERVING</Text>
+            <Text style={[styles.cardLabel, { color: colors.labelText }]}>
+              {savedRecipe ? 'ESTIMATED NUTRITION · PER SERVING' : 'NUTRITION · PER SERVING'}
+            </Text>
             <View style={styles.nutritionRow}>
               <View style={styles.nutritionCol}>
                 <Text style={[styles.nutritionBig, { color: colors.navy }]}>{recipe.calories}</Text>
@@ -167,6 +184,11 @@ export default function RecipeDetailScreen() {
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>FAT</Text>
               </View>
             </View>
+            {savedRecipe && (
+              <Text style={[styles.estimateNote, { color: colors.subtleText }]}>
+                AI estimates — actual values depend on your exact ingredients.
+              </Text>
+            )}
           </LedgerCard>
 
           {/* ── Ingredients ── */}
@@ -212,6 +234,24 @@ export default function RecipeDetailScreen() {
               </View>
             ))}
           </LedgerCard>
+
+          {/* ── Grocery list (saved cravings fixes) ── */}
+          {savedRecipe?.groceryList && savedRecipe.groceryList.length > 0 && (
+            <>
+              <SectionHeader label="Grocery List" style={{ marginTop: 18, marginBottom: 8 }} />
+              <LedgerCard style={{ paddingVertical: 4 }}>
+                {savedRecipe.groceryList.map((item, index) => (
+                  <View key={`${item}-${index}`}>
+                    {index > 0 && <Divider />}
+                    <View style={styles.ingredientRow}>
+                      <Feather name="square" size={11} color={colors.cobalt} />
+                      <Text style={[styles.ingredientText, { color: colors.bodyText }]}>{item}</Text>
+                    </View>
+                  </View>
+                ))}
+              </LedgerCard>
+            </>
+          )}
 
           {/* ── Log it ── */}
           <SectionHeader label="Add to Diary" style={{ marginTop: 18, marginBottom: 8 }} />
@@ -313,6 +353,15 @@ const styles = StyleSheet.create({
   hero: {
     width: '100%',
     height: 210,
+  },
+  heroEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  estimateNote: {
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 12,
   },
   body: {
     padding: 16,

@@ -73,14 +73,20 @@ export default function LibraryScreen() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return RECIPES.filter(r => {
+    // Recipes saved from coach (AI) suggestions lead; seeded staples follow.
+    return [...patient.savedRecipes, ...RECIPES].filter(r => {
       if (mealFilter !== 'all' && r.meal !== mealFilter) return false;
       if (favoritesOnly && !patient.favorites.includes(r.id)) return false;
       if (!q) return true;
       const haystack = `${r.name} ${r.tags.join(' ')}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [query, mealFilter, favoritesOnly, patient.favorites]);
+  }, [query, mealFilter, favoritesOnly, patient.favorites, patient.savedRecipes]);
+
+  const savedById = useMemo(
+    () => new Map(patient.savedRecipes.map(r => [r.id, r])),
+    [patient.savedRecipes],
+  );
 
   const favoriteIds = useMemo(() => new Set(patient.favorites), [patient.favorites]);
 
@@ -213,6 +219,10 @@ export default function LibraryScreen() {
               <View style={styles.grid}>
                 {filtered.map(recipe => {
                   const isFav = patient.favorites.includes(recipe.id);
+                  const saved = savedById.get(recipe.id);
+                  const coachPhoto = saved?.photoUri;
+                  const isCoach = Boolean(saved);
+                  const staticImage = RECIPE_IMAGES[recipe.id];
                   return (
                     <LedgerCard
                       key={recipe.id}
@@ -221,12 +231,23 @@ export default function LibraryScreen() {
                       style={styles.gridCard}
                     >
                       <View>
-                        <Image
-                          source={RECIPE_IMAGES[recipe.id]}
-                          style={styles.cardImage}
-                          contentFit="cover"
-                          transition={120}
-                        />
+                        {coachPhoto || staticImage ? (
+                          <Image
+                            source={coachPhoto ? { uri: coachPhoto } : staticImage}
+                            style={styles.cardImage}
+                            contentFit="cover"
+                            transition={120}
+                          />
+                        ) : (
+                          <View style={[styles.cardImage, styles.cardImageEmpty, { backgroundColor: colors.sidebarBg }]}>
+                            <Feather name="image" size={18} color={colors.subtleText} />
+                          </View>
+                        )}
+                        {isCoach && (
+                          <View style={[styles.coachTag, { backgroundColor: colors.cobalt }]}>
+                            <Text style={[styles.coachTagText, { color: colors.primaryForeground }]}>COACH · AI</Text>
+                          </View>
+                        )}
                         <Pressable
                           testID={`recipe-fav-${recipe.id}`}
                           onPress={() => patient.toggleFavorite(recipe.id)}
@@ -598,6 +619,23 @@ const styles = StyleSheet.create({
   cardImage: {
     width: '100%',
     height: 108,
+  },
+  cardImageEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coachTag: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  coachTagText: {
+    fontSize: 7.5,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    fontFamily: 'Inter_700Bold',
   },
   starBtn: {
     position: 'absolute',

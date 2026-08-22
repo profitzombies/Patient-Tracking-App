@@ -89,6 +89,8 @@ export interface FoodItem {
   carbs: number;
   fat: number;
   category: string;
+  /** Optional photo (data URI) — set on foods saved from AI suggestions. */
+  photoUri?: string;
 }
 
 export interface RecipeIngredient {
@@ -113,6 +115,18 @@ export interface Recipe {
   steps: string[];
 }
 
+/**
+ * A coach (AI) suggestion the patient chose to keep. Nutrition numbers are
+ * model estimates — screens must label them as such. The generated photo is
+ * stored inline as a data URI so it survives restarts with the recipe.
+ */
+export interface SavedRecipe extends Recipe {
+  source: 'coach';
+  mode: 'recipe' | 'cravings';
+  savedAt: string; // ISO timestamp
+  photoUri?: string;
+  groceryList?: string[];
+}
 export interface MealLogEntry {
   id: string;
   dateKey: string;

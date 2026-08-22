@@ -18,3 +18,9 @@ The patient AI coach is a stateless SSE endpoint that grounds every reply in "kn
 **Why:** patients must only ever see official program wording for rules; paraphrase drift and cost-exhaustion are the two failure modes reviews actually caught.
 
 **How to apply:** when adding coach features (recipe cards, product suggestions), add new compartments or card kinds — do not inline program text into prompts, widen the router, or add unthrottled model endpoints.
+
+
+**Recipe/cravings structured turns (products instead use the marker protocol — see coach-card-attachments.md):**
+- Intent-gated turns return one schema-validated JSON object over the same SSE contract; never stream partial JSON.
+- Cravings enforcement must be deterministic and two-sided: a cited approved-item id must exist AND the display name must provably be that item; grocery lines come from official catalog names, never model free text. One corrective retry, then an honest decline — no silent substitution.
+- Suggestions stay session-only until an explicit save/log; AI numbers are always labeled estimates; treat save-vs-generated-photo as a race — whichever finishes last must attach the photo to the saved record.

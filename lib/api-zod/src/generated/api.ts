@@ -9,12 +9,13 @@ import * as zod from 'zod';
 
 
 /**
- * Stateless SSE endpoint. The client sends its in-session message history and receives a text/event-stream of assistant chunks ("data: {\"content\": \"...\"}" lines followed by "data: {\"done\": true}"). Patient program context is derived server-side from the demo seed; rate limits apply.
+ * Stateless SSE endpoint. The client sends its in-session message history and receives a text/event-stream of assistant chunks ("data: {\"content\": \"...\"}" lines followed by "data: {\"done\": true}"), optionally with one "data: {\"card\": {\"kind\", \"payload\"}}" event before done. Card kinds: "product" — a curated THINNR product suggestion ({\"id\", \"name\", \"line\", \"price\"}); "recipe" — a structured recipe suggestion emitted on meal-idea and craving turns, whose ingredients in cravings mode are validated server-side against the official Approved Foods list. Patient program context is derived server-side from the demo seed; rate limits apply.
  * @summary Stream an AI coach reply for a patient chat turn
  */
 export const coachChatBodyMessagesItemContentMax = 4000;
 
 export const coachChatBodyMessagesMax = 30;
+
 
 
 export const CoachChatBody = zod.object({
@@ -28,10 +29,31 @@ export const CoachChatResponse = zod.unknown()
 
 
 /**
+ * Generates a single appetizing dish photo for a coach recipe suggestion and returns it as a JPEG data URI, small enough for the client to persist alongside a saved recipe. Rate limited separately from chat.
+ * @summary Generate a dish photo for an AI-suggested recipe
+ */
+export const coachRecipeImageBodyNameMax = 80;
+
+export const coachRecipeImageBodyDescriptionMax = 200;
+
+
+
+export const CoachRecipeImageBody = zod.object({
+  "name": zod.string().min(1).max(coachRecipeImageBodyNameMax),
+  "description": zod.string().max(coachRecipeImageBodyDescriptionMax).optional()
+})
+
+export const CoachRecipeImageResponse = zod.object({
+  "image": zod.string().describe('JPEG photo as a data URI')
+})
+
+
+/**
  * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
   "status": zod.string()
 })
+
 

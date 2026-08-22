@@ -38,6 +38,7 @@ function RootLayoutNav() {
       <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="recipe/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="ai-recipe/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="approved-foods" options={{ headerShown: false }} />
       <Stack.Screen name="restaurant-guide" options={{ headerShown: false }} />
       <Stack.Screen name="instructions" options={{ headerShown: false }} />

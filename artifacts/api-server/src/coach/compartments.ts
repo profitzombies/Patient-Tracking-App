@@ -337,3 +337,4 @@ export const COMPARTMENTS: Compartment[] = [
     load: cached("product-catalog", productGroundingText),
   },
 ];
+

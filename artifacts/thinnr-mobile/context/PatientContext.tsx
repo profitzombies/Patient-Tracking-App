@@ -34,6 +34,7 @@ import {
   type MealLogEntry,
   type MealSlot,
   type ProgressPhoto,
+  type SavedRecipe,
 } from '@/data/patient-data';
 
 const STORAGE_KEY = 'thinnr_patient_state_v1';
@@ -73,6 +74,7 @@ interface PersistedState {
   photos: ProgressPhoto[];
   favorites: string[];
   customFoods: FoodItem[];
+  savedRecipes: SavedRecipe[];
   recents: string[];
   targetOverrides: Partial<DailyTargets>;
 }
@@ -85,6 +87,7 @@ const EMPTY_STATE: PersistedState = {
   photos: [],
   favorites: [],
   customFoods: [],
+  savedRecipes: [],
   recents: [],
   targetOverrides: {},
 };
@@ -105,6 +108,7 @@ interface PatientContextValue {
   targets: DailyTargets;
   favorites: string[];
   customFoods: FoodItem[];
+  savedRecipes: SavedRecipe[];
   allFoods: FoodItem[];
   recents: string[];
   photos: ProgressPhoto[];
@@ -124,6 +128,9 @@ interface PatientContextValue {
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
   removeCustomFood: (id: string) => Promise<void>;
+  addSavedRecipe: (recipe: Omit<SavedRecipe, 'id'>) => Promise<SavedRecipe>;
+  setCustomFoodPhoto: (id: string, photoUri: string) => Promise<void>;
+  setSavedRecipePhoto: (id: string, photoUri: string) => Promise<void>;
   setTargets: (partial: Partial<DailyTargets>) => Promise<void>;
   restoreEntry: (entry: MealLogEntry) => Promise<void>;
 }
@@ -350,6 +357,42 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [commit, runSerialized]);
 
+  // Keeps an AI suggestion permanently (Library > Recipes). Stored whole —
+  // including the generated photo data URI — so it survives restarts exactly
+  // like custom foods do.
+  const addSavedRecipe = useCallback(async (recipe: Omit<SavedRecipe, 'id'>): Promise<SavedRecipe> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await hydrationGate.current!.promise;
+    const prev = stateRef.current;
+    const full: SavedRecipe = { ...recipe, id: nextId('airec') };
+    await commit({ ...prev, savedRecipes: [...prev.savedRecipes, full] });
+    return full;
+  }, [commit]);
+
+  // Photo backfill for AI suggestions saved while their dish photo was still
+  // generating: patch just the photo onto the already-persisted record. No
+  // haptics — these fire programmatically when generation resolves, not from
+  // a user gesture.
+  const setCustomFoodPhoto = useCallback(async (id: string, photoUri: string): Promise<void> => {
+    await hydrationGate.current!.promise;
+    const prev = stateRef.current;
+    if (!prev.customFoods.some(f => f.id === id)) return;
+    await commit({
+      ...prev,
+      customFoods: prev.customFoods.map(f => (f.id === id ? { ...f, photoUri } : f)),
+    });
+  }, [commit]);
+
+  const setSavedRecipePhoto = useCallback(async (id: string, photoUri: string): Promise<void> => {
+    await hydrationGate.current!.promise;
+    const prev = stateRef.current;
+    if (!prev.savedRecipes.some(r => r.id === id)) return;
+    await commit({
+      ...prev,
+      savedRecipes: prev.savedRecipes.map(r => (r.id === id ? { ...r, photoUri } : r)),
+    });
+  }, [commit]);
+
   const setTargets = useCallback(async (partial: Partial<DailyTargets>): Promise<void> => {
     await Haptics.selectionAsync();
     await hydrationGate.current!.promise;
@@ -421,6 +464,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       targets,
       favorites: state.favorites,
       customFoods: state.customFoods,
+      savedRecipes: state.savedRecipes,
       allFoods,
       recents: state.recents,
       photos,
@@ -441,6 +485,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addCustomFood,
       updateCustomFood,
       removeCustomFood,
+      addSavedRecipe,
+      setCustomFoodPhoto,
+      setSavedRecipePhoto,
       setTargets,
     }),
     [
@@ -448,6 +495,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       targets,
       state.favorites,
       state.customFoods,
+      state.savedRecipes,
       allFoods,
       state.recents,
       photos,
@@ -468,6 +516,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addCustomFood,
       updateCustomFood,
       removeCustomFood,
+      addSavedRecipe,
+      setCustomFoodPhoto,
+      setSavedRecipePhoto,
       setTargets,
     ],
   );

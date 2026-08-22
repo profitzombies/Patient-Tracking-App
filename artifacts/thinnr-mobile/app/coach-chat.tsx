@@ -22,8 +22,10 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { CoachCardSlot } from '@/components/coach/CoachCardSlot';
-// Registers the "product" card renderer into the card slot (side effect).
+// Side-effect imports: register the "product" and "recipe" card renderers
+// into the card slot.
 import '@/components/coach/ProductSuggestionCard';
+import '@/components/coach/RecipeSuggestionCard';
 import { useColors } from '@/hooks/useColors';
 import { useCoachChat, type CoachMessage } from '@/context/CoachChatContext';
 
@@ -31,6 +33,7 @@ const STARTER_PROMPTS = [
   'What should I eat today?',
   'Is grapefruit approved?',
   'Give me a dinner idea for tonight',
+  "I'm craving something sweet",
   'What do I order at a restaurant?',
 ];
 

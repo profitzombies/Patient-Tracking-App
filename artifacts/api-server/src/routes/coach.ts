@@ -7,6 +7,8 @@ import { demoPatientContext } from "../coach/demo-patient";
 import { acquireChatSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
 import { ProductMarkerFilter } from "../coach/product-marker";
+import { detectRecipeIntent } from "../coach/intent";
+import { generateRecipeTurn } from "../coach/recipe";
 
 const router: IRouter = Router();
 
@@ -63,6 +65,31 @@ router.post("/coach/chat", async (req, res) => {
     res.on("close", () => abort.abort());
 
     try {
+      // Meal-idea and craving turns switch to the structured JSON pipeline:
+      // one non-streaming call that yields a short reply plus a validated
+      // recipe card (cravings: approved-foods-only, enforced server-side).
+      // Recipe turns use their own prompt, so no product block applies there.
+      const intent = detectRecipeIntent(latest.content);
+      if (intent) {
+        req.log.info({ intent }, "coach recipe turn");
+        const result = await generateRecipeTurn({
+          mode: intent,
+          history: history.map((m) => ({ role: m.role, content: m.content })),
+          compartments: selection.compartments,
+          patient: patientContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: result.reply })}\n\n`);
+          if (result.card) {
+            res.write(`data: ${JSON.stringify({ card: result.card })}\n\n`);
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        }
+        return;
+      }
+
       const stream = await openai.chat.completions.create(
         {
           model: "gpt-5.6-terra",

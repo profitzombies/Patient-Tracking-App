@@ -139,8 +139,22 @@ export default function LogFoodScreen() {
       fat: recipe.fat,
       approved: false,
     }));
-    return [...foods, ...recipes];
-  }, [patient.allFoods]);
+    // Recipes saved from coach (AI) suggestions log like any other recipe;
+    // their nutrition numbers are model estimates, so say so in the sub.
+    const savedRecipes: LoggableItem[] = patient.savedRecipes.map(recipe => ({
+      refId: recipe.id,
+      kind: 'recipe',
+      name: recipe.name,
+      sub: 'Coach recipe · AI estimate',
+      serving: '1 serving',
+      calories: recipe.calories,
+      protein: recipe.protein,
+      carbs: recipe.carbs,
+      fat: recipe.fat,
+      approved: false,
+    }));
+    return [...foods, ...savedRecipes, ...recipes];
+  }, [patient.allFoods, patient.savedRecipes]);
 
   const byId = useMemo(() => new Map(allItems.map(item => [item.refId, item])), [allItems]);
 

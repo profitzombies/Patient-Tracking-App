@@ -108,6 +108,9 @@ export default function CreateFoodScreen() {
         protein: Math.round(proteinVal),
         carbs: Math.round(carbsVal),
         fat: Math.round(fatVal),
+        // updateCustomFood rebuilds from the payload, so carry the AI dish
+        // photo (foods saved from coach suggestions) through edits.
+        ...(editingFood?.photoUri ? { photoUri: editingFood.photoUri } : {}),
       };
       if (editingFood) {
         await patient.updateCustomFood(editingFood.id, payload);

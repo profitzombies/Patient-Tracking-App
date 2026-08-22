@@ -9,4 +9,6 @@
 export * from './coachChatInput';
 export * from './coachChatMessage';
 export * from './coachChatMessageRole';
+export * from './coachRecipeImageInput';
+export * from './coachRecipeImageResult';
 export * from './healthStatus';

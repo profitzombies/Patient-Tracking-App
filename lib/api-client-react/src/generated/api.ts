@@ -21,6 +21,8 @@ import type {
 
 import type {
   CoachChatInput,
+  CoachRecipeImageInput,
+  CoachRecipeImageResult,
   HealthStatus
 } from './api.schemas';
 
@@ -33,6 +35,7 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
 
 
 const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKey: K } => {
@@ -53,11 +56,13 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
 export const getCoachChatUrl = () => {
 
 
+
+
   return `/api/coach/chat`
 }
 
 /**
- * Stateless SSE endpoint. The client sends its in-session message history and receives a text/event-stream of assistant chunks ("data: {\"content\": \"...\"}" lines followed by "data: {\"done\": true}"). Patient program context is derived server-side from the demo seed; rate limits apply.
+ * Stateless SSE endpoint. The client sends its in-session message history and receives a text/event-stream of assistant chunks ("data: {\"content\": \"...\"}" lines followed by "data: {\"done\": true}"), optionally with one "data: {\"card\": {\"kind\", \"payload\"}}" event before done. Card kinds: "product" — a curated THINNR product suggestion ({\"id\", \"name\", \"line\", \"price\"}); "recipe" — a structured recipe suggestion emitted on meal-idea and craving turns, whose ingredients in cravings mode are validated server-side against the official Approved Foods list. Patient program context is derived server-side from the demo seed; rate limits apply.
  * @summary Stream an AI coach reply for a patient chat turn
  */
 export const coachChat = async (coachChatInput: CoachChatInput, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
@@ -72,6 +77,9 @@ export const coachChat = async (coachChatInput: CoachChatInput, options?: Parame
 );}
 
 
+
+
+
 export const getCoachChatMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachChat>>, TError,{data: BodyType<CoachChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof coachChat>>, TError,{data: BodyType<CoachChatInput>}, TContext> => {
@@ -84,11 +92,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachChat>>, {data: BodyType<CoachChatInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  coachChat(data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -111,7 +125,81 @@ export const useCoachChat = <TError = ErrorType<void>,
       return useMutation(getCoachChatMutationOptions(options));
     }
 
+export const getCoachRecipeImageUrl = () => {
+
+
+
+
+  return `/api/coach/recipe-image`
+}
+
+/**
+ * Generates a single appetizing dish photo for a coach recipe suggestion and returns it as a JPEG data URI, small enough for the client to persist alongside a saved recipe. Rate limited separately from chat.
+ * @summary Generate a dish photo for an AI-suggested recipe
+ */
+export const coachRecipeImage = async (coachRecipeImageInput: CoachRecipeImageInput, options?: Parameters<typeof customFetch>[1]): Promise<CoachRecipeImageResult> => {
+
+  return customFetch<CoachRecipeImageResult>(getCoachRecipeImageUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(coachRecipeImageInput)
+  }
+);}
+
+
+
+
+
+export const getCoachRecipeImageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachRecipeImage>>, TError,{data: BodyType<CoachRecipeImageInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof coachRecipeImage>>, TError,{data: BodyType<CoachRecipeImageInput>}, TContext> => {
+
+const mutationKey = ['coachRecipeImage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachRecipeImage>>, {data: BodyType<CoachRecipeImageInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  coachRecipeImage(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CoachRecipeImageMutationResult = NonNullable<Awaited<ReturnType<typeof coachRecipeImage>>>
+    export type CoachRecipeImageMutationBody = BodyType<CoachRecipeImageInput>
+    export type CoachRecipeImageMutationError = ErrorType<void>
+
+    /**
+ * @summary Generate a dish photo for an AI-suggested recipe
+ */
+export const useCoachRecipeImage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachRecipeImage>>, TError,{data: BodyType<CoachRecipeImageInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof coachRecipeImage>>,
+        TError,
+        {data: BodyType<CoachRecipeImageInput>},
+        TContext
+      > => {
+      return useMutation(getCoachRecipeImageMutationOptions(options));
+    }
+
 export const getHealthCheckUrl = () => {
+
+
 
 
   return `/api/healthz`
@@ -133,6 +221,9 @@ export const healthCheck = async ( options?: Parameters<typeof customFetch>[1]):
 );}
 
 
+
+
+
 export const getHealthCheckQueryKey = () => {
     return [
     `/api/healthz`
@@ -148,7 +239,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getHealthCheckQueryKey();
 
 
+
     const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheck>>> = ({ signal }) => healthCheck({ signal, ...requestOptions });
+
+
+
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData> & { queryKey: QueryKey }
@@ -173,4 +268,10 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
 

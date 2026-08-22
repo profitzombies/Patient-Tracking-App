@@ -12,12 +12,30 @@ export interface PatientContext {
  * characters that could fake structure (tags, backticks), collapse
  * whitespace, and clamp length.
  */
-function sanitizeInline(value: string, maxLength: number): string {
+export function sanitizeInline(value: string, maxLength: number): string {
   return value
     .replace(/[<>`]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+/** Verbatim grounding sources wrapped in <source> blocks. */
+export function sourcesBlock(compartments: Compartment[]): string {
+  return compartments
+    .map(
+      (c) =>
+        `<source id="${c.id}" title="${c.title}">\n${c.load()}\n</source>`,
+    )
+    .join("\n\n");
+}
+
+/** One-line patient framing shared by the plain chat and recipe prompts. */
+export function patientContextLine(patient: PatientContext): string {
+  const firstName = sanitizeInline(patient.firstName, 60) || "the patient";
+  const phaseName = sanitizeInline(patient.phaseName, 80) || "current";
+  const programDay = Math.max(0, Math.min(2000, Math.round(patient.programDay)));
+  return `Patient context: ${firstName} is on day ${programDay} of the THINNR program, currently in the ${phaseName} phase. Answer for this day and phase.`;
 }
 
 /**
@@ -67,19 +85,9 @@ export function buildSystemPrompt(
   patient: PatientContext,
   offeredProducts: CatalogProduct[] = [],
 ): string {
-  const firstName = sanitizeInline(patient.firstName, 60) || "the patient";
-  const phaseName = sanitizeInline(patient.phaseName, 80) || "current";
-  const programDay = Math.max(0, Math.min(2000, Math.round(patient.programDay)));
-  const sources = compartments
-    .map(
-      (c) =>
-        `<source id="${c.id}" title="${c.title}">\n${c.load()}\n</source>`,
-    )
-    .join("\n\n");
-
   return `You are the THINNR Coach, an AI assistant inside the THINNR patient app.
 
-Patient context: ${firstName} is on day ${programDay} of the THINNR program, currently in the ${phaseName} phase. Answer for this day and phase.
+${patientContextLine(patient)}
 
 Style rules:
 - Reply like a short text message: 1 to 3 sentences. Plain text only, no markdown, no bullet lists, no headings.
@@ -95,5 +103,5 @@ Grounding rules:
 
 THINNR program materials for this question:
 
-${sources}${buildProductBlock(offeredProducts)}`;
+${sourcesBlock(compartments)}${buildProductBlock(offeredProducts)}`;
 }

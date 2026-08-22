@@ -10,6 +10,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { FavoriteStar } from '@/components/patient/FavoriteStar';
 import { Divider, EmptyState, LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
@@ -412,7 +413,7 @@ export default function LogFoodScreen() {
                   : scope === 'recent' && !query
                     ? 'Foods you log will show up here for fast re-adding.'
                     : scope === 'favorites' && !query
-                      ? 'Star recipes in the Library tab to see them here.'
+                      ? 'Tap the star on any food or recipe to save it here for one-tap logging.'
                       : 'Try a different search, or quick add it above.'
               }
             />
@@ -447,6 +448,7 @@ export default function LogFoodScreen() {
                         {item.sub} · {item.serving} · P {item.protein}g
                       </Text>
                     </View>
+                    <FavoriteStar id={item.refId} name={item.name} testID={`logfood-fav-${item.refId}`} />
                     <Text style={[styles.itemCals, { color: colors.navyLight }]}>{item.calories}</Text>
                     <Feather
                       name={isSelected ? 'check-square' : 'plus-square'}

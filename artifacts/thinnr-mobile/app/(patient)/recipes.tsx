@@ -1,8 +1,9 @@
 /**
  * Library — MyFitnessPal-style food & recipe library. The Recipes view keeps
  * the searchable recipe grid; the Foods view browses every food (seeded +
- * My Foods) with inline add-to-diary; the Approved Foods button opens the
- * official program list. Approved foods carry the checkmark badge.
+ * My Foods) with star-to-favorite and inline add-to-diary; the Approved
+ * Foods button opens the official program list. Approved foods carry the
+ * checkmark badge.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -12,6 +13,7 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { FavoriteStar } from '@/components/patient/FavoriteStar';
 import { FoodAddPanel } from '@/components/patient/FoodAddPanel';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { Divider, EmptyState, LedgerCard, PillSelector, SectionHeader } from '@/components/ui/LedgerPrimitives';
@@ -353,6 +355,7 @@ export default function LibraryScreen() {
                                 {food.brand ?? food.category} · {food.serving} · P {food.protein}g
                               </Text>
                             </View>
+                            <FavoriteStar id={food.id} name={food.name} testID={`food-fav-${food.id}`} />
                             <Text style={[styles.foodCals, { color: colors.navyLight }]}>{food.calories}</Text>
                             <Feather
                               name={isSelected ? 'chevron-up' : 'plus-square'}

@@ -11,6 +11,7 @@ import { Feather } from '@expo/vector-icons';
 import { Redirect, router, usePathname } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { FavoriteStar } from '@/components/patient/FavoriteStar';
 import { FoodAddPanel } from '@/components/patient/FoodAddPanel';
 import { Divider, EmptyState, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
@@ -256,11 +257,18 @@ export default function ApprovedFoodsScreen() {
                               <Text style={[styles.itemPortion, { color: colors.labelText }]}>{inlinePortion}</Text>
                             ) : null}
                             {food && (
-                              <Feather
-                                name={isSelected ? 'chevron-up' : 'plus-square'}
-                                size={16}
-                                color={isSelected ? colors.cobalt : colors.subtleText}
-                              />
+                              <>
+                                <FavoriteStar
+                                  id={food.id}
+                                  name={item.name}
+                                  testID={`approved-fav-${item.id}`}
+                                />
+                                <Feather
+                                  name={isSelected ? 'chevron-up' : 'plus-square'}
+                                  size={16}
+                                  color={isSelected ? colors.cobalt : colors.subtleText}
+                                />
+                              </>
                             )}
                           </Pressable>
                           {isSelected && food && (

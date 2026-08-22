@@ -11,6 +11,7 @@ import { LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useOnboarding, useOnboardingFlow } from '@/context/OnboardingContext';
 import {
   allPasswordChecksPass,
+  formatPhoneNumber,
   isBlockedPassword,
   isValidContact,
   maskContact,
@@ -89,7 +90,9 @@ export function ContactStep() {
       <LedgerInput
         testID="ob-contact-input"
         value={answers.contactValue}
-        onChangeText={v => patch({ contactValue: v })}
+        onChangeText={v => patch({
+          contactValue: answers.contactMethod === 'phone' ? formatPhoneNumber(v) : v,
+        })}
         placeholder={answers.contactMethod === 'phone' ? '(555) 123-4567' : 'you@example.com'}
         keyboardType={answers.contactMethod === 'phone' ? 'phone-pad' : 'email-address'}
         autoCapitalize="none"

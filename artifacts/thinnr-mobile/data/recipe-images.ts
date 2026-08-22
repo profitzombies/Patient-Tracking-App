@@ -27,6 +27,9 @@ export const RECIPE_IMAGES: Record<string, ImageSourcePropType> = {
   rec_protein_smoothie: require('@/assets/images/recipes/protein-smoothie.jpg'),
 };
 
+/** Full-bleed illustrated hero for the patient home (Today) screen. */
+export const HOME_HERO_IMAGE: ImageSourcePropType = require('@/assets/images/patient/home-hero.jpg');
+
 export const PROGRESS_IMAGES: Record<string, ImageSourcePropType> = {
   photo_baseline: require('@/assets/images/progress/baseline.jpg'),
   photo_week2: require('@/assets/images/progress/week-2.jpg'),

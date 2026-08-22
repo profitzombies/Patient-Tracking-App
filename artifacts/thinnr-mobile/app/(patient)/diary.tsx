@@ -23,6 +23,7 @@ import {
   MEAL_SLOTS,
   shiftDateKey,
   TODAY_KEY,
+  type MealLogEntry,
   type MealSlot,
 } from '@/data/patient-data';
 
@@ -32,11 +33,36 @@ export default function DiaryScreen() {
   const patient = usePatient();
   const [dateKey, setDateKey] = useState(TODAY_KEY);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Last removed entry, kept around briefly so the deletion can be undone.
+  // A fresh object per removal restarts the auto-dismiss timer below.
+  const [lastRemoved, setLastRemoved] = useState<{ entry: MealLogEntry } | null>(null);
 
   // Collapse any open edit panel when the day changes.
   useEffect(() => {
     setEditingId(null);
   }, [dateKey]);
+
+  useEffect(() => {
+    if (!lastRemoved) return;
+    const timer = setTimeout(() => setLastRemoved(null), UNDO_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [lastRemoved]);
+
+  const handleRemove = async (entry: MealLogEntry) => {
+    setEditingId(cur => (cur === entry.id ? null : cur));
+    // Arm the undo affordance only after the deletion has committed, so a
+    // fast Undo tap always acts on the recorded deletion (restoreEntry
+    // no-ops unless the entry is actually gone).
+    await patient.removeEntry(entry.id);
+    setLastRemoved({ entry });
+  };
+
+  const handleUndo = () => {
+    if (!lastRemoved) return;
+    const { entry } = lastRemoved;
+    setLastRemoved(null);
+    void patient.restoreEntry(entry);
+  };
 
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
 
@@ -151,7 +177,9 @@ export default function DiaryScreen() {
                         </Pressable>
                         <Pressable
                           testID={`diary-remove-${entry.id}`}
-                          onPress={() => patient.removeEntry(entry.id)}
+                          onPress={() => {
+                            void handleRemove(entry);
+                          }}
                           hitSlop={8}
                           style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.6 }]}
                         >
@@ -212,6 +240,37 @@ export default function DiaryScreen() {
 
         <SyntheticDisclaimer />
       </ScrollView>
+
+      {/* ── Undo snackbar (floats above the tab bar) ── */}
+      {lastRemoved && (
+        <View
+          testID="diary-undo-snackbar"
+          style={[
+            styles.snackbar,
+            {
+              backgroundColor: colors.navy,
+              borderColor: colors.navyLight,
+              bottom: (Platform.OS === 'web' ? 84 : insets.bottom + 84) + 12,
+            },
+          ]}
+        >
+          <Text style={[styles.snackbarText, { color: colors.paperCard }]} numberOfLines={1}>
+            Removed “{lastRemoved.entry.name}”
+          </Text>
+          <Pressable
+            testID="diary-undo"
+            onPress={handleUndo}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.undoBtn,
+              { borderColor: colors.cobaltMuted },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Text style={[styles.undoText, { color: colors.paperCard }]}>UNDO</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -336,4 +395,35 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontFamily: 'Inter_400Regular',
   },
+  snackbar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingLeft: 14,
+    paddingRight: 8,
+    paddingVertical: 8,
+  },
+  snackbarText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  undoBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  undoText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    fontFamily: 'Inter_700Bold',
+  },
 });
+
+const UNDO_WINDOW_MS = 5000;

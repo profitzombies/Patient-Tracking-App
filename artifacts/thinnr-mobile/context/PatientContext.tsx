@@ -18,6 +18,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { rescaleEntrySnapshot } from '@/data/diary-entries';
+import { applyRemoveEntry, applyRestoreEntry } from '@/data/diary-entry-state';
 import {
   buildSeedCheckIns,
   buildSeedEntries,
@@ -39,6 +40,8 @@ const STORAGE_KEY = 'thinnr_patient_state_v1';
 
 // Seeds are deterministic — compute once per JS runtime.
 const SEED_ENTRIES = buildSeedEntries();
+const SEED_ENTRY_IDS = new Set(SEED_ENTRIES.map(e => e.id));
+const isSeedEntryId = (id: string) => SEED_ENTRY_IDS.has(id);
 const SEED_WATER = buildSeedWater();
 const SEED_CHECKINS = buildSeedCheckIns();
 
@@ -122,6 +125,7 @@ interface PatientContextValue {
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
   removeCustomFood: (id: string) => Promise<void>;
   setTargets: (partial: Partial<DailyTargets>) => Promise<void>;
+  restoreEntry: (entry: MealLogEntry) => Promise<void>;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -148,6 +152,21 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     await writePersistedState(next);
   }, []);
 
+  // Every read-modify-write mutation runs through a single promise chain, so
+  // it reads state only after the previous commit has finished. Without this,
+  // two in-flight mutations (e.g. a delete and a fast Undo) could both read
+  // the same pre-delete state and the later commit would silently drop the
+  // earlier one's write.
+  const mutationChain = useRef<Promise<void>>(Promise.resolve());
+  const runSerialized = useCallback(<T,>(mutate: () => Promise<T>): Promise<T> => {
+    const run = mutationChain.current.then(mutate);
+    mutationChain.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }, []);
+
   useEffect(() => {
     readPersistedState()
       .then(raw => {
@@ -172,24 +191,47 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const addEntry = useCallback(async (entry: Omit<MealLogEntry, 'id'>): Promise<void> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    const full: MealLogEntry = { ...entry, id: nextId('log') };
-    const recents = entry.refId
-      ? [entry.refId, ...prev.recents.filter(r => r !== entry.refId)].slice(0, 12)
-      : prev.recents;
-    await commit({ ...prev, addedEntries: [...prev.addedEntries, full], recents });
-  }, [commit]);
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const full: MealLogEntry = { ...entry, id: nextId('log') };
+      const recents = entry.refId
+        ? [entry.refId, ...prev.recents.filter(r => r !== entry.refId)].slice(0, 12)
+        : prev.recents;
+      await commit({ ...prev, addedEntries: [...prev.addedEntries, full], recents });
+    });
+  }, [commit, runSerialized]);
 
   const removeEntry = useCallback(async (id: string): Promise<void> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    const isAdded = prev.addedEntries.some(e => e.id === id);
-    const next: PersistedState = isAdded
-      ? { ...prev, addedEntries: prev.addedEntries.filter(e => e.id !== id) }
-      : { ...prev, removedEntryIds: [...prev.removedEntryIds, id] };
-    await commit(next);
-  }, [commit]);
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const next = applyRemoveEntry(prev, id, isSeedEntryId);
+      if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
+        return; // nothing to delete (e.g. the second tap of a double-tapped remove)
+      }
+      await commit({ ...prev, ...next });
+    });
+  }, [commit, runSerialized]);
+
+  // Undo for removeEntry. Seeded entries were tombstoned, so restoring drops
+  // the tombstone and the original seeded row reappears in place. User-logged
+  // entries were filtered out of addedEntries, so the exact snapshot is
+  // re-added under its original id. Only an actual recorded deletion is
+  // undone: double-taps, or an Undo somehow arriving before its deletion,
+  // no-op instead of appending a duplicate (see applyRestoreEntry).
+  const restoreEntry = useCallback(async (entry: MealLogEntry): Promise<void> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const next = applyRestoreEntry(prev, entry, isSeedEntryId);
+      if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
+        return; // nothing to undo
+      }
+      await commit({ ...prev, ...next });
+    });
+  }, [commit, runSerialized]);
 
   // Fixes a logged entry in place (meal slot, quantity, and/or day). Macros
   // rescale from the entry's own logged snapshot — never the current library
@@ -199,71 +241,83 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const updateEntry = useCallback(async (id: string, changes: { meal: MealSlot; quantity: number; dateKey?: string }): Promise<void> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    const added = prev.addedEntries.find(e => e.id === id);
-    const source = added ?? SEED_ENTRIES.find(e => e.id === id);
-    if (!source || prev.removedEntryIds.includes(id)) return;
-    const updated: MealLogEntry = {
-      ...source,
-      ...rescaleEntrySnapshot(source, changes.quantity),
-      meal: changes.meal,
-      dateKey: changes.dateKey ?? source.dateKey,
-    };
-    const next: PersistedState = added
-      ? { ...prev, addedEntries: prev.addedEntries.map(e => (e.id === id ? updated : e)) }
-      : {
-          ...prev,
-          removedEntryIds: [...prev.removedEntryIds, id],
-          addedEntries: [...prev.addedEntries, { ...updated, id: nextId('log') }],
-        };
-    await commit(next);
-  }, [commit]);
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const added = prev.addedEntries.find(e => e.id === id);
+      const source = added ?? SEED_ENTRIES.find(e => e.id === id);
+      if (!source || prev.removedEntryIds.includes(id)) return;
+      const updated: MealLogEntry = {
+        ...source,
+        ...rescaleEntrySnapshot(source, changes.quantity),
+        meal: changes.meal,
+        dateKey: changes.dateKey ?? source.dateKey,
+      };
+      const next: PersistedState = added
+        ? { ...prev, addedEntries: prev.addedEntries.map(e => (e.id === id ? updated : e)) }
+        : {
+            ...prev,
+            removedEntryIds: [...prev.removedEntryIds, id],
+            addedEntries: [...prev.addedEntries, { ...updated, id: nextId('log') }],
+          };
+      await commit(next);
+    });
+  }, [commit, runSerialized]);
 
   const setWater = useCallback(async (dateKey: string, oz: number): Promise<void> => {
     await Haptics.selectionAsync();
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    const clamped = Math.max(0, Math.min(200, Math.round(oz)));
-    await commit({ ...prev, waterOverrides: { ...prev.waterOverrides, [dateKey]: clamped } });
-  }, [commit]);
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const clamped = Math.max(0, Math.min(200, Math.round(oz)));
+      await commit({ ...prev, waterOverrides: { ...prev.waterOverrides, [dateKey]: clamped } });
+    });
+  }, [commit, runSerialized]);
 
   const addCheckIn = useCallback(async (checkIn: Omit<CheckIn, 'id'>): Promise<void> => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    const full: CheckIn = { ...checkIn, id: nextId('ci') };
-    await commit({
-      ...prev,
-      addedCheckIns: [...prev.addedCheckIns.filter(c => c.dateKey !== checkIn.dateKey), full],
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const full: CheckIn = { ...checkIn, id: nextId('ci') };
+      await commit({
+        ...prev,
+        addedCheckIns: [...prev.addedCheckIns.filter(c => c.dateKey !== checkIn.dateKey), full],
+      });
     });
-  }, [commit]);
+  }, [commit, runSerialized]);
 
   const addPhoto = useCallback(async (photo: { dateKey: string; uri: string; label: string }): Promise<void> => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    const full: ProgressPhoto = { id: nextId('photo'), source: 'user', ...photo };
-    await commit({ ...prev, photos: [...prev.photos, full] });
-  }, [commit]);
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const full: ProgressPhoto = { id: nextId('photo'), source: 'user', ...photo };
+      await commit({ ...prev, photos: [...prev.photos, full] });
+    });
+  }, [commit, runSerialized]);
 
   const toggleFavorite = useCallback(async (id: string): Promise<void> => {
     await Haptics.selectionAsync();
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    const favorites = prev.favorites.includes(id)
-      ? prev.favorites.filter(f => f !== id)
-      : [...prev.favorites, id];
-    await commit({ ...prev, favorites });
-  }, [commit]);
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const favorites = prev.favorites.includes(id)
+        ? prev.favorites.filter(f => f !== id)
+        : [...prev.favorites, id];
+      await commit({ ...prev, favorites });
+    });
+  }, [commit, runSerialized]);
 
   const addCustomFood = useCallback(async (food: Omit<FoodItem, 'id' | 'category'>): Promise<FoodItem> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    const full: FoodItem = { ...food, id: nextId('custom'), category: 'My Foods' };
-    await commit({ ...prev, customFoods: [...prev.customFoods, full] });
-    return full;
-  }, [commit]);
+    return runSerialized(async () => {
+      const prev = stateRef.current;
+      const full: FoodItem = { ...food, id: nextId('custom'), category: 'My Foods' };
+      await commit({ ...prev, customFoods: [...prev.customFoods, full] });
+      return full;
+    });
+  }, [commit, runSerialized]);
 
   // Rebuilds the food from the payload (not a merge) so cleared optional
   // fields like brand actually drop. Diary entries are untouched: they
@@ -271,33 +325,39 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const updateCustomFood = useCallback(async (id: string, food: Omit<FoodItem, 'id' | 'category'>): Promise<void> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    await commit({
-      ...prev,
-      customFoods: prev.customFoods.map(f => (f.id === id ? { ...food, id, category: 'My Foods' } : f)),
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      await commit({
+        ...prev,
+        customFoods: prev.customFoods.map(f => (f.id === id ? { ...food, id, category: 'My Foods' } : f)),
+      });
     });
-  }, [commit]);
+  }, [commit, runSerialized]);
 
   // Existing diary entries keep their logged values; only the library item
   // (plus any dangling favorite/recent references) goes away.
   const removeCustomFood = useCallback(async (id: string): Promise<void> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    await commit({
-      ...prev,
-      customFoods: prev.customFoods.filter(f => f.id !== id),
-      favorites: prev.favorites.filter(f => f !== id),
-      recents: prev.recents.filter(r => r !== id),
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      await commit({
+        ...prev,
+        customFoods: prev.customFoods.filter(f => f.id !== id),
+        favorites: prev.favorites.filter(f => f !== id),
+        recents: prev.recents.filter(r => r !== id),
+      });
     });
-  }, [commit]);
+  }, [commit, runSerialized]);
 
   const setTargets = useCallback(async (partial: Partial<DailyTargets>): Promise<void> => {
     await Haptics.selectionAsync();
     await hydrationGate.current!.promise;
-    const prev = stateRef.current;
-    await commit({ ...prev, targetOverrides: { ...prev.targetOverrides, ...partial } });
-  }, [commit]);
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      await commit({ ...prev, targetOverrides: { ...prev.targetOverrides, ...partial } });
+    });
+  }, [commit, runSerialized]);
 
   // ─── Merged projections ────────────────────────────────────────────────────
 
@@ -372,6 +432,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       checkInFor,
       addEntry,
       removeEntry,
+      restoreEntry,
       updateEntry,
       setWater,
       addCheckIn,
@@ -398,6 +459,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       checkInFor,
       addEntry,
       removeEntry,
+      restoreEntry,
       updateEntry,
       setWater,
       addCheckIn,

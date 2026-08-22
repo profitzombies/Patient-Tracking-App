@@ -318,6 +318,9 @@ function MessageBubble({ message }: { message: CoachMessage }) {
           ))}
         </View>
       )}
+      {message.stopped ? (
+        <Text style={[styles.stoppedLabel, { color: colors.subtleText }]}>STOPPED</Text>
+      ) : null}
       {message.card ? <CoachCardSlot card={message.card} /> : null}
     </View>
   );
@@ -491,6 +494,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontFamily: 'Inter_400Regular',
     fontStyle: 'italic',
+  },
+  stoppedLabel: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    fontFamily: 'Inter_700Bold',
+    marginTop: 7,
   },
   inputBar: {
     flexDirection: 'row',

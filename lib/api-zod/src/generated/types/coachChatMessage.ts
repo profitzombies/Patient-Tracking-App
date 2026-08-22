@@ -11,4 +11,6 @@ export interface CoachChatMessage {
   role: CoachChatMessageRole;
   /** @maxLength 4000 */
   content: string;
+  /** True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages. */
+  stopped?: boolean;
 }

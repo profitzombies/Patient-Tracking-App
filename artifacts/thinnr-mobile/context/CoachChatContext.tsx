@@ -29,6 +29,12 @@ export interface CoachMessage {
   role: 'user' | 'assistant';
   text: string;
   status: 'streaming' | 'done' | 'error';
+  /**
+   * True when the patient stopped this reply mid-stream: the kept text is an
+   * incomplete fragment. Carried into later requests so the server can tell
+   * the model the reply was interrupted (and used for the bubble's label).
+   */
+  stopped?: boolean;
   card?: CoachCard;
 }
 
@@ -38,8 +44,8 @@ interface CoachChatContextValue {
   send: (text: string) => void;
   /**
    * Aborts the in-flight reply: keeps whatever text already streamed as a
-   * finished message (drops a still-empty bubble) and unlocks the input.
-   * No-op when nothing is streaming.
+   * finished message flagged `stopped` (drops a still-empty bubble) and
+   * unlocks the input. No-op when nothing is streaming.
    */
   stop: () => void;
   /** Looks up an AI recipe suggestion received this session (by card id). */
@@ -98,7 +104,14 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
     const request: CoachRequestMessage[] = [...messagesRef.current, userMessage]
       .filter(m => m.status === 'done' && m.text.length > 0)
       .slice(-MAX_REQUEST_MESSAGES)
-      .map(m => ({ role: m.role, content: m.text }));
+      // Stopped replies stay in the history (the patient saw their text) but
+      // carry the flag through, so the server marks them as interrupted
+      // instead of letting the model continue a cut-off sentence.
+      .map(m =>
+        m.role === 'assistant' && m.stopped
+          ? { role: m.role, content: m.text, stopped: true }
+          : { role: m.role, content: m.text },
+      );
 
     setIsStreaming(true);
     setMessages(prev => [
@@ -170,13 +183,14 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
     controller?.abort();
     // Finalize locally — the aborted stream stays silent (no onDone/onError).
     // Single-flight means at most one message is mid-stream: keep its partial
-    // text as a finished reply, or drop the bubble if nothing arrived yet.
+    // text as a finished reply flagged `stopped` (so the next request marks
+    // it interrupted), or drop the bubble if nothing arrived yet.
     setMessages(current =>
       current.flatMap(m => {
         if (m.status !== 'streaming') return [m];
         const text = m.text.trimEnd();
         if (text.length === 0 && !m.card) return [];
-        return [{ ...m, status: 'done' as const, text }];
+        return [{ ...m, status: 'done' as const, text, stopped: true }];
       }),
     );
     inFlightRef.current = false;

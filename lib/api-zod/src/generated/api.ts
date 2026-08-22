@@ -21,7 +21,8 @@ export const coachChatBodyMessagesMax = 30;
 export const CoachChatBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant']),
-  "content": zod.string().max(coachChatBodyMessagesItemContentMax)
+  "content": zod.string().max(coachChatBodyMessagesItemContentMax),
+  "stopped": zod.boolean().optional().describe('True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages.')
 })).min(1).max(coachChatBodyMessagesMax)
 })
 

@@ -30,6 +30,38 @@ export function sourcesBlock(compartments: Compartment[]): string {
     .join("\n\n");
 }
 
+/**
+ * Note appended to an assistant reply the patient stopped mid-stream. It
+ * rides inside that history message when it is replayed to the model, so the
+ * model treats the fragment as unfinished — instead of continuing the
+ * cut-off sentence or citing half-stated guidance as settled.
+ */
+export const STOPPED_REPLY_NOTE =
+  "[Note: the patient stopped this reply before it finished, so it is incomplete and may end mid-sentence. Do not continue that text; if the topic comes up again, answer it fresh and complete.]";
+
+/** Chat-history message as accepted from the client (post zod validation). */
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+  /** Set by the client on assistant replies the patient aborted mid-stream. */
+  stopped?: boolean;
+}
+
+/**
+ * Maps client history to the messages replayed to the model, appending the
+ * interruption note to stopped assistant replies. The flag is ignored on
+ * user messages (patients cannot interrupt themselves) and on empty content.
+ */
+export function toModelMessages(
+  history: HistoryMessage[],
+): { role: "user" | "assistant"; content: string }[] {
+  return history.map((m) =>
+    m.role === "assistant" && m.stopped && m.content.length > 0
+      ? { role: m.role, content: `${m.content}\n\n${STOPPED_REPLY_NOTE}` }
+      : { role: m.role, content: m.content },
+  );
+}
+
 /** One-line patient framing shared by the plain chat and recipe prompts. */
 export function patientContextLine(patient: PatientContext): string {
   const firstName = sanitizeInline(patient.firstName, 60) || "the patient";

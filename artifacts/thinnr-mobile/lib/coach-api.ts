@@ -16,6 +16,12 @@ import { fetch as expoFetch } from 'expo/fetch';
 export interface CoachRequestMessage {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * Marks an assistant reply the patient stopped mid-stream. The server
+   * annotates flagged replies as interrupted before replaying them to the
+   * model, so the next answer never continues the cut-off sentence.
+   */
+  stopped?: boolean;
 }
 
 export interface CoachCardEvent {

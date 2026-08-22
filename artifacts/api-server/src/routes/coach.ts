@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { CoachChatBody } from "@workspace/api-zod";
 import { selectCompartments } from "../coach/select";
-import { buildSystemPrompt } from "../coach/prompt";
+import { buildSystemPrompt, toModelMessages } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
 import { acquireChatSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
@@ -56,6 +56,11 @@ router.post("/coach/chat", async (req, res) => {
     // client is never trusted for it.
     const patientContext = demoPatientContext();
 
+    // Replies the patient stopped mid-stream arrive flagged; annotate them
+    // once here so BOTH model pipelines (plain streaming and recipe turns)
+    // see the interruption note instead of a seemingly complete answer.
+    const modelHistory = toModelMessages(history);
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -74,7 +79,7 @@ router.post("/coach/chat", async (req, res) => {
         req.log.info({ intent }, "coach recipe turn");
         const result = await generateRecipeTurn({
           mode: intent,
-          history: history.map((m) => ({ role: m.role, content: m.content })),
+          history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
           signal: abort.signal,
@@ -102,7 +107,7 @@ router.post("/coach/chat", async (req, res) => {
               role: "system",
               content: buildSystemPrompt(selection.compartments, patientContext, offeredProducts),
             },
-            ...history.map((m) => ({ role: m.role, content: m.content })),
+            ...modelHistory,
           ],
         },
         { signal: abort.signal },

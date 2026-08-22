@@ -4,9 +4,10 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { isLiquidGlassAvailable } from 'expo-glass-effect';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
 import { SymbolView } from 'expo-symbols';
+import { useAppMode } from '@/context/AppModeContext';
 
 // iOS 26+ liquid glass native tabs
 function NativeTabLayout() {
@@ -144,6 +145,13 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
+  const { mode, hydrated } = useAppMode();
+
+  if (!hydrated) return null;
+  if (mode !== 'staff') {
+    return <Redirect href={mode === 'patient' ? '/today' : '/persona'} />;
+  }
+
   if (isLiquidGlassAvailable()) {
     return <NativeTabLayout />;
   }

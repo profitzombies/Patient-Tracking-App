@@ -1,2 +1,3 @@
 - [THINNR dashboard visual direction](dashboard-design-system-direction.md) — Use Cobalt Ledger as the approved visual foundation, with the earlier guided-operations hierarchy retained.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
+- [Image job handles expire — check disk first](image-job-handles.md) — media job awaits can reject after the files already landed; verify on disk before regenerating.

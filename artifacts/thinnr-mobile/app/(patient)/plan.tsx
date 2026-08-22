@@ -1,0 +1,398 @@
+/**
+ * Plan — program status, editable daily targets, product deliveries, and
+ * the care team connection.
+ */
+import React from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
+import { useColors } from '@/hooks/useColors';
+import { PatientHeader } from '@/components/patient/PatientHeader';
+import { Divider, LedgerCard, SectionHeader, StatusBadge } from '@/components/ui/LedgerPrimitives';
+import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
+import { usePatient } from '@/context/PatientContext';
+import {
+  DEFAULT_TARGETS,
+  ENROLLMENT_DAYS,
+  PATIENT_PRODUCTS,
+  PATIENT_PROFILE,
+  PATIENT_PROVIDER,
+  PATIENT_SUBSCRIPTION,
+  type DailyTargets,
+} from '@/data/patient-data';
+
+const formatISO = (iso: string, includeYear = false) =>
+  new Date(iso).toLocaleDateString('en-US', includeYear
+    ? { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }
+    : { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+interface TargetRowProps {
+  label: string;
+  unit: string;
+  value: number;
+  step: number;
+  min: number;
+  max: number;
+  testID: string;
+  onChange: (next: number) => void;
+}
+
+function TargetRow({ label, unit, value, step, min, max, testID, onChange }: TargetRowProps) {
+  const colors = useColors();
+  const dec = () => onChange(Math.max(min, value - step));
+  const inc = () => onChange(Math.min(max, value + step));
+  return (
+    <View style={styles.targetRow}>
+      <Text style={[styles.targetLabel, { color: colors.labelText }]}>{label.toUpperCase()}</Text>
+      <View style={styles.targetControls}>
+        <Pressable
+          testID={`${testID}-minus`}
+          onPress={dec}
+          disabled={value <= min}
+          style={({ pressed }) => [
+            styles.stepBtn,
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            value <= min && { opacity: 0.35 },
+          ]}
+        >
+          <Feather name="minus" size={13} color={colors.bodyText} />
+        </Pressable>
+        <Text style={[styles.targetValue, { color: colors.navy }]}>
+          {value.toLocaleString('en-US')}
+          <Text style={[styles.targetUnit, { color: colors.subtleText }]}> {unit}</Text>
+        </Text>
+        <Pressable
+          testID={`${testID}-plus`}
+          onPress={inc}
+          disabled={value >= max}
+          style={({ pressed }) => [
+            styles.stepBtn,
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            value >= max && { opacity: 0.35 },
+          ]}
+        >
+          <Feather name="plus" size={13} color={colors.bodyText} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+export default function PlanScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const patient = usePatient();
+
+  const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
+  const week = Math.ceil(ENROLLMENT_DAYS / 7);
+
+  const setTarget = (key: keyof DailyTargets) => (next: number) => {
+    patient.setTargets({ [key]: next });
+  };
+
+  const isDefaultTargets = (Object.keys(DEFAULT_TARGETS) as (keyof DailyTargets)[])
+    .every(key => patient.targets[key] === DEFAULT_TARGETS[key]);
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <PatientHeader title="My Plan" subtitle={PATIENT_PROFILE.carePlan.name.toUpperCase()} />
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
+        {/* ── Program status ── */}
+        <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
+          <View style={styles.programTopRow}>
+            <Text style={[styles.programName, { color: colors.navy }]}>{PATIENT_PROFILE.carePlan.name}</Text>
+            <StatusBadge status={PATIENT_PROFILE.stage} />
+          </View>
+          <Text style={[styles.programMeta, { color: colors.subtleText }]}>
+            Week {week} · Day {ENROLLMENT_DAYS} · Started {formatISO(PATIENT_PROFILE.startDate, true)}
+          </Text>
+          <Divider style={{ marginVertical: 12 }} />
+          <View style={styles.programDetailRow}>
+            <Feather name="check-square" size={14} color={colors.activeGreen} />
+            <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+              Six-week protocol completed — now in maintenance.
+            </Text>
+          </View>
+          <View style={styles.programDetailRow}>
+            <Feather name="target" size={14} color={colors.cobalt} />
+            <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+              {PATIENT_PROFILE.carePlan.focus}
+            </Text>
+          </View>
+          <View style={styles.programDetailRow}>
+            <Feather name="calendar" size={14} color={colors.cobalt} />
+            <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+              {PATIENT_PROFILE.carePlan.cadence} · Next: {PATIENT_PROFILE.carePlan.nextMilestone}
+            </Text>
+          </View>
+        </LedgerCard>
+
+        {/* ── Daily targets ── */}
+        <SectionHeader
+          label="Daily Targets"
+          action={isDefaultTargets ? undefined : {
+            label: 'Reset to plan',
+            onPress: () => patient.setTargets({ ...DEFAULT_TARGETS }),
+          }}
+          style={{ marginBottom: 8 }}
+        />
+        <LedgerCard style={{ paddingVertical: 4, marginBottom: 14 }}>
+          <TargetRow
+            label="Calories" unit="cal" testID="target-calories"
+            value={patient.targets.calories} step={50} min={1000} max={3000}
+            onChange={setTarget('calories')}
+          />
+          <Divider />
+          <TargetRow
+            label="Protein" unit="g" testID="target-protein"
+            value={patient.targets.protein} step={5} min={60} max={220}
+            onChange={setTarget('protein')}
+          />
+          <Divider />
+          <TargetRow
+            label="Carbs" unit="g" testID="target-carbs"
+            value={patient.targets.carbs} step={5} min={50} max={320}
+            onChange={setTarget('carbs')}
+          />
+          <Divider />
+          <TargetRow
+            label="Fat" unit="g" testID="target-fat"
+            value={patient.targets.fat} step={5} min={20} max={130}
+            onChange={setTarget('fat')}
+          />
+          <Divider />
+          <TargetRow
+            label="Water" unit="fl oz" testID="target-water"
+            value={patient.targets.waterOz} step={8} min={32} max={160}
+            onChange={setTarget('waterOz')}
+          />
+        </LedgerCard>
+
+        {/* ── Deliveries ── */}
+        {PATIENT_SUBSCRIPTION ? (
+          <>
+            <SectionHeader label="Product Deliveries" style={{ marginBottom: 8 }} />
+            <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
+              <View style={styles.programTopRow}>
+                <Text style={[styles.deliveryTitle, { color: colors.navyLight }]}>
+                  Monthly · ${PATIENT_SUBSCRIPTION.monthlyValue}/mo
+                </Text>
+                <StatusBadge status={PATIENT_SUBSCRIPTION.status} />
+              </View>
+              {PATIENT_PRODUCTS.map(product => (
+                <View key={product.id} style={styles.productRow}>
+                  <View style={[styles.productMark, { backgroundColor: colors.sidebarBg }]}>
+                    <Feather name="package" size={13} color={colors.cobalt} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.productName, { color: colors.navyLight }]}>{product.name}</Text>
+                    <Text style={[styles.productDesc, { color: colors.subtleText }]} numberOfLines={2}>
+                      {product.description}
+                    </Text>
+                  </View>
+                  <Text style={[styles.productPrice, { color: colors.navyLight }]}>${product.price}</Text>
+                </View>
+              ))}
+              <Divider style={{ marginVertical: 10 }} />
+              <View style={styles.shipmentRow}>
+                <Feather name="truck" size={13} color={colors.cobalt} />
+                <Text style={[styles.shipmentText, { color: colors.bodyText }]}>
+                  Next shipment {formatISO(PATIENT_SUBSCRIPTION.nextShipment)}
+                </Text>
+              </View>
+              {PATIENT_SUBSCRIPTION.shipmentHistory.slice(0, 2).map((shipment, index) => (
+                <View key={`${shipment.date}-${index}`} style={styles.shipmentRow}>
+                  <Feather name="check" size={13} color={colors.activeGreen} />
+                  <Text style={[styles.shipmentText, { color: colors.subtleText }]}>
+                    Delivered {formatISO(shipment.date, true)}
+                  </Text>
+                </View>
+              ))}
+            </LedgerCard>
+          </>
+        ) : null}
+
+        {/* ── Care team ── */}
+        <SectionHeader label="Your Care Team" style={{ marginBottom: 8 }} />
+        <LedgerCard style={{ padding: 16 }}>
+          <View style={styles.careRow}>
+            <View style={[styles.careAvatar, { backgroundColor: colors.navy }]}>
+              <Text style={[styles.careAvatarText, { color: colors.brandMarkText }]}>
+                {PATIENT_PROVIDER ? PATIENT_PROVIDER.name.split(' ').slice(0, 2).map(n => n[0]).join('') : 'CT'}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.careName, { color: colors.navyLight }]}>
+                {PATIENT_PROVIDER?.name ?? 'Care team'}
+              </Text>
+              <Text style={[styles.careRole, { color: colors.subtleText }]}>
+                {PATIENT_PROVIDER?.role ?? 'THINNR Med Spa'}
+              </Text>
+            </View>
+          </View>
+          <Divider style={{ marginVertical: 12 }} />
+          <View style={styles.shipmentRow}>
+            <Feather name="calendar" size={13} color={colors.cobalt} />
+            <Text style={[styles.shipmentText, { color: colors.bodyText }]}>
+              Next check-in {formatISO(PATIENT_PROFILE.nextCheckIn)}
+            </Text>
+          </View>
+          <View style={styles.shipmentRow}>
+            <Feather name="eye" size={13} color={colors.cobalt} />
+            <Text style={[styles.shipmentText, { color: colors.bodyText }]}>
+              Your daily logs and check-ins are reviewed by your care team each week.
+            </Text>
+          </View>
+        </LedgerCard>
+
+        <SyntheticDisclaimer />
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  content: {
+    padding: 16,
+  },
+  programTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  programName: {
+    fontSize: 15,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: -0.3,
+    flex: 1,
+  },
+  programMeta: {
+    fontSize: 11,
+    marginTop: 4,
+    fontFamily: 'Inter_400Regular',
+  },
+  programDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 9,
+    marginTop: 8,
+  },
+  programDetailText: {
+    fontSize: 12,
+    lineHeight: 17,
+    flex: 1,
+    fontFamily: 'Inter_400Regular',
+  },
+  targetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+  },
+  targetLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    fontFamily: 'Inter_700Bold',
+  },
+  targetControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stepBtn: {
+    width: 28,
+    height: 28,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  targetValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+    minWidth: 76,
+    textAlign: 'center',
+  },
+  targetUnit: {
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+  },
+  deliveryTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  productRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+  },
+  productMark: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  productName: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  productDesc: {
+    fontSize: 10.5,
+    marginTop: 1,
+    fontFamily: 'Inter_400Regular',
+    lineHeight: 14,
+  },
+  productPrice: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  shipmentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 7,
+  },
+  shipmentText: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_400Regular',
+    flex: 1,
+    lineHeight: 16,
+  },
+  careRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  careAvatar: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  careAvatarText: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+  },
+  careName: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  careRole: {
+    fontSize: 11,
+    marginTop: 1,
+    fontFamily: 'Inter_400Regular',
+  },
+});

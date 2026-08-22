@@ -13,7 +13,9 @@ import {
 } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { AppModeProvider } from '@/context/AppModeContext';
 import { OperationsProvider } from '@/context/OperationsContext';
+import { PatientProvider } from '@/context/PatientContext';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -24,7 +26,12 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="(patient)" options={{ headerShown: false }} />
       <Stack.Screen name="patient/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="persona" options={{ headerShown: false }} />
+      <Stack.Screen name="recipe/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="log-food" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
     </Stack>
   );
 }
@@ -51,9 +58,13 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
-              <OperationsProvider>
-                <RootLayoutNav />
-              </OperationsProvider>
+              <AppModeProvider>
+                <OperationsProvider>
+                  <PatientProvider>
+                    <RootLayoutNav />
+                  </PatientProvider>
+                </OperationsProvider>
+              </AppModeProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

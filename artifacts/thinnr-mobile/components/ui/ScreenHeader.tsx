@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 
 interface ScreenHeaderProps {
@@ -106,10 +107,21 @@ export function ScreenHeader({ title, onSearch }: ScreenHeaderProps) {
           >
             <Feather name="bell" size={16} color={colors.bodyText} />
           </Pressable>
-          {/* SJ Avatar */}
-          <View style={[styles.avatar, { backgroundColor: colors.cobalt }]}>
+          {/* SJ Avatar — opens the persona switcher */}
+          <Pressable
+            testID="header-avatar-btn"
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.push('/persona');
+            }}
+            style={({ pressed }) => [
+              styles.avatar,
+              { backgroundColor: colors.cobalt },
+              pressed && { opacity: 0.85 },
+            ]}
+          >
             <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>SJ</Text>
-          </View>
+          </Pressable>
         </View>
       </View>
     </View>

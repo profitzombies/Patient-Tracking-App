@@ -9,9 +9,11 @@ import { Feather } from '@expo/vector-icons';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { Divider, EmptyState, LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
+import { APPROVED_BADGE_EXPLANATION, isApprovedFood } from '@/data/approved-foods';
 import {
   formatDateKey,
   MEAL_LABELS,
@@ -33,6 +35,8 @@ interface LoggableItem {
   protein: number;
   carbs: number;
   fat: number;
+  /** Food matches the official THINNR Approved Foods list. */
+  approved: boolean;
 }
 
 const SCOPE_OPTIONS: { label: string; value: Scope }[] = [
@@ -69,6 +73,7 @@ export default function LogFoodScreen() {
   const [meal, setMeal] = useState<MealSlot>(initialMeal);
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>('recent');
+  const [approvedOnly, setApprovedOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -97,6 +102,7 @@ export default function LogFoodScreen() {
       protein: food.protein,
       carbs: food.carbs,
       fat: food.fat,
+      approved: isApprovedFood(food.id),
     }));
     const recipes: LoggableItem[] = RECIPES.map(recipe => ({
       refId: recipe.id,
@@ -108,6 +114,7 @@ export default function LogFoodScreen() {
       protein: recipe.protein,
       carbs: recipe.carbs,
       fat: recipe.fat,
+      approved: false,
     }));
     return [...foods, ...recipes];
   }, [patient.allFoods]);
@@ -116,17 +123,18 @@ export default function LogFoodScreen() {
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
+    let base: LoggableItem[];
     if (q) {
-      return allItems.filter(item => `${item.name} ${item.sub}`.toLowerCase().includes(q));
+      base = allItems.filter(item => `${item.name} ${item.sub}`.toLowerCase().includes(q));
+    } else if (scope === 'recent') {
+      base = patient.recents.map(id => byId.get(id)).filter((i): i is LoggableItem => Boolean(i));
+    } else if (scope === 'favorites') {
+      base = patient.favorites.map(id => byId.get(id)).filter((i): i is LoggableItem => Boolean(i));
+    } else {
+      base = allItems;
     }
-    if (scope === 'recent') {
-      return patient.recents.map(id => byId.get(id)).filter((i): i is LoggableItem => Boolean(i));
-    }
-    if (scope === 'favorites') {
-      return patient.favorites.map(id => byId.get(id)).filter((i): i is LoggableItem => Boolean(i));
-    }
-    return allItems;
-  }, [query, scope, allItems, byId, patient.recents, patient.favorites]);
+    return approvedOnly ? base.filter(item => item.approved) : base;
+  }, [query, scope, approvedOnly, allItems, byId, patient.recents, patient.favorites]);
 
   const selected = selectedId ? byId.get(selectedId) : undefined;
 
@@ -236,22 +244,47 @@ export default function LogFoodScreen() {
       >
         <PillSelector options={MEAL_OPTIONS} selected={meal} onSelect={setMeal} style={{ marginBottom: 12 }} />
 
-        <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
-          <Feather name="search" size={14} color={colors.subtleText} />
-          <TextInput
-            testID="logfood-search"
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search foods and recipes..."
-            placeholderTextColor={colors.subtleText}
-            style={[styles.searchInput, { color: colors.foreground }]}
-          />
-          {query.length > 0 && (
-            <Pressable onPress={() => setQuery('')} hitSlop={8}>
-              <Feather name="x" size={14} color={colors.subtleText} />
-            </Pressable>
-          )}
+        <View style={styles.searchRow}>
+          <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
+            <Feather name="search" size={14} color={colors.subtleText} />
+            <TextInput
+              testID="logfood-search"
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search foods and recipes..."
+              placeholderTextColor={colors.subtleText}
+              style={[styles.searchInput, { color: colors.foreground }]}
+            />
+            {query.length > 0 && (
+              <Pressable onPress={() => setQuery('')} hitSlop={8}>
+                <Feather name="x" size={14} color={colors.subtleText} />
+              </Pressable>
+            )}
+          </View>
+          <Pressable
+            testID="logfood-approved-toggle"
+            accessibilityLabel="Only show approved foods"
+            onPress={() => setApprovedOnly(v => !v)}
+            style={({ pressed }) => [
+              styles.approvedBtn,
+              {
+                borderColor: approvedOnly ? colors.activeGreen : colors.border,
+                backgroundColor: approvedOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
+              },
+            ]}
+          >
+            <Feather name="check" size={15} color={approvedOnly ? colors.activeGreen : colors.bodyText} />
+          </Pressable>
         </View>
+
+        {approvedOnly && (
+          <View style={styles.legendRow}>
+            <ApprovedBadge size="sm" />
+            <Text style={[styles.legendText, { color: colors.subtleText }]}>
+              Showing only foods approved for the THINNR program
+            </Text>
+          </View>
+        )}
 
         {query.trim() === '' && (
           <PillSelector options={SCOPE_OPTIONS} selected={scope} onSelect={setScope} style={{ marginTop: 10 }} />
@@ -358,18 +391,29 @@ export default function LogFoodScreen() {
         {/* ── Results ── */}
         <Text style={[styles.resultCount, { color: colors.labelText }]}>
           {visible.length} ITEM{visible.length === 1 ? '' : 'S'}
+          {approvedOnly ? ' · APPROVED' : ''}
         </Text>
         {visible.length === 0 ? (
           <LedgerCard>
             <EmptyState
               icon={<Feather name="search" size={22} color={colors.subtleText} />}
-              title={scope === 'recent' && !query ? 'Nothing logged yet' : scope === 'favorites' && !query ? 'No favorites yet' : 'No matches'}
+              title={
+                approvedOnly
+                  ? 'No approved foods here'
+                  : scope === 'recent' && !query
+                    ? 'Nothing logged yet'
+                    : scope === 'favorites' && !query
+                      ? 'No favorites yet'
+                      : 'No matches'
+              }
               body={
-                scope === 'recent' && !query
-                  ? 'Foods you log will show up here for fast re-adding.'
-                  : scope === 'favorites' && !query
-                    ? 'Star recipes in the Recipes tab to see them here.'
-                    : 'Try a different search, or quick add it above.'
+                approvedOnly
+                  ? 'Turn off the filter, or browse Approved Foods in the Library tab.'
+                  : scope === 'recent' && !query
+                    ? 'Foods you log will show up here for fast re-adding.'
+                    : scope === 'favorites' && !query
+                      ? 'Star recipes in the Library tab to see them here.'
+                      : 'Try a different search, or quick add it above.'
               }
             />
           </LedgerCard>
@@ -393,9 +437,12 @@ export default function LogFoodScreen() {
                     ]}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
-                        {item.name}
-                      </Text>
+                      <View style={styles.itemNameRow}>
+                        <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        {item.approved && <ApprovedBadge size="sm" />}
+                      </View>
                       <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
                         {item.sub} · {item.serving} · P {item.protein}g
                       </Text>
@@ -519,13 +566,35 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
   },
+  searchRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   searchBox: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
     paddingHorizontal: 12,
     height: 38,
+  },
+  approvedBtn: {
+    width: 38,
+    height: 38,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  legendText: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_400Regular',
   },
   searchInput: {
     flex: 1,
@@ -602,10 +671,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 11,
   },
+  itemNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   itemName: {
     fontSize: 13,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
+    flexShrink: 1,
   },
   itemSub: {
     fontSize: 10.5,

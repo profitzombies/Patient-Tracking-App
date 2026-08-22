@@ -2,5 +2,5 @@
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
 - [expo-router guarded redirects](expo-router-guard-redirects.md) — gate screen-level Redirects on usePathname; ungated guards hijack in-flight navigation during teardown.
-- [THINNR verbatim sources](thinnr-verbatim-sources.md) — official program wording must be quoted from the docs archive, never paraphrased; PDF/paste originals are canonical.
+- [THINNR verbatim sources](thinnr-verbatim-sources.md) — quote program wording from the docs archive, never paraphrase; structured copies need an automated verbatim check against the source.
 - [RN web shadow props](rn-web-shadow-props.md) — Expo web deprecates shadow*/textShadow* style props; use CSS boxShadow/textShadow strings via Platform.select.

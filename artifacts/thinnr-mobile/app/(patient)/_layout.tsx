@@ -24,7 +24,7 @@ function NativeTabLayout() {
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="recipes">
         <Icon sf={{ default: 'square.grid.2x2', selected: 'square.grid.2x2.fill' }} />
-        <Label>Recipes</Label>
+        <Label>Library</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="progress">
         <Icon sf={{ default: 'chart.xyaxis.line', selected: 'chart.xyaxis.line' }} />
@@ -103,7 +103,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="recipes"
         options={{
-          title: 'Recipes',
+          title: 'Library',
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="square.grid.2x2" tintColor={color} size={22} />

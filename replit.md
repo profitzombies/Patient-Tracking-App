@@ -9,6 +9,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/thinnr-mobile run test:approved-foods` — verify every Approved Foods string in the mobile app is verbatim from the docs archive (run after touching `artifacts/thinnr-mobile/data/approved-foods.ts`)
 - Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
@@ -23,6 +24,7 @@ _Replace the heading above with the project's name, and this line with one sente
 ## Where things live
 
 - `docs/thinnr-program/` — verbatim archive of the official THINNR Protocol materials: complete 72-page manual transcription, program-instructions and approved-foods extracts, knowledge-base Q&A, and the canonical PDF/paste sources (see its README for page mapping and fidelity notes). Quote official program wording from these files — never paraphrase or "fix" it.
+- `artifacts/thinnr-mobile/data/approved-foods.ts` — machine-readable Approved Foods list (categories, verbatim item names, portions) powering the mobile Library tab's Approved Foods screen, the checkmark badges (library / Add Food search / diary), and the Add Food "approved only" filter. Guarded by the `test:approved-foods` verbatim check above.
 
 ## Architecture decisions
 

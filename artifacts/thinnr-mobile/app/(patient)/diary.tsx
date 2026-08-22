@@ -8,11 +8,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
+import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { WaterTracker } from '@/components/patient/WaterTracker';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { usePatient } from '@/context/PatientContext';
+import { isApprovedFood } from '@/data/approved-foods';
 import {
   addDays,
   formatDateKey,
@@ -126,9 +128,12 @@ export default function DiaryScreen() {
                       {index > 0 && <Divider />}
                       <View style={styles.entryRow}>
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.entryName, { color: colors.navyLight }]} numberOfLines={1}>
-                            {entry.name}
-                          </Text>
+                          <View style={styles.entryNameRow}>
+                            <Text style={[styles.entryName, { color: colors.navyLight }]} numberOfLines={1}>
+                              {entry.name}
+                            </Text>
+                            {entry.kind === 'food' && isApprovedFood(entry.refId) && <ApprovedBadge size="sm" />}
+                          </View>
                           <Text style={[styles.entryDetail, { color: colors.subtleText }]}>
                             {entry.detail} · P {entry.protein}g · C {entry.carbs}g · F {entry.fat}g
                           </Text>
@@ -258,10 +263,16 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     gap: 10,
   },
+  entryNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   entryName: {
     fontSize: 13,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
+    flexShrink: 1,
   },
   entryDetail: {
     fontSize: 10,

@@ -93,7 +93,7 @@ function TrendChart({ range }: { range: Range }) {
           ))}
         </div>
       </div>
-      <div className="mt-2 flex pl-11 text-[10px] text-[#7d899f]">
+      <div className="mt-2 flex justify-between pl-11 text-[10px] text-[#7d899f]">
         {labels.map((label) => <span key={label}>{label}</span>)}
       </div>
     </div>

@@ -109,7 +109,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-[100dvh] max-w-full overflow-x-hidden bg-[#eef1f6] font-sans text-[#1b2f55] flex">
       {/* Sidebar - Hidden on very small screens, visible md and up */}
-      <aside className="hidden w-[226px] shrink-0 border-r border-[#b7c3d7] bg-[#e3e8f1] px-4 py-5 md:flex md:flex-col">
+      <aside className="hidden w-[252px] shrink-0 border-r border-[#b7c3d7] bg-[#e3e8f1] px-5 py-5 md:flex md:flex-col">
         <button 
           onClick={() => toast({ title: "Workspace Switcher", description: "Not implemented in mock." })} 
           className="mb-9 flex items-center gap-3 border-b border-[#bdc9dc] px-2 pb-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#315fc0]"
@@ -117,7 +117,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <span className="grid h-8 w-8 place-items-center bg-[#172c56] text-[#dce6fa]">
             <span className="font-mono text-sm font-bold">TH</span>
           </span>
-          <span>
+          <span className="min-w-0 whitespace-nowrap">
             <strong className="block text-sm tracking-[-.02em] text-[#172c56]">THINNR</strong>
             <span className="text-[10px] uppercase tracking-[.14em] text-[#73819a]">operations desk</span>
           </span>
@@ -133,14 +133,14 @@ export function Shell({ children }: { children: ReactNode }) {
               <Link
                 key={item.path}
                 href={item.path}
-                className={`flex w-full items-center gap-3 border-l-2 px-3 py-2.5 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#315fc0] ${
+                className={`flex w-full items-center gap-3 whitespace-nowrap border-l-2 px-3 py-2.5 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#315fc0] ${
                   isActive
                     ? "border-[#315fc0] bg-[#d4ddec] font-bold text-[#172c56]"
                     : "border-transparent text-[#64738e] hover:bg-[#dce3ef] hover:text-[#284675]"
                 }`}
               >
                 {item.icon}
-                {item.label}
+                <span className="min-w-0 flex-1">{item.label}</span>
                 {item.path === '/patients' && (
                   <span className="ml-auto bg-[#c6d2ea] px-1.5 py-0.5 text-[10px] font-bold text-[#3156a2]">32</span>
                 )}
@@ -152,7 +152,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <p className="mb-2 mt-8 px-2 text-[10px] font-bold uppercase tracking-[.16em] text-[#74839d]">Manage</p>
         <button 
           onClick={() => toast({ title: "Settings opened" })} 
-          className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-[#64738e] transition hover:bg-[#dce3ef] hover:text-[#284675] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#315fc0]"
+          className="flex w-full items-center gap-3 whitespace-nowrap px-3 py-2.5 text-left text-sm text-[#64738e] transition hover:bg-[#dce3ef] hover:text-[#284675] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#315fc0]"
         >
           <Settings2 size={16} />Settings
         </button>

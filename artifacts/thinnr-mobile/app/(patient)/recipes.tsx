@@ -48,6 +48,7 @@ export default function LibraryScreen() {
   // Foods view state
   const [foodQuery, setFoodQuery] = useState('');
   const [selectedFoodId, setSelectedFoodId] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -94,6 +95,17 @@ export default function LibraryScreen() {
   }, [patient.allFoods, foodQuery]);
 
   const foodCount = useMemo(() => foodSections.reduce((acc, s) => acc + s.data.length, 0), [foodSections]);
+
+  // Only foods the patient created can be edited or deleted — membership in
+  // customFoods, not the category label, is what makes a row "My Foods".
+  const customFoodIds = useMemo(() => new Set(patient.customFoods.map(f => f.id)), [patient.customFoods]);
+
+  const confirmDeleteFood = async (food: FoodItem) => {
+    await patient.removeCustomFood(food.id);
+    setPendingDeleteId(null);
+    setSelectedFoodId(null);
+    showConfirmation(`Deleted ${food.name} from My Foods`);
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -317,7 +329,10 @@ export default function LibraryScreen() {
                           {index > 0 && <Divider />}
                           <Pressable
                             testID={`food-row-${food.id}`}
-                            onPress={() => setSelectedFoodId(current => (current === food.id ? null : food.id))}
+                            onPress={() => {
+                              setPendingDeleteId(null);
+                              setSelectedFoodId(current => (current === food.id ? null : food.id));
+                            }}
                             style={({ pressed }) => [
                               styles.foodRow,
                               isSelected && { backgroundColor: colors.sidebarBg },
@@ -348,14 +363,83 @@ export default function LibraryScreen() {
                           {isSelected && (
                             <>
                               <Divider />
-                              <FoodAddPanel
-                                food={food}
-                                testIDPrefix="library"
-                                onAdded={message => {
-                                  setSelectedFoodId(null);
-                                  showConfirmation(message);
-                                }}
-                              />
+                              {customFoodIds.has(food.id) &&
+                                (pendingDeleteId === food.id ? (
+                                  <View
+                                    testID={`food-delete-confirm-${food.id}`}
+                                    style={[styles.manageBar, { backgroundColor: colors.riskBg }]}
+                                  >
+                                    <Text style={[styles.deletePrompt, { color: colors.riskText }]}>
+                                      Delete "{food.name}" from My Foods? Diary entries you already logged keep
+                                      their values.
+                                    </Text>
+                                    <View style={styles.manageRow}>
+                                      <Pressable
+                                        testID={`food-delete-cancel-${food.id}`}
+                                        onPress={() => setPendingDeleteId(null)}
+                                        style={({ pressed }) => [
+                                          styles.manageBtn,
+                                          { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                                        ]}
+                                      >
+                                        <Text style={[styles.manageBtnText, { color: colors.bodyText }]}>Cancel</Text>
+                                      </Pressable>
+                                      <Pressable
+                                        testID={`food-delete-confirm-btn-${food.id}`}
+                                        onPress={() => confirmDeleteFood(food)}
+                                        style={({ pressed }) => [
+                                          styles.manageBtn,
+                                          { borderColor: colors.riskBorder, backgroundColor: colors.riskText },
+                                          pressed && { opacity: 0.85 },
+                                        ]}
+                                      >
+                                        <Feather name="trash-2" size={12} color={colors.primaryForeground} />
+                                        <Text style={[styles.manageBtnText, { color: colors.primaryForeground }]}>
+                                          Delete Food
+                                        </Text>
+                                      </Pressable>
+                                    </View>
+                                  </View>
+                                ) : (
+                                  <View style={[styles.manageBar, { backgroundColor: colors.sidebarBg }]}>
+                                    <View style={styles.manageRow}>
+                                      <Pressable
+                                        testID={`food-edit-${food.id}`}
+                                        onPress={() =>
+                                          router.push({ pathname: '/create-food', params: { id: food.id } })
+                                        }
+                                        style={({ pressed }) => [
+                                          styles.manageBtn,
+                                          { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                                        ]}
+                                      >
+                                        <Feather name="edit-2" size={12} color={colors.bodyText} />
+                                        <Text style={[styles.manageBtnText, { color: colors.bodyText }]}>Edit</Text>
+                                      </Pressable>
+                                      <Pressable
+                                        testID={`food-delete-${food.id}`}
+                                        onPress={() => setPendingDeleteId(food.id)}
+                                        style={({ pressed }) => [
+                                          styles.manageBtn,
+                                          { borderColor: colors.riskBorder, backgroundColor: pressed ? colors.riskBg : colors.card },
+                                        ]}
+                                      >
+                                        <Feather name="trash-2" size={12} color={colors.riskText} />
+                                        <Text style={[styles.manageBtnText, { color: colors.riskText }]}>Delete</Text>
+                                      </Pressable>
+                                    </View>
+                                  </View>
+                                ))}
+                              {pendingDeleteId !== food.id && (
+                                <FoodAddPanel
+                                  food={food}
+                                  testIDPrefix="library"
+                                  onAdded={message => {
+                                    setSelectedFoodId(null);
+                                    showConfirmation(message);
+                                  }}
+                                />
+                              )}
                             </>
                           )}
                         </View>
@@ -578,5 +662,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
+  },
+  manageBar: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  manageRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  manageBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 34,
+    borderWidth: 1,
+  },
+  manageBtnText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  deletePrompt: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontFamily: 'Inter_400Regular',
+    marginBottom: 8,
   },
 });

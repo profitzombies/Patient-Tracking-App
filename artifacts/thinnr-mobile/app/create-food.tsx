@@ -1,12 +1,13 @@
 /**
  * Create Food — build a custom food (name, serving, calories/macros) that is
- * saved to "My Foods" in the library. Custom foods are stored on-device and
- * never carry the approved checkmark.
+ * saved to "My Foods" in the library. Opened with an `id` param it becomes
+ * Edit Food: the same form pre-filled from the stored food, saving in place.
+ * Custom foods are stored on-device and never carry the approved checkmark.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Redirect, router, usePathname } from 'expo-router';
+import { Redirect, router, useLocalSearchParams, usePathname } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
@@ -24,6 +25,9 @@ export default function CreateFoodScreen() {
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const pathname = usePathname();
+  const params = useLocalSearchParams<{ id?: string }>();
+  const editId = typeof params.id === 'string' && params.id ? params.id : undefined;
+  const editingFood = editId ? patient.customFoods.find(f => f.id === editId) : undefined;
 
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
@@ -34,6 +38,23 @@ export default function CreateFoodScreen() {
   const [fat, setFat] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Pre-fill once from the stored food. Patient state hydrates async, so the
+  // food may only appear a beat after mount (render is gated below).
+  const [seededId, setSeededId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!editingFood || seededId === editingFood.id) return;
+    setName(editingFood.name);
+    setBrand(editingFood.brand ?? '');
+    setServing(editingFood.serving);
+    setCals(String(editingFood.calories));
+    setProtein(String(editingFood.protein));
+    setCarbs(String(editingFood.carbs));
+    setFat(String(editingFood.fat));
+    setSeededId(editingFood.id);
+  }, [editingFood, seededId]);
+
+  const isEditing = Boolean(editingFood);
 
   /** Bind a field setter so editing any field clears a shown validation error. */
   const bind = (setter: (v: string) => void) => (v: string) => {
@@ -51,6 +72,9 @@ export default function CreateFoodScreen() {
     if (pathname !== '/create-food') return null;
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
+  // Editing: wait for patient hydration so fields seed from the stored food
+  // instead of flashing an empty create form.
+  if (editId && !patient.hydrated) return null;
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -76,7 +100,7 @@ export default function CreateFoodScreen() {
       const carbsVal = Number.isNaN(parseNum(carbs)) ? 0 : parseNum(carbs);
       const fatVal = Number.isNaN(parseNum(fat)) ? 0 : parseNum(fat);
       const trimmedBrand = brand.trim();
-      await patient.addCustomFood({
+      const payload = {
         name: trimmedName,
         ...(trimmedBrand ? { brand: trimmedBrand } : {}),
         serving: serving.trim() || '1 serving',
@@ -84,7 +108,12 @@ export default function CreateFoodScreen() {
         protein: Math.round(proteinVal),
         carbs: Math.round(carbsVal),
         fat: Math.round(fatVal),
-      });
+      };
+      if (editingFood) {
+        await patient.updateCustomFood(editingFood.id, payload);
+      } else {
+        await patient.addCustomFood(payload);
+      }
       goBack();
     } finally {
       setSaving(false);
@@ -109,8 +138,12 @@ export default function CreateFoodScreen() {
           <Text style={[styles.headerAction, { color: colors.cobalt }]}>Cancel</Text>
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: colors.navy }]}>Create Food</Text>
-          <Text style={[styles.headerSub, { color: colors.subtleText }]}>SAVED TO MY FOODS</Text>
+          <Text style={[styles.headerTitle, { color: colors.navy }]}>
+            {isEditing ? 'Edit Food' : 'Create Food'}
+          </Text>
+          <Text style={[styles.headerSub, { color: colors.subtleText }]}>
+            {isEditing ? 'UPDATES MY FOODS' : 'SAVED TO MY FOODS'}
+          </Text>
         </View>
         <View style={styles.headerSpacer} />
       </View>
@@ -204,13 +237,16 @@ export default function CreateFoodScreen() {
               (pressed || saving) && { opacity: 0.85 },
             ]}
           >
-            <Text style={[styles.saveText, { color: colors.primaryForeground }]}>Save to My Foods</Text>
+            <Text style={[styles.saveText, { color: colors.primaryForeground }]}>
+              {isEditing ? 'Save Changes' : 'Save to My Foods'}
+            </Text>
           </Pressable>
         </LedgerCard>
 
         <Text style={[styles.footnote, { color: colors.subtleText }]}>
-          Custom foods are stored on this device under My Foods in the Library. They never carry the approved
-          checkmark — that badge is reserved for foods on the official THINNR Approved Foods list.
+          {isEditing
+            ? 'Changes apply to this food in My Foods going forward. Diary entries you already logged keep the values they were logged with.'
+            : 'Custom foods are stored on this device under My Foods in the Library. They never carry the approved checkmark — that badge is reserved for foods on the official THINNR Approved Foods list.'}
         </Text>
       </KeyboardAwareScrollViewCompat>
     </View>

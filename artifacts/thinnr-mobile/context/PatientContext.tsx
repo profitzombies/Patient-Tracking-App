@@ -115,6 +115,8 @@ interface PatientContextValue {
   addPhoto: (photo: { dateKey: string; uri: string; label: string }) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
+  updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
+  removeCustomFood: (id: string) => Promise<void>;
   setTargets: (partial: Partial<DailyTargets>) => Promise<void>;
 }
 
@@ -231,6 +233,33 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     return full;
   }, [commit]);
 
+  // Rebuilds the food from the payload (not a merge) so cleared optional
+  // fields like brand actually drop. Diary entries are untouched: they
+  // snapshot name/calories/macros at log time.
+  const updateCustomFood = useCallback(async (id: string, food: Omit<FoodItem, 'id' | 'category'>): Promise<void> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await hydrationGate.current!.promise;
+    const prev = stateRef.current;
+    await commit({
+      ...prev,
+      customFoods: prev.customFoods.map(f => (f.id === id ? { ...food, id, category: 'My Foods' } : f)),
+    });
+  }, [commit]);
+
+  // Existing diary entries keep their logged values; only the library item
+  // (plus any dangling favorite/recent references) goes away.
+  const removeCustomFood = useCallback(async (id: string): Promise<void> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await hydrationGate.current!.promise;
+    const prev = stateRef.current;
+    await commit({
+      ...prev,
+      customFoods: prev.customFoods.filter(f => f.id !== id),
+      favorites: prev.favorites.filter(f => f !== id),
+      recents: prev.recents.filter(r => r !== id),
+    });
+  }, [commit]);
+
   const setTargets = useCallback(async (partial: Partial<DailyTargets>): Promise<void> => {
     await Haptics.selectionAsync();
     await hydrationGate.current!.promise;
@@ -315,6 +344,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addPhoto,
       toggleFavorite,
       addCustomFood,
+      updateCustomFood,
+      removeCustomFood,
       setTargets,
     }),
     [
@@ -337,6 +368,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addPhoto,
       toggleFavorite,
       addCustomFood,
+      updateCustomFood,
+      removeCustomFood,
       setTargets,
     ],
   );

@@ -29,6 +29,7 @@ import { usePatient } from '@/context/PatientContext';
 import { HOME_HERO_IMAGE } from '@/data/recipe-images';
 import {
   addDays,
+  ENROLLMENT_DAYS,
   MEAL_LABELS,
   MEAL_SLOTS,
   MOOD_LABELS,
@@ -40,11 +41,15 @@ import {
   TODAY_KEY,
   type MealSlot,
 } from '@/data/patient-data';
+import { phaseForDay } from '@/data/program-instructions';
 
 // Earliest day the demo history covers — date paging stops here.
 const MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
 
 const FIRST_NAME = PATIENT_PROFILE.name.split(' ')[0];
+
+// Where the patient is in the THINNR protocol — drives the instructions card.
+const CURRENT_PHASE = phaseForDay(ENROLLMENT_DAYS);
 
 // How far the check-in pill hangs below the hero artwork.
 const PILL_OVERLAP = 22;
@@ -284,6 +289,32 @@ export default function TodayScreen() {
 
         {/* ── Content below the hero ── */}
         <View style={styles.body}>
+          {/* ── Program instructions ── */}
+          <LedgerCard
+            testID="today-instructions-card"
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.push('/instructions');
+            }}
+            style={styles.card}
+          >
+            <View style={styles.instructionsRow}>
+              <View style={[styles.instructionsIcon, { backgroundColor: colors.sidebarBg }]}>
+                <Feather name="book-open" size={15} color={colors.cobalt} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cardLabel, { color: colors.labelText }]}>PROGRAM INSTRUCTIONS</Text>
+                <Text
+                  style={[styles.instructionsTitle, { color: colors.navyLight }]}
+                  numberOfLines={1}
+                >
+                  Day {ENROLLMENT_DAYS} · {CURRENT_PHASE.name}
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={16} color={colors.subtleText} />
+            </View>
+          </LedgerCard>
+
           {/* ── Calories ── */}
           <LedgerCard style={styles.card}>
             <Text style={[styles.cardLabel, { color: colors.labelText }]}>CALORIES REMAINING</Text>
@@ -605,6 +636,23 @@ const styles = StyleSheet.create({
   sectionHeader: {
     marginBottom: 8,
     marginTop: 4,
+  },
+  instructionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  instructionsIcon: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  instructionsTitle: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+    marginTop: 3,
   },
   calorieRow: {
     flexDirection: 'row',

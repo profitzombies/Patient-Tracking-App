@@ -6,6 +6,7 @@ import React from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { Divider, LedgerCard, SectionHeader, StatusBadge } from '@/components/ui/LedgerPrimitives';
@@ -20,11 +21,15 @@ import {
   PATIENT_SUBSCRIPTION,
   type DailyTargets,
 } from '@/data/patient-data';
+import { phaseForDay } from '@/data/program-instructions';
 
 const formatISO = (iso: string, includeYear = false) =>
   new Date(iso).toLocaleDateString('en-US', includeYear
     ? { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }
     : { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+// Where the patient is in the THINNR protocol — drives the instructions row.
+const CURRENT_PHASE = phaseForDay(ENROLLMENT_DAYS);
 
 interface TargetRowProps {
   label: string;
@@ -125,6 +130,25 @@ export default function PlanScreen() {
               {PATIENT_PROFILE.carePlan.cadence} · Next: {PATIENT_PROFILE.carePlan.nextMilestone}
             </Text>
           </View>
+          <Divider style={{ marginTop: 12, marginBottom: 12 }} />
+          <Pressable
+            testID="plan-instructions-row"
+            onPress={() => router.push('/instructions')}
+            style={({ pressed }) => [styles.instructionsRow, pressed && { opacity: 0.7 }]}
+          >
+            <View style={[styles.instructionsIcon, { backgroundColor: colors.sidebarBg }]}>
+              <Feather name="book-open" size={14} color={colors.cobalt} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.instructionsTitle, { color: colors.navyLight }]}>
+                Program Instructions
+              </Text>
+              <Text style={[styles.instructionsMeta, { color: colors.subtleText }]} numberOfLines={1}>
+                Day {ENROLLMENT_DAYS} · {CURRENT_PHASE.name}
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={15} color={colors.subtleText} />
+          </Pressable>
         </LedgerCard>
 
         {/* ── Daily targets ── */}
@@ -391,6 +415,27 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
   },
   careRole: {
+    fontSize: 11,
+    marginTop: 1,
+    fontFamily: 'Inter_400Regular',
+  },
+  instructionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  instructionsIcon: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  instructionsTitle: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  instructionsMeta: {
     fontSize: 11,
     marginTop: 1,
     fontFamily: 'Inter_400Regular',

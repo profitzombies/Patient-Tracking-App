@@ -14,6 +14,7 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppModeProvider } from '@/context/AppModeContext';
+import { OnboardingProvider } from '@/context/OnboardingContext';
 import { OperationsProvider } from '@/context/OperationsContext';
 import { PatientProvider } from '@/context/PatientContext';
 
@@ -29,6 +30,8 @@ function RootLayoutNav() {
       <Stack.Screen name="(patient)" options={{ headerShown: false }} />
       <Stack.Screen name="patient/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="persona" options={{ headerShown: false }} />
+      <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="recipe/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="log-food" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
@@ -61,7 +64,9 @@ export default function RootLayout() {
               <AppModeProvider>
                 <OperationsProvider>
                   <PatientProvider>
-                    <RootLayoutNav />
+                    <OnboardingProvider>
+                      <RootLayoutNav />
+                    </OnboardingProvider>
                   </PatientProvider>
                 </OperationsProvider>
               </AppModeProvider>

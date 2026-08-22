@@ -10,7 +10,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
-import { useAppMode, type AppMode } from '@/context/AppModeContext';
+import { useAppMode } from '@/context/AppModeContext';
 
 interface PersonaCardProps {
   icon: React.ComponentProps<typeof Feather>['name'];
@@ -68,10 +68,17 @@ export default function PersonaScreen() {
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
-  const choose = async (next: AppMode) => {
+  const chooseStaff = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await setMode(next);
-    router.replace(next === 'staff' ? '/' : '/today');
+    await setMode('staff');
+    router.replace('/');
+  };
+
+  // Patient taps go through the entry chooser: existing account (Emma) or
+  // the simulated new-patient onboarding. Mode is only set once they choose.
+  const openPatientEntry = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    router.push('/patient-entry');
   };
 
   return (
@@ -96,16 +103,16 @@ export default function PersonaScreen() {
           person="Dr. Sarah Jenkins · Medical Director"
           body="Operations dashboard — patient roster, outcomes, leaderboard, and subscription health."
           current={mode === 'staff'}
-          onPress={() => choose('staff')}
+          onPress={chooseStaff}
         />
         <PersonaCard
           testID="persona-patient"
           icon="user"
           title="Patient"
           person="Emma Smith · Maintenance stage"
-          body="Daily companion — log meals and water, complete check-ins, browse recipes, and track progress."
+          body="Daily companion — sign in as Emma or simulate the new-patient onboarding flow."
           current={mode === 'patient'}
-          onPress={() => choose('patient')}
+          onPress={openPatientEntry}
         />
       </View>
 

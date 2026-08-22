@@ -26,7 +26,7 @@ import {
 import { cloneEntriesForCopy } from '@/data/diary-entries';
 import {
   applyRemoveEntry,
-  applyRestoreEntry,
+  applyRestoreEntries,
   applyUpdateEntry,
   type EntryEditChanges,
 } from '@/data/diary-entry-state';
@@ -148,6 +148,7 @@ interface PatientContextValue {
   setSavedRecipePhoto: (id: string, photoUri: string) => Promise<void>;
   setTargets: (partial: Partial<DailyTargets>) => Promise<void>;
   restoreEntry: (entry: MealLogEntry) => Promise<void>;
+  restoreEntries: (entries: MealLogEntry[]) => Promise<void>;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -253,24 +254,32 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [commit, runSerialized]);
 
-  // Undo for removeEntry. Seeded entries were tombstoned, so restoring drops
-  // the tombstone and the original seeded row reappears in place. User-logged
-  // entries were filtered out of addedEntries, so the exact snapshot is
-  // re-added under its original id. Only an actual recorded deletion is
-  // undone: double-taps, or an Undo somehow arriving before its deletion,
-  // no-op instead of appending a duplicate (see applyRestoreEntry).
-  const restoreEntry = useCallback(async (entry: MealLogEntry): Promise<void> => {
+  // Undo for removeEntry — accepts the whole batch from a rapid multi-delete
+  // clean-up so one Undo restores every affected entry in a single commit
+  // (one storage write, one totals update). Seeded entries were tombstoned,
+  // so restoring drops the tombstone and the original seeded row reappears in
+  // place. User-logged entries were filtered out of addedEntries, so the
+  // exact snapshot is re-added under its original id. Only actual recorded
+  // deletions are undone: double-taps, or an Undo somehow arriving before its
+  // deletion, no-op instead of appending duplicates (see applyRestoreEntries).
+  const restoreEntries = useCallback(async (entries: MealLogEntry[]): Promise<void> => {
+    if (entries.length === 0) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
     await runSerialized(async () => {
       const prev = stateRef.current;
-      const next = applyRestoreEntry(prev, entry, isSeedEntryId);
+      const next = applyRestoreEntries(prev, entries, isSeedEntryId);
       if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
         return; // nothing to undo
       }
       await commit({ ...prev, ...next });
     });
   }, [commit, runSerialized]);
+
+  const restoreEntry = useCallback(
+    (entry: MealLogEntry): Promise<void> => restoreEntries([entry]),
+    [restoreEntries],
+  );
 
   // Fixes a logged entry in place (meal slot, quantity, and/or day) through
   // the pure applyUpdateEntry transition (data/diary-entry-state.ts, covered
@@ -521,6 +530,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       copyEntries,
       removeEntry,
       restoreEntry,
+      restoreEntries,
       updateEntry,
       setWater,
       addCheckIn,
@@ -554,6 +564,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       copyEntries,
       removeEntry,
       restoreEntry,
+      restoreEntries,
       updateEntry,
       setWater,
       addCheckIn,

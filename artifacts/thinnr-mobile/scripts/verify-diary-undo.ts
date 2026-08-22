@@ -7,11 +7,17 @@
  *   1. a restore that double-counts (duplicate seed copy or re-added row),
  *   2. an undo that silently fails to bring the entry back.
  * Covers immediate undo, repeated (double-tap) undo and deletes, out-of-order
- * calls, and undo after the edit flow's tombstone + re-add of a seeded entry.
+ * calls, undo after the edit flow's tombstone + re-add of a seeded entry, and
+ * the batched multi-delete undo (rapid clean-up → one Undo restores all).
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:diary-undo
  */
-import { applyRemoveEntry, applyRestoreEntry, type DiaryEntryState } from '../data/diary-entry-state';
+import {
+  applyRemoveEntry,
+  applyRestoreEntries,
+  applyRestoreEntry,
+  type DiaryEntryState,
+} from '../data/diary-entry-state';
 import { buildSeedEntries, type MealLogEntry } from '../data/patient-data';
 
 const SEED_ENTRIES = buildSeedEntries();
@@ -164,6 +170,75 @@ const baseTotal = calorieTotal(visible(base));
   const healed = applyRestoreEntry(legacy, userEntry, isSeedId);
   assert('legacy user-id tombstone: restore re-adds the exact entry', JSON.stringify(healed.addedEntries) === JSON.stringify([userEntry]));
   assert('legacy user-id tombstone: the dead tombstone is dropped', healed.removedEntryIds.length === 0);
+}
+
+// ── 6. Multi-delete clean-up: one batched undo restores everything ──────────
+{
+  const seedA = SEED_ENTRIES[0]!;
+  const seedB = SEED_ENTRIES[1]!;
+
+  // Rapid clean-up: two seeds and a user entry deleted back to back.
+  let s = applyRemoveEntry(base, seedA.id, isSeedId);
+  s = applyRemoveEntry(s, userEntry.id, isSeedId);
+  s = applyRemoveEntry(s, seedB.id, isSeedId);
+  assert('rapid triple delete hides all three rows', visible(s).length === visible(base).length - 3);
+  assert(
+    'rapid triple delete drops the right calories',
+    calorieTotal(visible(s)) === baseTotal - seedA.calories - seedB.calories - userEntry.calories,
+  );
+
+  const restored = applyRestoreEntries(s, [seedA, userEntry, seedB], isSeedId);
+  assert('batched undo restores the identical visible diary (values, order, ids)', snapshot(restored) === baseSnapshot);
+  assert('batched undo round-trips totals', calorieTotal(visible(restored)) === baseTotal);
+  assert('batched undo leaves no tombstones behind', restored.removedEntryIds.length === 0);
+
+  // Doubled-up batch members (e.g. the same row armed twice) can't duplicate.
+  const doubled = applyRestoreEntries(s, [seedA, seedA, userEntry, userEntry, seedB], isSeedId);
+  assert('duplicate batch members never duplicate rows', snapshot(doubled) === baseSnapshot);
+
+  // A member already restored on its own no-ops inside the batch while the
+  // rest still come back.
+  const partiallyRestored = applyRestoreEntry(s, seedA, isSeedId);
+  const completed = applyRestoreEntries(partiallyRestored, [seedA, userEntry, seedB], isSeedId);
+  assert('batched undo after a partial restore still completes the set', snapshot(completed) === baseSnapshot);
+
+  // No recorded deletions → strict no-ops (same state reference).
+  assert('empty batch restore is a no-op (same state reference)', applyRestoreEntries(s, [], isSeedId) === s);
+  assert(
+    'batch of already-visible entries is a no-op (same state reference)',
+    applyRestoreEntries(base, [seedA, userEntry], isSeedId) === base,
+  );
+
+  // Two user entries deleted bottom-to-top: both return exactly once with the
+  // exact snapshots and totals, regardless of deletion order.
+  const secondUser: MealLogEntry = {
+    ...userEntry,
+    id: 'log_test_2',
+    name: 'Test Rice',
+    detail: '1 cup',
+    calories: 210,
+    protein: 4,
+    carbs: 45,
+    fat: 2,
+  };
+  const twoUsers: DiaryEntryState = { addedEntries: [userEntry, secondUser], removedEntryIds: [] };
+  let t = applyRemoveEntry(twoUsers, secondUser.id, isSeedId);
+  t = applyRemoveEntry(t, userEntry.id, isSeedId);
+  assert('bottom-to-top double delete empties the user log', t.addedEntries.length === 0);
+  const back = applyRestoreEntries(t, [secondUser, userEntry], isSeedId);
+  assert(
+    'both user entries return exactly once each',
+    [userEntry.id, secondUser.id].every(id => back.addedEntries.filter(e => e.id === id).length === 1),
+  );
+  assert(
+    'multi-user restore keeps the exact snapshots (ids and values)',
+    JSON.stringify([...back.addedEntries].sort((a, b) => a.id.localeCompare(b.id))) ===
+      JSON.stringify([userEntry, secondUser]),
+  );
+  assert(
+    'multi-user restore round-trips totals',
+    calorieTotal(visible(back)) === calorieTotal(visible(twoUsers)),
+  );
 }
 
 // ── Result ───────────────────────────────────────────────────────────────────

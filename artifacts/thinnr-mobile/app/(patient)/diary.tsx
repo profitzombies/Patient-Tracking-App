@@ -32,10 +32,12 @@ import {
   type MealSlot,
 } from '@/data/patient-data';
 
-// One snackbar slot on the diary: either an undoable removal or a
-// confirmation that an edited entry moved to another day.
+// One snackbar slot on the diary: either an undoable removal batch or a
+// confirmation that an edited entry moved to another day. Rapid deletions
+// stack into the current 'removed' notice (in deletion order) so a quick
+// clean-up's single Undo restores every row, not just the last one.
 type DiaryNotice =
-  | { kind: 'removed'; entry: MealLogEntry }
+  | { kind: 'removed'; entries: MealLogEntry[] }
   | { kind: 'moved'; dateKey: string };
 
 export default function DiaryScreen() {
@@ -48,7 +50,9 @@ export default function DiaryScreen() {
   // double-tap can't clone the same meal twice.
   const [copying, setCopying] = useState(false);
   // A fresh notice object per event restarts the auto-dismiss timer below,
-  // and a newer notice replaces whatever is currently showing.
+  // and a newer notice of a different kind replaces whatever is showing —
+  // but a removal that lands while a 'removed' notice is up merges into its
+  // batch, so no deletion loses its undo window mid clean-up.
   const [notice, setNotice] = useState<DiaryNotice | null>(null);
 
   // Collapse any open edit panel when the day changes, and retire a move
@@ -67,16 +71,24 @@ export default function DiaryScreen() {
   const handleRemove = async (entry: MealLogEntry) => {
     setEditingId(cur => (cur === entry.id ? null : cur));
     // Arm the undo affordance only after the deletion has committed, so a
-    // fast Undo tap always acts on the recorded deletion (restoreEntry
-    // no-ops unless the entry is actually gone).
+    // fast Undo tap always acts on the recorded deletion (restoreEntries
+    // no-ops unless the entry is actually gone). The functional update
+    // stacks into an existing removal batch instead of evicting it, and the
+    // id guard keeps a double-tapped delete from counting the same row twice.
     await patient.removeEntry(entry.id);
-    setNotice({ kind: 'removed', entry });
+    setNotice(cur => {
+      if (cur?.kind !== 'removed') return { kind: 'removed', entries: [entry] };
+      if (cur.entries.some(e => e.id === entry.id)) return cur;
+      return { kind: 'removed', entries: [...cur.entries, entry] };
+    });
   };
 
   const handleUndo = () => {
     if (notice?.kind !== 'removed') return;
     setNotice(null);
-    void patient.restoreEntry(notice.entry);
+    // One batched restore: every entry comes back in a single commit, so day
+    // totals update once and never show a half-restored state.
+    void patient.restoreEntries(notice.entries);
   };
 
   const handleViewMoved = () => {
@@ -348,7 +360,11 @@ export default function DiaryScreen() {
       {notice?.kind === 'removed' && (
         <Snackbar
           testID="diary-undo-snackbar"
-          message={`Removed “${notice.entry.name}”`}
+          message={
+            notice.entries.length === 1
+              ? `Removed “${notice.entries[0]!.name}”`
+              : `Removed ${notice.entries.length} entries`
+          }
           actionLabel="UNDO"
           actionTestID="diary-undo"
           onAction={handleUndo}

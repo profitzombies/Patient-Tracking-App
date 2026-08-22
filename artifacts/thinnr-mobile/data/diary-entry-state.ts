@@ -76,6 +76,23 @@ export function applyRestoreEntry(
   return { addedEntries: [...addedEntries, entry], removedEntryIds };
 }
 
+/**
+ * Undoes a whole batch of deletions in one transition — the rapid
+ * "clean up my day" flow where several rows are removed back to back and a
+ * single Undo must bring every one of them back. Applies applyRestoreEntry
+ * left to right (batch order = deletion order), so each per-entry invariant
+ * (exact ids, no duplicates, no-op without a recorded deletion) holds for the
+ * batch as a whole. Returns the input state unchanged (same reference) when
+ * nothing in the batch needs restoring, including the empty batch.
+ */
+export function applyRestoreEntries(
+  state: DiaryEntryState,
+  entries: readonly MealLogEntry[],
+  isSeedId: (id: string) => boolean,
+): DiaryEntryState {
+  return entries.reduce((cur, entry) => applyRestoreEntry(cur, entry, isSeedId), state);
+}
+
 /** The fields a patient can fix on a logged entry: slot, quantity, day. */
 export interface EntryEditChanges {
   meal: MealSlot;

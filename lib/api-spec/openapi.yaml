@@ -10,7 +10,35 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: coach
+    description: AI coach chat for patients
 paths:
+  /coach/chat:
+    post:
+      operationId: coachChat
+      tags: [coach]
+      summary: Stream an AI coach reply for a patient chat turn
+      description: >-
+        Stateless SSE endpoint. The client sends its in-session message history
+        and receives a text/event-stream of assistant chunks
+        ("data: {\"content\": \"...\"}" lines followed by
+        "data: {\"done\": true}"). Patient program context is derived
+        server-side from the demo seed; rate limits apply.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachChatInput"
+      responses:
+        "200":
+          description: SSE stream of assistant text chunks
+          content:
+            text/event-stream: {}
+        "400":
+          description: Invalid request body
+        "429":
+          description: Rate limited
   /healthz:
     get:
       operationId: healthCheck
@@ -33,4 +61,27 @@ components:
           type: string
       required:
         - status
+    CoachChatMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          maxLength: 4000
+      required:
+        - role
+        - content
+    CoachChatInput:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoachChatMessage"
+          minItems: 1
+          maxItems: 30
+      required:
+        - messages
 

@@ -190,20 +190,38 @@ export default function TodayScreen() {
           <View style={[styles.heroContent, { paddingTop: heroTopPad + 8 }]}>
             <View style={styles.heroTopRow}>
               <Text style={[styles.wordmark, TEXT_HALO, { color: colors.navy }]}>THINNR</Text>
-              <Pressable
-                testID="patient-avatar-btn"
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push('/persona');
-                }}
-                style={({ pressed }) => [
-                  styles.avatar,
-                  { backgroundColor: colors.cobalt },
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>ES</Text>
-              </Pressable>
+              <View style={styles.heroActions}>
+                <Pressable
+                  testID="coach-chat-btn"
+                  accessibilityRole="button"
+                  accessibilityLabel="Chat with the THINNR coach"
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/coach-chat');
+                  }}
+                  style={({ pressed }) => [
+                    styles.heroIconBtn,
+                    { borderColor: colors.border, backgroundColor: colors.card },
+                    pressed && { backgroundColor: colors.accent },
+                  ]}
+                >
+                  <Feather name="message-circle" size={16} color={colors.cobalt} />
+                </Pressable>
+                <Pressable
+                  testID="patient-avatar-btn"
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/persona');
+                  }}
+                  style={({ pressed }) => [
+                    styles.avatar,
+                    { backgroundColor: colors.cobalt },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>ES</Text>
+                </Pressable>
+              </View>
             </View>
 
             <View style={styles.heroDateRow}>
@@ -578,6 +596,18 @@ const styles = StyleSheet.create({
     fontSize: 25,
     fontFamily: 'PlayfairDisplay_700Bold',
     letterSpacing: 2.5,
+  },
+  heroActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  heroIconBtn: {
+    width: 30,
+    height: 30,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatar: {
     width: 30,

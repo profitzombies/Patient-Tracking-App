@@ -18,6 +18,7 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppModeProvider } from '@/context/AppModeContext';
+import { CoachChatProvider } from '@/context/CoachChatContext';
 import { OnboardingProvider } from '@/context/OnboardingContext';
 import { OperationsProvider } from '@/context/OperationsContext';
 import { PatientProvider } from '@/context/PatientContext';
@@ -44,6 +45,7 @@ function RootLayoutNav() {
       <Stack.Screen name="create-food" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="log-food" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="coach-chat" options={{ headerShown: false }} />
     </Stack>
   );
 }
@@ -78,7 +80,9 @@ export default function RootLayout() {
                 <OperationsProvider>
                   <PatientProvider>
                     <OnboardingProvider>
-                      <RootLayoutNav />
+                      <CoachChatProvider>
+                        <RootLayoutNav />
+                      </CoachChatProvider>
                     </OnboardingProvider>
                   </PatientProvider>
                 </OperationsProvider>

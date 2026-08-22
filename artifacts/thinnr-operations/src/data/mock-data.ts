@@ -83,7 +83,10 @@ export interface Subscription {
   shipmentHistory: { date: string; status: 'delivered' | 'shipped' | 'processing' }[];
 }
 
-const today = new Date();
+// Fixed anchor — the same fictional "today" as the mobile companion app
+// (artifacts/thinnr-mobile/data/mock-data.ts). Never use the viewer's clock:
+// the demo dataset is a deterministic snapshot pinned to this date.
+const today = new Date('2026-08-22T12:00:00.000Z');
 const seededFraction = (seed: number) => {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
   return value - Math.floor(value);

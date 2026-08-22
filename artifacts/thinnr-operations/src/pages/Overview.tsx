@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import {
   Activity,
   ArrowUpRight,
+  ClipboardList,
   Filter,
   MoreHorizontal,
   ShieldAlert,
@@ -12,6 +13,7 @@ import {
   ChevronDown
 } from "lucide-react";
 import { MOCK_ANALYTICS, MOCK_PATIENTS, MOCK_PROVIDERS, MOCK_SUBSCRIPTIONS } from "@/data/mock-data";
+import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed } from "@/data/nutrition-data";
 import { useToast } from "@/hooks/use-toast";
 import { usePatientSession } from "@/contexts/patient-session";
 
@@ -116,6 +118,13 @@ export default function Overview() {
     [providerFilter],
   );
   const overduePatients = filteredPatients.filter(p => p.status === 'overdue');
+  const lapsedLoggers = useMemo(
+    () => filteredPatients
+      .map((patient) => ({ patient, stats: getLoggingStats(patient) }))
+      .filter(({ stats }) => isLapsed(stats))
+      .sort((a, b) => (b.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER) - (a.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER)),
+    [filteredPatients],
+  );
   const selectedProvider = MOCK_PROVIDERS.find((provider) => provider.id === providerFilter);
   const averagePoundsLost = filteredPatients.length
     ? filteredPatients.reduce((total, patient) => total + patient.startingWeight - getCurrentWeight(patient), 0) / filteredPatients.length
@@ -281,6 +290,7 @@ export default function Overview() {
 
       {/* Watchlist and Signals */}
       <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_1.45fr]">
+        <div className="space-y-5">
         <section className="border border-[#bdc9dc] bg-[#fbfcff] p-5">
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -312,6 +322,52 @@ export default function Overview() {
             </button>
           ))}
         </section>
+
+        <section className="border border-[#bdc9dc] bg-[#fbfcff] p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[#74839d]">Logging compliance</p>
+              <h2 className="mt-1 text-lg font-semibold tracking-[-.03em] text-[#284675]">Companion-app logging</h2>
+            </div>
+            <span className={`border px-2 py-1 text-[10px] font-bold ${lapsedLoggers.length > 0 ? "border-[#d7b889] bg-[#fff6e5] text-[#97631e]" : "border-[#aec0e2] bg-[#edf2fc] text-[#3156a2]"}`}>
+              {lapsedLoggers.length > 0 ? `${lapsedLoggers.length} lapsed` : "All current"}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 border border-[#dfe5ef] bg-[#f8f9fc] p-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center border border-[#d7b889] bg-[#fff6e5] text-[#a8691e]">
+              <ClipboardList size={16} />
+            </span>
+            <p className="text-[11px] leading-4 text-[#53698f]">
+              <b className="font-mono text-base text-[#172c56]">{lapsedLoggers.length}</b> patient{lapsedLoggers.length === 1 ? " hasn't" : "s haven't"} logged meals in the companion app for {LAPSED_AFTER_DAYS}+ days.
+            </p>
+          </div>
+          {lapsedLoggers.length > 0 && (
+            <div className="mt-1">
+              {lapsedLoggers.slice(0, 3).map(({ patient, stats }) => (
+                <Link
+                  key={patient.id}
+                  href={`/patients/${patient.id}`}
+                  className="flex items-center justify-between gap-3 border-t border-[#dfe5ef] py-2.5 first:border-0 hover:bg-[#f0f3f9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#315fc0]"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center bg-[#dce6fa] text-[9px] font-bold text-[#3156a2]">{patient.initials}</span>
+                    <b className="truncate text-xs text-[#3b5686]">{patient.name}</b>
+                  </span>
+                  <span className="shrink-0 font-mono text-[10px] font-bold text-[#a04646]">
+                    {stats.daysSinceLastLog === null ? "no logs" : `${stats.daysSinceLastLog}d silent`}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+          <Link
+            href="/patients?logging=lapsed"
+            className="mt-3 flex w-full items-center justify-center gap-1 border border-[#bdc9dc] py-2 text-xs font-semibold text-[#3156a2] transition-colors hover:bg-[#e9eef8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#315fc0]"
+          >
+            Review lapsed loggers <ArrowUpRight size={13} />
+          </Link>
+        </section>
+        </div>
 
         <section className="border border-[#bdc9dc] bg-[#fbfcff] p-5">
           <div className="mb-3 flex items-center justify-between">

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { MOCK_PATIENTS, MOCK_PRODUCTS, MOCK_PROVIDERS, MOCK_SUBSCRIPTIONS, type ActivityItem } from "@/data/mock-data";
 import { WeightTrend } from "@/components/patient/WeightTrend";
+import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
 import { usePatientSession } from "@/contexts/patient-session";
 import { useToast } from "@/hooks/use-toast";
 
@@ -185,6 +186,10 @@ export default function PatientDetail() {
             <button onClick={() => { if (manageOpen) toast({ title: "Fulfillment updated", description: `Status set to ${subscriptionStatus} for this session.` }); setManageOpen((open) => !open); }} className="mt-4 w-full border border-[#bdc9dc] py-2 text-xs font-semibold text-[#3156a2] transition-colors hover:bg-[#e9eef8]">{manageOpen ? "Save fulfillment" : "Manage fulfillment"}</button>
           </DetailCard>
         </aside>
+
+        <div className="lg:col-span-3">
+          <NutritionLifestyle key={patient.id} patient={patient} />
+        </div>
       </main>
     </div>
   );

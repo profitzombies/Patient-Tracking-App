@@ -1,25 +1,63 @@
-import { useState, useMemo } from "react";
-import { Link } from "wouter";
+import { useState, useMemo, useEffect } from "react";
+import { Link, useSearch } from "wouter";
 import { Search, Filter, ArrowUpDown, ChevronRight } from "lucide-react";
 import { MOCK_PATIENTS, MOCK_PROVIDERS, type Status } from "@/data/mock-data";
+import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
 import { usePatientSession } from "@/contexts/patient-session";
 
-type SortField = 'name' | 'startDate' | 'status' | 'weightLoss';
+type SortField = 'name' | 'startDate' | 'status' | 'weightLoss' | 'logging';
 type SortOrder = 'asc' | 'desc';
+type LoggingFilter = 'all' | 'lapsed';
+
+function LoggingSignal({ stats, align = 'left' }: { stats: LoggingStats; align?: 'left' | 'right' }) {
+  const lapsed = isLapsed(stats);
+  return (
+    <div className={align === 'right' ? 'flex flex-col items-end' : ''} title={`${stats.loggedDays7} of the last 7 days logged in the companion app`}>
+      <div className="flex items-center gap-2">
+        <span className="flex gap-[3px]" aria-hidden="true">
+          {stats.last7.map((logged, index) => (
+            <span key={index} className={`h-2.5 w-2.5 ${logged ? 'bg-[#315fc0]' : 'border border-[#c9d3e4] bg-[#f0f3f9]'}`} />
+          ))}
+        </span>
+        <b className="font-mono text-xs text-[#284675]">{stats.loggedDays7}/7</b>
+      </div>
+      <span className={`mt-1 block text-[10px] ${lapsed ? 'font-semibold text-[#a04646]' : 'text-[#8793a8]'}`}>{lastLogLabel(stats)}</span>
+    </div>
+  );
+}
 
 export default function Patients() {
   const { getCurrentWeight } = usePatientSession();
+  const searchParams = useSearch();
+  const arrivedLapsed = new URLSearchParams(searchParams).get('logging') === 'lapsed';
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all');
-  const [sortField, setSortField] = useState<SortField>('startDate');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [loggingFilter, setLoggingFilter] = useState<LoggingFilter>(arrivedLapsed ? 'lapsed' : 'all');
+  const [sortField, setSortField] = useState<SortField>(arrivedLapsed ? 'logging' : 'startDate');
+  const [sortOrder, setSortOrder] = useState<SortOrder>(arrivedLapsed ? 'asc' : 'desc');
+
+  // Landing here from the overview compliance card pre-applies the lapsed view.
+  useEffect(() => {
+    if (arrivedLapsed) {
+      setLoggingFilter('lapsed');
+      setSortField('logging');
+      setSortOrder('asc');
+    }
+  }, [arrivedLapsed]);
+
+  const statsById = useMemo(
+    () => new Map(MOCK_PATIENTS.map((patient) => [patient.id, getLoggingStats(patient)])),
+    [],
+  );
 
   const filteredAndSortedPatients = useMemo(() => {
     let result = MOCK_PATIENTS.filter(p => {
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
                             p.email.toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const stats = statsById.get(p.id);
+      const matchesLogging = loggingFilter === 'all' || (stats ? isLapsed(stats) : false);
+      return matchesSearch && matchesStatus && matchesLogging;
     });
 
     result.sort((a, b) => {
@@ -34,19 +72,29 @@ export default function Patients() {
         const aLoss = a.startingWeight - getCurrentWeight(a);
         const bLoss = b.startingWeight - getCurrentWeight(b);
         comparison = aLoss - bLoss;
+      } else if (sortField === 'logging') {
+        const aStats = statsById.get(a.id);
+        const bStats = statsById.get(b.id);
+        comparison = (aStats?.rate7d ?? 0) - (bStats?.rate7d ?? 0);
+        if (comparison === 0) {
+          // Tie-break: the patient silent for longer sorts first when ascending.
+          comparison = (bStats?.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER)
+            - (aStats?.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER);
+        }
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
     return result;
-  }, [search, statusFilter, sortField, sortOrder, getCurrentWeight]);
+  }, [search, statusFilter, loggingFilter, sortField, sortOrder, getCurrentWeight, statsById]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      setSortOrder('desc'); // Default to desc for dates/numbers mostly
+      // Logging defaults to ascending so the least-engaged patients surface first.
+      setSortOrder(field === 'logging' ? 'asc' : 'desc');
     }
   };
 
@@ -83,9 +131,10 @@ export default function Patients() {
           
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
             <div className="flex items-center text-xs font-semibold text-[#53698f]">
-              <Filter size={14} className="mr-1.5" /> Filter by Status:
+              <Filter size={14} className="mr-1.5" /> Filter:
             </div>
             <select 
+              aria-label="Filter by status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as Status | 'all')}
               className="h-9 border border-[#bdc9dc] bg-[#fbfcff] px-2 text-xs text-[#1b2f55] outline-none focus:border-[#315fc0]"
@@ -95,6 +144,15 @@ export default function Patients() {
               <option value="paused">Paused</option>
               <option value="overdue">Overdue</option>
               <option value="graduated">Graduated (Maintenance)</option>
+            </select>
+            <select
+              aria-label="Filter by companion-app logging"
+              value={loggingFilter}
+              onChange={(e) => setLoggingFilter(e.target.value as LoggingFilter)}
+              className="h-9 border border-[#bdc9dc] bg-[#fbfcff] px-2 text-xs text-[#1b2f55] outline-none focus:border-[#315fc0]"
+            >
+              <option value="all">All logging</option>
+              <option value="lapsed">Lapsed {LAPSED_AFTER_DAYS}+ days</option>
             </select>
             <select
               aria-label="Sort patients"
@@ -109,6 +167,7 @@ export default function Patients() {
               <option value="startDate-desc">Newest start</option>
               <option value="name-asc">Name A–Z</option>
               <option value="weightLoss-desc">Most weight lost</option>
+              <option value="logging-asc">Lowest logging rate</option>
               <option value="status-asc">Status</option>
             </select>
           </div>
@@ -152,6 +211,10 @@ export default function Patients() {
                     <p className="text-[9px] text-[#8793a8]">{percentLoss}%</p>
                   </div>
                 </div>
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-[#eef1f6] pt-3">
+                  <p className="text-[9px] font-bold uppercase tracking-[.1em] text-[#8793a8]">Logging (7d)</p>
+                  <LoggingSignal stats={statsById.get(patient.id)!} align="right" />
+                </div>
               </Link>
             );
           })}
@@ -162,7 +225,7 @@ export default function Patients() {
 
         {/* Table */}
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-left text-xs min-w-[800px]">
+          <table className="w-full text-left text-xs min-w-[920px]">
             <thead className="border-b border-[#d5deeb] bg-[#f8f9fc] text-[10px] uppercase tracking-[.11em] text-[#8290a7]">
               <tr>
                 <th className="px-4 py-3 font-semibold w-1/4">
@@ -180,6 +243,11 @@ export default function Patients() {
                 <th className="px-4 py-3 font-semibold">
                   <button onClick={() => handleSort('startDate')} className="flex items-center gap-1 hover:text-[#172c56]">
                     Start Date {sortField === 'startDate' && <ArrowUpDown size={12} className="text-[#315fc0]" />}
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-semibold">
+                  <button onClick={() => handleSort('logging')} className="flex items-center gap-1 hover:text-[#172c56]">
+                    Logging (7d) {sortField === 'logging' && <ArrowUpDown size={12} className="text-[#315fc0]" />}
                   </button>
                 </th>
                 <th className="px-4 py-3 font-semibold text-right">
@@ -225,6 +293,9 @@ export default function Patients() {
                     <td className="px-4 py-3 text-[#53698f]">
                       {new Date(patient.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
+                    <td className="px-4 py-3">
+                      <LoggingSignal stats={statsById.get(patient.id)!} />
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <b className="block text-[#284675]">{weightLoss.toFixed(1)} lbs</b>
                       <span className="text-[10px] text-[#8793a8]">{percentLoss}%</span>
@@ -240,7 +311,7 @@ export default function Patients() {
               
               {filteredAndSortedPatients.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-[#7b879d]">
+                  <td colSpan={8} className="px-4 py-12 text-center text-[#7b879d]">
                     No patients found matching your criteria.
                   </td>
                 </tr>

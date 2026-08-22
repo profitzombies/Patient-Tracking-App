@@ -5,6 +5,7 @@
  */
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -76,6 +77,7 @@ export function OnboardingFrame({
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        bottomOffset={84}
       >
         {coach ? <CoachCallout text={coach} /> : null}
         <Text style={[styles.title, { color: colors.navy }]}>{title}</Text>
@@ -83,23 +85,52 @@ export function OnboardingFrame({
       </KeyboardAwareScrollViewCompat>
 
       {!hideNext ? (
-        <View
-          style={[
-            styles.footer,
-            { borderTopColor: colors.divider, paddingBottom: Math.max(insets.bottom, 12) + 4 },
-          ]}
-        >
-          <PrimaryButton
-            testID="ob-next"
-            label={nextLabel}
-            disabled={nextDisabled}
-            onPress={onNext ?? flow.goNext}
-          />
-        </View>
+        <FooterAboveKeyboard bottomInset={insets.bottom}>
+          <View
+            style={[
+              styles.footer,
+              {
+                borderTopColor: colors.divider,
+                backgroundColor: colors.background,
+                paddingBottom: Math.max(insets.bottom, 12) + 4,
+              },
+            ]}
+          >
+            <PrimaryButton
+              testID="ob-next"
+              label={nextLabel}
+              disabled={nextDisabled}
+              onPress={onNext ?? flow.goNext}
+            />
+          </View>
+        </FooterAboveKeyboard>
       ) : (
         <View style={{ paddingBottom: Math.max(insets.bottom, 8) }} />
       )}
     </View>
+  );
+}
+
+/**
+ * Keeps the footer button pinned just above the software keyboard on native.
+ * The `opened` offset consumes the safe-area padding baked into the footer so
+ * the button sits tight against the keyboard instead of hovering above it.
+ * On web the keyboard never overlays the layout, so this is a passthrough.
+ */
+function FooterAboveKeyboard({
+  bottomInset,
+  children,
+}: {
+  bottomInset: number;
+  children: React.ReactNode;
+}) {
+  if (Platform.OS === 'web') {
+    return <>{children}</>;
+  }
+  return (
+    <KeyboardStickyView offset={{ closed: 0, opened: bottomInset }}>
+      {children}
+    </KeyboardStickyView>
   );
 }
 

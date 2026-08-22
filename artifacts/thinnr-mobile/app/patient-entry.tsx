@@ -72,6 +72,7 @@ export default function PatientEntryScreen() {
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}
         showsVerticalScrollIndicator={false}
+        bottomOffset={96}
       >
         <Text style={[styles.kicker, { color: colors.labelText }]}>PATIENT ACCESS</Text>
         <Text style={[styles.title, { color: colors.navy }]}>Welcome back</Text>

@@ -14,8 +14,8 @@ import { PillSelector } from '@/components/ui/LedgerPrimitives';
 import { usePatient } from '@/context/PatientContext';
 import { formatQty, rescaleEntrySnapshot } from '@/data/diary-entries';
 import {
+  dayLabel,
   DIARY_MIN_KEY,
-  formatDateKey,
   MEAL_LABELS,
   MEAL_SLOTS,
   shiftDateKey,
@@ -26,16 +26,10 @@ import {
 
 const MEAL_OPTIONS = MEAL_SLOTS.map(slot => ({ label: MEAL_LABELS[slot], value: slot }));
 
-function dayLabel(dateKey: string): string {
-  if (dateKey === TODAY_KEY) return 'Today';
-  if (dateKey === shiftDateKey(TODAY_KEY, -1)) return 'Yesterday';
-  return formatDateKey(dateKey);
-}
-
 interface EntryEditPanelProps {
   entry: MealLogEntry;
-  /** Close the panel (after save, or via the row's edit toggle). */
-  onDone: () => void;
+  /** Close the panel after a successful save; reports the day the entry now lives on. */
+  onDone: (savedDateKey: string) => void;
 }
 
 export function EntryEditPanel({ entry, onDone }: EntryEditPanelProps) {
@@ -57,7 +51,7 @@ export function EntryEditPanel({ entry, onDone }: EntryEditPanelProps) {
     setSaving(true);
     try {
       await patient.updateEntry(entry.id, { meal, quantity: qty, dateKey });
-      onDone();
+      onDone(dateKey);
     } finally {
       setSaving(false);
     }

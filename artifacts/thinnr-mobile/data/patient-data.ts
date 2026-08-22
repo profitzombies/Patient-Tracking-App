@@ -44,6 +44,13 @@ export function shiftDateKey(dateKey: string, days: number): string {
   return toDateKey(addDays(new Date(`${dateKey}T12:00:00.000Z`), days));
 }
 
+/** Diary-relative label for a day key: "Today", "Yesterday", or the short date. */
+export function dayLabel(dateKey: string): string {
+  if (dateKey === TODAY_KEY) return 'Today';
+  if (dateKey === shiftDateKey(TODAY_KEY, -1)) return 'Yesterday';
+  return formatDateKey(dateKey);
+}
+
 const seededFraction = (seed: number): number => {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
   return value - Math.floor(value);

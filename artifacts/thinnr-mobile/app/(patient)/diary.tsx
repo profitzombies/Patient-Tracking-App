@@ -1,6 +1,9 @@
 /**
  * Diary — day-by-day food log grouped by meal, with a date navigator,
- * per-entry removal, daily totals, and the water tracker for that day.
+ * per-entry removal and inline editing, one-tap copy of a previous day's
+ * meals, daily totals, and the water tracker for that day. One transient
+ * snackbar slot handles Undo after a removal and a "Moved to …" confirmation
+ * (with a jump) after a cross-day edit.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -14,9 +17,11 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { WaterTracker } from '@/components/patient/WaterTracker';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
+import { Snackbar } from '@/components/ui/Snackbar';
 import { usePatient } from '@/context/PatientContext';
 import { isApprovedFood } from '@/data/approved-foods';
 import {
+  dayLabel,
   DIARY_MIN_KEY,
   formatDateKey,
   MEAL_LABELS,
@@ -27,6 +32,12 @@ import {
   type MealSlot,
 } from '@/data/patient-data';
 
+// One snackbar slot on the diary: either an undoable removal or a
+// confirmation that an edited entry moved to another day.
+type DiaryNotice =
+  | { kind: 'removed'; entry: MealLogEntry }
+  | { kind: 'moved'; dateKey: string };
+
 export default function DiaryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -36,20 +47,22 @@ export default function DiaryScreen() {
   // Guards the copy affordances while a copy commit is in flight, so a rapid
   // double-tap can't clone the same meal twice.
   const [copying, setCopying] = useState(false);
-  // Last removed entry, kept around briefly so the deletion can be undone.
-  // A fresh object per removal restarts the auto-dismiss timer below.
-  const [lastRemoved, setLastRemoved] = useState<{ entry: MealLogEntry } | null>(null);
+  // A fresh notice object per event restarts the auto-dismiss timer below,
+  // and a newer notice replaces whatever is currently showing.
+  const [notice, setNotice] = useState<DiaryNotice | null>(null);
 
-  // Collapse any open edit panel when the day changes.
+  // Collapse any open edit panel when the day changes, and retire a move
+  // confirmation once the patient is already looking at its destination day.
   useEffect(() => {
     setEditingId(null);
+    setNotice(cur => (cur?.kind === 'moved' && cur.dateKey === dateKey ? null : cur));
   }, [dateKey]);
 
   useEffect(() => {
-    if (!lastRemoved) return;
-    const timer = setTimeout(() => setLastRemoved(null), UNDO_WINDOW_MS);
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), NOTICE_WINDOW_MS);
     return () => clearTimeout(timer);
-  }, [lastRemoved]);
+  }, [notice]);
 
   const handleRemove = async (entry: MealLogEntry) => {
     setEditingId(cur => (cur === entry.id ? null : cur));
@@ -57,14 +70,19 @@ export default function DiaryScreen() {
     // fast Undo tap always acts on the recorded deletion (restoreEntry
     // no-ops unless the entry is actually gone).
     await patient.removeEntry(entry.id);
-    setLastRemoved({ entry });
+    setNotice({ kind: 'removed', entry });
   };
 
   const handleUndo = () => {
-    if (!lastRemoved) return;
-    const { entry } = lastRemoved;
-    setLastRemoved(null);
-    void patient.restoreEntry(entry);
+    if (notice?.kind !== 'removed') return;
+    setNotice(null);
+    void patient.restoreEntry(notice.entry);
+  };
+
+  const handleViewMoved = () => {
+    if (notice?.kind !== 'moved') return;
+    setNotice(null);
+    setDateKey(notice.dateKey);
   };
 
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
@@ -243,7 +261,16 @@ export default function DiaryScreen() {
                         </Pressable>
                       </View>
                       {editingId === entry.id && (
-                        <EntryEditPanel entry={entry} onDone={() => setEditingId(null)} />
+                        <EntryEditPanel
+                          entry={entry}
+                          onDone={savedDateKey => {
+                            setEditingId(null);
+                            // Confirm only when the entry actually left this day.
+                            if (savedDateKey !== dateKey) {
+                              setNotice({ kind: 'moved', dateKey: savedDateKey });
+                            }
+                          }}
+                        />
                       )}
                     </View>
                   ))
@@ -317,35 +344,24 @@ export default function DiaryScreen() {
         <SyntheticDisclaimer />
       </ScrollView>
 
-      {/* ── Undo snackbar (floats above the tab bar) ── */}
-      {lastRemoved && (
-        <View
+      {/* ── Transient notice (floats above the tab bar) ── */}
+      {notice?.kind === 'removed' && (
+        <Snackbar
           testID="diary-undo-snackbar"
-          style={[
-            styles.snackbar,
-            {
-              backgroundColor: colors.navy,
-              borderColor: colors.navyLight,
-              bottom: (Platform.OS === 'web' ? 84 : insets.bottom + 84) + 12,
-            },
-          ]}
-        >
-          <Text style={[styles.snackbarText, { color: colors.paperCard }]} numberOfLines={1}>
-            Removed “{lastRemoved.entry.name}”
-          </Text>
-          <Pressable
-            testID="diary-undo"
-            onPress={handleUndo}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.undoBtn,
-              { borderColor: colors.cobaltMuted },
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <Text style={[styles.undoText, { color: colors.paperCard }]}>UNDO</Text>
-          </Pressable>
-        </View>
+          message={`Removed “${notice.entry.name}”`}
+          actionLabel="UNDO"
+          actionTestID="diary-undo"
+          onAction={handleUndo}
+        />
+      )}
+      {notice?.kind === 'moved' && (
+        <Snackbar
+          testID="diary-moved-snackbar"
+          message={`Moved to ${dayLabel(notice.dateKey)}`}
+          actionLabel="VIEW"
+          actionTestID="diary-moved-view"
+          onAction={handleViewMoved}
+        />
       )}
     </View>
   );
@@ -499,35 +515,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontFamily: 'Inter_400Regular',
   },
-  snackbar: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingLeft: 14,
-    paddingRight: 8,
-    paddingVertical: 8,
-  },
-  snackbarText: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-  },
-  undoBtn: {
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  undoText: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-    fontFamily: 'Inter_700Bold',
-  },
 });
 
-const UNDO_WINDOW_MS = 5000;
+const NOTICE_WINDOW_MS = 5000;

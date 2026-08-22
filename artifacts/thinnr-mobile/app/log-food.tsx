@@ -15,11 +15,15 @@ import { Divider, EmptyState, LedgerCard, PillSelector } from '@/components/ui/L
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
 import { APPROVED_BADGE_EXPLANATION, isApprovedFood } from '@/data/approved-foods';
+import { rankMostLogged } from '@/data/diary-entries';
 import {
   formatDateKey,
   MEAL_LABELS,
   MEAL_SLOTS,
   RECIPES,
+  subDays,
+  toDateKey,
+  TODAY,
   TODAY_KEY,
   type MealSlot,
 } from '@/data/patient-data';
@@ -38,6 +42,15 @@ interface LoggableItem {
   fat: number;
   /** Food matches the official THINNR Approved Foods list. */
   approved: boolean;
+  /** Times logged in the most-logged window (set only in that group). */
+  loggedCount?: number;
+}
+
+/** A titled section of the results list (title is null for flat lists). */
+interface ResultGroup {
+  key: string;
+  title: string | null;
+  items: LoggableItem[];
 }
 
 const SCOPE_OPTIONS: { label: string; value: Scope }[] = [
@@ -45,6 +58,15 @@ const SCOPE_OPTIONS: { label: string; value: Scope }[] = [
   { label: 'Favorites', value: 'favorites' },
   { label: 'All', value: 'all' },
 ];
+
+// "Most logged" ranks diary frequency over a recent window so true staples
+// surface first. Window is anchored to the demo's fixed TODAY, one-offs
+// (fewer than MIN_COUNT logs) stay in the plain Recent list, and the group
+// is capped so it stays scannable.
+const MOST_LOGGED_WINDOW_DAYS = 30;
+const MOST_LOGGED_SINCE_KEY = toDateKey(subDays(TODAY, MOST_LOGGED_WINDOW_DAYS - 1));
+const MOST_LOGGED_MIN_COUNT = 2;
+const MOST_LOGGED_LIMIT = 10;
 
 const MEAL_OPTIONS = MEAL_SLOTS.map(slot => ({ label: MEAL_LABELS[slot], value: slot }));
 
@@ -122,20 +144,56 @@ export default function LogFoodScreen() {
 
   const byId = useMemo(() => new Map(allItems.map(item => [item.refId, item])), [allItems]);
 
-  const visible = useMemo(() => {
+  // Diary staples: ranked by log frequency over the window, ties by recency.
+  // Counts come from all diary entries (seeded + user-added), so the demo
+  // patient sees real staples before ever logging anything themselves.
+  const mostLogged = useMemo<LoggableItem[]>(
+    () =>
+      rankMostLogged(patient.allEntries, MOST_LOGGED_SINCE_KEY)
+        .filter(freq => freq.count >= MOST_LOGGED_MIN_COUNT)
+        .map((freq): LoggableItem | null => {
+          const item = byId.get(freq.refId);
+          return item ? { ...item, loggedCount: freq.count } : null;
+        })
+        .filter((i): i is LoggableItem => Boolean(i))
+        .slice(0, MOST_LOGGED_LIMIT),
+    [patient.allEntries, byId],
+  );
+
+  const groups = useMemo<ResultGroup[]>(() => {
     const q = query.trim().toLowerCase();
-    let base: LoggableItem[];
+    let built: ResultGroup[];
     if (q) {
-      base = allItems.filter(item => `${item.name} ${item.sub}`.toLowerCase().includes(q));
+      built = [{
+        key: 'search',
+        title: null,
+        items: allItems.filter(item => `${item.name} ${item.sub}`.toLowerCase().includes(q)),
+      }];
     } else if (scope === 'recent') {
-      base = patient.recents.map(id => byId.get(id)).filter((i): i is LoggableItem => Boolean(i));
+      const inMostLogged = new Set(mostLogged.map(item => item.refId));
+      const recents = patient.recents
+        .filter(id => !inMostLogged.has(id))
+        .map(id => byId.get(id))
+        .filter((i): i is LoggableItem => Boolean(i));
+      built = [
+        { key: 'most-logged', title: `MOST LOGGED · LAST ${MOST_LOGGED_WINDOW_DAYS} DAYS`, items: mostLogged },
+        { key: 'recent', title: 'RECENT', items: recents },
+      ];
     } else if (scope === 'favorites') {
-      base = patient.favorites.map(id => byId.get(id)).filter((i): i is LoggableItem => Boolean(i));
+      built = [{
+        key: 'favorites',
+        title: null,
+        items: patient.favorites.map(id => byId.get(id)).filter((i): i is LoggableItem => Boolean(i)),
+      }];
     } else {
-      base = allItems;
+      built = [{ key: 'all', title: null, items: allItems }];
     }
-    return approvedOnly ? base.filter(item => item.approved) : base;
-  }, [query, scope, approvedOnly, allItems, byId, patient.recents, patient.favorites]);
+    return built
+      .map(group => (approvedOnly ? { ...group, items: group.items.filter(item => item.approved) } : group))
+      .filter(group => group.items.length > 0);
+  }, [query, scope, approvedOnly, allItems, byId, mostLogged, patient.recents, patient.favorites]);
+
+  const totalVisible = groups.reduce((sum, group) => sum + group.items.length, 0);
 
   const selected = selectedId ? byId.get(selectedId) : undefined;
 
@@ -391,10 +449,10 @@ export default function LogFoodScreen() {
 
         {/* ── Results ── */}
         <Text style={[styles.resultCount, { color: colors.labelText }]}>
-          {visible.length} ITEM{visible.length === 1 ? '' : 'S'}
+          {totalVisible} ITEM{totalVisible === 1 ? '' : 'S'}
           {approvedOnly ? ' · APPROVED' : ''}
         </Text>
-        {visible.length === 0 ? (
+        {totalVisible === 0 ? (
           <LedgerCard>
             <EmptyState
               icon={<Feather name="search" size={22} color={colors.subtleText} />}
@@ -420,45 +478,59 @@ export default function LogFoodScreen() {
           </LedgerCard>
         ) : (
           <LedgerCard>
-            {visible.map((item, index) => {
-              const isSelected = selectedId === item.refId;
-              return (
-                <View key={`${item.refId}-${index}`}>
-                  {index > 0 && <Divider />}
-                  <Pressable
-                    testID={`logfood-item-${item.refId}`}
-                    onPress={() => {
-                      setSelectedId(current => (current === item.refId ? null : item.refId));
-                      setQty(1);
-                    }}
-                    style={({ pressed }) => [
-                      styles.itemRow,
-                      isSelected && { backgroundColor: colors.sidebarBg },
-                      pressed && !isSelected && { backgroundColor: colors.accent },
-                    ]}
+            {groups.map((group, groupIndex) => (
+              <View key={group.key}>
+                {groupIndex > 0 && <Divider />}
+                {group.title && (
+                  <Text
+                    testID={`logfood-group-${group.key}`}
+                    style={[styles.groupHeader, { color: colors.labelText }]}
                   >
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.itemNameRow}>
-                        <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                        {item.approved && <ApprovedBadge size="sm" />}
-                      </View>
-                      <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
-                        {item.sub} · {item.serving} · P {item.protein}g
-                      </Text>
+                    {group.title}
+                  </Text>
+                )}
+                {group.items.map((item, index) => {
+                  const isSelected = selectedId === item.refId;
+                  return (
+                    <View key={`${item.refId}-${index}`}>
+                      {index > 0 && <Divider />}
+                      <Pressable
+                        testID={`logfood-item-${item.refId}`}
+                        onPress={() => {
+                          setSelectedId(current => (current === item.refId ? null : item.refId));
+                          setQty(1);
+                        }}
+                        style={({ pressed }) => [
+                          styles.itemRow,
+                          isSelected && { backgroundColor: colors.sidebarBg },
+                          pressed && !isSelected && { backgroundColor: colors.accent },
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.itemNameRow}>
+                            <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
+                              {item.name}
+                            </Text>
+                            {item.approved && <ApprovedBadge size="sm" />}
+                          </View>
+                          <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
+                            {item.loggedCount ? `${item.loggedCount}× logged · ` : ''}
+                            {item.sub} · {item.serving} · P {item.protein}g
+                          </Text>
+                        </View>
+                        <FavoriteStar id={item.refId} name={item.name} testID={`logfood-fav-${item.refId}`} />
+                        <Text style={[styles.itemCals, { color: colors.navyLight }]}>{item.calories}</Text>
+                        <Feather
+                          name={isSelected ? 'check-square' : 'plus-square'}
+                          size={16}
+                          color={isSelected ? colors.cobalt : colors.subtleText}
+                        />
+                      </Pressable>
                     </View>
-                    <FavoriteStar id={item.refId} name={item.name} testID={`logfood-fav-${item.refId}`} />
-                    <Text style={[styles.itemCals, { color: colors.navyLight }]}>{item.calories}</Text>
-                    <Feather
-                      name={isSelected ? 'check-square' : 'plus-square'}
-                      size={16}
-                      color={isSelected ? colors.cobalt : colors.subtleText}
-                    />
-                  </Pressable>
-                </View>
-              );
-            })}
+                  );
+                })}
+              </View>
+            ))}
           </LedgerCard>
         )}
       </KeyboardAwareScrollViewCompat>
@@ -665,6 +737,15 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     marginTop: 14,
     marginBottom: 8,
+  },
+  groupHeader: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    fontFamily: 'Inter_700Bold',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 2,
   },
   itemRow: {
     flexDirection: 'row',

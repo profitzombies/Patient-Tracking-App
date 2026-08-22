@@ -1,10 +1,49 @@
 /**
- * Helpers for editing already-logged diary entries. Rescaling always works
- * from the entry's own stored snapshot (logged totals ÷ logged quantity),
- * never from the current library food or recipe — those may have been edited
- * or deleted since the entry was logged.
+ * Helpers for working with already-logged diary entries: rescaling an entry
+ * to a new quantity, and ranking library items by how often they were logged.
+ * Rescaling always works from the entry's own stored snapshot (logged totals
+ * ÷ logged quantity), never from the current library food or recipe — those
+ * may have been edited or deleted since the entry was logged.
  */
 import type { MealLogEntry } from '@/data/patient-data';
+
+/** How often a library item was logged, for "most logged" ranking. */
+export interface LoggedFrequency {
+  refId: string;
+  count: number;
+}
+
+/**
+ * Rank library items (foods/recipes) by how often they appear in the diary on
+ * or after `sinceKey` (a YYYY-MM-DD date key, inclusive). Ties fall back to
+ * the most recent logged date, then to log order, so the result is fully
+ * deterministic — the seeded demo history always produces the same list.
+ * Entries without a refId are skipped; callers apply their own minimum-count
+ * or length caps.
+ */
+export function rankMostLogged(entries: MealLogEntry[], sinceKey: string): LoggedFrequency[] {
+  const stats = new Map<string, { count: number; lastDateKey: string; lastIndex: number }>();
+  entries.forEach((entry, index) => {
+    if (!entry.refId || entry.dateKey < sinceKey) return;
+    const prev = stats.get(entry.refId);
+    if (!prev) {
+      stats.set(entry.refId, { count: 1, lastDateKey: entry.dateKey, lastIndex: index });
+      return;
+    }
+    prev.count += 1;
+    if (entry.dateKey >= prev.lastDateKey) {
+      prev.lastDateKey = entry.dateKey;
+      prev.lastIndex = index;
+    }
+  });
+  return [...stats.entries()]
+    .sort(([, a], [, b]) => {
+      if (a.count !== b.count) return b.count - a.count;
+      if (a.lastDateKey !== b.lastDateKey) return a.lastDateKey < b.lastDateKey ? 1 : -1;
+      return b.lastIndex - a.lastIndex;
+    })
+    .map(([refId, { count }]) => ({ refId, count }));
+}
 
 export function formatQty(qty: number): string {
   return qty % 1 === 0 ? String(qty) : qty.toFixed(1);

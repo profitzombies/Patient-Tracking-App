@@ -107,6 +107,7 @@ interface PatientContextValue {
   photos: ProgressPhoto[];
   checkIns: CheckIn[]; // merged, newest first
   weightSeries: WeightPoint[]; // ascending by date
+  allEntries: MealLogEntry[]; // seeded + user-added, minus removed, in log order
   entriesForDate: (dateKey: string) => MealLogEntry[];
   waterFor: (dateKey: string) => number;
   checkInFor: (dateKey: string) => CheckIn | undefined;
@@ -365,6 +366,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       photos,
       checkIns,
       weightSeries,
+      allEntries,
       entriesForDate,
       waterFor,
       checkInFor,
@@ -390,6 +392,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       photos,
       checkIns,
       weightSeries,
+      allEntries,
       entriesForDate,
       waterFor,
       checkInFor,

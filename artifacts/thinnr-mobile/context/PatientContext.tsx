@@ -17,8 +17,13 @@ import React, {
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { cloneEntriesForCopy, rescaleEntrySnapshot } from '@/data/diary-entries';
-import { applyRemoveEntry, applyRestoreEntry } from '@/data/diary-entry-state';
+import { cloneEntriesForCopy } from '@/data/diary-entries';
+import {
+  applyRemoveEntry,
+  applyRestoreEntry,
+  applyUpdateEntry,
+  type EntryEditChanges,
+} from '@/data/diary-entry-state';
 import {
   buildSeedCheckIns,
   buildSeedEntries,
@@ -43,6 +48,8 @@ const STORAGE_KEY = 'thinnr_patient_state_v1';
 const SEED_ENTRIES = buildSeedEntries();
 const SEED_ENTRY_IDS = new Set(SEED_ENTRIES.map(e => e.id));
 const isSeedEntryId = (id: string) => SEED_ENTRY_IDS.has(id);
+
+const findSeedEntry = (id: string) => SEED_ENTRIES.find(e => e.id === id);
 const SEED_WATER = buildSeedWater();
 const SEED_CHECKINS = buildSeedCheckIns();
 
@@ -121,7 +128,7 @@ interface PatientContextValue {
   addEntry: (entry: Omit<MealLogEntry, 'id'>) => Promise<void>;
   copyEntries: (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
-  updateEntry: (id: string, changes: { meal: MealSlot; quantity: number; dateKey?: string }) => Promise<void>;
+  updateEntry: (id: string, changes: EntryEditChanges) => Promise<void>;
   setWater: (dateKey: string, oz: number) => Promise<void>;
   addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<void>;
   addPhoto: (photo: { dateKey: string; uri: string; label: string }) => Promise<void>;
@@ -258,33 +265,23 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [commit, runSerialized]);
 
-  // Fixes a logged entry in place (meal slot, quantity, and/or day). Macros
-  // rescale from the entry's own logged snapshot — never the current library
-  // food, which may have changed since. Seeded entries can't be mutated
-  // (they're rebuilt from the seed each launch), so they're tombstoned via
-  // removedEntryIds and re-added as a user entry with a fresh id.
-  const updateEntry = useCallback(async (id: string, changes: { meal: MealSlot; quantity: number; dateKey?: string }): Promise<void> => {
+  // Fixes a logged entry in place (meal slot, quantity, and/or day) through
+  // the pure applyUpdateEntry transition (data/diary-entry-state.ts, covered
+  // by scripts/verify-diary-edit.ts). Macros rescale from the entry's own
+  // logged snapshot — never the current library food, which may have changed
+  // since. Seeded entries can't be mutated (they're rebuilt from the seed
+  // each launch), so they're tombstoned via removedEntryIds and re-added as
+  // a user entry with a fresh id.
+  const updateEntry = useCallback(async (id: string, changes: EntryEditChanges): Promise<void> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
     await runSerialized(async () => {
       const prev = stateRef.current;
-      const added = prev.addedEntries.find(e => e.id === id);
-      const source = added ?? SEED_ENTRIES.find(e => e.id === id);
-      if (!source || prev.removedEntryIds.includes(id)) return;
-      const updated: MealLogEntry = {
-        ...source,
-        ...rescaleEntrySnapshot(source, changes.quantity),
-        meal: changes.meal,
-        dateKey: changes.dateKey ?? source.dateKey,
-      };
-      const next: PersistedState = added
-        ? { ...prev, addedEntries: prev.addedEntries.map(e => (e.id === id ? updated : e)) }
-        : {
-            ...prev,
-            removedEntryIds: [...prev.removedEntryIds, id],
-            addedEntries: [...prev.addedEntries, { ...updated, id: nextId('log') }],
-          };
-      await commit(next);
+      const next = applyUpdateEntry(prev, id, changes, findSeedEntry, () => nextId('log'));
+      if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
+        return; // unknown id, or an already-deleted/edited entry — nothing to change
+      }
+      await commit({ ...prev, ...next });
     });
   }, [commit, runSerialized]);
 

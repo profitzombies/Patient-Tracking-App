@@ -1,16 +1,19 @@
 /**
- * Pure state transitions behind diary deletion and its Undo.
+ * Pure state transitions behind the diary: deletion + Undo, and the edit
+ * flow's rewrite of a logged entry (meal slot, quantity, day).
  *
- * Kept free of React so the remove/restore invariants (no duplicates, no
- * double-counting, exact same-id restores) can be exercised directly by
- * scripts/verify-diary-undo.ts as a regression check.
+ * Kept free of React so the invariants (no duplicates, no double-counting,
+ * exact same-id restores, no resurrected seeds) can be exercised directly by
+ * scripts/verify-diary-undo.ts and scripts/verify-diary-edit.ts as
+ * regression checks.
  *
  * Model: seeded entries are rebuilt from the seed every launch, so deleting
  * one records a tombstone in `removedEntryIds`; user-logged entries live in
  * `addedEntries` and are deleted by filtering them out. Tombstones may only
  * ever reference seed ids.
  */
-import type { MealLogEntry } from './patient-data';
+import { rescaleEntrySnapshot } from './diary-entries';
+import type { MealLogEntry, MealSlot } from './patient-data';
 
 export interface DiaryEntryState {
   /** Entries the patient logged themselves (on top of the seed). */
@@ -71,4 +74,53 @@ export function applyRestoreEntry(
   }
   if (isSeedId(entry.id) || isPresent) return state;
   return { addedEntries: [...addedEntries, entry], removedEntryIds };
+}
+
+/** The fields a patient can fix on a logged entry: slot, quantity, day. */
+export interface EntryEditChanges {
+  meal: MealSlot;
+  quantity: number;
+  /** Omitted → the entry stays on its current day. */
+  dateKey?: string;
+}
+
+/**
+ * Edits a logged entry: meal slot, quantity (macros rescale from the entry's
+ * own logged snapshot via rescaleEntrySnapshot — never from the current
+ * library food or recipe, which may have changed since), and optionally day.
+ *
+ *  - user-logged entry → rewritten in place under its original id;
+ *  - seeded entry → tombstoned (seeds are rebuilt from the seed every launch,
+ *    so the original id must stay dead or the pre-edit row would resurrect on
+ *    relaunch) and re-added as a clone under a fresh id from `newEntryId`,
+ *    leaving exactly one visible copy;
+ *  - unknown id, or an id already in `removedEntryIds` (e.g. a stale edit
+ *    panel for a seed that was deleted or already edited) → returns the input
+ *    state unchanged (same reference), so nothing can resurrect or
+ *    double-count.
+ */
+export function applyUpdateEntry(
+  state: DiaryEntryState,
+  id: string,
+  changes: EntryEditChanges,
+  findSeedEntry: (id: string) => MealLogEntry | undefined,
+  newEntryId: () => string,
+): DiaryEntryState {
+  const { addedEntries, removedEntryIds } = state;
+  const added = addedEntries.find(e => e.id === id);
+  const source = added ?? findSeedEntry(id);
+  if (!source || removedEntryIds.includes(id)) return state;
+  const updated: MealLogEntry = {
+    ...source,
+    ...rescaleEntrySnapshot(source, changes.quantity),
+    meal: changes.meal,
+    dateKey: changes.dateKey ?? source.dateKey,
+  };
+  if (added) {
+    return { addedEntries: addedEntries.map(e => (e.id === id ? updated : e)), removedEntryIds };
+  }
+  return {
+    addedEntries: [...addedEntries, { ...updated, id: newEntryId() }],
+    removedEntryIds: [...removedEntryIds, id],
+  };
 }

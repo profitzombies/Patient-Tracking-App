@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:approved-foods": "tsx scripts/verify-approved-foods.ts",
     "test:diary-copy": "tsx scripts/verify-diary-copy.ts",
+    "test:diary-edit": "tsx scripts/verify-diary-edit.ts",
     "test:diary-undo": "tsx scripts/verify-diary-undo.ts",
     "test:photo-backfill": "tsx scripts/verify-photo-backfill.ts"
   },

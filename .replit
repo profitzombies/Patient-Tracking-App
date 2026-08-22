@@ -36,6 +36,10 @@ args = "photo-backfill"
 task = "workflow.run"
 args = "diary-copy"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "diary-edit"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -90,6 +94,17 @@ args = "pnpm --filter @workspace/thinnr-mobile run test:diary-copy"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "diary-edit"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:diary-edit"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 stack = "PNPM_WORKSPACE"

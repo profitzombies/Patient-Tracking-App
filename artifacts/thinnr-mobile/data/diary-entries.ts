@@ -5,7 +5,7 @@
  * ÷ logged quantity), never from the current library food or recipe — those
  * may have been edited or deleted since the entry was logged.
  */
-import type { MealLogEntry } from '@/data/patient-data';
+import type { MealLogEntry, MealSlot } from '@/data/patient-data';
 
 /** How often a library item was logged, for "most logged" ranking. */
 export interface LoggedFrequency {
@@ -47,6 +47,29 @@ export function rankMostLogged(entries: MealLogEntry[], sinceKey: string): Logge
 
 export function formatQty(qty: number): string {
   return qty % 1 === 0 ? String(qty) : qty.toFixed(1);
+}
+
+/**
+ * Clone already-logged entries onto another day — "copy yesterday's breakfast
+ * onto today" — optionally forcing every clone into one meal slot. Clones are
+ * plain user-added entries with fresh ids from `makeId`, and they carry the
+ * source entry's logged snapshot (name/detail/quantity/calories/macros)
+ * untouched: values are never re-derived from the current library food or
+ * recipe, which may have been edited or deleted since the source was logged.
+ * Sources may be seeded or user-added; neither the array nor its entries are
+ * mutated. Clone order preserves source order.
+ */
+export function cloneEntriesForCopy(
+  sources: MealLogEntry[],
+  target: { dateKey: string; meal?: MealSlot },
+  makeId: () => string,
+): MealLogEntry[] {
+  return sources.map(source => ({
+    ...source,
+    id: makeId(),
+    dateKey: target.dateKey,
+    meal: target.meal ?? source.meal,
+  }));
 }
 
 type EntrySnapshot = Pick<

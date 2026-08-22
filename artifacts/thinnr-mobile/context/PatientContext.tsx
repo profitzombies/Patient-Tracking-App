@@ -17,7 +17,7 @@ import React, {
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { rescaleEntrySnapshot } from '@/data/diary-entries';
+import { cloneEntriesForCopy, rescaleEntrySnapshot } from '@/data/diary-entries';
 import { applyRemoveEntry, applyRestoreEntry } from '@/data/diary-entry-state';
 import {
   buildSeedCheckIns,
@@ -119,6 +119,7 @@ interface PatientContextValue {
   waterFor: (dateKey: string) => number;
   checkInFor: (dateKey: string) => CheckIn | undefined;
   addEntry: (entry: Omit<MealLogEntry, 'id'>) => Promise<void>;
+  copyEntries: (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
   updateEntry: (id: string, changes: { meal: MealSlot; quantity: number; dateKey?: string }) => Promise<void>;
   setWater: (dateKey: string, oz: number) => Promise<void>;
@@ -205,6 +206,23 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         ? [entry.refId, ...prev.recents.filter(r => r !== entry.refId)].slice(0, 12)
         : prev.recents;
       await commit({ ...prev, addedEntries: [...prev.addedEntries, full], recents });
+    });
+  }, [commit, runSerialized]);
+
+  // Copies already-logged entries (seeded or user-added, from any day) onto a
+  // target day — optionally into one meal slot — as user-added entries with
+  // fresh ids. Clones keep each source's logged snapshot rather than current
+  // library values, and the whole batch lands in a single commit so day
+  // totals update and persist atomically. Recents are left alone: copying a
+  // day is repetition, not a new food choice.
+  const copyEntries = useCallback(async (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }): Promise<void> => {
+    if (sources.length === 0) return;
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const clones = cloneEntriesForCopy(sources, target, () => nextId('log'));
+      await commit({ ...prev, addedEntries: [...prev.addedEntries, ...clones] });
     });
   }, [commit, runSerialized]);
 
@@ -475,6 +493,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       waterFor,
       checkInFor,
       addEntry,
+      copyEntries,
       removeEntry,
       restoreEntry,
       updateEntry,
@@ -506,6 +525,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       waterFor,
       checkInFor,
       addEntry,
+      copyEntries,
       removeEntry,
       restoreEntry,
       updateEntry,

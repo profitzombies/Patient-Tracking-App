@@ -33,6 +33,9 @@ export default function DiaryScreen() {
   const patient = usePatient();
   const [dateKey, setDateKey] = useState(TODAY_KEY);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Guards the copy affordances while a copy commit is in flight, so a rapid
+  // double-tap can't clone the same meal twice.
+  const [copying, setCopying] = useState(false);
   // Last removed entry, kept around briefly so the deletion can be undone.
   // A fresh object per removal restarts the auto-dismiss timer below.
   const [lastRemoved, setLastRemoved] = useState<{ entry: MealLogEntry } | null>(null);
@@ -84,6 +87,25 @@ export default function DiaryScreen() {
   const isToday = dateKey === TODAY_KEY;
   const atMin = dateKey <= DIARY_MIN_KEY;
 
+  // Copy source: the day before the one being viewed. Below the diary horizon
+  // there is no previous day to copy from.
+  const prevKey = shiftDateKey(dateKey, -1);
+  const prevEntries = atMin ? [] : patient.entriesForDate(prevKey);
+  const prevCalories = prevEntries.reduce((acc, e) => acc + e.calories, 0);
+  const sourceLabel = isToday ? 'yesterday' : formatDateKey(prevKey);
+
+  const handleCopy = async (sources: MealLogEntry[], meal?: MealSlot) => {
+    if (copying || sources.length === 0) return;
+    setCopying(true);
+    try {
+      // Clones keep each source's logged snapshot; only day (and optionally
+      // meal) change. Fresh ids are assigned in the context.
+      await patient.copyEntries(sources, meal ? { dateKey, meal } : { dateKey });
+    } finally {
+      setCopying(false);
+    }
+  };
+
   const openLogFood = (meal: MealSlot) => {
     router.push({ pathname: '/log-food', params: { date: dateKey, meal } });
   };
@@ -92,50 +114,84 @@ export default function DiaryScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PatientHeader title="Food Diary" />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
-        {/* ── Date navigator ── */}
-        <LedgerCard style={styles.dateBar}>
-          <Pressable
-            testID="diary-prev-day"
-            disabled={atMin}
-            onPress={() => setDateKey(k => shiftDateKey(k, -1))}
-            style={({ pressed }) => [
-              styles.dateArrow,
-              { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
-              atMin && { opacity: 0.35 },
-            ]}
-          >
-            <Feather name="chevron-left" size={16} color={colors.bodyText} />
-          </Pressable>
-          <View style={styles.dateCenter}>
-            <Text style={[styles.dateText, { color: colors.navy }]}>{formatDateKey(dateKey)}</Text>
-            {isToday ? (
-              <View style={[styles.todayBadge, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
-                <Text style={[styles.todayBadgeText, { color: colors.activeGreen }]}>TODAY</Text>
-              </View>
-            ) : (
-              <Pressable onPress={() => setDateKey(TODAY_KEY)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
-                <Text style={[styles.jumpToday, { color: colors.cobalt }]}>Jump to today</Text>
-              </Pressable>
-            )}
+        {/* ── Date navigator (with the whole-day copy action) ── */}
+        <LedgerCard style={styles.dateCard}>
+          <View style={styles.dateBar}>
+            <Pressable
+              testID="diary-prev-day"
+              disabled={atMin}
+              onPress={() => setDateKey(k => shiftDateKey(k, -1))}
+              style={({ pressed }) => [
+                styles.dateArrow,
+                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                atMin && { opacity: 0.35 },
+              ]}
+            >
+              <Feather name="chevron-left" size={16} color={colors.bodyText} />
+            </Pressable>
+            <View style={styles.dateCenter}>
+              <Text style={[styles.dateText, { color: colors.navy }]}>{formatDateKey(dateKey)}</Text>
+              {isToday ? (
+                <View style={[styles.todayBadge, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
+                  <Text style={[styles.todayBadgeText, { color: colors.activeGreen }]}>TODAY</Text>
+                </View>
+              ) : (
+                <Pressable onPress={() => setDateKey(TODAY_KEY)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+                  <Text style={[styles.jumpToday, { color: colors.cobalt }]}>Jump to today</Text>
+                </Pressable>
+              )}
+            </View>
+            <Pressable
+              testID="diary-next-day"
+              disabled={isToday}
+              onPress={() => setDateKey(k => shiftDateKey(k, 1))}
+              style={({ pressed }) => [
+                styles.dateArrow,
+                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                isToday && { opacity: 0.35 },
+              ]}
+            >
+              <Feather name="chevron-right" size={16} color={colors.bodyText} />
+            </Pressable>
           </View>
-          <Pressable
-            testID="diary-next-day"
-            disabled={isToday}
-            onPress={() => setDateKey(k => shiftDateKey(k, 1))}
-            style={({ pressed }) => [
-              styles.dateArrow,
-              { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
-              isToday && { opacity: 0.35 },
-            ]}
-          >
-            <Feather name="chevron-right" size={16} color={colors.bodyText} />
-          </Pressable>
+          {/* One-tap whole-day copy — always offered while the previous day
+              has entries. On a day that already has meals it appends ("Adds
+              …"), never replaces. */}
+          {prevEntries.length > 0 && (
+            <>
+              <Divider />
+              <Pressable
+                testID="diary-copy-day"
+                disabled={copying}
+                onPress={() => {
+                  void handleCopy(prevEntries);
+                }}
+                style={({ pressed }) => [
+                  styles.copyDayRow,
+                  pressed && { backgroundColor: colors.accent },
+                  copying && { opacity: 0.5 },
+                ]}
+              >
+                <Feather name="copy" size={15} color={colors.cobalt} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.copyDayTitle, { color: colors.cobalt }]}>
+                    Copy all meals from {sourceLabel}
+                  </Text>
+                  <Text style={[styles.copyDayMeta, { color: colors.subtleText }]}>
+                    Adds {prevEntries.length} item{prevEntries.length === 1 ? '' : 's'} · {prevCalories.toLocaleString('en-US')} cal
+                  </Text>
+                </View>
+              </Pressable>
+            </>
+          )}
         </LedgerCard>
 
         {/* ── Meals ── */}
         {MEAL_SLOTS.map(slot => {
           const slotEntries = entries.filter(e => e.meal === slot);
           const slotCals = slotEntries.reduce((acc, e) => acc + e.calories, 0);
+          const slotSource = prevEntries.filter(e => e.meal === slot);
+          const canCopySlot = slotSource.length > 0 && !copying;
           return (
             <View key={slot} style={{ marginBottom: 14 }}>
               <SectionHeader
@@ -193,14 +249,34 @@ export default function DiaryScreen() {
                   ))
                 )}
                 <Divider />
-                <Pressable
-                  testID={`diary-add-${slot}`}
-                  onPress={() => openLogFood(slot)}
-                  style={({ pressed }) => [styles.addRow, pressed && { backgroundColor: colors.accent }]}
-                >
-                  <Feather name="plus" size={14} color={colors.cobalt} />
-                  <Text style={[styles.addRowText, { color: colors.cobalt }]}>Add food</Text>
-                </Pressable>
+                <View style={styles.actionRow}>
+                  <Pressable
+                    testID={`diary-add-${slot}`}
+                    onPress={() => openLogFood(slot)}
+                    style={({ pressed }) => [styles.actionBtn, pressed && { backgroundColor: colors.accent }]}
+                  >
+                    <Feather name="plus" size={14} color={colors.cobalt} />
+                    <Text style={[styles.addRowText, { color: colors.cobalt }]}>Add food</Text>
+                  </Pressable>
+                  <View style={[styles.actionSeparator, { backgroundColor: colors.divider }]} />
+                  <Pressable
+                    testID={`diary-copy-${slot}`}
+                    disabled={!canCopySlot}
+                    onPress={() => {
+                      void handleCopy(slotSource, slot);
+                    }}
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      pressed && { backgroundColor: colors.accent },
+                      !canCopySlot && { opacity: 0.35 },
+                    ]}
+                  >
+                    <Feather name="copy" size={13} color={colors.cobalt} />
+                    <Text style={[styles.addRowText, { color: colors.cobalt }]} numberOfLines={1}>
+                      Copy {sourceLabel}
+                    </Text>
+                  </Pressable>
+                </View>
               </LedgerCard>
             </View>
           );
@@ -282,12 +358,14 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
   },
+  dateCard: {
+    marginBottom: 16,
+  },
   dateBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 10,
-    marginBottom: 16,
   },
   dateArrow: {
     width: 34,
@@ -359,17 +437,43 @@ const styles = StyleSheet.create({
   removeBtn: {
     padding: 4,
   },
-  addRow: {
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  actionBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 11,
+    paddingHorizontal: 4,
+  },
+  actionSeparator: {
+    width: 1,
   },
   addRowText: {
     fontSize: 12,
     fontWeight: '700',
     fontFamily: 'Inter_700Bold',
+  },
+  copyDayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  copyDayTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+  },
+  copyDayMeta: {
+    fontSize: 10,
+    marginTop: 2,
+    fontFamily: 'Inter_400Regular',
   },
   totalsRow: {
     flexDirection: 'row',

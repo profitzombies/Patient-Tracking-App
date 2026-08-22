@@ -1,9 +1,9 @@
 /**
  * Library — MyFitnessPal-style food & recipe library. The Recipes view keeps
- * the searchable recipe grid; the Foods view browses every food (seeded +
- * My Foods) with star-to-favorite and inline add-to-diary; the Approved
- * Foods button opens the official program list. Approved foods carry the
- * checkmark badge.
+ * the searchable recipe grid with starred recipes pinned first under a
+ * Favorites header; the Foods view browses every food (seeded + My Foods)
+ * with star-to-favorite and inline add-to-diary; the Approved Foods button
+ * opens the official program list. Approved foods carry the checkmark badge.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -20,7 +20,7 @@ import { Divider, EmptyState, LedgerCard, PillSelector, SectionHeader } from '@/
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { usePatient } from '@/context/PatientContext';
 import { APPROVED_BADGE_EXPLANATION, isApprovedFood } from '@/data/approved-foods';
-import { MEAL_LABELS, MEAL_SLOTS, RECIPES, type FoodItem, type MealSlot } from '@/data/patient-data';
+import { MEAL_LABELS, MEAL_SLOTS, RECIPES, type FoodItem, type MealSlot, type Recipe } from '@/data/patient-data';
 import { RECIPE_IMAGES } from '@/data/recipe-images';
 
 type MealFilter = 'all' | MealSlot;
@@ -90,6 +90,17 @@ export default function LibraryScreen() {
 
   const favoriteIds = useMemo(() => new Set(patient.favorites), [patient.favorites]);
 
+  // Starred recipes lead the grid in browse mode, mirroring the Foods view's
+  // pinned Favorites section. With the star filter on, everything shown is a
+  // favorite, so the split would be redundant.
+  const { favoriteRecipes, restRecipes } = useMemo(() => {
+    if (favoritesOnly) return { favoriteRecipes: [] as Recipe[], restRecipes: filtered };
+    const favs: Recipe[] = [];
+    const rest: Recipe[] = [];
+    for (const recipe of filtered) (favoriteIds.has(recipe.id) ? favs : rest).push(recipe);
+    return { favoriteRecipes: favs, restRecipes: rest };
+  }, [filtered, favoritesOnly, favoriteIds]);
+
   const { foodSections, foodCount } = useMemo(() => {
     const q = foodQuery.trim().toLowerCase();
     // patient.allFoods lists custom foods first, so "My Foods" leads the list.
@@ -128,6 +139,76 @@ export default function LibraryScreen() {
     setPendingDeleteId(null);
     setSelectedRowKey(null);
     showConfirmation(`Deleted ${food.name} from My Foods`);
+  };
+
+  const renderRecipeCard = (recipe: Recipe) => {
+    const isFav = favoriteIds.has(recipe.id);
+    const saved = savedById.get(recipe.id);
+    const coachPhoto = saved?.photoUri;
+    const isCoach = Boolean(saved);
+    const staticImage = RECIPE_IMAGES[recipe.id];
+    return (
+      <LedgerCard
+        key={recipe.id}
+        testID={`recipe-card-${recipe.id}`}
+        onPress={() => router.push(`/recipe/${recipe.id}`)}
+        style={styles.gridCard}
+      >
+        <View>
+          {coachPhoto || staticImage ? (
+            <Image
+              source={coachPhoto ? { uri: coachPhoto } : staticImage}
+              style={styles.cardImage}
+              contentFit="cover"
+              transition={120}
+            />
+          ) : (
+            <View style={[styles.cardImage, styles.cardImageEmpty, { backgroundColor: colors.sidebarBg }]}>
+              <Feather name="image" size={18} color={colors.subtleText} />
+            </View>
+          )}
+          {isCoach && (
+            <View style={[styles.coachTag, { backgroundColor: colors.cobalt }]}>
+              <Text style={[styles.coachTagText, { color: colors.primaryForeground }]}>COACH · AI</Text>
+            </View>
+          )}
+          <Pressable
+            testID={`recipe-fav-${recipe.id}`}
+            onPress={() => patient.toggleFavorite(recipe.id)}
+            hitSlop={6}
+            style={[
+              styles.starBtn,
+              {
+                backgroundColor: isFav ? colors.cobalt : colors.card,
+                borderColor: isFav ? colors.cobalt : colors.border,
+              },
+            ]}
+          >
+            <Feather
+              name="star"
+              size={13}
+              color={isFav ? colors.primaryForeground : colors.bodyText}
+            />
+          </Pressable>
+        </View>
+        <View style={styles.cardBody}>
+          <Text style={[styles.cardName, { color: colors.navyLight }]} numberOfLines={2}>
+            {recipe.name}
+          </Text>
+          <Text style={[styles.cardMeta, { color: colors.subtleText }]}>
+            {recipe.calories} cal · {recipe.minutes} min
+          </Text>
+          <View style={styles.cardTagRow}>
+            <View style={[styles.proteinTag, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
+              <Text style={[styles.proteinTagText, { color: colors.activeGreen }]}>P {recipe.protein}g</Text>
+            </View>
+            <Text style={[styles.mealTag, { color: colors.labelText }]}>
+              {MEAL_LABELS[recipe.meal].toUpperCase()}
+            </Text>
+          </View>
+        </View>
+      </LedgerCard>
+    );
   };
 
   return (
@@ -216,77 +297,24 @@ export default function LibraryScreen() {
                 />
               </LedgerCard>
             ) : (
-              <View style={styles.grid}>
-                {filtered.map(recipe => {
-                  const isFav = patient.favorites.includes(recipe.id);
-                  const saved = savedById.get(recipe.id);
-                  const coachPhoto = saved?.photoUri;
-                  const isCoach = Boolean(saved);
-                  const staticImage = RECIPE_IMAGES[recipe.id];
-                  return (
-                    <LedgerCard
-                      key={recipe.id}
-                      testID={`recipe-card-${recipe.id}`}
-                      onPress={() => router.push(`/recipe/${recipe.id}`)}
-                      style={styles.gridCard}
-                    >
-                      <View>
-                        {coachPhoto || staticImage ? (
-                          <Image
-                            source={coachPhoto ? { uri: coachPhoto } : staticImage}
-                            style={styles.cardImage}
-                            contentFit="cover"
-                            transition={120}
-                          />
-                        ) : (
-                          <View style={[styles.cardImage, styles.cardImageEmpty, { backgroundColor: colors.sidebarBg }]}>
-                            <Feather name="image" size={18} color={colors.subtleText} />
-                          </View>
-                        )}
-                        {isCoach && (
-                          <View style={[styles.coachTag, { backgroundColor: colors.cobalt }]}>
-                            <Text style={[styles.coachTagText, { color: colors.primaryForeground }]}>COACH · AI</Text>
-                          </View>
-                        )}
-                        <Pressable
-                          testID={`recipe-fav-${recipe.id}`}
-                          onPress={() => patient.toggleFavorite(recipe.id)}
-                          hitSlop={6}
-                          style={[
-                            styles.starBtn,
-                            {
-                              backgroundColor: isFav ? colors.cobalt : colors.card,
-                              borderColor: isFav ? colors.cobalt : colors.border,
-                            },
-                          ]}
-                        >
-                          <Feather
-                            name="star"
-                            size={13}
-                            color={isFav ? colors.primaryForeground : colors.bodyText}
-                          />
-                        </Pressable>
-                      </View>
-                      <View style={styles.cardBody}>
-                        <Text style={[styles.cardName, { color: colors.navyLight }]} numberOfLines={2}>
-                          {recipe.name}
-                        </Text>
-                        <Text style={[styles.cardMeta, { color: colors.subtleText }]}>
-                          {recipe.calories} cal · {recipe.minutes} min
-                        </Text>
-                        <View style={styles.cardTagRow}>
-                          <View style={[styles.proteinTag, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
-                            <Text style={[styles.proteinTagText, { color: colors.activeGreen }]}>P {recipe.protein}g</Text>
-                          </View>
-                          <Text style={[styles.mealTag, { color: colors.labelText }]}>
-                            {MEAL_LABELS[recipe.meal].toUpperCase()}
-                          </Text>
-                        </View>
-                      </View>
-                    </LedgerCard>
-                  );
-                })}
-              </View>
+              <>
+                {favoriteRecipes.length > 0 && (
+                  <>
+                    <SectionHeader label="Favorites" style={{ marginBottom: 8 }} />
+                    <View testID="recipes-favorites-strip" style={styles.grid}>
+                      {favoriteRecipes.map(recipe => renderRecipeCard(recipe))}
+                    </View>
+                    {restRecipes.length > 0 && (
+                      <SectionHeader label="All Recipes" style={{ marginBottom: 8 }} />
+                    )}
+                  </>
+                )}
+                {restRecipes.length > 0 && (
+                  <View style={styles.grid}>
+                    {restRecipes.map(recipe => renderRecipeCard(recipe))}
+                  </View>
+                )}
+              </>
             )}
           </>
         ) : (

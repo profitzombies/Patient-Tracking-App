@@ -49,7 +49,11 @@ export default function LibraryScreen() {
 
   // Foods view state
   const [foodQuery, setFoodQuery] = useState('');
-  const [selectedFoodId, setSelectedFoodId] = useState<string | null>(null);
+  const [foodFavoritesOnly, setFoodFavoritesOnly] = useState(false);
+  // Selection tracks a row key (section + food id) instead of a bare food id:
+  // a favorited food appears both in the pinned Favorites section and in its
+  // category, and only the tapped copy should expand.
+  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,25 +82,36 @@ export default function LibraryScreen() {
     });
   }, [query, mealFilter, favoritesOnly, patient.favorites]);
 
-  const foodSections = useMemo(() => {
+  const favoriteIds = useMemo(() => new Set(patient.favorites), [patient.favorites]);
+
+  const { foodSections, foodCount } = useMemo(() => {
     const q = foodQuery.trim().toLowerCase();
-    const sections: { title: string; data: FoodItem[] }[] = [];
-    const indexByCategory = new Map<string, number>();
     // patient.allFoods lists custom foods first, so "My Foods" leads the list.
-    for (const food of patient.allFoods) {
-      if (q && !`${food.name} ${food.brand ?? ''} ${food.category}`.toLowerCase().includes(q)) continue;
+    const matches = patient.allFoods.filter(food => {
+      if (q && !`${food.name} ${food.brand ?? ''} ${food.category}`.toLowerCase().includes(q)) return false;
+      if (foodFavoritesOnly && !favoriteIds.has(food.id)) return false;
+      return true;
+    });
+    const sections: { key: string; title: string; pinned?: boolean; data: FoodItem[] }[] = [];
+    // Pinned Favorites section leads in browse mode; with the star filter on,
+    // everything shown is a favorite, so the pin would be redundant.
+    if (!foodFavoritesOnly) {
+      const favs = matches.filter(food => favoriteIds.has(food.id));
+      if (favs.length > 0) sections.push({ key: 'pinned-favorites', title: 'Favorites', pinned: true, data: favs });
+    }
+    const indexByCategory = new Map<string, number>();
+    for (const food of matches) {
       let at = indexByCategory.get(food.category);
       if (at === undefined) {
         at = sections.length;
         indexByCategory.set(food.category, at);
-        sections.push({ title: food.category, data: [] });
+        sections.push({ key: `category-${food.category}`, title: food.category, data: [] });
       }
       sections[at].data.push(food);
     }
-    return sections;
-  }, [patient.allFoods, foodQuery]);
-
-  const foodCount = useMemo(() => foodSections.reduce((acc, s) => acc + s.data.length, 0), [foodSections]);
+    // The count line reports distinct foods; the pinned section repeats rows.
+    return { foodSections: sections, foodCount: matches.length };
+  }, [patient.allFoods, foodQuery, foodFavoritesOnly, favoriteIds]);
 
   // Only foods the patient created can be edited or deleted — membership in
   // customFoods, not the category label, is what makes a row "My Foods".
@@ -105,7 +120,7 @@ export default function LibraryScreen() {
   const confirmDeleteFood = async (food: FoodItem) => {
     await patient.removeCustomFood(food.id);
     setPendingDeleteId(null);
-    setSelectedFoodId(null);
+    setSelectedRowKey(null);
     showConfirmation(`Deleted ${food.name} from My Foods`);
   };
 
@@ -255,22 +270,48 @@ export default function LibraryScreen() {
           </>
         ) : (
           <>
-            {/* ── Foods: search ── */}
-            <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card, marginBottom: 10 }]}>
-              <Feather name="search" size={14} color={colors.subtleText} />
-              <TextInput
-                testID="foods-search"
-                value={foodQuery}
-                onChangeText={setFoodQuery}
-                placeholder="Search all foods..."
-                placeholderTextColor={colors.subtleText}
-                style={[styles.searchInput, { color: colors.foreground }]}
-              />
-              {foodQuery.length > 0 && (
-                <Pressable onPress={() => setFoodQuery('')} hitSlop={8}>
-                  <Feather name="x" size={14} color={colors.subtleText} />
-                </Pressable>
-              )}
+            {/* ── Foods: search + favorites filter ── */}
+            <View style={styles.searchRow}>
+              <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Feather name="search" size={14} color={colors.subtleText} />
+                <TextInput
+                  testID="foods-search"
+                  value={foodQuery}
+                  onChangeText={setFoodQuery}
+                  placeholder="Search all foods..."
+                  placeholderTextColor={colors.subtleText}
+                  style={[styles.searchInput, { color: colors.foreground }]}
+                />
+                {foodQuery.length > 0 && (
+                  <Pressable onPress={() => setFoodQuery('')} hitSlop={8}>
+                    <Feather name="x" size={14} color={colors.subtleText} />
+                  </Pressable>
+                )}
+              </View>
+              <Pressable
+                testID="foods-favorites-toggle"
+                accessibilityRole="button"
+                accessibilityState={{ selected: foodFavoritesOnly }}
+                accessibilityLabel={foodFavoritesOnly ? 'Show all foods' : 'Show only favorite foods'}
+                onPress={() => {
+                  setFoodFavoritesOnly(v => !v);
+                  setSelectedRowKey(null);
+                  setPendingDeleteId(null);
+                }}
+                style={({ pressed }) => [
+                  styles.favBtn,
+                  {
+                    borderColor: foodFavoritesOnly ? colors.cobalt : colors.border,
+                    backgroundColor: foodFavoritesOnly ? colors.cobalt : pressed ? colors.accent : colors.card,
+                  },
+                ]}
+              >
+                <Feather
+                  name="star"
+                  size={15}
+                  color={foodFavoritesOnly ? colors.primaryForeground : colors.bodyText}
+                />
+              </Pressable>
             </View>
 
             {/* ── Create food entry point ── */}
@@ -308,32 +349,47 @@ export default function LibraryScreen() {
 
             <Text style={[styles.countText, { color: colors.labelText }]}>
               {foodCount} FOOD{foodCount === 1 ? '' : 'S'}
+              {foodFavoritesOnly ? ' · FAVORITES' : ''}
             </Text>
 
             {foodCount === 0 ? (
               <LedgerCard>
                 <EmptyState
-                  icon={<Feather name="search" size={22} color={colors.subtleText} />}
+                  icon={
+                    <Feather
+                      name={foodFavoritesOnly ? 'star' : 'search'}
+                      size={22}
+                      color={colors.subtleText}
+                    />
+                  }
                   title="No foods match"
-                  body="Try a different search, or create your own food above."
+                  body={
+                    foodFavoritesOnly
+                      ? 'Star a few foods to build your list.'
+                      : 'Try a different search, or create your own food above.'
+                  }
                 />
               </LedgerCard>
             ) : (
               foodSections.map(section => (
-                <View key={section.title} style={{ marginBottom: 14 }}>
+                <View key={section.key} style={{ marginBottom: 14 }}>
                   <SectionHeader label={section.title} style={{ marginBottom: 8 }} />
                   <LedgerCard>
                     {section.data.map((food, index) => {
-                      const isSelected = selectedFoodId === food.id;
+                      const rowKey = `${section.key}:${food.id}`;
+                      // Pinned rows repeat foods from their category section, so
+                      // their testIDs get a distinct prefix to stay unique.
+                      const rowTestId = section.pinned ? `fav-${food.id}` : food.id;
+                      const isSelected = selectedRowKey === rowKey;
                       const approved = isApprovedFood(food.id);
                       return (
                         <View key={food.id}>
                           {index > 0 && <Divider />}
                           <Pressable
-                            testID={`food-row-${food.id}`}
+                            testID={`food-row-${rowTestId}`}
                             onPress={() => {
                               setPendingDeleteId(null);
-                              setSelectedFoodId(current => (current === food.id ? null : food.id));
+                              setSelectedRowKey(current => (current === rowKey ? null : rowKey));
                             }}
                             style={({ pressed }) => [
                               styles.foodRow,
@@ -355,7 +411,7 @@ export default function LibraryScreen() {
                                 {food.brand ?? food.category} · {food.serving} · P {food.protein}g
                               </Text>
                             </View>
-                            <FavoriteStar id={food.id} name={food.name} testID={`food-fav-${food.id}`} />
+                            <FavoriteStar id={food.id} name={food.name} testID={`food-fav-${rowTestId}`} />
                             <Text style={[styles.foodCals, { color: colors.navyLight }]}>{food.calories}</Text>
                             <Feather
                               name={isSelected ? 'chevron-up' : 'plus-square'}
@@ -438,7 +494,7 @@ export default function LibraryScreen() {
                                   food={food}
                                   testIDPrefix="library"
                                   onAdded={message => {
-                                    setSelectedFoodId(null);
+                                    setSelectedRowKey(null);
                                     showConfirmation(message);
                                   }}
                                 />

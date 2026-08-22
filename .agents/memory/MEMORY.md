@@ -1,0 +1,1 @@
+- [Dashboard design-system direction](dashboard-design-system-direction.md) — Anchor the system in a guided-operations hybrid rather than any single dashboard concept.

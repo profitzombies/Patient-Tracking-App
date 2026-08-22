@@ -37,6 +37,28 @@ const STARTER_PROMPTS = [
   'What do I order at a restaurant?',
 ];
 
+const QUICK_REPLIES = ['Yes, please', 'No thanks'];
+
+/**
+ * Quick-reply chips show only under the newest assistant message, and only
+ * when that reply finished cleanly (not streaming, not an error) and closes
+ * with a question — the shape coach replies are prompted to end with. Tapping
+ * a chip sends it as the patient's message, which appends to the thread and
+ * therefore hides the chips automatically.
+ */
+function offersQuickReplies(
+  latest: CoachMessage | undefined,
+  isStreaming: boolean,
+): boolean {
+  return (
+    !isStreaming &&
+    latest !== undefined &&
+    latest.role === 'assistant' &&
+    latest.status === 'done' &&
+    latest.text.trimEnd().endsWith('?')
+  );
+}
+
 export default function CoachChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -137,7 +159,33 @@ export default function CoachChatScreen() {
             ))}
           </View>
         ) : (
-          messages.map(message => <MessageBubble key={message.id} message={message} />)
+          <>
+            {messages.map(message => (
+              <MessageBubble key={message.id} message={message} />
+            ))}
+            {offersQuickReplies(messages[messages.length - 1], isStreaming) ? (
+              <View style={styles.quickReplyRow}>
+                {QUICK_REPLIES.map((reply, index) => (
+                  <Pressable
+                    key={reply}
+                    testID={`coach-quick-reply-${index}`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      send(reply);
+                    }}
+                    style={({ pressed }) => [
+                      styles.quickReplyChip,
+                      { borderColor: colors.cobalt, backgroundColor: colors.card },
+                      pressed && { backgroundColor: colors.accent },
+                    ]}
+                  >
+                    <Text style={[styles.quickReplyText, { color: colors.cobalt }]}>{reply}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </>
         )}
       </ScrollView>
 
@@ -379,6 +427,21 @@ const styles = StyleSheet.create({
   },
   starterText: {
     fontSize: 13.5,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  quickReplyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  quickReplyChip: {
+    borderWidth: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+  },
+  quickReplyText: {
+    fontSize: 13,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
   },

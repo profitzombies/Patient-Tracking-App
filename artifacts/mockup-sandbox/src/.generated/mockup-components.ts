@@ -4,5 +4,9 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard-systems/CommandCenter.tsx": () => import("../components/mockups/dashboard-systems/CommandCenter.tsx"),
   "./components/mockups/dashboard-systems/HybridGuidedOperations.tsx": () => import("../components/mockups/dashboard-systems/HybridGuidedOperations.tsx"),
   "./components/mockups/dashboard-systems/NarrativeInsight.tsx": () => import("../components/mockups/dashboard-systems/NarrativeInsight.tsx"),
-  "./components/mockups/dashboard-systems/OperationsSystem.tsx": () => import("../components/mockups/dashboard-systems/OperationsSystem.tsx")
+  "./components/mockups/dashboard-systems/OperationsCobaltLedger.tsx": () => import("../components/mockups/dashboard-systems/OperationsCobaltLedger.tsx"),
+  "./components/mockups/dashboard-systems/OperationsNoirUtility.tsx": () => import("../components/mockups/dashboard-systems/OperationsNoirUtility.tsx"),
+  "./components/mockups/dashboard-systems/OperationsSignalPress.tsx": () => import("../components/mockups/dashboard-systems/OperationsSignalPress.tsx"),
+  "./components/mockups/dashboard-systems/OperationsSystem.tsx": () => import("../components/mockups/dashboard-systems/OperationsSystem.tsx"),
+  "./components/mockups/dashboard-systems/OperationsUltravioletGrid.tsx": () => import("../components/mockups/dashboard-systems/OperationsUltravioletGrid.tsx")
 };

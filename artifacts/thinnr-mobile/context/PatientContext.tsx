@@ -17,6 +17,7 @@ import React, {
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import { rescaleEntrySnapshot } from '@/data/diary-entries';
 import {
   buildSeedCheckIns,
   buildSeedEntries,
@@ -30,6 +31,7 @@ import {
   type DailyTargets,
   type FoodItem,
   type MealLogEntry,
+  type MealSlot,
   type ProgressPhoto,
 } from '@/data/patient-data';
 
@@ -110,6 +112,7 @@ interface PatientContextValue {
   checkInFor: (dateKey: string) => CheckIn | undefined;
   addEntry: (entry: Omit<MealLogEntry, 'id'>) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
+  updateEntry: (id: string, changes: { meal: MealSlot; quantity: number }) => Promise<void>;
   setWater: (dateKey: string, oz: number) => Promise<void>;
   addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<void>;
   addPhoto: (photo: { dateKey: string; uri: string; label: string }) => Promise<void>;
@@ -184,6 +187,33 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     const next: PersistedState = isAdded
       ? { ...prev, addedEntries: prev.addedEntries.filter(e => e.id !== id) }
       : { ...prev, removedEntryIds: [...prev.removedEntryIds, id] };
+    await commit(next);
+  }, [commit]);
+
+  // Fixes a logged entry in place (meal slot and/or quantity). Macros rescale
+  // from the entry's own logged snapshot — never the current library food,
+  // which may have changed since. Seeded entries can't be mutated (they're
+  // rebuilt from the seed each launch), so they're tombstoned via
+  // removedEntryIds and re-added as a user entry with a fresh id.
+  const updateEntry = useCallback(async (id: string, changes: { meal: MealSlot; quantity: number }): Promise<void> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await hydrationGate.current!.promise;
+    const prev = stateRef.current;
+    const added = prev.addedEntries.find(e => e.id === id);
+    const source = added ?? SEED_ENTRIES.find(e => e.id === id);
+    if (!source || prev.removedEntryIds.includes(id)) return;
+    const updated: MealLogEntry = {
+      ...source,
+      ...rescaleEntrySnapshot(source, changes.quantity),
+      meal: changes.meal,
+    };
+    const next: PersistedState = added
+      ? { ...prev, addedEntries: prev.addedEntries.map(e => (e.id === id ? updated : e)) }
+      : {
+          ...prev,
+          removedEntryIds: [...prev.removedEntryIds, id],
+          addedEntries: [...prev.addedEntries, { ...updated, id: nextId('log') }],
+        };
     await commit(next);
   }, [commit]);
 
@@ -339,6 +369,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       checkInFor,
       addEntry,
       removeEntry,
+      updateEntry,
       setWater,
       addCheckIn,
       addPhoto,
@@ -363,6 +394,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       checkInFor,
       addEntry,
       removeEntry,
+      updateEntry,
       setWater,
       addCheckIn,
       addPhoto,

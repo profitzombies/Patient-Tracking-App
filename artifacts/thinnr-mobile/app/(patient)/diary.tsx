@@ -2,13 +2,14 @@
  * Diary — day-by-day food log grouped by meal, with a date navigator,
  * per-entry removal, daily totals, and the water tracker for that day.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { EntryEditPanel } from '@/components/patient/EntryEditPanel';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { WaterTracker } from '@/components/patient/WaterTracker';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
@@ -39,6 +40,12 @@ export default function DiaryScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const [dateKey, setDateKey] = useState(TODAY_KEY);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Collapse any open edit panel when the day changes.
+  useEffect(() => {
+    setEditingId(null);
+  }, [dateKey]);
 
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
 
@@ -140,6 +147,18 @@ export default function DiaryScreen() {
                         </View>
                         <Text style={[styles.entryCals, { color: colors.navyLight }]}>{entry.calories}</Text>
                         <Pressable
+                          testID={`diary-edit-${entry.id}`}
+                          onPress={() => setEditingId(cur => (cur === entry.id ? null : entry.id))}
+                          hitSlop={8}
+                          style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.6 }]}
+                        >
+                          <Feather
+                            name="edit-2"
+                            size={14}
+                            color={editingId === entry.id ? colors.cobalt : colors.subtleText}
+                          />
+                        </Pressable>
+                        <Pressable
                           testID={`diary-remove-${entry.id}`}
                           onPress={() => patient.removeEntry(entry.id)}
                           hitSlop={8}
@@ -148,6 +167,9 @@ export default function DiaryScreen() {
                           <Feather name="x" size={14} color={colors.subtleText} />
                         </Pressable>
                       </View>
+                      {editingId === entry.id && (
+                        <EntryEditPanel entry={entry} onDone={() => setEditingId(null)} />
+                      )}
                     </View>
                   ))
                 )}

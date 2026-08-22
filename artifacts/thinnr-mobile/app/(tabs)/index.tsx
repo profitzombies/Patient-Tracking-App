@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
   chartAxisLabel: { fontSize: 9, width: 32, fontFamily: 'Inter_400Regular', textAlign: 'right' },
   chartBars: { position: 'absolute', top: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'flex-end', gap: 3 },
   barWrapper: { flex: 1, height: '100%', alignItems: 'center', justifyContent: 'flex-end' },
-  chartXRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  chartXRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   chartXLabel: { fontSize: 8, fontFamily: 'Inter_400Regular', flex: 1, textAlign: 'center' },
   stageRow: { flexDirection: 'row', justifyContent: 'space-between' },
   stageName: { fontSize: 12, fontFamily: 'Inter_500Medium' },

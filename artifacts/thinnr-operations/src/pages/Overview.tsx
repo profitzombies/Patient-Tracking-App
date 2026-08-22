@@ -72,26 +72,28 @@ function TrendChart({ range }: { range: Range }) {
   const labels = range === "30 days" ? ["Apr 01", "Apr 06", "Apr 11", "Apr 16", "Apr 21", "Apr 26", "Apr 30"] : range === "6 months" ? months.slice(6) : months;
   const max = Math.max(...values);
   return (
-    <div className="relative mt-5 h-[190px]">
-      <div className="absolute inset-0 flex flex-col justify-between text-[10px] text-[#8793a8]">
+    <div className="relative mt-5">
+      <div className="relative h-[190px]">
+        <div className="absolute inset-0 bottom-0 flex flex-col justify-between text-[10px] text-[#8793a8]">
         {[100, 75, 50, 25, 0].map((n) => (
           <div key={n} className="flex items-center gap-3">
             <span className="w-7 text-right font-mono">{n === 0 ? "$0" : `$${n * 30}k`}</span>
             <div className="h-px flex-1 bg-[#dbe2ee]" />
           </div>
         ))}
+        </div>
+        <div className="absolute bottom-0 left-11 right-0 top-1 flex items-end gap-[clamp(5px,1.2vw,16px)]">
+          {values.map((v, i) => (
+            <div key={`${labels[i]}-${v}`} className="group relative flex h-full flex-1 items-end">
+              <div className="w-full bg-[#315fc0] transition group-hover:bg-[#172c56]" style={{ height: `${(v / max) * 88 + 8}%` }} />
+              <span className="absolute -top-6 left-1/2 hidden -translate-x-1/2 border border-[#315fc0] bg-[#172c56] px-1.5 py-1 text-[10px] text-[#f8f9fc] group-hover:block whitespace-nowrap z-10">
+                ${Math.round(v * 3.1)}k
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="absolute bottom-0 left-11 right-0 top-1 flex items-end gap-[clamp(5px,1.2vw,16px)]">
-        {values.map((v, i) => (
-          <div key={`${labels[i]}-${v}`} className="group relative flex h-full flex-1 items-end">
-            <div className="w-full bg-[#315fc0] transition group-hover:bg-[#172c56]" style={{ height: `${(v / max) * 88 + 8}%` }} />
-            <span className="absolute -top-6 left-1/2 hidden -translate-x-1/2 border border-[#315fc0] bg-[#172c56] px-1.5 py-1 text-[10px] text-[#f8f9fc] group-hover:block whitespace-nowrap z-10">
-              ${Math.round(v * 3.1)}k
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="absolute bottom-[-23px] left-11 right-0 flex justify-between text-[10px] text-[#7d899f]">
+      <div className="mt-2 flex pl-11 text-[10px] text-[#7d899f]">
         {labels.map((label) => <span key={label}>{label}</span>)}
       </div>
     </div>

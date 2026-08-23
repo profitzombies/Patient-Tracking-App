@@ -7,7 +7,7 @@
 - [Approved-foods entry points](approved-foods-entry-points.md) — every "Approved list" shortcut routes through one shared constant in the mobile app; retarget there, not per-callsite.
 - [Coach chat grounding](coach-grounding.md) — coach answers come from runtime-sliced verbatim doc compartments (1-3 per turn); structured sources contribute only verbatim fields; extend via card slot, not inlined text.
 - [OpenAPI codegen zod quirk](openapi-codegen-zod.md) — never use type: integer in openapi.yaml (orval emits zod-4 zod.int(), workspace is zod 3); use type: number + server-side clamp.
-- [Validation gate](validation-gate.md) — demo-parity/approved-foods are validation commands; configureWorkflow can't touch them — use setValidationCommand and check result.success.
+- [Validation gate](validation-gate.md) — verify suites are validation commands, not workflows: go straight to setValidationCommand (workflow cap blocks configureWorkflow) and check result.success.
 - [Coach card attachments](coach-card-attachments.md) — cards and one-tap reply labels ride separate SSE events: model emits only marker ids, server allow-lists them and builds payloads from curated data.
 - [Coach reply shape](coach-reply-shape.md) — replies are blank-line-separated thought blocks + follow-up closer; phrase optional reply behaviors default-on and verify with real model calls.
 - [Coach stopped replies](coach-stopped-replies.md) — stopped replies carry a `stopped` flag end-to-end; the server appends a model-only interruption note so the next answer never continues cut-off text.
@@ -15,7 +15,7 @@
 - [Staging coach failures](coach-failure-staging.md) — break the model upstream via a workflow env-override restart to test error/Retry states; the tester can break and heal it in one session.
 - [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
 - [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).
-- [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
+- [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
 - [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — merges don't restart running workflows; restart Metro after a merge batch and grep the served bundle for a new-code marker before trusting device reports.
 - [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel design subagents drift on state semantics (signs, filled-vs-outlined markers); put the data spec in briefs AND the review prompt.

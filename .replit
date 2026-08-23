@@ -48,6 +48,10 @@ args = "custom-food-undo"
 task = "workflow.run"
 args = "coach-stop"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "onboarding-hints"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -132,6 +136,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:coach-stop"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "onboarding-hints"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:onboarding-hints"
 
 [workflows.workflow.metadata]
 isValidation = true

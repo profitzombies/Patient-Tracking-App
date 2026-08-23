@@ -1,0 +1,22 @@
+{
+  // tsx config for scripts/verify-onboarding-hints.ts ONLY (not part of typecheck).
+  //
+  // The suite renders the REAL onboarding step components (OnboardingFrame,
+  // StepsAccount, StepsProfile) with react-test-renderer under Node, so every
+  // native-only bare specifier they import is remapped to a Node stub, and
+  // JSX is compiled with the automatic runtime (the inherited "react-native"
+  // jsx setting would leave JSX untransformed).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-hints-stubs/react-native.ts"],
+      "expo-router": ["./scripts/onboarding-hints-stubs/expo-router.ts"],
+      "expo-haptics": ["./scripts/onboarding-hints-stubs/expo-haptics.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-hints-stubs/expo-vector-icons.ts"],
+      "react-native-keyboard-controller": ["./scripts/onboarding-hints-stubs/keyboard-controller.ts"],
+      "react-native-safe-area-context": ["./scripts/onboarding-hints-stubs/safe-area-context.ts"]
+    }
+  }
+}

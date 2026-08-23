@@ -100,22 +100,33 @@ export function IngredientBreakdown({
         const canMinus = bounds ? view.amount > bounds.min + 1e-9 : false;
         const canPlus = bounds ? view.amount < bounds.max - 1e-9 : false;
 
+        const skipped = view.editable && view.amount === 0;
+
         const rowBody = (
           <>
-            <View style={[styles.dot, { backgroundColor: colors.cobalt }]} />
-            <Text style={[styles.rowText, { color: colors.bodyText }]}>
+            <View style={[styles.dot, { backgroundColor: skipped ? colors.subtleText : colors.cobalt }]} />
+            <Text style={[styles.rowText, { color: skipped ? colors.subtleText : colors.bodyText }]}>
               {view.originalAmount > 0 ? (
-                <>
-                  <Text
-                    style={{
-                      fontFamily: 'Inter_600SemiBold',
-                      color: view.adjusted ? colors.cobalt : colors.navyLight,
-                    }}
-                  >
-                    {amountText(view)}
-                  </Text>
-                  {` ${view.name}`}
-                </>
+                skipped ? (
+                  <>
+                    <Text style={{ fontFamily: 'Inter_600SemiBold', color: colors.subtleText, textDecorationLine: 'line-through' }}>
+                      {view.name}
+                    </Text>
+                    <Text style={{ color: colors.subtleText }}> — skipped</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text
+                      style={{
+                        fontFamily: 'Inter_600SemiBold',
+                        color: view.adjusted ? colors.cobalt : colors.navyLight,
+                      }}
+                    >
+                      {amountText(view)}
+                    </Text>
+                    {` ${view.name}`}
+                  </>
+                )
               ) : (
                 <>
                   {view.name}
@@ -124,7 +135,7 @@ export function IngredientBreakdown({
               )}
             </Text>
             {view.editable && facts && (
-              <Text style={[styles.rowCals, { color: view.adjusted ? colors.cobalt : colors.subtleText }]}>
+              <Text style={[styles.rowCals, { color: skipped ? colors.subtleText : view.adjusted ? colors.cobalt : colors.subtleText }]}>
                 {facts.calories} cal
               </Text>
             )}

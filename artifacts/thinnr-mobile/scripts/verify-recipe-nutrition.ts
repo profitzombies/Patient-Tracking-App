@@ -225,11 +225,12 @@ assertEqual('step countable', stepForUnit(''), 0.5);
   ]);
   assertEqual('return-to-original clears the row', backToOriginal, []);
 
-  // Clamping: 8× the original is the ceiling, one step is the floor.
+  // Clamping: 8× the original is the ceiling, 0 is the floor (ingredient can be skipped).
   const bounds = amountBounds({ amount: 6, unit: 'oz' }, 'oz');
-  assertEqual('bounds for 6oz', bounds, { min: 0.5, max: 48, step: 0.5 });
+  assertEqual('bounds for 6oz', bounds, { min: 0, max: 48, step: 0.5 });
   assertEqual('clamp high', clampAmount(500, { amount: 6, unit: 'oz' }, 'oz'), 48);
-  assertEqual('clamp low', clampAmount(0.01, { amount: 6, unit: 'oz' }, 'oz'), 0.5);
+  assertEqual('clamp to zero', clampAmount(0, { amount: 6, unit: 'oz' }, 'oz'), 0);
+  assertEqual('clamp negative to zero', clampAmount(-1, { amount: 6, unit: 'oz' }, 'oz'), 0);
   const clampedList = sanitizeAdjustments(ingredients, [{ index: 0, amount: 500, unit: 'oz' }]);
   assertEqual('sanitize clamps amounts into bounds', clampedList, [{ index: 0, amount: 48, unit: 'oz' }]);
 

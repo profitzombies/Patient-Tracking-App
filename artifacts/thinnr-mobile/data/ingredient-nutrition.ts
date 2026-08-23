@@ -109,9 +109,8 @@ export function stepForUnit(unit: string): number {
 }
 
 /**
- * Editable range for a row, expressed in the CURRENT unit: from one step up
- * to 8× the original portion (amounts never reach 0 — deleting an ingredient
- * is not what this editor is for).
+ * Editable range for a row, expressed in the CURRENT unit: from 0 (skip this
+ * ingredient entirely) up to 8× the original portion.
  */
 export function amountBounds(
   original: { amount: number; unit: string },
@@ -121,7 +120,7 @@ export function amountBounds(
   const toCurrent = conversionFactor(original.unit, currentUnit) ?? 1;
   const originalInCurrent = original.amount * toCurrent;
   const max = Math.max(step, Math.ceil((originalInCurrent * 8) / step) * step);
-  return { min: step, max, step };
+  return { min: 0, max, step };
 }
 
 export function clampAmount(
@@ -210,7 +209,7 @@ export function applyAdjustments(
       { amount: ingredient.amount, unit: ingredient.unit },
       { amount: adjustment.amount, unit: adjustment.unit },
     );
-    if (factor === null || adjustment.amount <= 0) return base;
+    if (factor === null || adjustment.amount < 0) return base;
     return {
       ...base,
       amount: adjustment.amount,
@@ -281,7 +280,7 @@ export function sanitizeAdjustments(
     if (!raw || !Number.isInteger(raw.index)) continue;
     const ingredient = ingredients[raw.index];
     if (!ingredient || !(ingredient.amount > 0) || !ingredient.nutrition) continue;
-    if (!Number.isFinite(raw.amount) || raw.amount <= 0) continue;
+    if (!Number.isFinite(raw.amount) || raw.amount < 0) continue;
     if (typeof raw.unit !== 'string') continue;
     const original = { amount: ingredient.amount, unit: ingredient.unit };
     if (conversionFactor(raw.unit, ingredient.unit) === null) continue;

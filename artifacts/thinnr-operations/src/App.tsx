@@ -19,6 +19,7 @@ import Analytics from '@/pages/Analytics';
 import Leaderboard from '@/pages/Leaderboard';
 import Subscriptions from '@/pages/Subscriptions';
 import { PatientSessionProvider } from '@/contexts/patient-session';
+import { DateRangeProvider } from '@/contexts/date-range';
 
 const queryClient = new QueryClient();
 
@@ -80,7 +81,9 @@ function App() {
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL?.replace(/\/$/, '') || ''}>
           <PatientSessionProvider>
-            <Router />
+            <DateRangeProvider>
+              <Router />
+            </DateRangeProvider>
           </PatientSessionProvider>
         </WouterRouter>
         <Toaster />

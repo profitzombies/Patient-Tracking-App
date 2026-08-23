@@ -26,3 +26,4 @@
 - [Announced error pattern](a11y-announced-errors.md) — ErrorBox self-announces (alert role + live region + iOS announce; never nest live regions); blocked CTAs intercept taps via aria-disabled instead of swallowing them.
 - [Generated recipe image style](recipe-image-style.md) — coach images must match the seeded illustrated family; "crisp outlines" → ink-lines gotcha; the AI-recipe preview shows zero generation UI by design.
 - [Menu photo scan](menu-photo-scan.md) — vision via data-URI parts on the AI proxy; photo routes parse their own big body; non-menu is a structured outcome; in chat the image rides only the request tail.
+- [Range picker restart](range-picker-restart.md) — a pre-filled complete range must restart on the next day-click; react-day-picker's default stretches the old range instead.

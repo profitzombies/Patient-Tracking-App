@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
@@ -49,7 +49,14 @@
   --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
-  --font-sans: 'Plus Jakarta Sans', sans-serif;
+  /* Heritage extended tokens (shared with the mobile app's palette) */
+  --color-navy: hsl(var(--navy));
+  --color-cobalt: hsl(var(--primary));
+  --color-paper-alt: hsl(var(--paper-alt));
+  --color-accent-warm: hsl(var(--accent-warm));
+  --color-brand-foreground: hsl(var(--brand-foreground));
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-serif: 'Playfair Display', serif;
   --font-mono: 'Spline Sans Mono', monospace;
 
@@ -57,103 +64,148 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Soft Heritage elevation — cards sit on shadow-soft, overlays on shadow-lifted */
+  --shadow-soft:
+    0 1px 2px hsl(216 52% 26% / 0.05),
+    0 10px 28px -20px hsl(216 52% 26% / 0.28);
+  --shadow-lifted:
+    0 2px 4px hsl(216 52% 26% / 0.06),
+    0 18px 44px -22px hsl(216 52% 26% / 0.4);
 }
 
+/*
+ * THINNR Heritage foundation — the approved app-wide direction shared with the
+ * mobile companion (artifacts/thinnr-mobile/constants/colors.ts). Conventions:
+ *
+ * — Cream paper cards (--card #fdfcf9) on a soft paper background (#f2f3f4);
+ *   the sidebar sits on a pale cobalt tint.
+ * — Cobalt (--primary #315eae) carries primary actions and icon glyphs; deep
+ *   navy (--navy #203b64) carries display text and the brand "TH" mark; warm
+ *   orange (--accent-warm) is reserved for tiny accents only, never surfaces.
+ * — Soft geometry: rounded-lg (9px) cards, rounded-md (7px) controls,
+ *   rounded-sm (5px) small badges. No square corners.
+ * — Type: Playfair Display (font-serif) for display and card titles; Inter
+ *   (font-sans) for body, labels, and controls; uppercase micro-labels stay
+ *   Inter with wide tracking. Button copy is sentence case.
+ * — Icon tiles: bg-accent with text-primary glyphs (accent-tinted tile,
+ *   cobalt glyph); the brand mark tile alone stays bg-navy.
+ */
 :root {
-  --background: 218 27% 95%; /* #eef1f6 */
-  --foreground: 219 52% 22%; /* #1b2f55 */
-  
-  --border: 217 33% 80%; /* #bdc9dc */
-  --input: 217 33% 80%;
-  --ring: 221 59% 47%; /* #315fc0 */
+  --background: 210 8.3% 95.3%; /* #f2f3f4 paper */
+  --foreground: 214 32.7% 22.2%; /* #26364b */
 
-  --card: 220 100% 99%; /* #fbfcff */
-  --card-foreground: 219 52% 22%;
-  --card-border: 217 33% 80%;
+  --border: 212 27.9% 88%; /* #d8e0e9 hairline */
+  --input: 212 27.9% 88%;
+  --ring: 218 56.1% 43.7%; /* #315eae cobalt */
 
-  --popover: 220 100% 99%;
-  --popover-foreground: 219 52% 22%;
-  --popover-border: 217 33% 80%;
+  --card: 45 50% 98.4%; /* #fdfcf9 cream paper */
+  --card-foreground: 214 32.7% 22.2%;
+  --card-border: 212 27.9% 88%;
 
-  --primary: 221 59% 47%; /* #315fc0 */
-  --primary-foreground: 220 100% 99%; /* #fbfcff */
+  --popover: 45 50% 98.4%;
+  --popover-foreground: 214 32.7% 22.2%;
+  --popover-border: 212 27.9% 88%;
 
-  --secondary: 220 50% 98%; /* #f8f9fc */
-  --secondary-foreground: 219 52% 22%;
+  --primary: 218 56.1% 43.7%; /* #315eae cobalt */
+  --primary-foreground: 0 0% 100%;
+  --primary-border: hsl(218 56% 38%);
 
-  --muted: 218 27% 95%;
-  --muted-foreground: 218 16% 59%; /* #8793a8 */
+  --secondary: 210 25% 96.9%; /* #f5f7f9 */
+  --secondary-foreground: 214 32.7% 22.2%;
+  --secondary-border: hsl(212 27.9% 88%);
 
-  --accent: 219 31% 92%; /* #e3e8f1 */
-  --accent-foreground: 219 52% 22%;
+  --muted: 204 13.5% 92.7%; /* #eaedef */
+  --muted-foreground: 210 9.3% 53.7%; /* #7e8994 */
+  --muted-border: hsl(204 13.5% 86%);
 
-  --destructive: 0 39% 45%; /* #a04646 */
+  --accent: 213 55.6% 92.9%; /* #e3ecf7 pale cobalt chip */
+  --accent-foreground: 214 32.7% 22.2%;
+  --accent-border: hsl(214 47% 82%); /* #b7cbe8-ish */
+
+  --destructive: 0 39.1% 45.1%; /* #a04646 */
   --destructive-foreground: 0 100% 99%;
+  --destructive-border: hsl(0 39% 38%);
 
-  --sidebar: 219 31% 92%; /* #e3e8f1 */
-  --sidebar-foreground: 219 52% 22%;
-  --sidebar-border: 217 33% 80%;
-  --sidebar-primary: 221 59% 47%;
-  --sidebar-primary-foreground: 220 100% 99%;
-  --sidebar-accent: 218 31% 88%; /* #d4ddec */
-  --sidebar-accent-foreground: 219 52% 22%;
-  --sidebar-ring: 221 59% 47%;
+  --sidebar: 213 52.9% 93.3%; /* #e5edf7 tinted rail */
+  --sidebar-foreground: 214 32.7% 22.2%;
+  --sidebar-border: 212 27.9% 88%;
+  --sidebar-primary: 218 56.1% 43.7%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 214 49% 90%; /* #d9e4f2 hover tint */
+  --sidebar-accent-foreground: 214 32.7% 22.2%;
+  --sidebar-ring: 218 56.1% 43.7%;
 
-  --radius: 0rem; /* crisp geometry */
+  /* Heritage extended tokens */
+  --navy: 216 51.5% 25.9%; /* #203b64 */
+  --paper-alt: 90 16.7% 97.6%; /* #f9faf8 header paper */
+  --accent-warm: 25 73.7% 52.4%; /* #df772c — tiny accents only */
+  --brand-foreground: 220 75% 92.2%; /* #dce6fa on the navy TH mark */
 
-  --chart-1: 221 59% 47%; /* #315fc0 */
-  --chart-2: 223 48% 54%; /* #5576c2 */
-  --chart-3: 221 48% 70%; /* #8da4d6 */
-  --chart-4: 220 40% 85%; /* #c7d2e8 */
-  --chart-5: 218 31% 88%; /* #d4ddec */
+  --button-outline: hsl(212 27.9% 82%);
+
+  --radius: 9px; /* Heritage soft geometry: 9 cards / 7 controls / 5 badges */
+
+  --chart-1: 218 56.1% 43.7%; /* #315eae */
+  --chart-2: 220 40.9% 53.5%; /* #5878b9 */
+  --chart-3: 221 47.1% 69.6%; /* #8da4d6 */
+  --chart-4: 219 40.3% 84.9%; /* #c9d4e8 */
+  --chart-5: 213 55.6% 92.9%; /* #e3ecf7 */
 }
 
 .dark {
-  /* Enforce light mode mostly, or invert properly if needed. 
-     The brief says "Default to light mode... 
-     Never default to pure white/black neutrals"
-     Cobalt Ledger is light.
-     We will just use light mode variables for dark to enforce the brand, 
-     or provide a darker cobalt theme if really necessary.
-     Let's define a rich dark navy theme just in case. */
-  --background: 220 58% 12%; /* #0c152a */
-  --foreground: 218 27% 95%; /* #eef1f6 */
-  
-  --border: 217 33% 25%;
-  --input: 217 33% 25%;
-  --ring: 221 59% 47%; 
+  /* Dormant in the demo (light is forced), kept Heritage-consistent: deep
+     navy paper with cream text and a lifted cobalt. */
+  --background: 218 52.2% 13.1%; /* #101d33 */
+  --foreground: 216 29.4% 93.3%; /* #e9edf3 */
 
-  --card: 220 58% 15%;
-  --card-foreground: 218 27% 95%;
-  --card-border: 217 33% 25%;
+  --border: 218 36.3% 26.5%; /* #2b3d5c */
+  --input: 218 36.3% 26.5%;
+  --ring: 219 56.4% 64.9%; /* #7397d8 */
 
-  --popover: 220 58% 15%;
-  --popover-foreground: 218 27% 95%;
-  --popover-border: 217 33% 25%;
+  --card: 218 48.2% 16.7%; /* #16253f */
+  --card-foreground: 216 29.4% 93.3%;
+  --card-border: 218 36.3% 26.5%;
 
-  --primary: 221 59% 47%; 
-  --primary-foreground: 220 100% 99%; 
+  --popover: 218 48.2% 16.7%;
+  --popover-foreground: 216 29.4% 93.3%;
+  --popover-border: 218 36.3% 26.5%;
 
-  --secondary: 220 58% 18%; 
-  --secondary-foreground: 218 27% 95%;
+  --primary: 219 56.4% 64.9%;
+  --primary-foreground: 218 52.2% 13.1%;
+  --primary-border: hsl(219 56% 58%);
 
-  --muted: 220 58% 18%;
-  --muted-foreground: 218 16% 59%;
+  --secondary: 219 44.6% 19.8%;
+  --secondary-foreground: 216 29.4% 93.3%;
+  --secondary-border: hsl(218 36.3% 26.5%);
 
-  --accent: 220 58% 22%;
-  --accent-foreground: 218 27% 95%;
+  --muted: 219 44.6% 19.8%; /* #1c2c49 */
+  --muted-foreground: 217 20.7% 64.9%; /* #93a1b8 */
+  --muted-border: hsl(219 44.6% 26%);
 
-  --destructive: 0 39% 45%;
+  --accent: 216 43.3% 23.5%; /* #223756 */
+  --accent-foreground: 216 29.4% 93.3%;
+  --accent-border: hsl(216 43% 32%);
+
+  --destructive: 0 39.1% 45.1%;
   --destructive-foreground: 0 100% 99%;
+  --destructive-border: hsl(0 39% 38%);
 
-  --sidebar: 220 58% 12%;
-  --sidebar-foreground: 218 27% 95%;
-  --sidebar-border: 217 33% 25%;
-  --sidebar-primary: 221 59% 47%;
-  --sidebar-primary-foreground: 220 100% 99%;
-  --sidebar-accent: 220 58% 22%;
-  --sidebar-accent-foreground: 218 27% 95%;
-  --sidebar-ring: 221 59% 47%;
+  --sidebar: 221 57.4% 12%; /* #0d1830 */
+  --sidebar-foreground: 216 29.4% 93.3%;
+  --sidebar-border: 218 36.3% 26.5%;
+  --sidebar-primary: 219 56.4% 64.9%;
+  --sidebar-primary-foreground: 218 52.2% 13.1%;
+  --sidebar-accent: 216 43.3% 23.5%;
+  --sidebar-accent-foreground: 216 29.4% 93.3%;
+  --sidebar-ring: 219 56.4% 64.9%;
+
+  --navy: 216 29.4% 93.3%; /* display text flips to cream */
+  --paper-alt: 218 48.2% 15%;
+  --accent-warm: 25 73.7% 58%;
+  --brand-foreground: 220 75% 92.2%;
+
+  --button-outline: hsl(218 36.3% 32%);
 }
 
 @layer base {
@@ -171,8 +223,13 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
-  
-  /* Scrollbar styling for that crisp app feel */
+
+  ::selection {
+    background: hsl(var(--accent));
+    color: hsl(var(--navy));
+  }
+
+  /* Soft scrollbars to match the paper surfaces */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -182,8 +239,32 @@
   }
   ::-webkit-scrollbar-thumb {
     background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@layer utilities {
+  /* Gentle interaction elevation used by buttons/badges (navy wash, radius-aware) */
+  .hover-elevate,
+  .active-elevate-2 {
+    position: relative;
+  }
+  .hover-elevate::after,
+  .active-elevate-2::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    transition: background-color 0.12s ease;
+  }
+  .hover-elevate:hover::after {
+    background-color: hsl(var(--navy) / 0.06);
+  }
+  .active-elevate-2:active::after {
+    background-color: hsl(var(--navy) / 0.12);
   }
 }

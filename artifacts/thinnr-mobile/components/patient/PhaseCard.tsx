@@ -1,6 +1,7 @@
 /**
- * PhaseCard — renders one THINNR program phase in the Cobalt Ledger style:
- * header (verbatim phase name + day range + status badge), verbatim
+ * PhaseCard — renders one THINNR program phase in the Heritage language:
+ * paper card (cobalt accent strip when the phase is current), header
+ * (verbatim serif phase name + day range + status badge), verbatim
  * dosage/exercise lines, stat tiles, then the phase's body blocks in the
  * exact order they appear in the manual (paragraphs, "what to expect"
  * callouts, meal-plan sections).
@@ -51,7 +52,14 @@ export function PhaseCard({ phase, day, variant, onOpenFull, testID }: PhaseCard
   const renderCallout = (callout: PhaseCallout, key: string) => (
     <View
       key={key}
-      style={[styles.callout, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}
+      style={[
+        styles.callout,
+        {
+          backgroundColor: colors.activeBg,
+          borderColor: colors.activeBorder,
+          borderRadius: colors.radiusSm,
+        },
+      ]}
     >
       <View style={styles.calloutTitleRow}>
         <Feather name="zap" size={12} color={colors.activeGreen} />
@@ -81,7 +89,14 @@ export function PhaseCard({ phase, day, variant, onOpenFull, testID }: PhaseCard
       {mealPlan.meals.map(meal => (
         <View
           key={meal.title}
-          style={[styles.mealBox, { backgroundColor: colors.paperCardAlt, borderColor: colors.border }]}
+          style={[
+            styles.mealBox,
+            {
+              backgroundColor: colors.paperCardAlt,
+              borderColor: colors.border,
+              borderRadius: colors.radiusSm,
+            },
+          ]}
         >
           <Text style={[styles.mealTitle, { color: colors.navyLight }]}>{meal.title}</Text>
           {meal.lines.map((line, i) => (
@@ -95,100 +110,127 @@ export function PhaseCard({ phase, day, variant, onOpenFull, testID }: PhaseCard
   );
 
   return (
-    <LedgerCard style={styles.card} testID={testID ?? `phase-card-${phase.id}`}>
-      {/* ── Header ── */}
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.phaseKicker, { color: colors.labelText }]}>
-            PHASE {phase.index} OF 4
-          </Text>
-          <Text style={[styles.phaseName, { color: colors.navy }]}>{phase.name}</Text>
-          <Text style={[styles.phaseRange, { color: colors.bodyText }]}>{phase.dayRange}</Text>
-        </View>
-        <View
-          testID={`phase-status-${phase.id}`}
-          style={[styles.badge, { backgroundColor: badge.bg, borderColor: badge.border }]}
-        >
-          <Feather name={badge.icon} size={10} color={badge.text} />
-          <Text style={[styles.badgeText, { color: badge.text }]}>{badge.label}</Text>
-        </View>
-      </View>
-
-      {/* ── Verbatim dosage / exercise directives ── */}
-      {(phase.dosage || phase.exercise) && (
-        <View style={styles.directives}>
-          {phase.dosage ? (
-            <View style={styles.directiveRow}>
-              <View style={[styles.directiveIcon, { backgroundColor: colors.sidebarBg }]}>
-                <Feather name="droplet" size={12} color={colors.cobalt} />
-              </View>
-              <Text style={[styles.directiveText, { color: colors.navyLight }]}>{phase.dosage}</Text>
-            </View>
-          ) : null}
-          {phase.exercise ? (
-            <View style={styles.directiveRow}>
-              <View style={[styles.directiveIcon, { backgroundColor: colors.sidebarBg }]}>
-                <Feather name="activity" size={12} color={colors.cobalt} />
-              </View>
-              <Text style={[styles.directiveText, { color: colors.navyLight }]}>{phase.exercise}</Text>
-            </View>
-          ) : null}
-        </View>
-      )}
-
-      {/* ── Stat tiles ── */}
-      <View style={styles.statRow}>
-        {phase.stats.map(stat => (
-          <View
-            key={stat.label}
-            style={[styles.statTile, { backgroundColor: colors.paperCardAlt, borderColor: colors.border }]}
-          >
-            <Text style={[styles.statValue, { color: colors.navy }]} numberOfLines={1}>
-              {stat.value}
+    <LedgerCard accentTop={status === 'current'} testID={testID ?? `phase-card-${phase.id}`}>
+      <View style={styles.inner}>
+        {/* ── Header ── */}
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.phaseKicker, { color: colors.labelText }]}>
+              PHASE {phase.index} OF 4
             </Text>
-            <Text style={[styles.statLabel, { color: colors.labelText }]} numberOfLines={1}>
-              {stat.label.toUpperCase()}
-            </Text>
+            <Text style={[styles.phaseName, { color: colors.navy }]}>{phase.name}</Text>
+            <Text style={[styles.phaseRange, { color: colors.bodyText }]}>{phase.dayRange}</Text>
           </View>
-        ))}
-      </View>
+          <View
+            testID={`phase-status-${phase.id}`}
+            style={[styles.badge, { backgroundColor: badge.bg, borderColor: badge.border }]}
+          >
+            <Feather name={badge.icon} size={10} color={badge.text} />
+            <Text style={[styles.badgeText, { color: badge.text }]}>{badge.label}</Text>
+          </View>
+        </View>
 
-      {/* ── Body blocks, in manual order ── */}
-      {phase.body.map((block, index) => {
-        if (block.kind === 'paragraph') {
-          return (
-            <Text key={index} style={[styles.paragraph, { color: colors.bodyText }]}>
-              {block.text}
+        {/* ── Verbatim dosage / exercise directives ── */}
+        {(phase.dosage || phase.exercise) && (
+          <View style={styles.directives}>
+            {phase.dosage ? (
+              <View style={styles.directiveRow}>
+                <View
+                  style={[
+                    styles.directiveIcon,
+                    { backgroundColor: colors.accent, borderRadius: colors.radiusSm },
+                  ]}
+                >
+                  <Feather name="droplet" size={12} color={colors.cobalt} />
+                </View>
+                <Text style={[styles.directiveText, { color: colors.navyLight }]}>{phase.dosage}</Text>
+              </View>
+            ) : null}
+            {phase.exercise ? (
+              <View style={styles.directiveRow}>
+                <View
+                  style={[
+                    styles.directiveIcon,
+                    { backgroundColor: colors.accent, borderRadius: colors.radiusSm },
+                  ]}
+                >
+                  <Feather name="activity" size={12} color={colors.cobalt} />
+                </View>
+                <Text style={[styles.directiveText, { color: colors.navyLight }]}>{phase.exercise}</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
+
+        {/* ── Stat tiles ── */}
+        <View style={styles.statRow}>
+          {phase.stats.map(stat => (
+            <View
+              key={stat.label}
+              style={[
+                styles.statTile,
+                {
+                  backgroundColor: colors.paperCardAlt,
+                  borderColor: colors.border,
+                  borderRadius: colors.radiusSm,
+                },
+              ]}
+            >
+              <Text style={[styles.statValue, { color: colors.navy }]} numberOfLines={1}>
+                {stat.value}
+              </Text>
+              <Text style={[styles.statLabel, { color: colors.labelText }]} numberOfLines={1}>
+                {stat.label.toUpperCase()}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* ── Body blocks, in manual order ── */}
+        {phase.body.map((block, index) => {
+          if (block.kind === 'paragraph') {
+            return (
+              <Text key={index} style={[styles.paragraph, { color: colors.bodyText }]}>
+                {block.text}
+              </Text>
+            );
+          }
+          if (block.kind === 'callout') {
+            return renderCallout(block.callout, String(index));
+          }
+          if (variant === 'full') {
+            return renderMealPlan(block.mealPlan, String(index));
+          }
+          return null;
+        })}
+
+        {showLink ? (
+          <Pressable
+            testID={`phase-open-full-${phase.id}`}
+            onPress={onOpenFull}
+            style={({ pressed }) => [
+              styles.linkBtn,
+              {
+                backgroundColor: colors.activeBg,
+                borderColor: colors.activeBorder,
+                borderRadius: colors.radiusSm,
+              },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Text style={[styles.linkText, { color: colors.cobalt }]}>
+              Read the full phase card — meal instructions
             </Text>
-          );
-        }
-        if (block.kind === 'callout') {
-          return renderCallout(block.callout, String(index));
-        }
-        if (variant === 'full') {
-          return renderMealPlan(block.mealPlan, String(index));
-        }
-        return null;
-      })}
-
-      {showLink ? (
-        <Pressable
-          testID={`phase-open-full-${phase.id}`}
-          onPress={onOpenFull}
-          style={({ pressed }) => [styles.linkRow, pressed && { opacity: 0.7 }]}
-        >
-          <Text style={[styles.linkText, { color: colors.cobalt }]}>
-            Read the full phase card — meal instructions
-          </Text>
-          <Feather name="arrow-right" size={13} color={colors.cobalt} />
-        </Pressable>
-      ) : null}
+            <Feather name="arrow-right" size={13} color={colors.cobalt} />
+          </Pressable>
+        ) : null}
+      </View>
     </LedgerCard>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
+  inner: {
     padding: 16,
   },
   headerRow: {
@@ -203,9 +245,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   phaseName: {
-    fontSize: 20,
+    fontSize: 21,
     fontFamily: 'PlayfairDisplay_600SemiBold',
     letterSpacing: -0.2,
+    lineHeight: 27,
     marginTop: 4,
   },
   phaseRange: {
@@ -219,6 +262,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     borderWidth: 1,
+    borderRadius: 5,
     paddingHorizontal: 7,
     paddingVertical: 4,
     marginTop: 2,
@@ -315,10 +359,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
   },
   mealPlanHeading: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    lineHeight: 19,
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
+    lineHeight: 22,
     marginTop: 14,
   },
   mealBox: {
@@ -327,10 +371,10 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   mealTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    lineHeight: 17,
+    fontSize: 14.5,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
+    lineHeight: 20,
   },
   mealLine: {
     fontSize: 12,
@@ -338,15 +382,19 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontFamily: 'Inter_400Regular',
   },
-  linkRow: {
+  linkBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     marginTop: 14,
   },
   linkText: {
     fontSize: 12,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
   },
 });

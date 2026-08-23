@@ -4,6 +4,8 @@
  * program day, followed by the manual's Welcome, 2 Pillars, 4 Phases
  * roadmap (each row opens the full phase card), and Taking the Formula
  * sections. All program wording is verbatim from docs/thinnr-program/.
+ * Heritage language: paper cards, serif section titles, rounded
+ * pale-cobalt chips; colors and radii come from shared theme tokens.
  *
  * A clearly-labeled, screen-local DEMO PREVIEW control lets a sales demo
  * dial in any program day (e.g. Day 1 → Activation badged "Current")
@@ -18,7 +20,7 @@ import * as Haptics from 'expo-haptics';
 import { Redirect, router, usePathname } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { PhaseCard } from '@/components/patient/PhaseCard';
-import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
+import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { useAppMode } from '@/context/AppModeContext';
 import { ENROLLMENT_DAYS } from '@/data/patient-data';
@@ -87,7 +89,7 @@ export default function InstructionsScreen() {
       <View
         style={[
           styles.topBar,
-          { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.background },
+          { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt },
         ]}
       >
         <Pressable
@@ -95,12 +97,16 @@ export default function InstructionsScreen() {
           onPress={goBack}
           style={({ pressed }) => [
             styles.topBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            {
+              borderColor: colors.border,
+              borderRadius: colors.radiusSm,
+              backgroundColor: pressed ? colors.accent : colors.card,
+            },
           ]}
         >
           <Feather name="chevron-left" size={17} color={colors.bodyText} />
         </Pressable>
-        <Text style={[styles.topTitle, { color: colors.labelText }]}>PROGRAM INSTRUCTIONS</Text>
+        <Text style={[styles.topTitle, { color: colors.navy }]}>Program Instructions</Text>
         <View style={styles.topSpacer} />
       </View>
 
@@ -108,7 +114,10 @@ export default function InstructionsScreen() {
         {/* ── Demo-only program day preview ── */}
         <View
           testID="demo-preview-panel"
-          style={[styles.demoPanel, { backgroundColor: colors.warnBg, borderColor: colors.warnBorder }]}
+          style={[
+            styles.demoPanel,
+            { backgroundColor: colors.warnBg, borderColor: colors.warnBorder, borderRadius: colors.radius },
+          ]}
         >
           <View style={styles.demoTopRow}>
             <View style={{ flex: 1 }}>
@@ -124,7 +133,11 @@ export default function InstructionsScreen() {
                 disabled={effectiveDay <= 1}
                 style={({ pressed }) => [
                   styles.demoStepBtn,
-                  { borderColor: colors.warnBorder, backgroundColor: pressed ? colors.accent : colors.card },
+                  {
+                    borderColor: colors.warnBorder,
+                    borderRadius: colors.radiusSm,
+                    backgroundColor: pressed ? colors.accent : colors.card,
+                  },
                   effectiveDay <= 1 && { opacity: 0.35 },
                 ]}
               >
@@ -139,7 +152,11 @@ export default function InstructionsScreen() {
                 disabled={effectiveDay >= MAX_PROGRAM_DAY}
                 style={({ pressed }) => [
                   styles.demoStepBtn,
-                  { borderColor: colors.warnBorder, backgroundColor: pressed ? colors.accent : colors.card },
+                  {
+                    borderColor: colors.warnBorder,
+                    borderRadius: colors.radiusSm,
+                    backgroundColor: pressed ? colors.accent : colors.card,
+                  },
                   effectiveDay >= MAX_PROGRAM_DAY && { opacity: 0.35 },
                 ]}
               >
@@ -158,6 +175,7 @@ export default function InstructionsScreen() {
                   onPress={() => setDay(phase.startDay)}
                   style={({ pressed }) => [
                     styles.demoChip,
+                    { borderRadius: colors.radiusSm },
                     isActive
                       ? { backgroundColor: colors.warnText, borderColor: colors.warnText }
                       : { backgroundColor: 'transparent', borderColor: colors.warnBorder },
@@ -179,7 +197,7 @@ export default function InstructionsScreen() {
                 style={({ pressed }) => [
                   styles.demoChip,
                   styles.demoResetChip,
-                  { borderColor: colors.warnBorder },
+                  { borderColor: colors.warnBorder, borderRadius: colors.radiusSm },
                   pressed && { opacity: 0.75 },
                 ]}
               >
@@ -197,10 +215,9 @@ export default function InstructionsScreen() {
         </View>
 
         {/* ── Current phase ── */}
-        <SectionHeader
-          label={`Current Phase · Day ${effectiveDay}`}
-          style={styles.sectionHeader}
-        />
+        <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>
+          Current Phase · Day {effectiveDay}
+        </Text>
         <PhaseCard
           phase={currentPhase}
           day={effectiveDay}
@@ -210,7 +227,7 @@ export default function InstructionsScreen() {
         />
 
         {/* ── Welcome ── */}
-        <SectionHeader label="Welcome" style={styles.sectionHeader} />
+        <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>Welcome</Text>
         <LedgerCard style={styles.sectionCard}>
           <Text style={[styles.serifHeading, { color: colors.navy }]}>{WELCOME_SECTION.heading}</Text>
           {WELCOME_SECTION.paragraphs.map((text, i) => (
@@ -221,13 +238,18 @@ export default function InstructionsScreen() {
         </LedgerCard>
 
         {/* ── The 2 Pillars ── */}
-        <SectionHeader label="The 2 Pillars" style={styles.sectionHeader} />
+        <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>The 2 Pillars</Text>
         <LedgerCard style={styles.sectionCard}>
           <Text style={[styles.serifHeading, { color: colors.navy }]}>{PILLARS_SECTION.heading}</Text>
           <Text style={[styles.paragraph, { color: colors.bodyText }]}>{PILLARS_SECTION.intro}</Text>
           {PILLARS_SECTION.pillars.map((pillar, i) => (
             <View key={i} style={styles.pillarRow}>
-              <View style={[styles.numSquare, { backgroundColor: colors.sidebarBg }]}>
+              <View
+                style={[
+                  styles.numSquare,
+                  { backgroundColor: colors.accent, borderRadius: colors.radiusSm },
+                ]}
+              >
                 <Text style={[styles.numText, { color: colors.cobalt }]}>{i + 1}</Text>
               </View>
               <View style={{ flex: 1 }}>
@@ -238,7 +260,14 @@ export default function InstructionsScreen() {
           ))}
           <Text style={[styles.paragraph, { color: colors.bodyText }]}>{PILLARS_SECTION.outro}</Text>
           <View
-            style={[styles.highlight, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}
+            style={[
+              styles.highlight,
+              {
+                backgroundColor: colors.activeBg,
+                borderColor: colors.activeBorder,
+                borderRadius: colors.radiusSm,
+              },
+            ]}
           >
             <Feather name="award" size={12} color={colors.activeGreen} style={{ marginTop: 3 }} />
             <Text style={[styles.highlightText, { color: colors.navyLight }]}>
@@ -248,7 +277,7 @@ export default function InstructionsScreen() {
         </LedgerCard>
 
         {/* ── The 4 Phases roadmap ── */}
-        <SectionHeader label="The 4 Phases" style={styles.sectionHeader} />
+        <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>The 4 Phases</Text>
         <LedgerCard style={styles.sectionCard}>
           <Text style={[styles.serifHeading, { color: colors.navy }]}>{PHASES_SECTION.heading}</Text>
           <Text style={[styles.paragraph, { color: colors.bodyText }]}>{PHASES_SECTION.intro}</Text>
@@ -267,7 +296,10 @@ export default function InstructionsScreen() {
                     <View
                       style={[
                         styles.numSquare,
-                        { backgroundColor: isCurrent ? colors.cobalt : colors.sidebarBg },
+                        {
+                          backgroundColor: isCurrent ? colors.cobalt : colors.accent,
+                          borderRadius: colors.radiusSm,
+                        },
                       ]}
                     >
                       {status === 'completed' ? (
@@ -317,12 +349,17 @@ export default function InstructionsScreen() {
         </LedgerCard>
 
         {/* ── Taking the Formula ── */}
-        <SectionHeader label="Taking the Formula" style={styles.sectionHeader} />
+        <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>Taking the Formula</Text>
         <LedgerCard style={styles.sectionCard}>
           <Text style={[styles.serifHeading, { color: colors.navy }]}>{FORMULA_SECTION.heading}</Text>
           {FORMULA_SECTION.items.map((text, i) => (
             <View key={i} style={styles.formulaRow}>
-              <View style={[styles.numSquare, { backgroundColor: colors.sidebarBg }]}>
+              <View
+                style={[
+                  styles.numSquare,
+                  { backgroundColor: colors.accent, borderRadius: colors.radiusSm },
+                ]}
+              >
                 <Feather name={FORMULA_ICONS[i] ?? 'info'} size={13} color={colors.cobalt} />
               </View>
               <Text style={[styles.formulaText, { color: colors.bodyText }]}>{text}</Text>
@@ -356,10 +393,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   topTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.6,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    letterSpacing: 0.2,
   },
   topSpacer: {
     width: 34,
@@ -437,18 +473,23 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
   },
   // ── Sections ──
-  sectionHeader: {
-    marginTop: 18,
+  sectionTitle: {
+    fontSize: 19,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.2,
+    lineHeight: 25,
+    marginTop: 20,
     marginBottom: 8,
+    marginLeft: 2,
   },
   sectionCard: {
     padding: 16,
   },
   serifHeading: {
-    fontSize: 17,
+    fontSize: 18,
     fontFamily: 'PlayfairDisplay_600SemiBold',
     letterSpacing: -0.2,
-    lineHeight: 23,
+    lineHeight: 24,
   },
   paragraph: {
     fontSize: 12.5,
@@ -513,12 +554,13 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   phaseRowName: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
   },
   miniBadge: {
     borderWidth: 1,
+    borderRadius: 5,
     paddingHorizontal: 5,
     paddingVertical: 1,
   },

@@ -1,6 +1,8 @@
 /**
  * Plan — program status, editable daily targets, product deliveries, and
- * the care team connection.
+ * the care team connection. Heritage language: paper cards with soft
+ * shadows, serif section titles, rounded pale-cobalt icon chips; all
+ * colors and radii come from the shared theme tokens.
  */
 import React from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -9,7 +11,7 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { PatientHeader } from '@/components/patient/PatientHeader';
-import { Divider, LedgerCard, SectionHeader, StatusBadge } from '@/components/ui/LedgerPrimitives';
+import { Divider, LedgerCard, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { usePatient } from '@/context/PatientContext';
 import {
@@ -56,7 +58,11 @@ function TargetRow({ label, unit, value, step, min, max, testID, onChange }: Tar
           disabled={value <= min}
           style={({ pressed }) => [
             styles.stepBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            {
+              borderColor: colors.border,
+              borderRadius: colors.radiusSm,
+              backgroundColor: pressed ? colors.accent : colors.card,
+            },
             value <= min && { opacity: 0.35 },
           ]}
         >
@@ -72,13 +78,38 @@ function TargetRow({ label, unit, value, step, min, max, testID, onChange }: Tar
           disabled={value >= max}
           style={({ pressed }) => [
             styles.stepBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            {
+              borderColor: colors.border,
+              borderRadius: colors.radiusSm,
+              backgroundColor: pressed ? colors.accent : colors.card,
+            },
             value >= max && { opacity: 0.35 },
           ]}
         >
           <Feather name="plus" size={13} color={colors.bodyText} />
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+/** Serif section title sitting above a paper card (Heritage language). */
+function SectionTitle({
+  title,
+  action,
+}: {
+  title: string;
+  action?: { label: string; onPress: () => void };
+}) {
+  const colors = useColors();
+  return (
+    <View style={styles.sectionTitleRow}>
+      <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>{title}</Text>
+      {action ? (
+        <Pressable onPress={action.onPress} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+          <Text style={[styles.sectionAction, { color: colors.cobalt }]}>{action.label}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -102,65 +133,71 @@ export default function PlanScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PatientHeader title="My Plan" subtitle={PATIENT_PROFILE.carePlan.name.toUpperCase()} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
-        {/* ── Program status ── */}
-        <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
-          <View style={styles.programTopRow}>
-            <Text style={[styles.programName, { color: colors.navy }]}>{PATIENT_PROFILE.carePlan.name}</Text>
-            <StatusBadge status={PATIENT_PROFILE.stage} />
-          </View>
-          <Text style={[styles.programMeta, { color: colors.subtleText }]}>
-            Week {week} · Day {ENROLLMENT_DAYS} · Started {formatISO(PATIENT_PROFILE.startDate, true)}
-          </Text>
-          <Divider style={{ marginVertical: 12 }} />
-          <View style={styles.programDetailRow}>
-            <Feather name="check-square" size={14} color={colors.activeGreen} />
-            <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
-              Six-week protocol completed — now in maintenance.
-            </Text>
-          </View>
-          <View style={styles.programDetailRow}>
-            <Feather name="target" size={14} color={colors.cobalt} />
-            <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
-              {PATIENT_PROFILE.carePlan.focus}
-            </Text>
-          </View>
-          <View style={styles.programDetailRow}>
-            <Feather name="calendar" size={14} color={colors.cobalt} />
-            <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
-              {PATIENT_PROFILE.carePlan.cadence} · Next: {PATIENT_PROFILE.carePlan.nextMilestone}
-            </Text>
-          </View>
-          <Divider style={{ marginTop: 12, marginBottom: 12 }} />
-          <Pressable
-            testID="plan-instructions-row"
-            onPress={() => router.push('/instructions')}
-            style={({ pressed }) => [styles.instructionsRow, pressed && { opacity: 0.7 }]}
-          >
-            <View style={[styles.instructionsIcon, { backgroundColor: colors.sidebarBg }]}>
-              <Feather name="book-open" size={14} color={colors.cobalt} />
+        {/* ── Program status — featured card with cobalt accent strip ── */}
+        <LedgerCard accentTop style={styles.programCard}>
+          <View style={styles.cardPad}>
+            <View style={styles.programTopRow}>
+              <Text style={[styles.programName, { color: colors.navy }]}>{PATIENT_PROFILE.carePlan.name}</Text>
+              <StatusBadge status={PATIENT_PROFILE.stage} />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.instructionsTitle, { color: colors.navyLight }]}>
-                Program Instructions
-              </Text>
-              <Text style={[styles.instructionsMeta, { color: colors.subtleText }]} numberOfLines={1}>
-                Day {ENROLLMENT_DAYS} · {CURRENT_PHASE.name}
+            <Text style={[styles.programMeta, { color: colors.subtleText }]}>
+              Week {week} · Day {ENROLLMENT_DAYS} · Started {formatISO(PATIENT_PROFILE.startDate, true)}
+            </Text>
+            <Divider style={{ marginVertical: 12 }} />
+            <View style={styles.programDetailRow}>
+              <Feather name="check-square" size={14} color={colors.activeGreen} />
+              <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+                Six-week protocol completed — now in maintenance.
               </Text>
             </View>
-            <Feather name="chevron-right" size={15} color={colors.subtleText} />
-          </Pressable>
+            <View style={styles.programDetailRow}>
+              <Feather name="target" size={14} color={colors.cobalt} />
+              <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+                {PATIENT_PROFILE.carePlan.focus}
+              </Text>
+            </View>
+            <View style={styles.programDetailRow}>
+              <Feather name="calendar" size={14} color={colors.cobalt} />
+              <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+                {PATIENT_PROFILE.carePlan.cadence} · Next: {PATIENT_PROFILE.carePlan.nextMilestone}
+              </Text>
+            </View>
+            <Divider style={{ marginTop: 12, marginBottom: 12 }} />
+            <Pressable
+              testID="plan-instructions-row"
+              onPress={() => router.push('/instructions')}
+              style={({ pressed }) => [styles.instructionsRow, pressed && { opacity: 0.7 }]}
+            >
+              <View
+                style={[styles.iconChip, { backgroundColor: colors.accent, borderRadius: colors.radiusSm }]}
+              >
+                <Feather name="book-open" size={15} color={colors.cobalt} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.instructionsKicker, { color: colors.labelText }]}>
+                  PROGRAM INSTRUCTIONS
+                </Text>
+                <Text
+                  style={[styles.instructionsValue, { color: colors.navyLight }]}
+                  numberOfLines={1}
+                >
+                  Day {ENROLLMENT_DAYS} · {CURRENT_PHASE.name}
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={16} color={colors.subtleText} />
+            </Pressable>
+          </View>
         </LedgerCard>
 
         {/* ── Daily targets ── */}
-        <SectionHeader
-          label="Daily Targets"
+        <SectionTitle
+          title="Daily Targets"
           action={isDefaultTargets ? undefined : {
             label: 'Reset to plan',
             onPress: () => patient.setTargets({ ...DEFAULT_TARGETS }),
           }}
-          style={{ marginBottom: 8 }}
         />
-        <LedgerCard style={{ paddingVertical: 4, marginBottom: 14 }}>
+        <LedgerCard style={styles.targetsCard}>
           <TargetRow
             label="Calories" unit="cal" testID="target-calories"
             value={patient.targets.calories} step={50} min={1000} max={3000}
@@ -195,8 +232,8 @@ export default function PlanScreen() {
         {/* ── Deliveries ── */}
         {PATIENT_SUBSCRIPTION ? (
           <>
-            <SectionHeader label="Product Deliveries" style={{ marginBottom: 8 }} />
-            <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
+            <SectionTitle title="Product Deliveries" />
+            <LedgerCard style={styles.sectionCard}>
               <View style={styles.programTopRow}>
                 <Text style={[styles.deliveryTitle, { color: colors.navyLight }]}>
                   Monthly · ${PATIENT_SUBSCRIPTION.monthlyValue}/mo
@@ -205,8 +242,10 @@ export default function PlanScreen() {
               </View>
               {PATIENT_PRODUCTS.map(product => (
                 <View key={product.id} style={styles.productRow}>
-                  <View style={[styles.productMark, { backgroundColor: colors.sidebarBg }]}>
-                    <Feather name="package" size={13} color={colors.cobalt} />
+                  <View
+                    style={[styles.iconChip, { backgroundColor: colors.accent, borderRadius: colors.radiusSm }]}
+                  >
+                    <Feather name="package" size={14} color={colors.cobalt} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.productName, { color: colors.navyLight }]}>{product.name}</Text>
@@ -237,10 +276,12 @@ export default function PlanScreen() {
         ) : null}
 
         {/* ── Care team ── */}
-        <SectionHeader label="Your Care Team" style={{ marginBottom: 8 }} />
+        <SectionTitle title="Your Care Team" />
         <LedgerCard style={{ padding: 16 }}>
           <View style={styles.careRow}>
-            <View style={[styles.careAvatar, { backgroundColor: colors.navy }]}>
+            <View
+              style={[styles.careAvatar, { backgroundColor: colors.navy, borderRadius: colors.radiusSm }]}
+            >
               <Text style={[styles.careAvatarText, { color: colors.brandMarkText }]}>
                 {PATIENT_PROVIDER ? PATIENT_PROVIDER.name.split(' ').slice(0, 2).map(n => n[0]).join('') : 'CT'}
               </Text>
@@ -282,6 +323,31 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
   },
+  cardPad: {
+    padding: 16,
+  },
+  programCard: {
+    marginBottom: 18,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 8,
+    marginLeft: 2,
+  },
+  sectionTitle: {
+    fontSize: 19,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.2,
+    lineHeight: 25,
+  },
+  sectionAction: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+  },
   programTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -289,10 +355,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   programName: {
-    fontSize: 15,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.3,
+    fontSize: 20,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.2,
+    lineHeight: 26,
     flex: 1,
   },
   programMeta: {
@@ -311,6 +377,14 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     flex: 1,
     fontFamily: 'Inter_400Regular',
+  },
+  targetsCard: {
+    paddingVertical: 4,
+    marginBottom: 18,
+  },
+  sectionCard: {
+    padding: 16,
+    marginBottom: 18,
   },
   targetRow: {
     flexDirection: 'row',
@@ -349,9 +423,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
   },
   deliveryTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.2,
+    flex: 1,
   },
   productRow: {
     flexDirection: 'row',
@@ -359,20 +434,20 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 12,
   },
-  productMark: {
-    width: 30,
-    height: 30,
+  iconChip: {
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
   productName: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14.5,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
   },
   productDesc: {
     fontSize: 10.5,
-    marginTop: 1,
+    marginTop: 2,
     fontFamily: 'Inter_400Regular',
     lineHeight: 14,
   },
@@ -399,8 +474,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   careAvatar: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -410,13 +485,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   careName: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
   },
   careRole: {
     fontSize: 11,
-    marginTop: 1,
+    marginTop: 2,
     fontFamily: 'Inter_400Regular',
   },
   instructionsRow: {
@@ -424,20 +499,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  instructionsIcon: {
-    width: 30,
-    height: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
+  instructionsKicker: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.3,
+    fontFamily: 'Inter_700Bold',
   },
-  instructionsTitle: {
-    fontSize: 12.5,
+  instructionsValue: {
+    fontSize: 12,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
-  },
-  instructionsMeta: {
-    fontSize: 11,
-    marginTop: 1,
-    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
   },
 });

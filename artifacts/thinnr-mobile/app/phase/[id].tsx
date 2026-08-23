@@ -65,7 +65,7 @@ export default function PhaseDetailScreen() {
       <View
         style={[
           styles.topBar,
-          { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.background },
+          { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt },
         ]}
       >
         <Pressable
@@ -73,12 +73,16 @@ export default function PhaseDetailScreen() {
           onPress={goBack}
           style={({ pressed }) => [
             styles.topBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            {
+              borderColor: colors.border,
+              borderRadius: colors.radiusSm,
+              backgroundColor: pressed ? colors.accent : colors.card,
+            },
           ]}
         >
           <Feather name="chevron-left" size={17} color={colors.bodyText} />
         </Pressable>
-        <Text style={[styles.topTitle, { color: colors.labelText }]}>PHASE {phase.index} OF 4</Text>
+        <Text style={[styles.topTitle, { color: colors.navy }]}>Phase {phase.index} of 4</Text>
         <View style={styles.topSpacer} />
       </View>
 
@@ -124,10 +128,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   topTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.6,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    letterSpacing: 0.2,
   },
   topSpacer: {
     width: 34,

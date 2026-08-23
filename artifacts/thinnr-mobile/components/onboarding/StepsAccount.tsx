@@ -3,7 +3,7 @@
  * verification code, provider code, Face ID (simulated), password.
  */
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
@@ -259,6 +259,20 @@ export function FaceIdStep() {
 
 // ─── Password ────────────────────────────────────────────────────────────────
 
+/**
+ * Web-only <form> wrapper so Chrome doesn't log "[DOM] Password field is not
+ * contained in a form" for the bare password inputs (mirrors SignInFormWrap in
+ * app/patient-entry.tsx). Native renders children untouched.
+ */
+function PasswordFormWrap({ children }: { children: React.ReactNode }) {
+  if (Platform.OS !== 'web') return <>{children}</>;
+  return (
+    <form style={{ display: 'contents' }} onSubmit={event => event.preventDefault()}>
+      {children}
+    </form>
+  );
+}
+
 function SecureInput({
   value,
   onChangeText,
@@ -336,17 +350,19 @@ export function PasswordStep() {
         flow.goNext();
       }}
     >
-      <FieldLabel text="Password" />
-      <SecureInput testID="ob-password" value={pw} onChangeText={setPw} placeholder="Enter password" />
-      <View style={styles.confirmGap}>
-        <FieldLabel text="Confirm password" />
-        <SecureInput
-          testID="ob-password-confirm"
-          value={confirm}
-          onChangeText={setConfirm}
-          placeholder="Re-enter password"
-        />
-      </View>
+      <PasswordFormWrap>
+        <FieldLabel text="Password" />
+        <SecureInput testID="ob-password" value={pw} onChangeText={setPw} placeholder="Enter password" />
+        <View style={styles.confirmGap}>
+          <FieldLabel text="Confirm password" />
+          <SecureInput
+            testID="ob-password-confirm"
+            value={confirm}
+            onChangeText={setConfirm}
+            placeholder="Re-enter password"
+          />
+        </View>
+      </PasswordFormWrap>
       {blocked ? (
         <View style={styles.blockGapTop}>
           <ErrorBox

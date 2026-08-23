@@ -4,8 +4,10 @@
  * uppercase micro-labels, no native wheel pickers — everything here is
  * RN-web friendly.
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
+  AccessibilityInfo,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -36,14 +38,36 @@ interface ButtonProps {
   style?: StyleProp<ViewStyle>;
 }
 
-export function PrimaryButton({ label, onPress, disabled = false, testID, style }: ButtonProps) {
+interface PrimaryButtonProps extends ButtonProps {
+  /**
+   * When provided, a disabled button still catches taps — it stays visually
+   * and semantically disabled (accessibilityState) — so the caller can
+   * explain what's missing instead of silently swallowing the press.
+   */
+  onDisabledPress?: () => void;
+}
+
+export function PrimaryButton({
+  label,
+  onPress,
+  disabled = false,
+  onDisabledPress,
+  testID,
+  style,
+}: PrimaryButtonProps) {
   const colors = useColors();
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
-      disabled={disabled}
+      accessibilityState={{ disabled }}
+      disabled={disabled && !onDisabledPress}
       onPress={() => {
+        if (disabled) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          onDisabledPress?.();
+          return;
+        }
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         onPress();
       }}
@@ -427,9 +451,21 @@ export function RequirementRow({ met, label }: { met: boolean; label: string }) 
 
 export function ErrorBox({ message, testID }: { message: string; testID?: string }) {
   const colors = useColors();
+
+  // Live regions cover Android (accessibilityLiveRegion) and web
+  // (role="alert" + aria-live), but iOS has no live-region concept —
+  // announce there explicitly whenever the message appears or changes.
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(message);
+    }
+  }, [message]);
+
   return (
     <View
       testID={testID}
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
       style={[
         styles.errorBox,
         { backgroundColor: colors.riskBg, borderColor: colors.riskBorder, borderRadius: colors.radiusSm },

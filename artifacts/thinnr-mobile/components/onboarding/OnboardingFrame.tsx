@@ -4,7 +4,7 @@
  * footer Next button. Heritage language: paper surfaces, serif question
  * titles, soft-radius controls.
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,7 +15,7 @@ import { ProgressBar } from '@/components/ui/LedgerPrimitives';
 import { useColors } from '@/hooks/useColors';
 import { useOnboardingFlow } from '@/context/OnboardingContext';
 import { type StepKey } from '@/data/onboarding-data';
-import { CoachCallout, PrimaryButton } from './OnboardingFields';
+import { CoachCallout, ErrorBox, PrimaryButton } from './OnboardingFields';
 
 interface OnboardingFrameProps {
   stepKey: StepKey;
@@ -24,6 +24,12 @@ interface OnboardingFrameProps {
   children: React.ReactNode;
   nextLabel?: string;
   nextDisabled?: boolean;
+  /**
+   * Explains what's required when the patient taps Next while it's blocked.
+   * Shown as an inline ErrorBox above the button (and announced to screen
+   * readers); hidden again the moment the input becomes valid.
+   */
+  nextBlockedHint?: string;
   /** Defaults to advancing to the next visible step. */
   onNext?: () => void;
   /** For steps with their own CTA buttons (e.g. Connect / Skip). */
@@ -37,6 +43,7 @@ export function OnboardingFrame({
   children,
   nextLabel = 'Next',
   nextDisabled = false,
+  nextBlockedHint,
   onNext,
   hideNext = false,
 }: OnboardingFrameProps) {
@@ -44,6 +51,13 @@ export function OnboardingFrame({
   const insets = useSafeAreaInsets();
   const flow = useOnboardingFlow(stepKey);
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
+  const [showBlockedHint, setShowBlockedHint] = useState(false);
+
+  // The hint only makes sense while Next is blocked; clear it as soon as the
+  // input becomes valid so stale guidance never lingers.
+  useEffect(() => {
+    if (!nextDisabled) setShowBlockedHint(false);
+  }, [nextDisabled]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
@@ -97,11 +111,17 @@ export function OnboardingFrame({
               },
             ]}
           >
+            {nextDisabled && showBlockedHint && nextBlockedHint ? (
+              <View style={styles.footerHint}>
+                <ErrorBox testID="ob-next-hint" message={nextBlockedHint} />
+              </View>
+            ) : null}
             <PrimaryButton
               testID="ob-next"
               label={nextLabel}
               disabled={nextDisabled}
               onPress={onNext ?? flow.goNext}
+              onDisabledPress={nextBlockedHint ? () => setShowBlockedHint(true) : undefined}
             />
           </View>
         </FooterAboveKeyboard>
@@ -203,5 +223,8 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     width: '100%',
     alignSelf: 'center',
+  },
+  footerHint: {
+    marginBottom: 10,
   },
 });

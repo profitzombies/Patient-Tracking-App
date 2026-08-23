@@ -76,6 +76,11 @@ export function ContactStep() {
       title="How should we reach you?"
       coach="First things first — where should we send your verification code?"
       nextDisabled={!valid}
+      nextBlockedHint={
+        answers.contactMethod === 'phone'
+          ? 'Enter a complete phone number, like (555) 123-4567, so we can text your code.'
+          : 'Enter a valid email address, like you@example.com, so we can send your code.'
+      }
     >
       <PillSelector<ContactMethod>
         options={[
@@ -130,6 +135,7 @@ export function VerifyStep() {
       coach={`I just sent a 6-digit code to ${maskContact(answers.contactMethod, answers.contactValue)}.`}
       nextLabel="Verify"
       nextDisabled={code.length !== 6}
+      nextBlockedHint="Enter all 6 digits of your verification code first."
       onNext={submit}
     >
       <LedgerInput
@@ -181,6 +187,7 @@ export function ProviderCodeStep() {
       coach="Verified! Now enter the provider code from your med spa so your plan reaches the right care team."
       nextLabel="Link provider"
       nextDisabled={code.length !== 6}
+      nextBlockedHint="Enter the 6-digit provider code from your care team first."
       onNext={submit}
     >
       <FieldLabel text="Provider code" />
@@ -306,12 +313,24 @@ export function PasswordStep() {
   const match = confirm.length > 0 && pw === confirm;
   const canNext = basePass && match && !blocked;
 
+  let blockedHint: string;
+  if (!basePass) {
+    blockedHint = "Your password doesn't meet all the requirements below yet.";
+  } else if (blocked) {
+    blockedHint = "That password can't be used — try something more unique.";
+  } else if (confirm.length === 0) {
+    blockedHint = 'Re-enter your password in the confirm field.';
+  } else {
+    blockedHint = "The two passwords don't match yet.";
+  }
+
   return (
     <OnboardingFrame
       stepKey="password"
       title="Create your password"
       coach="Pick something memorable — you can always use Face ID after this."
       nextDisabled={!canNext}
+      nextBlockedHint={blockedHint}
       onNext={() => {
         patch({ password: pw });
         flow.goNext();

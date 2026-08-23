@@ -107,6 +107,11 @@ export function WeightStep() {
       title="What's your current weight?"
       coach="A starting point, not a judgment — this is day one."
       nextDisabled={!inRange}
+      nextBlockedHint={
+        parsed === null
+          ? 'Enter your current weight to continue.'
+          : `Enter a weight between ${bounds.min} and ${bounds.max} ${unit}.`
+      }
     >
       <BigNumberInput
         testID="ob-weight-input"
@@ -172,6 +177,7 @@ export function BirthdayStep() {
       title="When were you born?"
       coach="Age is part of the same energy math."
       nextDisabled={!complete || error !== null}
+      nextBlockedHint={error ?? 'Fill in your birth month, day, and year to continue.'}
     >
       <FieldLabel text="Month" />
       <ChipGrid
@@ -342,6 +348,7 @@ export function GoalWeightStep() {
       title="What's your goal weight?"
       coach="Ambitious is fine — your care team refines this with you."
       nextDisabled={!valid}
+      nextBlockedHint={error ?? 'Enter your goal weight to continue.'}
     >
       <BigNumberInput
         testID="ob-goal-input"

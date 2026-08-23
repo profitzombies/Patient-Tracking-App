@@ -549,6 +549,83 @@ export function getLoggingStats(patient: Patient): LoggingStats {
   return stats;
 }
 
+/**
+ * Range-scoped logging summary for the staff record's nutrition section.
+ *
+ * Unlike getLoggingStats (fixed 7/30-day windows ending on the anchor), this
+ * aggregates only the seeded days whose date keys fall inside the shared
+ * operations date range (inclusive). Longitudinal "as of today" statuses —
+ * streaks, days-since-last-log — intentionally stay in LoggingStats; they are
+ * current facts, not range summaries.
+ */
+export interface RangeLoggingSummary {
+  /** Seeded companion-app days inside the range, oldest → newest. */
+  days: DailyLog[];
+  /** Days of seeded history available inside the range. */
+  daysWithData: number;
+  loggedDays: number;
+  /** 0–100 over daysWithData. */
+  loggedRate: number;
+  /** Average calories over logged days in range (0 when none). */
+  avgCalories: number;
+  /** Average ounces over days with any water in range (0 when none). */
+  avgWater: number;
+  /** Days eligible for a check-in (the anchor day never seeds one). */
+  checkInEligibleDays: number;
+  checkInCount: number;
+  /** 0–100 over eligible days. */
+  checkInRate: number;
+  moodCounts: Record<1 | 2 | 3 | 4 | 5, number>;
+  topSideEffects: { name: string; count: number }[];
+}
+
+export function getRangeLoggingSummary(
+  patient: Patient,
+  range: { start: string; end: string },
+): RangeLoggingSummary {
+  const { days } = getNutritionProfile(patient);
+  const inRange = days.filter((day) => day.dateKey >= range.start && day.dateKey <= range.end);
+
+  const logged = inRange.filter((day) => day.logged);
+  const avgCalories = logged.length
+    ? Math.round(logged.reduce((total, day) => total + summarizeMeals(day.meals).calories, 0) / logged.length)
+    : 0;
+  const waterDays = inRange.filter((day) => day.waterOz > 0);
+  const avgWater = waterDays.length
+    ? Math.round(waterDays.reduce((total, day) => total + day.waterOz, 0) / waterDays.length)
+    : 0;
+
+  // Mirrors checkInRate30's semantics: today never seeds a check-in, so the
+  // anchor day is excluded from the denominator instead of counting as a miss.
+  const eligible = inRange.filter((day) => day.offset >= 1);
+  const withCheckIn = eligible.filter((day) => day.checkIn);
+  const moodCounts: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  const sideEffectCounts = new Map<string, number>();
+  withCheckIn.forEach((day) => {
+    const checkIn = day.checkIn!;
+    moodCounts[checkIn.mood] += 1;
+    checkIn.sideEffects.forEach((effect) => sideEffectCounts.set(effect, (sideEffectCounts.get(effect) ?? 0) + 1));
+  });
+  const topSideEffects = [...sideEffectCounts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+
+  return {
+    days: inRange,
+    daysWithData: inRange.length,
+    loggedDays: logged.length,
+    loggedRate: inRange.length ? Math.round((logged.length / inRange.length) * 100) : 0,
+    avgCalories,
+    avgWater,
+    checkInEligibleDays: eligible.length,
+    checkInCount: withCheckIn.length,
+    checkInRate: eligible.length ? Math.round((withCheckIn.length / eligible.length) * 100) : 0,
+    moodCounts,
+    topSideEffects,
+  };
+}
+
 /** Threshold (in days without any log) at which a patient counts as lapsed. */
 export const LAPSED_AFTER_DAYS = 3;
 

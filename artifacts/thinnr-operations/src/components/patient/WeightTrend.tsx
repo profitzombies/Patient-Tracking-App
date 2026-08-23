@@ -13,7 +13,7 @@ const formatShortDate = (date: string) =>
 export function WeightTrend({ entries, goalWeight, startingWeight, patientName }: WeightTrendProps) {
   if (entries.length === 0) {
     return (
-      <div className="grid h-56 place-items-center border border-dashed border-[#bdc9dc] bg-[#f8f9fc] p-6 text-center text-xs text-[#718099]">
+      <div className="grid h-56 place-items-center rounded-md border border-dashed border-border bg-secondary p-6 text-center text-xs text-muted-foreground">
         No weigh-ins have been logged for this session yet.
       </div>
     );
@@ -39,7 +39,7 @@ export function WeightTrend({ entries, goalWeight, startingWeight, patientName }
 
   return (
     <figure aria-labelledby="weight-trend-caption">
-      <div className="overflow-x-auto border border-[#dfe5ef] bg-white p-2">
+      <div className="overflow-x-auto rounded-md border border-border bg-white p-2">
         <svg
           className="h-60 min-w-[580px] w-full"
           viewBox={`0 0 ${width} ${height}`}
@@ -52,24 +52,24 @@ export function WeightTrend({ entries, goalWeight, startingWeight, patientName }
           </desc>
           {labels.map((label) => (
             <g key={label}>
-              <line x1={left} x2={width - right} y1={yFor(label)} y2={yFor(label)} stroke="#e4e8f0" strokeWidth="1" />
-              <text x={left - 8} y={yFor(label) + 4} textAnchor="end" fill="#718099" fontSize="10">{label}</text>
+              <line className="stroke-border" x1={left} x2={width - right} y1={yFor(label)} y2={yFor(label)} strokeWidth="1" />
+              <text className="fill-muted-foreground" x={left - 8} y={yFor(label) + 4} textAnchor="end" fontSize="10">{label}</text>
             </g>
           ))}
           <g>
-            <line x1={left} x2={width - right} y1={goalY} y2={goalY} stroke="#9a6c29" strokeDasharray="5 4" strokeWidth="1.5" />
-            <text x={width - right} y={goalY - 6} textAnchor="end" fill="#97631e" fontSize="10" fontWeight="700">
+            <line className="stroke-accent-warm" x1={left} x2={width - right} y1={goalY} y2={goalY} strokeDasharray="5 4" strokeWidth="1.5" />
+            <text className="fill-[#b65c22]" x={width - right} y={goalY - 6} textAnchor="end" fontSize="10" fontWeight="700">
               Goal {goalWeight} lb{goalIsVisible ? '' : ' · below range'}
             </text>
           </g>
-          <path d={path} fill="none" stroke="#315fc0" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+          <path className="stroke-primary" d={path} fill="none" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
           {entries.map((entry, index) => (
             <g key={`${entry.date}-${index}`}>
-              <circle cx={xFor(index)} cy={yFor(entry.weight)} r="4.5" fill="#fbfcff" stroke="#315fc0" strokeWidth="2.5">
+              <circle className="fill-white stroke-primary" cx={xFor(index)} cy={yFor(entry.weight)} r="4.5" strokeWidth="2.5">
                 <title>{formatShortDate(entry.date)}: {entry.weight.toFixed(1)} pounds</title>
               </circle>
               {(index === 0 || index === entries.length - 1 || index % Math.ceil(entries.length / 5) === 0) && (
-                <text x={xFor(index)} y={height - 14} textAnchor="middle" fill="#718099" fontSize="10">
+                <text className="fill-muted-foreground" x={xFor(index)} y={height - 14} textAnchor="middle" fontSize="10">
                   {formatShortDate(entry.date)}
                 </text>
               )}
@@ -77,9 +77,9 @@ export function WeightTrend({ entries, goalWeight, startingWeight, patientName }
           ))}
         </svg>
       </div>
-      <figcaption id="weight-trend-caption" className="mt-2 flex flex-wrap justify-between gap-2 text-[10px] text-[#718099]">
+      <figcaption id="weight-trend-caption" className="mt-2 flex flex-wrap justify-between gap-2 text-[10px] text-muted-foreground">
         <span>Each point is a logged weigh-in. Hover or use the list below for exact values.</span>
-        <span className="font-semibold text-[#97631e]">Goal reference: {goalWeight} lbs</span>
+        <span className="font-semibold text-[#b65c22]">Goal reference: {goalWeight} lbs</span>
       </figcaption>
     </figure>
   );

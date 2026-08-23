@@ -1,11 +1,12 @@
 import { useColorScheme } from 'react-native';
-import colors from '@/constants/colors';
+import colors, { fonts } from '@/constants/colors';
 
 /**
  * Returns the design tokens for the current color scheme.
  *
  * The returned object contains all color tokens for the active palette
- * plus scheme-independent values like `radius`.
+ * plus scheme-independent values: `radius` (cards), `radiusSm`
+ * (buttons/chips/inputs), and the `fonts` family map.
  *
  * Falls back to the light palette when no dark key is defined in
  * constants/colors.ts (the scaffold ships light-only by default).
@@ -19,5 +20,5 @@ export function useColors() {
     scheme === 'dark' && 'dark' in colors
       ? (colors as Record<string, typeof colors.light>).dark
       : colors.light;
-  return { ...palette, radius: colors.radius };
+  return { ...palette, radius: colors.radius, radiusSm: colors.radiusSm, fonts };
 }

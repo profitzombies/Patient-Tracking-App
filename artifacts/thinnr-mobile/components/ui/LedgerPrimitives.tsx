@@ -1,6 +1,8 @@
 /**
- * Shared Cobalt Ledger primitive components.
- * All colors come from useColors(). Radius is always 0.
+ * Shared Heritage primitive components.
+ * All colors come from useColors(). Heritage geometry: cards radius 9 with
+ * hairline borders and soft shadows; controls radius 7; progress bars stay
+ * square. Serif (Playfair) carries titles; Inter carries labels and body.
  */
 import React from 'react';
 import {
@@ -16,41 +18,48 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 
+const CARD_SHADOW = '0 8px 20px rgba(40, 55, 74, 0.07)';
+const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
+
 // ─── LedgerCard ──────────────────────────────────────────────────────────────
 
 interface LedgerCardProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
+  /** Renders the thin cobalt top accent strip used on featured cards. */
+  accentTop?: boolean;
   testID?: string;
 }
 
-export function LedgerCard({ children, style, onPress, testID }: LedgerCardProps) {
+export function LedgerCard({ children, style, onPress, accentTop = false, testID }: LedgerCardProps) {
   const colors = useColors();
+  const base: ViewStyle = {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: colors.radius,
+    overflow: 'hidden',
+    boxShadow: CARD_SHADOW,
+  };
+  const strip = accentTop ? (
+    <View style={{ height: 3, backgroundColor: colors.cobalt }} />
+  ) : null;
   if (onPress) {
     return (
       <Pressable
         testID={testID}
         onPress={onPress}
-        style={({ pressed }) => [
-          {
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-          },
-          pressed && { opacity: 0.88 },
-          style,
-        ]}
+        style={({ pressed }) => [base, pressed && { opacity: 0.88 }, style]}
       >
+        {strip}
         {children}
       </Pressable>
     );
   }
   return (
-    <View
-      testID={testID}
-      style={[{ backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }, style]}
-    >
+    <View testID={testID} style={[base, style]}>
+      {strip}
       {children}
     </View>
   );
@@ -102,6 +111,8 @@ export function MetricCard({ label, value, change, detail, warning = false, styl
           backgroundColor: colors.card,
           borderWidth: 1,
           borderColor: colors.border,
+          borderRadius: colors.radius,
+          boxShadow: CARD_SHADOW_SOFT,
           padding: 16,
         },
         style,
@@ -164,8 +175,9 @@ interface ProgressBarProps {
 export function ProgressBar({ value, color, style }: ProgressBarProps) {
   const colors = useColors();
   const clipped = Math.min(100, Math.max(0, value));
+  // Deliberately square: Heritage keeps progress bars as crisp hairline rules.
   return (
-    <View style={[{ height: 8, backgroundColor: colors.accent, overflow: 'hidden' }, style]}>
+    <View style={[{ height: 8, backgroundColor: colors.track, overflow: 'hidden' }, style]}>
       <View
         style={{
           height: '100%',
@@ -194,7 +206,9 @@ export function PillSelector<T extends string>({
 }: PillSelectorProps<T>) {
   const colors = useColors();
   return (
-    <View style={[styles.pillRow, { borderColor: colors.border }, style]}>
+    <View
+      style={[styles.pillRow, { borderColor: colors.border, borderRadius: colors.radiusSm }, style]}
+    >
       {options.map(opt => {
         const isActive = opt.value === selected;
         return (
@@ -267,6 +281,7 @@ export function IconButton({ children, style, testID, ...rest }: IconButtonProps
         {
           backgroundColor: pressed ? colors.accent : colors.card,
           borderColor: colors.border,
+          borderRadius: colors.radiusSm,
         },
         style,
       ]}
@@ -298,11 +313,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   sectionValue: {
-    fontSize: 17,
-    fontWeight: '600',
+    fontSize: 18,
     marginTop: 2,
-    letterSpacing: -0.3,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   sectionAction: {
     fontSize: 12,
@@ -322,6 +335,7 @@ const styles = StyleSheet.create({
   },
   metricBadge: {
     borderWidth: 1,
+    borderRadius: 5,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
@@ -345,6 +359,7 @@ const styles = StyleSheet.create({
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
+    borderRadius: 5,
     paddingHorizontal: 7,
     paddingVertical: 4,
     gap: 5,
@@ -382,10 +397,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 17,
     textAlign: 'center',
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   emptyBody: {
     fontSize: 12,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, StyleSheet, useColorScheme, View } from 'react-native';
+import { Platform, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -38,6 +38,56 @@ function NativeTabLayout() {
   );
 }
 
+/**
+ * Heritage tab label: Inter label with the small orange underline tick on the
+ * active tab (from the approved reference). Used by the classic (non-liquid-
+ * glass) tab bar on Android, web, and older iOS.
+ */
+function HeritageTabLabel({
+  label,
+  focused,
+  color,
+}: {
+  label: string;
+  focused: boolean;
+  color: string;
+}) {
+  const colors = useColors();
+  return (
+    <View style={heritageStyles.labelWrap}>
+      <Text
+        style={[
+          heritageStyles.labelText,
+          { color, fontFamily: focused ? 'Inter_600SemiBold' : 'Inter_500Medium' },
+        ]}
+      >
+        {label}
+      </Text>
+      <View
+        style={[
+          heritageStyles.tick,
+          { backgroundColor: focused ? colors.orange : 'transparent' },
+        ]}
+      />
+    </View>
+  );
+}
+
+const heritageStyles = StyleSheet.create({
+  labelWrap: {
+    alignItems: 'center',
+  },
+  labelText: {
+    fontSize: 10,
+  },
+  tick: {
+    height: 3,
+    width: 16,
+    borderRadius: 1.5,
+    marginTop: 2,
+  },
+});
+
 function ClassicTabLayout() {
   const colors = useColors();
   const colorScheme = useColorScheme();
@@ -53,7 +103,7 @@ function ClassicTabLayout() {
         headerShown: false,
         tabBarStyle: {
           position: 'absolute',
-          backgroundColor: isIOS ? 'transparent' : colors.background,
+          backgroundColor: isIOS ? 'transparent' : colors.card,
           borderTopWidth: 1,
           borderTopColor: colors.border,
           elevation: 0,
@@ -70,7 +120,7 @@ function ClassicTabLayout() {
             <View
               style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: colors.background },
+                { backgroundColor: colors.card },
               ]}
             />
           ) : null,
@@ -80,6 +130,10 @@ function ClassicTabLayout() {
         name="today"
         options={{
           title: 'Today',
+          tabBarAccessibilityLabel: 'Today',
+          tabBarLabel: ({ focused, color }) => (
+            <HeritageTabLabel label="Today" focused={focused} color={color} />
+          ),
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="sun.max" tintColor={color} size={22} />
@@ -92,6 +146,10 @@ function ClassicTabLayout() {
         name="diary"
         options={{
           title: 'Diary',
+          tabBarAccessibilityLabel: 'Diary',
+          tabBarLabel: ({ focused, color }) => (
+            <HeritageTabLabel label="Diary" focused={focused} color={color} />
+          ),
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="book" tintColor={color} size={22} />
@@ -104,6 +162,10 @@ function ClassicTabLayout() {
         name="recipes"
         options={{
           title: 'Library',
+          tabBarAccessibilityLabel: 'Library',
+          tabBarLabel: ({ focused, color }) => (
+            <HeritageTabLabel label="Library" focused={focused} color={color} />
+          ),
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="square.grid.2x2" tintColor={color} size={22} />
@@ -116,6 +178,10 @@ function ClassicTabLayout() {
         name="progress"
         options={{
           title: 'Progress',
+          tabBarAccessibilityLabel: 'Progress',
+          tabBarLabel: ({ focused, color }) => (
+            <HeritageTabLabel label="Progress" focused={focused} color={color} />
+          ),
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="chart.xyaxis.line" tintColor={color} size={22} />
@@ -128,6 +194,10 @@ function ClassicTabLayout() {
         name="plan"
         options={{
           title: 'Plan',
+          tabBarAccessibilityLabel: 'Plan',
+          tabBarLabel: ({ focused, color }) => (
+            <HeritageTabLabel label="Plan" focused={focused} color={color} />
+          ),
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="list.bullet.rectangle" tintColor={color} size={22} />

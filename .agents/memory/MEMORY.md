@@ -19,3 +19,4 @@
 - [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — merges don't restart running workflows; restart Metro after a merge batch and grep the served bundle for a new-code marker before trusting device reports.
 - [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel design subagents drift on state semantics (signs, filled-vs-outlined markers); put the data spec in briefs AND the review prompt.
+- [Custom tab labels drop accessible names](tab-label-a11y.md) — a function tabBarLabel needs tabBarAccessibilityLabel per screen, or every tab silently loses its screen-reader name.

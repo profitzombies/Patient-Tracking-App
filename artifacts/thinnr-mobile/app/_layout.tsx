@@ -284,6 +284,7 @@ const gateStyles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     borderWidth: 1,
+    borderRadius: 9,
     padding: 24,
     alignItems: 'flex-start',
     gap: 10,

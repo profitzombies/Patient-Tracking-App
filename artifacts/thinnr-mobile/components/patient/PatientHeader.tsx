@@ -1,6 +1,7 @@
 /**
  * Safe-area-aware header for patient-mode screens. Mirrors the staff
  * ScreenHeader visually; the ES avatar opens the persona switcher.
+ * Heritage language: paper surface, hairline bottom rule, serif page title.
  */
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -89,6 +90,7 @@ const styles = StyleSheet.create({
   brandMark: {
     width: 30,
     height: 30,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -99,10 +101,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   title: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    letterSpacing: 0.2,
   },
   subtitle: {
     fontSize: 10,
@@ -119,6 +120,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 30,
     height: 30,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },

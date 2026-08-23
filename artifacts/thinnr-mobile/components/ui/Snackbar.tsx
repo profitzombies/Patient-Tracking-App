@@ -57,6 +57,8 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     borderWidth: 1,
+    borderRadius: 8,
+    boxShadow: '0 10px 22px rgba(32, 59, 100, 0.28)',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -72,6 +74,7 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     borderWidth: 1,
+    borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 7,
   },

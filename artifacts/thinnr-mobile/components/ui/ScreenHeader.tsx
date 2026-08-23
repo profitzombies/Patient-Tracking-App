@@ -1,6 +1,7 @@
 /**
  * Safe-area-aware screen header for all THINNR tab screens.
  * Shows page title, search icon, notification icon, and SJ avatar.
+ * Heritage language: paper surface, hairline bottom rule, serif page title.
  */
 import React, { useState } from 'react';
 import {
@@ -132,12 +133,7 @@ export function ScreenHeader({ title, onSearch }: ScreenHeaderProps) {
 export function SyntheticDisclaimer() {
   const colors = useColors();
   return (
-    <View
-      style={[
-        styles.disclaimer,
-        { borderTopWidth: 1, borderTopColor: colors.divider, backgroundColor: colors.sidebarBg },
-      ]}
-    >
+    <View style={[styles.disclaimer, { borderTopWidth: 1, borderTopColor: colors.divider }]}>
       <Text style={[styles.disclaimerText, { color: colors.labelText }]}>
         SYNTHETIC DEMO DATA  •  NOT MEDICAL ADVICE
       </Text>
@@ -167,6 +163,7 @@ const styles = StyleSheet.create({
   brandMark: {
     width: 30,
     height: 30,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -177,10 +174,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   title: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    letterSpacing: 0.2,
   },
   actions: {
     flexDirection: 'row',
@@ -191,6 +187,7 @@ const styles = StyleSheet.create({
     height: 32,
     width: 140,
     borderWidth: 1,
+    borderRadius: 7,
     paddingHorizontal: 10,
     fontSize: 12,
     fontFamily: 'Inter_400Regular',
@@ -199,12 +196,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderWidth: 1,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatar: {
     width: 30,
     height: 30,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },

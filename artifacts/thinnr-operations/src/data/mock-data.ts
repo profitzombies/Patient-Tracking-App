@@ -290,3 +290,42 @@ export const MOCK_ANALYTICS = {
     maintenance: 412
   }
 };
+
+// ─── Deterministic daily revenue (drives the Overview trend) ─────────────────
+// Practice revenue per demo day, seeded purely from the calendar day using UTC
+// day arithmetic so any selected range renders identical values in every
+// timezone. Scaled so the default 30-day window ending on the anchor
+// (Jul 24 – Aug 22, 2026) totals MOCK_ANALYTICS.monthlyRevenue, keeping the
+// Overview headline consistent with the rest of the demo analytics.
+
+const DAY_MS = 86_400_000;
+const DEMO_YEAR_START_MS = Date.UTC(2026, 0, 1);
+
+/** Whole days since the demo year started (keys parse to noon UTC, so floor). */
+const demoDayIndex = (dateKey: string): number =>
+  Math.floor((Date.parse(`${dateKey}T12:00:00.000Z`) - DEMO_YEAR_START_MS) / DAY_MS);
+
+const demoKeyFromIndex = (index: number): string =>
+  new Date(DEMO_YEAR_START_MS + index * DAY_MS).toISOString().slice(0, 10);
+
+// Sun..Sat — clinic days carry enrollments and shipments; weekends idle.
+const REVENUE_WEEKDAY_SHAPE = [0.58, 1.1, 1.14, 1.12, 1.08, 1.04, 0.72];
+
+const rawDailyRevenue = (dateKey: string): number => {
+  const index = demoDayIndex(dateKey);
+  const weekday = new Date(DEMO_YEAR_START_MS + index * DAY_MS).getUTCDay();
+  const growth = 1 + index * 0.0012; // steady enrollment climb across the demo year
+  const noise = 0.88 + seededFraction(index * 7.31 + 47) * 0.24;
+  return growth * REVENUE_WEEKDAY_SHAPE[weekday] * noise;
+};
+
+const ANCHOR_DAY_INDEX = demoDayIndex(today.toISOString().slice(0, 10));
+const DEFAULT_WINDOW_RAW_TOTAL = Array.from({ length: 30 }, (_, i) =>
+  rawDailyRevenue(demoKeyFromIndex(ANCHOR_DAY_INDEX - 29 + i)),
+).reduce((sum, value) => sum + value, 0);
+const REVENUE_SCALE = MOCK_ANALYTICS.monthlyRevenue / DEFAULT_WINDOW_RAW_TOTAL;
+
+/** Deterministic demo revenue (USD) recognized on one demo day. */
+export function getDailyRevenue(dateKey: string): number {
+  return Math.round(rawDailyRevenue(dateKey) * REVENUE_SCALE);
+}

@@ -55,6 +55,15 @@
   --color-paper-alt: hsl(var(--paper-alt));
   --color-accent-warm: hsl(var(--accent-warm));
   --color-brand-foreground: hsl(var(--brand-foreground));
+  --color-warn: hsl(var(--warn));
+  --color-warn-bg: hsl(var(--warn-bg));
+  --color-warn-border: hsl(var(--warn-border));
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
 
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-serif: 'Playfair Display', serif;
@@ -142,6 +151,11 @@
   --accent-warm: 25 73.7% 52.4%; /* #df772c — tiny accents only */
   --brand-foreground: 220 75% 92.2%; /* #dce6fa on the navy TH mark */
 
+  /* Warm amber warning status (mobile warnText / warnBg / warnBorder) */
+  --warn: 24 69% 42.4%; /* #b65c22 */
+  --warn-bg: 34 100% 95.1%; /* #fff4e6 */
+  --warn-border: 31 70% 69.8%; /* #e8b47c */
+
   --button-outline: hsl(212 27.9% 82%);
 
   --radius: 9px; /* Heritage soft geometry: 9 cards / 7 controls / 5 badges */
@@ -204,6 +218,10 @@
   --paper-alt: 218 48.2% 15%;
   --accent-warm: 25 73.7% 58%;
   --brand-foreground: 220 75% 92.2%;
+
+  --warn: 31 65% 62%;
+  --warn-bg: 28 40% 17%;
+  --warn-border: 29 40% 33%;
 
   --button-outline: hsl(218 36.3% 32%);
 }

@@ -56,6 +56,10 @@ args = "onboarding-hints"
 task = "workflow.run"
 args = "photo-remove"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "onboarding-gate"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -162,6 +166,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:photo-remove"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "onboarding-gate"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -208,6 +208,7 @@ export function DietsStep() {
       title="Any dietary preferences?"
       coach="Last question — this filters your recipes."
       nextDisabled={answers.diets.length === 0}
+      nextBlockedHint="Pick at least one preference, or None of the above."
     >
       {DIET_OPTIONS.map(opt => (
         <CheckRow

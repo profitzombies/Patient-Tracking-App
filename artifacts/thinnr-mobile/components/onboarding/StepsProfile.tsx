@@ -142,6 +142,7 @@ export function GenderStep() {
       title="Which best describes you?"
       coach="Almost through the basics."
       nextDisabled={!answers.gender}
+      nextBlockedHint="Choose one option to continue."
     >
       <ChoiceCard
         testID="ob-gender-female"
@@ -234,6 +235,7 @@ export function ProgramStep() {
       title="Which program are you on?"
       coach="This shapes your reminders and check-ins."
       nextDisabled={!answers.program}
+      nextBlockedHint="Choose a program to continue."
     >
       {PROGRAM_OPTIONS.map(opt => (
         <ChoiceCard
@@ -262,6 +264,7 @@ export function StartedStep() {
       title="Have you started your program?"
       coach="No wrong answer — this just tells us where to pick up."
       nextDisabled={!answers.started}
+      nextBlockedHint="Choose Yes or Not yet to continue."
     >
       <ChoiceCard
         testID="ob-started-yes"

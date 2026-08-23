@@ -20,3 +20,17 @@ The coach SSE stream carries rich attachments as a separate `data: {"card":{"kin
 **One-tap reply suggestions ride the same marker protocol:** the streaming filter is multi-kind (`[[product:ID]]`, `[[replies:ID]]`) — one shared filter, never two chained ones. A replies id only *selects* a curated label set server-side; the labels go out as their own `data: {"quickReplies":[...]}` event before done, so chip wording is never model text. No suggestion → client falls back to its static yes/no pair, which makes missed markers on yes/no questions cost nothing (the model does skip the marker on some turns). Unlike the intent-gated product block, the replies prompt block is always-on — it only picks UI labels, so there is nothing to gate.
 
 Product specifics: catalog JSON lives in the mobile app (`data/product-catalog.json`) and is read by the server at runtime; names/prices must stay identical to the staff dataset's MOCK_PRODUCTS — the demo-parity script enforces this. getthinnr.com publishes no prices (B2B), so prices are demo values labeled as such on the PDP.
+
+## Reasoning effort vs marker emission (found 2026-08-23)
+
+Lowering `reasoning_effort` to "low" on the streaming coach call kept answers
+grounded and trimmed the worst silent wait (~3.4s → ~0.7–1.6s TTFT when
+product instructions inflate the prompt), but consistently suppressed the
+OPTIONAL one-tap replies marker on a prompt that reliably gets chips at the
+default effort (0/5 runs vs 2/2). Marker emission is a model judgment call —
+cheaper reasoning skips it.
+
+**How to apply:** don't lower effort on marker-driven calls without
+re-measuring marker emission rates across several runs. The recipe pipeline
+(structured output, server-built card, no markers) is the safer place to trade
+effort for latency.

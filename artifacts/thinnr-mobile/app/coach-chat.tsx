@@ -22,6 +22,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { CoachCardSlot } from '@/components/coach/CoachCardSlot';
+import { ThinkingIndicator } from '@/components/coach/ThinkingIndicator';
 // Side-effect imports: register the "product" and "recipe" card renderers
 // into the card slot.
 import '@/components/coach/ProductSuggestionCard';
@@ -79,11 +80,24 @@ export default function CoachChatScreen() {
   const { messages, isStreaming, send, stop } = useCoachChat();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+  // Reveal ticks change `messages` ~30×/s while a reply types out; only pin
+  // to the bottom while the patient is already reading there, so scrolling
+  // up to re-read older answers never fights the typing animation.
+  const nearBottomRef = useRef(true);
+  const messageCountRef = useRef(0);
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
   useEffect(() => {
-    // Follow the newest message (and each streamed chunk) to the bottom.
+    // Follow the thread: always jump for a new bubble (sending scrolls you
+    // home), but during a paced reveal only keep following from the bottom.
+    const appended = messages.length !== messageCountRef.current;
+    messageCountRef.current = messages.length;
+    if (appended) nearBottomRef.current = true;
+    if (!nearBottomRef.current) return;
+    // Immediate pin (reveal ticks outrun the debounce below), then a trailing
+    // animated settle once the burst pauses and layout has caught up.
+    scrollRef.current?.scrollToEnd({ animated: false });
     const timer = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 40);
     return () => clearTimeout(timer);
   }, [messages]);
@@ -132,6 +146,12 @@ export default function CoachChatScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.thread}
         showsVerticalScrollIndicator={false}
+        onScroll={event => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          nearBottomRef.current =
+            contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+        }}
+        scrollEventThrottle={32}
       >
         <View
           style={[
@@ -319,7 +339,7 @@ function MessageBubble({ message }: { message: CoachMessage }) {
       ]}
     >
       {isThinking ? (
-        <Text style={[styles.thinkingText, { color: colors.subtleText }]}>Thinking…</Text>
+        <ThinkingIndicator color={colors.cobalt} />
       ) : (
         <View style={styles.blockStack}>
           {blocks.map((block, index) => (
@@ -523,12 +543,6 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     lineHeight: 21,
     fontFamily: 'Inter_400Regular',
-  },
-  thinkingText: {
-    fontSize: 13.5,
-    lineHeight: 20,
-    fontFamily: 'Inter_400Regular',
-    fontStyle: 'italic',
   },
   stoppedLabel: {
     fontSize: 8.5,

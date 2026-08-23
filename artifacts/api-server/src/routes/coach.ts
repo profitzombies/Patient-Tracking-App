@@ -102,6 +102,12 @@ router.post("/coach/chat", async (req, res) => {
           // Reasoning models spend part of this budget on internal reasoning
           // tokens; the AI integration requires >= 8192 to avoid empty replies.
           max_completion_tokens: 8192,
+          // Deliberately NO reasoning_effort override: a trial of "low"
+          // (2026-08-23) kept answers grounded and trimmed the worst silent
+          // wait, but suppressed the optional one-tap replies marker on
+          // questions that reliably get chips at the default effort (0/5 vs
+          // 2/2 runs). The typed-out reveal in the app covers the wait
+          // instead; don't lower effort without re-checking marker emission.
           stream: true,
           messages: [
             {

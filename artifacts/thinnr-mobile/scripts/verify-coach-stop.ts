@@ -1,24 +1,30 @@
 /**
- * Coach chat stop-control regression check.
+ * Coach chat stop-control and paced-reveal regression check.
  *
  * Drives the real streaming pipeline — CoachChatProvider rendered with
  * react-test-renderer calling the real lib/coach-api.ts client — against a
  * scripted fetch that plays SSE events on cue (tsconfig.coach-stop.json maps
  * react-native and expo/fetch to Node stubs so the client runs under tsx).
  *
- * Pins the three race guarantees behind the Stop control so a refactor of
- * CoachChatContext (e.g. persistence work) cannot silently reintroduce a
- * locked chat or a stray error bubble:
+ * Pins the guarantees behind the Stop control and the typed-out reveal so a
+ * refactor of CoachChatContext (e.g. persistence work) cannot silently
+ * reintroduce a locked chat, a stray error bubble, or a card that outruns
+ * its text:
  *   1. an aborted stream invokes no callbacks (CoachStreamOptions.signal
  *      contract — section 1 tests streamCoachChat directly),
  *   2. stop() finalizes the UI and unlocks the input synchronously — stop
  *      while the reply is still empty removes the bubble, stop mid-stream
- *      keeps the partial text as a done message, and a follow-up send in the
- *      very same tick starts a new exchange,
+ *      keeps exactly the text revealed on screen, and a follow-up send in
+ *      the very same tick starts a new exchange,
  *   3. late events from a stopped stream never touch the chat again — no
  *      error bubble, no text appended to a finished reply, no cross-talk
  *      into a newer exchange (section 2 uses a "leaky" transport that keeps
- *      emitting after abort, modeling chunks already in flight at stop time).
+ *      emitting after abort, modeling chunks already in flight at stop time),
+ *   4. deltas land in a hidden buffer and type out on a real timer (section
+ *      3): a single burst chunk still reveals progressively, the reply only
+ *      finalizes — and the held card / quick replies only attach — after the
+ *      reveal drains, stop mid-reveal keeps exactly what was on screen (an
+ *      already-arrived card survives), and an error clears the buffer.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:coach-stop
  */
@@ -27,6 +33,7 @@ import React, { act } from 'react';
 import { streamCoachChat } from '../lib/coach-api';
 import {
   CoachChatProvider,
+  REVEAL_TICK_MS,
   useCoachChat,
   type CoachMessage,
 } from '../context/CoachChatContext';
@@ -147,6 +154,8 @@ async function settle() {
   await tick();
 }
 
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
 function recorder() {
   const events: string[] = [];
   return {
@@ -168,7 +177,7 @@ function recorder() {
   };
 }
 
-// ── Section 2 harness: render the real provider, probe the context value ────
+// ── Section 2/3 harness: render the real provider, probe the context value ──
 type Chat = ReturnType<typeof useCoachChat>;
 let chat!: Chat;
 
@@ -180,12 +189,40 @@ function Probe(): null {
 const shape = (m: CoachMessage) => `${m.role}/${m.status}:${m.text}`;
 const shapes = () => chat.messages.map(shape).join('|');
 const tailShapes = (n: number) => chat.messages.slice(-n).map(shape).join('|');
+const tailMessage = () => chat.messages[chat.messages.length - 1];
 
 async function actSettle(mutate?: () => void): Promise<void> {
   await act(async () => {
     mutate?.();
     await settle();
   });
+}
+
+/**
+ * Polls (real timers — the reveal runs on a genuine interval) until the
+ * predicate holds. Each wait slice runs inside act() so reveal ticks fired
+ * during it are flushed before the next predicate read; the predicate itself
+ * therefore always observes committed state, and can double as a frame
+ * recorder for the pacing assertions. Timing out is fatal: later assertions
+ * would only cascade misleadingly.
+ */
+async function waitUntil(
+  label: string,
+  predicate: () => boolean,
+  timeoutMs = 8000,
+): Promise<void> {
+  checks += 1;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() > deadline) {
+      fail(`${label}: condition not met within ${timeoutMs}ms`);
+      finish();
+    }
+    await act(async () => {
+      await sleep(8);
+    });
+  }
 }
 
 async function main() {
@@ -357,8 +394,9 @@ async function main() {
   );
   assert('late events never relock the chat', chat.isStreaming === false);
 
-  // 2b. Stop mid-stream: partial text is kept as a done message (trailing
-  //     whitespace trimmed), the chat unlocks, late events cannot reopen it.
+  // 2b. Stop after the reveal caught up: everything shown is kept as a done
+  //     message (trailing whitespace trimmed), the chat unlocks, late events
+  //     cannot reopen it.
   await act(() => {
     chat.send('Hydration tips?');
   });
@@ -367,10 +405,9 @@ async function main() {
     s2.emit({ content: 'Water supports' });
     s2.emit({ content: ' recovery. ' });
   });
-  assertEqual(
-    'deltas accumulate into the streaming bubble',
-    tailShapes(1),
-    'assistant/streaming:Water supports recovery. ',
+  await waitUntil(
+    'deltas type out into the streaming bubble',
+    () => tailShapes(1) === 'assistant/streaming:Water supports recovery. ',
   );
   assert('chat stays locked while streaming', chat.isStreaming === true);
   const messagesWhileLocked = chat.messages.length;
@@ -383,7 +420,7 @@ async function main() {
     chat.stop();
   });
   assertEqual(
-    'stop mid-stream keeps the partial text as a done message (trimmed)',
+    'stop mid-stream keeps the revealed text as a done message (trimmed)',
     tailShapes(1),
     'assistant/done:Water supports recovery.',
   );
@@ -408,6 +445,10 @@ async function main() {
   await actSettle(() => {
     s3.emit({ content: 'Celery' });
   });
+  await waitUntil(
+    'the first reply reveals fully before the stop',
+    () => tailShapes(1) === 'assistant/streaming:Celery',
+  );
   await act(() => {
     chat.stop();
     chat.send('And dinner?'); // same tick — must not be swallowed
@@ -434,14 +475,13 @@ async function main() {
     s4.emit({ content: 'Grilled chicken.' });
     s4.emit({ done: true });
   });
-  assertEqual(
-    'the follow-up exchange completes normally',
-    tailShapes(2),
-    'user/done:And dinner?|assistant/done:Grilled chicken.',
+  await waitUntil(
+    'the follow-up exchange types out and completes normally',
+    () => tailShapes(2) === 'user/done:And dinner?|assistant/done:Grilled chicken.',
   );
   assert('completion unlocks the chat', chat.isStreaming === false);
 
-  // 2d. Whole-session sweep: exact transcript, no error bubble anywhere.
+  // 2d. Whole-session sweep so far: exact transcript, no error bubble.
   assertEqual(
     'full transcript matches the expected session',
     shapes(),
@@ -461,8 +501,165 @@ async function main() {
   );
   assertEqual('every opened stream was accounted for', opened.length, 0);
 
+  // ── 3. Paced reveal: buffered deltas type out on a timer; the reply (and
+  //       its held card / quick replies) finalizes only after the drain ─────
+
+  // Recipe-shaped reply: the whole text arrives as ONE chunk, like the
+  // structured recipe/cravings pipeline sends it.
+  const LONG_REPLY =
+    'Approved plate: lean protein, steamed vegetables, plenty of water. '.repeat(7).trimEnd();
+
+  // 3a. A single burst chunk still reveals progressively — never all at once.
+  await act(() => {
+    chat.send('Give me a dinner idea');
+  });
+  const r1 = takeStream('paced reveal');
+  await actSettle(() => {
+    r1.emit({ content: LONG_REPLY });
+    r1.emit({ done: true });
+    r1.close();
+  });
+  const revealedLengths: number[] = [];
+  let prefixViolated = false;
+  let unlockedMidReveal = false;
+  await waitUntil('single-chunk reply finishes typing out', () => {
+    const m = tailMessage();
+    if (m.role === 'assistant' && m.status === 'streaming') {
+      if (!LONG_REPLY.startsWith(m.text)) prefixViolated = true;
+      const last = revealedLengths[revealedLengths.length - 1];
+      if (m.text.length > 0 && m.text.length !== last) revealedLengths.push(m.text.length);
+      if (!chat.isStreaming) unlockedMidReveal = true;
+    }
+    return m.status !== 'streaming';
+  });
+  assertEqual('the fully revealed reply matches the chunk exactly', tailMessage().text, LONG_REPLY);
+  assertEqual('the revealed reply finalizes as done', tailMessage().status, 'done');
+  assert(
+    `the reply typed out across multiple frames (saw ${revealedLengths.length} partial frames)`,
+    revealedLengths.filter(length => length < LONG_REPLY.length).length >= 3,
+  );
+  assert(
+    'every observed frame was a strict prefix of the full reply (no scrambling)',
+    !prefixViolated,
+  );
+  assert(
+    'revealed text only ever grew',
+    revealedLengths.every((length, i) => i === 0 || length > revealedLengths[i - 1]),
+  );
+  assert('the chat stayed locked for the whole reveal', !unlockedMidReveal);
+  assert('the drain unlocks the chat', chat.isStreaming === false);
+
+  // 3b. A card and quick replies that arrive DURING the reveal attach only
+  //     when the text finishes typing out — never before.
+  const CARD_REPLY =
+    'This swap fits your phase nicely, and the full details are on the card below. Want me to save it to your Library?';
+  await act(() => {
+    chat.send('Anything for a sweet craving?');
+  });
+  const r2 = takeStream('card/chips hold');
+  await actSettle(() => {
+    r2.emit({ content: CARD_REPLY });
+    r2.emit({ card: { kind: 'product', payload: { sku: 'demo-product' } } });
+    r2.emit({ quickReplies: ['Yes, please', 'No thanks'] });
+    r2.emit({ done: true });
+    r2.close();
+  });
+  let attachedEarly = false;
+  let observedMidReveal = false;
+  await waitUntil('reply with card and chips finalizes after the reveal', () => {
+    const m = tailMessage();
+    if (m.status === 'streaming') {
+      if (m.card !== undefined || m.quickReplies !== undefined) attachedEarly = true;
+      if (m.text.length > 0 && m.text.length < CARD_REPLY.length) observedMidReveal = true;
+    }
+    return m.status !== 'streaming';
+  });
+  assert('the hold was genuinely observed mid-reveal', observedMidReveal);
+  assert('card/quick replies never attached while text was still revealing', !attachedEarly);
+  assertEqual('the card reply reveals its full text', tailMessage().text, CARD_REPLY);
+  assert('the card attaches once the reveal finishes', tailMessage().card?.kind === 'product');
+  assertEqual(
+    'the quick replies attach once the reveal finishes',
+    (tailMessage().quickReplies ?? []).join('|'),
+    'Yes, please|No thanks',
+  );
+  assert('the finished card reply unlocks the chat', chat.isStreaming === false);
+
+  // 3c. Stop mid-reveal: the patient keeps EXACTLY what was on screen; the
+  //     unrevealed remainder is discarded, and a card that already arrived
+  //     survives the stop.
+  await act(() => {
+    chat.send('Long answer I will stop');
+  });
+  const r3 = takeStream('stop mid-reveal');
+  await actSettle(() => {
+    r3.emit({ content: LONG_REPLY });
+    r3.emit({ card: { kind: 'product', payload: { sku: 'kept-product' } } });
+    r3.emit({ done: true }); // network is done; the patient still sees typing
+    r3.close();
+  });
+  await waitUntil('some but not all of the text has revealed', () => {
+    const m = tailMessage();
+    return m.status === 'streaming' && m.text.length >= 20;
+  });
+  let seenAtStop = '';
+  await act(() => {
+    seenAtStop = tailMessage().text; // same tick as stop(): nothing interleaves
+    chat.stop();
+  });
+  assertEqual(
+    'stop keeps exactly the revealed prefix (trimmed)',
+    tailMessage().text,
+    seenAtStop.trimEnd(),
+  );
+  assert('the unrevealed remainder is discarded', tailMessage().text.length < LONG_REPLY.length);
+  assert('the kept reply is flagged stopped', tailMessage().stopped === true);
+  assert('a card that already arrived survives the stop', tailMessage().card?.kind === 'product');
+  assert('stop mid-reveal unlocks the chat synchronously', chat.isStreaming === false);
+  await act(async () => {
+    await sleep(REVEAL_TICK_MS * 4);
+  });
+  assertEqual(
+    'no zombie reveal tick grows the stopped reply',
+    tailMessage().text,
+    seenAtStop.trimEnd(),
+  );
+
+  // 3d. An error arriving mid-reveal replaces the reply wholesale and clears
+  //     the buffer — nothing resurrects afterwards.
+  await act(() => {
+    chat.send('Error mid-reveal');
+  });
+  const r4 = takeStream('error mid-reveal');
+  await actSettle(() => {
+    r4.emit({ content: LONG_REPLY });
+  });
+  await waitUntil('the reveal is underway before the error lands', () => {
+    const m = tailMessage();
+    return m.status === 'streaming' && m.text.length > 0;
+  });
+  await actSettle(() => {
+    r4.emit({ error: 'model unavailable' });
+    r4.close();
+  });
+  assertEqual(
+    'the error replaces the partially revealed text',
+    tailShapes(1),
+    'assistant/error:model unavailable',
+  );
+  assert('an error unlocks the chat', chat.isStreaming === false);
+  await act(async () => {
+    await sleep(REVEAL_TICK_MS * 4);
+  });
+  assertEqual(
+    'no buffered text resurrects after an error',
+    tailMessage().text,
+    'model unavailable',
+  );
+  assertEqual('every stream in the pacing section was accounted for', opened.length, 0);
+
   // Cleanup: end every scripted stream (aborted ones must finalize silently —
-  // any stray update here would warn and corrupt the transcript above).
+  // any stray update here would warn and corrupt the transcripts above).
   for (const stream of everOpened) stream.close();
   await actSettle();
   await act(() => {

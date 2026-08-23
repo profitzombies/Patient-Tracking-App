@@ -4,6 +4,10 @@
  * meals, daily totals, and the water tracker for that day. One transient
  * snackbar slot handles Undo after a removal and a "Moved to …" confirmation
  * (with a jump) after a cross-day edit.
+ *
+ * Visual language: Heritage Hero — paper cards with hairline rules, serif
+ * (Playfair) card titles, cobalt primaries, soft radius, and orange kept to
+ * small accents (the TODAY badge and the over-target status).
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -15,9 +19,10 @@ import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { EntryEditPanel } from '@/components/patient/EntryEditPanel';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { WaterTracker } from '@/components/patient/WaterTracker';
-import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
+import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
+import { fonts } from '@/constants/colors';
 import { usePatient } from '@/context/PatientContext';
 import { isApprovedFood } from '@/data/approved-foods';
 import {
@@ -116,6 +121,7 @@ export default function DiaryScreen() {
 
   const isToday = dateKey === TODAY_KEY;
   const atMin = dateKey <= DIARY_MIN_KEY;
+  const onPlan = totals.calories <= patient.targets.calories;
 
   // Copy source: the day before the one being viewed. Below the diary horizon
   // there is no previous day to copy from.
@@ -145,7 +151,7 @@ export default function DiaryScreen() {
       <PatientHeader title="Food Diary" />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
         {/* ── Date navigator (with the whole-day copy action) ── */}
-        <LedgerCard style={styles.dateCard}>
+        <LedgerCard accentTop style={styles.dateCard}>
           <View style={styles.dateBar}>
             <Pressable
               testID="diary-prev-day"
@@ -153,17 +159,31 @@ export default function DiaryScreen() {
               onPress={() => setDateKey(k => shiftDateKey(k, -1))}
               style={({ pressed }) => [
                 styles.dateArrow,
-                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                {
+                  borderColor: colors.border,
+                  borderRadius: colors.radiusSm,
+                  backgroundColor: pressed ? colors.accent : colors.card,
+                },
                 atMin && { opacity: 0.35 },
               ]}
             >
               <Feather name="chevron-left" size={16} color={colors.bodyText} />
             </Pressable>
             <View style={styles.dateCenter}>
-              <Text style={[styles.dateText, { color: colors.navy }]}>{formatDateKey(dateKey)}</Text>
+              {/* Heritage date device: small caps between hairline rules */}
+              <View
+                style={[
+                  styles.dateStrip,
+                  { borderColor: colors.border, backgroundColor: colors.secondary },
+                ]}
+              >
+                <Text style={[styles.dateText, { color: colors.bodyText }]}>
+                  {formatDateKey(dateKey)}
+                </Text>
+              </View>
               {isToday ? (
-                <View style={[styles.todayBadge, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
-                  <Text style={[styles.todayBadgeText, { color: colors.activeGreen }]}>TODAY</Text>
+                <View style={[styles.todayBadge, { backgroundColor: colors.orangeBg, borderColor: colors.orangeBorder }]}>
+                  <Text style={[styles.todayBadgeText, { color: colors.orangeText }]}>TODAY</Text>
                 </View>
               ) : (
                 <Pressable onPress={() => setDateKey(TODAY_KEY)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
@@ -177,7 +197,11 @@ export default function DiaryScreen() {
               onPress={() => setDateKey(k => shiftDateKey(k, 1))}
               style={({ pressed }) => [
                 styles.dateArrow,
-                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                {
+                  borderColor: colors.border,
+                  borderRadius: colors.radiusSm,
+                  backgroundColor: pressed ? colors.accent : colors.card,
+                },
                 isToday && { opacity: 0.35 },
               ]}
             >
@@ -198,11 +222,18 @@ export default function DiaryScreen() {
                 }}
                 style={({ pressed }) => [
                   styles.copyDayRow,
-                  pressed && { backgroundColor: colors.accent },
+                  pressed && { opacity: 0.75 },
                   copying && { opacity: 0.5 },
                 ]}
               >
-                <Feather name="copy" size={15} color={colors.cobalt} />
+                <View
+                  style={[
+                    styles.copyDayIcon,
+                    { backgroundColor: colors.accent, borderRadius: colors.radiusSm },
+                  ]}
+                >
+                  <Feather name="copy" size={14} color={colors.cobalt} />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.copyDayTitle, { color: colors.cobalt }]}>
                     Copy all meals from {sourceLabel}
@@ -211,146 +242,174 @@ export default function DiaryScreen() {
                     Adds {prevEntries.length} item{prevEntries.length === 1 ? '' : 's'} · {prevCalories.toLocaleString('en-US')} cal
                   </Text>
                 </View>
+                <Feather name="chevron-right" size={15} color={colors.subtleText} />
               </Pressable>
             </>
           )}
         </LedgerCard>
 
-        {/* ── Meals ── */}
+        {/* ── Meals — one paper card per slot with a serif title row ── */}
         {MEAL_SLOTS.map(slot => {
           const slotEntries = entries.filter(e => e.meal === slot);
           const slotCals = slotEntries.reduce((acc, e) => acc + e.calories, 0);
           const slotSource = prevEntries.filter(e => e.meal === slot);
           const canCopySlot = slotSource.length > 0 && !copying;
           return (
-            <View key={slot} style={{ marginBottom: 14 }}>
-              <SectionHeader
-                label={MEAL_LABELS[slot]}
-                value={slotCals > 0 ? `${slotCals.toLocaleString('en-US')} cal` : undefined}
-                style={{ marginBottom: 8 }}
-              />
-              <LedgerCard>
-                {slotEntries.length === 0 ? (
-                  <Text style={[styles.emptyMeal, { color: colors.subtleText }]}>Nothing logged</Text>
-                ) : (
-                  slotEntries.map((entry, index) => (
-                    <View key={entry.id}>
-                      {index > 0 && <Divider />}
-                      <View style={styles.entryRow}>
-                        <View style={{ flex: 1 }}>
-                          <View style={styles.entryNameRow}>
-                            <Text style={[styles.entryName, { color: colors.navyLight }]} numberOfLines={1}>
-                              {entry.name}
-                            </Text>
-                            {entry.kind === 'food' && isApprovedFood(entry.refId) && <ApprovedBadge size="sm" />}
-                          </View>
-                          <Text style={[styles.entryDetail, { color: colors.subtleText }]}>
-                            {entry.detail} · P {entry.protein}g · C {entry.carbs}g · F {entry.fat}g
-                          </Text>
-                        </View>
-                        <Text style={[styles.entryCals, { color: colors.navyLight }]}>{entry.calories}</Text>
-                        <Pressable
-                          testID={`diary-edit-${entry.id}`}
-                          onPress={() => setEditingId(cur => (cur === entry.id ? null : entry.id))}
-                          hitSlop={8}
-                          style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.6 }]}
-                        >
-                          <Feather
-                            name="edit-2"
-                            size={14}
-                            color={editingId === entry.id ? colors.cobalt : colors.subtleText}
-                          />
-                        </Pressable>
-                        <Pressable
-                          testID={`diary-remove-${entry.id}`}
-                          onPress={() => {
-                            void handleRemove(entry);
-                          }}
-                          hitSlop={8}
-                          style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.6 }]}
-                        >
-                          <Feather name="x" size={14} color={colors.subtleText} />
-                        </Pressable>
-                      </View>
-                      {editingId === entry.id && (
-                        <EntryEditPanel
-                          entry={entry}
-                          onDone={savedDateKey => {
-                            setEditingId(null);
-                            // Confirm only when the entry actually left this day.
-                            if (savedDateKey !== dateKey) {
-                              setNotice({ kind: 'moved', dateKey: savedDateKey });
-                            }
-                          }}
-                        />
-                      )}
-                    </View>
-                  ))
+            <LedgerCard key={slot} style={styles.mealCard}>
+              <View style={styles.cardTitleRow}>
+                <Text style={[styles.cardTitle, { color: colors.navyLight }]}>{MEAL_LABELS[slot]}</Text>
+                {slotCals > 0 && (
+                  <Text style={[styles.cardTitleValue, { color: colors.bodyText }]}>
+                    {slotCals.toLocaleString('en-US')} cal
+                  </Text>
                 )}
-                <Divider />
-                <View style={styles.actionRow}>
-                  <Pressable
-                    testID={`diary-add-${slot}`}
-                    onPress={() => openLogFood(slot)}
-                    style={({ pressed }) => [styles.actionBtn, pressed && { backgroundColor: colors.accent }]}
-                  >
-                    <Feather name="plus" size={14} color={colors.cobalt} />
-                    <Text style={[styles.addRowText, { color: colors.cobalt }]}>Add food</Text>
-                  </Pressable>
-                  <View style={[styles.actionSeparator, { backgroundColor: colors.divider }]} />
-                  <Pressable
-                    testID={`diary-copy-${slot}`}
-                    disabled={!canCopySlot}
-                    onPress={() => {
-                      void handleCopy(slotSource, slot);
-                    }}
-                    style={({ pressed }) => [
-                      styles.actionBtn,
-                      pressed && { backgroundColor: colors.accent },
-                      !canCopySlot && { opacity: 0.35 },
-                    ]}
-                  >
-                    <Feather name="copy" size={13} color={colors.cobalt} />
-                    <Text style={[styles.addRowText, { color: colors.cobalt }]} numberOfLines={1}>
-                      Copy {sourceLabel}
-                    </Text>
-                  </Pressable>
-                </View>
-              </LedgerCard>
-            </View>
+              </View>
+              <Divider />
+              {slotEntries.length === 0 ? (
+                <Text style={[styles.emptyMeal, { color: colors.subtleText }]}>Nothing logged</Text>
+              ) : (
+                slotEntries.map((entry, index) => (
+                  <View key={entry.id}>
+                    {index > 0 && <Divider />}
+                    <View style={styles.entryRow}>
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.entryNameRow}>
+                          <Text style={[styles.entryName, { color: colors.navyLight }]} numberOfLines={1}>
+                            {entry.name}
+                          </Text>
+                          {entry.kind === 'food' && isApprovedFood(entry.refId) && <ApprovedBadge size="sm" />}
+                        </View>
+                        <Text style={[styles.entryDetail, { color: colors.subtleText }]}>
+                          {entry.detail} · P {entry.protein}g · C {entry.carbs}g · F {entry.fat}g
+                        </Text>
+                      </View>
+                      <Text style={[styles.entryCals, { color: colors.navyLight }]}>{entry.calories}</Text>
+                      <Pressable
+                        testID={`diary-edit-${entry.id}`}
+                        onPress={() => setEditingId(cur => (cur === entry.id ? null : entry.id))}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.6 }]}
+                      >
+                        <Feather
+                          name="edit-2"
+                          size={14}
+                          color={editingId === entry.id ? colors.cobalt : colors.subtleText}
+                        />
+                      </Pressable>
+                      <Pressable
+                        testID={`diary-remove-${entry.id}`}
+                        onPress={() => {
+                          void handleRemove(entry);
+                        }}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.removeBtn, pressed && { opacity: 0.6 }]}
+                      >
+                        <Feather name="x" size={14} color={colors.subtleText} />
+                      </Pressable>
+                    </View>
+                    {editingId === entry.id && (
+                      <EntryEditPanel
+                        entry={entry}
+                        onDone={savedDateKey => {
+                          setEditingId(null);
+                          // Confirm only when the entry actually left this day.
+                          if (savedDateKey !== dateKey) {
+                            setNotice({ kind: 'moved', dateKey: savedDateKey });
+                          }
+                        }}
+                      />
+                    )}
+                  </View>
+                ))
+              )}
+              <Divider />
+              <View style={styles.actionRow}>
+                <Pressable
+                  testID={`diary-add-${slot}`}
+                  onPress={() => openLogFood(slot)}
+                  style={({ pressed }) => [
+                    styles.actionChip,
+                    {
+                      borderColor: colors.activeBorder,
+                      borderRadius: colors.radiusSm,
+                      backgroundColor: pressed ? colors.accent : colors.activeBg,
+                    },
+                  ]}
+                >
+                  <Feather name="plus" size={13} color={colors.cobalt} />
+                  <Text style={[styles.actionChipText, { color: colors.cobalt }]}>Add food</Text>
+                </Pressable>
+                <Pressable
+                  testID={`diary-copy-${slot}`}
+                  disabled={!canCopySlot}
+                  onPress={() => {
+                    void handleCopy(slotSource, slot);
+                  }}
+                  style={({ pressed }) => [
+                    styles.actionChip,
+                    {
+                      borderColor: colors.activeBorder,
+                      borderRadius: colors.radiusSm,
+                      backgroundColor: pressed ? colors.accent : colors.activeBg,
+                    },
+                    !canCopySlot && { opacity: 0.35 },
+                  ]}
+                >
+                  <Feather name="copy" size={12} color={colors.cobalt} />
+                  <Text style={[styles.actionChipText, { color: colors.cobalt }]} numberOfLines={1}>
+                    Copy {sourceLabel}
+                  </Text>
+                </Pressable>
+              </View>
+            </LedgerCard>
           );
         })}
 
         {/* ── Day totals ── */}
-        <SectionHeader label="Day Totals" style={{ marginBottom: 8 }} />
-        <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
+        <LedgerCard style={styles.mealCard}>
+          <View style={styles.cardTitleRow}>
+            <Text style={[styles.cardTitle, { color: colors.navyLight }]}>Day Totals</Text>
+          </View>
+          <Divider />
           <View style={styles.totalsRow}>
             <View style={styles.totalsCol}>
               <Text style={[styles.totalsValue, { color: colors.navy }]}>{totals.calories.toLocaleString('en-US')}</Text>
               <Text style={[styles.totalsLabel, { color: colors.labelText }]}>CALORIES</Text>
             </View>
+            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
             <View style={styles.totalsCol}>
               <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.protein)}g</Text>
               <Text style={[styles.totalsLabel, { color: colors.labelText }]}>PROTEIN</Text>
             </View>
+            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
             <View style={styles.totalsCol}>
               <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.carbs)}g</Text>
               <Text style={[styles.totalsLabel, { color: colors.labelText }]}>CARBS</Text>
             </View>
+            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
             <View style={styles.totalsCol}>
               <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.fat)}g</Text>
               <Text style={[styles.totalsLabel, { color: colors.labelText }]}>FAT</Text>
             </View>
           </View>
+          <Divider />
           <Text style={[styles.totalsHint, { color: colors.subtleText }]}>
-            Target {patient.targets.calories.toLocaleString('en-US')} cal · {totals.calories <= patient.targets.calories ? 'on plan' : 'over target'}
+            Target {patient.targets.calories.toLocaleString('en-US')} cal ·{' '}
+            <Text style={[styles.totalsStatus, { color: onPlan ? colors.cobalt : colors.orangeText }]}>
+              {onPlan ? 'on plan' : 'over target'}
+            </Text>
           </Text>
         </LedgerCard>
 
         {/* ── Water ── */}
-        <SectionHeader label="Water" style={{ marginBottom: 8 }} />
-        <LedgerCard style={{ padding: 16 }}>
-          <WaterTracker dateKey={dateKey} />
+        <LedgerCard>
+          <View style={styles.cardTitleRow}>
+            <Text style={[styles.cardTitle, { color: colors.navyLight }]}>Water</Text>
+          </View>
+          <Divider />
+          <View style={styles.waterBody}>
+            <WaterTracker dateKey={dateKey} />
+          </View>
         </LedgerCard>
 
         <SyntheticDisclaimer />
@@ -408,16 +467,24 @@ const styles = StyleSheet.create({
   },
   dateCenter: {
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
+  },
+  dateStrip: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   dateText: {
-    fontSize: 14,
+    fontSize: 10,
     fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontFamily: fonts.sansBold,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   todayBadge: {
     borderWidth: 1,
+    borderRadius: 5,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
@@ -425,16 +492,38 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '700',
     letterSpacing: 0.8,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: fonts.sansBold,
   },
   jumpToday: {
     fontSize: 10,
     fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: fonts.sansSemiBold,
+  },
+  // Serif card title row — the Heritage card header.
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontFamily: fonts.serif,
+    letterSpacing: 0.1,
+  },
+  cardTitleValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    fontFamily: fonts.sansSemiBold,
+  },
+  mealCard: {
+    marginBottom: 14,
   },
   emptyMeal: {
     fontSize: 12,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: fonts.sans,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
@@ -453,83 +542,106 @@ const styles = StyleSheet.create({
   entryName: {
     fontSize: 13,
     fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: fonts.sansSemiBold,
     flexShrink: 1,
   },
   entryDetail: {
-    fontSize: 10,
+    fontSize: 10.5,
     marginTop: 2,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: fonts.sans,
   },
   entryCals: {
     fontSize: 13,
     fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: fonts.sansSemiBold,
   },
   removeBtn: {
     padding: 4,
   },
   actionRow: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  actionBtn: {
+  actionChip: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 11,
+    borderWidth: 1,
+    paddingVertical: 9,
     paddingHorizontal: 4,
   },
-  actionSeparator: {
-    width: 1,
-  },
-  addRowText: {
-    fontSize: 12,
+  actionChipText: {
+    fontSize: 11,
     fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: fonts.sansBold,
   },
   copyDayRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
+    gap: 12,
+    paddingHorizontal: 12,
     paddingVertical: 10,
+  },
+  copyDayIcon: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   copyDayTitle: {
     fontSize: 12,
     fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: fonts.sansBold,
   },
   copyDayMeta: {
     fontSize: 10,
     marginTop: 2,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: fonts.sans,
   },
   totalsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 14,
   },
   totalsCol: {
     flex: 1,
+    alignItems: 'center',
+  },
+  totalsRule: {
+    width: 1,
+    height: 30,
   },
   totalsValue: {
     fontSize: 18,
     fontWeight: '600',
     letterSpacing: -0.5,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: fonts.sansSemiBold,
   },
   totalsLabel: {
     fontSize: 8,
     fontWeight: '700',
     letterSpacing: 1,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: fonts.sansBold,
     marginTop: 3,
   },
   totalsHint: {
     fontSize: 11,
-    marginTop: 10,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: fonts.sans,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  totalsStatus: {
+    fontWeight: '600',
+    fontFamily: fonts.sansSemiBold,
+  },
+  waterBody: {
+    padding: 16,
+    paddingTop: 14,
   },
 });
 

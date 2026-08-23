@@ -20,3 +20,4 @@
 - [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel design subagents drift on state semantics (signs, filled-vs-outlined markers); put the data spec in briefs AND the review prompt.
 - [Custom tab labels drop accessible names](tab-label-a11y.md) — a function tabBarLabel needs tabBarAccessibilityLabel per screen, or every tab silently loses its screen-reader name.
+- [Expo persona gate](expo-persona-gate.md) — patient screens sit behind the persona chooser on Expo web; deep links bounce to it, so verify via the testing subagent, not direct screenshots.

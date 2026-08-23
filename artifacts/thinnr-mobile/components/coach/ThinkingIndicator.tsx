@@ -2,9 +2,10 @@
  * Animated "coach is thinking" cue for the reply bubble.
  *
  * Shown while the reasoning model is still silent (no revealed text yet), in
- * place of the old static "Thinking…" label. Three small squares pulse in a
- * traveling wave — Cobalt Ledger styling keeps the geometry square (no
- * circles, no emoji spinners) and the motion subtle.
+ * place of the old static "Thinking…" label. Three small marks pulse in a
+ * traveling wave — Heritage keeps them as barely-softened squares (the same
+ * crisp small-mark treatment as streak dots and the active-tab tick; no
+ * emoji spinners) and the motion subtle.
  */
 import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -79,5 +80,6 @@ const styles = StyleSheet.create({
   square: {
     width: 6,
     height: 6,
+    borderRadius: 1.5,
   },
 });

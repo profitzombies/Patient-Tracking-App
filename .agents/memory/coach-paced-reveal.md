@@ -30,3 +30,5 @@ SSE-client contract tests stay untouched.
   streaming bubbles become wait-until conditions. Prove new invariants with
   mutation runs (bypass the buffer → progressive-frames check fails; attach a
   card early → hold check fails).
+
+**Verifying Stop in a live browser:** short replies finish before test automation can click Stop. Prompt for a long multi-paragraph answer (e.g. walk me through all program phases), wait until visible text appears in the bubble, then click Stop - the reading-pace reveal leaves a 10s+ window. Clicking during the silent thinking phase removes the empty bubble instead (valid, but a different contract).

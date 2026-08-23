@@ -4,8 +4,10 @@
  * Registered into the chat's card slot for kind "recipe" (module side
  * effect — coach-chat.tsx imports this file). Tapping opens the full
  * AI-recipe preview screen, which reads the suggestion from the chat
- * session registry by id. Ledger styling: square corners, Inter, uppercase
- * micro-labels, estimated macros always marked "EST.".
+ * session registry by id. Heritage styling: soft-radius inset card on the
+ * paper bubble, serif recipe title, Inter uppercase micro-labels, orange
+ * only as the small cravings-tag accent, estimated macros always marked
+ * "EST.".
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -32,12 +34,16 @@ export function RecipeSuggestionCard({ suggestion }: { suggestion: AiRecipeSugge
       }}
       style={({ pressed }) => [
         styles.card,
-        { borderColor: colors.border, backgroundColor: colors.background },
+        {
+          borderColor: colors.border,
+          backgroundColor: colors.background,
+          borderRadius: colors.radiusSm,
+        },
         pressed && { backgroundColor: colors.accent },
       ]}
     >
       <View style={styles.tagRow}>
-        <Text style={[styles.tag, { color: colors.cobalt }]}>
+        <Text style={[styles.tag, { color: isCravings ? colors.orangeText : colors.cobalt }]}>
           {isCravings ? 'CRAVINGS FIX · APPROVED FOODS ONLY' : 'RECIPE IDEA'}
         </Text>
         <Feather name="chevron-right" size={15} color={colors.subtleText} />
@@ -76,9 +82,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   name: {
-    fontSize: 14.5,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 16.5,
+    lineHeight: 21,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   description: {
     fontSize: 12.5,

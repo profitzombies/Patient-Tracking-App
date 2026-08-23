@@ -1,8 +1,10 @@
 /**
  * THINNR Coach — full-screen AI chat for patients.
  *
- * Cobalt Ledger styling: square geometry, Inter type, uppercase micro-labels,
- * no emojis anywhere. The disclosure card is pinned as the first thread item
+ * Heritage Hero styling: paper assistant bubbles and cobalt patient bubbles
+ * on soft-radius geometry (9 cards / 7 controls), a serif screen title, Inter
+ * body and uppercase micro-labels, orange reserved for small accents, no
+ * emojis anywhere. The disclosure card is pinned as the first thread item
  * and a compact AI badge sits in the header, so the assistant is always
  * clearly labeled as AI.
  */
@@ -29,6 +31,11 @@ import '@/components/coach/ProductSuggestionCard';
 import '@/components/coach/RecipeSuggestionCard';
 import { useColors } from '@/hooks/useColors';
 import { useCoachChat, type CoachMessage } from '@/context/CoachChatContext';
+
+/** Heritage soft shadows as boxShadow strings (shadow* props warn on web). */
+const CARD_SHADOW = '0 8px 20px rgba(40, 55, 74, 0.07)';
+const BUBBLE_SHADOW = '0 5px 12px rgba(35, 61, 95, 0.07)';
+const CHIP_SHADOW = '0 5px 12px rgba(35, 61, 95, 0.08)';
 
 const STARTER_PROMPTS = [
   'What should I eat today?',
@@ -111,34 +118,49 @@ export default function CoachChatScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
-      <View style={styles.headerRow}>
-        <Pressable
-          testID="coach-back"
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          onPress={() => {
-            Haptics.selectionAsync();
-            router.back();
-          }}
-          style={({ pressed }) => [
-            styles.backBtn,
-            { borderColor: colors.border, backgroundColor: colors.card },
-            pressed && { backgroundColor: colors.accent },
-          ]}
-        >
-          <Feather name="chevron-left" size={18} color={colors.navy} />
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerLabel, { color: colors.labelText }]}>THINNR COACH</Text>
-          <View style={styles.headerTitleRow}>
-            <Text style={[styles.headerTitle, { color: colors.navy }]}>Coach</Text>
-            <View style={[styles.aiBadge, { borderColor: colors.cobalt }]}>
-              <Text style={[styles.aiBadgeText, { color: colors.cobalt }]}>AI</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View
+        style={[
+          styles.headerBand,
+          {
+            backgroundColor: colors.paperCardAlt,
+            borderBottomColor: colors.border,
+            paddingTop: topPad,
+          },
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <Pressable
+            testID="coach-back"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.back();
+            }}
+            style={({ pressed }) => [
+              styles.backBtn,
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                borderRadius: colors.radiusSm,
+              },
+              pressed && { backgroundColor: colors.accent },
+            ]}
+          >
+            <Feather name="chevron-left" size={18} color={colors.navy} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={[styles.headerLabel, { color: colors.labelText }]}>THINNR COACH</Text>
+            <View style={styles.headerTitleRow}>
+              <Text style={[styles.headerTitle, { color: colors.navy }]}>Coach</Text>
+              <View style={[styles.aiBadge, { borderColor: colors.cobalt }]}>
+                <Text style={[styles.aiBadgeText, { color: colors.cobalt }]}>AI</Text>
+              </View>
             </View>
           </View>
+          <View style={styles.backBtnSpacer} />
         </View>
-        <View style={styles.backBtnSpacer} />
       </View>
 
       <ScrollView
@@ -156,7 +178,12 @@ export default function CoachChatScreen() {
         <View
           style={[
             styles.disclosureCard,
-            { borderColor: colors.border, backgroundColor: colors.card },
+            {
+              borderColor: colors.border,
+              backgroundColor: colors.card,
+              borderRadius: colors.radius,
+              boxShadow: CARD_SHADOW,
+            },
           ]}
         >
           <Text style={[styles.disclosureLabel, { color: colors.labelText }]}>
@@ -182,11 +209,16 @@ export default function CoachChatScreen() {
                 }}
                 style={({ pressed }) => [
                   styles.starterChip,
-                  { borderColor: colors.border, backgroundColor: colors.card },
+                  {
+                    borderColor: colors.border,
+                    backgroundColor: colors.card,
+                    borderRadius: colors.radiusSm,
+                    boxShadow: CHIP_SHADOW,
+                  },
                   pressed && { backgroundColor: colors.accent },
                 ]}
               >
-                <Feather name="message-circle" size={13} color={colors.cobalt} />
+                <Feather name="message-circle" size={13} color={colors.orange} />
                 <Text style={[styles.starterText, { color: colors.navy }]}>{prompt}</Text>
               </Pressable>
             ))}
@@ -209,7 +241,11 @@ export default function CoachChatScreen() {
                     }}
                     style={({ pressed }) => [
                       styles.quickReplyChip,
-                      { borderColor: colors.cobalt, backgroundColor: colors.card },
+                      {
+                        borderColor: colors.activeBorder,
+                        backgroundColor: colors.activeBg,
+                        borderRadius: colors.radiusSm,
+                      },
                       pressed && { backgroundColor: colors.accent },
                     ]}
                   >
@@ -227,8 +263,8 @@ export default function CoachChatScreen() {
           style={[
             styles.inputBar,
             {
-              borderTopColor: colors.divider,
-              backgroundColor: colors.background,
+              borderTopColor: colors.border,
+              backgroundColor: colors.card,
               paddingBottom: Math.max(insets.bottom, 12) + 4,
             },
           ]}
@@ -247,8 +283,9 @@ export default function CoachChatScreen() {
               styles.input,
               {
                 borderColor: colors.input,
-                backgroundColor: colors.card,
+                backgroundColor: colors.background,
                 color: colors.navy,
+                borderRadius: colors.radiusSm,
               },
             ]}
           />
@@ -263,7 +300,7 @@ export default function CoachChatScreen() {
               }}
               style={({ pressed }) => [
                 styles.sendBtn,
-                { backgroundColor: colors.navy },
+                { backgroundColor: colors.navy, borderRadius: colors.radiusSm },
                 pressed && { opacity: 0.85 },
               ]}
             >
@@ -283,6 +320,7 @@ export default function CoachChatScreen() {
                 {
                   backgroundColor:
                     draft.trim().length === 0 ? colors.cobaltMuted : colors.cobalt,
+                  borderRadius: colors.radiusSm,
                 },
                 pressed && { opacity: 0.85 },
               ]}
@@ -318,7 +356,17 @@ function MessageBubble({ message }: { message: CoachMessage }) {
 
   if (isUser) {
     return (
-      <View style={[styles.bubble, styles.userBubble, { backgroundColor: colors.cobalt }]}>
+      <View
+        style={[
+          styles.bubble,
+          styles.userBubble,
+          {
+            backgroundColor: colors.cobalt,
+            borderRadius: colors.radius,
+            borderBottomRightRadius: 3,
+          },
+        ]}
+      >
         <Text style={[styles.bubbleText, { color: colors.primaryForeground }]}>{message.text}</Text>
       </View>
     );
@@ -335,6 +383,9 @@ function MessageBubble({ message }: { message: CoachMessage }) {
         {
           backgroundColor: isError ? colors.riskBg : colors.card,
           borderColor: isError ? colors.riskBorder : colors.border,
+          borderRadius: colors.radius,
+          borderBottomLeftRadius: 3,
+          boxShadow: BUBBLE_SHADOW,
         },
       ]}
     >
@@ -370,6 +421,7 @@ function MessageBubble({ message }: { message: CoachMessage }) {
             {
               borderColor: colors.riskBorder,
               backgroundColor: pressed ? colors.accent : colors.card,
+              borderRadius: colors.radiusSm,
             },
           ]}
         >
@@ -402,6 +454,9 @@ function InputAboveKeyboard({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  headerBand: {
+    borderBottomWidth: 1,
   },
   headerRow: {
     flexDirection: 'row',
@@ -440,13 +495,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   headerTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 18,
+    fontFamily: 'PlayfairDisplay_700Bold',
     letterSpacing: 0.2,
   },
   aiBadge: {
     borderWidth: 1,
+    borderRadius: 5,
     paddingHorizontal: 4,
     paddingVertical: 1,
   },
@@ -595,5 +650,6 @@ const styles = StyleSheet.create({
   stopGlyph: {
     width: 12,
     height: 12,
+    borderRadius: 1.5,
   },
 });

@@ -7,6 +7,9 @@
  * The server payload carries the catalog id (plus name/line as a fallback
  * contract); everything shown here is re-resolved from the bundled catalog so
  * the card can never drift from the curated product data.
+ *
+ * Heritage styling: soft-radius inset card on the paper bubble, serif
+ * product title, cobalt VIEW action, Inter uppercase micro-labels.
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -44,12 +47,16 @@ function ProductSuggestionCard({ payload }: { payload: unknown }) {
       onPress={openProduct}
       style={({ pressed }) => [
         styles.card,
-        { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.background },
+        {
+          borderColor: colors.border,
+          backgroundColor: pressed ? colors.accent : colors.background,
+          borderRadius: colors.radiusSm,
+        },
       ]}
     >
       <Image
         source={PRODUCT_IMAGES[product.id]}
-        style={[styles.thumb, { backgroundColor: '#FFFFFF', borderColor: colors.border }]}
+        style={[styles.thumb, { backgroundColor: colors.card, borderColor: colors.border }]}
         contentFit="contain"
         transition={100}
       />
@@ -62,7 +69,10 @@ function ProductSuggestionCard({ payload }: { payload: unknown }) {
           {product.cardLine}
         </Text>
       </View>
-      <View testID="coach-product-view" style={[styles.viewBtn, { backgroundColor: colors.cobalt }]}>
+      <View
+        testID="coach-product-view"
+        style={[styles.viewBtn, { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm }]}
+      >
         <Text style={[styles.viewText, { color: colors.primaryForeground }]}>VIEW</Text>
         <Feather name="chevron-right" size={12} color={colors.primaryForeground} />
       </View>
@@ -89,6 +99,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderWidth: 1,
+    borderRadius: 6,
   },
   textCol: {
     flex: 1,
@@ -101,9 +112,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   name: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    lineHeight: 20,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
     marginTop: 2,
   },
   line: {

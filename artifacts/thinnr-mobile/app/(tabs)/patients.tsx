@@ -15,6 +15,7 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import theme, { fonts } from '@/constants/colors';
 import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Divider, EmptyState, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { MOCK_PROVIDERS, type Status, type Patient } from '@/data/mock-data';
@@ -209,10 +210,10 @@ export default function PatientsScreen() {
 
 const styles = StyleSheet.create({
   toolbar: { borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
-  searchBox: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, gap: 8 },
+  searchBox: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: theme.radiusSm, paddingHorizontal: 10, paddingVertical: 7, gap: 8 },
   searchInput: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1 },
+  chip: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderRadius: theme.radiusSm },
   chipText: { fontSize: 10, fontWeight: '700', fontFamily: 'Inter_700Bold', letterSpacing: 0.4 },
   sortRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   sortLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.2, fontFamily: 'Inter_700Bold' },
@@ -220,10 +221,10 @@ const styles = StyleSheet.create({
   countBar: { paddingHorizontal: 14, paddingVertical: 6, borderBottomWidth: 1 },
   countText: { fontSize: 9, fontWeight: '700', letterSpacing: 1.2, fontFamily: 'Inter_700Bold' },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, gap: 12, borderBottomWidth: 1 },
-  rowInitials: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  rowInitials: { width: 38, height: 38, borderRadius: theme.radiusSm, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   rowInitialsText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  rowName: { fontSize: 14, fontWeight: '600', fontFamily: 'Inter_600SemiBold', flex: 1 },
+  rowName: { fontSize: 15, fontFamily: fonts.serif, flex: 1 },
   rowSub: { fontSize: 10, marginTop: 3, fontFamily: 'Inter_400Regular' },
   rowBottom: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   rowProgress: { fontSize: 12, fontWeight: '600', fontFamily: 'Inter_600SemiBold' },

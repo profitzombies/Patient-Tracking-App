@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import theme, { fonts } from '@/constants/colors';
 import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import {
   Divider,
@@ -162,8 +163,8 @@ export default function OutcomesScreen() {
         <View style={[styles.pad, { paddingTop: 0 }]}>
           <LedgerCard style={{ padding: 16 }}>
             <View style={styles.opportunityRow}>
-              <View style={[styles.opportunityIcon, { backgroundColor: colors.activeBg }]}>
-                <Feather name="target" size={18} color={colors.cobalt} />
+              <View style={[styles.opportunityIcon, { backgroundColor: colors.orangeBg }]}>
+                <Feather name="target" size={18} color={colors.orange} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.opportunityTitle, { color: colors.navy }]}>Growth Opportunity</Text>
@@ -243,6 +244,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -252,9 +254,8 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     fontSize: 24,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.5,
+    fontFamily: fonts.serifBold,
+    letterSpacing: -0.2,
   },
   pageSubtitle: {
     fontSize: 13,
@@ -263,9 +264,8 @@ const styles = StyleSheet.create({
   },
   bigNumber: {
     fontSize: 32,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    letterSpacing: -1,
+    fontFamily: fonts.serif,
+    letterSpacing: -0.4,
     marginTop: 8,
   },
   bigNumberLabel: {
@@ -281,6 +281,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
+    borderRadius: 5,
     paddingHorizontal: 6,
     paddingVertical: 2,
     gap: 3,
@@ -312,13 +313,13 @@ const styles = StyleSheet.create({
   opportunityIcon: {
     width: 40,
     height: 40,
+    borderRadius: theme.radiusSm,
     alignItems: 'center',
     justifyContent: 'center',
   },
   opportunityTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    fontFamily: fonts.serif,
   },
   opportunityBody: {
     fontSize: 12,
@@ -363,9 +364,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   providerName: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    fontFamily: fonts.serif,
     flex: 1,
   },
   providerStat: {

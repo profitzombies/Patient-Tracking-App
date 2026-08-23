@@ -13,6 +13,7 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import theme, { fonts } from '@/constants/colors';
 import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Divider, EmptyState, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { MOCK_PROVIDERS, type Patient } from '@/data/mock-data';
@@ -32,12 +33,6 @@ const STAGE_OPTIONS: { label: string; value: Stage }[] = [
   { label: 'All Stages', value: 'all' },
   { label: 'Protocol', value: 'protocol' },
   { label: 'Maintenance', value: 'maintenance' },
-];
-
-const RANK_STYLES = [
-  { bg: '#fff6e5', text: '#97631e', border: '#d7b889' },
-  { bg: '#f0f3f9', text: '#53698f', border: '#bdc9dc' },
-  { bg: '#fdf4ee', text: '#b06132', border: '#e7bba3' },
 ];
 
 function getMilestone(patient: Patient): string {
@@ -92,7 +87,13 @@ export default function LeaderboardScreen() {
     const goalProgress = Math.max(0, Math.min(100, (loss / (patient.startingWeight - patient.goalWeight)) * 100));
     const milestone = getMilestone(patient);
     const isTop3 = idx < 3;
-    const rankStyle = isTop3 ? RANK_STYLES[idx] : null;
+    // Podium tones come from the shared Heritage rank tokens.
+    const rankTones = [
+      { bg: colors.rankGoldBg, text: colors.rankGoldText, border: colors.rankGoldBorder },
+      { bg: colors.rankSilverBg, text: colors.rankSilverText, border: colors.rankSilverBorder },
+      { bg: colors.rankBronzeBg, text: colors.rankBronzeText, border: colors.rankBronzeBorder },
+    ];
+    const rankStyle = isTop3 ? rankTones[idx] : null;
 
     const metricDisplay =
       metric === 'pounds' ? `${loss.toFixed(1)} lbs` :
@@ -127,7 +128,7 @@ export default function LeaderboardScreen() {
         </View>
 
         <View style={[styles.initials, { backgroundColor: isTop3 ? colors.navy : colors.activeBg }]}>
-          <Text style={[styles.initialsText, { color: isTop3 ? '#fff' : colors.cobalt }]}>{patient.initials}</Text>
+          <Text style={[styles.initialsText, { color: isTop3 ? colors.primaryForeground : colors.cobalt }]}>{patient.initials}</Text>
         </View>
 
         <View style={{ flex: 1 }}>
@@ -254,20 +255,20 @@ const styles = StyleSheet.create({
   filterGroup: { gap: 6 },
   filterLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.2, fontFamily: 'Inter_700Bold' },
   filterChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1 },
+  chip: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderRadius: theme.radiusSm },
   chipText: { fontSize: 10, fontWeight: '600', fontFamily: 'Inter_600SemiBold' },
   tableHeader: { paddingHorizontal: 14, paddingVertical: 6, borderBottomWidth: 1 },
   tableHeaderText: { fontSize: 9, fontWeight: '700', letterSpacing: 1.2, fontFamily: 'Inter_700Bold' },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, gap: 10, borderBottomWidth: 1 },
   rankCell: { width: 38, alignItems: 'center' },
-  rankBadge: { borderWidth: 1, paddingHorizontal: 5, paddingVertical: 3 },
+  rankBadge: { borderWidth: 1, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 3 },
   rankBadgeText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
   rankNum: { fontSize: 12, fontFamily: 'Inter_500Medium' },
-  initials: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  initials: { width: 38, height: 38, borderRadius: theme.radiusSm, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   initialsText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
-  name: { fontSize: 13, fontWeight: '600', fontFamily: 'Inter_600SemiBold' },
+  name: { fontSize: 14, fontFamily: fonts.serif },
   sub: { fontSize: 10, marginTop: 2, fontFamily: 'Inter_400Regular' },
-  milestoneBadge: { alignSelf: 'flex-start', borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
+  milestoneBadge: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   milestoneText: { fontSize: 8, fontWeight: '700', letterSpacing: 0.8, fontFamily: 'Inter_700Bold' },
   metricCell: { alignItems: 'flex-end', minWidth: 70 },
   metricValue: { fontSize: 16, fontWeight: '600', fontFamily: 'Inter_600SemiBold', letterSpacing: -0.5 },

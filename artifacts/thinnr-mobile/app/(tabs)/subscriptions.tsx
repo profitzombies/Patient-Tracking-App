@@ -15,10 +15,14 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import theme, { fonts } from '@/constants/colors';
 import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Divider, EmptyState, LedgerCard, SectionHeader, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { MOCK_PRODUCTS } from '@/data/mock-data';
 import { useOperations } from '@/context/OperationsContext';
+
+/** Matches the soft card shadow used by the shared Heritage primitives. */
+const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
 
 type SubStatus = 'all' | 'active' | 'paused' | 'overdue';
 
@@ -89,8 +93,8 @@ export default function SubscriptionsScreen() {
             <Text style={[styles.summaryValue, { color: colors.riskText }]}>{actionNeeded}</Text>
           </LedgerCard>
           <LedgerCard style={styles.summaryCard}>
-            <View style={[styles.summaryIcon, { backgroundColor: colors.accent }]}>
-              <Feather name="package" size={20} color={colors.bodyText} />
+            <View style={[styles.summaryIcon, { backgroundColor: colors.orangeBg }]}>
+              <Feather name="package" size={20} color={colors.orange} />
             </View>
             <Text style={[styles.summaryLabel, { color: colors.labelText }]}>UPCOMING</Text>
             <Text style={[styles.summaryValue, { color: colors.navy }]}>{upcoming}</Text>
@@ -260,17 +264,17 @@ export default function SubscriptionsScreen() {
 const styles = StyleSheet.create({
   summaryGrid: { flexDirection: 'row', paddingHorizontal: 14, paddingTop: 14, paddingBottom: 10, gap: 8 },
   summaryCard: { flex: 1, padding: 12, gap: 6 },
-  summaryIcon: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  summaryIcon: { width: 36, height: 36, borderRadius: theme.radiusSm, alignItems: 'center', justifyContent: 'center' },
   summaryLabel: { fontSize: 8, fontWeight: '700', letterSpacing: 1, fontFamily: 'Inter_700Bold' },
   summaryValue: { fontSize: 22, fontWeight: '600', fontFamily: 'Inter_600SemiBold', letterSpacing: -0.5 },
   catalogSection: { paddingHorizontal: 14, paddingBottom: 12 },
   catalogHeader: { padding: 16, borderBottomWidth: 1 },
   catalogSubtitle: { fontSize: 11, marginTop: 4, fontFamily: 'Inter_400Regular' },
   catalogScroll: { paddingHorizontal: 16, paddingVertical: 14 },
-  productCard: { width: 160, borderWidth: 1, padding: 10, marginRight: 10, gap: 8 },
-  productImageBox: { height: 80, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  productCard: { width: 160, borderWidth: 1, borderRadius: theme.radius, padding: 10, marginRight: 10, gap: 8 },
+  productImageBox: { height: 80, borderWidth: 1, borderRadius: theme.radiusSm, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   productNameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 },
-  productName: { fontSize: 12, fontWeight: '700', fontFamily: 'Inter_700Bold', flex: 1 },
+  productName: { fontSize: 13, fontFamily: fonts.serif, flex: 1 },
   productPrice: { fontSize: 11, fontWeight: '600', fontFamily: 'Inter_600SemiBold' },
   productDesc: { fontSize: 10, lineHeight: 14, fontFamily: 'Inter_400Regular', marginTop: 3 },
   productCat: { fontSize: 8, fontWeight: '700', letterSpacing: 1, fontFamily: 'Inter_700Bold', marginTop: 4 },
@@ -278,15 +282,15 @@ const styles = StyleSheet.create({
   catalogFooter: { borderTopWidth: 1, padding: 12 },
   catalogDisclaimerText: { fontSize: 9, fontFamily: 'Inter_400Regular', lineHeight: 13 },
   listSection: { paddingHorizontal: 14, paddingBottom: 0, gap: 0 },
-  listToolbar: { borderWidth: 1, padding: 12, marginBottom: 10, gap: 8 },
-  searchBox: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7, gap: 8 },
+  listToolbar: { borderWidth: 1, borderRadius: theme.radius, padding: 12, marginBottom: 10, gap: 8 },
+  searchBox: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: theme.radiusSm, paddingHorizontal: 10, paddingVertical: 7, gap: 8 },
   searchInput: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1 },
+  chip: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderRadius: theme.radiusSm },
   chipText: { fontSize: 10, fontWeight: '700', fontFamily: 'Inter_700Bold', letterSpacing: 0.4 },
-  subRow: { padding: 14, borderWidth: 1, marginBottom: 8 },
+  subRow: { padding: 14, borderWidth: 1, borderRadius: theme.radius, marginBottom: 8, boxShadow: CARD_SHADOW_SOFT },
   subTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
-  subPatient: { fontSize: 14, fontWeight: '600', fontFamily: 'Inter_600SemiBold' },
+  subPatient: { fontSize: 15, fontFamily: fonts.serif },
   subId: { fontSize: 9, fontFamily: 'Inter_400Regular', marginTop: 2, letterSpacing: 0.3 },
   subTopRight: { alignItems: 'flex-end', gap: 4 },
   failedRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },

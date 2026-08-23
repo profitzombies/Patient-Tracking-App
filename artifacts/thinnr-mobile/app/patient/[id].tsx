@@ -18,6 +18,7 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useColors } from '@/hooks/useColors';
+import theme, { fonts } from '@/constants/colors';
 import { Divider, LedgerCard, ProgressBar, SectionHeader, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { MOCK_PRODUCTS, MOCK_PROVIDERS } from '@/data/mock-data';
@@ -297,7 +298,7 @@ export default function PatientDetailScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* Identity block */}
-        <View style={[styles.identityBlock, { borderBottomColor: colors.border }]}>
+        <View style={[styles.identityBlock, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
           <View style={[styles.avatar, { backgroundColor: colors.activeBg }]}>
             <Text style={[styles.avatarText, { color: colors.cobalt }]}>{patient.initials}</Text>
           </View>
@@ -652,10 +653,11 @@ export default function PatientDetailScreen() {
                 onPress={openSubModal}
                 style={({ pressed }) => [
                   styles.manageBtn,
-                  { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                  { backgroundColor: colors.cobalt },
+                  pressed && { opacity: 0.85 },
                 ]}
               >
-                <Text style={[styles.manageBtnText, { color: colors.cobalt }]}>Manage Subscription</Text>
+                <Text style={[styles.manageBtnText, { color: colors.primaryForeground }]}>Manage Subscription</Text>
               </Pressable>
             </LedgerCard>
           </View>
@@ -667,7 +669,7 @@ export default function PatientDetailScreen() {
       {/* ── Edit Contact Modal ── */}
       <Modal visible={editOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setEditOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
+          <View style={[styles.modalHeader, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
             <Pressable
               testID="edit-cancel-btn"
               accessibilityRole="button"
@@ -711,7 +713,7 @@ export default function PatientDetailScreen() {
       {/* ── Log Weight Modal ── */}
       <Modal visible={weightModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setWeightModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
+          <View style={[styles.modalHeader, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
             <Pressable
               testID="weight-cancel-btn"
               accessibilityRole="button"
@@ -747,7 +749,7 @@ export default function PatientDetailScreen() {
       {/* ── Add Note Modal ── */}
       <Modal visible={noteModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setNoteModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
+          <View style={[styles.modalHeader, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
             <Pressable
               testID="note-cancel-btn"
               accessibilityRole="button"
@@ -785,7 +787,7 @@ export default function PatientDetailScreen() {
       {/* ── Subscription Status Modal ── */}
       <Modal visible={subModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setSubModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
+          <View style={[styles.modalHeader, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
             <Pressable
               testID="sub-cancel-btn"
               accessibilityRole="button"
@@ -848,14 +850,14 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 16,
+    fontFamily: fonts.serifBold,
     textAlign: 'center',
   },
   identityBlock: {
@@ -867,6 +869,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 56,
     height: 56,
+    borderRadius: theme.radiusSm,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -884,9 +887,8 @@ const styles = StyleSheet.create({
   },
   patientName: {
     fontSize: 20,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.4,
+    fontFamily: fonts.serifBold,
+    letterSpacing: -0.2,
   },
   contactRow: {
     flexDirection: 'row',
@@ -926,6 +928,7 @@ const styles = StyleSheet.create({
   },
   stagePill: {
     borderWidth: 1,
+    borderRadius: 5,
     paddingHorizontal: 8,
     paddingVertical: 4,
     maxWidth: '48%',
@@ -1060,8 +1063,8 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   planName: {
-    fontSize: 15,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 16,
+    fontFamily: fonts.serif,
   },
   planFocus: {
     fontSize: 12,
@@ -1083,6 +1086,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -1092,8 +1096,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   adherenceTitle: {
-    fontSize: 13,
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    fontFamily: fonts.serif,
   },
   adherencePattern: {
     fontSize: 11,
@@ -1119,6 +1123,7 @@ const styles = StyleSheet.create({
   },
   moodPill: {
     borderWidth: 1,
+    borderRadius: 5,
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
@@ -1168,17 +1173,18 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 10,
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
   },
   productThumb: {
     width: 48,
     height: 48,
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
     overflow: 'hidden',
   },
   productName: {
-    fontSize: 13,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 14,
+    fontFamily: fonts.serif,
   },
   productCat: {
     fontSize: 10,
@@ -1190,6 +1196,7 @@ const styles = StyleSheet.create({
     margin: 14,
     padding: 12,
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
   },
   summaryNote: {
     borderLeftWidth: 2,
@@ -1226,9 +1233,8 @@ const styles = StyleSheet.create({
   },
   subValue: {
     fontSize: 28,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    letterSpacing: -0.8,
+    fontFamily: fonts.serif,
+    letterSpacing: -0.4,
     marginTop: 8,
   },
   subUnit: {
@@ -1257,6 +1263,7 @@ const styles = StyleSheet.create({
   },
   shipmentHistory: {
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
     padding: 12,
     marginTop: 12,
   },
@@ -1282,8 +1289,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
   },
   manageBtn: {
-    borderWidth: 1,
-    paddingVertical: 10,
+    borderRadius: theme.radiusSm,
+    paddingVertical: 11,
     alignItems: 'center',
     marginTop: 12,
   },
@@ -1318,9 +1325,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
   },
   modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 17,
+    fontFamily: fonts.serifBold,
   },
   modalSave: {
     fontSize: 15,
@@ -1336,6 +1342,7 @@ const styles = StyleSheet.create({
   },
   fieldInput: {
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -1353,6 +1360,7 @@ const styles = StyleSheet.create({
   },
   textArea: {
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -1366,5 +1374,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 12,
     borderWidth: 1,
+    borderRadius: theme.radiusSm,
   },
 });

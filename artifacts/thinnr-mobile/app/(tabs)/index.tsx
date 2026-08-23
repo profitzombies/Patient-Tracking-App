@@ -13,6 +13,7 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import theme, { fonts } from '@/constants/colors';
 import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import {
   Divider,
@@ -154,7 +155,7 @@ export default function OverviewScreen() {
         {/* Greeting */}
         <View style={styles.greetingBlock}>
           <View style={[styles.pulseLabelRow, { marginBottom: 6 }]}>
-            <Feather name="activity" size={12} color={colors.cobalt} />
+            <Feather name="activity" size={12} color={colors.orange} />
             <Text style={[styles.pulseLabel, { color: colors.cobalt }]}>PRACTICE PULSE</Text>
             <View style={[styles.dot, { backgroundColor: colors.cobaltMuted }]} />
             <Text style={[styles.pulseLabel, { color: colors.cobalt }]}>{todayStr}</Text>
@@ -400,14 +401,14 @@ const styles = StyleSheet.create({
   pulseLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   pulseLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.4, fontFamily: 'Inter_700Bold' },
   dot: { width: 4, height: 4, borderRadius: 2 },
-  greeting: { fontSize: 26, fontWeight: '700', letterSpacing: -0.6, fontFamily: 'Inter_700Bold', lineHeight: 32 },
+  greeting: { fontSize: 26, letterSpacing: -0.2, fontFamily: fonts.serifBold, lineHeight: 34 },
   greetingSubtitle: { fontSize: 13, marginTop: 4, fontFamily: 'Inter_400Regular' },
   filterRow: { flexDirection: 'row', gap: 8, marginTop: 12, alignItems: 'center' },
-  filterPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, gap: 5 },
+  filterPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderRadius: theme.radiusSm, gap: 5 },
   filterPillText: { fontSize: 11, fontWeight: '600', fontFamily: 'Inter_600SemiBold' },
   sectionPad: { paddingHorizontal: 16, paddingTop: 0, paddingBottom: 12 },
   metricsGrid: { flexDirection: 'row', gap: 8 },
-  noticeBanner: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 12, padding: 12, borderWidth: 1, gap: 10 },
+  noticeBanner: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 12, padding: 12, borderWidth: 1, borderRadius: theme.radius, gap: 10 },
   noticeText: { fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 17 },
   chartAxisLabel: { fontSize: 9, width: 32, fontFamily: 'Inter_400Regular', textAlign: 'right' },
   chartBars: { position: 'absolute', top: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'flex-end', gap: 3 },
@@ -419,18 +420,18 @@ const styles = StyleSheet.create({
   stageCount: { fontSize: 11, fontFamily: 'Inter_400Regular' },
   priorityRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 12, gap: 10 },
   priorityDot: { width: 8, height: 8, borderRadius: 4, marginTop: 4 },
-  priorityTitle: { fontSize: 12, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+  priorityTitle: { fontSize: 13, fontFamily: fonts.serif },
   priorityBody: { fontSize: 11, marginTop: 2, lineHeight: 15, fontFamily: 'Inter_400Regular' },
   priorityLevel: { fontSize: 10, fontWeight: '700', fontFamily: 'Inter_700Bold' },
   watchlistHeader: { padding: 16, paddingBottom: 12 },
   watchlistRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
-  initials: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  initials: { width: 36, height: 36, borderRadius: theme.radiusSm, alignItems: 'center', justifyContent: 'center' },
   initialsText: { fontSize: 10, fontWeight: '700', fontFamily: 'Inter_700Bold' },
-  watchlistName: { fontSize: 13, fontWeight: '600', fontFamily: 'Inter_600SemiBold' },
+  watchlistName: { fontSize: 14, fontFamily: fonts.serif },
   watchlistSub: { fontSize: 10, marginTop: 2, fontFamily: 'Inter_400Regular' },
   watchlistWeight: { fontSize: 10, fontFamily: 'Inter_500Medium' },
-  activityRow: { flexDirection: 'row', alignItems: 'flex-start', borderWidth: 1, padding: 10, gap: 10 },
-  activityAvatar: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
+  activityRow: { flexDirection: 'row', alignItems: 'flex-start', borderWidth: 1, borderRadius: theme.radiusSm, padding: 10, gap: 10 },
+  activityAvatar: { width: 30, height: 30, borderRadius: theme.radiusSm, alignItems: 'center', justifyContent: 'center' },
   activityAvatarText: { fontSize: 9, fontWeight: '700', fontFamily: 'Inter_700Bold' },
   activityText: { fontSize: 11, lineHeight: 16, fontFamily: 'Inter_400Regular' },
   activityTime: { fontSize: 10, marginTop: 2, fontFamily: 'Inter_400Regular' },

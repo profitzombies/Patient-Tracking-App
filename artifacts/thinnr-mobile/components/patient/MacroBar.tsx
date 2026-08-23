@@ -1,9 +1,11 @@
 /**
- * One macro row: label, consumed vs target grams, and a square progress bar.
+ * One macro row, Heritage style: sentence-case name, "consumed of target g"
+ * with a bold percentage, and a slim square progress bar.
  */
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
+import { fonts } from '@/constants/colors';
 import { ProgressBar } from '@/components/ui/LedgerPrimitives';
 
 interface MacroBarProps {
@@ -19,10 +21,10 @@ export function MacroBar({ label, value, target, color }: MacroBarProps) {
   return (
     <View style={styles.container}>
       <View style={styles.row}>
-        <Text style={[styles.label, { color: colors.labelText }]}>{label.toUpperCase()}</Text>
-        <Text style={[styles.value, { color: colors.navyLight }]}>
-          {Math.round(value)}
-          <Text style={{ color: colors.subtleText }}> / {target} g</Text>
+        <Text style={[styles.label, { color: colors.foreground }]}>{label}</Text>
+        <Text style={[styles.value, { color: colors.subtleText }]}>
+          {Math.round(value)} of {target} g{' '}
+          <Text style={[styles.pct, { color: colors.bodyText }]}>{Math.round(pct)}%</Text>
         </Text>
       </View>
       <ProgressBar value={pct} color={color} style={{ height: 6 }} />
@@ -40,14 +42,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   label: {
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 11,
+    fontWeight: '600',
+    fontFamily: fonts.sansSemiBold,
   },
   value: {
     fontSize: 11,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: fonts.sans,
+  },
+  pct: {
+    fontWeight: '700',
+    fontFamily: fonts.sansBold,
   },
 });

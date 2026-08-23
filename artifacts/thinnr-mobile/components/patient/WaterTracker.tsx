@@ -1,13 +1,20 @@
 /**
- * Water tracker — a row of square 8 oz cups plus fine-grained +/− controls.
- * Tapping cup N fills through N; tapping the last filled cup empties it.
+ * Water tracker, Heritage style: an icon + serif "Water" header with the
+ * running total, a row of flat tappable 8 oz segments, and fine-grained
+ * +/− controls. Tapping segment N fills through N; tapping the last filled
+ * segment empties it (same behavior as before — presentation only changed).
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
+import { fonts } from '@/constants/colors';
 import { usePatient } from '@/context/PatientContext';
 import { WATER_CUP_OZ } from '@/data/patient-data';
+
+// Reference water-segment inks — no semantic token exists for these fills.
+const SEGMENT_FILLED = '#6e9bc8';
+const SEGMENT_EMPTY = '#e5edf3';
 
 interface WaterTrackerProps {
   dateKey: string;
@@ -29,44 +36,32 @@ export function WaterTracker({ dateKey }: WaterTrackerProps) {
 
   return (
     <View>
-      <View style={styles.cupRow}>
-        {Array.from({ length: cupCount }).map((_, index) => {
-          const isFilled = index < filled;
-          return (
-            <Pressable
-              key={index}
-              testID={`water-cup-${index}`}
-              onPress={() => handleCupPress(index)}
-              style={({ pressed }) => [
-                styles.cup,
-                {
-                  backgroundColor: isFilled ? colors.cobalt : colors.paperCardAlt,
-                  borderColor: isFilled ? colors.cobalt : colors.border,
-                },
-                pressed && { opacity: 0.8 },
-              ]}
-            >
-              <Feather
-                name="droplet"
-                size={14}
-                color={isFilled ? colors.primaryForeground : colors.cobaltMuted}
-              />
-            </Pressable>
-          );
-        })}
-      </View>
-      <View style={styles.footerRow}>
-        <Text style={[styles.totalText, { color: colors.navyLight }]}>
-          {oz}
-          <Text style={{ color: colors.subtleText }}> of {targetOz} fl oz</Text>
-        </Text>
+      <View style={styles.headerRow}>
+        <View
+          style={[
+            styles.iconBox,
+            { backgroundColor: colors.accent, borderRadius: colors.radiusSm },
+          ]}
+        >
+          <Feather name="droplet" size={16} color={colors.cobalt} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.title, { color: colors.foreground }]}>Water</Text>
+          <Text style={[styles.meta, { color: colors.subtleText }]}>
+            {oz} of {targetOz} fl oz · {filled} of {cupCount} cups
+          </Text>
+        </View>
         <View style={styles.adjustRow}>
           <Pressable
             testID="water-minus"
             onPress={() => patient.setWater(dateKey, oz - WATER_CUP_OZ)}
             style={({ pressed }) => [
               styles.adjustBtn,
-              { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+              {
+                borderColor: colors.border,
+                borderRadius: colors.radiusSm,
+                backgroundColor: pressed ? colors.accent : colors.card,
+              },
             ]}
           >
             <Feather name="minus" size={14} color={colors.bodyText} />
@@ -76,40 +71,58 @@ export function WaterTracker({ dateKey }: WaterTrackerProps) {
             onPress={() => patient.setWater(dateKey, oz + WATER_CUP_OZ)}
             style={({ pressed }) => [
               styles.adjustBtn,
-              { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+              {
+                borderColor: colors.border,
+                borderRadius: colors.radiusSm,
+                backgroundColor: pressed ? colors.accent : colors.card,
+              },
             ]}
           >
             <Feather name="plus" size={14} color={colors.bodyText} />
           </Pressable>
         </View>
       </View>
+      <View style={styles.segmentRow}>
+        {Array.from({ length: cupCount }).map((_, index) => {
+          const isFilled = index < filled;
+          return (
+            <Pressable
+              key={index}
+              testID={`water-cup-${index}`}
+              onPress={() => handleCupPress(index)}
+              style={({ pressed }) => [
+                styles.segment,
+                { backgroundColor: isFilled ? SEGMENT_FILLED : SEGMENT_EMPTY },
+                pressed && { opacity: 0.8 },
+              ]}
+            />
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  cupRow: {
+  headerRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    alignItems: 'center',
+    gap: 10,
   },
-  cup: {
-    width: 34,
-    height: 34,
-    borderWidth: 1,
+  iconBox: {
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  footerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 10,
+  title: {
+    fontSize: 17,
+    fontFamily: fonts.serif,
   },
-  totalText: {
-    fontSize: 12,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+  meta: {
+    fontSize: 11,
+    marginTop: 1,
+    fontFamily: fonts.sans,
   },
   adjustRow: {
     flexDirection: 'row',
@@ -121,5 +134,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
+  },
+  segment: {
+    flex: 1,
+    height: 20,
   },
 });

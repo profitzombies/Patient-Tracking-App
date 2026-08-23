@@ -1,30 +1,29 @@
 /**
- * Today — the patient home screen. Opens with a full-bleed illustrated food
- * hero (THINNR wordmark, date paging, greeting, floating check-in prompt),
- * followed by calories remaining, macros, meals, water, daily check-in
- * status, and a weight snapshot for the selected day.
+ * Today — the patient home screen, styled to the approved Heritage Hero
+ * reference. Full-bleed photo hero with a light wash (THINNR wordmark, date
+ * strip, serif welcome, quick-link chips, floating focus bar), then a
+ * day-at-a-glance streak card, program instructions row, the calorie card
+ * with an upright dome gauge + macro bars, a combined meals & hydration
+ * list, the daily check-in card, and a weight snapshot.
+ *
+ * All numbers stay live-bound to PatientContext — the reference's demo
+ * values are never hardcoded.
  */
 import React, { useMemo, useState } from 'react';
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  type TextStyle,
-} from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import Svg, { Path } from 'react-native-svg';
 import { useColors } from '@/hooks/useColors';
+import { fonts } from '@/constants/colors';
 import { APPROVED_FOODS_HREF } from '@/constants/links';
 import { MacroBar } from '@/components/patient/MacroBar';
 import { WaterTracker } from '@/components/patient/WaterTracker';
-import { Divider, LedgerCard, ProgressBar, SectionHeader } from '@/components/ui/LedgerPrimitives';
+import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { usePatient } from '@/context/PatientContext';
 import { HOME_HERO_IMAGE } from '@/data/recipe-images';
@@ -52,19 +51,41 @@ const FIRST_NAME = PATIENT_PROFILE.name.split(' ')[0];
 // Where the patient is in the THINNR protocol — drives the instructions card.
 const CURRENT_PHASE = phaseForDay(ENROLLMENT_DAYS);
 
-// How far the check-in pill hangs below the hero artwork.
-const PILL_OVERLAP = 22;
+// How far the floating focus bar hangs below the hero artwork.
+const FOCUS_OVERLAP = 16;
 
-// Pale halo behind the hero type for legibility over the artwork. Web uses
-// the CSS-style shorthand to avoid react-native-web's textShadow* deprecation.
-const TEXT_HALO: TextStyle =
-  Platform.OS === 'web'
-    ? ({ textShadow: '0 0 10px rgba(240,244,250,0.9)' } as unknown as TextStyle)
-    : {
-        textShadowColor: 'rgba(240,244,250,0.9)',
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 10,
-      };
+/**
+ * Over-photo hero inks from the approved reference. These sit on the
+ * photograph + wash where no shared surface token applies (translucent
+ * papers and hairlines tuned against the artwork).
+ */
+const HERO_INK = {
+  arrow: '#355273',
+  dateBorder: '#c5d3e1',
+  dateBg: 'rgba(249,250,251,0.55)',
+  dateText: '#365373',
+  chipBorder: '#ced9e5',
+  chipBg: 'rgba(253,252,249,0.9)',
+  chipText: '#334e6e',
+  iconBtnBorder: '#cbd7e5',
+  iconBtnBg: 'rgba(253,252,249,0.9)',
+  focusBorder: '#c8d7e6',
+} as const;
+
+// Pale halo behind the selected day's streak mark (reference ring color —
+// between accent and sidebarBg; no exact token exists).
+const STREAK_HALO = '#dce8f4';
+
+// Ghost-cobalt "Add" button inks from the reference (no semantic token).
+const ADD_BTN_BORDER = '#bad0e7';
+const ADD_BTN_BG = '#f5f9fd';
+
+// ── Dome calorie gauge geometry (reference: 244×142, r=100, 22pt stroke) ──
+const GAUGE_W = 244;
+const GAUGE_H = 142;
+const GAUGE_ARC = 'M 22 122 A 100 100 0 0 1 222 122';
+// react-native-svg ignores pathLength, so dash math uses the true arc length.
+const GAUGE_ARC_LEN = Math.PI * 100;
 
 function shiftKey(dateKey: string, days: number): string {
   return toDateKey(addDays(new Date(`${dateKey}T12:00:00.000Z`), days));
@@ -76,6 +97,13 @@ function formatHeroDate(dateKey: string): string {
     month: 'long',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+function weekdayLetter(dateKey: string): string {
+  return new Date(`${dateKey}T12:00:00.000Z`).toLocaleDateString('en-US', {
+    weekday: 'narrow',
     timeZone: 'UTC',
   });
 }
@@ -97,9 +125,9 @@ export default function TodayScreen() {
   const [dateKey, setDateKey] = useState(TODAY_KEY);
 
   // The hero extends behind the status bar; the web preview reserves the same
-  // fake-chrome space as PatientHeader did.
+  // fake-chrome space as the shared header does.
   const heroTopPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
-  const heroHeight = heroTopPad + 296;
+  const heroHeight = heroTopPad + 313;
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
 
   const isToday = dateKey === TODAY_KEY;
@@ -133,7 +161,29 @@ export default function TodayScreen() {
     [entries],
   );
 
-  const remaining = patient.targets.calories - totals.calories;
+  // Trailing 7 days ending at the selected day — one mark per day, orange
+  // when anything was logged, cobalt + halo on the selected day itself.
+  const streakDays = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, i) => {
+        const key = shiftKey(dateKey, i - 6);
+        return {
+          key,
+          letter: weekdayLetter(key),
+          logged: patient.entriesForDate(key).length > 0,
+          selected: key === dateKey,
+        };
+      }),
+    [dateKey, patient],
+  );
+  const loggedCount = streakDays.filter(d => d.logged).length;
+
+  const goal = patient.targets.calories;
+  const remaining = goal - totals.calories;
+  const overTarget = remaining < 0;
+  const pctConsumed = goal > 0 ? Math.round((totals.calories / goal) * 100) : 0;
+  const gaugeFrac = Math.min(1, Math.max(0, totals.calories / Math.max(1, goal)));
+
   const dayCheckIn = patient.checkInFor(dateKey);
   const todayCheckIn = patient.checkInFor(TODAY_KEY);
   const currentWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
@@ -162,34 +212,30 @@ export default function TodayScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={{ paddingBottom: bottomPad }}>
-        {/* ── Illustrated hero ── */}
-        <View style={{ height: heroHeight + PILL_OVERLAP }}>
+        {/* ── Photo hero with light wash ── */}
+        <View style={{ height: heroHeight + FOCUS_OVERLAP }}>
           <Image
             source={HOME_HERO_IMAGE}
             style={[styles.heroImage, { height: heroHeight }]}
             contentFit="cover"
-            contentPosition="top center"
+            contentPosition="center"
             transition={200}
           />
-          {/* Soft scrim so the overlaid type stays legible over the artwork */}
+          {/* Reference wash: secondary-paper tones fading into the page bg */}
           <LinearGradient
             colors={[
-              'rgba(237,242,249,0.96)',
-              'rgba(237,242,249,0.74)',
-              'rgba(237,242,249,0.32)',
-              'rgba(237,242,249,0)',
+              'rgba(245,247,249,0.94)',
+              'rgba(245,247,249,0.72)',
+              'rgba(245,247,249,0.18)',
+              colors.background,
             ]}
-            locations={[0, 0.45, 0.75, 1]}
-            style={[styles.heroTopScrim, { height: heroTopPad + 205 }]}
-          />
-          <LinearGradient
-            colors={['rgba(238,241,246,0)', 'rgba(238,241,246,0.45)']}
-            style={[styles.heroBottomScrim, { bottom: PILL_OVERLAP }]}
+            locations={[0, 0.36, 0.72, 1]}
+            style={[styles.heroWash, { height: heroHeight }]}
           />
 
-          <View style={[styles.heroContent, { paddingTop: heroTopPad + 8 }]}>
+          <View style={[styles.heroContent, { paddingTop: heroTopPad + 24 }]}>
             <View style={styles.heroTopRow}>
-              <Text style={[styles.wordmark, TEXT_HALO, { color: colors.navy }]}>THINNR</Text>
+              <Text style={[styles.wordmark, { color: colors.navy }]}>THINNR</Text>
               <View style={styles.heroActions}>
                 <Pressable
                   testID="coach-chat-btn"
@@ -201,11 +247,15 @@ export default function TodayScreen() {
                   }}
                   style={({ pressed }) => [
                     styles.heroIconBtn,
-                    { borderColor: colors.border, backgroundColor: colors.card },
+                    {
+                      borderColor: HERO_INK.iconBtnBorder,
+                      backgroundColor: HERO_INK.iconBtnBg,
+                      borderRadius: colors.radiusSm,
+                    },
                     pressed && { backgroundColor: colors.accent },
                   ]}
                 >
-                  <Feather name="message-circle" size={16} color={colors.cobalt} />
+                  <Feather name="message-circle" size={17} color={colors.cobalt} />
                 </Pressable>
                 <Pressable
                   testID="patient-avatar-btn"
@@ -215,7 +265,7 @@ export default function TodayScreen() {
                   }}
                   style={({ pressed }) => [
                     styles.avatar,
-                    { backgroundColor: colors.cobalt },
+                    { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
                     pressed && { opacity: 0.85 },
                   ]}
                 >
@@ -236,11 +286,18 @@ export default function TodayScreen() {
                   atMin && { opacity: 0.3 },
                 ]}
               >
-                <Feather name="arrow-left" size={18} color={colors.navy} />
+                <Feather name="arrow-left" size={18} color={HERO_INK.arrow} />
               </Pressable>
-              <Text style={[styles.heroDate, TEXT_HALO, { color: colors.navy }]}>
-                {formatHeroDate(dateKey)}
-              </Text>
+              <View
+                style={[
+                  styles.heroDateStrip,
+                  { borderColor: HERO_INK.dateBorder, backgroundColor: HERO_INK.dateBg },
+                ]}
+              >
+                <Text style={[styles.heroDateText, { color: HERO_INK.dateText }]}>
+                  {formatHeroDate(dateKey)}
+                </Text>
+              </View>
               <Pressable
                 testID="today-next-day"
                 disabled={isToday}
@@ -252,11 +309,11 @@ export default function TodayScreen() {
                   isToday && { opacity: 0.3 },
                 ]}
               >
-                <Feather name="arrow-right" size={18} color={colors.navy} />
+                <Feather name="arrow-right" size={18} color={HERO_INK.arrow} />
               </Pressable>
             </View>
 
-            <Text style={[styles.heroGreeting, TEXT_HALO, { color: colors.navy }]}>
+            <Text style={[styles.heroGreeting, { color: colors.navy }]}>
               Welcome back, {FIRST_NAME}
             </Text>
             {!isToday && (
@@ -272,19 +329,27 @@ export default function TodayScreen() {
               </Pressable>
             )}
 
-            {/* ── Quick-link chips (reference design: hero shortcuts) ── */}
+            {/* ── Quick-link chips ── */}
             <View style={styles.chipRow}>
               <Pressable
                 testID="today-restaurant-guide"
                 onPress={openRestaurantGuide}
                 style={({ pressed }) => [
                   styles.chip,
-                  { backgroundColor: 'rgba(251,252,255,0.95)', borderColor: 'rgba(23,44,86,0.14)' },
+                  {
+                    backgroundColor: HERO_INK.chipBg,
+                    borderColor: HERO_INK.chipBorder,
+                    borderRadius: colors.radiusSm,
+                  },
                   pressed && { opacity: 0.85 },
                 ]}
               >
-                <MaterialCommunityIcons name="silverware-fork-knife" size={14} color={colors.navy} />
-                <Text numberOfLines={1} style={[styles.chipText, { color: colors.navyLight }]}>
+                <MaterialCommunityIcons
+                  name="silverware-fork-knife"
+                  size={14}
+                  color={colors.orange}
+                />
+                <Text numberOfLines={1} style={[styles.chipText, { color: HERO_INK.chipText }]}>
                   Restaurant guide
                 </Text>
                 <Feather name="chevron-right" size={13} color={colors.subtleText} />
@@ -294,12 +359,16 @@ export default function TodayScreen() {
                 onPress={openApprovedList}
                 style={({ pressed }) => [
                   styles.chip,
-                  { backgroundColor: 'rgba(251,252,255,0.95)', borderColor: 'rgba(23,44,86,0.14)' },
+                  {
+                    backgroundColor: HERO_INK.chipBg,
+                    borderColor: HERO_INK.chipBorder,
+                    borderRadius: colors.radiusSm,
+                  },
                   pressed && { opacity: 0.85 },
                 ]}
               >
-                <MaterialCommunityIcons name="check-circle" size={14} color={colors.navy} />
-                <Text numberOfLines={1} style={[styles.chipText, { color: colors.navyLight }]}>
+                <Feather name="sun" size={14} color={colors.orange} />
+                <Text numberOfLines={1} style={[styles.chipText, { color: HERO_INK.chipText }]}>
                   Approved list
                 </Text>
                 <Feather name="chevron-right" size={13} color={colors.subtleText} />
@@ -307,50 +376,90 @@ export default function TodayScreen() {
             </View>
           </View>
 
-          {/* ── Floating check-in prompt ── */}
-          <View style={styles.pillWrap}>
+          {/* ── Floating focus bar ── */}
+          <View style={styles.focusWrap}>
             <Pressable
               testID="today-checkin-pill"
+              accessibilityRole="button"
               onPress={openCheckIn}
               style={({ pressed }) => [
-                styles.pill,
-                todayCheckIn
-                  ? { backgroundColor: 'rgba(251,252,255,0.95)', borderColor: colors.activeBorder }
-                  : { backgroundColor: 'rgba(23,44,86,0.86)', borderColor: 'rgba(251,252,255,0.3)' },
-                pressed && { opacity: 0.88 },
+                styles.focusBar,
+                { backgroundColor: colors.sidebarBg, borderColor: HERO_INK.focusBorder },
+                pressed && { opacity: 0.9 },
               ]}
             >
-              <View
-                style={[
-                  styles.pillIcon,
-                  { backgroundColor: todayCheckIn ? colors.activeBg : 'rgba(251,252,255,0.22)' },
-                ]}
-              >
-                <Feather
-                  name={todayCheckIn ? 'check' : 'message-circle'}
-                  size={13}
-                  color={todayCheckIn ? colors.activeGreen : '#fbfcff'}
-                />
-              </View>
-              <Text
-                numberOfLines={1}
-                style={[styles.pillText, { color: todayCheckIn ? colors.navyLight : '#fbfcff' }]}
-              >
+              {/* Sparkle glyph from MCI, which the root APP_FONTS gate preloads
+                  (un-preloaded families like Ionicons tofu on Android/Expo Go). */}
+              {todayCheckIn ? (
+                <Feather name="check" size={15} color={colors.cobalt} />
+              ) : (
+                <MaterialCommunityIcons name="creation" size={15} color={colors.cobalt} />
+              )}
+              <Text style={[styles.focusLabel, { color: colors.bodyText }]}>TODAY'S FOCUS</Text>
+              <Text numberOfLines={1} style={[styles.focusValue, { color: colors.navy }]}>
                 {todayCheckIn
                   ? `Checked in — feeling ${MOOD_LABELS[todayCheckIn.mood].toLowerCase()}`
                   : CHECKIN_PROMPT}
               </Text>
-              <Feather
-                name="chevron-right"
-                size={14}
-                color={todayCheckIn ? colors.subtleText : 'rgba(251,252,255,0.8)'}
-              />
+              <Feather name="chevron-right" size={17} color={colors.cobalt} />
             </Pressable>
           </View>
         </View>
 
         {/* ── Content below the hero ── */}
         <View style={styles.body}>
+          {/* ── Day at a glance ── */}
+          <LedgerCard accentTop testID="today-glance-card">
+            <View style={styles.glanceInner}>
+              <View style={styles.glanceHeader}>
+                <Text style={[styles.serifTitleSm, { color: colors.navyLight }]}>
+                  Your day at a glance
+                </Text>
+                <View
+                  style={[
+                    styles.glanceBadge,
+                    { backgroundColor: colors.orangeBg, borderColor: colors.orangeBorder },
+                  ]}
+                >
+                  <Text style={[styles.glanceBadgeText, { color: colors.orangeText }]}>
+                    {loggedCount} OF 7 LOGGED
+                  </Text>
+                </View>
+              </View>
+              <View
+                accessibilityLabel={`${loggedCount} of the last 7 days have food logged`}
+                style={[styles.streakRow, { borderColor: colors.divider }]}
+              >
+                {streakDays.map(day => (
+                  <View key={day.key} style={styles.streakDay}>
+                    <Text style={[styles.streakLetter, { color: colors.subtleText }]}>
+                      {day.letter}
+                    </Text>
+                    <View
+                      style={[
+                        styles.streakMarkBox,
+                        day.selected && { backgroundColor: STREAK_HALO },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.streakMark,
+                          {
+                            backgroundColor: day.selected
+                              ? colors.cobalt
+                              : day.logged
+                                ? colors.orange
+                                : colors.track,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </LedgerCard>
+
           {/* ── Program instructions ── */}
           <LedgerCard
             testID="today-instructions-card"
@@ -358,14 +467,21 @@ export default function TodayScreen() {
               Haptics.selectionAsync();
               router.push('/instructions');
             }}
-            style={styles.card}
+            style={styles.rowCard}
           >
             <View style={styles.instructionsRow}>
-              <View style={[styles.instructionsIcon, { backgroundColor: colors.sidebarBg }]}>
-                <Feather name="book-open" size={15} color={colors.cobalt} />
+              <View
+                style={[
+                  styles.instructionsIcon,
+                  { backgroundColor: colors.accent, borderRadius: colors.radiusSm },
+                ]}
+              >
+                <Feather name="book-open" size={17} color={colors.cobalt} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.cardLabel, { color: colors.labelText }]}>PROGRAM INSTRUCTIONS</Text>
+                <Text style={[styles.cardLabel, { color: colors.labelText }]}>
+                  PROGRAM INSTRUCTIONS
+                </Text>
                 <Text
                   style={[styles.instructionsTitle, { color: colors.navyLight }]}
                   numberOfLines={1}
@@ -373,67 +489,131 @@ export default function TodayScreen() {
                   Day {ENROLLMENT_DAYS} · {CURRENT_PHASE.name}
                 </Text>
               </View>
-              <Feather name="chevron-right" size={16} color={colors.subtleText} />
+              <Feather name="chevron-right" size={17} color={colors.subtleText} />
             </View>
           </LedgerCard>
 
-          {/* ── Calories ── */}
-          <LedgerCard style={styles.card}>
-            <Text style={[styles.cardLabel, { color: colors.labelText }]}>CALORIES REMAINING</Text>
-            <View style={styles.calorieRow}>
-              <Text style={[styles.calorieBig, { color: remaining < 0 ? colors.riskText : colors.navy }]}>
-                {remaining.toLocaleString('en-US')}
+          {/* ── Calories: dome gauge + macros ── */}
+          <LedgerCard style={styles.calorieCard}>
+            <View style={styles.calorieHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cardLabel, { color: colors.labelText }]}>
+                  {isToday ? 'CALORIES FOR TODAY' : 'CALORIES THIS DAY'}
+                </Text>
+                <Text style={[styles.calorieHeadline, { color: colors.navyLight }]}>
+                  {overTarget
+                    ? isToday
+                      ? "Over today's target."
+                      : 'Over target this day.'
+                    : 'A well-paced day.'}
+                </Text>
+              </View>
+              <Text style={[styles.caloriePct, { color: colors.bodyText }]}>
+                {pctConsumed}% consumed
               </Text>
-              <View style={styles.calorieMathBlock}>
-                <View style={styles.calorieMathRow}>
-                  <Text style={[styles.calorieMathValue, { color: colors.navyLight }]}>
-                    {patient.targets.calories.toLocaleString('en-US')}
-                  </Text>
-                  <Text style={[styles.calorieMathLabel, { color: colors.labelText }]}>GOAL</Text>
-                </View>
-                <Text style={[styles.calorieMathOp, { color: colors.subtleText }]}>−</Text>
-                <View style={styles.calorieMathRow}>
-                  <Text style={[styles.calorieMathValue, { color: colors.navyLight }]}>
-                    {totals.calories.toLocaleString('en-US')}
-                  </Text>
-                  <Text style={[styles.calorieMathLabel, { color: colors.labelText }]}>FOOD</Text>
-                </View>
+            </View>
+
+            <View style={styles.gaugeWrap}>
+              <Svg width={GAUGE_W} height={GAUGE_H} viewBox={`0 0 ${GAUGE_W} ${GAUGE_H}`}>
+                <Path
+                  d={GAUGE_ARC}
+                  fill="none"
+                  stroke={colors.track}
+                  strokeWidth={22}
+                  strokeLinecap="round"
+                />
+                {gaugeFrac > 0 && (
+                  <Path
+                    d={GAUGE_ARC}
+                    fill="none"
+                    stroke={colors.orange}
+                    strokeWidth={22}
+                    strokeLinecap="round"
+                    strokeDasharray={`${GAUGE_ARC_LEN * gaugeFrac} ${GAUGE_ARC_LEN}`}
+                  />
+                )}
+              </Svg>
+              <View style={styles.gaugeCenter}>
+                <Text
+                  style={[
+                    styles.gaugeValue,
+                    { color: overTarget ? colors.riskText : colors.navyLight },
+                  ]}
+                >
+                  {Math.abs(remaining).toLocaleString('en-US')}
+                </Text>
+                <Text
+                  style={[
+                    styles.gaugeCaption,
+                    { color: overTarget ? colors.riskText : colors.labelText },
+                  ]}
+                >
+                  {overTarget ? 'OVER' : 'REMAINING'}
+                </Text>
               </View>
             </View>
-            <ProgressBar
-              value={(totals.calories / Math.max(1, patient.targets.calories)) * 100}
-              style={{ marginTop: 12 }}
-            />
-            <Text style={[styles.calorieHint, { color: colors.subtleText }]}>
-              {isToday
-                ? remaining >= 0
-                  ? `${remaining.toLocaleString('en-US')} cal left for dinner and snacks`
-                  : `${Math.abs(remaining).toLocaleString('en-US')} cal over target — tomorrow is a reset`
-                : remaining >= 0
-                  ? `Finished ${remaining.toLocaleString('en-US')} cal under target this day`
-                  : `${Math.abs(remaining).toLocaleString('en-US')} cal over target this day`}
-            </Text>
-          </LedgerCard>
 
-          {/* ── Macros ── */}
-          <LedgerCard style={styles.card}>
-            <Text style={[styles.cardLabel, { color: colors.labelText }]}>MACROS</Text>
-            <View style={{ gap: 12, marginTop: 12 }}>
-              <MacroBar label="Protein" value={totals.protein} target={patient.targets.protein} color={colors.cobalt} />
-              <MacroBar label="Carbs" value={totals.carbs} target={patient.targets.carbs} color={colors.cobaltLight} />
-              <MacroBar label="Fat" value={totals.fat} target={patient.targets.fat} color={colors.cobaltMuted} />
+            <View style={styles.calorieStatsRow}>
+              <View style={styles.calorieStat}>
+                <Text style={[styles.calorieStatValue, { color: colors.navyLight }]}>
+                  {goal.toLocaleString('en-US')}
+                </Text>
+                <Text style={[styles.calorieStatLabel, { color: colors.subtleText }]}>GOAL</Text>
+              </View>
+              <View style={[styles.calorieStatDivider, { backgroundColor: colors.divider }]} />
+              <View style={styles.calorieStat}>
+                <Text style={[styles.calorieStatValue, { color: colors.navyLight }]}>
+                  {totals.calories.toLocaleString('en-US')}
+                </Text>
+                <Text style={[styles.calorieStatLabel, { color: colors.subtleText }]}>FOOD</Text>
+              </View>
+              <View style={[styles.calorieStatDivider, { backgroundColor: colors.divider }]} />
+              <View style={styles.calorieStat}>
+                <Text
+                  style={[
+                    styles.calorieStatValue,
+                    { color: overTarget ? colors.riskText : colors.cobalt },
+                  ]}
+                >
+                  {remaining.toLocaleString('en-US')}
+                </Text>
+                <Text style={[styles.calorieStatLabel, { color: colors.subtleText }]}>LEFT</Text>
+              </View>
+            </View>
+
+            <View style={[styles.macroBlock, { borderTopColor: colors.divider }]}>
+              <MacroBar
+                label="Protein"
+                value={totals.protein}
+                target={patient.targets.protein}
+                color={colors.cobalt}
+              />
+              <MacroBar
+                label="Carbs"
+                value={totals.carbs}
+                target={patient.targets.carbs}
+                color={colors.cobaltLight}
+              />
+              <MacroBar
+                label="Fat"
+                value={totals.fat}
+                target={patient.targets.fat}
+                color={colors.orange}
+              />
             </View>
           </LedgerCard>
 
-          {/* ── Meals ── */}
-          <SectionHeader label="Meals" style={styles.sectionHeader} />
+          {/* ── Meals & hydration ── */}
+          <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>Meals & hydration</Text>
           <LedgerCard>
             {mealSummaries.map((meal, index) => (
               <View key={meal.slot}>
                 {index > 0 && <Divider />}
                 <View style={styles.mealRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.mealName, { color: colors.navyLight }]}>{MEAL_LABELS[meal.slot]}</Text>
+                    <Text style={[styles.mealName, { color: colors.foreground }]}>
+                      {MEAL_LABELS[meal.slot]}
+                    </Text>
                     <Text style={[styles.mealMeta, { color: colors.subtleText }]}>
                       {meal.count === 0
                         ? 'Nothing logged yet'
@@ -445,7 +625,11 @@ export default function TodayScreen() {
                     onPress={() => openLogFood(meal.slot)}
                     style={({ pressed }) => [
                       styles.addBtn,
-                      { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                      {
+                        borderColor: ADD_BTN_BORDER,
+                        borderRadius: colors.radiusSm,
+                        backgroundColor: pressed ? colors.accent : ADD_BTN_BG,
+                      },
                     ]}
                   >
                     <Feather name="plus" size={13} color={colors.cobalt} />
@@ -454,30 +638,41 @@ export default function TodayScreen() {
                 </View>
               </View>
             ))}
-          </LedgerCard>
-
-          {/* ── Water ── */}
-          <SectionHeader label="Water" style={styles.sectionHeader} />
-          <LedgerCard style={{ padding: 16 }}>
-            <WaterTracker dateKey={dateKey} />
+            <Divider />
+            <View style={styles.waterBlock}>
+              <WaterTracker dateKey={dateKey} />
+            </View>
           </LedgerCard>
 
           {/* ── Check-in ── */}
-          <SectionHeader label="Daily Check-In" style={styles.sectionHeader} />
-          <LedgerCard style={{ padding: 16 }}>
+          <LedgerCard style={styles.sectionCard}>
+            <Text style={[styles.cardLabel, { color: colors.labelText }]}>DAILY CHECK-IN</Text>
             {dayCheckIn ? (
               <View>
                 <View style={styles.checkinDoneRow}>
-                  <View style={[styles.checkinDoneIcon, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
+                  <View
+                    style={[
+                      styles.checkinDoneIcon,
+                      {
+                        backgroundColor: colors.activeBg,
+                        borderColor: colors.activeBorder,
+                        borderRadius: colors.radiusSm,
+                      },
+                    ]}
+                  >
                     <Feather name="check" size={16} color={colors.activeGreen} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.checkinTitle, { color: colors.navyLight }]}>
                       Checked in — feeling {MOOD_LABELS[dayCheckIn.mood].toLowerCase()}
                     </Text>
-                    <Text style={[styles.checkinMeta, { color: colors.subtleText }]}>
-                      {typeof dayCheckIn.weight === 'number' ? `Weight ${dayCheckIn.weight.toFixed(1)} lbs · ` : ''}
-                      {dayCheckIn.sideEffects.length > 0 ? dayCheckIn.sideEffects.join(', ') : 'No side effects'}
+                    <Text style={[styles.checkinMeta, { color: colors.mutedForeground }]}>
+                      {typeof dayCheckIn.weight === 'number'
+                        ? `Weight ${dayCheckIn.weight.toFixed(1)} lbs · `
+                        : ''}
+                      {dayCheckIn.sideEffects.length > 0
+                        ? dayCheckIn.sideEffects.join(', ')
+                        : 'No side effects'}
                     </Text>
                   </View>
                 </View>
@@ -494,8 +689,10 @@ export default function TodayScreen() {
               </View>
             ) : isToday ? (
               <View>
-                <Text style={[styles.checkinTitle, { color: colors.navyLight }]}>You haven't checked in today</Text>
-                <Text style={[styles.checkinMeta, { color: colors.subtleText, marginTop: 3 }]}>
+                <Text style={[styles.checkinHeadline, { color: colors.navyLight }]}>
+                  You haven't checked in today
+                </Text>
+                <Text style={[styles.checkinBody, { color: colors.mutedForeground }]}>
                   Log your weight, mood, and how the plan feels. It takes 30 seconds.
                 </Text>
                 <Pressable
@@ -503,17 +700,21 @@ export default function TodayScreen() {
                   onPress={() => router.push('/check-in')}
                   style={({ pressed }) => [
                     styles.primaryBtn,
-                    { backgroundColor: colors.cobalt },
+                    { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
                     pressed && { opacity: 0.88 },
                   ]}
                 >
-                  <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>Complete Check-In</Text>
+                  <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
+                    Complete Check-In
+                  </Text>
                 </Pressable>
               </View>
             ) : (
               <View>
-                <Text style={[styles.checkinTitle, { color: colors.navyLight }]}>No check-in recorded</Text>
-                <Text style={[styles.checkinMeta, { color: colors.subtleText, marginTop: 3 }]}>
+                <Text style={[styles.checkinHeadline, { color: colors.navyLight }]}>
+                  No check-in recorded
+                </Text>
+                <Text style={[styles.checkinBody, { color: colors.mutedForeground }]}>
                   Nothing was logged for this day.
                 </Text>
               </View>
@@ -521,30 +722,43 @@ export default function TodayScreen() {
           </LedgerCard>
 
           {/* ── Weight snapshot ── */}
-          <SectionHeader label="Weight" style={styles.sectionHeader} />
-          <LedgerCard style={{ padding: 16 }}>
+          <LedgerCard style={styles.sectionCard}>
+            <View style={styles.weightHeader}>
+              <Text style={[styles.serifTitle, { color: colors.navyLight }]}>Weight snapshot</Text>
+              <Pressable
+                testID="today-view-progress"
+                onPress={() => router.push('/progress')}
+                hitSlop={6}
+                style={({ pressed }) => pressed && { opacity: 0.7 }}
+              >
+                <Text style={[styles.weightLink, { color: colors.cobalt }]}>
+                  View full progress
+                </Text>
+              </Pressable>
+            </View>
             <View style={styles.weightRow}>
               <View style={styles.weightCol}>
-                <Text style={[styles.weightValue, { color: colors.navy }]}>{currentWeight.toFixed(1)}</Text>
-                <Text style={[styles.weightLabel, { color: colors.labelText }]}>CURRENT LBS</Text>
+                <Text style={[styles.weightValue, { color: colors.foreground }]}>
+                  {currentWeight.toFixed(1)} lb
+                </Text>
+                <Text style={[styles.weightLabel, { color: colors.subtleText }]}>CURRENT</Text>
               </View>
+              <View style={[styles.weightDivider, { backgroundColor: colors.divider }]} />
               <View style={styles.weightCol}>
-                <Text style={[styles.weightValue, { color: colors.cobalt }]}>−{lost.toFixed(1)}</Text>
-                <Text style={[styles.weightLabel, { color: colors.labelText }]}>SINCE START</Text>
+                <Text style={[styles.weightValue, { color: colors.cobalt }]}>
+                  {lost >= 0 ? '−' : '+'}
+                  {Math.abs(lost).toFixed(1)} lb
+                </Text>
+                <Text style={[styles.weightLabel, { color: colors.subtleText }]}>TOTAL</Text>
               </View>
+              <View style={[styles.weightDivider, { backgroundColor: colors.divider }]} />
               <View style={styles.weightCol}>
-                <Text style={[styles.weightValue, { color: colors.navyLight }]}>{PATIENT_PROFILE.goalWeight.toFixed(0)}</Text>
-                <Text style={[styles.weightLabel, { color: colors.labelText }]}>GOAL LBS</Text>
+                <Text style={[styles.weightValue, { color: colors.foreground }]}>
+                  {PATIENT_PROFILE.goalWeight.toFixed(0)} lb
+                </Text>
+                <Text style={[styles.weightLabel, { color: colors.subtleText }]}>GOAL</Text>
               </View>
             </View>
-            <Pressable
-              testID="today-view-progress"
-              onPress={() => router.push('/progress')}
-              style={({ pressed }) => [styles.linkRow, pressed && { opacity: 0.7 }]}
-            >
-              <Text style={[styles.linkText, { color: colors.cobalt }]}>View full progress</Text>
-              <Feather name="arrow-right" size={13} color={colors.cobalt} />
-            </Pressable>
           </LedgerCard>
 
           <SyntheticDisclaimer />
@@ -565,7 +779,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
-  heroTopScrim: {
+  heroWash: {
     // react-native-web deprecates the pointerEvents *prop*; use the style key.
     pointerEvents: 'none',
     position: 'absolute',
@@ -573,19 +787,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
-  heroBottomScrim: {
-    pointerEvents: 'none',
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 56,
-  },
   heroContent: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   heroTopRow: {
     flexDirection: 'row',
@@ -594,37 +801,37 @@ const styles = StyleSheet.create({
   },
   wordmark: {
     fontSize: 25,
-    fontFamily: 'PlayfairDisplay_700Bold',
-    letterSpacing: 2.5,
+    fontFamily: fonts.serifBold,
+    letterSpacing: 3.75,
   },
   heroActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   heroIconBtn: {
-    width: 30,
-    height: 30,
+    width: 36,
+    height: 36,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatar: {
-    width: 30,
-    height: 30,
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: fonts.sansBold,
   },
   heroDateRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginTop: 10,
+    justifyContent: 'space-between',
+    marginTop: 20,
   },
   dateArrow: {
     width: 28,
@@ -632,17 +839,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroDate: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    letterSpacing: 0.2,
+  heroDateStrip: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  heroDateText: {
+    fontSize: 10,
+    fontWeight: '700',
+    fontFamily: fonts.sansBold,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
   },
   heroGreeting: {
-    fontSize: 25,
-    fontFamily: 'PlayfairDisplay_600SemiBold',
-    letterSpacing: -0.2,
-    marginTop: 8,
+    fontSize: 29,
+    lineHeight: 32,
+    fontFamily: fonts.serif,
+    marginTop: 12,
   },
   jumpToday: {
     marginTop: 6,
@@ -651,177 +865,256 @@ const styles = StyleSheet.create({
   jumpTodayText: {
     fontSize: 11.5,
     fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: fonts.sansSemiBold,
     textDecorationLine: 'underline',
   },
   // ── Hero quick-link chips ──
   chipRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
+    gap: 8,
+    marginTop: 16,
   },
   chip: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    borderRadius: 12,
+    gap: 8,
     borderWidth: 1,
     paddingVertical: 10,
-    paddingHorizontal: 11,
-    ...Platform.select({
-      web: { boxShadow: '0 4px 10px rgba(23,44,86,0.16)' },
-      default: {
-        shadowColor: '#172c56',
-        shadowOpacity: 0.14,
-        shadowRadius: 8,
-        shadowOffset: { width: 0, height: 4 },
-        elevation: 3,
-      },
-    }),
+    paddingHorizontal: 12,
+    boxShadow: '0 5px 12px rgba(35, 61, 95, 0.10)',
   },
   chipText: {
     flex: 1,
-    fontSize: 12.5,
+    fontSize: 11,
     fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: fonts.sansSemiBold,
   },
-  // ── Check-in pill ──
-  pillWrap: {
+  // ── Floating focus bar ──
+  focusWrap: {
     pointerEvents: 'box-none',
     position: 'absolute',
-    left: 0,
-    right: 0,
+    left: 20,
+    right: 20,
     bottom: 0,
-    alignItems: 'center',
   },
-  pill: {
+  focusBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    maxWidth: '86%',
-    borderRadius: 999,
+    borderRadius: 8,
     borderWidth: 1,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    ...Platform.select({
-      web: { boxShadow: '0 6px 14px rgba(23,44,86,0.22)' },
-      default: {
-        shadowColor: '#172c56',
-        shadowOpacity: 0.2,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 6 },
-        elevation: 6,
-      },
-    }),
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    boxShadow: '0 9px 19px rgba(34, 58, 88, 0.16)',
   },
-  pillIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
+  focusLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    fontFamily: fonts.sansBold,
+    letterSpacing: 1.1,
   },
-  pillText: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    flexShrink: 1,
+  focusValue: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 17,
+    fontFamily: fonts.serif,
   },
   // ── Body ──
   body: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingTop: 32,
   },
-  card: {
-    padding: 16,
-    marginBottom: 14,
+  serifTitle: {
+    fontSize: 21,
+    fontFamily: fonts.serif,
+  },
+  serifTitleSm: {
+    fontSize: 19,
+    fontFamily: fonts.serif,
+  },
+  sectionTitle: {
+    fontSize: 21,
+    fontFamily: fonts.serif,
+    marginTop: 20,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   cardLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
-    letterSpacing: 1.4,
-    fontFamily: 'Inter_700Bold',
+    letterSpacing: 1.2,
+    fontFamily: fonts.sansBold,
   },
-  sectionHeader: {
-    marginBottom: 8,
-    marginTop: 4,
+  // ── Day at a glance ──
+  glanceInner: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  glanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  glanceBadge: {
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  glanceBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    fontFamily: fonts.sansBold,
+    letterSpacing: 0.5,
+  },
+  streakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+  },
+  streakDay: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  streakLetter: {
+    fontSize: 10,
+    fontFamily: fonts.sans,
+  },
+  streakMarkBox: {
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  streakMark: {
+    width: 8,
+    height: 8,
+  },
+  // ── Program instructions ──
+  rowCard: {
+    marginTop: 16,
   },
   instructionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   instructionsIcon: {
-    width: 34,
-    height: 34,
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
   instructionsTitle: {
-    fontSize: 13.5,
+    fontSize: 12,
     fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    marginTop: 3,
-  },
-  calorieRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  calorieBig: {
-    fontSize: 40,
-    fontWeight: '600',
-    letterSpacing: -2,
-    fontFamily: 'Inter_600SemiBold',
-  },
-  calorieMathBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingBottom: 8,
-  },
-  calorieMathRow: {
-    alignItems: 'flex-end',
-  },
-  calorieMathValue: {
-    fontSize: 15,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-  },
-  calorieMathLabel: {
-    fontSize: 8,
-    fontWeight: '700',
-    letterSpacing: 1,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: fonts.sansSemiBold,
     marginTop: 2,
   },
-  calorieMathOp: {
-    fontSize: 16,
-    fontFamily: 'Inter_400Regular',
+  // ── Calories ──
+  calorieCard: {
+    marginTop: 16,
+    padding: 16,
   },
-  calorieHint: {
+  calorieHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  calorieHeadline: {
+    fontSize: 21,
+    fontFamily: fonts.serif,
+    marginTop: 4,
+  },
+  caloriePct: {
     fontSize: 11,
-    marginTop: 8,
-    fontFamily: 'Inter_400Regular',
+    fontWeight: '600',
+    fontFamily: fonts.sansSemiBold,
+    marginTop: 2,
   },
+  gaugeWrap: {
+    alignSelf: 'center',
+    width: GAUGE_W,
+    height: GAUGE_H,
+    marginTop: 12,
+  },
+  gaugeCenter: {
+    pointerEvents: 'none',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 4,
+    alignItems: 'center',
+  },
+  gaugeValue: {
+    fontSize: 46,
+    lineHeight: 48,
+    fontFamily: fonts.serif,
+  },
+  gaugeCaption: {
+    fontSize: 9,
+    fontWeight: '700',
+    fontFamily: fonts.sansBold,
+    letterSpacing: 1.3,
+    marginTop: 4,
+  },
+  calorieStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  calorieStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  calorieStatValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: fonts.sansSemiBold,
+  },
+  calorieStatLabel: {
+    fontSize: 8,
+    fontWeight: '700',
+    fontFamily: fonts.sansBold,
+    letterSpacing: 0.8,
+    marginTop: 2,
+  },
+  calorieStatDivider: {
+    width: 1,
+    height: 28,
+  },
+  macroBlock: {
+    borderTopWidth: 1,
+    marginTop: 16,
+    paddingTop: 12,
+    gap: 12,
+  },
+  // ── Meals & hydration ──
   mealRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 13,
+    paddingVertical: 12,
     gap: 12,
   },
   mealName: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 17,
+    fontFamily: fonts.serif,
   },
   mealMeta: {
     fontSize: 11,
     marginTop: 2,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: fonts.sans,
   },
   addBtn: {
     flexDirection: 'row',
@@ -834,12 +1127,21 @@ const styles = StyleSheet.create({
   addBtnText: {
     fontSize: 11,
     fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: fonts.sansBold,
+  },
+  waterBlock: {
+    padding: 16,
+  },
+  // ── Check-in ──
+  sectionCard: {
+    marginTop: 20,
+    padding: 16,
   },
   checkinDoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    marginTop: 10,
   },
   checkinDoneIcon: {
     width: 34,
@@ -849,24 +1151,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkinTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 18,
+    fontFamily: fonts.serif,
   },
   checkinMeta: {
     fontSize: 11,
     marginTop: 2,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: fonts.sans,
+  },
+  checkinHeadline: {
+    fontSize: 20,
+    fontFamily: fonts.serif,
+    marginTop: 4,
+  },
+  checkinBody: {
+    fontSize: 12,
+    lineHeight: 20,
+    marginTop: 4,
+    fontFamily: fonts.sans,
   },
   primaryBtn: {
-    marginTop: 14,
+    marginTop: 12,
     paddingVertical: 12,
     alignItems: 'center',
   },
   primaryBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontFamily: fonts.sansBold,
     letterSpacing: 0.3,
   },
   linkRow: {
@@ -878,25 +1190,44 @@ const styles = StyleSheet.create({
   linkText: {
     fontSize: 12,
     fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: fonts.sansSemiBold,
+  },
+  // ── Weight snapshot ──
+  weightHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  weightLink: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: fonts.sansBold,
   },
   weightRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
   },
   weightCol: {
     flex: 1,
+    alignItems: 'center',
   },
   weightValue: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '600',
-    letterSpacing: -0.8,
-    fontFamily: 'Inter_600SemiBold',
+    letterSpacing: -0.5,
+    fontFamily: fonts.sansSemiBold,
   },
   weightLabel: {
     fontSize: 8,
     fontWeight: '700',
-    letterSpacing: 1,
-    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.8,
+    fontFamily: fonts.sansBold,
     marginTop: 3,
+  },
+  weightDivider: {
+    width: 1,
+    height: 34,
   },
 });

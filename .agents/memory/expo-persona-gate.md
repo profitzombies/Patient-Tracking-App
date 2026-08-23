@@ -8,3 +8,5 @@ Deep links to patient (or staff) routes on Expo web bounce to the persona choose
 **Why:** The app gates its route groups behind a persona/sign-in flow with per-session state; a fresh headless browser has no persona set.
 
 **How to apply:** For any on-screen verification past the gate, drive a testing subagent (choose Patient → Enter, then navigate tabs) instead of screenshotting the route directly. Tell it the exact expo.kirk.replit.dev URL and to confirm the domain. Note: the demo sign-in's password field is not wrapped in a form (browser logs a DOM warning) — pre-existing, not a regression signal.
+
+For pixel-parity checks against a mockup, capture the app screen and the mockup (`/__mockup/preview/<group>/<Component>`) in the same browser/capture pipeline; mixing pipelines with different scale/JPEG settings makes identical rendering look falsely washed out.

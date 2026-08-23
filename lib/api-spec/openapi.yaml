@@ -73,6 +73,41 @@ paths:
           description: Rate limited
         "502":
           description: Image generation failed
+  /coach/menu-scan:
+    post:
+      operationId: coachMenuScan
+      tags: [coach]
+      summary: Scan a restaurant menu photo for THINNR-compatible orders
+      description: >-
+        Analyzes one menu photo with the coach's vision model, grounded in the
+        verbatim Approved Foods list and the restaurant guide's ordering
+        rules, and returns structured AI guidance: dishes on that menu that
+        can work (each with the exact modification to request), dishes to
+        avoid, or a signal that the photo is not a readable menu. The photo is
+        analyzed in memory only and never stored server-side. This route
+        accepts a larger JSON body than the rest of the API (photo payload)
+        and is rate limited separately from chat.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachMenuScanInput"
+      responses:
+        "200":
+          description: Structured scan result (AI guidance, not program copy)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachMenuScanResult"
+        "400":
+          description: Invalid request body or unsupported photo format
+        "413":
+          description: Photo payload too large
+        "429":
+          description: Rate limited
+        "502":
+          description: Menu scan failed
   /healthz:
     get:
       operationId: healthCheck
@@ -146,3 +181,72 @@ components:
           description: JPEG photo as a data URI
       required:
         - image
+    CoachMenuScanInput:
+      type: object
+      properties:
+        image:
+          type: string
+          description: >-
+            Menu photo as a base64 data URI (image/jpeg, image/png, or
+            image/webp), downscaled and compressed client-side before upload.
+          maxLength: 8000000
+      required:
+        - image
+    CoachMenuScanOrderItem:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Dish name as printed on the menu
+        howToOrder:
+          type: string
+          description: >-
+            Plain-language request to the server covering every needed
+            modification (e.g. grilled plain, no butter or oil, sauce off)
+        note:
+          type: string
+          description: Optional caution or tip (portion boxing, double-checks)
+      required:
+        - name
+        - howToOrder
+    CoachMenuScanAvoidItem:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Dish name as printed on the menu
+        reason:
+          type: string
+          description: Short plain-language reason the dish does not fit
+      required:
+        - name
+        - reason
+    CoachMenuScanResult:
+      type: object
+      description: >-
+        AI guidance derived from the photo — not official program copy.
+        "ok" carries the dish lists; "not_menu" and "unreadable" explain the
+        problem in message and carry empty lists.
+      properties:
+        result:
+          type: string
+          enum: [ok, not_menu, unreadable]
+        message:
+          type: string
+          description: Short coach-voice summary or explanation
+        menuTitle:
+          type: string
+          description: Restaurant or menu name when printed on the menu
+        order:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoachMenuScanOrderItem"
+        avoid:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoachMenuScanAvoidItem"
+      required:
+        - result
+        - message
+        - order
+        - avoid

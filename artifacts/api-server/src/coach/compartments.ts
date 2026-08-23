@@ -117,6 +117,28 @@ interface RestaurantQuote {
   source: string;
 }
 
+interface RestaurantGuideJson {
+  sections?: Array<{ quotes?: RestaurantQuote[] }>;
+  beforeYouOrder?: { quotes?: RestaurantQuote[] };
+}
+
+function readRestaurantGuideJson(): RestaurantGuideJson {
+  const raw = fs.readFileSync(
+    path.join(repoRoot, "artifacts", "thinnr-mobile", "data", "restaurant-guide.json"),
+    "utf8",
+  );
+  return JSON.parse(raw) as RestaurantGuideJson;
+}
+
+/** Formats verbatim guide quotes as source blocks (question, lines, source). */
+function formatGuideQuotes(quotes: RestaurantQuote[]): string[] {
+  return quotes.map((quote) =>
+    [...(quote.question ? [quote.question] : []), ...quote.lines, `(Source: ${quote.source})`].join(
+      "\n",
+    ),
+  );
+}
+
 /**
  * The restaurant guide JSON mixes verbatim program quotes with editorial UI
  * metadata (section keys/titles). Only the verbatim fields — the quoted
@@ -124,24 +146,24 @@ interface RestaurantQuote {
  * model, so the grounding text stays official program wording.
  */
 function loadRestaurantGuide(): string {
-  const raw = fs.readFileSync(
-    path.join(repoRoot, "artifacts", "thinnr-mobile", "data", "restaurant-guide.json"),
-    "utf8",
+  const blocks = (readRestaurantGuideJson().sections ?? []).flatMap((section) =>
+    formatGuideQuotes(section.quotes ?? []),
   );
-  const parsed = JSON.parse(raw) as { sections?: Array<{ quotes?: RestaurantQuote[] }> };
-  const blocks: string[] = [];
-  for (const section of parsed.sections ?? []) {
-    for (const quote of section.quotes ?? []) {
-      const lines = [
-        ...(quote.question ? [quote.question] : []),
-        ...quote.lines,
-        `(Source: ${quote.source})`,
-      ];
-      blocks.push(lines.join("\n"));
-    }
-  }
   if (blocks.length === 0) {
     throw new Error("Restaurant guide contained no quotes");
+  }
+  return blocks.join("\n\n");
+}
+
+/**
+ * The guide's "Before you order" preparation rules (no butter, no oil, ...)
+ * live outside its `sections` array, so the chat compartment above does not
+ * carry them. The menu scanner grounds in them explicitly.
+ */
+function loadBeforeYouOrder(): string {
+  const blocks = formatGuideQuotes(readRestaurantGuideJson().beforeYouOrder?.quotes ?? []);
+  if (blocks.length === 0) {
+    throw new Error('Restaurant guide contained no "Before you order" quotes');
   }
   return blocks.join("\n\n");
 }
@@ -337,4 +359,23 @@ export const COMPARTMENTS: Compartment[] = [
     load: cached("product-catalog", productGroundingText),
   },
 ];
+
+/**
+ * "Before you order" rules as a standalone compartment for the menu scanner.
+ * Not part of COMPARTMENTS: chat turns select by keyword and already get the
+ * dining-out sections; the scanner asks for this block explicitly.
+ */
+export const BEFORE_YOU_ORDER_COMPARTMENT: Compartment = {
+  id: "before-you-order",
+  title: 'Restaurant guide — "Before you order" preparation rules (verbatim quotes)',
+  keywords: [],
+  load: cached("before-you-order", loadBeforeYouOrder),
+};
+
+/** Looks up a chat compartment by id (the menu scanner reuses two of them). */
+export function getCompartmentById(id: string): Compartment {
+  const compartment = COMPARTMENTS.find((c) => c.id === id);
+  if (!compartment) throw new Error(`Unknown compartment: ${id}`);
+  return compartment;
+}
 

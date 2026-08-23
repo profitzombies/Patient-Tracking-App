@@ -214,3 +214,156 @@ function parseQuickReplies(value: unknown): string[] {
     .filter(label => label.length > 0 && label.length <= MAX_QUICK_REPLY_LENGTH)
     .slice(0, MAX_QUICK_REPLIES);
 }
+
+// ─── Menu scan (POST /api/coach/menu-scan) ───────────────────────────────────
+
+export type MenuScanOutcome = 'ok' | 'not_menu' | 'unreadable';
+
+export interface MenuScanOrderItem {
+  /** Dish name as printed on the menu. */
+  name: string;
+  /** Plain sentence to say when ordering, covering every needed change. */
+  howToOrder: string;
+  /** Optional caution or tip (portion to eat, what to double-check). */
+  note?: string;
+}
+
+export interface MenuScanAvoidItem {
+  name: string;
+  reason: string;
+}
+
+/** Structured AI guidance for one scanned menu photo. */
+export interface MenuScanResult {
+  result: MenuScanOutcome;
+  /** Short coach-voice summary ("ok") or explanation (other outcomes). */
+  message: string;
+  /** Restaurant/menu name when printed on the photo. */
+  menuTitle?: string;
+  order: MenuScanOrderItem[];
+  avoid: MenuScanAvoidItem[];
+}
+
+/** Menu scan failure whose message is safe to show the patient. */
+export class MenuScanError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MenuScanError';
+  }
+}
+
+const SCAN_FALLBACK_ERROR = 'The menu scan is unavailable right now. Please try again.';
+
+function scanText(value: unknown, max: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+
+const MAX_SCAN_ITEMS = 10;
+
+function parseOrderItems(value: unknown): MenuScanOrderItem[] {
+  if (!Array.isArray(value)) return [];
+  const items: MenuScanOrderItem[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const record = entry as { name?: unknown; howToOrder?: unknown; note?: unknown };
+    const name = scanText(record.name, 120);
+    const howToOrder = scanText(record.howToOrder, 400);
+    if (!name || !howToOrder) continue;
+    const note = scanText(record.note, 300);
+    items.push({ name, howToOrder, ...(note ? { note } : {}) });
+    if (items.length >= MAX_SCAN_ITEMS) break;
+  }
+  return items;
+}
+
+function parseAvoidItems(value: unknown): MenuScanAvoidItem[] {
+  if (!Array.isArray(value)) return [];
+  const items: MenuScanAvoidItem[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const record = entry as { name?: unknown; reason?: unknown };
+    const name = scanText(record.name, 120);
+    const reason = scanText(record.reason, 300);
+    if (!name || !reason) continue;
+    items.push({ name, reason });
+    if (items.length >= MAX_SCAN_ITEMS) break;
+  }
+  return items;
+}
+
+/**
+ * Sends one menu photo (JPEG/PNG data URI, already downscaled client-side)
+ * for analysis and returns the structured scan result. The server analyzes
+ * the photo in memory only — it is never stored.
+ *
+ * Throws MenuScanError with a user-facing message on any failure, except a
+ * caller-initiated abort, which rethrows the AbortError untouched so cancel
+ * paths can stay silent.
+ */
+export async function scanMenuPhoto(
+  image: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<MenuScanResult> {
+  const doFetch =
+    Platform.OS === 'web'
+      ? globalThis.fetch.bind(globalThis)
+      : (expoFetch as unknown as typeof globalThis.fetch);
+
+  let response: Response;
+  try {
+    response = await doFetch(`${apiBase()}/coach/menu-scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image }),
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    console.error('Menu scan request failed', error);
+    throw new MenuScanError(
+      'Could not reach the menu scanner. Check your connection and try again.',
+    );
+  }
+
+  if (!response.ok) {
+    // The API answers failures with { error: <user-facing message> }; the
+    // proxy can also answer 413 with a non-JSON body for oversized uploads.
+    let message = response.status === 413 ? 'That photo is too large to upload. Please try a different one.' : SCAN_FALLBACK_ERROR;
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
+    } catch {
+      // keep the status-derived message
+    }
+    throw new MenuScanError(message);
+  }
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new MenuScanError(SCAN_FALLBACK_ERROR);
+  }
+  const record = (typeof json === 'object' && json !== null ? json : {}) as {
+    result?: unknown;
+    message?: unknown;
+    menuTitle?: unknown;
+    order?: unknown;
+    avoid?: unknown;
+  };
+  const outcome = record.result;
+  if (outcome !== 'ok' && outcome !== 'not_menu' && outcome !== 'unreadable') {
+    throw new MenuScanError(SCAN_FALLBACK_ERROR);
+  }
+  const message = scanText(record.message, 600);
+  if (!message) throw new MenuScanError(SCAN_FALLBACK_ERROR);
+  const menuTitle = scanText(record.menuTitle, 120);
+  return {
+    result: outcome,
+    message,
+    ...(menuTitle ? { menuTitle } : {}),
+    order: outcome === 'ok' ? parseOrderItems(record.order) : [],
+    avoid: outcome === 'ok' ? parseAvoidItems(record.avoid) : [],
+  };
+}

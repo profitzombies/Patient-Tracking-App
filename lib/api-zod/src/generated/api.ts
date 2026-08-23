@@ -50,6 +50,34 @@ export const CoachRecipeImageResponse = zod.object({
 
 
 /**
+ * Analyzes one menu photo with the coach's vision model, grounded in the verbatim Approved Foods list and the restaurant guide's ordering rules, and returns structured AI guidance: dishes on that menu that can work (each with the exact modification to request), dishes to avoid, or a signal that the photo is not a readable menu. The photo is analyzed in memory only and never stored server-side. This route accepts a larger JSON body than the rest of the API (photo payload) and is rate limited separately from chat.
+ * @summary Scan a restaurant menu photo for THINNR-compatible orders
+ */
+export const coachMenuScanBodyImageMax = 8000000;
+
+
+
+export const CoachMenuScanBody = zod.object({
+  "image": zod.string().max(coachMenuScanBodyImageMax).describe('Menu photo as a base64 data URI (image\/jpeg, image\/png, or image\/webp), downscaled and compressed client-side before upload.')
+})
+
+export const CoachMenuScanResponse = zod.object({
+  "result": zod.enum(['ok', 'not_menu', 'unreadable']),
+  "message": zod.string().describe('Short coach-voice summary or explanation'),
+  "menuTitle": zod.string().optional().describe('Restaurant or menu name when printed on the menu'),
+  "order": zod.array(zod.object({
+  "name": zod.string().describe('Dish name as printed on the menu'),
+  "howToOrder": zod.string().describe('Plain-language request to the server covering every needed modification (e.g. grilled plain, no butter or oil, sauce off)'),
+  "note": zod.string().optional().describe('Optional caution or tip (portion boxing, double-checks)')
+})),
+  "avoid": zod.array(zod.object({
+  "name": zod.string().describe('Dish name as printed on the menu'),
+  "reason": zod.string().describe('Short plain-language reason the dish does not fit')
+}))
+}).describe('AI guidance derived from the photo — not official program copy. \"ok\" carries the dish lists; \"not_menu\" and \"unreadable\" explain the problem in message and carry empty lists.')
+
+
+/**
  * Returns server health status
  * @summary Health check
  */

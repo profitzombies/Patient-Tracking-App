@@ -48,3 +48,49 @@ export interface CoachRecipeImageResult {
   image: string;
 }
 
+export interface CoachMenuScanInput {
+  /**
+     * Menu photo as a base64 data URI (image/jpeg, image/png, or image/webp), downscaled and compressed client-side before upload.
+     * @maxLength 8000000
+     */
+  image: string;
+}
+
+export interface CoachMenuScanOrderItem {
+  /** Dish name as printed on the menu */
+  name: string;
+  /** Plain-language request to the server covering every needed modification (e.g. grilled plain, no butter or oil, sauce off) */
+  howToOrder: string;
+  /** Optional caution or tip (portion boxing, double-checks) */
+  note?: string;
+}
+
+export interface CoachMenuScanAvoidItem {
+  /** Dish name as printed on the menu */
+  name: string;
+  /** Short plain-language reason the dish does not fit */
+  reason: string;
+}
+
+export type CoachMenuScanResultResult = typeof CoachMenuScanResultResult[keyof typeof CoachMenuScanResultResult];
+
+
+export const CoachMenuScanResultResult = {
+  ok: 'ok',
+  not_menu: 'not_menu',
+  unreadable: 'unreadable',
+} as const;
+
+/**
+ * AI guidance derived from the photo — not official program copy. "ok" carries the dish lists; "not_menu" and "unreadable" explain the problem in message and carry empty lists.
+ */
+export interface CoachMenuScanResult {
+  result: CoachMenuScanResultResult;
+  /** Short coach-voice summary or explanation */
+  message: string;
+  /** Restaurant or menu name when printed on the menu */
+  menuTitle?: string;
+  order: CoachMenuScanOrderItem[];
+  avoid: CoachMenuScanAvoidItem[];
+}
+

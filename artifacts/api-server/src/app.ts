@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import { MENU_SCAN_PATH } from "./routes/menu-scan";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -55,7 +56,16 @@ app.use(
     },
   }),
 );
-app.use(express.json());
+// The menu-scan route accepts a photo-sized JSON body and mounts its own
+// parser with a larger limit; every other route keeps the default 100kb guard.
+const jsonParser = express.json();
+app.use((req, res, next) => {
+  if (req.path === MENU_SCAN_PATH) {
+    next();
+    return;
+  }
+  jsonParser(req, res, next);
+});
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);

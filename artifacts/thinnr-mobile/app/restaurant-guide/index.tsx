@@ -52,6 +52,11 @@ export default function RestaurantGuideScreen() {
     router.push('/restaurant-guide/guidance');
   };
 
+  const openMenuScan = () => {
+    Haptics.selectionAsync();
+    router.push('/menu-scan');
+  };
+
   const openRestaurant = (id: string) => {
     Haptics.selectionAsync();
     router.push(`/restaurant-guide/${id}`);
@@ -95,6 +100,22 @@ export default function RestaurantGuideScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[styles.linkTitle, { color: colors.navyLight }]}>General guidance</Text>
               <Text style={[styles.linkMeta, { color: colors.subtleText }]}>{RESTAURANT_GUIDE_TAGLINE}</Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={colors.subtleText} />
+          </View>
+        </LedgerCard>
+
+        {/* ── Menu scanner (AI guidance from a photo of any menu) ── */}
+        <LedgerCard testID="guide-scan-card" onPress={openMenuScan} style={styles.scanCard}>
+          <View style={styles.linkRow}>
+            <View style={[styles.linkIcon, { backgroundColor: colors.accent, borderColor: colors.border, borderRadius: colors.radiusSm }]}>
+              <Feather name="camera" size={16} color={colors.cobalt} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.linkTitle, { color: colors.navyLight }]}>Scan a menu</Text>
+              <Text style={[styles.linkMeta, { color: colors.subtleText }]}>
+                Photograph any menu for AI guidance on what can work
+              </Text>
             </View>
             <Feather name="chevron-right" size={16} color={colors.subtleText} />
           </View>
@@ -182,6 +203,9 @@ const styles = StyleSheet.create({
   },
   guidanceCard: {
     marginTop: 12,
+  },
+  scanCard: {
+    marginTop: 8,
   },
   sectionHeader: {
     marginTop: 18,

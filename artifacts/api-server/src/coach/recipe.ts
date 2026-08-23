@@ -18,6 +18,7 @@
 import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { COMPARTMENTS, type Compartment } from "./compartments";
+import { cleanModelText, extractModelJson } from "./model-json";
 import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
 import {
   approvedItemName,
@@ -171,38 +172,12 @@ THINNR program materials for this question:
 ${sourcesBlock(compartments)}`;
 }
 
-function extractJson(raw: string): unknown {
-  const trimmed = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```\s*$/, "");
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(trimmed.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-}
-
-/** Style insurance: the prompt forbids emojis, this makes it structural. */
-function cleanReply(reply: string): string {
-  return reply.replace(/\p{Extended_Pictographic}/gu, "").trim();
-}
-
 type Interpretation =
   | { ok: true; reply: string; recipe: GeneratedRecipe | null }
   | { ok: false; problems: string[] };
 
 function interpret(raw: string, mode: RecipeMode): Interpretation {
-  const json = extractJson(raw);
+  const json = extractModelJson(raw);
   if (json === null) return { ok: false, problems: ["response was not valid JSON"] };
   const parsed = ModelOutputSchema.safeParse(json);
   if (!parsed.success) {
@@ -229,7 +204,7 @@ function interpret(raw: string, mode: RecipeMode): Interpretation {
     }
     if (problems.length > 0) return { ok: false, problems };
   }
-  return { ok: true, reply: cleanReply(reply), recipe };
+  return { ok: true, reply: cleanModelText(reply), recipe };
 }
 
 let suggestionSeq = 0;

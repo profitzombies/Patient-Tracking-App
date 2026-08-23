@@ -114,6 +114,17 @@ export const acquireImageSlot = createLimiter({
   rapidMessage: "You are requesting photos too quickly. Please wait a moment.",
 });
 
+/** Menu scans: vision calls that carry a photo payload; priced like images. */
+export const acquireMenuScanSlot = createLimiter({
+  burst: 6,
+  refillPerMinute: 4,
+  maxConcurrent: 2,
+  dailyBudget: 150,
+  dailyMessage: "Menu scanning has reached its daily limit. Please try again tomorrow.",
+  busyMessage: "The menu scanner is busy right now. Please try again in a moment.",
+  rapidMessage: "You are scanning menus too quickly. Please wait a moment.",
+});
+
 /** Chat turns: one per message sent from the coach screen. */
 export const acquireChatSlot = createLimiter({
   burst: 10,

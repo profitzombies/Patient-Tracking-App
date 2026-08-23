@@ -21,6 +21,8 @@ import type {
 
 import type {
   CoachChatInput,
+  CoachMenuScanInput,
+  CoachMenuScanResult,
   CoachRecipeImageInput,
   CoachRecipeImageResult,
   HealthStatus
@@ -195,6 +197,78 @@ export const useCoachRecipeImage = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getCoachRecipeImageMutationOptions(options));
+    }
+
+export const getCoachMenuScanUrl = () => {
+
+
+
+
+  return `/api/coach/menu-scan`
+}
+
+/**
+ * Analyzes one menu photo with the coach's vision model, grounded in the verbatim Approved Foods list and the restaurant guide's ordering rules, and returns structured AI guidance: dishes on that menu that can work (each with the exact modification to request), dishes to avoid, or a signal that the photo is not a readable menu. The photo is analyzed in memory only and never stored server-side. This route accepts a larger JSON body than the rest of the API (photo payload) and is rate limited separately from chat.
+ * @summary Scan a restaurant menu photo for THINNR-compatible orders
+ */
+export const coachMenuScan = async (coachMenuScanInput: CoachMenuScanInput, options?: Parameters<typeof customFetch>[1]): Promise<CoachMenuScanResult> => {
+
+  return customFetch<CoachMenuScanResult>(getCoachMenuScanUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(coachMenuScanInput)
+  }
+);}
+
+
+
+
+
+export const getCoachMenuScanMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachMenuScan>>, TError,{data: BodyType<CoachMenuScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof coachMenuScan>>, TError,{data: BodyType<CoachMenuScanInput>}, TContext> => {
+
+const mutationKey = ['coachMenuScan'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachMenuScan>>, {data: BodyType<CoachMenuScanInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  coachMenuScan(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CoachMenuScanMutationResult = NonNullable<Awaited<ReturnType<typeof coachMenuScan>>>
+    export type CoachMenuScanMutationBody = BodyType<CoachMenuScanInput>
+    export type CoachMenuScanMutationError = ErrorType<void>
+
+    /**
+ * @summary Scan a restaurant menu photo for THINNR-compatible orders
+ */
+export const useCoachMenuScan = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachMenuScan>>, TError,{data: BodyType<CoachMenuScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof coachMenuScan>>,
+        TError,
+        {data: BodyType<CoachMenuScanInput>},
+        TContext
+      > => {
+      return useMutation(getCoachMenuScanMutationOptions(options));
     }
 
 export const getHealthCheckUrl = () => {

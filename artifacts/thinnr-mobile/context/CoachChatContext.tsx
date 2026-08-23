@@ -26,18 +26,31 @@ export interface CoachCard {
 
 export interface CoachMessage {
   id: string;
+
   role: 'user' | 'assistant';
+
   text: string;
+
   status: 'streaming' | 'done' | 'error';
   /**
    * True when the patient stopped this reply mid-stream: the kept text is an
    * incomplete fragment. Carried into later requests so the server can tell
    * the model the reply was interrupted (and used for the bubble's label).
    */
+
   stopped?: boolean;
+
   card?: CoachCard;
+
   /** Assistant messages: id of the user message this reply answers. */
   replyToId?: string;
+
+  /**
+   * Server-curated one-tap answer labels tailored to this reply's closing
+   * question. Absent (never free-form model text) when the server made no
+   * suggestion — the chat screen then falls back to its static yes/no pair.
+   */
+  quickReplies?: string[];
 }
 
 interface CoachChatContextValue {
@@ -138,6 +151,15 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
             // First card wins; the server sends at most one per reply anyway.
             setMessages(current =>
               current.map(m => (m.id === assistantId && !m.card ? { ...m, card } : m)),
+            );
+          },
+          onQuickReplies: labels => {
+            if (isStale()) return;
+            // First suggestion wins; the server sends at most one per reply.
+            setMessages(current =>
+              current.map(m =>
+                m.id === assistantId && !m.quickReplies ? { ...m, quickReplies: labels } : m,
+              ),
             );
           },
           onDone: () => {

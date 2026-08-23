@@ -8,7 +8,7 @@
 - [Coach chat grounding](coach-grounding.md) — coach answers come from runtime-sliced verbatim doc compartments (1-3 per turn); structured sources contribute only verbatim fields; extend via card slot, not inlined text.
 - [OpenAPI codegen zod quirk](openapi-codegen-zod.md) — never use type: integer in openapi.yaml (orval emits zod-4 zod.int(), workspace is zod 3); use type: number + server-side clamp.
 - [Validation gate](validation-gate.md) — demo-parity/approved-foods are validation commands; configureWorkflow can't touch them — use setValidationCommand and check result.success.
-- [Coach card attachments](coach-card-attachments.md) — rich chat cards ride a separate SSE card event: model emits only a marker id, server allow-lists offered ids and builds payloads from curated data.
+- [Coach card attachments](coach-card-attachments.md) — cards and one-tap reply labels ride separate SSE events: model emits only marker ids, server allow-lists them and builds payloads from curated data.
 - [Coach reply shape](coach-reply-shape.md) — replies are blank-line-separated thought blocks + follow-up closer; phrase optional reply behaviors default-on and verify with real model calls.
 - [Coach stopped replies](coach-stopped-replies.md) — stopped replies carry a `stopped` flag end-to-end; the server appends a model-only interruption note so the next answer never continues cut-off text.
 - [Staging coach failures](coach-failure-staging.md) — break the model upstream via a workflow env-override restart to test error/Retry states; the tester can break and heal it in one session.

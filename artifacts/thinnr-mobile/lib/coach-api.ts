@@ -4,7 +4,9 @@
  * The endpoint is stateless SSE: the client sends its in-session history plus
  * patient program context and receives `data: {"content": "..."}` chunks,
  * optionally one `data: {"card": {...}}` event (e.g. a product suggestion),
- * then `data: {"done": true}` (or `data: {"error": "..."}`).
+ * optionally one `data: {"quickReplies": [...]}` event (server-curated
+ * one-tap answers fitting the reply's closing question), then
+ * `data: {"done": true}` (or `data: {"error": "..."}`).
  *
  * Web uses the browser's streaming fetch; native uses expo/fetch, which
  * supports ReadableStream bodies on device. If a body stream is unavailable,
@@ -35,6 +37,12 @@ export interface CoachStreamCallbacks {
   onError: (message: string) => void;
   /** Rich card attached to this reply (sent by the server before done). */
   onCard?: (card: CoachCardEvent) => void;
+  /**
+   * Server-curated one-tap answer labels tailored to this reply's closing
+   * question (sent before done). Labels come from the server's allow-list,
+   * never from free-form model text.
+   */
+  onQuickReplies?: (labels: string[]) => void;
 }
 
 export interface CoachStreamOptions {
@@ -55,6 +63,8 @@ function isCardEvent(card: unknown): card is CoachCardEvent {
   );
 }
 
+/** Chips are tiny buttons; anything longer than this cannot be a real label. */
+const MAX_QUICK_REPLY_LENGTH = 40;
 function apiBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (!domain) {
@@ -74,7 +84,13 @@ function drainSseBuffer(
   for (const event of events) {
     for (const line of event.split('\n')) {
       if (!line.startsWith('data: ')) continue;
-      let payload: { content?: string; card?: unknown; done?: boolean; error?: string };
+      let payload: {
+        content?: string;
+        card?: unknown;
+        quickReplies?: unknown;
+        done?: boolean;
+        error?: string;
+      };
       try {
         payload = JSON.parse(line.slice(6));
       } catch {
@@ -85,6 +101,9 @@ function drainSseBuffer(
         callbacks.onDelta(payload.content);
       } else if (isCardEvent(payload.card)) {
         callbacks.onCard?.(payload.card);
+      } else if (payload.quickReplies !== undefined) {
+        const labels = parseQuickReplies(payload.quickReplies);
+        if (labels.length > 0) callbacks.onQuickReplies?.(labels);
       } else if (payload.error) {
         state.finished = true;
         callbacks.onError(payload.error);
@@ -178,4 +197,19 @@ export async function fetchRecipeImage(name: string, description: string): Promi
     throw new Error('Recipe image response missing image data');
   }
   return json.image;
+}
+
+const MAX_QUICK_REPLIES = 2;
+
+/**
+ * Defensive parse of a quick-replies event: keep at most two short,
+ * non-empty string labels; anything malformed yields [] and is ignored.
+ */
+function parseQuickReplies(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((label): label is string => typeof label === 'string')
+    .map(label => label.trim())
+    .filter(label => label.length > 0 && label.length <= MAX_QUICK_REPLY_LENGTH)
+    .slice(0, MAX_QUICK_REPLIES);
 }

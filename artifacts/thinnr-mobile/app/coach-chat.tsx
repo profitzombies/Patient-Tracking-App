@@ -37,7 +37,11 @@ const STARTER_PROMPTS = [
   'What do I order at a restaurant?',
 ];
 
-const QUICK_REPLIES = ['Yes, please', 'No thanks'];
+/**
+ * Static pair used when the server sent no tailored suggestion — it fits the
+ * default yes/no closing question the coach is prompted toward.
+ */
+const FALLBACK_QUICK_REPLIES = ['Yes, please', 'No thanks'];
 
 /**
  * Quick-reply chips show only under the newest assistant message, and only
@@ -59,6 +63,15 @@ function offersQuickReplies(
   );
 }
 
+/**
+ * Chip labels for the newest reply: the server-curated suggestion when one
+ * arrived (e.g. "Surprise me" / "Something light" under an open-ended
+ * question), else the static yes/no pair.
+ */
+function quickRepliesFor(latest: CoachMessage | undefined): string[] {
+  const suggested = latest?.quickReplies ?? [];
+  return suggested.length > 0 ? suggested : FALLBACK_QUICK_REPLIES;
+}
 export default function CoachChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -165,7 +178,7 @@ export default function CoachChatScreen() {
             ))}
             {offersQuickReplies(messages[messages.length - 1], isStreaming) ? (
               <View style={styles.quickReplyRow}>
-                {QUICK_REPLIES.map((reply, index) => (
+                {quickRepliesFor(messages[messages.length - 1]).map((reply, index) => (
                   <Pressable
                     key={reply}
                     testID={`coach-quick-reply-${index}`}

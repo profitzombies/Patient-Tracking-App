@@ -17,4 +17,6 @@ The coach SSE stream carries rich attachments as a separate `data: {"card":{"kin
 
 **How to apply:** new card kinds (recipes, check-ins, etc.) follow the same shape: curated data module → intent gate → prompt block with marker rule → route-side allow-list → registered renderer. Don't invent per-kind SSE event shapes.
 
+**One-tap reply suggestions ride the same marker protocol:** the streaming filter is multi-kind (`[[product:ID]]`, `[[replies:ID]]`) — one shared filter, never two chained ones. A replies id only *selects* a curated label set server-side; the labels go out as their own `data: {"quickReplies":[...]}` event before done, so chip wording is never model text. No suggestion → client falls back to its static yes/no pair, which makes missed markers on yes/no questions cost nothing (the model does skip the marker on some turns). Unlike the intent-gated product block, the replies prompt block is always-on — it only picks UI labels, so there is nothing to gate.
+
 Product specifics: catalog JSON lives in the mobile app (`data/product-catalog.json`) and is read by the server at runtime; names/prices must stay identical to the staff dataset's MOCK_PRODUCTS — the demo-parity script enforces this. getthinnr.com publishes no prices (B2B), so prices are demo values labeled as such on the PDP.

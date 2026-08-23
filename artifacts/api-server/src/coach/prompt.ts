@@ -1,5 +1,6 @@
 import type { Compartment } from "./compartments";
 import type { CatalogProduct } from "./products";
+import { QUICK_REPLY_SETS } from "./quick-replies";
 
 export interface PatientContext {
   firstName: string;
@@ -71,6 +72,26 @@ export function patientContextLine(patient: PatientContext): string {
 }
 
 /**
+ * One-tap answer instructions, always present: replies are prompted to end
+ * with a question, and the marker only ever *selects* a curated label pair.
+ * The route drops unknown ids and the client shows only server-sent labels,
+ * so button wording can never be free-form model text.
+ */
+function buildQuickReplyBlock(): string {
+  const entries = QUICK_REPLY_SETS.map(
+    (set) =>
+      `- ${set.id} (${set.labels.map((label) => `"${label}"`).join(" / ")}) — pick when ${set.fits}.`,
+  ).join("\n");
+
+  return `One-tap answer buttons:
+The app shows one-tap answer buttons under your reply that the patient can send back. Whenever your reply ends with a question, add one extra final line containing only the marker [[replies:ID]], choosing the ID whose answers read most naturally as replies to that exact question:
+${entries}
+Button rules:
+- Yes-or-no questions always take yes_no. For open-ended questions pick the set that fits; if none truly fits, write no marker at all.
+- Use only the IDs above. Never invent IDs, never reword the labels, and never mention the marker or the buttons in your reply text.
+- The marker line is a control signal, not one of your text blocks.`;
+}
+/**
  * Product suggestion instructions, present only when the latest patient
  * message matched at least one catalog product's intent topics. Without this
  * block the model never sees the marker syntax, and the route drops any
@@ -127,6 +148,8 @@ Style rules:
 - End with a short closing block of its own: usually a brief follow-up question, otherwise a practical tip (for example: Want a dinner idea that fits your phase?). Even a simple yes-or-no answer gets two blocks — the answer, then the closer. Skip the closer only when it would repeat an offer from earlier in the conversation or the patient is clearly wrapping up.
 - Never use emojis or emoticons.
 - Warm and direct, like a knowledgeable coach texting back. No filler phrases.
+
+${buildQuickReplyBlock()}
 
 Grounding rules:
 - Answer ONLY from the THINNR program materials inside the <source> blocks below. They are the official program wording.

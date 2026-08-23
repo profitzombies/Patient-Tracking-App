@@ -2,9 +2,9 @@
  * Route tests for POST /api/coach/chat.
  *
  * The OpenAI client is mocked (no credits spent). Covers: invalid bodies,
- * origin allow-listing, a normal SSE turn, product-card enforcement, and rate
- * limiting. The rate-limit test runs last because it drains the shared
- * per-IP bucket.
+ * origin allow-listing, a normal SSE turn, product-card enforcement,
+ * quick-reply suggestion enforcement, and rate limiting. The rate-limit test
+ * runs last because it drains the shared per-IP bucket.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
@@ -168,6 +168,52 @@ describe("POST /api/coach/chat", () => {
       expect(text.split('"card"').length - 1).toBe(1);
       expect(text).toContain('"payload":{"id":"prod5"');
       expect(text).not.toContain('"id":"prod7"');
+    });
+  });
+
+  describe("quick reply suggestions", () => {
+    afterEach(() => {
+      streamState.chunks = [...DEFAULT_CHUNKS];
+    });
+
+    it("emits the curated labels when the model marks a known set", async () => {
+      streamState.chunks = [
+        "What sounds good for dinner tonight?",
+        "\n[[repl",
+        "ies:meal_preference]]",
+      ];
+      const res = await postChat(validBody);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain('"quickReplies":["Surprise me","Something light"]');
+      expect(text).not.toContain("[[replies");
+      expect(text.indexOf('"quickReplies"')).toBeLessThan(text.indexOf('"done":true'));
+    });
+
+    it("drops ids that are not in the curated set", async () => {
+      streamState.chunks = ["Anything else?", "\n[[replies:free_pizza]]"];
+      const res = await postChat(validBody);
+      const text = await res.text();
+      expect(text).not.toContain('"quickReplies"');
+      expect(text).not.toContain("[[replies");
+      expect(text).toContain('data: {"done":true}');
+    });
+
+    it("keeps the first known set and rides alongside a product card", async () => {
+      streamState.chunks = [
+        "Creatine+ fits that goal. Which meal should we plan around it?",
+        "\n[[product:prod7]]",
+        "\n[[replies:meal_of_day]]",
+        "\n[[replies:yes_no]]",
+      ];
+      const res = await postChat({
+        messages: [{ role: "user", content: "I've been lifting and want to build muscle" }],
+      });
+      const text = await res.text();
+      expect(text.split('"quickReplies"').length - 1).toBe(1);
+      expect(text).toContain('"quickReplies":["Lunch","Dinner"]');
+      expect(text).toContain('"card":{"kind":"product","payload":{"id":"prod7"');
+      expect(text).not.toContain("[[");
     });
   });
 

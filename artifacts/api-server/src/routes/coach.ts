@@ -6,9 +6,10 @@ import { buildSystemPrompt, toModelMessages } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
 import { acquireChatSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
-import { ProductMarkerFilter } from "../coach/product-marker";
 import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
+import { MarkerFilter } from "../coach/markers";
+import { firstQuickReplySet } from "../coach/quick-replies";
 
 const router: IRouter = Router();
 
@@ -113,10 +114,10 @@ router.post("/coach/chat", async (req, res) => {
         { signal: abort.signal },
       );
 
-      // Product markers are control signals, never visible text: the filter
-      // strips them from the stream (even split across chunks) and records
-      // the ids for validation below.
-      const markerFilter = new ProductMarkerFilter();
+      // Control markers (product recommendation, one-tap answer set) are
+      // signals, never visible text: the filter strips them from the stream
+      // (even split across chunks) and records the ids for validation below.
+      const markerFilter = new MarkerFilter(["product", "replies"]);
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta?.content;
         if (delta) {
@@ -136,13 +137,23 @@ router.post("/coach/chat", async (req, res) => {
       // ids are dropped), and never more than one. The payload is built from
       // the catalog, not from model output.
       const offeredIds = new Set(offeredProducts.map((p) => p.id));
-      const chosenId = markerFilter.ids.find((id) => offeredIds.has(id));
+      const chosenId = markerFilter.idsFor("product").find((id) => offeredIds.has(id));
       const chosen = chosenId ? findProduct(chosenId) : undefined;
       if (chosen) {
         res.write(
           `data: ${JSON.stringify({ card: { kind: "product", payload: productCardPayload(chosen) } })}\n\n`,
         );
         req.log.info({ product: chosen.id }, "coach chat product card attached");
+      }
+
+      // One-tap answer suggestion: the marker id only selects which curated
+      // label pair to send — unknown ids die here, and the labels come from
+      // the server allow-list, never from model text. When nothing is sent
+      // the client falls back to its static yes/no pair.
+      const replySet = firstQuickReplySet(markerFilter.idsFor("replies"));
+      if (replySet) {
+        res.write(`data: ${JSON.stringify({ quickReplies: replySet.labels })}\n\n`);
+        req.log.info({ quickReplySet: replySet.id }, "coach chat quick replies attached");
       }
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     } catch (error) {

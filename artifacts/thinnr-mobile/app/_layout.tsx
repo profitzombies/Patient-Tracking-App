@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -103,12 +104,21 @@ function useAppFonts(): { status: FontStatus; retry: () => void } {
     if (inFlight.current) return;
     inFlight.current = true;
     setStatus(kind === 'initial' ? 'loading' : 'retrying');
+    // These logs stream to the Metro terminal from real devices — they exist
+    // so on-device reports ("icons broken on Android") can be matched to a
+    // session: which platform ran the gate, and whether fonts loaded or why
+    // not. Keep them until Android tofu reports are confirmed resolved.
+    const startedAt = Date.now();
+    console.log(`[fonts] gate v2 ${kind} load starting on ${Platform.OS}`);
     try {
       for (let attempt = 1; attempt <= LOAD_ATTEMPTS; attempt += 1) {
         try {
           // Already-loaded families resolve immediately inside loadAsync, so
           // retries only re-fetch what actually failed.
           await loadFontsWithTimeout();
+          console.log(
+            `[fonts] gate v2 loaded on ${Platform.OS} in ${Date.now() - startedAt}ms (attempt ${attempt}/${LOAD_ATTEMPTS})`,
+          );
           setStatus('ready');
           return;
         } catch (error) {

@@ -31,11 +31,20 @@ export type RecipeMode = "recipe" | "cravings";
 
 const MEALS = ["breakfast", "lunch", "dinner", "snacks"] as const;
 
+const IngredientNutritionSchema = z.object({
+  calories: z.number().min(0).max(4000),
+  protein: z.number().min(0).max(500),
+  carbs: z.number().min(0).max(500),
+  fat: z.number().min(0).max(500),
+});
+
 const IngredientSchema = z.object({
   amount: z.number().min(0).max(1000),
   unit: z.string().max(24),
   name: z.string().min(1).max(80),
   approvedItemId: z.string().max(120).optional(),
+  /** Contribution to ONE serving — required from the model, checked below. */
+  nutrition: IngredientNutritionSchema,
 });
 
 const GeneratedRecipeSchema = z.object({
@@ -73,7 +82,14 @@ export interface RecipeCardPayload {
   protein: number;
   carbs: number;
   fat: number;
-  ingredients: { amount: number; unit: string; name: string; approvedItemId?: string }[];
+  ingredients: {
+    amount: number;
+    unit: string;
+    name: string;
+    approvedItemId?: string;
+    /** Per-ingredient contribution to ONE serving; sums match the totals above. */
+    nutrition: { calories: number; protein: number; carbs: number; fat: number };
+  }[];
   steps: string[];
   groceryList?: string[];
 }
@@ -131,7 +147,7 @@ const RECIPE_JSON_CONTRACT = `Respond with a single JSON object and nothing else
 - "minutes": total time as a number
 - "servings": how many servings the recipe makes
 - "calories", "protein", "carbs", "fat": estimated numbers PER SERVING (grams for macros); keep them realistic for the portions
-- "ingredients": array of { "amount": number, "unit": string, "name": string } — use amount 0 for "to taste", unit "" when countable
+- "ingredients": array of { "amount": number, "unit": string, "name": string, "nutrition": object } — use amount 0 for "to taste", unit "" when countable. "nutrition" is required on EVERY ingredient: { "calories": number, "protein": number, "carbs": number, "fat": number }, that ingredient's contribution to ONE serving at its listed amount (zeros are fine for water, plain seasonings, or "to taste" rows). Across all ingredients these must add up to the per-serving "calories", "protein", "carbs", "fat" above — the server checks the sums.
 - "steps": array of short instruction strings in cooking order`;
 
 function buildRecipeSystemPrompt(
@@ -216,7 +232,131 @@ function interpret(raw: string, mode: RecipeMode): Interpretation {
     }
     if (problems.length > 0) return { ok: false, problems };
   }
-  return { ok: true, reply: cleanModelText(reply), recipe };
+  if (recipe) {
+    const nutritionProblems = ingredientNutritionProblems(recipe);
+    if (nutritionProblems.length > 0) return { ok: false, problems: nutritionProblems };
+  }
+  return {
+    ok: true,
+    reply: cleanModelText(reply),
+    recipe: recipe ? normalizeIngredientNutrition(recipe) : null,
+  };
+}
+
+// ── Per-ingredient nutrition: deterministic validation + normalization ──────
+
+const MACROS = [
+  { key: "calories", label: "calories", small: 25 },
+  { key: "protein", label: "protein", small: 5 },
+  { key: "carbs", label: "carbs", small: 5 },
+  { key: "fat", label: "fat", small: 5 },
+] as const;
+
+/**
+ * Checks that per-ingredient nutrition plausibly decomposes the per-serving
+ * totals. Tolerant by design (the numbers are estimates): each macro's
+ * ingredient sum must land within ±40% of the per-serving total, OR within
+ * ±40% of the whole-batch total (servings × per-serving) — a common model
+ * slip that normalization rescales away exactly. Tiny targets (≤25 cal / ≤5g)
+ * are skipped: rounding noise dwarfs them. Exported for direct unit tests.
+ */
+export function ingredientNutritionProblems(recipe: GeneratedRecipe): string[] {
+  const problems: string[] = [];
+  for (const macro of MACROS) {
+    const total = recipe[macro.key];
+    if (total <= macro.small) continue;
+    const sum = recipe.ingredients.reduce((acc, i) => acc + i.nutrition[macro.key], 0);
+    const ratio = sum / total;
+    const perServingOk = ratio >= 0.6 && ratio <= 1.4;
+    const batchOk =
+      recipe.servings >= 2 && ratio >= 0.6 * recipe.servings && ratio <= 1.4 * recipe.servings;
+    if (!perServingOk && !batchOk) {
+      problems.push(
+        `ingredient "nutrition" ${macro.label} values sum to ${Math.round(sum * 10) / 10} but the per-serving ${macro.label} is ${total} — "nutrition" must be each ingredient's contribution to ONE serving, and the sums must match the per-serving totals`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * Weights for splitting one macro's card total across ingredients. Only
+ * `eligible` (measurable, amount > 0) rows may carry weight — the breakdown
+ * UI cannot edit "to taste" rows, so nutrition parked there could never be
+ * adjusted. Preference order: the model's own claims on eligible rows, else
+ * their calorie claims (the macro likely rides the caloric ingredients),
+ * else an even split across them. Guarantees a positive weight sum whenever
+ * any row is eligible, so every positive card total gets allocated — even
+ * the tiny ones validation doesn't argue about.
+ */
+function macroWeights(
+  recipe: GeneratedRecipe,
+  key: "calories" | "protein" | "carbs" | "fat",
+  eligible: boolean[],
+): number[] {
+  const masked = (values: number[]) => values.map((value, i) => (eligible[i] ? value : 0));
+  const claims = masked(recipe.ingredients.map((i) => i.nutrition[key]));
+  if (claims.some((value) => value > 0)) return claims;
+  const calories = masked(recipe.ingredients.map((i) => i.nutrition.calories));
+  if (calories.some((value) => value > 0)) return calories;
+  return eligible.map((flag) => (flag ? 1 : 0));
+}
+
+/**
+ * Integer split of `target` across weights (largest remainder, exact sum).
+ * Zero-weight rows always receive exactly 0 — the leftover pass only visits
+ * positive-weight rows.
+ */
+function allocateIntegers(weights: number[], target: number): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (sum <= 0 || target <= 0) return weights.map(() => 0);
+  const exact = weights.map((w) => (w * target) / sum);
+  const base = exact.map(Math.floor);
+  let leftover = target - base.reduce((a, b) => a + b, 0);
+  const order = exact
+    .map((value, i) => ({ i, frac: value - Math.floor(value) }))
+    .filter(({ i }) => weights[i] > 0)
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (const { i } of order) {
+    if (leftover <= 0) break;
+    base[i] += 1;
+    leftover -= 1;
+  }
+  return base;
+}
+
+/**
+ * Rescales each macro so the INTEGER per-ingredient values sum exactly to the
+ * rounded per-serving totals the card displays. Handles the batch-basis slip
+ * (values ~servings× too big) for free — proportions are kept, scale is not.
+ * All nutrition lands on measurable (amount > 0) rows — claims a model parks
+ * on "to taste" rows are reallocated, since the UI cannot edit those — and
+ * unclaimed macros fall back to calorie-weighted then even splits (see
+ * macroWeights), so payload sums always equal the displayed totals and edits
+ * can move every macro. If NO row is measurable (degenerate all-to-taste
+ * recipe), every row becomes eligible so totals still decompose. Exported
+ * for unit tests.
+ */
+export function normalizeIngredientNutrition(recipe: GeneratedRecipe): GeneratedRecipe {
+  const measurable = recipe.ingredients.map((i) => i.amount > 0);
+  const eligible = measurable.some(Boolean)
+    ? measurable
+    : recipe.ingredients.map(() => true);
+  const perMacro = MACROS.map((macro) =>
+    allocateIntegers(macroWeights(recipe, macro.key, eligible), Math.round(recipe[macro.key])),
+  );
+  return {
+    ...recipe,
+    ingredients: recipe.ingredients.map((ingredient, index) => ({
+      ...ingredient,
+      nutrition: {
+        calories: perMacro[0][index],
+        protein: perMacro[1][index],
+        carbs: perMacro[2][index],
+        fat: perMacro[3][index],
+      },
+    })),
+  };
 }
 
 let suggestionSeq = 0;

@@ -48,7 +48,9 @@ const RECIPE_JSON = JSON.stringify({
     protein: 34,
     carbs: 8,
     fat: 16,
-    ingredients: [{ amount: 4, unit: "oz", name: "salmon fillet" }],
+    ingredients: [
+      { amount: 4, unit: "oz", name: "salmon fillet", nutrition: { calories: 320, protein: 34, carbs: 8, fat: 16 } },
+    ],
     steps: ["Grill the salmon plain.", "Steam the green beans."],
   },
 });

@@ -50,6 +50,24 @@ export function formatQty(qty: number): string {
 }
 
 /**
+ * Detail-line marker for entries whose totals include ingredient-level
+ * adjustments ("1 serving · recipe · adjusted"). Kept as a strict suffix so
+ * it is reversible and survives rebuildDetail: both detail formats keep
+ * everything after the quantity, the suffix included.
+ */
+export const ADJUSTED_TAG_SUFFIX = ' · adjusted';
+
+export function withAdjustedTag(detail: string): string {
+  return detail.endsWith(ADJUSTED_TAG_SUFFIX) ? detail : `${detail}${ADJUSTED_TAG_SUFFIX}`;
+}
+
+export function stripAdjustedTag(detail: string): string {
+  return detail.endsWith(ADJUSTED_TAG_SUFFIX)
+    ? detail.slice(0, -ADJUSTED_TAG_SUFFIX.length)
+    : detail;
+}
+
+/**
  * Clone already-logged entries onto another day — "copy yesterday's breakfast
  * onto today" — optionally forcing every clone into one meal slot. Clones are
  * plain user-added entries with fresh ids from `makeId`, and they carry the

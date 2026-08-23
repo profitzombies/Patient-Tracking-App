@@ -12,8 +12,13 @@
  * `addedEntries` and are deleted by filtering them out. Tombstones may only
  * ever reference seed ids.
  */
-import { rescaleEntrySnapshot } from './diary-entries';
-import type { MealLogEntry, MealSlot } from './patient-data';
+import { rescaleEntrySnapshot, stripAdjustedTag, withAdjustedTag } from './diary-entries';
+import type {
+  IngredientAdjustment,
+  IngredientNutrition,
+  MealLogEntry,
+  MealSlot,
+} from './patient-data';
 
 export interface DiaryEntryState {
   /** Entries the patient logged themselves (on top of the seed). */
@@ -111,12 +116,26 @@ export function applyRestoreEntries(
   return entries.reduce((cur, entry) => applyRestoreEntry(cur, entry, isSeedId), state);
 }
 
-/** The fields a patient can fix on a logged entry: slot, quantity, day. */
+/** The fields a patient can fix on a logged entry: slot, quantity, day —
+ * plus, from the ingredient breakdown, recomputed totals and the adjustment
+ * list behind them. */
 export interface EntryEditChanges {
   meal: MealSlot;
   quantity: number;
   /** Omitted → the entry stays on its current day. */
   dateKey?: string;
+  /**
+   * Breakdown saves only: totals already computed for `quantity` (per-serving
+   * adjusted values × quantity). Overrides the snapshot rescale, which cannot
+   * know about ingredient-level changes.
+   */
+  nutrition?: IngredientNutrition;
+  /**
+   * Breakdown saves only: adjustments to persist on the entry. `null` or `[]`
+   * clears any stored adjustments (and the detail tag); omitted leaves
+   * whatever the entry already carries untouched.
+   */
+  adjustments?: IngredientAdjustment[] | null;
 }
 
 /**
@@ -148,9 +167,21 @@ export function applyUpdateEntry(
   const updated: MealLogEntry = {
     ...source,
     ...rescaleEntrySnapshot(source, changes.quantity),
+    // Breakdown saves supply exact totals for the new adjustments; they win
+    // over the snapshot rescale (which can only scale the OLD totals).
+    ...(changes.nutrition ? changes.nutrition : {}),
     meal: changes.meal,
     dateKey: changes.dateKey ?? source.dateKey,
   };
+  if (changes.adjustments !== undefined) {
+    if (changes.adjustments && changes.adjustments.length > 0) {
+      updated.adjustments = changes.adjustments;
+      updated.detail = withAdjustedTag(updated.detail);
+    } else {
+      delete updated.adjustments;
+      updated.detail = stripAdjustedTag(updated.detail);
+    }
+  }
   if (added) {
     return { addedEntries: addedEntries.map(e => (e.id === id ? updated : e)), removedEntryIds };
   }

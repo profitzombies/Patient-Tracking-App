@@ -22,6 +22,10 @@ import {
   APPROVED_CATALOG,
   ingredientNameMatchesItem,
 } from "../coach/approved-catalog";
+import {
+  ingredientNutritionProblems,
+  normalizeIngredientNutrition,
+} from "../coach/recipe";
 import app from "../app";
 
 const createMock = vi.mocked(openai.chat.completions.create);
@@ -89,8 +93,9 @@ const validRecipe = {
   carbs: 18,
   fat: 22,
   ingredients: [
-    { amount: 6, unit: "oz", name: "salmon" },
-    { amount: 2, unit: "cups", name: "broccoli" },
+    // Contribution to ONE serving; sums match the per-serving totals exactly.
+    { amount: 6, unit: "oz", name: "salmon", nutrition: { calories: 230, protein: 25, carbs: 0, fat: 14 } },
+    { amount: 2, unit: "cups", name: "broccoli", nutrition: { calories: 190, protein: 13, carbs: 18, fat: 8 } },
   ],
   steps: ["Season the salmon.", "Bake at 400F for 12 minutes and serve."],
 };
@@ -128,7 +133,7 @@ describe("recipe turns in POST /api/coach/chat", () => {
       ...validRecipe,
       meal: "snacks",
       ingredients: [
-        { amount: 1, unit: "", name: "chocolate cake", approvedItemId: "chocolate-cake" },
+        { amount: 1, unit: "", name: "chocolate cake", approvedItemId: "chocolate-cake", nutrition: { calories: 420, protein: 38, carbs: 18, fat: 22 } },
       ],
     };
     const goodRecipe = {
@@ -136,8 +141,8 @@ describe("recipe turns in POST /api/coach/chat", () => {
       name: "Approved Sweet Fix",
       meal: "snacks",
       ingredients: [
-        { amount: 1, unit: "cup", name: approvedA.name.toLowerCase(), approvedItemId: approvedA.id },
-        { amount: 0.5, unit: "cup", name: approvedB.name.toLowerCase(), approvedItemId: approvedB.id },
+        { amount: 1, unit: "cup", name: approvedA.name.toLowerCase(), approvedItemId: approvedA.id, nutrition: { calories: 300, protein: 20, carbs: 10, fat: 12 } },
+        { amount: 0.5, unit: "cup", name: approvedB.name.toLowerCase(), approvedItemId: approvedB.id, nutrition: { calories: 120, protein: 18, carbs: 8, fat: 10 } },
       ],
     };
     createMock
@@ -175,7 +180,7 @@ describe("recipe turns in POST /api/coach/chat", () => {
       ...validRecipe,
       meal: "snacks",
       ingredients: [
-        { amount: 1, unit: "slice", name: "chocolate cake", approvedItemId: approved.id },
+        { amount: 1, unit: "slice", name: "chocolate cake", approvedItemId: approved.id, nutrition: { calories: 420, protein: 38, carbs: 18, fat: 22 } },
       ],
     };
     createMock
@@ -202,7 +207,7 @@ describe("recipe turns in POST /api/coach/chat", () => {
       ...validRecipe,
       meal: "snacks",
       ingredients: [
-        { amount: 1, unit: "slice", name: "chocolate cake", approvedItemId: approved.id },
+        { amount: 1, unit: "slice", name: "chocolate cake", approvedItemId: approved.id, nutrition: { calories: 420, protein: 38, carbs: 18, fat: 22 } },
       ],
     };
     const corrected = {
@@ -210,7 +215,7 @@ describe("recipe turns in POST /api/coach/chat", () => {
       name: "Approved Fix",
       meal: "snacks",
       ingredients: [
-        { amount: 4, unit: "oz", name: approved.name.toLowerCase(), approvedItemId: approved.id },
+        { amount: 4, unit: "oz", name: approved.name.toLowerCase(), approvedItemId: approved.id, nutrition: { calories: 420, protein: 38, carbs: 18, fat: 22 } },
       ],
       // Free-text grocery list from the model must NOT pass through.
       groceryList: ["1 box chocolate cake mix"],
@@ -232,7 +237,9 @@ describe("recipe turns in POST /api/coach/chat", () => {
     const badRecipe = {
       ...validRecipe,
       meal: "snacks",
-      ingredients: [{ amount: 1, unit: "", name: "candy bar" }],
+      ingredients: [
+        { amount: 1, unit: "", name: "candy bar", nutrition: { calories: 420, protein: 38, carbs: 18, fat: 22 } },
+      ],
     };
     createMock
       .mockResolvedValueOnce(completionOf({ reply: "Sweet fix!", recipe: badRecipe }))
@@ -257,6 +264,242 @@ describe("recipe turns in POST /api/coach/chat", () => {
     expect(createMock).toHaveBeenCalledTimes(1);
     expect(events.some((e) => e.card)).toBe(false);
     expect(events.at(-1)).toEqual({ done: true });
+  });
+});
+
+describe("per-ingredient nutrition in recipe turns", () => {
+  it("retries with a corrective message when ingredient sums are far off, then succeeds", async () => {
+    const wayOff = {
+      ...validRecipe,
+      ingredients: [
+        { amount: 6, unit: "oz", name: "salmon", nutrition: { calories: 50, protein: 2, carbs: 1, fat: 1 } },
+        { amount: 2, unit: "cups", name: "broccoli", nutrition: { calories: 30, protein: 1, carbs: 2, fat: 1 } },
+      ],
+    };
+    createMock
+      .mockResolvedValueOnce(completionOf({ reply: "Salmon tonight.", recipe: wayOff }))
+      .mockResolvedValueOnce(completionOf({ reply: "Salmon tonight, fixed.", recipe: validRecipe }));
+
+    const events = await chatTurn("Give me a dinner idea for tonight");
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    const retryRequest = createMock.mock.calls[1][0] as {
+      messages: { role: string; content: string }[];
+    };
+    expect(retryRequest.messages.at(-1)?.content).toContain("contribution to ONE serving");
+    const card = events.find((e) => e.card)?.card as {
+      payload: { calories: number; ingredients: { nutrition: { calories: number } }[] };
+    };
+    expect(card.payload.calories).toBe(420);
+    const sum = card.payload.ingredients.reduce((acc, i) => acc + i.nutrition.calories, 0);
+    expect(sum).toBe(420);
+    expect(events.at(-1)).toEqual({ done: true });
+  });
+
+  it("accepts whole-batch nutrition and normalizes it to exact per-serving sums", async () => {
+    // servings: 2 — the model slipped and gave batch values (2× per serving).
+    const batchBasis = {
+      ...validRecipe,
+      ingredients: [
+        { amount: 6, unit: "oz", name: "salmon", nutrition: { calories: 460, protein: 50, carbs: 0, fat: 28 } },
+        { amount: 2, unit: "cups", name: "broccoli", nutrition: { calories: 380, protein: 26, carbs: 36, fat: 16 } },
+      ],
+    };
+    createMock.mockResolvedValueOnce(
+      completionOf({ reply: "Salmon bowl.", recipe: batchBasis }),
+    );
+
+    const events = await chatTurn("Give me a dinner idea for tonight");
+
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const card = events.find((e) => e.card)?.card as {
+      payload: {
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+        ingredients: { nutrition: { calories: number; protein: number; carbs: number; fat: number } }[];
+      };
+    };
+    const totals = card.payload.ingredients.reduce(
+      (acc, i) => ({
+        calories: acc.calories + i.nutrition.calories,
+        protein: acc.protein + i.nutrition.protein,
+        carbs: acc.carbs + i.nutrition.carbs,
+        fat: acc.fat + i.nutrition.fat,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    );
+    expect(totals).toEqual({ calories: 420, protein: 38, carbs: 18, fat: 22 });
+    // Proportions kept: salmon carried 460/840 of the calories.
+    expect(card.payload.ingredients[0].nutrition.calories).toBe(230);
+  });
+});
+
+describe("ingredientNutritionProblems / normalizeIngredientNutrition", () => {
+  const base = {
+    name: "Test Dish",
+    description: "A dish.",
+    meal: "dinner" as const,
+    minutes: 20,
+    servings: 1,
+    calories: 400,
+    protein: 30,
+    carbs: 20,
+    fat: 18,
+    steps: ["Cook."],
+  };
+
+  it("passes exact and near sums, flags far-off sums per macro", () => {
+    const good = {
+      ...base,
+      ingredients: [
+        { amount: 4, unit: "oz", name: "chicken", nutrition: { calories: 250, protein: 28, carbs: 0, fat: 10 } },
+        { amount: 1, unit: "cup", name: "rice", nutrition: { calories: 150, protein: 2, carbs: 20, fat: 8 } },
+      ],
+    };
+    expect(ingredientNutritionProblems(good)).toEqual([]);
+
+    const zeroed = {
+      ...base,
+      ingredients: [
+        { amount: 4, unit: "oz", name: "chicken", nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
+      ],
+    };
+    const problems = ingredientNutritionProblems(zeroed);
+    expect(problems.length).toBe(4);
+    expect(problems[0]).toContain("calories");
+  });
+
+  it("skips tiny targets where rounding noise dominates", () => {
+    const tinyFat = {
+      ...base,
+      fat: 3, // ≤ 5g — not worth arguing about
+      ingredients: [
+        { amount: 4, unit: "oz", name: "cod", nutrition: { calories: 400, protein: 30, carbs: 20, fat: 0 } },
+      ],
+    };
+    expect(ingredientNutritionProblems(tinyFat)).toEqual([]);
+  });
+
+  it("normalizes to exact integer sums, respecting per-ingredient claims", () => {
+    const drifted = {
+      ...base,
+      ingredients: [
+        { amount: 4, unit: "oz", name: "chicken", nutrition: { calories: 301, protein: 24.4, carbs: 0, fat: 9.1 } },
+        { amount: 1, unit: "cup", name: "rice", nutrition: { calories: 148, protein: 3.3, carbs: 24.9, fat: 7.7 } },
+      ],
+    };
+    const normalized = normalizeIngredientNutrition(drifted);
+    const sums = normalized.ingredients.reduce(
+      (acc, i) => ({
+        calories: acc.calories + i.nutrition.calories,
+        protein: acc.protein + i.nutrition.protein,
+        carbs: acc.carbs + i.nutrition.carbs,
+        fat: acc.fat + i.nutrition.fat,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    );
+    expect(sums).toEqual({ calories: 400, protein: 30, carbs: 20, fat: 18 });
+    for (const ingredient of normalized.ingredients) {
+      for (const value of Object.values(ingredient.nutrition)) {
+        expect(Number.isInteger(value)).toBe(true);
+        expect(value).toBeGreaterThanOrEqual(0);
+      }
+    }
+    // Rice claims all carbs; chicken stays at 0.
+    expect(normalized.ingredients[0].nutrition.carbs).toBe(0);
+    expect(normalized.ingredients[1].nutrition.carbs).toBe(20);
+  });
+
+  it("allocates positive card totals even when no ingredient claims the macro", () => {
+    // Single ingredient, tiny unclaimed fat: the whole 4g must land on it —
+    // otherwise the card advertises fat its payload doesn't carry and edits
+    // can never move it.
+    const zeroFat = {
+      ...base,
+      fat: 4,
+      ingredients: [
+        { amount: 4, unit: "oz", name: "cod", nutrition: { calories: 400, protein: 30, carbs: 20, fat: 0 } },
+      ],
+    };
+    expect(normalizeIngredientNutrition(zeroFat).ingredients[0].nutrition.fat).toBe(4);
+
+    // Multiple ingredients: unclaimed macros follow the calorie split.
+    const zeroFatSplit = {
+      ...base,
+      fat: 3,
+      ingredients: [
+        { amount: 4, unit: "oz", name: "cod", nutrition: { calories: 300, protein: 25, carbs: 10, fat: 0 } },
+        { amount: 1, unit: "cup", name: "rice", nutrition: { calories: 100, protein: 5, carbs: 10, fat: 0 } },
+      ],
+    };
+    const split = normalizeIngredientNutrition(zeroFatSplit);
+    expect(split.ingredients[0].nutrition.fat + split.ingredients[1].nutrition.fat).toBe(3);
+    expect(split.ingredients[0].nutrition.fat).toBeGreaterThanOrEqual(
+      split.ingredients[1].nutrition.fat,
+    );
+
+    // Everything zeroed: measurable rows share the total; "to taste" stays 0.
+    const allZero = {
+      ...base,
+      calories: 20,
+      protein: 2,
+      carbs: 3,
+      fat: 1,
+      ingredients: [
+        { amount: 4, unit: "oz", name: "cucumber", nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
+        { amount: 0, unit: "", name: "salt, to taste", nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
+      ],
+    };
+    const zeroed = normalizeIngredientNutrition(allZero);
+    expect(zeroed.ingredients[0].nutrition).toEqual({ calories: 20, protein: 2, carbs: 3, fat: 1 });
+    expect(zeroed.ingredients[1].nutrition).toEqual({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+  });
+
+  it("moves claims parked on to-taste rows onto editable measurable rows", () => {
+    // The model put real nutrition on amount-0 rows (the UI can't edit
+    // those): all of it must be reallocated to measurable rows, keeping the
+    // exact card sums.
+    const parked = {
+      ...base,
+      ingredients: [
+        { amount: 4, unit: "oz", name: "chicken", nutrition: { calories: 250, protein: 30, carbs: 0, fat: 6 } },
+        { amount: 1, unit: "cup", name: "rice", nutrition: { calories: 100, protein: 0, carbs: 15, fat: 0 } },
+        { amount: 0, unit: "", name: "olive oil, to taste", nutrition: { calories: 50, protein: 0, carbs: 5, fat: 12 } },
+      ],
+    };
+    const fixed = normalizeIngredientNutrition(parked);
+    expect(fixed.ingredients[2].nutrition).toEqual({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+    const sums = fixed.ingredients.reduce(
+      (acc, i) => ({
+        calories: acc.calories + i.nutrition.calories,
+        protein: acc.protein + i.nutrition.protein,
+        carbs: acc.carbs + i.nutrition.carbs,
+        fat: acc.fat + i.nutrition.fat,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    );
+    expect(sums).toEqual({ calories: 400, protein: 30, carbs: 20, fat: 18 });
+
+    // Even a macro claimed ONLY by the to-taste row lands on measurable rows.
+    expect(fixed.ingredients[0].nutrition.fat + fixed.ingredients[1].nutrition.fat).toBe(18);
+
+    // Degenerate: nothing measurable — rows stay eligible so totals still
+    // decompose instead of vanishing.
+    const allToTaste = {
+      ...base,
+      calories: 10,
+      protein: 0,
+      carbs: 0,
+      fat: 1,
+      ingredients: [
+        { amount: 0, unit: "", name: "herbs, to taste", nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
+      ],
+    };
+    const degenerate = normalizeIngredientNutrition(allToTaste);
+    expect(degenerate.ingredients[0].nutrition.calories).toBe(10);
+    expect(degenerate.ingredients[0].nutrition.fat).toBe(1);
   });
 });
 

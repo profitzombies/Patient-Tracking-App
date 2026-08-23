@@ -18,7 +18,8 @@
     "test:onboarding-gate": "tsx --tsconfig tsconfig.onboarding-gate.json scripts/verify-onboarding-gate.ts",
     "test:onboarding-hints": "tsx --tsconfig tsconfig.onboarding-hints.json scripts/verify-onboarding-hints.ts",
     "test:photo-backfill": "tsx scripts/verify-photo-backfill.ts",
-    "test:photo-remove": "tsx scripts/verify-photo-remove.ts"
+    "test:photo-remove": "tsx scripts/verify-photo-remove.ts",
+    "test:recipe-nutrition": "tsx scripts/verify-recipe-nutrition.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

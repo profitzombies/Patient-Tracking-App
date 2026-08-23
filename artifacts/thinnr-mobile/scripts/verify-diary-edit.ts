@@ -357,6 +357,101 @@ const baseTotal = calorieTotal(visible(base));
   assertEqual('no-ops never consume fresh ids', idCalls, before);
 }
 
+// ── 9. Ingredient-adjustment edits: nutrition override + adjustments field ──
+{
+  const adjustment = { index: 0, amount: 3, unit: 'oz' };
+  const nutrition = { calories: 512, protein: 41, carbs: 19, fat: 23 };
+
+  // Explicit nutrition wins over the quantity rescale, and the adjustment
+  // list rides along with a tagged detail line.
+  const overridden = applyUpdateEntry(
+    base,
+    userEntry.id,
+    { meal: userEntry.meal, quantity: userEntry.quantity, nutrition, adjustments: [adjustment] },
+    findSeed,
+    nextCloneId,
+  );
+  const row = overridden.addedEntries.find(e => e.id === userEntry.id)!;
+  assertEqual('adjust edit takes override calories', row.calories, 512);
+  assertEqual('adjust edit takes override protein', row.protein, 41);
+  assertEqual('adjust edit takes override carbs', row.carbs, 19);
+  assertEqual('adjust edit takes override fat', row.fat, 23);
+  assertEqual('adjust edit keeps quantity', row.quantity, userEntry.quantity);
+  assert(
+    'adjust edit stores the adjustment list',
+    JSON.stringify(row.adjustments) === JSON.stringify([adjustment]),
+  );
+  assert('adjust edit tags the detail', row.detail.endsWith(' · adjusted'));
+
+  // A later edit that does not mention adjustments keeps them (undefined =
+  // untouched) and rescales from the stored snapshot.
+  const requantified = applyUpdateEntry(
+    overridden,
+    userEntry.id,
+    { meal: 'lunch', quantity: 2 },
+    findSeed,
+    nextCloneId,
+  );
+  const requantifiedRow = requantified.addedEntries.find(e => e.id === userEntry.id)!;
+  assert(
+    'later edit keeps stored adjustments',
+    JSON.stringify(requantifiedRow.adjustments) === JSON.stringify([adjustment]),
+  );
+  assert('later edit keeps the adjusted tag', requantifiedRow.detail.endsWith(' · adjusted'));
+  assertEqual('later edit rescales from the adjusted snapshot', requantifiedRow.calories, 1024);
+
+  // Explicit null clears the list and strips the tag (reset-to-original save).
+  const cleared = applyUpdateEntry(
+    overridden,
+    userEntry.id,
+    {
+      meal: userEntry.meal,
+      quantity: userEntry.quantity,
+      nutrition: { calories: 300, protein: 50, carbs: 4, fat: 10 },
+      adjustments: null,
+    },
+    findSeed,
+    nextCloneId,
+  );
+  const clearedRow = cleared.addedEntries.find(e => e.id === userEntry.id)!;
+  assert('null clears stored adjustments', clearedRow.adjustments === undefined);
+  assert('null strips the adjusted tag', !clearedRow.detail.includes('· adjusted'));
+  assertEqual('cleared row carries the reset calories', clearedRow.calories, 300);
+
+  // Seed path: the tombstone + clone branch carries both fields too.
+  const seed = SEED_ENTRIES.find(e => e.kind === 'recipe') ?? SEED_ENTRIES[0]!;
+  const seedEdited = applyUpdateEntry(
+    base,
+    seed.id,
+    { meal: seed.meal, quantity: seed.quantity, nutrition, adjustments: [adjustment] },
+    findSeed,
+    nextCloneId,
+  );
+  const seedClone = seedEdited.addedEntries[seedEdited.addedEntries.length - 1]!;
+  assert('seed edit still tombstones', seedEdited.removedEntryIds.includes(seed.id));
+  assert(
+    'seed clone stores adjustments',
+    JSON.stringify(seedClone.adjustments) === JSON.stringify([adjustment]),
+  );
+  assert('seed clone is tagged', seedClone.detail.endsWith(' · adjusted'));
+  assertEqual('seed clone carries the override calories', seedClone.calories, 512);
+
+  // Re-saving an adjusted entry never double-tags the detail line.
+  const retagged = applyUpdateEntry(
+    overridden,
+    userEntry.id,
+    { meal: userEntry.meal, quantity: userEntry.quantity, nutrition, adjustments: [adjustment] },
+    findSeed,
+    nextCloneId,
+  );
+  const retaggedRow = retagged.addedEntries.find(e => e.id === userEntry.id)!;
+  assertEqual(
+    'tag applied once across repeat saves',
+    retaggedRow.detail.split('· adjusted').length - 1,
+    1,
+  );
+}
+
 // ── Result ───────────────────────────────────────────────────────────────────
 if (failures > 0) {
   console.error(`\n✗ diary edit invariants: ${failures} failure(s) across ${checks} checks`);

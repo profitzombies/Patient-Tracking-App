@@ -100,10 +100,37 @@ export interface FoodItem {
   photoUri?: string;
 }
 
+export interface IngredientNutrition {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
 export interface RecipeIngredient {
   amount: number; // 0 means "to taste" — render name only
   unit: string;
   name: string;
+  /**
+   * This ingredient's contribution to ONE serving of the recipe, at its
+   * listed amount. Optional — older saved recipes predate it and render as
+   * totals-only. Where present across a recipe, the four values sum to the
+   * recipe's stated per-serving totals (exactly for curated data — pinned by
+   * scripts/verify-recipe-nutrition.ts; within rounding for AI estimates).
+   */
+  nutrition?: IngredientNutrition;
+}
+
+/**
+ * One edited ingredient row: the referenced recipe's ingredient at `index`
+ * is taken as `amount` `unit` instead of its original amount. Nutrition
+ * rescaling always derives from the ORIGINAL baseline (see
+ * data/ingredient-nutrition.ts), so adjustments never compound rounding.
+ */
+export interface IngredientAdjustment {
+  index: number;
+  amount: number;
+  unit: string;
 }
 
 export interface Recipe {
@@ -147,6 +174,13 @@ export interface MealLogEntry {
   protein: number;
   carbs: number;
   fat: number;
+  /**
+   * Ingredient-level tweaks behind this entry's totals ("2 oz instead of 4"),
+   * indexed into the referenced recipe's ingredient list. Stored only on
+   * recipe-linked entries so reopening the breakdown restores the exact
+   * amounts; the totals above already include them.
+   */
+  adjustments?: IngredientAdjustment[];
 }
 
 export interface CheckIn {
@@ -319,12 +353,12 @@ export const RECIPES: Recipe[] = [
     calories: 320, protein: 28, carbs: 34, fat: 9,
     description: 'A five-minute protein anchor for protocol mornings — thick nonfat Greek yogurt under a crunch of almonds and two kinds of berries.',
     ingredients: [
-      { amount: 1, unit: 'cup', name: 'nonfat Greek yogurt' },
-      { amount: 0.5, unit: 'cup', name: 'blueberries' },
-      { amount: 0.25, unit: 'cup', name: 'raspberries' },
-      { amount: 2, unit: 'tbsp', name: 'sliced almonds' },
-      { amount: 1, unit: 'tsp', name: 'honey' },
-      { amount: 0.25, unit: 'tsp', name: 'ground cinnamon' },
+      { amount: 1, unit: 'cup', name: 'nonfat Greek yogurt', nutrition: { calories: 151, protein: 24, carbs: 9, fat: 1 } },
+      { amount: 0.5, unit: 'cup', name: 'blueberries', nutrition: { calories: 44, protein: 1, carbs: 11, fat: 0 } },
+      { amount: 0.25, unit: 'cup', name: 'raspberries', nutrition: { calories: 17, protein: 0, carbs: 4, fat: 0 } },
+      { amount: 2, unit: 'tbsp', name: 'sliced almonds', nutrition: { calories: 84, protein: 3, carbs: 3, fat: 8 } },
+      { amount: 1, unit: 'tsp', name: 'honey', nutrition: { calories: 22, protein: 0, carbs: 6, fat: 0 } },
+      { amount: 0.25, unit: 'tsp', name: 'ground cinnamon', nutrition: { calories: 2, protein: 0, carbs: 1, fat: 0 } },
     ],
     steps: [
       'Spoon the yogurt into a chilled bowl and smooth the surface.',
@@ -343,10 +377,10 @@ export const RECIPES: Recipe[] = [
     calories: 210, protein: 26, carbs: 6, fat: 9,
     description: 'Soft-scrambled egg whites folded with wilted spinach and blistered cherry tomatoes. Big volume, tiny calorie cost.',
     ingredients: [
-      { amount: 6, unit: '', name: 'egg whites' },
-      { amount: 2, unit: 'cups', name: 'baby spinach' },
-      { amount: 0.5, unit: 'cup', name: 'cherry tomatoes, halved' },
-      { amount: 1, unit: 'tsp', name: 'olive oil' },
+      { amount: 6, unit: '', name: 'egg whites', nutrition: { calories: 126, protein: 23, carbs: 1, fat: 1 } },
+      { amount: 2, unit: 'cups', name: 'baby spinach', nutrition: { calories: 18, protein: 2, carbs: 2, fat: 0 } },
+      { amount: 0.5, unit: 'cup', name: 'cherry tomatoes, halved', nutrition: { calories: 16, protein: 1, carbs: 3, fat: 0 } },
+      { amount: 1, unit: 'tsp', name: 'olive oil', nutrition: { calories: 50, protein: 0, carbs: 0, fat: 8 } },
       { amount: 0, unit: '', name: 'Salt and black pepper, to taste' },
     ],
     steps: [
@@ -367,12 +401,12 @@ export const RECIPES: Recipe[] = [
     calories: 340, protein: 18, carbs: 52, fat: 8,
     description: 'Assembled the night before, ready when you wake — oats and chia soaked in almond milk with a Greek yogurt boost.',
     ingredients: [
-      { amount: 0.5, unit: 'cup', name: 'rolled oats' },
-      { amount: 1, unit: 'tbsp', name: 'chia seeds' },
-      { amount: 0.75, unit: 'cup', name: 'unsweetened almond milk' },
-      { amount: 0.25, unit: 'cup', name: 'nonfat Greek yogurt' },
-      { amount: 0.5, unit: 'cup', name: 'blueberries' },
-      { amount: 0.5, unit: 'tsp', name: 'vanilla extract' },
+      { amount: 0.5, unit: 'cup', name: 'rolled oats', nutrition: { calories: 162, protein: 6, carbs: 30, fat: 3 } },
+      { amount: 1, unit: 'tbsp', name: 'chia seeds', nutrition: { calories: 63, protein: 2, carbs: 6, fat: 3 } },
+      { amount: 0.75, unit: 'cup', name: 'unsweetened almond milk', nutrition: { calories: 25, protein: 1, carbs: 1, fat: 2 } },
+      { amount: 0.25, unit: 'cup', name: 'nonfat Greek yogurt', nutrition: { calories: 39, protein: 8, carbs: 3, fat: 0 } },
+      { amount: 0.5, unit: 'cup', name: 'blueberries', nutrition: { calories: 45, protein: 1, carbs: 12, fat: 0 } },
+      { amount: 0.5, unit: 'tsp', name: 'vanilla extract', nutrition: { calories: 6, protein: 0, carbs: 0, fat: 0 } },
     ],
     steps: [
       'Stir the oats, chia seeds, almond milk, yogurt, and vanilla together in a jar.',
@@ -391,11 +425,11 @@ export const RECIPES: Recipe[] = [
     calories: 310, protein: 14, carbs: 28, fat: 16,
     description: 'The classic, kept honest: one slice of hearty whole grain, half an avocado, and a runny poached egg.',
     ingredients: [
-      { amount: 1, unit: 'slice', name: 'whole grain bread' },
-      { amount: 0.5, unit: '', name: 'ripe avocado' },
-      { amount: 1, unit: '', name: 'large egg' },
-      { amount: 1, unit: 'tsp', name: 'lemon juice' },
-      { amount: 0.25, unit: 'tsp', name: 'chili flakes' },
+      { amount: 1, unit: 'slice', name: 'whole grain bread', nutrition: { calories: 106, protein: 5, carbs: 20, fat: 1 } },
+      { amount: 0.5, unit: '', name: 'ripe avocado', nutrition: { calories: 127, protein: 2, carbs: 7, fat: 10 } },
+      { amount: 1, unit: '', name: 'large egg', nutrition: { calories: 74, protein: 7, carbs: 1, fat: 5 } },
+      { amount: 1, unit: 'tsp', name: 'lemon juice', nutrition: { calories: 1, protein: 0, carbs: 0, fat: 0 } },
+      { amount: 0.25, unit: 'tsp', name: 'chili flakes', nutrition: { calories: 2, protein: 0, carbs: 0, fat: 0 } },
       { amount: 0, unit: '', name: 'Flaky salt, to taste' },
     ],
     steps: [
@@ -415,10 +449,10 @@ export const RECIPES: Recipe[] = [
     calories: 250, protein: 24, carbs: 20, fat: 8,
     description: 'Layered like dessert, built like a protein shake — cottage cheese, strawberries, and toasted walnuts.',
     ingredients: [
-      { amount: 1, unit: 'cup', name: '2% cottage cheese' },
-      { amount: 0.75, unit: 'cup', name: 'strawberries, sliced' },
-      { amount: 2, unit: 'tbsp', name: 'chopped walnuts' },
-      { amount: 1, unit: 'tsp', name: 'honey' },
+      { amount: 1, unit: 'cup', name: '2% cottage cheese', nutrition: { calories: 136, protein: 21, carbs: 6, fat: 3 } },
+      { amount: 0.75, unit: 'cup', name: 'strawberries, sliced', nutrition: { calories: 27, protein: 1, carbs: 7, fat: 0 } },
+      { amount: 2, unit: 'tbsp', name: 'chopped walnuts', nutrition: { calories: 71, protein: 2, carbs: 2, fat: 5 } },
+      { amount: 1, unit: 'tsp', name: 'honey', nutrition: { calories: 16, protein: 0, carbs: 5, fat: 0 } },
     ],
     steps: [
       'Layer half the cottage cheese into a glass, then half the strawberries.',
@@ -437,13 +471,13 @@ export const RECIPES: Recipe[] = [
     calories: 420, protein: 40, carbs: 12, fat: 24,
     description: 'A composed salad that eats like a full meal — grilled chicken, egg, avocado, and feta over crisp romaine.',
     ingredients: [
-      { amount: 5, unit: 'oz', name: 'chicken breast' },
-      { amount: 3, unit: 'cups', name: 'romaine, chopped' },
-      { amount: 1, unit: '', name: 'hard-boiled egg, halved' },
-      { amount: 0.5, unit: '', name: 'avocado, sliced' },
-      { amount: 0.5, unit: 'cup', name: 'cherry tomatoes, halved' },
-      { amount: 2, unit: 'tbsp', name: 'crumbled feta' },
-      { amount: 1, unit: 'tbsp', name: 'balsamic vinaigrette' },
+      { amount: 5, unit: 'oz', name: 'chicken breast', nutrition: { calories: 175, protein: 31, carbs: 0, fat: 4 } },
+      { amount: 3, unit: 'cups', name: 'romaine, chopped', nutrition: { calories: 18, protein: 1, carbs: 3, fat: 0 } },
+      { amount: 1, unit: '', name: 'hard-boiled egg, halved', nutrition: { calories: 53, protein: 4, carbs: 0, fat: 4 } },
+      { amount: 0.5, unit: '', name: 'avocado, sliced', nutrition: { calories: 92, protein: 1, carbs: 4, fat: 9 } },
+      { amount: 0.5, unit: 'cup', name: 'cherry tomatoes, halved', nutrition: { calories: 10, protein: 1, carbs: 2, fat: 0 } },
+      { amount: 2, unit: 'tbsp', name: 'crumbled feta', nutrition: { calories: 38, protein: 2, carbs: 1, fat: 3 } },
+      { amount: 1, unit: 'tbsp', name: 'balsamic vinaigrette', nutrition: { calories: 34, protein: 0, carbs: 2, fat: 4 } },
     ],
     steps: [
       'Season the chicken and grill 5–6 minutes per side until cooked through; rest, then slice.',
@@ -462,12 +496,12 @@ export const RECIPES: Recipe[] = [
     calories: 460, protein: 35, carbs: 48, fat: 13,
     description: 'A make-ahead bowl with roast turkey, fluffy quinoa, caramelized sweet potato, and massaged kale.',
     ingredients: [
-      { amount: 1, unit: 'cup', name: 'quinoa, rinsed' },
-      { amount: 8, unit: 'oz', name: 'roast turkey breast, sliced' },
-      { amount: 1, unit: '', name: 'large sweet potato, cubed' },
-      { amount: 3, unit: 'cups', name: 'kale, stemmed and torn' },
-      { amount: 1, unit: 'tbsp', name: 'olive oil' },
-      { amount: 0.5, unit: '', name: 'lemon, juiced' },
+      { amount: 1, unit: 'cup', name: 'quinoa, rinsed', nutrition: { calories: 244, protein: 10, carbs: 34, fat: 5 } },
+      { amount: 8, unit: 'oz', name: 'roast turkey breast, sliced', nutrition: { calories: 94, protein: 22, carbs: 0, fat: 1 } },
+      { amount: 1, unit: '', name: 'large sweet potato, cubed', nutrition: { calories: 63, protein: 2, carbs: 12, fat: 0 } },
+      { amount: 3, unit: 'cups', name: 'kale, stemmed and torn', nutrition: { calories: 10, protein: 1, carbs: 1, fat: 0 } },
+      { amount: 1, unit: 'tbsp', name: 'olive oil', nutrition: { calories: 46, protein: 0, carbs: 0, fat: 7 } },
+      { amount: 0.5, unit: '', name: 'lemon, juiced', nutrition: { calories: 3, protein: 0, carbs: 1, fat: 0 } },
       { amount: 0, unit: '', name: 'Salt and pepper, to taste' },
     ],
     steps: [
@@ -487,13 +521,13 @@ export const RECIPES: Recipe[] = [
     calories: 380, protein: 32, carbs: 36, fat: 12,
     description: 'Tuna salad rebuilt with Greek yogurt, briny olives, and crunchy cucumber, rolled in a whole wheat wrap.',
     ingredients: [
-      { amount: 1, unit: 'can', name: 'tuna in water (5 oz), drained' },
-      { amount: 1, unit: '', name: 'large whole wheat wrap' },
-      { amount: 2, unit: 'tbsp', name: 'nonfat Greek yogurt' },
-      { amount: 0.5, unit: 'cup', name: 'cucumber, diced' },
-      { amount: 6, unit: '', name: 'kalamata olives, chopped' },
-      { amount: 1, unit: 'cup', name: 'romaine, shredded' },
-      { amount: 0.5, unit: '', name: 'lemon, juiced' },
+      { amount: 1, unit: 'can', name: 'tuna in water (5 oz), drained', nutrition: { calories: 126, protein: 24, carbs: 0, fat: 2 } },
+      { amount: 1, unit: '', name: 'large whole wheat wrap', nutrition: { calories: 179, protein: 4, carbs: 27, fat: 6 } },
+      { amount: 2, unit: 'tbsp', name: 'nonfat Greek yogurt', nutrition: { calories: 19, protein: 3, carbs: 1, fat: 0 } },
+      { amount: 0.5, unit: 'cup', name: 'cucumber, diced', nutrition: { calories: 8, protein: 0, carbs: 2, fat: 0 } },
+      { amount: 6, unit: '', name: 'kalamata olives, chopped', nutrition: { calories: 32, protein: 0, carbs: 2, fat: 4 } },
+      { amount: 1, unit: 'cup', name: 'romaine, shredded', nutrition: { calories: 8, protein: 1, carbs: 2, fat: 0 } },
+      { amount: 0.5, unit: '', name: 'lemon, juiced', nutrition: { calories: 8, protein: 0, carbs: 2, fat: 0 } },
     ],
     steps: [
       'Flake the tuna into a bowl and stir in the yogurt, cucumber, olives, and lemon.',
@@ -512,14 +546,14 @@ export const RECIPES: Recipe[] = [
     calories: 290, protein: 18, carbs: 42, fat: 5,
     description: 'A pot of slow-simmered lentils with carrot, celery, and tomato — freezes beautifully for protocol weeks.',
     ingredients: [
-      { amount: 1, unit: 'cup', name: 'dried green lentils, rinsed' },
-      { amount: 2, unit: '', name: 'carrots, diced' },
-      { amount: 2, unit: 'stalks', name: 'celery, diced' },
-      { amount: 1, unit: '', name: 'yellow onion, diced' },
-      { amount: 1, unit: 'can', name: 'diced tomatoes (14 oz)' },
-      { amount: 4, unit: 'cups', name: 'low-sodium vegetable broth' },
-      { amount: 1, unit: 'tbsp', name: 'olive oil' },
-      { amount: 1, unit: 'tsp', name: 'ground cumin' },
+      { amount: 1, unit: 'cup', name: 'dried green lentils, rinsed', nutrition: { calories: 191, protein: 15, carbs: 29, fat: 1 } },
+      { amount: 2, unit: '', name: 'carrots, diced', nutrition: { calories: 14, protein: 0, carbs: 3, fat: 0 } },
+      { amount: 2, unit: 'stalks', name: 'celery, diced', nutrition: { calories: 4, protein: 0, carbs: 1, fat: 0 } },
+      { amount: 1, unit: '', name: 'yellow onion, diced', nutrition: { calories: 12, protein: 1, carbs: 3, fat: 0 } },
+      { amount: 1, unit: 'can', name: 'diced tomatoes (14 oz)', nutrition: { calories: 20, protein: 1, carbs: 4, fat: 0 } },
+      { amount: 4, unit: 'cups', name: 'low-sodium vegetable broth', nutrition: { calories: 14, protein: 1, carbs: 2, fat: 0 } },
+      { amount: 1, unit: 'tbsp', name: 'olive oil', nutrition: { calories: 33, protein: 0, carbs: 0, fat: 4 } },
+      { amount: 1, unit: 'tsp', name: 'ground cumin', nutrition: { calories: 2, protein: 0, carbs: 0, fat: 0 } },
       { amount: 0, unit: '', name: 'Fresh parsley, to garnish' },
     ],
     steps: [
@@ -540,12 +574,12 @@ export const RECIPES: Recipe[] = [
     calories: 300, protein: 34, carbs: 12, fat: 13,
     description: 'Garlicky seared shrimp over ribbons of zucchini with burst cherry tomatoes — pasta-night energy, salad-night macros.',
     ingredients: [
-      { amount: 6, unit: 'oz', name: 'shrimp, peeled' },
-      { amount: 2, unit: '', name: 'zucchini, spiralized' },
-      { amount: 2, unit: 'cloves', name: 'garlic, minced' },
-      { amount: 0.75, unit: 'cup', name: 'cherry tomatoes' },
-      { amount: 1, unit: 'tbsp', name: 'olive oil' },
-      { amount: 0.5, unit: '', name: 'lemon, juiced' },
+      { amount: 6, unit: 'oz', name: 'shrimp, peeled', nutrition: { calories: 130, protein: 29, carbs: 1, fat: 2 } },
+      { amount: 2, unit: '', name: 'zucchini, spiralized', nutrition: { calories: 51, protein: 4, carbs: 7, fat: 1 } },
+      { amount: 2, unit: 'cloves', name: 'garlic, minced', nutrition: { calories: 7, protein: 0, carbs: 1, fat: 0 } },
+      { amount: 0.75, unit: 'cup', name: 'cherry tomatoes', nutrition: { calories: 15, protein: 1, carbs: 2, fat: 0 } },
+      { amount: 1, unit: 'tbsp', name: 'olive oil', nutrition: { calories: 91, protein: 0, carbs: 0, fat: 10 } },
+      { amount: 0.5, unit: '', name: 'lemon, juiced', nutrition: { calories: 6, protein: 0, carbs: 1, fat: 0 } },
       { amount: 0, unit: '', name: 'Fresh parsley, to garnish' },
     ],
     steps: [
@@ -566,12 +600,12 @@ export const RECIPES: Recipe[] = [
     calories: 430, protein: 38, carbs: 10, fat: 26,
     description: 'One sheet pan, twenty-five minutes — dill-crusted salmon beside blistered asparagus with charred lemon.',
     ingredients: [
-      { amount: 6, unit: 'oz', name: 'salmon fillet' },
-      { amount: 8, unit: 'spears', name: 'asparagus, trimmed' },
-      { amount: 1, unit: 'tbsp', name: 'olive oil' },
-      { amount: 1, unit: '', name: 'lemon, half sliced, half juiced' },
-      { amount: 1, unit: 'tsp', name: 'chopped fresh dill' },
-      { amount: 1, unit: 'clove', name: 'garlic, minced' },
+      { amount: 6, unit: 'oz', name: 'salmon fillet', nutrition: { calories: 291, protein: 34, carbs: 0, fat: 16 } },
+      { amount: 8, unit: 'spears', name: 'asparagus, trimmed', nutrition: { calories: 22, protein: 3, carbs: 4, fat: 0 } },
+      { amount: 1, unit: 'tbsp', name: 'olive oil', nutrition: { calories: 99, protein: 0, carbs: 0, fat: 10 } },
+      { amount: 1, unit: '', name: 'lemon, half sliced, half juiced', nutrition: { calories: 14, protein: 1, carbs: 5, fat: 0 } },
+      { amount: 1, unit: 'tsp', name: 'chopped fresh dill', nutrition: { calories: 1, protein: 0, carbs: 0, fat: 0 } },
+      { amount: 1, unit: 'clove', name: 'garlic, minced', nutrition: { calories: 3, protein: 0, carbs: 1, fat: 0 } },
     ],
     steps: [
       'Heat the oven to 400°F and line a sheet pan.',
@@ -591,13 +625,13 @@ export const RECIPES: Recipe[] = [
     calories: 410, protein: 42, carbs: 22, fat: 16,
     description: 'A Sunday-style tray roast scaled for two — thyme-rubbed chicken over carrots, brussels sprouts, and red onion.',
     ingredients: [
-      { amount: 12, unit: 'oz', name: 'chicken breast' },
-      { amount: 3, unit: '', name: 'carrots, cut into chunks' },
-      { amount: 2, unit: 'cups', name: 'brussels sprouts, halved' },
-      { amount: 1, unit: '', name: 'red onion, wedged' },
-      { amount: 1.5, unit: 'tbsp', name: 'olive oil' },
-      { amount: 1, unit: 'tsp', name: 'dried thyme' },
-      { amount: 1, unit: 'tsp', name: 'chopped rosemary' },
+      { amount: 12, unit: 'oz', name: 'chicken breast', nutrition: { calories: 245, protein: 39, carbs: 0, fat: 6 } },
+      { amount: 3, unit: '', name: 'carrots, cut into chunks', nutrition: { calories: 33, protein: 1, carbs: 9, fat: 0 } },
+      { amount: 2, unit: 'cups', name: 'brussels sprouts, halved', nutrition: { calories: 33, protein: 2, carbs: 8, fat: 0 } },
+      { amount: 1, unit: '', name: 'red onion, wedged', nutrition: { calories: 19, protein: 0, carbs: 5, fat: 0 } },
+      { amount: 1.5, unit: 'tbsp', name: 'olive oil', nutrition: { calories: 78, protein: 0, carbs: 0, fat: 10 } },
+      { amount: 1, unit: 'tsp', name: 'dried thyme', nutrition: { calories: 1, protein: 0, carbs: 0, fat: 0 } },
+      { amount: 1, unit: 'tsp', name: 'chopped rosemary', nutrition: { calories: 1, protein: 0, carbs: 0, fat: 0 } },
       { amount: 0, unit: '', name: 'Salt and pepper, to taste' },
     ],
     steps: [
@@ -618,12 +652,12 @@ export const RECIPES: Recipe[] = [
     calories: 390, protein: 36, carbs: 18, fat: 19,
     description: 'Tender turkey meatballs simmered in marinara and served over quick-sautéed zucchini noodles.',
     ingredients: [
-      { amount: 12, unit: 'oz', name: 'ground turkey' },
-      { amount: 1, unit: '', name: 'large egg' },
-      { amount: 0.25, unit: 'cup', name: 'almond flour' },
-      { amount: 1, unit: 'cup', name: 'marinara sauce' },
-      { amount: 3, unit: '', name: 'zucchini, spiralized' },
-      { amount: 2, unit: 'cloves', name: 'garlic, minced' },
+      { amount: 12, unit: 'oz', name: 'ground turkey', nutrition: { calories: 216, protein: 27, carbs: 0, fat: 10 } },
+      { amount: 1, unit: '', name: 'large egg', nutrition: { calories: 30, protein: 3, carbs: 0, fat: 2 } },
+      { amount: 0.25, unit: 'cup', name: 'almond flour', nutrition: { calories: 68, protein: 2, carbs: 3, fat: 5 } },
+      { amount: 1, unit: 'cup', name: 'marinara sauce', nutrition: { calories: 30, protein: 1, carbs: 5, fat: 1 } },
+      { amount: 3, unit: '', name: 'zucchini, spiralized', nutrition: { calories: 42, protein: 3, carbs: 9, fat: 1 } },
+      { amount: 2, unit: 'cloves', name: 'garlic, minced', nutrition: { calories: 4, protein: 0, carbs: 1, fat: 0 } },
       { amount: 0, unit: '', name: 'Fresh basil, to garnish' },
     ],
     steps: [
@@ -644,12 +678,12 @@ export const RECIPES: Recipe[] = [
     calories: 320, protein: 34, carbs: 9, fat: 16,
     description: 'Golden-crusted cod with charred broccolini and a one-tablespoon lemon butter that tastes like far more.',
     ingredients: [
-      { amount: 6, unit: 'oz', name: 'cod fillet' },
-      { amount: 1, unit: 'bunch', name: 'broccolini, trimmed' },
-      { amount: 1, unit: 'tbsp', name: 'butter' },
-      { amount: 2, unit: 'cloves', name: 'garlic, sliced' },
-      { amount: 0.5, unit: '', name: 'lemon, juiced' },
-      { amount: 0.25, unit: 'tsp', name: 'chili flakes' },
+      { amount: 6, unit: 'oz', name: 'cod fillet', nutrition: { calories: 151, protein: 30, carbs: 0, fat: 1 } },
+      { amount: 1, unit: 'bunch', name: 'broccolini, trimmed', nutrition: { calories: 38, protein: 4, carbs: 5, fat: 1 } },
+      { amount: 1, unit: 'tbsp', name: 'butter', nutrition: { calories: 110, protein: 0, carbs: 0, fat: 14 } },
+      { amount: 2, unit: 'cloves', name: 'garlic, sliced', nutrition: { calories: 10, protein: 0, carbs: 2, fat: 0 } },
+      { amount: 0.5, unit: '', name: 'lemon, juiced', nutrition: { calories: 9, protein: 0, carbs: 2, fat: 0 } },
+      { amount: 0.25, unit: 'tsp', name: 'chili flakes', nutrition: { calories: 2, protein: 0, carbs: 0, fat: 0 } },
     ],
     steps: [
       'Pat the cod very dry and season well.',
@@ -669,14 +703,14 @@ export const RECIPES: Recipe[] = [
     calories: 400, protein: 34, carbs: 24, fat: 18,
     description: 'Sirloin strips flash-fried with peppers, broccoli, and snap peas in a ginger-soy glaze. Serve as-is or over cauliflower rice.',
     ingredients: [
-      { amount: 10, unit: 'oz', name: 'sirloin, thinly sliced' },
-      { amount: 2, unit: '', name: 'bell peppers, sliced' },
-      { amount: 2, unit: 'cups', name: 'broccoli florets' },
-      { amount: 1, unit: 'cup', name: 'snap peas' },
-      { amount: 2, unit: 'tbsp', name: 'low-sodium soy sauce' },
-      { amount: 1, unit: 'tbsp', name: 'fresh ginger, grated' },
-      { amount: 2, unit: 'cloves', name: 'garlic, minced' },
-      { amount: 1, unit: 'tsp', name: 'sesame oil' },
+      { amount: 10, unit: 'oz', name: 'sirloin, thinly sliced', nutrition: { calories: 272, protein: 28, carbs: 0, fat: 15 } },
+      { amount: 2, unit: '', name: 'bell peppers, sliced', nutrition: { calories: 34, protein: 1, carbs: 8, fat: 0 } },
+      { amount: 2, unit: 'cups', name: 'broccoli florets', nutrition: { calories: 33, protein: 2, carbs: 8, fat: 0 } },
+      { amount: 1, unit: 'cup', name: 'snap peas', nutrition: { calories: 22, protein: 1, carbs: 5, fat: 0 } },
+      { amount: 2, unit: 'tbsp', name: 'low-sodium soy sauce', nutrition: { calories: 9, protein: 2, carbs: 1, fat: 0 } },
+      { amount: 1, unit: 'tbsp', name: 'fresh ginger, grated', nutrition: { calories: 3, protein: 0, carbs: 1, fat: 0 } },
+      { amount: 2, unit: 'cloves', name: 'garlic, minced', nutrition: { calories: 5, protein: 0, carbs: 1, fat: 0 } },
+      { amount: 1, unit: 'tsp', name: 'sesame oil', nutrition: { calories: 22, protein: 0, carbs: 0, fat: 3 } },
     ],
     steps: [
       'Sear the beef in a screaming-hot wok, 2 minutes; remove.',
@@ -696,12 +730,12 @@ export const RECIPES: Recipe[] = [
     calories: 180, protein: 6, carbs: 18, fat: 10,
     description: 'No-bake oat and almond butter bites — roll a batch on Sunday, grab two when the afternoon dip hits.',
     ingredients: [
-      { amount: 1, unit: 'cup', name: 'rolled oats' },
-      { amount: 0.5, unit: 'cup', name: 'almond butter' },
-      { amount: 3, unit: 'tbsp', name: 'honey' },
-      { amount: 2, unit: 'tbsp', name: 'chia seeds' },
-      { amount: 0.25, unit: 'cup', name: 'dark chocolate chips' },
-      { amount: 0.5, unit: 'tsp', name: 'vanilla extract' },
+      { amount: 1, unit: 'cup', name: 'rolled oats', nutrition: { calories: 34, protein: 1, carbs: 6, fat: 1 } },
+      { amount: 0.5, unit: 'cup', name: 'almond butter', nutrition: { calories: 88, protein: 4, carbs: 3, fat: 7 } },
+      { amount: 3, unit: 'tbsp', name: 'honey', nutrition: { calories: 22, protein: 0, carbs: 6, fat: 0 } },
+      { amount: 2, unit: 'tbsp', name: 'chia seeds', nutrition: { calories: 13, protein: 1, carbs: 1, fat: 1 } },
+      { amount: 0.25, unit: 'cup', name: 'dark chocolate chips', nutrition: { calories: 22, protein: 0, carbs: 2, fat: 1 } },
+      { amount: 0.5, unit: 'tsp', name: 'vanilla extract', nutrition: { calories: 1, protein: 0, carbs: 0, fat: 0 } },
     ],
     steps: [
       'Stir every ingredient together in one bowl until it holds when pressed.',
@@ -720,10 +754,10 @@ export const RECIPES: Recipe[] = [
     calories: 120, protein: 5, carbs: 14, fat: 6,
     description: 'Cool cucumber rounds piped with hummus and dusted with paprika — crunchy, salty, and almost free.',
     ingredients: [
-      { amount: 1, unit: '', name: 'large cucumber, cut into rounds' },
-      { amount: 0.5, unit: 'cup', name: 'hummus' },
-      { amount: 0.25, unit: 'tsp', name: 'smoked paprika' },
-      { amount: 1, unit: 'tsp', name: 'olive oil' },
+      { amount: 1, unit: '', name: 'large cucumber, cut into rounds', nutrition: { calories: 19, protein: 1, carbs: 5, fat: 0 } },
+      { amount: 0.5, unit: 'cup', name: 'hummus', nutrition: { calories: 84, protein: 4, carbs: 9, fat: 4 } },
+      { amount: 0.25, unit: 'tsp', name: 'smoked paprika', nutrition: { calories: 1, protein: 0, carbs: 0, fat: 0 } },
+      { amount: 1, unit: 'tsp', name: 'olive oil', nutrition: { calories: 16, protein: 0, carbs: 0, fat: 2 } },
     ],
     steps: [
       'Slice the cucumber into thick rounds and pat dry.',
@@ -741,9 +775,9 @@ export const RECIPES: Recipe[] = [
     calories: 190, protein: 5, carbs: 24, fat: 10,
     description: 'The simplest snack on the plan — crisp apple slices fanned around a measured spoon of almond butter.',
     ingredients: [
-      { amount: 1, unit: '', name: 'crisp apple' },
-      { amount: 1, unit: 'tbsp', name: 'almond butter' },
-      { amount: 0.25, unit: 'tsp', name: 'ground cinnamon' },
+      { amount: 1, unit: '', name: 'crisp apple', nutrition: { calories: 93, protein: 1, carbs: 21, fat: 0 } },
+      { amount: 1, unit: 'tbsp', name: 'almond butter', nutrition: { calories: 95, protein: 4, carbs: 3, fat: 10 } },
+      { amount: 0.25, unit: 'tsp', name: 'ground cinnamon', nutrition: { calories: 2, protein: 0, carbs: 0, fat: 0 } },
     ],
     steps: [
       'Core the apple and cut into thin wedges.',
@@ -761,8 +795,8 @@ export const RECIPES: Recipe[] = [
     calories: 140, protein: 12, carbs: 1, fat: 9,
     description: 'Jammy-centered eggs halved and showered with everything bagel seasoning. Boil six, snack for three days.',
     ingredients: [
-      { amount: 4, unit: '', name: 'large eggs' },
-      { amount: 1, unit: 'tsp', name: 'everything bagel seasoning' },
+      { amount: 4, unit: '', name: 'large eggs', nutrition: { calories: 138, protein: 12, carbs: 1, fat: 9 } },
+      { amount: 1, unit: 'tsp', name: 'everything bagel seasoning', nutrition: { calories: 2, protein: 0, carbs: 0, fat: 0 } },
     ],
     steps: [
       'Lower the eggs into boiling water and cook exactly 9 minutes.',
@@ -780,11 +814,11 @@ export const RECIPES: Recipe[] = [
     calories: 280, protein: 30, carbs: 28, fat: 6,
     description: 'Tastes like a milkshake, logs like a snack — chocolate whey blended with banana and almond milk over ice.',
     ingredients: [
-      { amount: 1, unit: 'scoop', name: 'chocolate whey protein' },
-      { amount: 1, unit: '', name: 'ripe banana' },
-      { amount: 1, unit: 'cup', name: 'unsweetened almond milk' },
-      { amount: 1, unit: 'tbsp', name: 'unsweetened cocoa powder' },
-      { amount: 1, unit: 'cup', name: 'ice' },
+      { amount: 1, unit: 'scoop', name: 'chocolate whey protein', nutrition: { calories: 126, protein: 26, carbs: 3, fat: 2 } },
+      { amount: 1, unit: '', name: 'ripe banana', nutrition: { calories: 110, protein: 2, carbs: 22, fat: 0 } },
+      { amount: 1, unit: 'cup', name: 'unsweetened almond milk', nutrition: { calories: 31, protein: 1, carbs: 1, fat: 3 } },
+      { amount: 1, unit: 'tbsp', name: 'unsweetened cocoa powder', nutrition: { calories: 13, protein: 1, carbs: 2, fat: 1 } },
+      { amount: 1, unit: 'cup', name: 'ice', nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
     ],
     steps: [
       'Add the almond milk, protein, cocoa, and banana to a blender.',

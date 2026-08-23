@@ -29,6 +29,7 @@ import { isApprovedFood } from '@/data/approved-foods';
 import {
   dayLabel,
   DIARY_MIN_KEY,
+  findRecipe,
   formatDateKey,
   MEAL_LABELS,
   MEAL_SLOTS,
@@ -63,6 +64,14 @@ export default function DiaryScreen() {
   // but a removal that lands while a 'removed' notice is up merges into its
   // batch, so no deletion loses its undo window mid clean-up.
   const [notice, setNotice] = useState<DiaryNotice | null>(null);
+
+  // Logged recipe rows (curated or coach-saved) open the ingredient
+  // breakdown for THAT entry; quick entries have nothing to break down.
+  const entryRecipeId = (entry: MealLogEntry): string | undefined => {
+    if (entry.kind !== 'recipe' || !entry.refId) return undefined;
+    if (findRecipe(entry.refId)) return entry.refId;
+    return patient.savedRecipes.some(r => r.id === entry.refId) ? entry.refId : undefined;
+  };
 
   // Collapse any open edit panel when the day changes, and retire a move
   // confirmation once the patient is already looking at its destination day.
@@ -289,17 +298,47 @@ export default function DiaryScreen() {
                   <View key={entry.id}>
                     {index > 0 && <Divider />}
                     <View style={styles.entryRow}>
-                      <View style={{ flex: 1 }}>
+                      <Pressable
+                        testID={entryRecipeId(entry) ? `diary-entry-open-${entry.id}` : undefined}
+                        disabled={!entryRecipeId(entry)}
+                        onPress={() => {
+                          const recipeId = entryRecipeId(entry);
+                          if (recipeId) {
+                            router.push({
+                              pathname: '/recipe/[id]',
+                              params: { id: recipeId, entry: entry.id },
+                            });
+                          }
+                        }}
+                        accessibilityRole={entryRecipeId(entry) ? 'button' : undefined}
+                        accessibilityLabel={
+                          entryRecipeId(entry)
+                            ? `${entry.name}, ${entry.calories} calories, logged recipe`
+                            : undefined
+                        }
+                        accessibilityHint={
+                          entryRecipeId(entry)
+                            ? 'Opens the ingredient breakdown to adjust amounts'
+                            : undefined
+                        }
+                        style={({ pressed }) => [
+                          { flex: 1 },
+                          pressed && !!entryRecipeId(entry) && { opacity: 0.7 },
+                        ]}
+                      >
                         <View style={styles.entryNameRow}>
                           <Text style={[styles.entryName, { color: colors.navyLight }]} numberOfLines={1}>
                             {entry.name}
                           </Text>
                           {entry.kind === 'food' && isApprovedFood(entry.refId) && <ApprovedBadge size="sm" />}
+                          {!!entryRecipeId(entry) && (
+                            <Feather name="chevron-right" size={12} color={colors.subtleText} />
+                          )}
                         </View>
                         <Text style={[styles.entryDetail, { color: colors.subtleText }]}>
                           {entry.detail} · P {entry.protein}g · C {entry.carbs}g · F {entry.fat}g
                         </Text>
-                      </View>
+                      </Pressable>
                       <Text style={[styles.entryCals, { color: colors.navyLight }]}>{entry.calories}</Text>
                       <Pressable
                         testID={`diary-edit-${entry.id}`}

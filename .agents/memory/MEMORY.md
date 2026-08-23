@@ -29,3 +29,4 @@
 - [Range picker restart](range-picker-restart.md) — a pre-filled complete range must restart on the next day-click; react-day-picker's default stretches the old range instead.
 - [Tailwind v4 color-token mapping](tailwind-theme-color-mapping.md) — a css var only becomes a utility class once mapped --color-* in @theme inline; unmapped bg-chart-*/text-warn silently render nothing.
 - [Range-calibrated analytics](range-calibrated-analytics.md) — seeded series calibrated so the default range reproduces approved headline figures; comparisons predating the dataset go honestly null.
+- [Ingredient decomposition](ingredient-decomposition.md) — per-ingredient nutrition: exact curated sums, scale from ORIGINAL baseline, delta totals, server largest-remainder normalization; adjustments persist only recipe-linked.

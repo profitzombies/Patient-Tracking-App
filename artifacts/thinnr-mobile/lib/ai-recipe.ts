@@ -8,13 +8,19 @@
  * Suggestions live only in the chat session — saving one copies it into
  * patient state (see PatientContext.addSavedRecipe / addCustomFood).
  */
-import type { MealSlot } from '@/data/patient-data';
+import type { IngredientNutrition, MealSlot } from '@/data/patient-data';
 
 export interface AiRecipeIngredient {
   amount: number;
   unit: string;
   name: string;
   approvedItemId?: string;
+  /**
+   * Estimated contribution to ONE serving. Optional and parsed leniently:
+   * newer servers always send it, but a malformed or missing block only
+   * degrades that row to totals-only — it never voids the whole card.
+   */
+  nutrition?: IngredientNutrition;
 }
 
 export interface AiRecipeSuggestion {
@@ -48,6 +54,20 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function parseIngredientNutrition(value: unknown): IngredientNutrition | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    !isFiniteNumber(v.calories) || v.calories < 0 ||
+    !isFiniteNumber(v.protein) || v.protein < 0 ||
+    !isFiniteNumber(v.carbs) || v.carbs < 0 ||
+    !isFiniteNumber(v.fat) || v.fat < 0
+  ) {
+    return null;
+  }
+  return { calories: v.calories, protein: v.protein, carbs: v.carbs, fat: v.fat };
+}
+
 function parseIngredient(value: unknown): AiRecipeIngredient | null {
   if (typeof value !== 'object' || value === null) return null;
   const v = value as Record<string, unknown>;
@@ -60,6 +80,9 @@ function parseIngredient(value: unknown): AiRecipeIngredient | null {
     name: v.name,
   };
   if (isNonEmptyString(v.approvedItemId)) ingredient.approvedItemId = v.approvedItemId;
+  // Lenient by design: a bad nutrition block drops to totals-only.
+  const nutrition = parseIngredientNutrition(v.nutrition);
+  if (nutrition) ingredient.nutrition = nutrition;
   return ingredient;
 }
 

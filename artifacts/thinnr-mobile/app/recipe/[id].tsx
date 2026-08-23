@@ -1,8 +1,11 @@
 /**
- * Recipe detail — hero image, per-serving nutrition, ingredients, steps,
- * and a "log it" panel that writes straight into the diary.
+ * Recipe detail — hero image, per-serving nutrition, an ingredient breakdown
+ * with editable amounts (per-ingredient facts, live-rescaled totals), steps,
+ * and a "log it" panel that writes straight into the diary. Opened with
+ * `?entry=<id>` from the diary, it instead edits that logged entry's
+ * ingredient amounts through the normal entry-edit state (undo keeps working).
  */
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -18,34 +21,56 @@ import {
   MEAL_LABELS,
   MEAL_SLOTS,
   TODAY_KEY,
+  type IngredientAdjustment,
   type MealSlot,
 } from '@/data/patient-data';
+import {
+  adjustedPerServing,
+  roundNutrition,
+  sameAdjustments,
+  sanitizeAdjustments,
+  totalsForQuantity,
+} from '@/data/ingredient-nutrition';
+import { withAdjustedTag } from '@/data/diary-entries';
+import { IngredientBreakdown } from '@/components/patient/IngredientBreakdown';
 import { RECIPE_IMAGES } from '@/data/recipe-images';
 
 const MEAL_OPTIONS = MEAL_SLOTS.map(slot => ({ label: MEAL_LABELS[slot], value: slot }));
-
-function formatAmount(amount: number): string {
-  if (amount % 1 === 0) return String(amount);
-  if (amount === 0.5) return '½';
-  if (amount === 0.25) return '¼';
-  if (amount === 0.75) return '¾';
-  return amount.toFixed(1);
-}
 
 export default function RecipeDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, entry: entryParam } = useLocalSearchParams<{ id: string; entry?: string }>();
   // Seeded recipes first; recipes saved from coach (AI) suggestions fall back.
   const staticRecipe = findRecipe(id ?? '');
   const savedRecipe = staticRecipe ? undefined : patient.savedRecipes.find(r => r.id === id);
   const recipe = staticRecipe ?? savedRecipe;
+  // Entry mode: opened from a logged diary row to adjust THAT entry. The
+  // entry must reference THIS recipe (refId === route id) — otherwise a
+  // crafted/mismatched link could apply one recipe's ingredient indices to a
+  // different logged recipe; such links fall back to plain recipe view.
+  const diaryEntry = entryParam
+    ? patient.allEntries.find(
+        e => e.id === entryParam && e.kind === 'recipe' && e.refId === id,
+      )
+    : undefined;
 
   const [meal, setMeal] = useState<MealSlot>(recipe?.meal ?? 'lunch');
   const [servings, setServings] = useState(1);
   const [logging, setLogging] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [adjustments, setAdjustments] = useState<IngredientAdjustment[]>([]);
+
+  // Seed the editor from the entry's stored adjustments once it hydrates.
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!entryParam || seededFor.current === entryParam) return;
+    if (!diaryEntry || !recipe) return;
+    seededFor.current = entryParam;
+    setAdjustments(sanitizeAdjustments(recipe.ingredients, diaryEntry.adjustments));
+  }, [entryParam, diaryEntry, recipe]);
 
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 32 : insets.bottom + 24;
@@ -55,6 +80,8 @@ export default function RecipeDetailScreen() {
   if (mode !== 'patient') {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
+  // Entry links need the diary state; don't flash the log panel before load.
+  if (entryParam && !patient.hydrated) return null;
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -75,28 +102,64 @@ export default function RecipeDetailScreen() {
   }
 
   const isFav = patient.favorites.includes(recipe.id);
-  const totalCals = Math.round(recipe.calories * servings);
+  const sanitized = sanitizeAdjustments(recipe.ingredients, adjustments);
+  const isAdjusted = sanitized.length > 0;
+  const perServing = adjustedPerServing(
+    { calories: recipe.calories, protein: recipe.protein, carbs: recipe.carbs, fat: recipe.fat },
+    recipe.ingredients,
+    sanitized,
+  );
+  const perServingDisplay = roundNutrition(perServing);
+  const totalCals = Math.round(perServing.calories * servings);
+
+  const entryMode = !!diaryEntry;
+  const storedAdjustments = diaryEntry
+    ? sanitizeAdjustments(recipe.ingredients, diaryEntry.adjustments)
+    : [];
+  const dirty = entryMode && !sameAdjustments(sanitized, storedAdjustments);
+  const entryTotals = diaryEntry ? totalsForQuantity(perServing, diaryEntry.quantity) : null;
 
   const logRecipe = async () => {
     if (logging) return;
     setLogging(true);
     try {
+      const baseDetail = `${servings} serving${servings === 1 ? '' : 's'} · ${savedRecipe ? 'AI estimate' : 'recipe'}`;
+      const totals = totalsForQuantity(perServing, servings);
       await patient.addEntry({
         dateKey: TODAY_KEY,
         meal,
         kind: 'recipe',
         refId: recipe.id,
         name: recipe.name,
-        detail: `${servings} serving${servings === 1 ? '' : 's'} · ${savedRecipe ? 'AI estimate' : 'recipe'}`,
+        detail: isAdjusted ? withAdjustedTag(baseDetail) : baseDetail,
         quantity: servings,
-        calories: totalCals,
-        protein: Math.round(recipe.protein * servings),
-        carbs: Math.round(recipe.carbs * servings),
-        fat: Math.round(recipe.fat * servings),
+        calories: totals.calories,
+        protein: totals.protein,
+        carbs: totals.carbs,
+        fat: totals.fat,
+        ...(isAdjusted ? { adjustments: sanitized } : {}),
       });
       goBack();
     } finally {
       setLogging(false);
+    }
+  };
+
+  // Entry mode: write the adjusted totals back through the normal entry-edit
+  // state, so the diary's Edit/Undo flows treat this like any other edit.
+  const saveAdjustments = async () => {
+    if (!diaryEntry || saving) return;
+    setSaving(true);
+    try {
+      await patient.updateEntry(diaryEntry.id, {
+        meal: diaryEntry.meal,
+        quantity: diaryEntry.quantity,
+        nutrition: totalsForQuantity(perServing, diaryEntry.quantity),
+        adjustments: sanitized.length > 0 ? sanitized : null,
+      });
+      goBack();
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -169,22 +232,27 @@ export default function RecipeDetailScreen() {
             </Text>
             <View style={styles.nutritionRow}>
               <View style={styles.nutritionCol}>
-                <Text style={[styles.nutritionBig, { color: colors.navy }]}>{recipe.calories}</Text>
+                <Text style={[styles.nutritionBig, { color: colors.navy }]}>{perServingDisplay.calories}</Text>
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>CALORIES</Text>
               </View>
               <View style={styles.nutritionCol}>
-                <Text style={[styles.nutritionValue, { color: colors.cobalt }]}>{recipe.protein}g</Text>
+                <Text style={[styles.nutritionValue, { color: colors.cobalt }]}>{perServingDisplay.protein}g</Text>
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>PROTEIN</Text>
               </View>
               <View style={styles.nutritionCol}>
-                <Text style={[styles.nutritionValue, { color: colors.navyLight }]}>{recipe.carbs}g</Text>
+                <Text style={[styles.nutritionValue, { color: colors.navyLight }]}>{perServingDisplay.carbs}g</Text>
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>CARBS</Text>
               </View>
               <View style={styles.nutritionCol}>
-                <Text style={[styles.nutritionValue, { color: colors.navyLight }]}>{recipe.fat}g</Text>
+                <Text style={[styles.nutritionValue, { color: colors.navyLight }]}>{perServingDisplay.fat}g</Text>
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>FAT</Text>
               </View>
             </View>
+            {isAdjusted && (
+              <Text style={[styles.estimateNote, { color: colors.cobalt }]}>
+                Includes your ingredient adjustments.
+              </Text>
+            )}
             {savedRecipe && (
               <Text style={[styles.estimateNote, { color: colors.subtleText }]}>
                 AI estimates — actual values depend on your exact ingredients.
@@ -193,31 +261,19 @@ export default function RecipeDetailScreen() {
           </LedgerCard>
 
           {/* ── Ingredients ── */}
-          <SectionHeader label="Ingredients" value={`Makes ${recipe.servings} serving${recipe.servings === 1 ? '' : 's'}`} style={{ marginTop: 18, marginBottom: 8 }} />
+          <SectionHeader
+            label="Ingredients"
+            value={`Makes ${recipe.servings} serving${recipe.servings === 1 ? '' : 's'}`}
+            action={isAdjusted ? { label: 'Reset amounts', onPress: () => setAdjustments([]) } : undefined}
+            style={{ marginTop: 18, marginBottom: 8 }}
+          />
           <LedgerCard style={{ paddingVertical: 4 }}>
-            {recipe.ingredients.map((ingredient, index) => (
-              <View key={`${ingredient.name}-${index}`}>
-                {index > 0 && <Divider />}
-                <View style={styles.ingredientRow}>
-                  <View style={[styles.ingredientDot, { backgroundColor: colors.cobalt }]} />
-                  <Text style={[styles.ingredientText, { color: colors.bodyText }]}>
-                    {ingredient.amount > 0 ? (
-                      <>
-                        <Text style={{ fontFamily: 'Inter_600SemiBold', color: colors.navyLight }}>
-                          {formatAmount(ingredient.amount)}{ingredient.unit ? ` ${ingredient.unit}` : ''}
-                        </Text>
-                        {` ${ingredient.name}`}
-                      </>
-                    ) : (
-                      <>
-                        {ingredient.name}
-                        <Text style={{ color: colors.subtleText }}> — to taste</Text>
-                      </>
-                    )}
-                  </Text>
-                </View>
-              </View>
-            ))}
+            <IngredientBreakdown
+              ingredients={recipe.ingredients}
+              adjustments={adjustments}
+              onChange={setAdjustments}
+              estimated={!!savedRecipe}
+            />
           </LedgerCard>
 
           {/* ── Steps ── */}
@@ -254,6 +310,44 @@ export default function RecipeDetailScreen() {
             </>
           )}
 
+          {/* ── Update the logged entry (entry mode) or log it fresh ── */}
+          {entryMode && diaryEntry && entryTotals ? (
+            <>
+              <SectionHeader label="Update This Entry" style={{ marginTop: 18, marginBottom: 8 }} />
+              <LedgerCard style={{ padding: 16 }}>
+                <Text style={[styles.servingLabel, { color: colors.labelText }]}>
+                  LOGGED · {diaryEntry.quantity} SERVING{diaryEntry.quantity === 1 ? '' : 'S'} · {MEAL_LABELS[diaryEntry.meal].toUpperCase()}
+                </Text>
+                <Text style={[styles.entryTotals, { color: colors.bodyText }]}>
+                  New totals:{' '}
+                  <Text style={{ fontFamily: 'Inter_600SemiBold', color: colors.navy }}>
+                    {entryTotals.calories.toLocaleString('en-US')} cal
+                  </Text>
+                  {` · P ${entryTotals.protein}g · C ${entryTotals.carbs}g · F ${entryTotals.fat}g`}
+                </Text>
+                <Pressable
+                  testID="entry-save-adjust"
+                  onPress={saveAdjustments}
+                  disabled={!dirty || saving}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !dirty || saving }}
+                  style={({ pressed }) => [
+                    styles.logBtn,
+                    { backgroundColor: dirty ? colors.cobalt : colors.border, borderRadius: colors.radiusSm },
+                    (pressed || saving) && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text style={[styles.logBtnText, { color: dirty ? colors.primaryForeground : colors.subtleText }]}>
+                    {dirty ? 'Save adjusted amounts' : 'No changes to save'}
+                  </Text>
+                </Pressable>
+                <Text style={[styles.logHint, { color: colors.subtleText }]}>
+                  Updates this diary entry — Edit and Undo keep working.
+                </Text>
+              </LedgerCard>
+            </>
+          ) : (
+            <>
           {/* ── Log it ── */}
           <SectionHeader label="Add to Diary" style={{ marginTop: 18, marginBottom: 8 }} />
           <LedgerCard style={{ padding: 16 }}>
@@ -304,6 +398,8 @@ export default function RecipeDetailScreen() {
             </Pressable>
             <Text style={[styles.logHint, { color: colors.subtleText }]}>Logs to today's diary</Text>
           </LedgerCard>
+            </>
+          )}
 
           <SyntheticDisclaimer />
         </View>
@@ -521,5 +617,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
     fontFamily: 'Inter_400Regular',
+  },
+  entryTotals: {
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 10,
   },
 });

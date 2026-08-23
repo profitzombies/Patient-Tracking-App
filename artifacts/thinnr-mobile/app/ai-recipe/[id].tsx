@@ -28,17 +28,23 @@ import { usePatient } from '@/context/PatientContext';
 import { fetchRecipeImage } from '@/lib/coach-api';
 import type { AiRecipeSuggestion } from '@/lib/ai-recipe';
 import { createPhotoBackfill, type PhotoBackfill } from '@/lib/photo-backfill';
-import { MEAL_LABELS, MEAL_SLOTS, TODAY_KEY, type MealSlot } from '@/data/patient-data';
+import {
+  MEAL_LABELS,
+  MEAL_SLOTS,
+  TODAY_KEY,
+  type IngredientAdjustment,
+  type MealSlot,
+} from '@/data/patient-data';
+import {
+  adjustedPerServing,
+  roundNutrition,
+  sanitizeAdjustments,
+  totalsForQuantity,
+} from '@/data/ingredient-nutrition';
+import { withAdjustedTag } from '@/data/diary-entries';
+import { IngredientBreakdown } from '@/components/patient/IngredientBreakdown';
 
 const MEAL_OPTIONS = MEAL_SLOTS.map(slot => ({ label: MEAL_LABELS[slot], value: slot }));
-
-function formatAmount(amount: number): string {
-  if (amount % 1 === 0) return String(amount);
-  if (amount === 0.5) return '½';
-  if (amount === 0.25) return '¼';
-  if (amount === 0.75) return '¾';
-  return amount.toFixed(1);
-}
 
 export default function AiRecipePreviewScreen() {
   const colors = useColors();
@@ -57,6 +63,9 @@ export default function AiRecipePreviewScreen() {
   const [savedFoodId, setSavedFoodId] = useState<string | null>(null);
   const [savingRecipe, setSavingRecipe] = useState(false);
   const [savingFood, setSavingFood] = useState(false);
+  // Session-local ingredient adjustments (halved salmon, oz→lb, …). They
+  // shape what gets LOGGED; Library saves keep the coach's original amounts.
+  const [adjustments, setAdjustments] = useState<IngredientAdjustment[]>([]);
   // Image generation is deliberately invisible on this screen: it starts
   // quietly on open and the picture only ever surfaces in the Library after
   // a save. Status lives in refs because nothing here renders it.
@@ -134,7 +143,15 @@ export default function AiRecipePreviewScreen() {
   }
 
   const isCravings = suggestion.mode === 'cravings';
-  const totalCals = Math.round(suggestion.calories * servings);
+  const sanitized = sanitizeAdjustments(suggestion.ingredients, adjustments);
+  const isAdjusted = sanitized.length > 0;
+  const perServing = adjustedPerServing(
+    { calories: suggestion.calories, protein: suggestion.protein, carbs: suggestion.carbs, fat: suggestion.fat },
+    suggestion.ingredients,
+    sanitized,
+  );
+  const perServingDisplay = roundNutrition(perServing);
+  const totalCals = Math.round(perServing.calories * servings);
 
   // Saving after a failed generation quietly retries once in the background
   // so the Library entry still gets its picture; a second failure leaves the
@@ -149,6 +166,8 @@ export default function AiRecipePreviewScreen() {
     if (logging) return;
     setLogging(true);
     try {
+      const baseDetail = `${servings} serving${servings === 1 ? '' : 's'} · AI estimate`;
+      const totals = totalsForQuantity(perServing, servings);
       await patient.addEntry({
         dateKey: TODAY_KEY,
         meal,
@@ -157,12 +176,16 @@ export default function AiRecipePreviewScreen() {
         kind: savedRecipeId ? 'recipe' : 'quick',
         ...(savedRecipeId ? { refId: savedRecipeId } : {}),
         name: suggestion.name,
-        detail: `${servings} serving${servings === 1 ? '' : 's'} · AI estimate`,
+        detail: isAdjusted ? withAdjustedTag(baseDetail) : baseDetail,
         quantity: servings,
-        calories: totalCals,
-        protein: Math.round(suggestion.protein * servings),
-        carbs: Math.round(suggestion.carbs * servings),
-        fat: Math.round(suggestion.fat * servings),
+        calories: totals.calories,
+        protein: totals.protein,
+        carbs: totals.carbs,
+        fat: totals.fat,
+        // Only recipe-linked rows can reopen the breakdown from the diary,
+        // so only they carry the adjustment list (indices match the saved
+        // recipe's ingredients, which keep the coach's original order).
+        ...(savedRecipeId && isAdjusted ? { adjustments: sanitized } : {}),
       });
       goBack();
     } finally {
@@ -187,10 +210,13 @@ export default function AiRecipePreviewScreen() {
         carbs: Math.round(suggestion.carbs),
         fat: Math.round(suggestion.fat),
         description: suggestion.description,
+        // Library saves keep the coach's ORIGINAL amounts and per-ingredient
+        // nutrition; session adjustments only shape what gets logged.
         ingredients: suggestion.ingredients.map(i => ({
           amount: i.amount,
           unit: i.unit,
           name: i.name,
+          ...(i.nutrition ? { nutrition: i.nutrition } : {}),
         })),
         steps: suggestion.steps,
         source: 'coach',
@@ -280,22 +306,27 @@ export default function AiRecipePreviewScreen() {
             <Text style={[styles.cardLabel, { color: colors.labelText }]}>ESTIMATED NUTRITION · PER SERVING</Text>
             <View style={styles.nutritionRow}>
               <View style={styles.nutritionCol}>
-                <Text style={[styles.nutritionBig, { color: colors.navy }]}>{Math.round(suggestion.calories)}</Text>
+                <Text style={[styles.nutritionBig, { color: colors.navy }]}>{perServingDisplay.calories}</Text>
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>CALORIES</Text>
               </View>
               <View style={styles.nutritionCol}>
-                <Text style={[styles.nutritionValue, { color: colors.cobalt }]}>{Math.round(suggestion.protein)}g</Text>
+                <Text style={[styles.nutritionValue, { color: colors.cobalt }]}>{perServingDisplay.protein}g</Text>
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>PROTEIN</Text>
               </View>
               <View style={styles.nutritionCol}>
-                <Text style={[styles.nutritionValue, { color: colors.navyLight }]}>{Math.round(suggestion.carbs)}g</Text>
+                <Text style={[styles.nutritionValue, { color: colors.navyLight }]}>{perServingDisplay.carbs}g</Text>
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>CARBS</Text>
               </View>
               <View style={styles.nutritionCol}>
-                <Text style={[styles.nutritionValue, { color: colors.navyLight }]}>{Math.round(suggestion.fat)}g</Text>
+                <Text style={[styles.nutritionValue, { color: colors.navyLight }]}>{perServingDisplay.fat}g</Text>
                 <Text style={[styles.nutritionLabel, { color: colors.labelText }]}>FAT</Text>
               </View>
             </View>
+            {isAdjusted && (
+              <Text style={[styles.estimateNote, { color: colors.cobalt }]}>
+                Includes your ingredient adjustments.
+              </Text>
+            )}
             <Text style={[styles.estimateNote, { color: colors.subtleText }]}>
               AI estimates — actual values depend on your exact ingredients.
             </Text>
@@ -305,32 +336,16 @@ export default function AiRecipePreviewScreen() {
           <SectionHeader
             label="Ingredients"
             value={isCravings ? 'Approved Foods list' : undefined}
+            action={isAdjusted ? { label: 'Reset amounts', onPress: () => setAdjustments([]) } : undefined}
             style={{ marginTop: 18, marginBottom: 8 }}
           />
           <LedgerCard style={{ paddingVertical: 4 }}>
-            {suggestion.ingredients.map((ingredient, index) => (
-              <View key={`${ingredient.name}-${index}`}>
-                {index > 0 && <Divider />}
-                <View style={styles.ingredientRow}>
-                  <View style={[styles.ingredientDot, { backgroundColor: colors.cobalt }]} />
-                  <Text style={[styles.ingredientText, { color: colors.bodyText }]}>
-                    {ingredient.amount > 0 ? (
-                      <>
-                        <Text style={{ fontFamily: 'Inter_600SemiBold', color: colors.navyLight }}>
-                          {formatAmount(ingredient.amount)}{ingredient.unit ? ` ${ingredient.unit}` : ''}
-                        </Text>
-                        {` ${ingredient.name}`}
-                      </>
-                    ) : (
-                      <>
-                        {ingredient.name}
-                        <Text style={{ color: colors.subtleText }}> — to taste</Text>
-                      </>
-                    )}
-                  </Text>
-                </View>
-              </View>
-            ))}
+            <IngredientBreakdown
+              ingredients={suggestion.ingredients}
+              adjustments={adjustments}
+              onChange={setAdjustments}
+              estimated
+            />
           </LedgerCard>
 
           {/* ── Steps ── */}
@@ -424,7 +439,9 @@ export default function AiRecipePreviewScreen() {
               </Pressable>
             )}
             <Text style={[styles.saveHint, { color: colors.subtleText }]}>
-              Saved items appear in your Library.
+              {isAdjusted
+                ? "Saves keep the coach's original amounts. Saved items appear in your Library."
+                : 'Saved items appear in your Library.'}
             </Text>
           </LedgerCard>
 

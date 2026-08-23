@@ -29,7 +29,11 @@ restart the workflow, and re-verify freshness as below.
 its workflow before trusting new device reports. To prove the served app is
 post-merge: fetch the entry bundle from the Expo dev domain (drop
 `transform.bytecode` to get greppable JS) and grep for a string unique to
-the merged change; spot-check asset delivery with
+the merged change. Take the bundle URL from the served index.html's script
+src — in this pnpm monorepo it points into `/node_modules/.pnpm/...`; a
+hand-built `/node_modules/expo-router/entry.bundle` URL resolves from the
+workspace root and returns an UnableToResolveError JSON instead of the
+bundle; spot-check asset delivery with
 `/assets/?unstable_path=...` + sha256 against the node_modules source.
 Remind testers to reload (Expo Go: rescan QR / shake → Reload) — their open
 session keeps the old bundle.

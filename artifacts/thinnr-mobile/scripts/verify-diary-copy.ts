@@ -8,12 +8,14 @@
  *      logged snapshot,
  *   2. clones that reuse source ids (a copied seed id would be tombstoned or
  *      double-counted by later delete/undo flows),
- *   3. a copy that disturbs the source day.
+ *   3. a copy that disturbs the source day,
+ *   4. a copy Undo that misses part of its batch, over-removes on a double
+ *      tap, or touches anything the copy didn't create.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:diary-copy
  */
 import { cloneEntriesForCopy } from '../data/diary-entries';
-import { applyRemoveEntry } from '../data/diary-entry-state';
+import { applyRemoveEntries, applyRemoveEntry, type DiaryEntryState } from '../data/diary-entry-state';
 import {
   buildSeedEntries,
   findFood,
@@ -157,9 +159,86 @@ const driftedUserEntry: MealLogEntry = {
   assert('append: clones keep their source meal slots', clones.every((c, i) => c.meal === sources[i]!.meal));
 }
 
-// ── 6. Degenerate input ──────────────────────────────────────────────────────
+// ── 6. Copy → Undo: one batch remove takes back exactly the clones ──────────
+// The diary's copy snackbar undoes by removing the fresh clone ids returned
+// from the copy. The batch must return the day to its exact pre-copy state,
+// leave everything the copy didn't create alone, and stay safe under a
+// double-tapped Undo or a clone the patient already deleted by hand.
+{
+  // Pre-copy state: a user entry on the source day AND an unrelated user
+  // entry already sitting on today — the undo must never touch either.
+  const todayUserEntry: MealLogEntry = {
+    ...driftedUserEntry,
+    id: 'log_user_today',
+    dateKey: TODAY_KEY,
+    meal: 'lunch',
+    name: 'Pre-copy lunch',
+  };
+  const before: DiaryEntryState = {
+    addedEntries: [driftedUserEntry, todayUserEntry],
+    removedEntryIds: [],
+  };
+
+  const visibleFor = (state: DiaryEntryState, dateKey: string) => {
+    const removed = new Set(state.removedEntryIds);
+    return [...SEED_ENTRIES, ...state.addedEntries].filter(e => e.dateKey === dateKey && !removed.has(e.id));
+  };
+
+  // Whole-day copy of everything visible yesterday (seeded + user-added).
+  const sources = [...SEED_ENTRIES.filter(e => e.dateKey === YESTERDAY_KEY), driftedUserEntry];
+  const clones = cloneEntriesForCopy(sources, { dateKey: TODAY_KEY }, makeId);
+  const cloneIds = clones.map(c => c.id);
+  const after: DiaryEntryState = { ...before, addedEntries: [...before.addedEntries, ...clones] };
+  assert('fixture: the copy grew today', visibleFor(after, TODAY_KEY).length === visibleFor(before, TODAY_KEY).length + sources.length);
+  assert('fixture: no clone id is a seed id (undo can never tombstone a seed)', cloneIds.every(id => !isSeedId(id)));
+
+  const undone = applyRemoveEntries(after, cloneIds, isSeedId);
+  assert(
+    'undo returns today to the identical pre-copy state (values, order, ids)',
+    JSON.stringify(visibleFor(undone, TODAY_KEY)) === JSON.stringify(visibleFor(before, TODAY_KEY)),
+  );
+  assert(
+    'undo returns day totals to their pre-copy values',
+    calorieTotal(visibleFor(undone, TODAY_KEY)) === calorieTotal(visibleFor(before, TODAY_KEY)),
+  );
+  assert(
+    'undo leaves the source day untouched',
+    JSON.stringify(visibleFor(undone, YESTERDAY_KEY)) === JSON.stringify(visibleFor(before, YESTERDAY_KEY)),
+  );
+  assert('undo records no tombstones (clones are user entries)', undone.removedEntryIds.length === 0);
+  assert('undo keeps the unrelated pre-copy user entry on today', undone.addedEntries.some(e => e.id === todayUserEntry.id));
+
+  // Double-tapped Undo: the second application finds none of its ids and
+  // must be a strict no-op — it can never over-remove.
+  const undoneTwice = applyRemoveEntries(undone, cloneIds, isSeedId);
+  assert('double undo is a strict no-op (same state reference)', undoneTwice === undone);
+
+  // A clone deleted by hand before the Undo lands: the batch takes back only
+  // the remaining clones and converges on the same pre-copy day.
+  const handDeleted = applyRemoveEntry(after, cloneIds[0]!, isSeedId);
+  const undonePartial = applyRemoveEntries(handDeleted, cloneIds, isSeedId);
+  assert(
+    'undo after a hand-deleted clone still lands on the exact pre-copy day',
+    JSON.stringify(visibleFor(undonePartial, TODAY_KEY)) === JSON.stringify(visibleFor(before, TODAY_KEY)),
+  );
+  assert('undo after a hand-deleted clone records no tombstones', undonePartial.removedEntryIds.length === 0);
+
+  // Per-meal copy undo behaves identically: only that meal's clones go.
+  const mealSources = SEED_ENTRIES.filter(e => e.dateKey === YESTERDAY_KEY && e.meal === 'breakfast');
+  const mealClones = cloneEntriesForCopy(mealSources, { dateKey: TODAY_KEY, meal: 'breakfast' }, makeId);
+  const afterMeal: DiaryEntryState = { ...before, addedEntries: [...before.addedEntries, ...mealClones] };
+  const mealUndone = applyRemoveEntries(afterMeal, mealClones.map(c => c.id), isSeedId);
+  assert(
+    'per-meal copy undo also round-trips today exactly',
+    JSON.stringify(visibleFor(mealUndone, TODAY_KEY)) === JSON.stringify(visibleFor(before, TODAY_KEY)),
+  );
+}
+
+// ── 7. Degenerate input ──────────────────────────────────────────────────────
 {
   assert('empty source list clones nothing', cloneEntriesForCopy([], { dateKey: TODAY_KEY }, makeId).length === 0);
+  const state: DiaryEntryState = { addedEntries: [driftedUserEntry], removedEntryIds: [] };
+  assert('empty undo batch is a strict no-op (same state reference)', applyRemoveEntries(state, [], isSeedId) === state);
 }
 
 // ── Result ───────────────────────────────────────────────────────────────────

@@ -45,6 +45,24 @@ export function applyRemoveEntry(
 }
 
 /**
+ * Deletes a whole batch of entries in one transition — the copy-Undo flow,
+ * where the snackbar must take back exactly the clone ids one copy created.
+ * Applies applyRemoveEntry left to right, so each per-id invariant holds for
+ * the batch as a whole: an id that is already gone (a double-tapped Undo, or
+ * a clone the patient deleted by hand before undoing) simply no-ops, and a
+ * batch of fresh user-entry ids can never tombstone a seed. Returns the input
+ * state unchanged (same reference) when nothing in the batch is deletable,
+ * including the empty batch.
+ */
+export function applyRemoveEntries(
+  state: DiaryEntryState,
+  ids: readonly string[],
+  isSeedId: (id: string) => boolean,
+): DiaryEntryState {
+  return ids.reduce((cur, id) => applyRemoveEntry(cur, id, isSeedId), state);
+}
+
+/**
  * Undoes a deletion. Returns the input state unchanged (same reference) when
  * there is no recorded deletion to undo, so a double-tapped Undo — or an Undo
  * that somehow runs before its deletion — can never duplicate an entry:

@@ -3,11 +3,11 @@ name: Mobile e2e quirks
 description: Tester limitations on the Expo app — snackbar Undo taps, and Chrome-native [DOM] console warnings that may not reach console capture.
 ---
 
-Verify undo *logic* through the diary-undo / custom-food-undo script workflows; use an e2e tester only to confirm the snackbar *appears*. The transient (~4s) Undo control is not reliably clickable by automation.
+Verify undo *logic* through the diary-undo / diary-copy / custom-food-undo script workflows; use an e2e tester only to confirm the snackbar *appears*. The transient (~5s) Undo control is not reliably clickable by automation.
 
 **Why:** Multiple e2e rounds chasing the tap produced misleading "failure" verdicts on healthy code before the tester itself classified it as a tooling limitation.
 
-**How to apply:** Treat a tester's inability to land the Undo tap as expected, not as a regression. Also: only deletion confirmations carry an Undo offer — add confirmations intentionally don't — so "no Undo in the DOM" after an add is correct behavior.
+**How to apply:** Treat a tester's inability to land the Undo tap as expected, not as a regression. Also: deletion confirmations and copy confirmations carry an Undo offer — plain add confirmations intentionally don't — so "no Undo in the DOM" after logging a single food is correct behavior.
 
 ## Chrome-native [DOM] warnings
 

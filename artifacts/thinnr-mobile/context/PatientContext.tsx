@@ -25,6 +25,7 @@ import {
 } from '@/data/custom-food-state';
 import { cloneEntriesForCopy } from '@/data/diary-entries';
 import {
+  applyRemoveEntries,
   applyRemoveEntry,
   applyRestoreEntries,
   applyUpdateEntry,
@@ -132,8 +133,9 @@ interface PatientContextValue {
   waterFor: (dateKey: string) => number;
   checkInFor: (dateKey: string) => CheckIn | undefined;
   addEntry: (entry: Omit<MealLogEntry, 'id'>) => Promise<void>;
-  copyEntries: (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }) => Promise<void>;
+  copyEntries: (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }) => Promise<MealLogEntry[]>;
   removeEntry: (id: string) => Promise<void>;
+  removeEntries: (ids: readonly string[]) => Promise<void>;
   updateEntry: (id: string, changes: EntryEditChanges) => Promise<void>;
   setWater: (dateKey: string, oz: number) => Promise<void>;
   addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<void>;
@@ -229,15 +231,18 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // fresh ids. Clones keep each source's logged snapshot rather than current
   // library values, and the whole batch lands in a single commit so day
   // totals update and persist atomically. Recents are left alone: copying a
-  // day is repetition, not a new food choice.
-  const copyEntries = useCallback(async (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }): Promise<void> => {
-    if (sources.length === 0) return;
+  // day is repetition, not a new food choice. Returns the created clones —
+  // captured inside the serialized mutation, so they are exactly what this
+  // copy committed — letting the caller arm an Undo for just this batch.
+  const copyEntries = useCallback(async (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }): Promise<MealLogEntry[]> => {
+    if (sources.length === 0) return [];
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
-    await runSerialized(async () => {
+    return runSerialized(async () => {
       const prev = stateRef.current;
       const clones = cloneEntriesForCopy(sources, target, () => nextId('log'));
       await commit({ ...prev, addedEntries: [...prev.addedEntries, ...clones] });
+      return clones;
     });
   }, [commit, runSerialized]);
 
@@ -249,6 +254,26 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const next = applyRemoveEntry(prev, id, isSeedEntryId);
       if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
         return; // nothing to delete (e.g. the second tap of a double-tapped remove)
+      }
+      await commit({ ...prev, ...next });
+    });
+  }, [commit, runSerialized]);
+
+  // Undo for copyEntries — takes back a whole batch of entries (the clone ids
+  // one copy created) in a single commit, so day totals return to their
+  // pre-copy values in one step. Ids that are already gone (a double-tapped
+  // Undo, or a clone the patient deleted by hand before undoing) no-op inside
+  // applyRemoveEntries, so the batch can never remove more than the copy
+  // actually created.
+  const removeEntries = useCallback(async (ids: readonly string[]): Promise<void> => {
+    if (ids.length === 0) return;
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const next = applyRemoveEntries(prev, ids, isSeedEntryId);
+      if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
+        return; // nothing left to remove (e.g. a double-tapped copy Undo)
       }
       await commit({ ...prev, ...next });
     });
@@ -529,6 +554,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addEntry,
       copyEntries,
       removeEntry,
+      removeEntries,
       restoreEntry,
       restoreEntries,
       updateEntry,
@@ -563,6 +589,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addEntry,
       copyEntries,
       removeEntry,
+      removeEntries,
       restoreEntry,
       restoreEntries,
       updateEntry,

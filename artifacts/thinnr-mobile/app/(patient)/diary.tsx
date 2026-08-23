@@ -2,8 +2,9 @@
  * Diary — day-by-day food log grouped by meal, with a date navigator,
  * per-entry removal and inline editing, one-tap copy of a previous day's
  * meals, daily totals, and the water tracker for that day. One transient
- * snackbar slot handles Undo after a removal and a "Moved to …" confirmation
- * (with a jump) after a cross-day edit.
+ * snackbar slot handles Undo after a removal, Undo after a copy (taking back
+ * exactly that copy's batch), and a "Moved to …" confirmation (with a jump)
+ * after a cross-day edit.
  *
  * Visual language: Heritage Hero — paper cards with hairline rules, serif
  * (Playfair) card titles, cobalt primaries, soft radius, and orange kept to
@@ -37,12 +38,15 @@ import {
   type MealSlot,
 } from '@/data/patient-data';
 
-// One snackbar slot on the diary: either an undoable removal batch or a
-// confirmation that an edited entry moved to another day. Rapid deletions
-// stack into the current 'removed' notice (in deletion order) so a quick
-// clean-up's single Undo restores every row, not just the last one.
+// One snackbar slot on the diary: an undoable removal batch, an undoable copy
+// batch, or a confirmation that an edited entry moved to another day. Rapid
+// deletions stack into the current 'removed' notice (in deletion order) so a
+// quick clean-up's single Undo restores every row, not just the last one. A
+// 'copied' notice carries exactly the clones one copy committed — a newer
+// copy re-arms the slot with its own batch, so Undo always maps to one copy.
 type DiaryNotice =
   | { kind: 'removed'; entries: MealLogEntry[] }
+  | { kind: 'copied'; entries: MealLogEntry[]; fromKey: string }
   | { kind: 'moved'; dateKey: string };
 
 export default function DiaryScreen() {
@@ -96,6 +100,16 @@ export default function DiaryScreen() {
     void patient.restoreEntries(notice.entries);
   };
 
+  const handleUndoCopy = () => {
+    if (notice?.kind !== 'copied') return;
+    setNotice(null);
+    // One batched remove of exactly the clone ids this copy created, so day
+    // totals return to their pre-copy values in a single commit. Clearing the
+    // notice first plus removeEntries' id-based no-ops means a double-tapped
+    // Undo can never take out more than the copy added.
+    void patient.removeEntries(notice.entries.map(e => e.id));
+  };
+
   const handleViewMoved = () => {
     if (notice?.kind !== 'moved') return;
     setNotice(null);
@@ -135,8 +149,11 @@ export default function DiaryScreen() {
     setCopying(true);
     try {
       // Clones keep each source's logged snapshot; only day (and optionally
-      // meal) change. Fresh ids are assigned in the context.
-      await patient.copyEntries(sources, meal ? { dateKey, meal } : { dateKey });
+      // meal) change. Fresh ids are assigned in the context. Arm the Undo
+      // only after the copy has committed, and with the exact clone batch it
+      // returned — Undo can then remove precisely those ids and nothing else.
+      const clones = await patient.copyEntries(sources, meal ? { dateKey, meal } : { dateKey });
+      setNotice({ kind: 'copied', entries: clones, fromKey: prevKey });
     } finally {
       setCopying(false);
     }
@@ -427,6 +444,15 @@ export default function DiaryScreen() {
           actionLabel="UNDO"
           actionTestID="diary-undo"
           onAction={handleUndo}
+        />
+      )}
+      {notice?.kind === 'copied' && (
+        <Snackbar
+          testID="diary-copied-snackbar"
+          message={`Copied ${notice.entries.length} item${notice.entries.length === 1 ? '' : 's'} from ${formatDateKey(notice.fromKey)}`}
+          actionLabel="UNDO"
+          actionTestID="diary-copied-undo"
+          onAction={handleUndoCopy}
         />
       )}
       {notice?.kind === 'moved' && (

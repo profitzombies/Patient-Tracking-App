@@ -222,6 +222,38 @@ export default function LogFoodScreen() {
     else router.replace('/today');
   };
 
+  /** Navigate to the full recipe page so the patient can review before logging. */
+  const openRecipe = (item: LoggableItem) => {
+    router.push({
+      pathname: '/recipe/[id]',
+      params: { id: item.refId, date: dateKey, meal },
+    });
+  };
+
+  /** Quick-add a recipe at qty=1 without opening the detail page (used by the + button). */
+  const quickLogRecipe = async (item: LoggableItem) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await patient.addEntry({
+        dateKey,
+        meal,
+        kind: 'recipe',
+        refId: item.refId,
+        name: item.name,
+        detail: '1 serving · recipe',
+        quantity: 1,
+        calories: Math.round(item.calories),
+        protein: Math.round(item.protein),
+        carbs: Math.round(item.carbs),
+        fat: Math.round(item.fat),
+      });
+      goBack();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const addSelected = async () => {
     if (!selected || saving) return;
     setSaving(true);
@@ -506,14 +538,19 @@ export default function LogFoodScreen() {
                 )}
                 {group.items.map((item, index) => {
                   const isSelected = selectedId === item.refId;
+                  const isRecipe = item.kind === 'recipe';
                   return (
                     <View key={`${item.refId}-${index}`}>
                       {index > 0 && <Divider />}
                       <Pressable
                         testID={`logfood-item-${item.refId}`}
                         onPress={() => {
-                          setSelectedId(current => (current === item.refId ? null : item.refId));
-                          setQty(1);
+                          if (isRecipe) {
+                            openRecipe(item);
+                          } else {
+                            setSelectedId(current => (current === item.refId ? null : item.refId));
+                            setQty(1);
+                          }
                         }}
                         style={({ pressed }) => [
                           styles.itemRow,
@@ -535,11 +572,24 @@ export default function LogFoodScreen() {
                         </View>
                         <FavoriteStar id={item.refId} name={item.name} testID={`logfood-fav-${item.refId}`} />
                         <Text style={[styles.itemCals, { color: colors.navyLight }]}>{item.calories}</Text>
-                        <Feather
-                          name={isSelected ? 'check-square' : 'plus-square'}
-                          size={16}
-                          color={isSelected ? colors.cobalt : colors.subtleText}
-                        />
+                        {isRecipe ? (
+                          /* Separate Pressable so + quick-adds without opening the page */
+                          <Pressable
+                            testID={`logfood-quicklog-${item.refId}`}
+                            onPress={() => quickLogRecipe(item)}
+                            disabled={saving}
+                            hitSlop={8}
+                            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                          >
+                            <Feather name="plus-square" size={16} color={colors.subtleText} />
+                          </Pressable>
+                        ) : (
+                          <Feather
+                            name={isSelected ? 'check-square' : 'plus-square'}
+                            size={16}
+                            color={isSelected ? colors.cobalt : colors.subtleText}
+                          />
+                        )}
                       </Pressable>
                     </View>
                   );

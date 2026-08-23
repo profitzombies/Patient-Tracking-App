@@ -42,7 +42,21 @@ export default function RecipeDetailScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
-  const { id, entry: entryParam } = useLocalSearchParams<{ id: string; entry?: string }>();
+  const { id, entry: entryParam, date: dateParam, meal: mealParam } = useLocalSearchParams<{
+    id: string;
+    entry?: string;
+    date?: string;
+    meal?: string;
+  }>();
+
+  // When opened from Add Food, the caller passes the target date and meal.
+  const paramDateKey =
+    typeof dateParam === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+      ? dateParam
+      : TODAY_KEY;
+  const validMealParam = MEAL_SLOTS.includes(mealParam as MealSlot)
+    ? (mealParam as MealSlot)
+    : undefined;
   // Seeded recipes first; recipes saved from coach (AI) suggestions fall back.
   const staticRecipe = findRecipe(id ?? '');
   const savedRecipe = staticRecipe ? undefined : patient.savedRecipes.find(r => r.id === id);
@@ -57,7 +71,7 @@ export default function RecipeDetailScreen() {
       )
     : undefined;
 
-  const [meal, setMeal] = useState<MealSlot>(recipe?.meal ?? 'lunch');
+  const [meal, setMeal] = useState<MealSlot>(validMealParam ?? recipe?.meal ?? 'lunch');
   const [servings, setServings] = useState(1);
   const [logging, setLogging] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -74,6 +88,8 @@ export default function RecipeDetailScreen() {
 
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 32 : insets.bottom + 24;
+  // Extra scroll room so content clears the sticky log footer.
+  const stickyFooterHeight = 64;
 
   // Patient-only route: deep links must not bypass the persona flow.
   if (!modeHydrated) return null;
@@ -126,7 +142,7 @@ export default function RecipeDetailScreen() {
       const baseDetail = `${servings} serving${servings === 1 ? '' : 's'} · ${savedRecipe ? 'AI estimate' : 'recipe'}`;
       const totals = totalsForQuantity(perServing, servings);
       await patient.addEntry({
-        dateKey: TODAY_KEY,
+        dateKey: paramDateKey,
         meal,
         kind: 'recipe',
         refId: recipe.id,
@@ -139,7 +155,13 @@ export default function RecipeDetailScreen() {
         fat: totals.fat,
         ...(isAdjusted ? { adjustments: sanitized } : {}),
       });
-      goBack();
+      // If opened from Add Food (date param present), dismiss the whole modal
+      // stack so the patient lands back on the diary, not the search screen.
+      if (dateParam && router.canDismiss()) {
+        router.dismiss();
+      } else {
+        goBack();
+      }
     } finally {
       setLogging(false);
     }
@@ -180,23 +202,43 @@ export default function RecipeDetailScreen() {
         <Text style={[styles.topTitle, { color: colors.labelText }]}>
           {savedRecipe ? 'COACH RECIPE · AI' : 'RECIPE'}
         </Text>
-        <Pressable
-          testID="recipe-detail-fav"
-          onPress={() => patient.toggleFavorite(recipe.id)}
-          style={({ pressed }) => [
-            styles.topBtn,
-            {
-              borderColor: isFav ? colors.cobalt : colors.border,
-              backgroundColor: isFav ? colors.cobalt : pressed ? colors.accent : colors.card,
-              borderRadius: colors.radiusSm,
-            },
-          ]}
-        >
-          <Feather name="star" size={15} color={isFav ? colors.primaryForeground : colors.bodyText} />
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Pressable
+            testID="recipe-detail-fav"
+            onPress={() => patient.toggleFavorite(recipe.id)}
+            style={({ pressed }) => [
+              styles.topBtn,
+              {
+                borderColor: isFav ? colors.cobalt : colors.border,
+                backgroundColor: isFav ? colors.cobalt : pressed ? colors.accent : colors.card,
+                borderRadius: colors.radiusSm,
+              },
+            ]}
+          >
+            <Feather name="star" size={15} color={isFav ? colors.primaryForeground : colors.bodyText} />
+          </Pressable>
+          {!entryMode && (
+            <Pressable
+              testID="recipe-header-log"
+              onPress={logRecipe}
+              disabled={logging}
+              accessibilityLabel={`Log ${recipe.name} to ${MEAL_LABELS[meal]}`}
+              style={({ pressed }) => [
+                styles.topBtn,
+                {
+                  borderColor: colors.cobalt,
+                  backgroundColor: pressed || logging ? colors.cobalt : colors.card,
+                  borderRadius: colors.radiusSm,
+                },
+              ]}
+            >
+              <Feather name="plus-circle" size={15} color={logging ? colors.primaryForeground : colors.cobalt} />
+            </Pressable>
+          )}
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: bottomPad }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: entryMode ? bottomPad : bottomPad + stickyFooterHeight }}>
         {savedRecipe?.photoUri ? (
           <Image source={{ uri: savedRecipe.photoUri }} style={styles.hero} contentFit="cover" transition={150} />
         ) : RECIPE_IMAGES[recipe.id] ? (
@@ -382,21 +424,6 @@ export default function RecipeDetailScreen() {
                 </Pressable>
               </View>
             </View>
-            <Pressable
-              testID="recipe-log-btn"
-              onPress={logRecipe}
-              disabled={logging}
-              style={({ pressed }) => [
-                styles.logBtn,
-                { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
-                (pressed || logging) && { opacity: 0.85 },
-              ]}
-            >
-              <Text style={[styles.logBtnText, { color: colors.primaryForeground }]}>
-                Add {totalCals.toLocaleString('en-US')} cal to {MEAL_LABELS[meal]}
-              </Text>
-            </Pressable>
-            <Text style={[styles.logHint, { color: colors.subtleText }]}>Logs to today's diary</Text>
           </LedgerCard>
             </>
           )}
@@ -404,6 +431,36 @@ export default function RecipeDetailScreen() {
           <SyntheticDisclaimer />
         </View>
       </ScrollView>
+
+      {/* ── Sticky log footer (log-fresh mode only) ── */}
+      {!entryMode && (
+        <View
+          style={[
+            styles.stickyFooter,
+            {
+              backgroundColor: colors.card,
+              borderTopColor: colors.border,
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
+          <Pressable
+            testID="recipe-sticky-log"
+            onPress={logRecipe}
+            disabled={logging}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.stickyLogBtn,
+              { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
+              (pressed || logging) && { opacity: 0.85 },
+            ]}
+          >
+            <Text style={[styles.stickyLogBtnText, { color: colors.primaryForeground }]}>
+              {logging ? 'Adding…' : `Add ${totalCals.toLocaleString('en-US')} cal to ${MEAL_LABELS[meal]}`}
+            </Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -622,5 +679,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Inter_400Regular',
     marginTop: 10,
+  },
+  stickyFooter: {
+    borderTopWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  stickyLogBtn: {
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  stickyLogBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.2,
   },
 });

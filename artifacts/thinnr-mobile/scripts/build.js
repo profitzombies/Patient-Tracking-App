@@ -467,7 +467,21 @@ function updateBundleUrls(timestamp, baseUrl) {
         }
 
         const decodedPath = decodeURIComponent(unstablePath);
-        return `httpServerLocation:"${baseUrl}${basePath}/${timestamp}/_expo/static/js/${decodedPath}"`;
+        // Metro emits project-root-relative unstable_paths — for pnpm-hoisted
+        // packages (every font lives in the workspace-root .pnpm store) that
+        // means dot segments like "./../../node_modules/…". Collapse them so
+        // the shipped URL is canonical: it must match the on-disk layout that
+        // downloadAssets produced via path.join, and device HTTP stacks are
+        // not guaranteed to normalize "../" segments before requesting.
+        const canonicalPath = path.posix.join(
+          '/',
+          timestamp,
+          '_expo',
+          'static',
+          'js',
+          decodedPath,
+        );
+        return `httpServerLocation:"${baseUrl}${basePath}${canonicalPath}"`;
       },
     );
 
@@ -506,7 +520,17 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
         const assetInfo = assetsByHash.get(hash);
         if (!assetInfo) return;
 
-        asset.url = `${baseUrl}${basePath}/${timestamp}/_expo/static/js/${assetInfo.relativePath}/${assetInfo.filename}`;
+        // Same dot-segment collapsing as updateBundleUrls — keep manifest
+        // asset URLs canonical and byte-addressable through serve.js.
+        asset.url = `${baseUrl}${basePath}${path.posix.join(
+          '/',
+          timestamp,
+          '_expo',
+          'static',
+          'js',
+          assetInfo.relativePath,
+          assetInfo.filename,
+        )}`;
       });
     }
 

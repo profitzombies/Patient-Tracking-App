@@ -12,3 +12,5 @@
 - [Coach reply shape](coach-reply-shape.md) — replies are blank-line-separated thought blocks + follow-up closer; phrase optional reply behaviors default-on and verify with real model calls.
 - [Coach stopped replies](coach-stopped-replies.md) — stopped replies carry a `stopped` flag end-to-end; the server appends a model-only interruption note so the next answer never continues cut-off text.
 - [Staging coach failures](coach-failure-staging.md) — break the model upstream via a workflow env-override restart to test error/Retry states; the tester can break and heal it in one session.
+- [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
+- [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).

@@ -109,7 +109,14 @@ function useAppFonts(): { status: FontStatus; retry: () => void } {
     // session: which platform ran the gate, and whether fonts loaded or why
     // not. Keep them until Android tofu reports are confirmed resolved.
     const startedAt = Date.now();
-    console.log(`[fonts] gate v2 ${kind} load starting on ${Platform.OS}`);
+    // Platform.constants.reactNativeVersion is the NATIVE runtime version of
+    // the client binary (Expo Go itself), not the bundled JS. This project is
+    // SDK 54 = RN 0.81; a higher native version means the tester's Expo Go is
+    // built for a newer SDK and silently ignores custom font registration.
+    const nativeRN = JSON.stringify(Platform.constants?.reactNativeVersion ?? 'n/a');
+    console.log(
+      `[fonts] gate v2 ${kind} load starting on ${Platform.OS} | client native RN ${nativeRN} | project JS RN 0.81`,
+    );
     try {
       for (let attempt = 1; attempt <= LOAD_ATTEMPTS; attempt += 1) {
         try {

@@ -90,6 +90,13 @@ interface MinimalLog {
 
 export interface RecipeTurnArgs {
   mode: RecipeMode;
+  /**
+   * Set on menu follow-up turns: the patient just reviewed restaurant-menu
+   * suggestions in this conversation (they are in `history`) and said yes to
+   * a custom recipe inspired by them. Swaps the recipe task wording and
+   * grounds the turn in the approved-foods list. Recipe mode only.
+   */
+  inspiration?: "menu";
   history: { role: "user" | "assistant"; content: string }[];
   compartments: Compartment[];
   patient: PatientContext;
@@ -131,6 +138,7 @@ function buildRecipeSystemPrompt(
   mode: RecipeMode,
   compartments: Compartment[],
   patient: PatientContext,
+  inspiration?: "menu",
 ): string {
   const shared = `You are the THINNR Coach, an AI assistant inside the THINNR patient app.
 
@@ -144,9 +152,13 @@ Grounding rules:
 - You are informational only, not medical advice. Never suggest changing doses or medications.`;
 
   if (mode === "recipe") {
+    const task =
+      inspiration === "menu"
+        ? `Task: the patient just reviewed a restaurant menu with you — your ordering suggestions are earlier in this conversation — and said yes to a custom recipe inspired by it. Propose exactly one home-cooked recipe inspired by that menu, ideally a homemade version of a dish you suggested from it, adapted to fit their current phase. In "reply", connect it naturally to the menu conversation.`
+        : "Task: the patient asked for a meal or snack idea. Propose exactly one recipe that fits their current phase.";
     return `${shared}
 
-Task: the patient asked for a meal or snack idea. Propose exactly one recipe that fits their current phase.
+${task}
 
 THINNR program materials for this question:
 
@@ -290,12 +302,17 @@ async function callModel(
 const RETRY_LIMIT = 1;
 
 export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTurnResult> {
+  // Cravings must ground in the official list; menu-inspired home versions
+  // should too, so the adapted dish is built from program-friendly items.
   const compartments =
-    args.mode === "cravings"
+    args.mode === "cravings" || args.inspiration === "menu"
       ? ensureApprovedFoodsCompartment(args.compartments)
       : args.compartments;
   const baseMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
-    { role: "system", content: buildRecipeSystemPrompt(args.mode, compartments, args.patient) },
+    {
+      role: "system",
+      content: buildRecipeSystemPrompt(args.mode, compartments, args.patient, args.inspiration),
+    },
     ...args.history,
   ];
 

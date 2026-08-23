@@ -13,31 +13,23 @@ import { CoachMenuScanBody } from "@workspace/api-zod";
 import { demoPatientContext } from "../coach/demo-patient";
 import { acquireMenuScanSlot } from "../coach/limits";
 import { generateMenuScan } from "../coach/menu-scan";
+import {
+  INVALID_PHOTO_MESSAGE,
+  MAX_PHOTO_BYTES,
+  PHOTO_BODY_LIMIT,
+  PHOTO_DATA_URI_PATTERN,
+  PHOTO_TOO_LARGE_MESSAGE,
+  decodedPhotoBytes,
+} from "../lib/photo-guards";
 
 const router: IRouter = Router();
 
 /** Absolute request path — app.ts skips the global JSON parser here. */
 export const MENU_SCAN_PATH = "/api/coach/menu-scan";
 
-/**
- * Body cap for this route only. The app downscales photos to ~1280px JPEG
- * (typically 100-400 KB as base64) before upload; 8mb leaves generous
- * headroom without accepting arbitrary uploads.
- */
-const MENU_SCAN_BODY_LIMIT = "8mb";
-
-/** Raster formats the vision model accepts (the app always sends JPEG). */
-const DATA_URI_PATTERN = /^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
-
-/** Hard cap on the decoded photo size. */
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
-
-const INVALID_PHOTO_MESSAGE =
-  "That photo could not be used. Please choose a JPEG or PNG photo and try again.";
-const TOO_LARGE_MESSAGE = "That photo is too large. Please try a smaller one.";
 const SCAN_FAILED_MESSAGE = "The menu scan is unavailable right now. Please try again.";
 
-router.post("/coach/menu-scan", express.json({ limit: MENU_SCAN_BODY_LIMIT }), async (req, res) => {
+router.post("/coach/menu-scan", express.json({ limit: PHOTO_BODY_LIMIT }), async (req, res) => {
   // Limit first: every scan is a paid vision call with a photo attached.
   const slot = acquireMenuScanSlot(req.ip ?? "unknown");
   if (!slot.ok) {
@@ -47,14 +39,13 @@ router.post("/coach/menu-scan", express.json({ limit: MENU_SCAN_BODY_LIMIT }), a
 
   try {
     const parsed = CoachMenuScanBody.safeParse(req.body);
-    if (!parsed.success || !DATA_URI_PATTERN.test(parsed.data.image)) {
+    if (!parsed.success || !PHOTO_DATA_URI_PATTERN.test(parsed.data.image)) {
       res.status(400).json({ error: INVALID_PHOTO_MESSAGE });
       return;
     }
     const image = parsed.data.image;
-    const base64Length = image.length - image.indexOf(",") - 1;
-    if (Math.floor((base64Length * 3) / 4) > MAX_PHOTO_BYTES) {
-      res.status(413).json({ error: TOO_LARGE_MESSAGE });
+    if (decodedPhotoBytes(image) > MAX_PHOTO_BYTES) {
+      res.status(413).json({ error: PHOTO_TOO_LARGE_MESSAGE });
       return;
     }
 

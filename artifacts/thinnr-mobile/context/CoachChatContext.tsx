@@ -66,6 +66,14 @@ export interface CoachMessage {
    * suggestion — the chat screen then falls back to its static yes/no pair.
    */
   quickReplies?: string[];
+
+  /**
+   * User messages only: the menu photo this turn sent, kept in client state
+   * so the bubble can render it and a failed turn can retry with the same
+   * photo in one tap (no re-take). `text` still carries the fixed replay
+   * line the model reads — the bubble renders the photo instead of it.
+   */
+  photo?: { uri: string; width: number; height: number };
 }
 
 interface CoachChatContextValue {
@@ -73,9 +81,17 @@ interface CoachChatContextValue {
   isStreaming: boolean;
   send: (text: string) => void;
   /**
+   * Sends a menu photo as its own user turn: the bubble shows the photo and
+   * the request carries it (as a data URI) on the final message ONLY — older
+   * photo turns replay as fixed text, so a photo is never uploaded twice.
+   * No-op while a reply is in flight.
+   */
+  sendPhoto: (photo: { uri: string; width: number; height: number }) => void;
+  /**
    * Resends the question behind a failed reply: the error bubble is swapped
-   * in place for a fresh streaming bubble and the same request is made again.
-   * No-op while a reply is in flight or when the id is not a failed reply.
+   * in place for a fresh streaming bubble and the same request is made again
+   * (including the photo, when the failed turn sent one). No-op while a
+   * reply is in flight or when the id is not a failed reply.
    */
   retry: (assistantMessageId: string) => void;
   /**
@@ -150,10 +166,19 @@ function takeRevealChunk(reveal: RevealState): string {
 }
 
 /**
+ * Replay text for photo turns. The photo itself is uploaded only on the turn
+ * being answered; when the thread is rebuilt for later requests this fixed
+ * line stands in for the photo so the model still reads a natural
+ * conversation.
+ */
+export const MENU_PHOTO_MESSAGE_TEXT = 'I sent a photo of a restaurant menu.';
+
+/**
  * Serializes a thread message for the chat request. Stopped replies stay in
  * the history (the patient saw their text) but carry the flag through, so the
  * server marks them as interrupted instead of letting the model continue a
- * cut-off sentence.
+ * cut-off sentence. Photo turns serialize as their fixed text — never the
+ * image; callers attach the image to the request tail themselves.
  */
 const toRequestMessage = (m: CoachMessage): CoachRequestMessage =>
   m.role === 'assistant' && m.stopped
@@ -384,6 +409,52 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
     [streamInto],
   );
 
+  const sendPhoto = useCallback(
+    (photo: { uri: string; width: number; height: number }) => {
+      if (!photo.uri || inFlightRef.current) return;
+      inFlightRef.current = true;
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      // The visible bubble is the photo; the fixed text is what this turn
+      // reads as when the thread is replayed on later requests.
+      const userMessage: CoachMessage = {
+        id: nextId(),
+        role: 'user',
+        text: MENU_PHOTO_MESSAGE_TEXT,
+        status: 'done',
+        photo,
+      };
+      const assistantId = nextId();
+
+      // Same snapshot rule as send(). The photo rides ONLY the request tail:
+      // toRequestMessage keeps every replayed message text-only, so a photo
+      // is never uploaded twice.
+      const request: CoachRequestMessage[] = [...messagesRef.current, userMessage]
+        .filter(m => m.status === 'done' && m.text.length > 0)
+        .slice(-MAX_REQUEST_MESSAGES)
+        .map(toRequestMessage);
+      request[request.length - 1] = { ...request[request.length - 1], image: photo.uri };
+
+      setIsStreaming(true);
+      setMessages(prev => [
+        ...prev,
+        userMessage,
+        {
+          id: assistantId,
+          role: 'assistant',
+          text: '',
+          status: 'streaming',
+          replyToId: userMessage.id,
+        },
+      ]);
+
+      streamInto(request, assistantId, controller);
+    },
+    [streamInto],
+  );
+
   const retry = useCallback(
     (assistantMessageId: string) => {
       if (inFlightRef.current) return;
@@ -411,6 +482,13 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
       // The origin is a done, non-empty user message, so it is the request
       // tail by construction; bail rather than send a malformed request.
       if (request.length === 0 || request[request.length - 1].role !== 'user') return;
+      // A failed photo turn retries with its photo: the origin user message
+      // is the request tail (checked above), so re-attach the image there —
+      // the photo stayed in client state, no re-take needed.
+      const origin = history[originIndex];
+      if (origin.photo) {
+        request[request.length - 1] = { ...request[request.length - 1], image: origin.photo.uri };
+      }
 
       inFlightRef.current = true;
       const controller = new AbortController();
@@ -486,8 +564,17 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ messages, isStreaming, send, retry, stop, getRecipeSuggestion, setSuggestionPhoto }),
-    [messages, isStreaming, send, retry, stop, getRecipeSuggestion, setSuggestionPhoto],
+    () => ({
+      messages,
+      isStreaming,
+      send,
+      sendPhoto,
+      retry,
+      stop,
+      getRecipeSuggestion,
+      setSuggestionPhoto,
+    }),
+    [messages, isStreaming, send, sendPhoto, retry, stop, getRecipeSuggestion, setSuggestionPhoto],
   );
 
   return <CoachChatContext.Provider value={value}>{children}</CoachChatContext.Provider>;

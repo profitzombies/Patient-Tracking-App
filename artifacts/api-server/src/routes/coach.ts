@@ -1,22 +1,38 @@
-import { Router, type IRouter } from "express";
+import express, { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { CoachChatBody } from "@workspace/api-zod";
 import { selectCompartments } from "../coach/select";
 import { buildSystemPrompt, toModelMessages } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
-import { acquireChatSlot } from "../coach/limits";
+import { acquireChatSlot, acquireMenuScanSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
 import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
+import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
 import { MarkerFilter } from "../coach/markers";
 import { firstQuickReplySet } from "../coach/quick-replies";
+import {
+  INVALID_PHOTO_MESSAGE,
+  MAX_PHOTO_BYTES,
+  PHOTO_BODY_LIMIT,
+  PHOTO_DATA_URI_PATTERN,
+  PHOTO_TOO_LARGE_MESSAGE,
+  decodedPhotoBytes,
+} from "../lib/photo-guards";
 
 const router: IRouter = Router();
+
+/**
+ * Absolute request path — app.ts skips the global 100kb JSON parser here so
+ * the route-local parser below can accept a photo-sized body (a menu photo
+ * may ride the latest message as a data URI).
+ */
+export const COACH_CHAT_PATH = "/api/coach/chat";
 
 /** Most recent messages kept per request; the client sends session history. */
 const MAX_HISTORY = 12;
 
-router.post("/coach/chat", async (req, res) => {
+router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req, res) => {
   // Limit first: this endpoint spends paid model credits, so even invalid
   // spam should burn the caller's budget, not the server's CPU.
   const slot = acquireChatSlot(req.ip ?? "unknown");
@@ -25,6 +41,7 @@ router.post("/coach/chat", async (req, res) => {
     return;
   }
 
+  let releaseVisionSlot: (() => void) | null = null;
   try {
     const parsed = CoachChatBody.safeParse(req.body);
     if (!parsed.success) {
@@ -37,6 +54,30 @@ router.post("/coach/chat", async (req, res) => {
     if (!latest || latest.role !== "user") {
       res.status(400).json({ error: "Last message must be from the user" });
       return;
+    }
+
+    // A photo is honored only on the LATEST user message. Replayed history is
+    // text-only by contract (the client strips photos when rebuilding it), so
+    // this is the single image that can ever reach the vision model. Guards
+    // run before the stream opens, keeping failures plain JSON statuses.
+    const image = latest.image;
+    if (image !== undefined) {
+      if (!PHOTO_DATA_URI_PATTERN.test(image)) {
+        res.status(400).json({ error: INVALID_PHOTO_MESSAGE });
+        return;
+      }
+      if (decodedPhotoBytes(image) > MAX_PHOTO_BYTES) {
+        res.status(413).json({ error: PHOTO_TOO_LARGE_MESSAGE });
+        return;
+      }
+      // Photo turns are vision calls priced like menu scans, so they consume
+      // the scanner's shared budget on top of the chat slot already held.
+      const visionSlot = acquireMenuScanSlot(req.ip ?? "unknown");
+      if (!visionSlot.ok) {
+        res.status(visionSlot.status).json({ error: visionSlot.message });
+        return;
+      }
+      releaseVisionSlot = visionSlot.release;
     }
 
     const earlierUserMessages = history
@@ -58,8 +99,9 @@ router.post("/coach/chat", async (req, res) => {
     const patientContext = demoPatientContext();
 
     // Replies the patient stopped mid-stream arrive flagged; annotate them
-    // once here so BOTH model pipelines (plain streaming and recipe turns)
-    // see the interruption note instead of a seemingly complete answer.
+    // once here so ALL model pipelines (plain streaming, recipe turns, menu
+    // follow-ups) see the interruption note instead of a seemingly complete
+    // answer.
     const modelHistory = toModelMessages(history);
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -71,6 +113,63 @@ router.post("/coach/chat", async (req, res) => {
     res.on("close", () => abort.abort());
 
     try {
+      // ── Menu photo turn ─────────────────────────────────────────────────
+      // The photo goes through the same grounded vision scan as the
+      // standalone menu-scan screen, and the structured result is formatted
+      // into a conversational reply: picks, skips, then a closing offer to
+      // turn one into a custom recipe (sent with the curated yes/no chips).
+      // Not-a-menu / unreadable photos are warm conversational outcomes here,
+      // never error events. The photo lives in this request's memory only.
+      if (image !== undefined) {
+        const menuTurn = await generateMenuChatTurn({
+          image,
+          patient: patientContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: menuTurn.reply })}\n\n`);
+          if (menuTurn.offerRecipe) {
+            const yesNo = firstQuickReplySet(["yes_no"]);
+            if (yesNo) {
+              res.write(`data: ${JSON.stringify({ quickReplies: yesNo.labels })}\n\n`);
+            }
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { outcome: menuTurn.outcome, order: menuTurn.orderCount, avoid: menuTurn.avoidCount },
+            "coach menu photo turn completed",
+          );
+        }
+        return;
+      }
+
+      // ── Menu recipe follow-up ───────────────────────────────────────────
+      // A short yes to the menu reply's closing offer routes into the recipe
+      // pipeline seeded with the menu context — already present in the
+      // replayed history as the suggestions text, so the photo is never
+      // re-sent.
+      if (detectMenuRecipeFollowUp(history)) {
+        req.log.info({}, "coach menu recipe follow-up turn");
+        const result = await generateRecipeTurn({
+          mode: "recipe",
+          inspiration: "menu",
+          history: modelHistory,
+          compartments: selection.compartments,
+          patient: patientContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: result.reply })}\n\n`);
+          if (result.card) {
+            res.write(`data: ${JSON.stringify({ card: result.card })}\n\n`);
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        }
+        return;
+      }
+
       // Meal-idea and craving turns switch to the structured JSON pipeline:
       // one non-streaming call that yields a short reply plus a validated
       // recipe card (cravings: approved-foods-only, enforced server-side).
@@ -173,6 +272,7 @@ router.post("/coach/chat", async (req, res) => {
       res.end();
     }
   } finally {
+    releaseVisionSlot?.();
     slot.release();
   }
 });

@@ -25,6 +25,10 @@
  *      finalizes — and the held card / quick replies only attach — after the
  *      reveal drains, stop mid-reveal keeps exactly what was on screen (an
  *      already-arrived card survives), and an error clears the buffer.
+ *   5. photo turns (section 4): the menu photo rides ONLY the request tail
+ *      (fixed replay text + image), later requests replay that turn as text
+ *      with no image anywhere, a failed photo turn retries with the SAME
+ *      image, and sendPhoto obeys the same single-flight lock as send.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:coach-stop
  */
@@ -33,6 +37,7 @@ import React, { act } from 'react';
 import { streamCoachChat } from '../lib/coach-api';
 import {
   CoachChatProvider,
+  MENU_PHOTO_MESSAGE_TEXT,
   REVEAL_TICK_MS,
   useCoachChat,
   type CoachMessage,
@@ -82,7 +87,7 @@ let abortBehavior: AbortBehavior = 'faithful';
 
 interface ScriptedSse {
   /** Parsed JSON body the client sent (request sanity checks only). */
-  requestBody: { messages?: Array<{ role: string; content: string }> };
+  requestBody: { messages?: Array<{ role: string; content: string; image?: string }> };
   emit(payload: Record<string, unknown>): void;
   close(): void;
 }
@@ -657,6 +662,153 @@ async function main() {
     'model unavailable',
   );
   assertEqual('every stream in the pacing section was accounted for', opened.length, 0);
+
+  // ── 4. Photo turns: the image rides only the request tail; replays and
+  //       retries keep the contract ─────────────────────────────────────────
+  const PHOTO = { uri: 'data:image/jpeg;base64,PHOTODATA', width: 1200, height: 1600 };
+
+  // 4a. sendPhoto: photo turn in the thread (fixed replay text + kept photo);
+  //     the request tail carries the image, nothing earlier does.
+  await act(() => {
+    chat.sendPhoto(PHOTO);
+  });
+  assert('sendPhoto locks the chat while streaming', chat.isStreaming === true);
+  assertEqual(
+    'sendPhoto shows the photo turn plus an empty streaming bubble',
+    tailShapes(2),
+    `user/done:${MENU_PHOTO_MESSAGE_TEXT}|assistant/streaming:`,
+  );
+  const photoTurn = chat.messages[chat.messages.length - 2];
+  assert(
+    'the photo turn keeps the photo in client state',
+    photoTurn.photo?.uri === PHOTO.uri,
+  );
+  const p1 = takeStream('photo turn');
+  {
+    const msgs = p1.requestBody.messages ?? [];
+    const photoTail = msgs[msgs.length - 1];
+    assert('the photo request tail is the user turn', photoTail?.role === 'user');
+    assertEqual(
+      'the photo request tail carries the fixed replay text',
+      photoTail?.content ?? '',
+      MENU_PHOTO_MESSAGE_TEXT,
+    );
+    assertEqual('the photo request tail carries the image', photoTail?.image ?? '', PHOTO.uri);
+    assert(
+      'no earlier message in the photo request carries an image',
+      msgs.slice(0, -1).every(m => m.image === undefined),
+    );
+  }
+  await actSettle(() => {
+    p1.emit({ content: 'Order the grilled fish, dressing on the side.' });
+    p1.emit({ quickReplies: ['Yes, please', 'No thanks'] });
+    p1.emit({ done: true });
+    p1.close();
+  });
+  await waitUntil(
+    'the menu reply types out and completes',
+    () => tailShapes(1) === 'assistant/done:Order the grilled fish, dressing on the side.',
+  );
+  assertEqual(
+    'the menu reply keeps its one-tap chips',
+    (tailMessage().quickReplies ?? []).join('|'),
+    'Yes, please|No thanks',
+  );
+
+  // 4b. The follow-up send replays the photo turn as TEXT ONLY — the photo
+  //     is never uploaded twice.
+  await act(() => {
+    chat.send('Yes, please');
+  });
+  const p2 = takeStream('photo follow-up');
+  {
+    const msgs = p2.requestBody.messages ?? [];
+    assert(
+      'the follow-up request replays the photo turn as its fixed text',
+      msgs.some(m => m.role === 'user' && m.content === MENU_PHOTO_MESSAGE_TEXT),
+    );
+    assert(
+      'no message in the follow-up request carries an image',
+      msgs.every(m => m.image === undefined),
+    );
+  }
+  await actSettle(() => {
+    p2.emit({ content: 'Here is a home version of that fish.' });
+    p2.emit({ done: true });
+    p2.close();
+  });
+  await waitUntil(
+    'the follow-up reply completes',
+    () => tailShapes(1) === 'assistant/done:Here is a home version of that fish.',
+  );
+
+  // 4c. A transport failure on a photo turn retries with the SAME image —
+  //     one tap, no re-take.
+  const RETRY_PHOTO = { uri: 'data:image/jpeg;base64,RETRYPHOTO', width: 900, height: 1200 };
+  await act(() => {
+    chat.sendPhoto(RETRY_PHOTO);
+  });
+  const p3 = takeStream('photo failure');
+  await actSettle(() => {
+    p3.emit({ error: 'The coach is unavailable right now. Please try again.' });
+    p3.close();
+  });
+  assertEqual(
+    'the failed photo turn shows the error bubble',
+    tailShapes(1),
+    'assistant/error:The coach is unavailable right now. Please try again.',
+  );
+  const failedReplyId = tailMessage().id;
+  await act(() => {
+    chat.retry(failedReplyId);
+  });
+  const p4 = takeStream('photo retry');
+  {
+    const msgs = p4.requestBody.messages ?? [];
+    const retryTail = msgs[msgs.length - 1];
+    assertEqual(
+      'retry re-sends the same photo on the request tail',
+      retryTail?.image ?? '',
+      RETRY_PHOTO.uri,
+    );
+    assertEqual(
+      'retry keeps the fixed photo replay text',
+      retryTail?.content ?? '',
+      MENU_PHOTO_MESSAGE_TEXT,
+    );
+    assert(
+      'retry attaches the image only to the tail',
+      msgs.slice(0, -1).every(m => m.image === undefined),
+    );
+  }
+  await actSettle(() => {
+    p4.emit({ content: 'Retried menu reply.' });
+    p4.emit({ done: true });
+    p4.close();
+  });
+  await waitUntil(
+    'the retried photo turn completes',
+    () => tailShapes(1) === 'assistant/done:Retried menu reply.' && !chat.isStreaming,
+  );
+
+  // 4d. sendPhoto obeys the same single-flight lock as send.
+  await act(() => {
+    chat.send('lock the chat');
+  });
+  const p5 = takeStream('lock stream');
+  const lockedCount = chat.messages.length;
+  await act(() => {
+    chat.sendPhoto(PHOTO);
+  });
+  assertEqual('sendPhoto while locked adds no messages', chat.messages.length, lockedCount);
+  assertEqual('sendPhoto while locked opens no stream', opened.length, 0);
+  await actSettle(() => {
+    p5.emit({ content: 'ok' });
+    p5.emit({ done: true });
+    p5.close();
+  });
+  await waitUntil('the lock stream completes and unlocks', () => chat.isStreaming === false);
+  assertEqual('every photo-section stream was accounted for', opened.length, 0);
 
   // Cleanup: end every scripted stream (aborted ones must finalize silently —
   // any stray update here would warn and corrupt the transcripts above).

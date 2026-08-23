@@ -40,3 +40,29 @@ description: Patterns proven by the menu-scan flow — vision input through the 
   copy ("about half a minute") and let e2e tests wait up to 90s. Expo typed routes
   only regenerate when Metro (re)starts — a brand-new screen fails root typecheck
   until the expo workflow restarts.
+
+## Chat photo turns (coach conversation)
+
+- **The image rides ONLY the request tail.** The chat request stays text-shaped;
+  an optional image data-URI field is honored solely on the latest user message.
+  Client-side, photo turns keep the prepared photo on the message object and
+  replay as a fixed stand-in line — a photo is never uploaded twice, and retry
+  re-attaches the kept photo to the tail (one tap, no re-take).
+  **Why:** replaying multi-MB data URIs would blow the history cap and body
+  limit on every later turn.
+- **Vision output is formatted deterministically server-side** into the coach
+  reply (numbered picks block, one "Skip ..." block, closing recipe offer).
+  Non-menu/unreadable outcomes must NEVER end with "?" — the client shows
+  fallback yes/no chips under any done reply ending in a question mark, and
+  chips under a warm notice would invite a nonsensical "Yes".
+- **Offer → Yes follow-up is detected by strict adjacency:** the immediately
+  previous assistant message must contain an exact offer constant and the user
+  reply must normalize into a small affirmative set; it then reroutes into the
+  existing recipe pipeline with a menu-inspiration flag (approved-foods
+  compartment forced). Runs BEFORE the generic recipe-intent detector.
+- **Photo turns consume both the chat slot and the vision slot** of the rate
+  limiter (vision slot released in the route's finally), so chat photos cannot
+  silently starve the standalone menu-scan screen's budget.
+- **E2E note:** automation misattributes chips easily — chips render under the
+  NEWEST reply only, so a normal turn's chips can look like they belong to an
+  earlier photo notice in a final screenshot. Judge the pre-follow-up state.

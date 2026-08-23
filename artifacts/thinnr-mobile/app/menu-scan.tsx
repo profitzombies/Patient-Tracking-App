@@ -32,7 +32,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Redirect, router, usePathname } from 'expo-router';
 import { LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
@@ -40,20 +39,7 @@ import { APPROVED_FOODS_HREF } from '@/constants/links';
 import { useAppMode } from '@/context/AppModeContext';
 import { useColors } from '@/hooks/useColors';
 import { MenuScanError, scanMenuPhoto, type MenuScanResult } from '@/lib/coach-api';
-
-/**
- * Longest edge of the uploaded JPEG. Enough for the model to read menu
- * print reliably while keeping the payload a few hundred KB.
- */
-const MAX_UPLOAD_EDGE = 1600;
-const UPLOAD_JPEG_QUALITY = 0.7;
-
-interface PreparedPhoto {
-  /** JPEG data URI — used for both the on-screen preview and the upload. */
-  uri: string;
-  width: number;
-  height: number;
-}
+import { preparePhotoForUpload, type PreparedPhoto } from '@/lib/photo-prep';
 
 type Phase =
   | { kind: 'pick' }
@@ -64,39 +50,6 @@ type Phase =
   /** The AI answered, but the photo was not a readable menu. */
   | { kind: 'notice'; photo: PreparedPhoto; result: MenuScanResult }
   | { kind: 'results'; photo: PreparedPhoto; result: MenuScanResult };
-
-/** Downscales + re-encodes a picked asset as a JPEG data URI (in memory). */
-async function prepareMenuPhoto(asset: ImagePicker.ImagePickerAsset): Promise<PreparedPhoto> {
-  // Web assets sometimes arrive as blob: URIs; the picker is asked for
-  // base64 there so the manipulator always gets a stable data URI input.
-  let sourceUri = asset.uri;
-  if (Platform.OS === 'web' && asset.base64 && !sourceUri.startsWith('data:')) {
-    sourceUri = `data:${asset.mimeType ?? 'image/jpeg'};base64,${asset.base64}`;
-  }
-
-  const context = ImageManipulator.manipulate(sourceUri);
-  const largestEdge = Math.max(asset.width ?? 0, asset.height ?? 0);
-  if (largestEdge > MAX_UPLOAD_EDGE) {
-    if ((asset.width ?? 0) >= (asset.height ?? 0)) {
-      context.resize({ width: MAX_UPLOAD_EDGE });
-    } else {
-      context.resize({ height: MAX_UPLOAD_EDGE });
-    }
-  }
-  const rendered = await context.renderAsync();
-  const saved = await rendered.saveAsync({
-    format: SaveFormat.JPEG,
-    compress: UPLOAD_JPEG_QUALITY,
-    base64: true,
-  });
-  const base64 = saved.base64 ?? (saved.uri.startsWith('data:') ? saved.uri.split(',')[1] : null);
-  if (!base64) throw new Error('Image encoding produced no base64 data');
-  return {
-    uri: `data:image/jpeg;base64,${base64}`,
-    width: saved.width || asset.width || 3,
-    height: saved.height || asset.height || 4,
-  };
-}
 
 export default function MenuScanScreen() {
   const colors = useColors();
@@ -143,7 +96,7 @@ export default function MenuScanScreen() {
     if (result.canceled || !result.assets?.[0]) return;
     setPreparing(true);
     try {
-      const photo = await prepareMenuPhoto(result.assets[0]);
+      const photo = await preparePhotoForUpload(result.assets[0]);
       setPickError(null);
       setPhase({ kind: 'preview', photo });
     } catch (error) {

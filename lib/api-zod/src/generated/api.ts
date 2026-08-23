@@ -14,6 +14,8 @@ import * as zod from 'zod';
  */
 export const coachChatBodyMessagesItemContentMax = 4000;
 
+export const coachChatBodyMessagesItemImageMax = 8000000;
+
 export const coachChatBodyMessagesMax = 30;
 
 
@@ -22,7 +24,8 @@ export const CoachChatBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant']),
   "content": zod.string().max(coachChatBodyMessagesItemContentMax),
-  "stopped": zod.boolean().optional().describe('True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages.')
+  "stopped": zod.boolean().optional().describe('True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages.'),
+  "image": zod.string().max(coachChatBodyMessagesItemImageMax).optional().describe('Optional menu photo attached to this user message, as a base64 data URI (JPEG, PNG, or WebP). Honored only on the final message of the request — history replays carry text only, so a photo is never re-sent on later turns. Analyzed in memory and never stored. Ignored on assistant messages.')
 })).min(1).max(coachChatBodyMessagesMax)
 })
 

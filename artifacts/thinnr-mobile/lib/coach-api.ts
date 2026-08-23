@@ -24,6 +24,14 @@ export interface CoachRequestMessage {
    * model, so the next answer never continues the cut-off sentence.
    */
   stopped?: boolean;
+  /**
+   * Menu photo attached to this message as a JPEG data URI. Sent only on the
+   * final message of a request — the turn being answered. History replays
+   * stay text-only (the server ignores images anywhere else), so a photo is
+   * never uploaded twice. The server analyzes it in memory and never stores
+   * it.
+   */
+  image?: string;
 }
 
 export interface CoachCardEvent {
@@ -139,7 +147,19 @@ export async function streamCoachChat(
       signal,
     });
     if (!response.ok) {
-      throw new Error(`Coach request failed with status ${response.status}`);
+      // Pre-stream failures (rate limits, an oversized photo) answer as JSON
+      // with a user-facing message; surface that wording instead of the
+      // generic fallback so e.g. a too-large photo explains itself.
+      let message = FRIENDLY_ERROR;
+      try {
+        const body = (await response.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
+      } catch {
+        // keep the generic message
+      }
+      state.finished = true;
+      if (!signal?.aborted) callbacks.onError(message);
+      return;
     }
 
     if (response.body) {

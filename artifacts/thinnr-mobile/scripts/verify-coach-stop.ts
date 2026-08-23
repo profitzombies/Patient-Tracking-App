@@ -1,0 +1,478 @@
+/**
+ * Coach chat stop-control regression check.
+ *
+ * Drives the real streaming pipeline — CoachChatProvider rendered with
+ * react-test-renderer calling the real lib/coach-api.ts client — against a
+ * scripted fetch that plays SSE events on cue (tsconfig.coach-stop.json maps
+ * react-native and expo/fetch to Node stubs so the client runs under tsx).
+ *
+ * Pins the three race guarantees behind the Stop control so a refactor of
+ * CoachChatContext (e.g. persistence work) cannot silently reintroduce a
+ * locked chat or a stray error bubble:
+ *   1. an aborted stream invokes no callbacks (CoachStreamOptions.signal
+ *      contract — section 1 tests streamCoachChat directly),
+ *   2. stop() finalizes the UI and unlocks the input synchronously — stop
+ *      while the reply is still empty removes the bubble, stop mid-stream
+ *      keeps the partial text as a done message, and a follow-up send in the
+ *      very same tick starts a new exchange,
+ *   3. late events from a stopped stream never touch the chat again — no
+ *      error bubble, no text appended to a finished reply, no cross-talk
+ *      into a newer exchange (section 2 uses a "leaky" transport that keeps
+ *      emitting after abort, modeling chunks already in flight at stop time).
+ *
+ * Run: pnpm --filter @workspace/thinnr-mobile run test:coach-stop
+ */
+import React, { act } from 'react';
+
+import { streamCoachChat } from '../lib/coach-api';
+import {
+  CoachChatProvider,
+  useCoachChat,
+  type CoachMessage,
+} from '../context/CoachChatContext';
+
+let checks = 0;
+let failures = 0;
+
+function fail(message: string) {
+  failures += 1;
+  console.error(`  FAIL  ${message}`);
+}
+
+function assert(label: string, condition: boolean) {
+  checks += 1;
+  if (!condition) fail(label);
+}
+
+function assertEqual(label: string, actual: string | number, expected: string | number) {
+  checks += 1;
+  if (actual !== expected) {
+    fail(`${label}\n        expected: ${JSON.stringify(expected)}\n        actual:   ${JSON.stringify(actual)}`);
+  }
+}
+
+function finish(): never {
+  if (failures > 0) {
+    console.error(`\n✗ coach stop-control check: ${failures} failure(s) across ${checks} checks`);
+    process.exit(1);
+  }
+  console.log(`✓ coach stop-control check: ${checks} checks passed`);
+  process.exit(0);
+}
+
+// ── Scripted SSE transport ────────────────────────────────────────────────────
+// globalThis.fetch is replaced with a fake that returns a ReadableStream the
+// test feeds by hand. Two abort behaviors:
+//   'faithful' — like real fetch: aborting the signal rejects the pending
+//                read with AbortError (the transport goes dead).
+//   'leaky'    — ignores the abort and keeps delivering, so events keep
+//                reaching the client callbacks after the user hit stop; this
+//                is how we prove the UI-side staleness guards hold even when
+//                a chunk was already in flight.
+
+type AbortBehavior = 'faithful' | 'leaky';
+let abortBehavior: AbortBehavior = 'faithful';
+
+interface ScriptedSse {
+  /** Parsed JSON body the client sent (request sanity checks only). */
+  requestBody: { messages?: Array<{ role: string; content: string }> };
+  emit(payload: Record<string, unknown>): void;
+  close(): void;
+}
+
+const opened: ScriptedSse[] = [];
+const everOpened: ScriptedSse[] = [];
+const encoder = new TextEncoder();
+
+function abortError(): Error {
+  const error = new Error('The operation was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function scriptedFetch(
+  _input: unknown,
+  init?: { body?: unknown; signal?: AbortSignal | null },
+): Promise<Response> {
+  const signal = init?.signal ?? undefined;
+  if (signal?.aborted) return Promise.reject(abortError());
+
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let dead = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+
+  const scripted: ScriptedSse = {
+    requestBody: typeof init?.body === 'string' ? JSON.parse(init.body) : {},
+    emit(payload) {
+      if (dead) return;
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+    },
+    close() {
+      if (dead) return;
+      dead = true;
+      controller.close();
+    },
+  };
+
+  if (abortBehavior === 'faithful' && signal) {
+    signal.addEventListener('abort', () => {
+      if (dead) return;
+      dead = true;
+      controller.error(abortError());
+    });
+  }
+
+  opened.push(scripted);
+  everOpened.push(scripted);
+  return Promise.resolve({ ok: true, status: 200, body } as unknown as Response);
+}
+
+function takeStream(label: string): ScriptedSse {
+  const stream = opened.shift();
+  if (!stream) {
+    fail(`${label}: expected the client to have opened a coach stream`);
+    finish();
+  }
+  return stream;
+}
+
+/** Lets the client's read-loop microtasks drain (two macrotask turns). */
+const tick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+async function settle() {
+  await tick();
+  await tick();
+}
+
+function recorder() {
+  const events: string[] = [];
+  return {
+    events,
+    callbacks: {
+      onDelta: (text: string) => {
+        events.push(`delta:${text}`);
+      },
+      onCard: (card: { kind: string }) => {
+        events.push(`card:${card.kind}`);
+      },
+      onDone: () => {
+        events.push('done');
+      },
+      onError: (message: string) => {
+        events.push(`error:${message}`);
+      },
+    },
+  };
+}
+
+// ── Section 2 harness: render the real provider, probe the context value ────
+type Chat = ReturnType<typeof useCoachChat>;
+let chat!: Chat;
+
+function Probe(): null {
+  chat = useCoachChat();
+  return null;
+}
+
+const shape = (m: CoachMessage) => `${m.role}/${m.status}:${m.text}`;
+const shapes = () => chat.messages.map(shape).join('|');
+const tailShapes = (n: number) => chat.messages.slice(-n).map(shape).join('|');
+
+async function actSettle(mutate?: () => void): Promise<void> {
+  await act(async () => {
+    mutate?.();
+    await settle();
+  });
+}
+
+async function main() {
+  process.env.EXPO_PUBLIC_DOMAIN = 'coach-stop.internal';
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  globalThis.fetch = scriptedFetch as unknown as typeof fetch;
+
+  // react-test-renderer 19 prints a one-line deprecation notice; keep the
+  // output readable but let every other console.error through untouched.
+  const realConsoleError = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('react-test-renderer is deprecated')) return;
+    realConsoleError(...args);
+  };
+  const rendererModule = (await import('react-test-renderer')) as unknown as {
+    default?: { create: (el: React.ReactElement) => { unmount(): void } };
+    create?: (el: React.ReactElement) => { unmount(): void };
+  };
+  const TestRenderer = rendererModule.default ?? rendererModule;
+  if (!TestRenderer.create) throw new Error('react-test-renderer did not expose create()');
+
+  // ── 1. streamCoachChat signal contract: aborted streams stay silent ───────
+  {
+    // 1a. Baseline: deltas arrive in order, then exactly one done.
+    const rec = recorder();
+    const run = streamCoachChat(
+      { messages: [{ role: 'user', content: 'baseline' }] },
+      rec.callbacks,
+    );
+    const stream = takeStream('baseline');
+    assert(
+      'the request carries the caller message',
+      stream.requestBody.messages?.[0]?.content === 'baseline',
+    );
+    stream.emit({ content: 'Lean protein' });
+    stream.emit({ content: ' every meal.' });
+    stream.emit({ done: true });
+    stream.close();
+    await run;
+    assertEqual(
+      'baseline stream replays deltas then done',
+      rec.events.join('|'),
+      'delta:Lean protein|delta: every meal.|done',
+    );
+  }
+  {
+    // 1b. Abort mid-stream (faithful transport): the pending read rejects
+    // with AbortError and NOTHING is invoked after the abort — no onDone,
+    // no onError. This is the silence stop() relies on.
+    abortBehavior = 'faithful';
+    const controller = new AbortController();
+    const rec = recorder();
+    const run = streamCoachChat(
+      { messages: [{ role: 'user', content: 'abort mid-stream' }] },
+      rec.callbacks,
+      { signal: controller.signal },
+    );
+    const stream = takeStream('abort mid-stream');
+    stream.emit({ content: 'Half a rep' });
+    await settle();
+    controller.abort();
+    await run;
+    assertEqual(
+      'aborted stream keeps pre-abort deltas only (no done, no error)',
+      rec.events.join('|'),
+      'delta:Half a rep',
+    );
+  }
+  {
+    // 1c. Abort landing between the last read and finalization: the stream
+    // ends cleanly with no done event while the signal is already aborted —
+    // the client must NOT synthesize onDone.
+    abortBehavior = 'leaky';
+    const controller = new AbortController();
+    const rec = recorder();
+    const run = streamCoachChat(
+      { messages: [{ role: 'user', content: 'abort at stream end' }] },
+      rec.callbacks,
+      { signal: controller.signal },
+    );
+    const stream = takeStream('abort at stream end');
+    stream.emit({ content: 'Water first' });
+    await settle();
+    controller.abort();
+    stream.close();
+    await run;
+    assertEqual(
+      'aborted-at-end stream never synthesizes done',
+      rec.events.join('|'),
+      'delta:Water first',
+    );
+  }
+  {
+    // 1d. Un-aborted close without a done event DOES finalize — proving 1c
+    // was guarded by the abort, not by luck.
+    const rec = recorder();
+    const run = streamCoachChat(
+      { messages: [{ role: 'user', content: 'close without done' }] },
+      rec.callbacks,
+    );
+    const stream = takeStream('close without done');
+    stream.emit({ content: 'Sleep 8 hours.' });
+    stream.close();
+    await run;
+    assertEqual(
+      'unaborted close-without-done synthesizes exactly one done',
+      rec.events.join('|'),
+      'delta:Sleep 8 hours.|done',
+    );
+  }
+  {
+    // 1e. A server error event surfaces exactly once, then the stream is dead
+    // to further events.
+    const rec = recorder();
+    const run = streamCoachChat(
+      { messages: [{ role: 'user', content: 'server error' }] },
+      rec.callbacks,
+    );
+    const stream = takeStream('server error');
+    stream.emit({ error: 'model unavailable' });
+    stream.emit({ content: 'stray' });
+    stream.emit({ done: true });
+    stream.close();
+    await run;
+    assertEqual(
+      'error event surfaces once and ends the stream',
+      rec.events.join('|'),
+      'error:model unavailable',
+    );
+  }
+
+  // ── 2. CoachChatContext stop flows (leaky transport throughout, so every
+  //       late event genuinely reaches the client callbacks and only the
+  //       context's own staleness guards stand between it and the UI) ───────
+  abortBehavior = 'leaky';
+  let renderer: { unmount(): void } | undefined;
+  await act(() => {
+    renderer = TestRenderer.create!(
+      React.createElement(CoachChatProvider, null, React.createElement(Probe)),
+    );
+  });
+
+  // 2a. Stop while the reply is still empty: bubble removed, chat unlocked,
+  //     late events ignored.
+  await act(() => {
+    chat.send('Protein target?');
+  });
+  assert('send locks the chat while streaming', chat.isStreaming === true);
+  assertEqual(
+    'send shows the user turn plus an empty streaming bubble',
+    shapes(),
+    'user/done:Protein target?|assistant/streaming:',
+  );
+  const s1 = takeStream('stop-while-empty');
+  await act(() => {
+    chat.stop();
+  });
+  assert('stop on an empty reply unlocks the chat', chat.isStreaming === false);
+  assertEqual('stop on an empty reply removes the bubble', shapes(), 'user/done:Protein target?');
+  await actSettle(() => {
+    s1.emit({ content: 'late delta' });
+    s1.emit({ error: 'late error' });
+    s1.emit({ done: true });
+  });
+  assertEqual(
+    'late events from the stopped stream change nothing (no error bubble)',
+    shapes(),
+    'user/done:Protein target?',
+  );
+  assert('late events never relock the chat', chat.isStreaming === false);
+
+  // 2b. Stop mid-stream: partial text is kept as a done message (trailing
+  //     whitespace trimmed), the chat unlocks, late events cannot reopen it.
+  await act(() => {
+    chat.send('Hydration tips?');
+  });
+  const s2 = takeStream('stop-mid-stream');
+  await actSettle(() => {
+    s2.emit({ content: 'Water supports' });
+    s2.emit({ content: ' recovery. ' });
+  });
+  assertEqual(
+    'deltas accumulate into the streaming bubble',
+    tailShapes(1),
+    'assistant/streaming:Water supports recovery. ',
+  );
+  assert('chat stays locked while streaming', chat.isStreaming === true);
+  const messagesWhileLocked = chat.messages.length;
+  await act(() => {
+    chat.send('Should be swallowed');
+  });
+  assertEqual('send while locked is ignored', chat.messages.length, messagesWhileLocked);
+  assertEqual('send while locked opens no new stream', opened.length, 0);
+  await act(() => {
+    chat.stop();
+  });
+  assertEqual(
+    'stop mid-stream keeps the partial text as a done message (trimmed)',
+    tailShapes(1),
+    'assistant/done:Water supports recovery.',
+  );
+  assert('stop mid-stream unlocks the chat', chat.isStreaming === false);
+  await actSettle(() => {
+    s2.emit({ content: ' MORE' });
+    s2.emit({ error: 'late failure' });
+  });
+  assertEqual(
+    'late delta/error cannot grow or reopen the finished reply',
+    tailShapes(1),
+    'assistant/done:Water supports recovery.',
+  );
+  assert('late events after a mid-stream stop never relock the chat', chat.isStreaming === false);
+
+  // 2c. Follow-up send in the SAME tick as stop(): the unlock is synchronous,
+  //     and the old stream's remaining events cannot touch the new exchange.
+  await act(() => {
+    chat.send('Approved snacks?');
+  });
+  const s3 = takeStream('follow-up base');
+  await actSettle(() => {
+    s3.emit({ content: 'Celery' });
+  });
+  await act(() => {
+    chat.stop();
+    chat.send('And dinner?'); // same tick — must not be swallowed
+  });
+  assert('follow-up send right after stop() starts streaming', chat.isStreaming === true);
+  assertEqual(
+    'stop finalizes the old reply and the follow-up opens a fresh bubble',
+    tailShapes(3),
+    'assistant/done:Celery|user/done:And dinner?|assistant/streaming:',
+  );
+  const s4 = takeStream('follow-up stream');
+  await actSettle(() => {
+    s3.emit({ content: ' sticks' });
+    s3.emit({ error: 'late failure' });
+    s3.emit({ done: true });
+  });
+  assertEqual(
+    'late events from the old stream never touch the new exchange',
+    tailShapes(3),
+    'assistant/done:Celery|user/done:And dinner?|assistant/streaming:',
+  );
+  assert('a late done from the old stream does not unlock the new one', chat.isStreaming === true);
+  await actSettle(() => {
+    s4.emit({ content: 'Grilled chicken.' });
+    s4.emit({ done: true });
+  });
+  assertEqual(
+    'the follow-up exchange completes normally',
+    tailShapes(2),
+    'user/done:And dinner?|assistant/done:Grilled chicken.',
+  );
+  assert('completion unlocks the chat', chat.isStreaming === false);
+
+  // 2d. Whole-session sweep: exact transcript, no error bubble anywhere.
+  assertEqual(
+    'full transcript matches the expected session',
+    shapes(),
+    [
+      'user/done:Protein target?',
+      'user/done:Hydration tips?',
+      'assistant/done:Water supports recovery.',
+      'user/done:Approved snacks?',
+      'assistant/done:Celery',
+      'user/done:And dinner?',
+      'assistant/done:Grilled chicken.',
+    ].join('|'),
+  );
+  assert(
+    'no message in the whole session ever carries an error status',
+    chat.messages.every(m => m.status !== 'error'),
+  );
+  assertEqual('every opened stream was accounted for', opened.length, 0);
+
+  // Cleanup: end every scripted stream (aborted ones must finalize silently —
+  // any stray update here would warn and corrupt the transcript above).
+  for (const stream of everOpened) stream.close();
+  await actSettle();
+  await act(() => {
+    renderer?.unmount();
+  });
+
+  finish();
+}
+
+main().catch(error => {
+  console.error('coach stop-control check crashed:', error);
+  process.exit(1);
+});

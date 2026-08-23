@@ -14,3 +14,4 @@
 - [Staging coach failures](coach-failure-staging.md) — break the model upstream via a workflow env-override restart to test error/Retry states; the tester can break and heal it in one session.
 - [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
 - [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).
+- [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.

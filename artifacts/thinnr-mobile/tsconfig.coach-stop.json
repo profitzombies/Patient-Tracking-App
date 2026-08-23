@@ -1,0 +1,17 @@
+{
+  // tsx config for scripts/verify-coach-stop.ts ONLY (not part of typecheck).
+  //
+  // The suite runs the real CoachChatContext + lib/coach-api.ts under Node,
+  // so the two native-only imports are remapped to Node stubs and JSX is
+  // compiled with the automatic runtime (the inherited "react-native" jsx
+  // setting would leave JSX untransformed).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/coach-stop-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"]
+    }
+  }
+}

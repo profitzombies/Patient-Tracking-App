@@ -44,6 +44,10 @@ args = "diary-edit"
 task = "workflow.run"
 args = "custom-food-undo"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coach-stop"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -120,6 +124,17 @@ args = "pnpm --filter @workspace/thinnr-mobile run test:custom-food-undo"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "coach-stop"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:coach-stop"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 stack = "PNPM_WORKSPACE"

@@ -37,7 +37,10 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
   // spam should burn the caller's budget, not the server's CPU.
   const slot = acquireChatSlot(req.ip ?? "unknown");
   if (!slot.ok) {
-    res.status(slot.status).json({ error: slot.message });
+    // `retryable: false` marks denials that cannot clear soon (daily budget
+    // spent) so the client can drop its Retry control; busy/rapid denials
+    // stay retryable. Absent means retryable — older bodies default that way.
+    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
     return;
   }
 
@@ -74,7 +77,9 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // the scanner's shared budget on top of the chat slot already held.
       const visionSlot = acquireMenuScanSlot(req.ip ?? "unknown");
       if (!visionSlot.ok) {
-        res.status(visionSlot.status).json({ error: visionSlot.message });
+        res
+          .status(visionSlot.status)
+          .json({ error: visionSlot.message, retryable: visionSlot.retryable });
         return;
       }
       releaseVisionSlot = visionSlot.release;

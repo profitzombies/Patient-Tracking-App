@@ -22,7 +22,18 @@ interface Bucket {
 
 export type ChatSlot =
   | { ok: true; release: () => void }
-  | { ok: false; status: number; message: string };
+  | {
+      ok: false;
+      status: number;
+      message: string;
+      /**
+       * Whether retrying soon can plausibly succeed. False only for the
+       * daily budget (spent until UTC midnight); busy/rapid denials clear
+       * within moments. Rides the JSON error body so clients can hide their
+       * retry affordances when retrying cannot help.
+       */
+      retryable: boolean;
+    };
 
 interface LimiterOptions {
   burst: number;
@@ -69,11 +80,11 @@ export function createLimiter(options: LimiterOptions): (ip: string) => ChatSlot
       dailyCount = 0;
     }
     if (dailyCount >= options.dailyBudget) {
-      return { ok: false, status: 429, message: options.dailyMessage };
+      return { ok: false, status: 429, message: options.dailyMessage, retryable: false };
     }
 
     if (active >= options.maxConcurrent) {
-      return { ok: false, status: 429, message: options.busyMessage };
+      return { ok: false, status: 429, message: options.busyMessage, retryable: true };
     }
 
     evictIdleBuckets(now);
@@ -85,7 +96,7 @@ export function createLimiter(options: LimiterOptions): (ip: string) => ChatSlot
       refill(bucket, now);
     }
     if (bucket.tokens < 1) {
-      return { ok: false, status: 429, message: options.rapidMessage };
+      return { ok: false, status: 429, message: options.rapidMessage, retryable: true };
     }
 
     bucket.tokens -= 1;
@@ -125,12 +136,26 @@ export const acquireMenuScanSlot = createLimiter({
   rapidMessage: "You are scanning menus too quickly. Please wait a moment.",
 });
 
+/**
+ * Test/staging hook: a non-negative integer in the named env var overrides a
+ * chat-limiter default, so e2e tests can stage denial states deterministically
+ * (COACH_CHAT_DAILY_BUDGET=0 → every send answers with the daily-limit
+ * message; COACH_CHAT_BURST=0 → every send answers rapid-fire). Unset in
+ * normal runs, leaving the defaults untouched.
+ */
+function envLimit(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = Number.parseInt(raw, 10);
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
 /** Chat turns: one per message sent from the coach screen. */
 export const acquireChatSlot = createLimiter({
-  burst: 10,
+  burst: envLimit("COACH_CHAT_BURST", 10),
   refillPerMinute: 10,
   maxConcurrent: 4,
-  dailyBudget: 500,
+  dailyBudget: envLimit("COACH_CHAT_DAILY_BUDGET", 500),
   dailyMessage: "The coach has reached its daily limit. Please try again tomorrow.",
   busyMessage: "The coach is busy right now. Please try again in a moment.",
   rapidMessage: "You are sending messages too quickly. Please wait a moment.",

@@ -701,7 +701,10 @@ function MessageBubble({ message }: { message: CoachMessage }) {
         </Text>
       ) : null}
       {message.card ? <CoachCardSlot card={message.card} /> : null}
-      {isError && !isStreaming ? (
+      {/* Final failures (retryable === false, e.g. the daily budget is spent
+          until tomorrow) hide the chip — the message already says waiting is
+          the only fix, so offering RETRY would invite pointless taps. */}
+      {isError && !isStreaming && message.retryable !== false ? (
         <Pressable
           testID={`coach-retry-${message.id}`}
           accessibilityRole="button"

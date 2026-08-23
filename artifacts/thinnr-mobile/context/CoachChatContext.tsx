@@ -74,6 +74,14 @@ export interface CoachMessage {
    * line the model reads — the bubble renders the photo instead of it.
    */
   photo?: { uri: string; width: number; height: number };
+
+  /**
+   * Error messages only: false when the server declared the failure final —
+   * retrying now cannot help (e.g. the coach's daily budget is spent until
+   * tomorrow) — so the chat screen hides its RETRY chip. True for transient
+   * failures (busy, rapid-fire, outages), where retrying plausibly helps.
+   */
+  retryable?: boolean;
 }
 
 interface CoachChatContextValue {
@@ -346,7 +354,7 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
               finalizeReveal(reveal);
             }
           },
-          onError: message => {
+          onError: (message, retryable) => {
             if (isStale()) return;
             // The error replaces the reply wholesale — drop the unrevealed
             // buffer and any held card/quick replies with it.
@@ -358,7 +366,7 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
             abortRef.current = null;
             setMessages(current =>
               current.map(m =>
-                m.id === assistantId ? { ...m, status: 'error', text: message } : m,
+                m.id === assistantId ? { ...m, status: 'error', text: message, retryable } : m,
               ),
             );
             inFlightRef.current = false;

@@ -29,6 +29,12 @@
  *      (fixed replay text + image), later requests replay that turn as text
  *      with no image anywhere, a failed photo turn retries with the SAME
  *      image, and sendPhoto obeys the same single-flight lock as send.
+ *   6. pre-stream denials (sections 1f-1i and 5): a non-OK JSON answer
+ *      surfaces the server's own wording plus its finality flag — a
+ *      daily-budget denial lands retryable:false (the chat hides RETRY on
+ *      that flag), busy/rapid denials stay retryable and retry() replays
+ *      the question, and non-JSON failures fall back to the generic
+ *      message, retryable.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:coach-stop
  */
@@ -96,6 +102,13 @@ const opened: ScriptedSse[] = [];
 const everOpened: ScriptedSse[] = [];
 const encoder = new TextEncoder();
 
+/**
+ * Queued pre-stream failures: the next fetch answers non-OK with this status
+ * and body instead of opening a stream (json() rejects on a non-JSON body,
+ * like a proxy error page would).
+ */
+const failNext: Array<{ status: number; body: string }> = [];
+
 function abortError(): Error {
   const error = new Error('The operation was aborted.');
   error.name = 'AbortError';
@@ -108,6 +121,15 @@ function scriptedFetch(
 ): Promise<Response> {
   const signal = init?.signal ?? undefined;
   if (signal?.aborted) return Promise.reject(abortError());
+
+  const failure = failNext.shift();
+  if (failure) {
+    return Promise.resolve({
+      ok: false,
+      status: failure.status,
+      json: async () => JSON.parse(failure.body) as unknown,
+    } as unknown as Response);
+  }
 
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   let dead = false;
@@ -175,8 +197,8 @@ function recorder() {
       onDone: () => {
         events.push('done');
       },
-      onError: (message: string) => {
-        events.push(`error:${message}`);
+      onError: (message: string, retryable: boolean) => {
+        events.push(`error(${retryable ? 'retryable' : 'final'}):${message}`);
       },
     },
   };
@@ -355,7 +377,60 @@ async function main() {
     assertEqual(
       'error event surfaces once and ends the stream',
       rec.events.join('|'),
-      'error:model unavailable',
+      'error(retryable):model unavailable',
+    );
+  }
+  {
+    // 1f. Pre-stream denial flagged final: the server's own wording surfaces
+    // and retryable:false rides through untouched — the daily-budget case.
+    failNext.push({
+      status: 429,
+      body: '{"error":"The coach has reached its daily limit. Please try again tomorrow.","retryable":false}',
+    });
+    const rec = recorder();
+    await streamCoachChat({ messages: [{ role: 'user', content: 'daily budget' }] }, rec.callbacks);
+    assertEqual(
+      'a daily-budget denial surfaces the server wording flagged final',
+      rec.events.join('|'),
+      'error(final):The coach has reached its daily limit. Please try again tomorrow.',
+    );
+  }
+  {
+    // 1g. Transient denial: an explicit retryable:true keeps the error retryable.
+    failNext.push({
+      status: 429,
+      body: '{"error":"The coach is busy right now. Please try again in a moment.","retryable":true}',
+    });
+    const rec = recorder();
+    await streamCoachChat({ messages: [{ role: 'user', content: 'busy' }] }, rec.callbacks);
+    assertEqual(
+      'a busy denial stays retryable',
+      rec.events.join('|'),
+      'error(retryable):The coach is busy right now. Please try again in a moment.',
+    );
+  }
+  {
+    // 1h. A denial body WITHOUT the flag defaults to retryable — only an
+    // explicit false downgrades (older shapes like the 413 photo message).
+    failNext.push({ status: 413, body: '{"error":"That photo is too large to upload."}' });
+    const rec = recorder();
+    await streamCoachChat({ messages: [{ role: 'user', content: 'no flag' }] }, rec.callbacks);
+    assertEqual(
+      'a flagless error body defaults to retryable',
+      rec.events.join('|'),
+      'error(retryable):That photo is too large to upload.',
+    );
+  }
+  {
+    // 1i. A non-JSON failure (real outage answered by the proxy) falls back
+    // to the generic wording and stays retryable.
+    failNext.push({ status: 503, body: 'Service Unavailable' });
+    const rec = recorder();
+    await streamCoachChat({ messages: [{ role: 'user', content: 'outage' }] }, rec.callbacks);
+    assertEqual(
+      'a non-JSON failure keeps the generic message and stays retryable',
+      rec.events.join('|'),
+      'error(retryable):The coach is unavailable right now. Please try again.',
     );
   }
 
@@ -809,6 +884,69 @@ async function main() {
   });
   await waitUntil('the lock stream completes and unlocks', () => chat.isStreaming === false);
   assertEqual('every photo-section stream was accounted for', opened.length, 0);
+
+  // ── 5. Pre-stream denials in the chat: only final failures drop retry ─────
+  const DAILY_LIMIT_MESSAGE =
+    'The coach has reached its daily limit. Please try again tomorrow.';
+  const BUSY_MESSAGE = 'The coach is busy right now. Please try again in a moment.';
+
+  // 5a. Daily-budget denial: the bubble carries the server wording flagged
+  //     final (retryable false — the UI hides its RETRY chip on that flag)
+  //     and the denial still unlocks the chat.
+  failNext.push({
+    status: 429,
+    body: JSON.stringify({ error: DAILY_LIMIT_MESSAGE, retryable: false }),
+  });
+  await act(() => {
+    chat.send('One more question');
+  });
+  await waitUntil(
+    'the daily denial lands as an error bubble',
+    () => tailMessage().status === 'error',
+  );
+  assertEqual('the daily denial shows the server wording', tailMessage().text, DAILY_LIMIT_MESSAGE);
+  assert('the daily denial is flagged final (retryable false)', tailMessage().retryable === false);
+  assert('a denial unlocks the chat', chat.isStreaming === false);
+  assertEqual('a denied request opened no stream', opened.length, 0);
+
+  // 5b. Busy denial: flagged retryable, and retry() genuinely replays the
+  //     same question into a fresh, working exchange.
+  failNext.push({
+    status: 429,
+    body: JSON.stringify({ error: BUSY_MESSAGE, retryable: true }),
+  });
+  await act(() => {
+    chat.send('Ask while busy');
+  });
+  await waitUntil(
+    'the busy denial lands as an error bubble',
+    () => tailMessage().status === 'error',
+  );
+  assertEqual('the busy denial shows the server wording', tailMessage().text, BUSY_MESSAGE);
+  assert('the busy denial stays retryable', tailMessage().retryable === true);
+  const busyReplyId = tailMessage().id;
+  await act(() => {
+    chat.retry(busyReplyId);
+  });
+  const s5 = takeStream('retry after busy denial');
+  {
+    const msgs = s5.requestBody.messages ?? [];
+    assertEqual(
+      'the retry replays the denied question as the request tail',
+      msgs[msgs.length - 1]?.content ?? '',
+      'Ask while busy',
+    );
+  }
+  await actSettle(() => {
+    s5.emit({ content: 'Back with you now.' });
+    s5.emit({ done: true });
+    s5.close();
+  });
+  await waitUntil(
+    'the retried exchange completes normally',
+    () => tailShapes(1) === 'assistant/done:Back with you now.' && !chat.isStreaming,
+  );
+  assertEqual('every denial-section stream was accounted for', opened.length, 0);
 
   // Cleanup: end every scripted stream (aborted ones must finalize silently —
   // any stray update here would warn and corrupt the transcripts above).

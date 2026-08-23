@@ -42,7 +42,13 @@ export interface CoachCardEvent {
 export interface CoachStreamCallbacks {
   onDelta: (text: string) => void;
   onDone: () => void;
-  onError: (message: string) => void;
+  /**
+   * `retryable` is false only when the server declared the failure final —
+   * retrying now cannot help (e.g. the daily demo budget is spent until
+   * tomorrow). Callers should hide their retry affordances then. Transient
+   * failures (busy, rapid-fire, outages) always pass true.
+   */
+  onError: (message: string, retryable: boolean) => void;
   /** Rich card attached to this reply (sent by the server before done). */
   onCard?: (card: CoachCardEvent) => void;
   /**
@@ -114,7 +120,8 @@ function drainSseBuffer(
         if (labels.length > 0) callbacks.onQuickReplies?.(labels);
       } else if (payload.error) {
         state.finished = true;
-        callbacks.onError(payload.error);
+        // Mid-stream errors are outages, not budget denials — retrying helps.
+        callbacks.onError(payload.error, true);
       } else if (payload.done) {
         state.finished = true;
         callbacks.onDone();
@@ -149,16 +156,20 @@ export async function streamCoachChat(
     if (!response.ok) {
       // Pre-stream failures (rate limits, an oversized photo) answer as JSON
       // with a user-facing message; surface that wording instead of the
-      // generic fallback so e.g. a too-large photo explains itself.
+      // generic fallback so e.g. a too-large photo explains itself. The body
+      // may also carry `retryable: false` when the failure is final (daily
+      // budget spent) — only that explicit signal downgrades retryability.
       let message = FRIENDLY_ERROR;
+      let retryable = true;
       try {
-        const body = (await response.json()) as { error?: unknown };
+        const body = (await response.json()) as { error?: unknown; retryable?: unknown };
         if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
+        if (body.retryable === false) retryable = false;
       } catch {
         // keep the generic message
       }
       state.finished = true;
-      if (!signal?.aborted) callbacks.onError(message);
+      if (!signal?.aborted) callbacks.onError(message, retryable);
       return;
     }
 
@@ -189,7 +200,7 @@ export async function streamCoachChat(
       state.finished = true;
       if (signal?.aborted || isAbortError(error)) return;
       console.error('Coach chat request failed', error);
-      callbacks.onError(FRIENDLY_ERROR);
+      callbacks.onError(FRIENDLY_ERROR, true);
     }
   }
 }

@@ -217,19 +217,26 @@ describe("POST /api/coach/chat", () => {
     });
   });
 
-  it("rate limits rapid-fire requests with 429", async () => {
-    const statuses: number[] = [];
+  it("rate limits rapid-fire requests with a retryable 429", async () => {
+    const denials: Array<{ error?: string; retryable?: unknown }> = [];
     for (let i = 0; i < 15; i++) {
       const res = await postChat(validBody);
-      statuses.push(res.status);
-      if (res.status === 200) await res.text();
-      else await res.json();
+      if (res.status === 429) {
+        denials.push((await res.json()) as { error?: string; retryable?: unknown });
+      } else if (res.status === 200) {
+        await res.text();
+      } else {
+        await res.json();
+      }
     }
-    expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0);
-    const limited = await postChat(validBody);
-    if (limited.status === 429) {
-      const json = (await limited.json()) as { error: string };
-      expect(json.error).toContain("too quickly");
+    expect(denials.length).toBeGreaterThan(0);
+    // Sequential requests never trip the concurrency cap and stay far below
+    // the daily budget, so every denial here is the rapid-fire one — which
+    // must read as transient (retryable) to the client, unlike daily-budget
+    // denials (covered in coach/limits.test.ts as retryable: false).
+    for (const denial of denials) {
+      expect(denial.error).toContain("too quickly");
+      expect(denial.retryable).toBe(true);
     }
   });
 });

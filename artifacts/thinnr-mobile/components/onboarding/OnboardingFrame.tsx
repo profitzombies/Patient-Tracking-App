@@ -1,7 +1,8 @@
 /**
  * Shared chrome for every simulated-onboarding step: back button, step
- * counter, thin square progress bar, coach callout, scrollable content,
- * and a footer Next button.
+ * counter, thin progress rule, coach callout, scrollable content, and a
+ * footer Next button. Heritage language: paper surfaces, serif question
+ * titles, soft-radius controls.
  */
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -57,7 +58,7 @@ export function OnboardingFrame({
           }}
           style={({ pressed }) => [
             styles.backBtn,
-            { borderColor: colors.border, backgroundColor: colors.card },
+            { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
             pressed && { backgroundColor: colors.accent },
           ]}
         >
@@ -190,10 +191,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   title: {
-    fontSize: 22,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.5,
+    fontSize: 26,
+    lineHeight: 33,
+    fontFamily: 'PlayfairDisplay_700Bold',
     marginBottom: 16,
   },
   footer: {

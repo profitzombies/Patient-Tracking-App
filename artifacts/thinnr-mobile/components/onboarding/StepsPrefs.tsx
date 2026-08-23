@@ -42,8 +42,8 @@ function BenefitList({ items, icons }: { items: string[]; icons: React.Component
     <LedgerCard style={styles.benefitCard}>
       {items.map((item, i) => (
         <View key={item} style={styles.benefitRow}>
-          <View style={[styles.benefitIcon, { backgroundColor: colors.navy }]}>
-            <Feather name={icons[i % icons.length]} size={13} color={colors.brandMarkText} />
+          <View style={[styles.benefitIcon, { backgroundColor: colors.accent }]}>
+            <Feather name={icons[i % icons.length]} size={13} color={colors.cobalt} />
           </View>
           <Text style={[styles.benefitText, { color: colors.bodyText }]}>{item}</Text>
         </View>
@@ -348,6 +348,7 @@ const styles = StyleSheet.create({
   benefitIcon: {
     width: 26,
     height: 26,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -395,6 +396,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 6,
+    borderRadius: 6,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 5,

@@ -21,6 +21,8 @@ import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { useOnboarding } from '@/context/OnboardingContext';
 
+const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
+
 export default function PatientEntryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -117,7 +119,12 @@ export default function PatientEntryScreen() {
           onPress={startOnboarding}
           style={({ pressed }) => [
             styles.newCard,
-            { backgroundColor: colors.card, borderColor: colors.cobalt },
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.cobalt,
+              borderRadius: colors.radius,
+              boxShadow: CARD_SHADOW_SOFT,
+            },
             pressed && { opacity: 0.88 },
           ]}
         >
@@ -159,6 +166,7 @@ const styles = StyleSheet.create({
   backBtn: {
     width: 44,
     height: 44,
+    borderRadius: 7,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -169,6 +177,7 @@ const styles = StyleSheet.create({
   brandMark: {
     width: 34,
     height: 34,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -193,10 +202,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.5,
+    fontSize: 27,
+    lineHeight: 34,
+    fontFamily: 'PlayfairDisplay_700Bold',
     marginBottom: 16,
   },
   signInCard: {
@@ -235,6 +243,7 @@ const styles = StyleSheet.create({
   newIcon: {
     width: 34,
     height: 34,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -242,10 +251,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   newTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   newText: {
     fontSize: 11,

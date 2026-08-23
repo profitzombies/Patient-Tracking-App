@@ -1,7 +1,8 @@
 /**
- * Reusable Cobalt Ledger form widgets for the simulated onboarding flow.
- * Square geometry, uppercase micro-labels, no native wheel pickers —
- * everything here is RN-web friendly.
+ * Reusable Heritage form widgets for the simulated onboarding flow.
+ * Soft geometry (radius 9 cards / 7 controls), serif option titles,
+ * uppercase micro-labels, no native wheel pickers — everything here is
+ * RN-web friendly.
  */
 import React from 'react';
 import {
@@ -17,6 +18,9 @@ import {
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+
+const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
+const CALLOUT_SHADOW = '0 6px 15px rgba(34, 58, 88, 0.08)';
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -45,13 +49,13 @@ export function PrimaryButton({ label, onPress, disabled = false, testID, style 
       }}
       style={({ pressed }) => [
         styles.btn,
-        { backgroundColor: colors.cobalt },
+        { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
         disabled && { opacity: 0.35 },
         pressed && !disabled && { opacity: 0.85 },
         style,
       ]}
     >
-      <Text style={[styles.btnText, { color: colors.primaryForeground }]}>{label.toUpperCase()}</Text>
+      <Text style={[styles.btnText, { color: colors.primaryForeground }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -69,13 +73,18 @@ export function GhostButton({ label, onPress, disabled = false, testID, style }:
       }}
       style={({ pressed }) => [
         styles.btn,
-        { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+        {
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: colors.radiusSm,
+        },
         disabled && { opacity: 0.35 },
         pressed && !disabled && { opacity: 0.7 },
         style,
       ]}
     >
-      <Text style={[styles.btnText, { color: colors.navy }]}>{label.toUpperCase()}</Text>
+      <Text style={[styles.btnText, { color: colors.navy }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -95,7 +104,12 @@ export function LedgerInput(props: TextInputProps & { testID?: string }) {
       {...props}
       style={[
         styles.input,
-        { borderColor: colors.border, backgroundColor: colors.card, color: colors.navy },
+        {
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          color: colors.navy,
+          borderRadius: colors.radiusSm,
+        },
         props.style,
       ]}
     />
@@ -113,7 +127,17 @@ interface BigNumberInputProps {
 export function BigNumberInput({ value, onChangeText, unit, testID, placeholder }: BigNumberInputProps) {
   const colors = useColors();
   return (
-    <View style={[styles.bigWrap, { borderColor: colors.border, backgroundColor: colors.card }]}>
+    <View
+      style={[
+        styles.bigWrap,
+        {
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          borderRadius: colors.radius,
+          boxShadow: CARD_SHADOW_SOFT,
+        },
+      ]}
+    >
       <TextInput
         testID={testID}
         value={value}
@@ -157,13 +181,20 @@ export function ChoiceCard({ icon, title, body, selected, onPress, testID }: Cho
           backgroundColor: colors.card,
           borderColor: selected ? colors.cobalt : colors.border,
           borderWidth: selected ? 2 : 1,
+          borderRadius: colors.radius,
+          boxShadow: CARD_SHADOW_SOFT,
         },
         pressed && { opacity: 0.88 },
       ]}
     >
       {icon ? (
-        <View style={[styles.choiceIcon, { backgroundColor: selected ? colors.cobalt : colors.navy }]}>
-          <Feather name={icon} size={16} color={colors.brandMarkText} />
+        <View
+          style={[
+            styles.choiceIcon,
+            { backgroundColor: selected ? colors.cobalt : colors.accent },
+          ]}
+        >
+          <Feather name={icon} size={16} color={selected ? colors.primaryForeground : colors.cobalt} />
         </View>
       ) : null}
       <View style={styles.choiceBody}>
@@ -210,6 +241,7 @@ export function CheckRow({ label, sub, checked, onPress, testID }: CheckRowProps
           backgroundColor: colors.card,
           borderColor: checked ? colors.cobalt : colors.border,
           borderWidth: checked ? 2 : 1,
+          borderRadius: colors.radius,
         },
         pressed && { opacity: 0.88 },
       ]}
@@ -265,6 +297,7 @@ export function ChipGrid({ options, value, onChange, testIDPrefix = 'chip', basi
               {
                 backgroundColor: active ? colors.cobalt : colors.card,
                 borderColor: active ? colors.cobalt : colors.border,
+                borderRadius: colors.radiusSm,
               },
               pressed && { opacity: 0.8 },
             ]}
@@ -313,7 +346,7 @@ export function StepperRow({ label, display, onDec, onInc, decDisabled, incDisab
       }}
       style={({ pressed }) => [
         styles.stepBtn,
-        { borderColor: colors.border, backgroundColor: colors.card },
+        { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
         disabled && { opacity: 0.3 },
         pressed && !disabled && { backgroundColor: colors.accent },
       ]}
@@ -322,7 +355,12 @@ export function StepperRow({ label, display, onDec, onInc, decDisabled, incDisab
     </Pressable>
   );
   return (
-    <View style={[styles.stepperRow, { borderColor: colors.border, backgroundColor: colors.card }]}>
+    <View
+      style={[
+        styles.stepperRow,
+        { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radius },
+      ]}
+    >
       <Text style={[styles.fieldLabel, { color: colors.labelText, marginBottom: 0 }]}>{label.toUpperCase()}</Text>
       <View style={styles.stepperControls}>
         {btn('minus', onDec, decDisabled, `${testID}-dec`)}
@@ -338,7 +376,12 @@ export function StepperRow({ label, display, onDec, onInc, decDisabled, incDisab
 export function InfoCard({ label, body }: { label: string; body: string }) {
   const colors = useColors();
   return (
-    <View style={[styles.infoCard, { backgroundColor: colors.accent, borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.infoCard,
+        { backgroundColor: colors.accent, borderColor: colors.border, borderRadius: colors.radiusSm },
+      ]}
+    >
       <Text style={[styles.fieldLabel, { color: colors.labelText }]}>{label.toUpperCase()}</Text>
       <Text style={[styles.infoBody, { color: colors.bodyText }]}>{body}</Text>
     </View>
@@ -348,11 +391,21 @@ export function InfoCard({ label, body }: { label: string; body: string }) {
 export function CoachCallout({ text }: { text: string }) {
   const colors = useColors();
   return (
-    <View style={[styles.coachWrap, { backgroundColor: colors.accent }]}>
+    <View
+      style={[
+        styles.coachWrap,
+        {
+          backgroundColor: colors.sidebarBg,
+          borderColor: colors.activeBorder,
+          borderRadius: colors.radius,
+          boxShadow: CALLOUT_SHADOW,
+        },
+      ]}
+    >
       <View style={[styles.coachBar, { backgroundColor: colors.cobalt }]} />
       <View style={styles.coachBody}>
-        <Text style={[styles.coachLabel, { color: colors.labelText }]}>COACH SARAH · CARE TEAM</Text>
-        <Text style={[styles.coachText, { color: colors.bodyText }]}>{text}</Text>
+        <Text style={[styles.coachLabel, { color: colors.bodyText }]}>COACH SARAH · CARE TEAM</Text>
+        <Text style={[styles.coachText, { color: colors.navy }]}>{text}</Text>
       </View>
     </View>
   );
@@ -377,7 +430,10 @@ export function ErrorBox({ message, testID }: { message: string; testID?: string
   return (
     <View
       testID={testID}
-      style={[styles.errorBox, { backgroundColor: colors.riskBg, borderColor: colors.riskBorder }]}
+      style={[
+        styles.errorBox,
+        { backgroundColor: colors.riskBg, borderColor: colors.riskBorder, borderRadius: colors.radiusSm },
+      ]}
     >
       <Feather name="alert-triangle" size={14} color={colors.riskText} />
       <Text style={[styles.errorText, { color: colors.riskText }]}>{message}</Text>
@@ -403,9 +459,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    letterSpacing: 1,
+    letterSpacing: 0.3,
     fontFamily: 'Inter_700Bold',
   },
   fieldLabel: {
@@ -453,6 +509,7 @@ const styles = StyleSheet.create({
   choiceIcon: {
     width: 34,
     height: 34,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -460,10 +517,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   choiceTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   choiceText: {
     fontSize: 11,
@@ -474,6 +529,7 @@ const styles = StyleSheet.create({
   checkSquare: {
     width: 20,
     height: 20,
+    borderRadius: 5,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -486,9 +542,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   checkLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   checkSub: {
     fontSize: 11,
@@ -551,6 +606,8 @@ const styles = StyleSheet.create({
   },
   coachWrap: {
     flexDirection: 'row',
+    borderWidth: 1,
+    overflow: 'hidden',
     marginBottom: 18,
   },
   coachBar: {
@@ -568,9 +625,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   coachText: {
-    fontSize: 13,
-    lineHeight: 19,
-    fontFamily: 'Inter_400Regular',
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   reqRow: {
     flexDirection: 'row',

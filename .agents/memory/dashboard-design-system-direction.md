@@ -1,10 +1,10 @@
 ---
-name: THINNR dashboard visual direction
-description: The approved visual and information-hierarchy direction for THINNR operations work.
+name: THINNR visual direction
+description: The approved visual and information-hierarchy direction for THINNR (web operations + mobile).
 ---
 
-Use Cobalt Ledger as the visual foundation for THINNR operations: cobalt and cool-paper surfaces, crisp rules, square geometry, disciplined grids, tabular numerals, and editorial display type. Retain the earlier guided-operations hierarchy within that visual language.
+Use the Heritage evolution of Cobalt Ledger as the visual foundation across THINNR (operations dashboard AND mobile app): cobalt + cream-paper card surfaces, soft geometry (radius 9 cards / 7 controls, small badges ~5), Playfair Display serif for display titles and option/row titles, Inter for labels/body, uppercase micro-labels retained, accent-tinted icon tiles with cobalt glyphs (brand "TH" marks stay navy), sentence-case CTAs, soft box-shadow strings on cards. Retain the guided-operations hierarchy within that language.
 
-**Why:** After comparing several system, narrative, command, and visual-system explorations, the user explicitly chose Cobalt Ledger for the real THINNR med-spa product. The earlier hybrid principle remains useful for hierarchy, but it is no longer the visual anchor.
+**Why:** The user approved the Heritage Hero mockup as the app-wide look (Aug 2026); a coordinated task wave restyled every screen to it. The earlier pure-square Cobalt Ledger geometry is superseded — do not reintroduce square corners or navy icon tiles.
 
-**How to apply:** Lead with a clear interpretation of practice health, organize evidence through reusable ledger-like primitives, and keep priority actions visible but spatially contained. Avoid generic EHR styling, organic wellness palettes, and alarm-heavy command-center treatment.
+**How to apply:** Consume shared theme tokens (radius/radiusSm, palette, fonts map) instead of literals; never pair fontWeight with weighted font-family names (Android faux-bold); use boxShadow strings, not shadow* props, on Expo web. Avoid generic EHR styling, organic wellness palettes, and alarm-heavy command-center treatment.

@@ -230,8 +230,8 @@ export function FaceIdStep() {
       coach="You're connected to your care team. Let's secure your account."
       hideNext
     >
-      <View style={[styles.faceIcon, { backgroundColor: colors.navy }]}>
-        <Feather name="smile" size={26} color={colors.brandMarkText} />
+      <View style={[styles.faceIcon, { backgroundColor: colors.accent }]}>
+        <Feather name="smile" size={26} color={colors.cobalt} />
       </View>
       <Text style={[styles.faceBody, { color: colors.bodyText }]}>
         Use Face ID to skip typing your password every time you open THINNR.
@@ -266,7 +266,12 @@ function SecureInput({
   const colors = useColors();
   const [visible, setVisible] = useState(false);
   return (
-    <View style={[styles.secureWrap, { borderColor: colors.border, backgroundColor: colors.card }]}>
+    <View
+      style={[
+        styles.secureWrap,
+        { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
+      ]}
+    >
       <TextInput
         testID={testID}
         value={value}
@@ -377,6 +382,7 @@ const styles = StyleSheet.create({
   faceIcon: {
     width: 52,
     height: 52,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,

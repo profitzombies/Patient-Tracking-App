@@ -12,6 +12,8 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 
+const CARD_SHADOW = '0 8px 20px rgba(40, 55, 74, 0.07)';
+
 interface PersonaCardProps {
   icon: React.ComponentProps<typeof Feather>['name'];
   title: string;
@@ -34,13 +36,15 @@ function PersonaCard({ icon, title, person, body, current, testID, onPress }: Pe
           backgroundColor: colors.card,
           borderColor: current ? colors.cobalt : colors.border,
           borderWidth: current ? 2 : 1,
+          borderRadius: colors.radius,
+          boxShadow: CARD_SHADOW,
         },
         pressed && { opacity: 0.88 },
       ]}
     >
       <View style={styles.cardTop}>
-        <View style={[styles.cardIcon, { backgroundColor: colors.navy }]}>
-          <Feather name={icon} size={18} color={colors.brandMarkText} />
+        <View style={[styles.cardIcon, { backgroundColor: colors.accent }]}>
+          <Feather name={icon} size={18} color={colors.cobalt} />
         </View>
         {current ? (
           <View style={[styles.currentBadge, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
@@ -145,6 +149,7 @@ const styles = StyleSheet.create({
   brandMark: {
     width: 40,
     height: 40,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -155,10 +160,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   brandName: {
-    fontSize: 18,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: 2,
+    fontSize: 20,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    letterSpacing: 3,
   },
   brandSub: {
     fontSize: 9,
@@ -187,10 +191,12 @@ const styles = StyleSheet.create({
   cardIcon: {
     width: 36,
     height: 36,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
   currentBadge: {
+    borderRadius: 5,
     borderWidth: 1,
     paddingHorizontal: 6,
     paddingVertical: 3,
@@ -202,10 +208,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   cardTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.3,
+    fontSize: 20,
+    fontFamily: 'PlayfairDisplay_700Bold',
   },
   cardPerson: {
     fontSize: 12,

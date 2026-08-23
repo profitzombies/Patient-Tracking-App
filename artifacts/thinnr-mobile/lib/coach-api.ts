@@ -175,9 +175,10 @@ export async function streamCoachChat(
 }
 
 /**
- * Generates a dish photo for an AI recipe suggestion. Returns a JPEG data
- * URI small enough to persist with a saved recipe. Throws on any failure —
- * the preview screen owns the loading/failed presentation.
+ * Generates a dish image for an AI recipe suggestion (illustrated to match
+ * the seeded Library set). Returns a JPEG data URI small enough to persist
+ * with a saved recipe. Throws on any failure — callers handle it silently;
+ * the preview screen never shows generation states.
  */
 export async function fetchRecipeImage(name: string, description: string): Promise<string> {
   const doFetch =

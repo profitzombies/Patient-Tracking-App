@@ -4,18 +4,20 @@
  * The suggestion itself is session-only (read from the chat registry by id);
  * it becomes permanent only through the explicit actions here: log it to
  * today's diary, save it to the recipe library, or (cravings) save it as a
- * custom food. The dish photo is AI-generated on demand with visible
- * loading/failed states, cached on the session suggestion, and persisted
- * with whatever the patient saves — a save made while the photo is still
- * generating gets the photo backfilled onto the saved record the moment it
- * lands (see lib/photo-backfill.ts). All nutrition numbers are labeled as
- * estimates — this screen never presents them as measured facts.
+ * custom food. Opening the screen quietly starts AI generation of the dish
+ * image in the background, cached on the session suggestion — but this
+ * preview never shows the image or any generating/failed state. The picture
+ * only ever surfaces in the Library after a save: attached at save time if
+ * ready, or backfilled onto the saved record the moment it lands (see
+ * lib/photo-backfill.ts). A save made after a failed generation quietly
+ * retries once; if that fails too, the Library entry keeps its normal
+ * placeholder. All nutrition numbers are labeled as estimates — this screen
+ * never presents them as measured facts.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { Redirect, router, useLocalSearchParams, usePathname } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
@@ -38,11 +40,6 @@ function formatAmount(amount: number): string {
   return amount.toFixed(1);
 }
 
-type PhotoState =
-  | { status: 'loading' }
-  | { status: 'ready'; uri: string }
-  | { status: 'failed' };
-
 export default function AiRecipePreviewScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -60,9 +57,14 @@ export default function AiRecipePreviewScreen() {
   const [savedFoodId, setSavedFoodId] = useState<string | null>(null);
   const [savingRecipe, setSavingRecipe] = useState(false);
   const [savingFood, setSavingFood] = useState(false);
-  const [photo, setPhoto] = useState<PhotoState>(
-    suggestion?.photoUri ? { status: 'ready', uri: suggestion.photoUri } : { status: 'loading' },
+  // Image generation is deliberately invisible on this screen: it starts
+  // quietly on open and the picture only ever surfaces in the Library after
+  // a save. Status lives in refs because nothing here renders it.
+  const photoStatusRef = useRef<'loading' | 'ready' | 'failed'>(
+    suggestion?.photoUri ? 'ready' : 'loading',
   );
+  // One quiet regeneration attempt if the patient saves after a failure.
+  const saveRetryUsedRef = useRef(false);
   // One generation per mount per suggestion — guards double-fired effects.
   const requestedForRef = useRef<string | null>(null);
 
@@ -81,15 +83,15 @@ export default function AiRecipePreviewScreen() {
 
   const generatePhoto = useCallback(
     async (target: AiRecipeSuggestion) => {
-      setPhoto({ status: 'loading' });
+      photoStatusRef.current = 'loading';
       try {
         const uri = await fetchRecipeImage(target.name, target.description);
         setSuggestionPhoto(target.id, uri);
-        setPhoto({ status: 'ready', uri });
+        photoStatusRef.current = 'ready';
         backfill.photoReady(uri);
       } catch (error) {
         console.error('Recipe photo generation failed', error);
-        setPhoto({ status: 'failed' });
+        photoStatusRef.current = 'failed';
       }
     },
     [setSuggestionPhoto, backfill],
@@ -133,7 +135,15 @@ export default function AiRecipePreviewScreen() {
 
   const isCravings = suggestion.mode === 'cravings';
   const totalCals = Math.round(suggestion.calories * servings);
-  const currentPhotoUri = photo.status === 'ready' ? photo.uri : suggestion.photoUri;
+
+  // Saving after a failed generation quietly retries once in the background
+  // so the Library entry still gets its picture; a second failure leaves the
+  // saved record on its normal placeholder. Nothing is surfaced in this UI.
+  const retryPhotoOnSave = () => {
+    if (photoStatusRef.current !== 'failed' || saveRetryUsedRef.current) return;
+    saveRetryUsedRef.current = true;
+    void generatePhoto(suggestion);
+  };
 
   const logSuggestion = async () => {
     if (logging) return;
@@ -163,6 +173,7 @@ export default function AiRecipePreviewScreen() {
   const saveRecipe = async () => {
     if (savingRecipe || savedRecipeId) return;
     setSavingRecipe(true);
+    retryPhotoOnSave();
     try {
       const photoUriNow = backfill.photoUri();
       const saved = await patient.addSavedRecipe({
@@ -198,6 +209,7 @@ export default function AiRecipePreviewScreen() {
   const saveAsCustomFood = async () => {
     if (savingFood || savedFoodId) return;
     setSavingFood(true);
+    retryPhotoOnSave();
     try {
       const photoUriNow = backfill.photoUri();
       const saved = await patient.addCustomFood({
@@ -239,48 +251,6 @@ export default function AiRecipePreviewScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: bottomPad }}>
-        {/* ── Photo (generated on demand) ── */}
-        {currentPhotoUri ? (
-          <Image
-            testID="ai-recipe-photo"
-            source={{ uri: currentPhotoUri }}
-            style={styles.hero}
-            contentFit="cover"
-            transition={220}
-          />
-        ) : (
-          <View style={[styles.hero, styles.heroPlaceholder, { backgroundColor: colors.sidebarBg }]}>
-            {photo.status === 'failed' ? (
-              <>
-                <Feather name="image" size={20} color={colors.subtleText} />
-                <Text style={[styles.heroLabel, { color: colors.labelText }]}>PHOTO UNAVAILABLE</Text>
-                <Pressable
-                  testID="ai-recipe-photo-retry"
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    void generatePhoto(suggestion);
-                  }}
-                  style={({ pressed }) => [
-                    styles.retryBtn,
-                    { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
-                  ]}
-                >
-                  <Feather name="refresh-cw" size={11} color={colors.cobalt} />
-                  <Text style={[styles.retryText, { color: colors.cobalt }]}>RETRY</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Feather name="camera" size={20} color={colors.subtleText} />
-                <Text style={[styles.heroLabel, { color: colors.labelText }]}>GENERATING PHOTO…</Text>
-                <Text style={[styles.heroHint, { color: colors.subtleText }]}>
-                  AI illustration of this dish
-                </Text>
-              </>
-            )}
-          </View>
-        )}
-
         <View style={styles.body}>
           <Text style={[styles.name, { color: colors.navy }]}>{suggestion.name}</Text>
           <Text style={[styles.description, { color: colors.bodyText }]}>{suggestion.description}</Text>
@@ -454,11 +424,7 @@ export default function AiRecipePreviewScreen() {
               </Pressable>
             )}
             <Text style={[styles.saveHint, { color: colors.subtleText }]}>
-              {currentPhotoUri
-                ? 'Saved items appear in your Library and keep this photo.'
-                : photo.status === 'failed'
-                  ? 'Saved items appear in your Library. Photo unavailable right now — use Retry above and it will attach automatically.'
-                  : 'Saved items appear in your Library. The photo attaches automatically once it finishes generating.'}
+              Saved items appear in your Library.
             </Text>
           </LedgerCard>
 
@@ -578,40 +544,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontFamily: 'Inter_700Bold',
     letterSpacing: 0.8,
-  },
-  hero: {
-    width: '100%',
-    height: 210,
-  },
-  heroPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-  },
-  heroLabel: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    fontFamily: 'Inter_700Bold',
-  },
-  heroHint: {
-    fontSize: 10.5,
-    fontFamily: 'Inter_400Regular',
-  },
-  retryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    marginTop: 3,
-  },
-  retryText: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    letterSpacing: 1.1,
-    fontFamily: 'Inter_700Bold',
   },
   body: {
     padding: 16,

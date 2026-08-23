@@ -1,11 +1,16 @@
 /**
- * POST /coach/recipe-image — on-demand dish photo for an AI-suggested recipe.
+ * POST /coach/recipe-image — on-demand dish image for an AI-suggested recipe.
  *
  * The client sends the recipe name/description; the server builds a fixed
- * photography prompt around the sanitized strings (client text can never
+ * illustration prompt around the sanitized strings (client text can never
  * rewrite the instruction frame) and returns a small JPEG as a data URI —
  * `quality: "low"` keeps it ~100–200 KB so saved recipes can persist the
- * photo inside localStorage/AsyncStorage without blowing quotas.
+ * image inside localStorage/AsyncStorage without blowing quotas.
+ *
+ * The prompt deliberately mirrors the seeded Library set
+ * (thinnr-mobile/assets/images/recipes/): flat illustrated top-down dish on
+ * a white plate with cobalt accents — NOT photography — so coach-saved
+ * recipes sit next to seeded ones as one family.
  */
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -38,9 +43,15 @@ router.post("/coach/recipe-image", async (req, res) => {
     }
 
     const prompt =
-      `Professional food photography of ${name}. ${description ? `${description} ` : ""}` +
-      "Overhead angle, single dish on a matte ceramic plate, muted warm neutral background, " +
-      "soft window light, realistic and appetizing. No people, no hands, no text, no logos.";
+      `Detailed flat vector illustration of ${name}. ${description ? `${description} ` : ""}` +
+      "Square top-down view: the dish served on a single centered white ceramic plate or bowl " +
+      "with a cobalt blue rim, one silver utensil beside the plate, plain pale cool blue-gray " +
+      "background decorated with a few cobalt blue accent circles and small dotted-grid " +
+      "patterns. Finely detailed stylized food with delicate highlights, clean saturated " +
+      "colors, and smooth flat shading — soft shapes without dark ink outlines, like a " +
+      "modern editorial food illustration. Soft drop shadow under the plate. Stylized " +
+      "digital illustration, not photorealistic, no photo textures. " +
+      "No people, no hands, no text, no logos.";
 
     const response = await openai.images.generate({
       model: "gpt-image-1",

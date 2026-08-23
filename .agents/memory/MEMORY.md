@@ -24,3 +24,4 @@
 - [Mobile e2e quirks](mobile-e2e-quirks.md) — transient snackbar Undo isn't clickable by automation: trust the undo script workflows; only deletion confirmations carry Undo, add bars don't.
 - [Completion-diff provenance](completion-diff-provenance.md) — mid-session main-workspace commits can be swept into a task's completion diff; check HEAD before completing and state provenance in drift_reason.
 - [Announced error pattern](a11y-announced-errors.md) — ErrorBox self-announces (alert role + live region + iOS announce; never nest live regions); blocked CTAs intercept taps via aria-disabled instead of swallowing them.
+- [Generated recipe image style](recipe-image-style.md) — coach images must match the seeded illustrated family; "crisp outlines" → ink-lines gotcha; the AI-recipe preview shows zero generation UI by design.

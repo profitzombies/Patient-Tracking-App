@@ -23,6 +23,21 @@ import { useOnboarding } from '@/context/OnboardingContext';
 
 const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
 
+/**
+ * On web, RN renders inputs as bare <input> elements and browsers expect
+ * password fields inside a <form> (quiets the "[DOM] Password field is not
+ * contained in a form" warning and helps autofill). display:contents keeps
+ * the wrapper out of layout; native renders children directly.
+ */
+function SignInFormWrap({ children }: { children: React.ReactNode }) {
+  if (Platform.OS !== 'web') return <>{children}</>;
+  return (
+    <form style={{ display: 'contents' }} onSubmit={event => event.preventDefault()}>
+      {children}
+    </form>
+  );
+}
+
 export default function PatientEntryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -80,32 +95,34 @@ export default function PatientEntryScreen() {
         <Text style={[styles.title, { color: colors.navy }]}>Welcome back</Text>
 
         <LedgerCard style={styles.signInCard}>
-          <FieldLabel text="Phone or email" />
-          <LedgerInput
-            testID="entry-email"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-          />
-          <View style={styles.fieldGap}>
-            <FieldLabel text="Password" />
+          <SignInFormWrap>
+            <FieldLabel text="Phone or email" />
             <LedgerInput
-              testID="entry-password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
+              testID="entry-email"
+              value={email}
+              onChangeText={setEmail}
               autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
             />
-          </View>
-          <PrimaryButton
-            testID="entry-signin"
-            label="Sign in as Emma Smith"
-            onPress={signInAsEmma}
-            style={styles.signInBtn}
-          />
-          <NoteText center text="Demo account — credentials are prefilled, just tap sign in." />
+            <View style={styles.fieldGap}>
+              <FieldLabel text="Password" />
+              <LedgerInput
+                testID="entry-password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+            </View>
+            <PrimaryButton
+              testID="entry-signin"
+              label="Sign in as Emma Smith"
+              onPress={signInAsEmma}
+              style={styles.signInBtn}
+            />
+            <NoteText center text="Demo account — credentials are prefilled, just tap sign in." />
+          </SignInFormWrap>
         </LedgerCard>
 
         <View style={styles.dividerRow}>

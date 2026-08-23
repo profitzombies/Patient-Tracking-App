@@ -270,22 +270,45 @@ function toPayload(recipe: GeneratedRecipe, mode: RecipeMode): RecipeCardPayload
   };
 }
 
+/**
+ * One automatic retry for transient upstream failures (proxy hiccup, dropped
+ * connection). Without it a single blip surfaces as the red "coach is
+ * unavailable" bubble even though an immediate manual retry would succeed.
+ */
+const TRANSIENT_RETRY_LIMIT = 1;
+const TRANSIENT_RETRY_DELAY_MS = 400;
+
 async function callModel(
   messages: { role: "system" | "user" | "assistant"; content: string }[],
   signal: AbortSignal,
+  log: RecipeTurnArgs["log"],
 ): Promise<string> {
-  const completion = await openai.chat.completions.create(
-    {
-      model: "gpt-5.6-terra",
-      // Reasoning models spend part of this budget internally; the AI
-      // integration requires >= 8192 to avoid empty replies.
-      max_completion_tokens: 8192,
-      response_format: { type: "json_object" },
-      messages,
-    },
-    { signal },
-  );
-  return completion.choices[0]?.message?.content ?? "";
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= TRANSIENT_RETRY_LIMIT; attempt++) {
+    try {
+      const completion = await openai.chat.completions.create(
+        {
+          model: "gpt-5.6-terra",
+          // Reasoning models spend part of this budget internally; the AI
+          // integration requires >= 8192 to avoid empty replies.
+          max_completion_tokens: 8192,
+          response_format: { type: "json_object" },
+          messages,
+        },
+        { signal },
+      );
+      return completion.choices[0]?.message?.content ?? "";
+    } catch (error) {
+      lastError = error;
+      // Never retry a request the client abandoned, and don't swallow the
+      // final failure — the route's catch logs it and tells the client.
+      if (signal.aborted || attempt === TRANSIENT_RETRY_LIMIT) throw error;
+      log.warn({ err: error, attempt }, "coach recipe model call failed; retrying once");
+      await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+      if (signal.aborted) throw error;
+    }
+  }
+  throw lastError;
 }
 
 /** One corrective retry, then an honest decline. */
@@ -303,7 +326,7 @@ export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTu
 
   let messages = baseMessages;
   for (let attempt = 0; attempt <= RETRY_LIMIT; attempt++) {
-    const raw = await callModel(messages, args.signal);
+    const raw = await callModel(messages, args.signal, args.log);
     const outcome = interpret(raw, args.mode);
     if (outcome.ok) {
       if (!outcome.recipe) return { reply: outcome.reply, card: null };

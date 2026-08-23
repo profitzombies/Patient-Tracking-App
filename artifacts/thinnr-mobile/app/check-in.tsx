@@ -1,6 +1,8 @@
 /**
  * Daily Check-In — weight, mood, side effects, and a note for the care team.
  * Saving replaces any earlier check-in for the same day.
+ * Heritage language: paper header with serif title, radius-7 form controls,
+ * cobalt selection states and primary action.
  */
 import React, { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -97,7 +99,12 @@ export default function CheckInScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Header ── */}
-      <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topPad, backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border },
+        ]}
+      >
         <Pressable testID="checkin-cancel" onPress={goBack} hitSlop={8}>
           <Text style={[styles.headerAction, { color: colors.cobalt }]}>Cancel</Text>
         </Pressable>
@@ -110,7 +117,12 @@ export default function CheckInScreen() {
 
       <KeyboardAwareScrollViewCompat contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
         {existing && (
-          <View style={[styles.updateNote, { backgroundColor: colors.sidebarBg, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.updateNote,
+              { backgroundColor: colors.sidebarBg, borderColor: colors.border, borderRadius: colors.radiusSm },
+            ]}
+          >
             <Text style={[styles.updateNoteText, { color: colors.bodyText }]}>
               You already checked in today — saving will update it.
             </Text>
@@ -130,7 +142,12 @@ export default function CheckInScreen() {
               keyboardType={Platform.OS === 'web' ? undefined : 'decimal-pad'}
               style={[
                 styles.weightInput,
-                { borderColor: colors.border, color: colors.navy, backgroundColor: colors.background },
+                {
+                  borderColor: colors.border,
+                  color: colors.navy,
+                  backgroundColor: colors.background,
+                  borderRadius: colors.radiusSm,
+                },
               ]}
             />
             <Text style={[styles.weightUnit, { color: colors.subtleText }]}>lbs</Text>
@@ -154,6 +171,7 @@ export default function CheckInScreen() {
                   style={({ pressed }) => [
                     styles.moodCell,
                     {
+                      borderRadius: colors.radiusSm,
                       borderColor: isSelected ? colors.cobalt : colors.border,
                       backgroundColor: isSelected ? colors.cobalt : pressed ? colors.accent : colors.card,
                     },
@@ -196,6 +214,7 @@ export default function CheckInScreen() {
                   style={({ pressed }) => [
                     styles.chip,
                     {
+                      borderRadius: colors.radiusSm,
                       borderColor: isOn ? colors.cobalt : colors.border,
                       backgroundColor: isOn ? colors.cobalt : pressed ? colors.accent : colors.card,
                     },
@@ -226,7 +245,12 @@ export default function CheckInScreen() {
             numberOfLines={3}
             style={[
               styles.notesInput,
-              { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background },
+              {
+                borderColor: colors.border,
+                color: colors.foreground,
+                backgroundColor: colors.background,
+                borderRadius: colors.radiusSm,
+              },
             ]}
           />
         </LedgerCard>
@@ -239,7 +263,7 @@ export default function CheckInScreen() {
           disabled={saving}
           style={({ pressed }) => [
             styles.saveBtn,
-            { backgroundColor: colors.cobalt },
+            { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
             (pressed || saving) && { opacity: 0.85 },
           ]}
         >
@@ -261,12 +285,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingBottom: 12,
     borderBottomWidth: 1,
   },
   headerAction: {
     fontSize: 13,
-    fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
     width: 52,
   },
@@ -274,14 +297,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 18,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    letterSpacing: 0.2,
   },
   headerSub: {
     fontSize: 10,
-    marginTop: 1,
+    marginTop: 2,
     fontFamily: 'Inter_400Regular',
   },
   headerSpacer: {
@@ -301,7 +323,6 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 10,
-    fontWeight: '700',
     letterSpacing: 1.4,
     fontFamily: 'Inter_700Bold',
   },
@@ -314,11 +335,10 @@ const styles = StyleSheet.create({
   weightInput: {
     borderWidth: 1,
     paddingHorizontal: 12,
-    height: 46,
-    fontSize: 20,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    width: 130,
+    height: 48,
+    fontSize: 22,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    width: 140,
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}),
   },
   weightUnit: {
@@ -344,12 +364,10 @@ const styles = StyleSheet.create({
   },
   moodValue: {
     fontSize: 15,
-    fontWeight: '700',
     fontFamily: 'Inter_700Bold',
   },
   moodLabel: {
     fontSize: 8.5,
-    fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
   },
   chipWrap: {
@@ -365,7 +383,6 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 12,
-    fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
   },
   notesInput: {
@@ -389,7 +406,6 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     fontSize: 13.5,
-    fontWeight: '700',
     fontFamily: 'Inter_700Bold',
     letterSpacing: 0.2,
   },

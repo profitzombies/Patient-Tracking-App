@@ -1,7 +1,8 @@
 /**
- * Weight trend line chart for patient mode. Same Cobalt Ledger SVG language
- * as the staff chart, adapted for a denser check-in series: sparse date
- * labels and auto-scroll to the newest reading.
+ * Weight trend line chart for patient mode. Heritage language: ledger-style
+ * hairline rules on paper, a cobalt series line with paper-filled markers,
+ * and the goal as a restrained dashed orange reference. Adapted for a denser
+ * check-in series: sparse date labels and auto-scroll to the newest reading.
  */
 import React, { useRef } from 'react';
 import { ScrollView } from 'react-native';
@@ -48,6 +49,8 @@ export function PatientWeightChart({ points, goalWeight }: PatientWeightChartPro
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i)} ${yFor(p.weight)}`).join(' ');
   const goalY = yFor(goalWeight);
   const labelEvery = Math.max(1, Math.ceil(points.length / 7));
+  // Ruled lines across the plot, like a ledger sheet (baseline drawn darker).
+  const gridYs = [top, top + plotHeight / 2];
 
   return (
     <ScrollView
@@ -59,11 +62,14 @@ export function PatientWeightChart({ points, goalWeight }: PatientWeightChartPro
       accessibilityLabel="Weight trend chart; swipe horizontally to review all weigh-ins"
     >
       <Svg width={chartWidth} height={chartHeight}>
-        <Line x1={side} x2={chartWidth - side} y1={goalY} y2={goalY} stroke={colors.cobaltMuted} strokeWidth={1} strokeDasharray="4 4" />
-        <SvgText x={chartWidth - side} y={Math.max(12, goalY - 5)} textAnchor="end" fill={colors.subtleText} fontSize="9">
+        {gridYs.map(y => (
+          <Line key={y} x1={side} x2={chartWidth - side} y1={y} y2={y} stroke={colors.divider} strokeWidth={1} />
+        ))}
+        <Line x1={side} x2={chartWidth - side} y1={top + plotHeight} y2={top + plotHeight} stroke={colors.border} strokeWidth={1} />
+        <Line x1={side} x2={chartWidth - side} y1={goalY} y2={goalY} stroke={colors.orange} strokeWidth={1} strokeDasharray="4 4" />
+        <SvgText x={chartWidth - side} y={Math.max(12, goalY - 5)} textAnchor="end" fill={colors.orangeText} fontSize="9" fontWeight="600">
           Goal {goalWeight.toFixed(1)}
         </SvgText>
-        <Line x1={side} x2={chartWidth - side} y1={top + plotHeight} y2={top + plotHeight} stroke={colors.divider} strokeWidth={1} />
         <Path d={path} fill="none" stroke={colors.cobalt} strokeWidth={2.5} />
         {points.map((p, index) => {
           const isLast = index === points.length - 1;

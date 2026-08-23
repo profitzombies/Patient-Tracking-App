@@ -1,10 +1,12 @@
 /**
  * Progress — weight trend, progress photos, and check-in history.
+ * Heritage language: paper cards with a cobalt accent strip on the featured
+ * trend card, ruled stat columns, serif row titles, restrained orange only
+ * inside the chart's goal reference.
  */
 import React, { useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -35,6 +37,13 @@ export default function ProgressScreen() {
   const currentWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
   const lost = PATIENT_PROFILE.startingWeight - currentWeight;
   const recentCheckIns = useMemo(() => patient.checkIns.slice(0, 10), [patient.checkIns]);
+
+  const stats = [
+    { key: 'start', label: 'START', value: PATIENT_PROFILE.startingWeight.toFixed(1), color: colors.navyLight },
+    { key: 'current', label: 'CURRENT', value: currentWeight.toFixed(1), color: colors.navy },
+    { key: 'lost', label: 'LOST', value: `−${lost.toFixed(1)}`, color: colors.cobalt },
+    { key: 'goal', label: 'GOAL', value: PATIENT_PROFILE.goalWeight.toFixed(0), color: colors.navyLight },
+  ];
 
   const pickPhoto = async () => {
     setPhotoError('');
@@ -73,38 +82,33 @@ export default function ProgressScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
         {/* ── Weight trend ── */}
         <SectionHeader label="Weight Trend" value={`${currentWeight.toFixed(1)} lbs`} style={{ marginBottom: 8 }} />
-        <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
-          <PatientWeightChart points={patient.weightSeries} goalWeight={PATIENT_PROFILE.goalWeight} />
-          <Divider style={{ marginVertical: 12 }} />
-          <View style={styles.statsRow}>
-            <View style={styles.statCol}>
-              <Text style={[styles.statValue, { color: colors.navyLight }]}>{PATIENT_PROFILE.startingWeight.toFixed(1)}</Text>
-              <Text style={[styles.statLabel, { color: colors.labelText }]}>START</Text>
+        <LedgerCard accentTop style={{ marginBottom: 14 }}>
+          <View style={styles.cardBody}>
+            <PatientWeightChart points={patient.weightSeries} goalWeight={PATIENT_PROFILE.goalWeight} />
+            <Divider style={{ marginVertical: 12 }} />
+            <View style={styles.statsRow}>
+              {stats.map((stat, index) => (
+                <React.Fragment key={stat.key}>
+                  {index > 0 && <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />}
+                  <View style={styles.statCol}>
+                    <Text style={[styles.statValue, { color: stat.color }]}>{stat.value}</Text>
+                    <Text style={[styles.statLabel, { color: colors.labelText }]}>{stat.label}</Text>
+                  </View>
+                </React.Fragment>
+              ))}
             </View>
-            <View style={styles.statCol}>
-              <Text style={[styles.statValue, { color: colors.navy }]}>{currentWeight.toFixed(1)}</Text>
-              <Text style={[styles.statLabel, { color: colors.labelText }]}>CURRENT</Text>
-            </View>
-            <View style={styles.statCol}>
-              <Text style={[styles.statValue, { color: colors.cobalt }]}>−{lost.toFixed(1)}</Text>
-              <Text style={[styles.statLabel, { color: colors.labelText }]}>LOST</Text>
-            </View>
-            <View style={styles.statCol}>
-              <Text style={[styles.statValue, { color: colors.navyLight }]}>{PATIENT_PROFILE.goalWeight.toFixed(0)}</Text>
-              <Text style={[styles.statLabel, { color: colors.labelText }]}>GOAL</Text>
-            </View>
+            <Pressable
+              testID="progress-log-weight"
+              onPress={() => router.push('/check-in')}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
+                pressed && { opacity: 0.88 },
+              ]}
+            >
+              <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>Log Today's Weight</Text>
+            </Pressable>
           </View>
-          <Pressable
-            testID="progress-log-weight"
-            onPress={() => router.push('/check-in')}
-            style={({ pressed }) => [
-              styles.primaryBtn,
-              { backgroundColor: colors.cobalt },
-              pressed && { opacity: 0.88 },
-            ]}
-          >
-            <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>Log Today's Weight</Text>
-          </Pressable>
         </LedgerCard>
 
         {/* ── Progress photos ── */}
@@ -177,21 +181,28 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
   },
+  cardBody: {
+    padding: 16,
+  },
   statsRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
   },
   statCol: {
     flex: 1,
+    alignItems: 'center',
+  },
+  statDivider: {
+    width: 1,
+    alignSelf: 'stretch',
   },
   statValue: {
-    fontSize: 18,
-    fontWeight: '600',
-    letterSpacing: -0.5,
+    fontSize: 17,
+    letterSpacing: -0.4,
     fontFamily: 'Inter_600SemiBold',
   },
   statLabel: {
     fontSize: 8,
-    fontWeight: '700',
     letterSpacing: 1,
     fontFamily: 'Inter_700Bold',
     marginTop: 3,
@@ -203,7 +214,6 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: {
     fontSize: 13,
-    fontWeight: '700',
     fontFamily: 'Inter_700Bold',
     letterSpacing: 0.3,
   },
@@ -230,13 +240,12 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   photoLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   photoMeta: {
     fontSize: 10,
-    marginTop: 2,
+    marginTop: 3,
     fontFamily: 'Inter_400Regular',
   },
   checkinRow: {
@@ -247,13 +256,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   checkinDate: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   checkinMeta: {
     fontSize: 10.5,
-    marginTop: 2,
+    marginTop: 3,
     fontFamily: 'Inter_400Regular',
   },
   checkinNotes: {
@@ -264,7 +272,6 @@ const styles = StyleSheet.create({
   },
   checkinWeight: {
     fontSize: 15,
-    fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
   },
 });

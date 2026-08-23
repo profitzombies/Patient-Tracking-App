@@ -11,3 +11,4 @@
 - [Coach card attachments](coach-card-attachments.md) — rich chat cards ride a separate SSE card event: model emits only a marker id, server allow-lists offered ids and builds payloads from curated data.
 - [Coach reply shape](coach-reply-shape.md) — replies are blank-line-separated thought blocks + follow-up closer; phrase optional reply behaviors default-on and verify with real model calls.
 - [Coach stopped replies](coach-stopped-replies.md) — stopped replies carry a `stopped` flag end-to-end; the server appends a model-only interruption note so the next answer never continues cut-off text.
+- [Staging coach failures](coach-failure-staging.md) — break the model upstream via a workflow env-override restart to test error/Retry states; the tester can break and heal it in one session.

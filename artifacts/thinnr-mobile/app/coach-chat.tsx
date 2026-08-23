@@ -280,6 +280,7 @@ function splitIntoBlocks(text: string): string[] {
 
 function MessageBubble({ message }: { message: CoachMessage }) {
   const colors = useColors();
+  const { isStreaming, retry } = useCoachChat();
   const isUser = message.role === 'user';
 
   if (isUser) {
@@ -322,6 +323,27 @@ function MessageBubble({ message }: { message: CoachMessage }) {
         <Text style={[styles.stoppedLabel, { color: colors.subtleText }]}>STOPPED</Text>
       ) : null}
       {message.card ? <CoachCardSlot card={message.card} /> : null}
+      {isError && !isStreaming ? (
+        <Pressable
+          testID={`coach-retry-${message.id}`}
+          accessibilityRole="button"
+          accessibilityLabel="Retry your question"
+          onPress={() => {
+            Haptics.selectionAsync();
+            retry(message.id);
+          }}
+          style={({ pressed }) => [
+            styles.retryBtn,
+            {
+              borderColor: colors.riskBorder,
+              backgroundColor: pressed ? colors.accent : colors.card,
+            },
+          ]}
+        >
+          <Feather name="refresh-cw" size={11} color={colors.riskText} />
+          <Text style={[styles.retryText, { color: colors.riskText }]}>RETRY</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -501,6 +523,22 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     fontFamily: 'Inter_700Bold',
     marginTop: 7,
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginTop: 9,
+  },
+  retryText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    fontFamily: 'Inter_700Bold',
   },
   inputBar: {
     flexDirection: 'row',

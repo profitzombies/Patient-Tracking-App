@@ -36,12 +36,20 @@ export interface CoachMessage {
    */
   stopped?: boolean;
   card?: CoachCard;
+  /** Assistant messages: id of the user message this reply answers. */
+  replyToId?: string;
 }
 
 interface CoachChatContextValue {
   messages: CoachMessage[];
   isStreaming: boolean;
   send: (text: string) => void;
+  /**
+   * Resends the question behind a failed reply: the error bubble is swapped
+   * in place for a fresh streaming bubble and the same request is made again.
+   * No-op while a reply is in flight or when the id is not a failed reply.
+   */
+  retry: (assistantMessageId: string) => void;
   /**
    * Aborts the in-flight reply: keeps whatever text already streamed as a
    * finished message flagged `stopped` (drops a still-empty bubble) and
@@ -62,6 +70,17 @@ const CoachChatContext = createContext<CoachChatContextValue | null>(null);
  * demo seed — the request carries only the messages.
  */
 const MAX_REQUEST_MESSAGES = 12;
+
+/**
+ * Serializes a thread message for the chat request. Stopped replies stay in
+ * the history (the patient saw their text) but carry the flag through, so the
+ * server marks them as interrupted instead of letting the model continue a
+ * cut-off sentence.
+ */
+const toRequestMessage = (m: CoachMessage): CoachRequestMessage =>
+  m.role === 'assistant' && m.stopped
+    ? { role: m.role, content: m.text, stopped: true }
+    : { role: m.role, content: m.text };
 
 export function CoachChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
@@ -87,94 +106,163 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
     messagesRef.current = messages;
   }, [messages]);
 
-  const send = useCallback((rawText: string) => {
-    const text = rawText.trim();
-    if (!text || inFlightRef.current) return;
-    inFlightRef.current = true;
+  /**
+   * Shared streaming core for send/retry: wires the SSE callbacks to the
+   * assistant bubble with the given id. Callers own the single-flight lock,
+   * abortRef, and putting the streaming bubble into state first.
+   */
+  const streamInto = useCallback(
+    (request: CoachRequestMessage[], assistantId: string, controller: AbortController) => {
+      // Callbacks from a stream the user already stopped must not run: stop()
+      // finalized the UI and may even have let a new exchange begin.
+      const isStale = () => abortRef.current !== controller;
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+      void streamCoachChat(
+        { messages: request },
+        {
+          onDelta: delta => {
+            if (isStale()) return;
+            setMessages(current =>
+              current.map(m => (m.id === assistantId ? { ...m, text: m.text + delta } : m)),
+            );
+          },
+          onCard: card => {
+            if (isStale()) return;
+            if (card.kind === 'recipe') {
+              // Defensive re-parse; a malformed payload drops the card rather
+              // than crashing the preview screen later.
+              const suggestion = parseRecipeCardPayload(card.payload);
+              if (!suggestion) return;
+              suggestionsRef.current.set(suggestion.id, suggestion);
+            }
+            // First card wins; the server sends at most one per reply anyway.
+            setMessages(current =>
+              current.map(m => (m.id === assistantId && !m.card ? { ...m, card } : m)),
+            );
+          },
+          onDone: () => {
+            if (isStale()) return;
+            abortRef.current = null;
+            // Trim trailing whitespace left when a control marker was stripped
+            // from the end of the streamed text.
+            setMessages(current =>
+              current.map(m =>
+                m.id === assistantId ? { ...m, status: 'done', text: m.text.trimEnd() } : m,
+              ),
+            );
+            inFlightRef.current = false;
+            setIsStreaming(false);
+          },
+          onError: message => {
+            if (isStale()) return;
+            abortRef.current = null;
+            setMessages(current =>
+              current.map(m =>
+                m.id === assistantId ? { ...m, status: 'error', text: message } : m,
+              ),
+            );
+            inFlightRef.current = false;
+            setIsStreaming(false);
+          },
+        },
+        { signal: controller.signal },
+      );
+    },
+    [],
+  );
 
-    const userMessage: CoachMessage = { id: nextId(), role: 'user', text, status: 'done' };
-    const assistantId = nextId();
+  const send = useCallback(
+    (rawText: string) => {
+      const text = rawText.trim();
+      if (!text || inFlightRef.current) return;
+      inFlightRef.current = true;
 
-    // Build the request from a stable snapshot BEFORE touching state, so the
-    // network call never runs inside a state updater (updaters must stay pure
-    // and may be replayed by React).
-    const request: CoachRequestMessage[] = [...messagesRef.current, userMessage]
-      .filter(m => m.status === 'done' && m.text.length > 0)
-      .slice(-MAX_REQUEST_MESSAGES)
-      // Stopped replies stay in the history (the patient saw their text) but
-      // carry the flag through, so the server marks them as interrupted
-      // instead of letting the model continue a cut-off sentence.
-      .map(m =>
-        m.role === 'assistant' && m.stopped
-          ? { role: m.role, content: m.text, stopped: true }
-          : { role: m.role, content: m.text },
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const userMessage: CoachMessage = { id: nextId(), role: 'user', text, status: 'done' };
+      const assistantId = nextId();
+
+      // Build the request from a stable snapshot BEFORE touching state, so the
+      // network call never runs inside a state updater (updaters must stay pure
+      // and may be replayed by React).
+      const request: CoachRequestMessage[] = [...messagesRef.current, userMessage]
+        .filter(m => m.status === 'done' && m.text.length > 0)
+        .slice(-MAX_REQUEST_MESSAGES)
+        .map(toRequestMessage);
+
+      setIsStreaming(true);
+      setMessages(prev => [
+        ...prev,
+        userMessage,
+        {
+          id: assistantId,
+          role: 'assistant',
+          text: '',
+          status: 'streaming',
+          replyToId: userMessage.id,
+        },
+      ]);
+
+      streamInto(request, assistantId, controller);
+    },
+    [streamInto],
+  );
+
+  const retry = useCallback(
+    (assistantMessageId: string) => {
+      if (inFlightRef.current) return;
+      const history = messagesRef.current;
+      const errored = history.find(m => m.id === assistantMessageId);
+      if (
+        !errored ||
+        errored.role !== 'assistant' ||
+        errored.status !== 'error' ||
+        !errored.replyToId
+      ) {
+        return;
+      }
+      const originIndex = history.findIndex(m => m.id === errored.replyToId);
+      if (originIndex === -1) return;
+
+      // Rebuild the request exactly as the failed send did: the thread as it
+      // stood up to and including the originating user message. Anything the
+      // patient asked after the failure stays out of this exchange.
+      const request: CoachRequestMessage[] = history
+        .slice(0, originIndex + 1)
+        .filter(m => m.status === 'done' && m.text.length > 0)
+        .slice(-MAX_REQUEST_MESSAGES)
+        .map(toRequestMessage);
+      // The origin is a done, non-empty user message, so it is the request
+      // tail by construction; bail rather than send a malformed request.
+      if (request.length === 0 || request[request.length - 1].role !== 'user') return;
+
+      inFlightRef.current = true;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const assistantId = nextId();
+
+      setIsStreaming(true);
+      // Swap the error bubble for a fresh streaming bubble in place; it keeps
+      // pointing at the same user message so a failed retry can retry again.
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === assistantMessageId
+            ? {
+                id: assistantId,
+                role: 'assistant' as const,
+                text: '',
+                status: 'streaming' as const,
+                replyToId: errored.replyToId,
+              }
+            : m,
+        ),
       );
 
-    setIsStreaming(true);
-    setMessages(prev => [
-      ...prev,
-      userMessage,
-      { id: assistantId, role: 'assistant', text: '', status: 'streaming' },
-    ]);
-
-    // Callbacks from a stream the user already stopped must not run: stop()
-    // finalized the UI and may even have let a new exchange begin.
-    const isStale = () => abortRef.current !== controller;
-
-    void streamCoachChat(
-      { messages: request },
-      {
-        onDelta: delta => {
-          if (isStale()) return;
-          setMessages(current =>
-            current.map(m => (m.id === assistantId ? { ...m, text: m.text + delta } : m)),
-          );
-        },
-        onCard: card => {
-          if (isStale()) return;
-          if (card.kind === 'recipe') {
-            // Defensive re-parse; a malformed payload drops the card rather
-            // than crashing the preview screen later.
-            const suggestion = parseRecipeCardPayload(card.payload);
-            if (!suggestion) return;
-            suggestionsRef.current.set(suggestion.id, suggestion);
-          }
-          // First card wins; the server sends at most one per reply anyway.
-          setMessages(current =>
-            current.map(m => (m.id === assistantId && !m.card ? { ...m, card } : m)),
-          );
-        },
-        onDone: () => {
-          if (isStale()) return;
-          abortRef.current = null;
-          // Trim trailing whitespace left when a control marker was stripped
-          // from the end of the streamed text.
-          setMessages(current =>
-            current.map(m =>
-              m.id === assistantId ? { ...m, status: 'done', text: m.text.trimEnd() } : m,
-            ),
-          );
-          inFlightRef.current = false;
-          setIsStreaming(false);
-        },
-        onError: message => {
-          if (isStale()) return;
-          abortRef.current = null;
-          setMessages(current =>
-            current.map(m =>
-              m.id === assistantId ? { ...m, status: 'error', text: message } : m,
-            ),
-          );
-          inFlightRef.current = false;
-          setIsStreaming(false);
-        },
-      },
-      { signal: controller.signal },
-    );
-  }, []);
+      streamInto(request, assistantId, controller);
+    },
+    [streamInto],
+  );
 
   const stop = useCallback(() => {
     if (!inFlightRef.current) return;
@@ -208,8 +296,8 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ messages, isStreaming, send, stop, getRecipeSuggestion, setSuggestionPhoto }),
-    [messages, isStreaming, send, stop, getRecipeSuggestion, setSuggestionPhoto],
+    () => ({ messages, isStreaming, send, retry, stop, getRecipeSuggestion, setSuggestionPhoto }),
+    [messages, isStreaming, send, retry, stop, getRecipeSuggestion, setSuggestionPhoto],
   );
 
   return <CoachChatContext.Provider value={value}>{children}</CoachChatContext.Provider>;

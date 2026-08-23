@@ -16,3 +16,5 @@ On Expo web, a disabled Pressable does not render a native `disabled` DOM attrib
 Known capture quirk: Expo web screenshots sometimes come back blank/white while the accessibility snapshot shows the correct UI. Treat the a11y/layout snapshot as the source of truth before declaring a blank screen a bug; a transient 502 on first load usually just means the Expo workflow needs a restart.
 
 A PERSISTENT blank page + repeated 502s means the browser is on the shared-proxy artifact path (e.g. /thinnr-mobile/), which never serves the Expo app. Always hand testers the literal Expo dev-domain base URL (resolve $REPLIT_EXPO_DEV_DOMAIN first) in the brief; a tester left to guess will default to the proxy path, burn its run on retries/workflow restarts, and return "unable" even though the app is healthy.
+
+A freshly (re)started Metro also 502s until its first web bundle finishes (~2 min). Pre-warm before dispatching a tester: curl the Expo root HTML, extract the entry.bundle src, and curl that URL to completion — it doubles as proof the served bundle contains the new code (grep for a new testID).

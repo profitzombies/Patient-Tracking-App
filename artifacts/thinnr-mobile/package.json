@@ -16,7 +16,8 @@
     "test:diary-edit": "tsx scripts/verify-diary-edit.ts",
     "test:diary-undo": "tsx scripts/verify-diary-undo.ts",
     "test:onboarding-hints": "tsx --tsconfig tsconfig.onboarding-hints.json scripts/verify-onboarding-hints.ts",
-    "test:photo-backfill": "tsx scripts/verify-photo-backfill.ts"
+    "test:photo-backfill": "tsx scripts/verify-photo-backfill.ts",
+    "test:photo-remove": "tsx scripts/verify-photo-remove.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -32,6 +32,12 @@ import {
   type EntryEditChanges,
 } from '@/data/diary-entry-state';
 import {
+  applyRemovePhoto,
+  applyRestorePhoto,
+  captureRemovedPhoto,
+  type RemovedProgressPhoto,
+} from '@/data/progress-photo-state';
+import {
   buildSeedCheckIns,
   buildSeedEntries,
   buildSeedWater,
@@ -140,6 +146,8 @@ interface PatientContextValue {
   setWater: (dateKey: string, oz: number) => Promise<void>;
   addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<void>;
   addPhoto: (photo: { dateKey: string; uri: string; label: string }) => Promise<void>;
+  removePhoto: (id: string) => Promise<RemovedProgressPhoto | null>;
+  restorePhoto: (removed: RemovedProgressPhoto) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
@@ -359,6 +367,45 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [commit, runSerialized]);
 
+  // Removes a user-added progress photo. Seed photos are not removable: they
+  // never live in the persisted array, and the state helper's source guard
+  // makes a seed id a no-op regardless. Returns the pre-removal snapshot
+  // (photo + position) so the caller can offer an Undo; the capture happens
+  // inside the serialized mutation, so it reflects exactly what this delete
+  // dropped. Returns null when the id isn't a removable photo (double-tap).
+  // On web this commit is also what frees the base64 image data from browser
+  // storage — once the caller's undo window lapses, nothing references it.
+  const removePhoto = useCallback(async (id: string): Promise<RemovedProgressPhoto | null> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await hydrationGate.current!.promise;
+    return runSerialized(async () => {
+      const prev = stateRef.current;
+      const removed = captureRemovedPhoto(prev.photos, id);
+      const nextPhotos = applyRemovePhoto(prev.photos, id);
+      if (nextPhotos !== prev.photos) {
+        await commit({ ...prev, photos: nextPhotos });
+      }
+      return removed;
+    });
+  }, [commit, runSerialized]);
+
+  // Undo for removePhoto. Re-inserts the exact snapshot under its original id
+  // at its captured position. Only an actual recorded removal is undone: a
+  // double-tapped Undo no-ops instead of inserting a duplicate (see
+  // applyRestorePhoto).
+  const restorePhoto = useCallback(async (removed: RemovedProgressPhoto): Promise<void> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const nextPhotos = applyRestorePhoto(prev.photos, removed);
+      if (nextPhotos === prev.photos) {
+        return; // nothing to undo
+      }
+      await commit({ ...prev, photos: nextPhotos });
+    });
+  }, [commit, runSerialized]);
+
   const toggleFavorite = useCallback(async (id: string): Promise<void> => {
     await Haptics.selectionAsync();
     await hydrationGate.current!.promise;
@@ -525,8 +572,15 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       .sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1));
   }, [checkIns]);
 
+  // Stable ascending sort: equal dateKeys keep concatenation order (seeds
+  // first, then user photos in add order), so two photos added the same day
+  // display oldest-first and their de-duplicated "Week N (2)" counters read
+  // in the order they were added.
   const photos = useMemo(
-    () => [...SEED_PHOTOS, ...state.photos].sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1)),
+    () =>
+      [...SEED_PHOTOS, ...state.photos].sort((a, b) =>
+        a.dateKey < b.dateKey ? -1 : a.dateKey > b.dateKey ? 1 : 0,
+      ),
     [state.photos],
   );
 
@@ -561,6 +615,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setWater,
       addCheckIn,
       addPhoto,
+      removePhoto,
+      restorePhoto,
       toggleFavorite,
       addCustomFood,
       updateCustomFood,
@@ -596,6 +652,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setWater,
       addCheckIn,
       addPhoto,
+      removePhoto,
+      restorePhoto,
       toggleFavorite,
       addCustomFood,
       updateCustomFood,

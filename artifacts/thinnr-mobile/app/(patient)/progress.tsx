@@ -4,9 +4,10 @@
  * trend card, ruled stat columns, serif row titles, restrained orange only
  * inside the chart's goal reference.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -15,7 +16,9 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { PatientWeightChart } from '@/components/patient/PatientWeightChart';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
+import { Snackbar } from '@/components/ui/Snackbar';
 import { usePatient } from '@/context/PatientContext';
+import { photoDisplayLabels, type RemovedProgressPhoto } from '@/data/progress-photo-state';
 import {
   ENROLLMENT_DAYS,
   formatDateKey,
@@ -31,6 +34,17 @@ export default function ProgressScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const [photoError, setPhotoError] = useState('');
+  // One snackbar slot for the last removed photo, mirroring the diary's undo
+  // notice. A fresh object per removal restarts the auto-dismiss timer; once
+  // the window lapses the snapshot (the only remaining reference to the
+  // image data) is dropped.
+  const [removedNotice, setRemovedNotice] = useState<{ removed: RemovedProgressPhoto; label: string } | null>(null);
+
+  useEffect(() => {
+    if (!removedNotice) return;
+    const timer = setTimeout(() => setRemovedNotice(null), UNDO_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [removedNotice]);
 
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
 
@@ -75,6 +89,24 @@ export default function ProgressScreen() {
       setPhotoError('Photo could not be saved — it may be too large for browser storage.');
     }
   };
+
+  // Arm the Undo only after the removal has committed, so a fast Undo tap
+  // always acts on a recorded removal (restorePhoto no-ops otherwise). The
+  // snackbar carries the de-duplicated display label the card showed.
+  const handleRemovePhoto = async (id: string, label: string) => {
+    const removed = await patient.removePhoto(id);
+    if (removed) setRemovedNotice({ removed, label });
+  };
+
+  const handleUndoRemove = () => {
+    if (!removedNotice) return;
+    setRemovedNotice(null);
+    void patient.restorePhoto(removedNotice.removed);
+  };
+
+  // De-duplicated captions ("Week 12", "Week 12 (2)") derived from the
+  // displayed list, so removing a duplicate heals the numbering.
+  const displayLabels = useMemo(() => photoDisplayLabels(patient.photos), [patient.photos]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -124,11 +156,33 @@ export default function ProgressScreen() {
           {patient.photos.map(photo => {
             const source = photo.source === 'seed' ? PROGRESS_IMAGES[photo.id] : { uri: photo.uri };
             const seedWeight = photo.source === 'seed' ? weightAtDateKey(photo.dateKey) : null;
+            const label = displayLabels.get(photo.id) ?? photo.label;
             return (
               <LedgerCard key={photo.id} style={styles.photoCard}>
                 <Image source={source} style={styles.photoImage} contentFit="cover" transition={120} />
+                {/* Only photos the patient added can be removed — seed milestones stay. */}
+                {photo.source === 'user' && (
+                  <Pressable
+                    testID={`photo-remove-${photo.id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${label} photo`}
+                    hitSlop={8}
+                    onPress={() => handleRemovePhoto(photo.id, label)}
+                    style={({ pressed }) => [
+                      styles.photoRemoveBtn,
+                      {
+                        backgroundColor: colors.paperCard,
+                        borderColor: colors.border,
+                        borderRadius: colors.radiusSm,
+                      },
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Feather name="x" size={13} color={colors.navy} />
+                  </Pressable>
+                )}
                 <View style={styles.photoCaption}>
-                  <Text style={[styles.photoLabel, { color: colors.navyLight }]}>{photo.label}</Text>
+                  <Text style={[styles.photoLabel, { color: colors.navyLight }]}>{label}</Text>
                   <Text style={[styles.photoMeta, { color: colors.subtleText }]}>
                     {formatDateKey(photo.dateKey)}
                     {seedWeight !== null ? ` · ${seedWeight.toFixed(1)} lbs` : ''}
@@ -170,9 +224,24 @@ export default function ProgressScreen() {
 
         <SyntheticDisclaimer />
       </ScrollView>
+
+      {/* ── Transient undo notice (floats above the tab bar) ── */}
+      {removedNotice && (
+        <Snackbar
+          testID="photo-undo-snackbar"
+          message={`Removed “${removedNotice.label}” photo`}
+          actionLabel="UNDO"
+          actionTestID="photo-undo"
+          onAction={handleUndoRemove}
+        />
+      )}
     </View>
   );
 }
+
+// Matches the diary snackbar's undo window, so delete/undo feels the same
+// everywhere.
+const UNDO_WINDOW_MS = 5000;
 
 const styles = StyleSheet.create({
   container: {
@@ -235,6 +304,17 @@ const styles = StyleSheet.create({
   photoImage: {
     width: '100%',
     height: 150,
+  },
+  photoRemoveBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 2px 6px rgba(32, 59, 100, 0.18)',
   },
   photoCaption: {
     padding: 10,

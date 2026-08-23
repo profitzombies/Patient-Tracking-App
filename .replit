@@ -52,6 +52,10 @@ args = "coach-stop"
 task = "workflow.run"
 args = "onboarding-hints"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "photo-remove"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -147,6 +151,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:onboarding-hints"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "photo-remove"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:photo-remove"
 
 [workflows.workflow.metadata]
 isValidation = true

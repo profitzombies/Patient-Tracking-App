@@ -17,3 +17,4 @@
 - [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).
 - [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
 - [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — merges don't restart running workflows; restart Metro after a merge batch and grep the served bundle for a new-code marker before trusting device reports.
+- [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.

@@ -107,10 +107,12 @@ export function HeritageHero() {
 
         <section className="mt-4 rounded-[9px] border border-[#d8e0e9] bg-[#fdfcf9] px-4 pb-4 pt-4 shadow-[0_9px_20px_rgba(40,55,74,.075)]">
           <div className="flex items-start justify-between"><div><p className="text-[9px] font-bold tracking-[.13em] text-[#7e8994]">CALORIES FOR TODAY</p><h2 className="mt-1 font-['Playfair_Display'] text-[21px] text-[#243f66]">A well-paced day.</h2></div><span className="text-[11px] font-semibold text-[#56708e]">62% consumed</span></div>
-          <div className="mx-auto mt-3 flex h-[142px] w-[244px] items-end justify-center overflow-hidden">
-            <div className="relative h-[244px] w-[244px] -rotate-[45deg] rounded-full border-[22px] border-[#e3e7ea] border-b-[#df772c] border-l-[#315eae]">
-              <div className="absolute inset-[18px] rotate-[45deg] text-center"><p className="mt-[58px] font-['Playfair_Display'] text-[46px] leading-none text-[#243f66]">568</p><p className="mt-1 text-[9px] font-bold uppercase tracking-[.14em] text-[#7e8994]">remaining</p></div>
-            </div>
+          <div className="relative mx-auto mt-3 h-[142px] w-[244px]">
+            <svg viewBox="0 0 244 142" className="h-full w-full" aria-hidden="true">
+              <path d="M 22 122 A 100 100 0 0 1 222 122" fill="none" stroke="#e3e7ea" strokeWidth="22" strokeLinecap="round" />
+              <path d="M 22 122 A 100 100 0 0 1 222 122" fill="none" stroke="#df772c" strokeWidth="22" strokeLinecap="round" pathLength={100} strokeDasharray="62 38" />
+            </svg>
+            <div className="absolute inset-x-0 bottom-[4px] text-center"><p className="font-['Playfair_Display'] text-[46px] leading-none text-[#243f66]">568</p><p className="mt-1 text-[9px] font-bold uppercase tracking-[.14em] text-[#7e8994]">remaining</p></div>
           </div>
           <div className="mt-3 flex items-center justify-between text-center"><div><b className="block text-[16px] text-[#314b6b]">1,500</b><span className="text-[8px] font-bold tracking-[.1em] text-[#858d95]">GOAL</span></div><span className="h-7 w-px bg-[#e2e3e1]" /><div><b className="block text-[16px] text-[#314b6b]">932</b><span className="text-[8px] font-bold tracking-[.1em] text-[#858d95]">FOOD</span></div><span className="h-7 w-px bg-[#e2e3e1]" /><div><b className="block text-[16px] text-[#315eae]">568</b><span className="text-[8px] font-bold tracking-[.1em] text-[#858d95]">LEFT</span></div></div>
           <div className="mt-4 space-y-3 border-t border-[#e8e8e5] pt-3">{macros.map(([name, value, pct, width, color]) => <div key={name}><div className="mb-1 flex justify-between text-[11px]"><span className="font-semibold text-[#41536a]">{name}</span><span className="text-[#7d8791]">{value} <b className="ml-1 text-[#4a627d]">{pct}</b></span></div><div className="h-1.5 bg-[#e5e8eb]"><div className={`h-full ${width} ${color}`} /></div></div>)}</div>

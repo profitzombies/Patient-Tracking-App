@@ -9,6 +9,7 @@
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:approved-foods": "tsx scripts/verify-approved-foods.ts",
+    "test:restaurant-guide": "node scripts/check-restaurant-guide-verbatim.mjs",
     "test:coach-stop": "tsx --tsconfig tsconfig.coach-stop.json scripts/verify-coach-stop.ts",
     "test:custom-food-undo": "tsx scripts/verify-custom-food-undo.ts",
     "test:diary-copy": "tsx scripts/verify-diary-copy.ts",

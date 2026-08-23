@@ -1,9 +1,12 @@
 /**
- * Restaurant Guide — how to eat out while staying on the THINNR program.
+ * Eating-out guidance — the full quoted program guidance for dining out,
+ * opened from the Restaurant Guide's top card: the THINNR Restaurant Guide's
+ * own "BEFORE YOU ORDER" rules first, then the manual/knowledge-base
+ * sections that made up the original Restaurant Guide screen.
  *
  * Every program statement on this screen is quoted word-for-word from the
- * official docs archive (docs/thinnr-program/) via data/restaurant-guide.json.
- * Do not edit quote text by hand: regenerate or edit the JSON and run
+ * official docs archive (docs/thinnr-program/) via data/restaurant-directory.ts.
+ * Do not edit quote text by hand: edit data/restaurant-guide.json and run
  * scripts/check-restaurant-guide-verbatim.mjs, which verifies each quoted
  * string against the archive. App-authored copy is limited to the screen
  * title, intro, section titles, and source attributions.
@@ -11,30 +14,14 @@
 import React from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { Feather } from '@expo/vector-icons';
 import { Redirect, router, usePathname } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
-import { APPROVED_FOODS_HREF } from '@/constants/links';
-import guide from '@/data/restaurant-guide.json';
+import { GUIDANCE_SECTIONS } from '@/data/restaurant-directory';
 
-interface GuideQuote {
-  question?: string;
-  lines: string[];
-  source: string;
-}
-
-interface GuideSection {
-  key: string;
-  title: string;
-  quotes: GuideQuote[];
-}
-
-const SECTIONS = (guide as { sections: GuideSection[] }).sections;
-
-export default function RestaurantGuideScreen() {
+export default function EatingOutGuidanceScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
@@ -47,18 +34,13 @@ export default function RestaurantGuideScreen() {
   // guard is gated on the active pathname so it can't hijack navigation
   // while this screen unmounts.
   if (!modeHydrated) return null;
-  if (pathname === '/restaurant-guide' && mode !== 'patient') {
+  if (pathname === '/restaurant-guide/guidance' && mode !== 'patient') {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/today');
-  };
-
-  const openApprovedList = () => {
-    Haptics.selectionAsync();
-    router.push(APPROVED_FOODS_HREF);
+    else router.replace('/restaurant-guide');
   };
 
   return (
@@ -66,7 +48,7 @@ export default function RestaurantGuideScreen() {
       <ScrollView contentContainerStyle={{ paddingTop: topPad + 8, paddingBottom: bottomPad }}>
         <View style={styles.headerRow}>
           <Pressable
-            testID="guide-back-btn"
+            testID="guidance-back-btn"
             onPress={goBack}
             hitSlop={8}
             style={({ pressed }) => [
@@ -76,7 +58,7 @@ export default function RestaurantGuideScreen() {
           >
             <Feather name="arrow-left" size={17} color={colors.navy} />
           </Pressable>
-          <Text style={[styles.title, { color: colors.navy }]}>Restaurant Guide</Text>
+          <Text style={[styles.title, { color: colors.navy }]}>Eating-Out Guidance</Text>
         </View>
 
         <Text style={[styles.intro, { color: colors.bodyText }]}>
@@ -84,7 +66,7 @@ export default function RestaurantGuideScreen() {
           official program materials.
         </Text>
 
-        {SECTIONS.map(section => (
+        {GUIDANCE_SECTIONS.map(section => (
           <View key={section.key}>
             <SectionHeader label={section.title} style={styles.sectionHeader} />
             <LedgerCard>
@@ -120,23 +102,6 @@ export default function RestaurantGuideScreen() {
             </LedgerCard>
           </View>
         ))}
-
-        {/* Cross-link to the food library's approved list */}
-        <SectionHeader label="Approved foods" style={styles.sectionHeader} />
-        <LedgerCard testID="guide-approved-link" onPress={openApprovedList}>
-          <View style={styles.linkRow}>
-            <View style={[styles.linkIcon, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder, borderRadius: colors.radiusSm }]}>
-              <MaterialCommunityIcons name="check-circle" size={16} color={colors.activeGreen} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.linkTitle, { color: colors.navyLight }]}>Approved list</Text>
-              <Text style={[styles.linkMeta, { color: colors.subtleText }]}>
-                The official approved selections, with portion guidance
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={16} color={colors.subtleText} />
-          </View>
-        </LedgerCard>
       </ScrollView>
     </View>
   );
@@ -205,27 +170,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     textTransform: 'uppercase',
     marginTop: 9,
-  },
-  linkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 16,
-  },
-  linkIcon: {
-    width: 34,
-    height: 34,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  linkTitle: {
-    fontSize: 14.5,
-    fontFamily: 'PlayfairDisplay_600SemiBold',
-  },
-  linkMeta: {
-    fontSize: 11,
-    marginTop: 2,
-    fontFamily: 'Inter_400Regular',
   },
 });

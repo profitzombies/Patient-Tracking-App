@@ -10,6 +10,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/thinnr-mobile run test:approved-foods` — verify every Approved Foods string in the mobile app is verbatim from the docs archive (run after touching `artifacts/thinnr-mobile/data/approved-foods.ts`)
+- `pnpm --filter @workspace/thinnr-mobile run test:restaurant-guide` — verify all Restaurant Guide wording (eating-out guidance plus every restaurant name and order line) is verbatim from the docs archive (run after touching `artifacts/thinnr-mobile/data/restaurant-guide.json`)
 - Automated demo gate: the `demo-parity` and `approved-foods` validation checks run together on every validation run — web↔mobile demo-data parity plus verbatim Approved Foods wording — and either one failing fails the run
 - Required env: `DATABASE_URL` — Postgres connection string
 
@@ -24,8 +25,9 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-- `docs/thinnr-program/` — verbatim archive of the official THINNR Protocol materials: complete 72-page manual transcription, program-instructions and approved-foods extracts, knowledge-base Q&A, and the canonical PDF/paste sources (see its README for page mapping and fidelity notes). Quote official program wording from these files — never paraphrase or "fix" it.
+- `docs/thinnr-program/` — verbatim archive of the official THINNR Protocol materials: complete 72-page manual transcription, program-instructions and approved-foods extracts, knowledge-base Q&A, the THINNR Restaurant Guide (eating-out rules and approved restaurant orders), and the canonical PDF/paste sources (see its README for page mapping and fidelity notes). Quote official program wording from these files — never paraphrase or "fix" it.
 - `artifacts/thinnr-mobile/data/approved-foods.ts` — machine-readable Approved Foods list (categories, verbatim item names, portions) powering the mobile Library tab's Approved Foods screen, the checkmark badges (library / Add Food search / diary), and the Add Food "approved only" filter. Guarded by the `test:approved-foods` verbatim check above.
+- `artifacts/thinnr-mobile/data/restaurant-guide.json` — quoted eating-out guidance plus the THINNR Restaurant Guide directory (25 restaurants with verbatim approved-order lines; typed access via `data/restaurant-directory.ts`). Powers the patient Restaurant Guide hub (`/restaurant-guide`), its guidance page, and the per-restaurant detail pages; the API server reads its `sections[]` for coach grounding (directory keys are ignored there). Guarded by the `test:restaurant-guide` verbatim check.
 - `artifacts/thinnr-mobile/data/product-catalog.json` — curated THINNR product catalog (copy, supplement facts, disclaimers quoted verbatim from getthinnr.com; prices are demo values matching the staff dataset). Powers coach product suggestions and the `/product/[id]` demo shop page; the API server reads it at runtime for grounding. Name/price parity with the staff `MOCK_PRODUCTS` is enforced by `test:parity`.
 
 ## Architecture decisions

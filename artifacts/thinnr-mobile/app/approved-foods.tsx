@@ -88,13 +88,13 @@ export default function ApprovedFoodsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Header ── */}
-      <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
         <Pressable
           testID="approved-back"
           onPress={goBack}
           style={({ pressed }) => [
             styles.backBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
           ]}
         >
           <Feather name="chevron-left" size={16} color={colors.bodyText} />
@@ -108,7 +108,7 @@ export default function ApprovedFoodsScreen() {
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
         {/* ── What the badge means ── */}
-        <LedgerCard style={styles.introCard}>
+        <LedgerCard accentTop style={styles.introCard}>
           <View style={styles.introRow}>
             <ApprovedBadge size="md" style={{ marginTop: 1 }} />
             <View style={{ flex: 1 }}>
@@ -125,7 +125,7 @@ export default function ApprovedFoodsScreen() {
         {confirmation && (
           <View
             testID="approved-add-confirmation"
-            style={[styles.confirmBar, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}
+            style={[styles.confirmBar, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder, borderRadius: colors.radiusSm }]}
           >
             <Feather name="check-circle" size={13} color={colors.activeGreen} />
             <Text style={[styles.confirmText, { color: colors.activeGreen }]} numberOfLines={1}>
@@ -135,7 +135,7 @@ export default function ApprovedFoodsScreen() {
         )}
 
         {/* ── Search ── */}
-        <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
+        <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }]}>
           <Feather name="search" size={14} color={colors.subtleText} />
           <TextInput
             testID="approved-search"
@@ -171,6 +171,7 @@ export default function ApprovedFoodsScreen() {
                   {
                     backgroundColor: isActive ? colors.cobalt : colors.card,
                     borderColor: isActive ? colors.cobalt : colors.border,
+                    borderRadius: colors.radiusSm,
                   },
                   pressed && { opacity: 0.8 },
                 ]}
@@ -216,8 +217,8 @@ export default function ApprovedFoodsScreen() {
                   <View style={styles.catHeaderRow}>
                     <Text style={[styles.catTitle, { color: colors.navyLight }]}>{category.title}</Text>
                     {category.itemPortion ? (
-                      <View style={[styles.portionChip, { borderColor: colors.border, backgroundColor: colors.card }]}>
-                        <Text style={[styles.portionChipText, { color: colors.labelText }]}>
+                      <View style={[styles.portionChip, { borderColor: colors.orangeBorder, backgroundColor: colors.orangeBg }]}>
+                        <Text style={[styles.portionChipText, { color: colors.orangeText }]}>
                           {category.itemPortion}
                         </Text>
                       </View>
@@ -247,14 +248,14 @@ export default function ApprovedFoodsScreen() {
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.itemName, { color: colors.navyLight }]}>{item.name}</Text>
                               {portion && !inlinePortion ? (
-                                <Text style={[styles.itemPortionLong, { color: colors.labelText }]}>{portion}</Text>
+                                <Text style={[styles.itemPortionLong, { color: colors.orangeText }]}>{portion}</Text>
                               ) : null}
                               {item.benefit ? (
                                 <Text style={[styles.itemBenefit, { color: colors.subtleText }]}>{item.benefit}</Text>
                               ) : null}
                             </View>
                             {inlinePortion ? (
-                              <Text style={[styles.itemPortion, { color: colors.labelText }]}>{inlinePortion}</Text>
+                              <Text style={[styles.itemPortion, { color: colors.orangeText }]}>{inlinePortion}</Text>
                             ) : null}
                             {food && (
                               <>
@@ -330,10 +331,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 17,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
   },
   headerSub: {
     fontSize: 8.5,
@@ -354,9 +354,9 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   introTitle: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    lineHeight: 20,
   },
   introBody: {
     fontSize: 11,
@@ -423,10 +423,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   groupTitle: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    lineHeight: 17,
+    fontSize: 17,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    lineHeight: 23,
   },
   groupNote: {
     fontSize: 10.5,
@@ -443,15 +442,15 @@ const styles = StyleSheet.create({
   },
   catTitle: {
     flex: 1,
-    fontSize: 11.5,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    lineHeight: 15,
+    fontSize: 14,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    lineHeight: 19,
   },
   portionChip: {
     borderWidth: 1,
     paddingHorizontal: 6,
     paddingVertical: 3,
+    borderRadius: 5,
   },
   portionChipText: {
     fontSize: 9,

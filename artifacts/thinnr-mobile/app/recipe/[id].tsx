@@ -103,13 +103,13 @@ export default function RecipeDetailScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Top bar ── */}
-      <View style={[styles.topBar, { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+      <View style={[styles.topBar, { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
         <Pressable
           testID="recipe-back"
           onPress={goBack}
           style={({ pressed }) => [
             styles.topBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
           ]}
         >
           <Feather name="chevron-left" size={17} color={colors.bodyText} />
@@ -125,6 +125,7 @@ export default function RecipeDetailScreen() {
             {
               borderColor: isFav ? colors.cobalt : colors.border,
               backgroundColor: isFav ? colors.cobalt : pressed ? colors.accent : colors.card,
+              borderRadius: colors.radiusSm,
             },
           ]}
         >
@@ -149,11 +150,11 @@ export default function RecipeDetailScreen() {
 
           <View style={styles.chipRow}>
             <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              <Feather name="clock" size={11} color={colors.cobalt} />
+              <Feather name="clock" size={11} color={colors.orange} />
               <Text style={[styles.chipText, { color: colors.bodyText }]}>{recipe.minutes} MIN</Text>
             </View>
             <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              <Feather name="users" size={11} color={colors.cobalt} />
+              <Feather name="users" size={11} color={colors.orange} />
               <Text style={[styles.chipText, { color: colors.bodyText }]}>MAKES {recipe.servings}</Text>
             </View>
             <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
@@ -266,7 +267,7 @@ export default function RecipeDetailScreen() {
                   disabled={servings <= 1}
                   style={({ pressed }) => [
                     styles.stepBtn,
-                    { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                    { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
                     servings <= 1 && { opacity: 0.35 },
                   ]}
                 >
@@ -279,7 +280,7 @@ export default function RecipeDetailScreen() {
                   disabled={servings >= 6}
                   style={({ pressed }) => [
                     styles.stepBtn,
-                    { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                    { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
                     servings >= 6 && { opacity: 0.35 },
                   ]}
                 >
@@ -293,7 +294,7 @@ export default function RecipeDetailScreen() {
               disabled={logging}
               style={({ pressed }) => [
                 styles.logBtn,
-                { backgroundColor: colors.cobalt },
+                { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
                 (pressed || logging) && { opacity: 0.85 },
               ]}
             >
@@ -367,10 +368,9 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   name: {
-    fontSize: 21,
-    fontWeight: '700',
-    letterSpacing: -0.6,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 23,
+    letterSpacing: -0.3,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   description: {
     fontSize: 13,
@@ -391,6 +391,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 5,
+    borderRadius: 5,
   },
   chipText: {
     fontSize: 9,
@@ -413,10 +414,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   nutritionBig: {
-    fontSize: 26,
-    fontWeight: '600',
-    letterSpacing: -1,
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 27,
+    letterSpacing: -0.5,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   nutritionValue: {
     fontSize: 17,
@@ -461,6 +461,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 1,
+    borderRadius: 6,
   },
   stepNumText: {
     fontSize: 11,

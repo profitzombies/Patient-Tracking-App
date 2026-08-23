@@ -130,13 +130,13 @@ export default function CreateFoodScreen() {
 
   const inputStyle = [
     styles.input,
-    { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background },
+    { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, borderRadius: colors.radiusSm },
   ];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Header ── */}
-      <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
         <Pressable testID="createfood-cancel" onPress={goBack} hitSlop={8}>
           <Text style={[styles.headerAction, { color: colors.cobalt }]}>Cancel</Text>
         </Pressable>
@@ -236,7 +236,7 @@ export default function CreateFoodScreen() {
             disabled={saving}
             style={({ pressed }) => [
               styles.saveBtn,
-              { backgroundColor: colors.cobalt },
+              { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
               (pressed || saving) && { opacity: 0.85 },
             ]}
           >
@@ -278,10 +278,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 17,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
   },
   headerSub: {
     fontSize: 8.5,

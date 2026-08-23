@@ -21,3 +21,4 @@
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel design subagents drift on state semantics (signs, filled-vs-outlined markers); put the data spec in briefs AND the review prompt.
 - [Custom tab labels drop accessible names](tab-label-a11y.md) — a function tabBarLabel needs tabBarAccessibilityLabel per screen, or every tab silently loses its screen-reader name.
 - [Expo persona gate](expo-persona-gate.md) — patient screens hide behind the persona chooser on Expo web; verify via the testing subagent; compare app vs mockup in one capture pipeline.
+- [Mobile e2e quirks](mobile-e2e-quirks.md) — transient snackbar Undo isn't clickable by automation: trust the undo script workflows; only deletion confirmations carry Undo, add bars don't.

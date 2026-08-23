@@ -36,6 +36,7 @@ export function FavoriteStar({ id, name, testID, style }: FavoriteStarProps) {
         {
           backgroundColor: isFav ? colors.cobalt : pressed ? colors.accent : colors.card,
           borderColor: isFav ? colors.cobalt : colors.border,
+          borderRadius: colors.radiusSm,
         },
         style,
       ]}

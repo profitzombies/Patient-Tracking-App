@@ -71,7 +71,7 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded }: FoodAddPanel
           disabled={qty <= 0.5}
           style={({ pressed }) => [
             styles.stepBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
             qty <= 0.5 && { opacity: 0.35 },
           ]}
         >
@@ -86,7 +86,7 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded }: FoodAddPanel
           disabled={qty >= 10}
           style={({ pressed }) => [
             styles.stepBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
             qty >= 10 && { opacity: 0.35 },
           ]}
         >
@@ -98,7 +98,7 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded }: FoodAddPanel
           disabled={saving}
           style={({ pressed }) => [
             styles.addBtn,
-            { backgroundColor: colors.cobalt },
+            { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
             (pressed || saving) && { opacity: 0.85 },
           ]}
         >

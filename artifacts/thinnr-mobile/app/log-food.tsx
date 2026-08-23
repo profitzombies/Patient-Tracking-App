@@ -299,7 +299,7 @@ export default function LogFoodScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Header ── */}
-      <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
         <Pressable testID="logfood-cancel" onPress={goBack} hitSlop={8}>
           <Text style={[styles.headerAction, { color: colors.cobalt }]}>Cancel</Text>
         </Pressable>
@@ -318,7 +318,7 @@ export default function LogFoodScreen() {
         <PillSelector options={MEAL_OPTIONS} selected={meal} onSelect={setMeal} style={{ marginBottom: 12 }} />
 
         <View style={styles.searchRow}>
-          <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
+          <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }]}>
             <Feather name="search" size={14} color={colors.subtleText} />
             <TextInput
               testID="logfood-search"
@@ -343,6 +343,7 @@ export default function LogFoodScreen() {
               {
                 borderColor: approvedOnly ? colors.activeGreen : colors.border,
                 backgroundColor: approvedOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
+                borderRadius: colors.radiusSm,
               },
             ]}
           >
@@ -384,7 +385,7 @@ export default function LogFoodScreen() {
                 onChangeText={setQuickName}
                 placeholder="Name (e.g. Deli turkey sandwich)"
                 placeholderTextColor={colors.subtleText}
-                style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+                style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, borderRadius: colors.radiusSm }]}
               />
               <TextInput
                 testID="logfood-quick-serving"
@@ -392,7 +393,7 @@ export default function LogFoodScreen() {
                 onChangeText={setQuickServing}
                 placeholder="Serving (e.g. 1 sandwich)"
                 placeholderTextColor={colors.subtleText}
-                style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+                style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, borderRadius: colors.radiusSm }]}
               />
               <View style={styles.quickGrid}>
                 <View style={styles.quickGridItem}>
@@ -403,7 +404,7 @@ export default function LogFoodScreen() {
                     onChangeText={setQuickCals}
                     placeholder="0"
                     {...numericInputProps}
-                    style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, marginBottom: 0 }]}
+                    style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, borderRadius: colors.radiusSm, marginBottom: 0 }]}
                   />
                 </View>
                 <View style={styles.quickGridItem}>
@@ -414,7 +415,7 @@ export default function LogFoodScreen() {
                     onChangeText={setQuickProtein}
                     placeholder="0"
                     {...numericInputProps}
-                    style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, marginBottom: 0 }]}
+                    style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, borderRadius: colors.radiusSm, marginBottom: 0 }]}
                   />
                 </View>
                 <View style={styles.quickGridItem}>
@@ -425,7 +426,7 @@ export default function LogFoodScreen() {
                     onChangeText={setQuickCarbs}
                     placeholder="0"
                     {...numericInputProps}
-                    style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, marginBottom: 0 }]}
+                    style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, borderRadius: colors.radiusSm, marginBottom: 0 }]}
                   />
                 </View>
                 <View style={styles.quickGridItem}>
@@ -436,7 +437,7 @@ export default function LogFoodScreen() {
                     onChangeText={setQuickFat}
                     placeholder="0"
                     {...numericInputProps}
-                    style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, marginBottom: 0 }]}
+                    style={[styles.quickInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background, borderRadius: colors.radiusSm, marginBottom: 0 }]}
                   />
                 </View>
               </View>
@@ -449,7 +450,7 @@ export default function LogFoodScreen() {
                 disabled={saving}
                 style={({ pressed }) => [
                   styles.quickSaveBtn,
-                  { backgroundColor: colors.cobalt },
+                  { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
                   (pressed || saving) && { opacity: 0.85 },
                 ]}
               >
@@ -576,7 +577,7 @@ export default function LogFoodScreen() {
               disabled={qty <= 0.5}
               style={({ pressed }) => [
                 styles.stepBtn,
-                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.background },
+                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.background, borderRadius: colors.radiusSm },
                 qty <= 0.5 && { opacity: 0.35 },
               ]}
             >
@@ -589,7 +590,7 @@ export default function LogFoodScreen() {
               disabled={qty >= 10}
               style={({ pressed }) => [
                 styles.stepBtn,
-                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.background },
+                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.background, borderRadius: colors.radiusSm },
                 qty >= 10 && { opacity: 0.35 },
               ]}
             >
@@ -601,7 +602,7 @@ export default function LogFoodScreen() {
               disabled={saving}
               style={({ pressed }) => [
                 styles.addBtn,
-                { backgroundColor: colors.cobalt },
+                { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
                 (pressed || saving) && { opacity: 0.85 },
               ]}
             >
@@ -638,10 +639,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 17,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
   },
   headerSub: {
     fontSize: 10,
@@ -797,6 +797,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     paddingHorizontal: 16,
     paddingTop: 12,
+    boxShadow: '0 -8px 20px rgba(40, 55, 74, 0.08)',
   },
   actionInfo: {
     marginBottom: 10,

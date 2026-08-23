@@ -72,13 +72,13 @@ export default function ProductDetailScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Top bar ── */}
-      <View style={[styles.topBar, { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+      <View style={[styles.topBar, { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
         <Pressable
           testID="pdp-back"
           onPress={goBack}
           style={({ pressed }) => [
             styles.topBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
           ]}
         >
           <Feather name="chevron-left" size={17} color={colors.bodyText} />
@@ -90,7 +90,7 @@ export default function ProductDetailScreen() {
           onPress={openSite}
           style={({ pressed }) => [
             styles.topBtn,
-            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+            { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
           ]}
         >
           <Feather name="external-link" size={15} color={colors.bodyText} />
@@ -98,7 +98,7 @@ export default function ProductDetailScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: bottomPad }}>
-        <View style={[styles.heroWrap, { borderBottomColor: colors.border }]}>
+        <View style={[styles.heroWrap, { borderBottomColor: colors.border, backgroundColor: colors.card }]}>
           <Image
             source={PRODUCT_IMAGES[product.id]}
             style={styles.hero}
@@ -121,7 +121,7 @@ export default function ProductDetailScreen() {
 
           <View style={styles.priceRow}>
             <Text testID="pdp-price" style={[styles.price, { color: colors.navy }]}>${product.price}</Text>
-            <Text style={[styles.priceHint, { color: colors.subtleText }]}>DEMO PRICING</Text>
+            <Text style={[styles.priceHint, { color: colors.orangeText }]}>DEMO PRICING</Text>
           </View>
 
           <Text style={[styles.description, { color: colors.bodyText }]}>{product.description}</Text>
@@ -179,7 +179,7 @@ export default function ProductDetailScreen() {
                   onPress={() => placeDemoOrder('buy')}
                   style={({ pressed }) => [
                     styles.buyBtn,
-                    { backgroundColor: colors.cobalt },
+                    { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
                     pressed && { opacity: 0.85 },
                   ]}
                 >
@@ -190,7 +190,7 @@ export default function ProductDetailScreen() {
                   onPress={() => placeDemoOrder('cart')}
                   style={({ pressed }) => [
                     styles.cartBtn,
-                    { borderColor: colors.cobalt, backgroundColor: pressed ? colors.accent : colors.card },
+                    { borderColor: colors.cobalt, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
                   ]}
                 >
                   <Text style={[styles.cartBtnText, { color: colors.cobalt }]}>Add to Cart</Text>
@@ -219,7 +219,7 @@ export default function ProductDetailScreen() {
                   onPress={openSite}
                   style={({ pressed }) => [
                     styles.cartBtn,
-                    { borderColor: colors.cobalt, backgroundColor: pressed ? colors.accent : colors.card, marginTop: 12 },
+                    { borderColor: colors.cobalt, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm, marginTop: 12 },
                   ]}
                 >
                   <Text style={[styles.cartBtnText, { color: colors.cobalt }]}>View the real product on getthinnr.com</Text>
@@ -287,7 +287,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   heroWrap: {
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     alignItems: 'center',
     paddingVertical: 18,
@@ -310,6 +309,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 5,
+    borderRadius: 5,
   },
   chipText: {
     fontSize: 9,
@@ -318,10 +318,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   name: {
-    fontSize: 22,
-    fontWeight: '700',
-    letterSpacing: -0.6,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 23,
+    letterSpacing: -0.3,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   tagline: {
     fontSize: 13,
@@ -336,10 +335,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   price: {
-    fontSize: 24,
-    fontWeight: '600',
-    letterSpacing: -0.8,
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 25,
+    letterSpacing: -0.5,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   priceHint: {
     fontSize: 8.5,
@@ -405,9 +403,8 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   orderPrice: {
-    fontSize: 17,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 18,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   buyBtn: {
     paddingVertical: 12,
@@ -447,6 +444,7 @@ const styles = StyleSheet.create({
     height: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 6,
   },
   confirmLabel: {
     fontSize: 10,

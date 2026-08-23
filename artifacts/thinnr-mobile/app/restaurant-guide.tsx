@@ -71,7 +71,7 @@ export default function RestaurantGuideScreen() {
             hitSlop={8}
             style={({ pressed }) => [
               styles.backBtn,
-              { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+              { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
             ]}
           >
             <Feather name="arrow-left" size={17} color={colors.navy} />
@@ -125,7 +125,7 @@ export default function RestaurantGuideScreen() {
         <SectionHeader label="Approved foods" style={styles.sectionHeader} />
         <LedgerCard testID="guide-approved-link" onPress={openApprovedList}>
           <View style={styles.linkRow}>
-            <View style={[styles.linkIcon, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
+            <View style={[styles.linkIcon, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder, borderRadius: colors.radiusSm }]}>
               <MaterialCommunityIcons name="check-circle" size={16} color={colors.activeGreen} />
             </View>
             <View style={{ flex: 1 }}>
@@ -186,10 +186,9 @@ const styles = StyleSheet.create({
     paddingLeft: 10,
   },
   quoteQuestion: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    lineHeight: 19,
+    fontSize: 14.5,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    lineHeight: 20,
   },
   quoteText: {
     fontSize: 13,
@@ -221,9 +220,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   linkTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14.5,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   linkMeta: {
     fontSize: 11,

@@ -205,6 +205,7 @@ export default function LibraryScreen() {
               {
                 backgroundColor: isFav ? colors.cobalt : colors.card,
                 borderColor: isFav ? colors.cobalt : colors.border,
+                borderRadius: colors.radiusSm,
               },
             ]}
           >
@@ -243,10 +244,11 @@ export default function LibraryScreen() {
         <LedgerCard
           testID="library-approved-foods-btn"
           onPress={() => router.push('/approved-foods')}
+          accentTop
           style={styles.approvedCard}
         >
           <View style={styles.approvedRow}>
-            <View style={[styles.approvedIcon, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
+            <View style={[styles.approvedIcon, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder, borderRadius: colors.radiusSm }]}>
               <Feather name="check" size={16} color={colors.activeGreen} />
             </View>
             <View style={{ flex: 1 }}>
@@ -265,7 +267,7 @@ export default function LibraryScreen() {
           <>
             {/* ── Search + favorites filter ── */}
             <View style={styles.searchRow}>
-              <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }]}>
                 <Feather name="search" size={14} color={colors.subtleText} />
                 <TextInput
                   testID="recipes-search"
@@ -289,6 +291,7 @@ export default function LibraryScreen() {
                   {
                     borderColor: favoritesOnly ? colors.cobalt : colors.border,
                     backgroundColor: favoritesOnly ? colors.cobalt : pressed ? colors.accent : colors.card,
+                    borderRadius: colors.radiusSm,
                   },
                 ]}
               >
@@ -345,7 +348,7 @@ export default function LibraryScreen() {
           <>
             {/* ── Foods: search + favorites filter ── */}
             <View style={styles.searchRow}>
-              <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }]}>
                 <Feather name="search" size={14} color={colors.subtleText} />
                 <TextInput
                   testID="foods-search"
@@ -376,6 +379,7 @@ export default function LibraryScreen() {
                   {
                     borderColor: foodFavoritesOnly ? colors.cobalt : colors.border,
                     backgroundColor: foodFavoritesOnly ? colors.cobalt : pressed ? colors.accent : colors.card,
+                    borderRadius: colors.radiusSm,
                   },
                 ]}
               >
@@ -390,7 +394,7 @@ export default function LibraryScreen() {
             {/* ── Create food entry point ── */}
             <LedgerCard testID="library-create-food" onPress={() => router.push('/create-food')} style={{ marginBottom: 10 }}>
               <View style={styles.createRow}>
-                <View style={[styles.createIcon, { backgroundColor: colors.cobalt }]}>
+                <View style={[styles.createIcon, { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm }]}>
                   <Feather name="plus" size={14} color={colors.primaryForeground} />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -411,7 +415,7 @@ export default function LibraryScreen() {
             {confirmation && (
               <View
                 testID="library-add-confirmation"
-                style={[styles.confirmBar, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}
+                style={[styles.confirmBar, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder, borderRadius: colors.radiusSm }]}
               >
                 <Feather name="check-circle" size={13} color={colors.activeGreen} />
                 <Text style={[styles.confirmText, { color: colors.activeGreen }]} numberOfLines={1}>
@@ -424,7 +428,7 @@ export default function LibraryScreen() {
                     hitSlop={8}
                     style={({ pressed }) => [
                       styles.undoBtn,
-                      { borderColor: colors.activeBorder },
+                      { borderColor: colors.activeBorder, borderRadius: colors.radiusSm },
                       pressed && { opacity: 0.7 },
                     ]}
                   >
@@ -525,7 +529,7 @@ export default function LibraryScreen() {
                                         onPress={() => setPendingDeleteId(null)}
                                         style={({ pressed }) => [
                                           styles.manageBtn,
-                                          { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                                          { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
                                         ]}
                                       >
                                         <Text style={[styles.manageBtnText, { color: colors.bodyText }]}>Cancel</Text>
@@ -535,7 +539,7 @@ export default function LibraryScreen() {
                                         onPress={() => confirmDeleteFood(food)}
                                         style={({ pressed }) => [
                                           styles.manageBtn,
-                                          { borderColor: colors.riskBorder, backgroundColor: colors.riskText },
+                                          { borderColor: colors.riskBorder, backgroundColor: colors.riskText, borderRadius: colors.radiusSm },
                                           pressed && { opacity: 0.85 },
                                         ]}
                                       >
@@ -556,7 +560,7 @@ export default function LibraryScreen() {
                                         }
                                         style={({ pressed }) => [
                                           styles.manageBtn,
-                                          { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card },
+                                          { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
                                         ]}
                                       >
                                         <Feather name="edit-2" size={12} color={colors.bodyText} />
@@ -567,7 +571,7 @@ export default function LibraryScreen() {
                                         onPress={() => setPendingDeleteId(food.id)}
                                         style={({ pressed }) => [
                                           styles.manageBtn,
-                                          { borderColor: colors.riskBorder, backgroundColor: pressed ? colors.riskBg : colors.card },
+                                          { borderColor: colors.riskBorder, backgroundColor: pressed ? colors.riskBg : colors.card, borderRadius: colors.radiusSm },
                                         ]}
                                       >
                                         <Feather name="trash-2" size={12} color={colors.riskText} />
@@ -629,10 +633,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   approvedTitle: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.2,
+    fontSize: 16,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.1,
   },
   approvedSub: {
     fontSize: 10.5,
@@ -696,6 +699,7 @@ const styles = StyleSheet.create({
     left: 8,
     paddingHorizontal: 5,
     paddingVertical: 2,
+    borderRadius: 5,
   },
   coachTagText: {
     fontSize: 7.5,
@@ -717,11 +721,10 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   cardName: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    fontFamily: 'Inter_600SemiBold',
-    lineHeight: 16,
-    minHeight: 32,
+    fontSize: 14,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    lineHeight: 18,
+    minHeight: 36,
   },
   cardMeta: {
     fontSize: 10.5,
@@ -738,6 +741,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 5,
     paddingVertical: 2,
+    borderRadius: 5,
   },
   proteinTagText: {
     fontSize: 9,
@@ -764,9 +768,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   createTitle: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   createSub: {
     fontSize: 10.5,

@@ -14,7 +14,15 @@
  * Card payloads imitate the app's kinds: `recipe` carries an inline
  * suggestion summary; `product` carries a catalog id resolved against the
  * shared product catalog at render time so it can never drift.
+ *
+ * The rail-facing helpers at the bottom derive each thread's machine-sortable
+ * last-activity timestamp, its iMessage-style time label, and its preview
+ * snippet from the transcripts themselves — the display labels are the single
+ * source of truth, anchored to the fixed Aug 2026 demo dates (never the
+ * viewer clock). The format-tolerant search matcher the conversations page
+ * uses lives here too so it stays pure and node-testable.
  */
+import { TODAY_KEY } from '../nutrition-data';
 
 export interface HqCoachCard {
   kind: 'recipe' | 'product';
@@ -240,8 +248,125 @@ export const HQ_CONVERSATION_MESSAGES: Record<string, HqCoachMessage[]> = {
   ],
 };
 
-/** Conversations for one account, or all of them (newest start date first). */
-export function getConversations(accountId?: string): HqConversation[] {
-  const list = accountId ? HQ_CONVERSATIONS.filter((conv) => conv.accountId === accountId) : HQ_CONVERSATIONS;
-  return [...list].sort((a, b) => b.startedLabel.localeCompare(a.startedLabel));
+// ─── Rail summaries: sortable activity, time labels, previews ────────────────
+
+const DAY_MS = 86_400_000;
+/** Demo year the transcript labels live in (from the shared fixed anchor). */
+const DEMO_YEAR = Number(TODAY_KEY.slice(0, 4));
+/** UTC day index of the fixed demo "today" (2026-08-22). */
+const ANCHOR_DAY_INDEX = Math.floor(Date.parse(`${TODAY_KEY}T12:00:00.000Z`) / DAY_MS);
+
+const MONTH_INDEX: Record<string, number> = {
+  Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+};
+
+const AT_LABEL_PATTERN = /^([A-Z][a-z]{2}) (\d{1,2}) · (\d{1,2}):(\d{2}) (AM|PM)$/;
+
+/**
+ * Message display label ('Aug 21 · 7:12 AM') → machine-sortable demo-timeline
+ * timestamp (UTC ms in the fixed demo year). The label is the single source
+ * of truth, so sorting can never disagree with what the transcript shows; a
+ * malformed label throws at module load — a seed typo becomes a loud
+ * dev-time failure, never a silently mis-sorted rail.
+ */
+export function parseAtLabel(atLabel: string): number {
+  const match = AT_LABEL_PATTERN.exec(atLabel);
+  const month = match ? MONTH_INDEX[match[1]] : undefined;
+  if (!match || month === undefined) {
+    throw new Error(`Unparseable transcript time label: "${atLabel}" (expected e.g. "Aug 21 · 7:12 AM")`);
+  }
+  const hour = (Number(match[3]) % 12) + (match[5] === 'PM' ? 12 : 0);
+  return Date.UTC(DEMO_YEAR, month, Number(match[2]), hour, Number(match[4]));
+}
+
+export interface HqConversationSummary extends HqConversation {
+  /** Newest message of the thread, resolved once for the rail. */
+  lastMessage: HqCoachMessage;
+  /** Sortable timestamp of the newest message (demo timeline, never viewer clock). */
+  lastActivityAt: number;
+  /** iMessage-style rail label: clock time on the demo "today", 'Yesterday', else the date. */
+  lastActivityLabel: string;
+  /** Single-line snippet of the newest message for the rail preview. */
+  preview: string;
+}
+
+const summarize = (conv: HqConversation): HqConversationSummary => {
+  const messages = HQ_CONVERSATION_MESSAGES[conv.id] ?? [];
+  if (messages.length === 0) throw new Error(`Conversation ${conv.id} has no transcript messages`);
+  // Parse every label (validating the whole transcript, not just the tail)
+  // and keep the newest — the rail's contract is "latest activity", not
+  // "last array entry", even though seeds are written chronologically.
+  let last = messages[0];
+  let lastActivityAt = parseAtLabel(last.atLabel);
+  for (const message of messages.slice(1)) {
+    const at = parseAtLabel(message.atLabel);
+    if (at >= lastActivityAt) {
+      last = message;
+      lastActivityAt = at;
+    }
+  }
+  const [datePart, timePart] = last.atLabel.split(' · ');
+  const dayIndex = Math.floor(lastActivityAt / DAY_MS);
+  const lastActivityLabel =
+    dayIndex === ANCHOR_DAY_INDEX ? timePart : dayIndex === ANCHOR_DAY_INDEX - 1 ? 'Yesterday' : datePart;
+  return {
+    ...conv,
+    lastMessage: last,
+    lastActivityAt,
+    lastActivityLabel,
+    preview: last.text.replace(/\s*\n+\s*/g, ' '),
+  };
+};
+
+/** Built once at module load — eagerly validates every seeded time label. */
+const HQ_CONVERSATION_SUMMARIES: HqConversationSummary[] = HQ_CONVERSATIONS.map(summarize);
+
+/**
+ * Conversation rail summaries for one account, or all of them — always
+ * newest activity first, based on each thread's latest message (not the
+ * thread start date). Id tie-break keeps the order fully deterministic.
+ */
+export function getConversations(accountId?: string): HqConversationSummary[] {
+  const list = accountId
+    ? HQ_CONVERSATION_SUMMARIES.filter((conv) => conv.accountId === accountId)
+    : HQ_CONVERSATION_SUMMARIES;
+  return [...list].sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.id.localeCompare(b.id));
+}
+
+// ─── Rail search ─────────────────────────────────────────────────────────────
+
+/** The per-thread identity fields the rail search runs over. */
+export interface ConversationSearchFields {
+  patientName?: string;
+  patientEmail?: string;
+  patientPhone?: string;
+  officeName?: string;
+  providerName?: string;
+  providerCode?: string;
+}
+
+const digitsOf = (value: string) => value.replace(/\D+/g, '');
+
+/**
+ * Case-insensitive, format-tolerant rail search. Every whitespace-separated
+ * token must hit either the text haystack (patient name/email, office name,
+ * provider name, provider code) or — for tokens carrying digits — the digit
+ * haystack (phone and code with punctuation stripped), so "(555) 301" finds
+ * the patient whose phone is 555-301-4420 however either side is formatted.
+ * An empty query matches everything.
+ */
+export function conversationMatchesQuery(fields: ConversationSearchFields, query: string): boolean {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const text = [fields.patientName, fields.patientEmail, fields.officeName, fields.providerName, fields.providerCode]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  // Space-joined so digits can never falsely match across two fields.
+  const digits = [fields.patientPhone, fields.providerCode].map((value) => digitsOf(value ?? '')).join(' ');
+  return tokens.every((token) => {
+    if (text.includes(token)) return true;
+    const tokenDigits = digitsOf(token);
+    return tokenDigits.length > 0 && digits.includes(tokenDigits);
+  });
 }

@@ -68,6 +68,10 @@ args = "recipe-nutrition"
 task = "workflow.run"
 args = "training-invariants"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "hq-conversations"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -207,6 +211,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:training"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "hq-conversations"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:conversations"
 
 [workflows.workflow.metadata]
 isValidation = true

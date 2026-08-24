@@ -8,6 +8,10 @@
  * and a compact AI badge sits in the header, so the assistant is always
  * clearly labeled as AI.
  *
+ * The thread opens with the session's seeded coach greeting (see
+ * CoachChatContext); the starter prompts render beneath it until the patient
+ * sends their first message.
+ *
  * Photo turns: the camera button beside the input sends a menu photo into
  * the conversation (take or choose, downscaled by the shared photo-prep
  * helper), rendered as a photo bubble. The coach replies with ordering
@@ -67,7 +71,9 @@ const FALLBACK_QUICK_REPLIES = ["Yes, please", "No thanks"];
  * when that reply finished cleanly (not streaming, not an error) and closes
  * with a question — the shape coach replies are prompted to end with. Tapping
  * a chip sends it as the patient's message, which appends to the thread and
- * therefore hides the chips automatically.
+ * therefore hides the chips automatically. Only actual replies qualify
+ * (`replyToId` set): the seeded greeting invites conversation through the
+ * starter prompts instead, so it never grows chips.
  */
 function offersQuickReplies(
   latest: CoachMessage | undefined,
@@ -78,6 +84,7 @@ function offersQuickReplies(
     latest !== undefined &&
     latest.role === "assistant" &&
     latest.status === "done" &&
+    latest.replyToId !== undefined &&
     latest.text.trimEnd().endsWith("?")
   );
 }
@@ -108,6 +115,9 @@ export default function CoachChatScreen() {
   const messageCountRef = useRef(0);
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
+  // The seeded greeting means the thread is never empty; "fresh chat" is now
+  // "no user message yet", which keeps the starter prompts on screen.
+  const hasUserMessage = messages.some((m) => m.role === "user");
 
   useEffect(() => {
     // Follow the thread: always jump for a new bubble (sending scrolls you
@@ -298,7 +308,12 @@ export default function CoachChatScreen() {
           </Text>
         </View>
 
-        {messages.length === 0 ? (
+        {messages.map((message) => (
+          <MessageBubble key={message.id} message={message} />
+        ))}
+        {/* Until the patient joins in, the starter prompts sit under the
+            seeded greeting as ready-made conversation openers. */}
+        {hasUserMessage ? null : (
           <View style={styles.starterBlock}>
             <Text style={[styles.starterLabel, { color: colors.labelText }]}>
               TRY ASKING
@@ -333,48 +348,42 @@ export default function CoachChatScreen() {
               </Pressable>
             ))}
           </View>
-        ) : (
-          <>
-            {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
-            ))}
-            {offersQuickReplies(messages[messages.length - 1], isStreaming) ? (
-              <View style={styles.quickReplyRow}>
-                {quickRepliesFor(messages[messages.length - 1]).map(
-                  (reply, index) => (
-                    <Pressable
-                      key={reply}
-                      testID={`coach-quick-reply-${index}`}
-                      accessibilityRole="button"
-                      onPress={() => {
-                        Haptics.selectionAsync();
-                        send(reply);
-                      }}
-                      style={({ pressed }) => [
-                        styles.quickReplyChip,
-                        {
-                          borderColor: colors.activeBorder,
-                          backgroundColor: colors.activeBg,
-                          borderRadius: colors.radiusSm,
-                        },
-                        pressed && { backgroundColor: colors.accent },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.quickReplyText,
-                          { color: colors.cobalt },
-                        ]}
-                      >
-                        {reply}
-                      </Text>
-                    </Pressable>
-                  ),
-                )}
-              </View>
-            ) : null}
-          </>
         )}
+        {offersQuickReplies(messages[messages.length - 1], isStreaming) ? (
+          <View style={styles.quickReplyRow}>
+            {quickRepliesFor(messages[messages.length - 1]).map(
+              (reply, index) => (
+                <Pressable
+                  key={reply}
+                  testID={`coach-quick-reply-${index}`}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    send(reply);
+                  }}
+                  style={({ pressed }) => [
+                    styles.quickReplyChip,
+                    {
+                      borderColor: colors.activeBorder,
+                      backgroundColor: colors.activeBg,
+                      borderRadius: colors.radiusSm,
+                    },
+                    pressed && { backgroundColor: colors.accent },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.quickReplyText,
+                      { color: colors.cobalt },
+                    ]}
+                  >
+                    {reply}
+                  </Text>
+                </Pressable>
+              ),
+            )}
+          </View>
+        ) : null}
       </ScrollView>
 
       <InputAboveKeyboard bottomInset={insets.bottom}>
@@ -510,7 +519,7 @@ export default function CoachChatScreen() {
               testID="coach-input"
               value={draft}
               onChangeText={setDraft}
-              placeholder="Ask about the program"
+              placeholder="Message your coach"
               placeholderTextColor={colors.subtleText}
               editable={!isStreaming}
               returnKeyType="send"

@@ -6,6 +6,11 @@
  * an optional `card` slot so later work can attach rich cards (recipes,
  * products) to assistant replies without changing this contract.
  *
+ * The thread never opens cold: each session seeds one short, fixed coach
+ * greeting as the first assistant message (see buildGreetingMessage), so the
+ * chat reads like a conversation already in progress rather than a blank
+ * prompt box.
+ *
  * Paced reveal: the reasoning model spends nearly all its latency thinking,
  * then the whole reply bursts out in under a second (recipe turns arrive as
  * one chunk). Network deltas therefore land in a hidden buffer and a timer
@@ -25,6 +30,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { ENROLLMENT_DAYS, PATIENT_PROFILE } from '@/data/patient-data';
 import { streamCoachChat, type CoachRequestMessage } from '@/lib/coach-api';
 import { parseRecipeCardPayload, type AiRecipeSuggestion } from '@/lib/ai-recipe';
 
@@ -182,6 +188,31 @@ function takeRevealChunk(reveal: RevealState): string {
 export const MENU_PHOTO_MESSAGE_TEXT = 'I sent a photo of a restaurant menu.';
 
 /**
+ * Fixed id for the seeded greeting — outside the `coach-${n}` space nextId()
+ * generates, so it can never collide with a real message.
+ */
+export const GREETING_MESSAGE_ID = 'coach-greeting';
+
+/**
+ * The warm opener every session starts with. A fixed client-side string in
+ * the coach's texting voice — never model output — so it costs nothing and
+ * appears instantly. It is a normal `done` assistant message: it rides the
+ * request history like anything else (so the model knows the patient was
+ * already greeted and won't greet twice), and it deliberately has no
+ * `replyToId`, which keeps quick-reply chips off it — the chat screen shows
+ * its starter prompts under the greeting instead.
+ */
+function buildGreetingMessage(): CoachMessage {
+  const firstName = PATIENT_PROFILE.name.split(' ')[0] || 'there';
+  return {
+    id: GREETING_MESSAGE_ID,
+    role: 'assistant',
+    status: 'done',
+    text: `Hey ${firstName}, good to see you. ${ENROLLMENT_DAYS} days in — that's real commitment, and it shows.\n\nWhat's on your mind today? A meal idea, a craving, the exact wording of a rule — I've got you.`,
+  };
+}
+
+/**
  * Serializes a thread message for the chat request. Stopped replies stay in
  * the history (the patient saw their text) but carry the flag through, so the
  * server marks them as interrupted instead of letting the model continue a
@@ -194,7 +225,9 @@ const toRequestMessage = (m: CoachMessage): CoachRequestMessage =>
     : { role: m.role, content: m.text };
 
 export function CoachChatProvider({ children }: { children: React.ReactNode }) {
-  const [messages, setMessages] = useState<CoachMessage[]>([]);
+  // Lazy initializer: the greeting is built once per provider mount — i.e.
+  // once per app session, matching the session-only history design.
+  const [messages, setMessages] = useState<CoachMessage[]>(() => [buildGreetingMessage()]);
   const [isStreaming, setIsStreaming] = useState(false);
   const idRef = useRef(0);
   // Session registry of AI recipe suggestions keyed by suggestion id — the
@@ -202,8 +235,10 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
   // id). Session-only by design, like the chat itself.
   const suggestionsRef = useRef(new Map<string, AiRecipeSuggestion>());
   // Mirror of `messages` so `send` can snapshot history without re-memoizing;
-  // safe because sends are single-flight (inFlightRef) while it lags.
-  const messagesRef = useRef<CoachMessage[]>([]);
+  // safe because sends are single-flight (inFlightRef) while it lags. Seeded
+  // with the same initial array so a send before the first effect run still
+  // carries the greeting.
+  const messagesRef = useRef<CoachMessage[]>(messages);
   // Single-flight guard: refs update synchronously, so rapid double-taps
   // cannot race ahead of the isStreaming re-render.
   const inFlightRef = useRef(false);

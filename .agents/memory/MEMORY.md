@@ -10,6 +10,7 @@
 - [Validation gate](validation-gate.md) — verify suites are validation commands, not workflows: go straight to setValidationCommand (workflow cap blocks configureWorkflow) and check result.success.
 - [Coach card attachments](coach-card-attachments.md) — cards and one-tap reply labels ride separate SSE events: model emits only marker ids, server allow-lists them and builds payloads from curated data.
 - [Coach reply shape](coach-reply-shape.md) — replies are blank-line-separated thought blocks + follow-up closer; phrase optional reply behaviors default-on and verify with real model calls.
+- [Coach voice contract](coach-voice.md) — shared persona/voice constants across pipelines; ban stock openers by name; canned coach strings never end "?"; seeded greeting rides request history.
 - [Coach stopped replies](coach-stopped-replies.md) — stopped replies carry a `stopped` flag end-to-end; the server appends a model-only interruption note so the next answer never continues cut-off text.
 - [Coach paced reveal](coach-paced-reveal.md) — typed-out reveal lives in the chat context so message.text is always exactly what's on screen; stop/cards/chips contracts follow for free.
 - [Staging coach failures](coach-failure-staging.md) — env-override restarts stage failures: break the model upstream, or zero the limiter knobs to stage denials; the tester heals it in-session.

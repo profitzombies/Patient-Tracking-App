@@ -46,6 +46,7 @@ import React, { act } from 'react';
 import { streamCoachChat } from '../lib/coach-api';
 import {
   CoachChatProvider,
+  GREETING_MESSAGE_ID,
   MENU_PHOTO_MESSAGE_TEXT,
   REVEAL_TICK_MS,
   useCoachChat,
@@ -223,7 +224,11 @@ function Probe(): null {
 }
 
 const shape = (m: CoachMessage) => `${m.role}/${m.status}:${m.text}`;
-const shapes = () => chat.messages.map(shape).join('|');
+const shapes = () =>
+  chat.messages
+    .filter(m => m.id !== GREETING_MESSAGE_ID)
+    .map(shape)
+    .join('|');
 const tailShapes = (n: number) => chat.messages.slice(-n).map(shape).join('|');
 const tailMessage = () => chat.messages[chat.messages.length - 1];
 
@@ -464,6 +469,19 @@ async function main() {
     );
   });
 
+  // The thread is never empty: a fixed, finished coach greeting is seeded as
+  // the session's first assistant message. It must not be a "reply"
+  // (no replyToId — that is what keeps quick-reply chips off it).
+  const greeting = chat.messages[0];
+  assertEqual('the session seeds exactly one message', chat.messages.length, 1);
+  assertEqual('the seeded message is the greeting', greeting?.id ?? '', GREETING_MESSAGE_ID);
+  assert(
+    'the greeting is a finished assistant message',
+    greeting?.role === 'assistant' && greeting?.status === 'done',
+  );
+  assert('the greeting has text to show', (greeting?.text ?? '').length > 0);
+  assert('the greeting is not a reply to anything', greeting?.replyToId === undefined);
+
   // 2a. Stop while the reply is still empty: bubble removed, chat unlocked,
   //     late events ignored.
   await act(() => {
@@ -476,6 +494,13 @@ async function main() {
     'user/done:Protein target?|assistant/streaming:',
   );
   const s1 = takeStream('stop-while-empty');
+  {
+    // The greeting rides the request history like any other done message, so
+    // the model knows the patient was already greeted and never greets twice.
+    const msgs = s1.requestBody.messages ?? [];
+    assert('the request history opens with the greeting as an assistant turn', msgs[0]?.role === 'assistant');
+    assertEqual('the request history carries the greeting text', msgs[0]?.content ?? '', greeting.text);
+  }
   await act(() => {
     chat.stop();
   });

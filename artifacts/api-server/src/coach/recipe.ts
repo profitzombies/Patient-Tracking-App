@@ -19,7 +19,13 @@ import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { COMPARTMENTS, type Compartment } from "./compartments";
 import { cleanModelText, extractModelJson } from "./model-json";
-import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
+import {
+  COACH_PERSONA_LINE,
+  COACH_VOICE_RULES,
+  patientContextLine,
+  sourcesBlock,
+  type PatientContext,
+} from "./prompt";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 import {
   approvedItemName,
@@ -128,11 +134,19 @@ export function ensureApprovedFoodsCompartment(selected: Compartment[]): Compart
   return approved ? [...selected, approved] : selected;
 }
 
+/**
+ * Honest declines when the model cannot produce a valid suggestion. Fixed
+ * strings — never model text — but written in the same warm coach voice as
+ * generated replies, shaped as two blank-line blocks like any other reply.
+ * Deliberately no trailing question mark: the client shows its fallback
+ * yes/no chips under any finished reply that ends with one, and they fit
+ * nothing here.
+ */
 const DECLINE_REPLY: Record<RecipeMode, string> = {
   recipe:
-    "I had trouble putting a solid recipe together just now, so I would rather not guess. Please ask me again in a moment.",
+    "That one didn't come together the way I'd want for you, and I'd rather tell you that than guess.\n\nGive me another try in a moment — a fresh run usually does it.",
   cravings:
-    "I could not build a fix for that craving using only the Approved Foods list just now, so I will not improvise around the program. Please try me again in a moment.",
+    "I tried to build that fix straight from the Approved Foods list and couldn't quite get there — and I won't improvise around the program.\n\nTry me again in a moment, or toss me a different craving to work with.",
 };
 
 const RECIPE_JSON_CONTRACT = `Respond with a single JSON object and nothing else — no markdown, no code fences:
@@ -140,7 +154,7 @@ const RECIPE_JSON_CONTRACT = `Respond with a single JSON object and nothing else
   "reply": string,
   "recipe": object or null
 }
-"reply" is your short text-message answer: 1 to 3 short sentences, plain text, never emojis. Normally split it into 2 short blocks separated by a blank line (write \\n\\n inside the JSON string): the suggestion first, then a one-line follow-up question or practical tip. Mention the dish briefly; the details live in the recipe object, not the reply.
+"reply" is your short text-message answer, in the same warm voice as the rest of the chat: react to what the patient said first — a quick, natural beat in your own words — then point at the dish in a sentence. The details live in the recipe object, not the reply, so keep it to a few short sentences total. Split it into 2 short blocks separated by a blank line (write \\n\\n inside the JSON string), and make the second block a brief, natural follow-up question or practical tip — skip it only when the patient is clearly wrapping up. Plain text, never emojis, no markdown.
 "recipe" fields (all required unless noted):
 - "name": short dish name
 - "description": one appetizing sentence
@@ -157,9 +171,11 @@ function buildRecipeSystemPrompt(
   patient: PatientContext,
   inspiration?: "menu",
 ): string {
-  const shared = `You are the THINNR Coach, an AI assistant inside the THINNR patient app.
+  const shared = `${COACH_PERSONA_LINE}
 
 ${patientContextLine(patient)}
+
+${COACH_VOICE_RULES}
 
 ${RECIPE_JSON_CONTRACT}
 
@@ -191,7 +207,7 @@ STRICT CRAVINGS RULES:
 - Do not use any food that is not in the catalog — no exceptions, not even pantry basics. If it is not in the catalog, leave it out.
 - Each ingredient's "name" may add simple preparation words to its catalog item (for example an id whose catalog name is "Skinless White Meat Chicken Breast" may be written "grilled chicken breast"), but every food word in the name must come from the cited catalog item's own name. The server rejects any name containing a food word that is not part of that catalog entry — never name a different food, and never a food the patient craved that is off the list.
 - "meal" should normally be "snacks".
-- "reply" briefly acknowledges the craving and points at the approved swap. If no approved combination genuinely answers the craving, set "recipe" to null and say so.
+- "reply" meets the craving like a person first — acknowledge it specifically and warmly in your own words — then point at the approved swap. If no approved combination genuinely answers the craving, set "recipe" to null and say so straight and kindly, without inventing anything.
 
 APPROVED FOODS CATALOG (id — official name):
 ${catalogPromptLines()}

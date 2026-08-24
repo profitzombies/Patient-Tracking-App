@@ -1,0 +1,79 @@
+/**
+ * HQ drill-in: one provider account's office dashboard inside the admin area.
+ *
+ * Mounted with `nest` under /admin/accounts/:id/office, so the entire office
+ * app (relative routes and all) runs beneath this prefix while a persistent
+ * "Viewing as" banner sits above it. ProviderScopeProvider is what scopes the
+ * office screens to this account — the screens themselves are the exact
+ * components the office persona uses, not copies.
+ */
+import { Link, Redirect, useParams } from 'wouter';
+import { ArrowLeft, Eye } from 'lucide-react';
+import { BTN_SECONDARY } from '@/components/patient/heritage';
+import { ProviderScopeProvider } from '@/contexts/provider-scope';
+import { useHqData } from '@/contexts/hq-data';
+import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
+
+export default function OfficeDrillIn() {
+  const { id } = useParams<{ id: string }>();
+  const { findAccount } = useHqData();
+  const account = findAccount(id);
+
+  // Stale or hand-typed URL: land back on the accounts list, not a dead end.
+  if (!account) return <Redirect to="~/admin/accounts" replace />;
+
+  if (account.activePatientCount === 0) {
+    return (
+      <div className="grid min-h-[100dvh] place-items-center bg-background px-5 font-sans text-foreground">
+        <div className="max-w-md rounded-lg border border-card-border bg-card px-6 py-10 text-center shadow-soft">
+          <h1 className="font-serif text-lg font-bold text-navy">No office dashboard yet</h1>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            {account.officeName} has no patients linked. The dashboard unlocks once patients onboard in the mobile app
+            with provider code <span className="font-mono tracking-[.08em] text-foreground">{account.providerCode}</span>.
+          </p>
+          <Link href="~/admin" className={`${BTN_SECONDARY} mt-5 h-9 px-3.5`} data-testid="link-back-to-hq">
+            <ArrowLeft size={14} aria-hidden="true" />
+            Back to HQ
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-[100dvh] flex-col bg-background">
+      {/* "Viewing as" banner — always visible above the drilled-in office. */}
+      <div
+        className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 bg-navy px-4 py-2.5 text-brand-foreground md:px-6"
+        data-testid="banner-viewing-as"
+      >
+        <Eye size={14} className="shrink-0" aria-hidden="true" />
+        <p className="min-w-0 flex-1 text-xs leading-snug">
+          <b className="font-semibold">Viewing as {account.officeName}</b>
+          <span className="ml-2 hidden opacity-75 sm:inline">
+            Provider code {account.providerCode} · {account.providerName}
+          </span>
+        </p>
+        <Link
+          href="~/admin"
+          data-testid="link-back-to-hq"
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-brand-foreground/30 bg-brand-foreground/10 px-2.5 text-[11px] font-semibold text-brand-foreground transition hover:bg-brand-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-foreground/60"
+        >
+          <ArrowLeft size={12} aria-hidden="true" />
+          Back to HQ
+        </Link>
+      </div>
+
+      {/* The office app fills the rest of the column; its Shell switches to
+          h-full so the banner + dashboard share the viewport without double
+          scrollbars. */}
+      <div className="min-h-0 flex-1">
+        <RoutedErrorBoundary>
+          <ProviderScopeProvider account={account}>
+            <OfficeApp />
+          </ProviderScopeProvider>
+        </RoutedErrorBoundary>
+      </div>
+    </div>
+  );
+}

@@ -1,28 +1,25 @@
 import { ArrowDownRight, ArrowUpRight, Download, Target } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { MOCK_PROVIDERS } from '@/data/mock-data';
-import {
-  getCohortRows,
-  getMaintenanceConversionDelta,
-  getOutcomeSummary,
-  getRangeDayCount,
-  getRevenueComparison,
-  getRevenueSummary,
-} from '@/data/analytics-range';
+import { getRangeDayCount } from '@/data/analytics-range';
+import { useScopedAnalyticsRange, useScopedProviders } from '@/data/scoped-data';
 import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
 
 const formatDelta = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
 
 export default function Analytics() {
   const { range, minKey } = useDateRange();
+  // Range selectors for the current scope: the program-wide originals in the
+  // office demo, one account's exact split inside the HQ drill-in.
+  const analyticsRange = useScopedAnalyticsRange();
+  const scopedProviders = useScopedProviders();
 
   // Everything below derives deterministically from the shared range — the
   // header's calendar control is the only period selector for this page.
-  const revenue = getRevenueSummary(range);
-  const comparison = getRevenueComparison(range);
-  const outcomes = getOutcomeSummary(range);
-  const cohorts = getCohortRows(range);
-  const conversionDelta = getMaintenanceConversionDelta(range);
+  const revenue = analyticsRange.getRevenueSummary(range);
+  const comparison = analyticsRange.getRevenueComparison(range);
+  const outcomes = analyticsRange.getOutcomeSummary(range);
+  const cohorts = analyticsRange.getCohortRows(range);
+  const conversionDelta = analyticsRange.getMaintenanceConversionDelta(range);
   const dayCount = getRangeDayCount(range);
   const rangeLabel = formatRangeLabel(range);
   const rangeLabelShort = formatRangeLabel(range, 'short');
@@ -30,7 +27,7 @@ export default function Analytics() {
   const priorLabel = comparison ? formatRangeLabel(comparison.priorRange) : null;
   const dataStartLabel = formatRangeLabel({ start: minKey, end: minKey });
 
-  const providers = [...MOCK_PROVIDERS].sort((a, b) => b.averageOutcomes - a.averageOutcomes);
+  const providers = [...scopedProviders].sort((a, b) => b.averageOutcomes - a.averageOutcomes);
 
   const downloadSnapshot = () => {
     const csvCell = (value: string | number) => {

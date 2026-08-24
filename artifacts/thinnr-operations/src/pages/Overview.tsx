@@ -12,8 +12,16 @@ import {
   WalletCards,
   X
 } from "lucide-react";
-import { MOCK_ANALYTICS, MOCK_PATIENTS, MOCK_PROVIDERS, MOCK_SUBSCRIPTIONS, getDailyRevenue } from "@/data/mock-data";
 import { LAPSED_AFTER_DAYS, TODAY_KEY, formatDateKey, getLoggingStats, isLapsed } from "@/data/nutrition-data";
+import { useProviderScope } from "@/contexts/provider-scope";
+import {
+  useScopedAnalytics,
+  useScopedChangeBadges,
+  useScopedDailyRevenue,
+  useScopedPatients,
+  useScopedProviders,
+  useScopedSubscriptions,
+} from "@/data/scoped-data";
 import { useToast } from "@/hooks/use-toast";
 import { usePatientSession } from "@/contexts/patient-session";
 import {
@@ -107,7 +115,7 @@ const niceCeil = (value: number): number => {
   return step * magnitude;
 };
 
-function buildRevenueView(range: OperationsDateRange): RevenueView {
+function buildRevenueView(range: OperationsDateRange, revenueOf: (dateKey: string) => number): RevenueView {
   const keys: string[] = [];
   for (let key = range.start; key <= range.end; key = addDaysToKey(key, 1)) keys.push(key);
   const dayCount = keys.length;
@@ -120,13 +128,13 @@ function buildRevenueView(range: OperationsDateRange): RevenueView {
       startKey: slice[0],
       endKey: slice[slice.length - 1],
       label: dayLabel(slice[0]),
-      total: slice.reduce((sum, key) => sum + getDailyRevenue(key), 0),
+      total: slice.reduce((sum, key) => sum + revenueOf(key), 0),
     });
   }
 
   const total = buckets.reduce((sum, bucket) => sum + bucket.total, 0);
   let previousTotal = 0;
-  for (let i = 1; i <= dayCount; i++) previousTotal += getDailyRevenue(addDaysToKey(range.start, -i));
+  for (let i = 1; i <= dayCount; i++) previousTotal += revenueOf(addDaysToKey(range.start, -i));
   const deltaPct = previousTotal > 0 ? ((total - previousTotal) / previousTotal) * 100 : 0;
   const axisMax = niceCeil(Math.max(...buckets.map((bucket) => bucket.total)));
 
@@ -189,12 +197,21 @@ export default function Overview() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [providerFilter, setProviderFilter] = useState('all');
   const { toast } = useToast();
+  // HQ drill-in scope: when present, every read below narrows to one office;
+  // unscoped, the scoped hooks return the program-wide singletons unchanged.
+  const scope = useProviderScope();
+  const analytics = useScopedAnalytics();
+  const patients = useScopedPatients();
+  const providers = useScopedProviders();
+  const subscriptions = useScopedSubscriptions();
+  const revenueOf = useScopedDailyRevenue();
+  const badges = useScopedChangeBadges();
 
-  const revenueView = useMemo(() => buildRevenueView(range), [range]);
+  const revenueView = useMemo(() => buildRevenueView(range, revenueOf), [range, revenueOf]);
 
   const filteredPatients = useMemo(
-    () => MOCK_PATIENTS.filter((patient) => providerFilter === 'all' || patient.providerId === providerFilter),
-    [providerFilter],
+    () => patients.filter((patient) => providerFilter === 'all' || patient.providerId === providerFilter),
+    [patients, providerFilter],
   );
   const overduePatients = filteredPatients.filter(p => p.status === 'overdue');
   const lapsedLoggers = useMemo(
@@ -204,13 +221,91 @@ export default function Overview() {
       .sort((a, b) => (b.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER) - (a.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER)),
     [filteredPatients],
   );
-  const selectedProvider = MOCK_PROVIDERS.find((provider) => provider.id === providerFilter);
+  const selectedProvider = providers.find((provider) => provider.id === providerFilter);
   const averagePoundsLost = filteredPatients.length
     ? filteredPatients.reduce((total, patient) => total + patient.startingWeight - getCurrentWeight(patient), 0) / filteredPatients.length
     : 0;
-  const filteredMrr = MOCK_SUBSCRIPTIONS
+  const filteredMrr = subscriptions
     .filter((subscription) => filteredPatients.some((patient) => patient.id === subscription.patientId))
     .reduce((total, subscription) => total + subscription.monthlyValue, 0);
+
+  // Stage mix from the analytics counts: unscoped this reproduces the
+  // long-standing 65 / 20 / 15 split exactly; scoped it reflects one office.
+  const stageRows = useMemo(() => {
+    const maintenance = analytics.stageCounts.maintenance;
+    const early = analytics.stageCounts.week1 + analytics.stageCounts.week2 + analytics.stageCounts.week3;
+    const late = analytics.stageCounts.week4 + analytics.stageCounts.week5 + analytics.stageCounts.week6;
+    const total = maintenance + early + late;
+    const pctOf = (count: number) => (total > 0 ? `${Math.round((count / total) * 100)}%` : '0%');
+    return [
+      ["Maintenance", pctOf(maintenance), maintenance, "bg-chart-1"],
+      ["Protocol Weeks 1-3", pctOf(early), early, "bg-chart-2"],
+      ["Protocol Weeks 4-6", pctOf(late), late, "bg-chart-3"],
+    ] as const;
+  }, [analytics]);
+
+  // "First name + last initial", mirroring the program literals ("Emma S.").
+  const shortName = (patient?: { name: string }) => {
+    if (!patient) return 'a patient';
+    const [first, ...rest] = patient.name.split(' ');
+    const last = rest[rest.length - 1];
+    return last ? `${first} ${last[0]}.` : first;
+  };
+
+  const failedPayments = subscriptions.filter((subscription) => subscription.paymentStatus === 'failed').length;
+  const graduatedCount = patients.filter((patient) => patient.status === 'graduated').length;
+
+  // Program literals unscoped (byte-identical office demo); derived from the
+  // scoped office's own roster and subscriptions inside the HQ drill-in.
+  const priorityItems: [string, string, string, string][] = scope
+    ? [
+        ...(failedPayments > 0
+          ? [[
+              "Failed Subscription Payments",
+              `${failedPayments} recurring payment${failedPayments === 1 ? '' : 's'} failed this week`,
+              "High",
+              "risk",
+            ] as [string, string, string, string]]
+          : []),
+        [
+          "Missed Check-ins",
+          `${overduePatients.length} patient${overduePatients.length === 1 ? '' : 's'} missed their scheduled protocol check-in`,
+          "Watch",
+          "watch",
+        ],
+        [
+          "Maintenance Cohort",
+          `${graduatedCount} patient${graduatedCount === 1 ? '' : 's'} holding goal weight in maintenance`,
+          "Positive",
+          "healthy",
+        ],
+      ]
+    : [
+        ["Failed Subscription Payments", "2 recurring payments failed this week", "High", "risk"],
+        ["Missed Check-ins", "4 patients missed their scheduled protocol check-in", "Watch", "watch"],
+        ["High Adherence Cohort", "24 patients reached goal weight this week", "Positive", "healthy"],
+      ];
+
+  const scopedProviderLabel = scope ? scope.providerName.split(',')[0] : '';
+  const scopedProviderInitials = scope
+    ? scope.providerName
+        .split(/[\s,]+/)
+        .filter((word) => word && !/^(dr|np|rn|md|pa|do)\.?$/i.test(word))
+        .map((word) => word[0]?.toUpperCase() ?? '')
+        .slice(0, 2)
+        .join('') || 'TH'
+    : '';
+  const activityItems: [string, string, string, string, string][] = scope
+    ? [
+        [scopedProviderInitials, scopedProviderLabel, `completed week 4 check-in for ${shortName(filteredPatients[0])}`, "12 min ago", "bg-accent text-primary"],
+        [scopedProviderInitials, scopedProviderLabel, `flagged overdue check-in for ${shortName(overduePatients[0] ?? filteredPatients[1])}`, "46 min ago", "bg-warn-bg text-warn"],
+        ["TH", "THINNR HQ", `approved Maintenance Stack for ${shortName(filteredPatients[2])}`, "2 hr ago", "bg-muted text-navy"],
+      ]
+    : [
+        ["PS", "Elena Rostova", "completed week 4 check-in for Emma S.", "12 min ago", "bg-accent text-primary"],
+        ["MC", "Michael Chen", "flagged overdue check-in for Liam J.", "46 min ago", "bg-warn-bg text-warn"],
+        ["SJ", "Sarah Jenkins", "approved Maintenance Stack for Olivia W.", "2 hr ago", "bg-muted text-navy"],
+      ];
 
   return (
     <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8">
@@ -222,10 +317,13 @@ export default function Overview() {
             <span data-testid="text-demo-date">{formatDateKey(TODAY_KEY, true)}</span>
           </div>
           <h1 className="font-serif text-[32px] leading-[1.08] tracking-[-.02em] text-navy md:text-[38px]">
-            Good morning, Dr. Jenkins.
+            Good morning, {scope ? scope.greetingName : 'Dr. Jenkins'}.
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">Here’s what changed since your last login.</p>
         </div>
+        {/* The provider filter belongs to the multi-provider office demo; a
+            drilled-in office is already a single provider's view. */}
+        {!scope && (
         <div className="relative flex items-center gap-2">
           {selectedProvider && (
             <span
@@ -242,7 +340,7 @@ export default function Overview() {
           {filterOpen && (
             <div className="absolute right-0 top-11 z-10 w-48 rounded-lg border border-popover-border bg-popover p-2 text-xs shadow-lifted">
               <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">View filter</p>
-              {[{ id: 'all', name: 'All Providers' }, ...MOCK_PROVIDERS].map((provider) => (
+              {[{ id: 'all', name: 'All Providers' }, ...providers].map((provider) => (
                 <button
                   key={provider.id}
                   data-testid={`option-provider-${provider.id}`}
@@ -259,6 +357,7 @@ export default function Overview() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Top Metrics */}
@@ -266,22 +365,22 @@ export default function Overview() {
         <Metric
           icon={<WalletCards size={14} />}
           label="MRR"
-          value={providerFilter === 'all' ? `$${(MOCK_ANALYTICS.recurringRevenue / 1000).toFixed(1)}k` : `$${filteredMrr.toLocaleString()}`}
-          change="+12.4%"
+          value={providerFilter === 'all' ? `$${(analytics.recurringRevenue / 1000).toFixed(1)}k` : `$${filteredMrr.toLocaleString()}`}
+          change={badges.mrr}
           detail="vs. last month"
         />
         <Metric
           icon={<Users size={14} />}
           label="Active Patients"
-          value={(selectedProvider?.activePatientCount ?? MOCK_ANALYTICS.activePatients).toString()}
-          change="+8.7%"
-          detail={`${MOCK_ANALYTICS.newEnrollments} new this month`}
+          value={(selectedProvider?.activePatientCount ?? analytics.activePatients).toString()}
+          change={badges.patients}
+          detail={`${analytics.newEnrollments} new this month`}
         />
         <Metric
           icon={<Activity size={14} />}
           label="Avg Pounds Lost"
           value={`${averagePoundsLost.toFixed(1)} lbs`}
-          change="+3.2%"
+          change={badges.avgLost}
           detail="Across all active cohorts"
         />
         <Metric
@@ -350,18 +449,14 @@ export default function Overview() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Protocol Stages</p>
-              <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">{MOCK_ANALYTICS.activePatients} Active</h2>
+              <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">{analytics.activePatients} Active</h2>
             </div>
             <Link href="/analytics" className="text-xs font-semibold text-primary transition-colors hover:text-navy">
               Details <ArrowUpRight size={13} className="inline" />
             </Link>
           </div>
           <div className="mt-6 space-y-4">
-            {[
-              ["Maintenance", "65%", MOCK_ANALYTICS.stageCounts.maintenance, "bg-chart-1"],
-              ["Protocol Weeks 1-3", "20%", MOCK_ANALYTICS.stageCounts.week1 + MOCK_ANALYTICS.stageCounts.week2 + MOCK_ANALYTICS.stageCounts.week3, "bg-chart-2"],
-              ["Protocol Weeks 4-6", "15%", MOCK_ANALYTICS.stageCounts.week4 + MOCK_ANALYTICS.stageCounts.week5 + MOCK_ANALYTICS.stageCounts.week6, "bg-chart-3"]
-            ].map(([name, pct, count, color]) => (
+            {stageRows.map(([name, pct, count, color]) => (
               <div key={name as string}>
                 <div className="mb-1.5 flex justify-between text-xs">
                   <span className="font-medium text-foreground">{name}</span>
@@ -386,14 +481,10 @@ export default function Overview() {
               <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">Worth a closer look</h2>
             </div>
             <span className="rounded-sm border border-warn-border bg-warn-bg px-2 py-1 text-[10px] font-bold text-warn">
-              3 open
+              {priorityItems.length} open
             </span>
           </div>
-          {[
-            ["Failed Subscription Payments", "2 recurring payments failed this week", "High", "risk"],
-            ["Missed Check-ins", "4 patients missed their scheduled protocol check-in", "Watch", "watch"],
-            ["High Adherence Cohort", "24 patients reached goal weight this week", "Positive", "healthy"]
-          ].map(([title, body, level, tone]) => (
+          {priorityItems.map(([title, body, level, tone]) => (
             <button
               key={title}
               onClick={() => toast({ title: `${title} signal opened` })}
@@ -490,7 +581,7 @@ export default function Overview() {
                   </thead>
                   <tbody>
                     {filteredPatients.slice(0, 5).map((patient) => {
-                      const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
+                      const provider = providers.find(p => p.id === patient.providerId);
                       const lbsLost = patient.startingWeight - getCurrentWeight(patient);
                       return (
                         <tr key={patient.id} className="group border-b border-border last:border-0 transition-colors hover:bg-secondary">
@@ -513,7 +604,7 @@ export default function Overview() {
               </div>
               <div className="divide-y divide-border md:hidden">
                 {filteredPatients.slice(0, 5).map((patient) => {
-                  const provider = MOCK_PROVIDERS.find((candidate) => candidate.id === patient.providerId);
+                  const provider = providers.find((candidate) => candidate.id === patient.providerId);
                   const lbsLost = patient.startingWeight - getCurrentWeight(patient);
                   return (
                     <Link
@@ -553,13 +644,9 @@ export default function Overview() {
           </button>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {[
-            ["PS", "Elena Rostova", "completed week 4 check-in for Emma S.", "12 min ago", "bg-accent text-primary"],
-            ["MC", "Michael Chen", "flagged overdue check-in for Liam J.", "46 min ago", "bg-warn-bg text-warn"],
-            ["SJ", "Sarah Jenkins", "approved Maintenance Stack for Olivia W.", "2 hr ago", "bg-muted text-navy"]
-          ].map(([initials, name, action, time, color]) => (
+          {activityItems.map(([initials, name, action, time, color]) => (
             <button
-              key={name}
+              key={`${name}-${time}`}
               onClick={() => toast({ title: `${name}'s activity opened` })}
               className="flex items-center gap-3 rounded-md border border-border p-3 text-left transition hover:border-accent-border hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >

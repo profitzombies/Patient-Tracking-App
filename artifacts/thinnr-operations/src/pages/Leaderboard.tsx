@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { Trophy, ChevronRight } from "lucide-react";
-import { MOCK_PATIENTS, MOCK_PROVIDERS } from "@/data/mock-data";
+import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
 import { usePatientSession } from "@/contexts/patient-session";
 
 /** Shared Heritage control treatment for the native filter selects. */
@@ -10,11 +10,14 @@ const selectClass =
 
 export default function Leaderboard() {
   const { getCurrentWeight } = usePatientSession();
+  // One office's cohort inside the HQ drill-in; the full program otherwise.
+  const patients = useScopedPatients();
+  const providers = useScopedProviders();
   const [metric, setMetric] = useState<'percent' | 'pounds' | 'goal' | 'adherence'>('percent');
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [stageFilter, setStageFilter] = useState<'all' | 'protocol' | 'maintenance'>('all');
 
-  const rankedPatients = [...MOCK_PATIENTS]
+  const rankedPatients = [...patients]
     .filter(p => (providerFilter === 'all' || p.providerId === providerFilter) && (stageFilter === 'all' || p.stage === stageFilter))
     .sort((a, b) => {
       if (metric === 'pounds') {
@@ -72,7 +75,7 @@ export default function Leaderboard() {
             className={selectClass}
           >
             <option value="all">All Providers</option>
-            {MOCK_PROVIDERS.map(p => (
+            {providers.map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
@@ -110,7 +113,7 @@ export default function Leaderboard() {
         ) : (
           <div className="divide-y divide-border">
             {rankedPatients.map((patient, idx) => {
-              const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
+              const provider = providers.find(p => p.id === patient.providerId);
               const weightLoss = patient.startingWeight - getCurrentWeight(patient);
               const percentLoss = ((weightLoss / patient.startingWeight) * 100).toFixed(1);
               const goalProgress = Math.max(0, Math.min(100, ((weightLoss / (patient.startingWeight - patient.goalWeight)) * 100)));

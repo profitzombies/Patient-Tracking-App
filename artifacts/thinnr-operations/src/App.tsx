@@ -1,78 +1,103 @@
-import { type ReactNode, useEffect, useRef } from 'react';
+/**
+ * App entry — providers, simulated sign-in gate, and the two persona areas.
+ *
+ * The demo opens on a persona chooser (no real auth): office staff get the
+ * operations desk exactly as it runs standalone, THINNR HQ admins get the
+ * umbrella above it. Gating is absolute in both directions — the office
+ * persona can never render an /admin URL (it bounces to the dashboard), and
+ * the admin persona always lands inside /admin (any other URL bounces to the
+ * HQ overview). The office drill-in mounts the office app under
+ * /admin/accounts/:id/office via a nested route, outside the admin shell so
+ * the office keeps its own chrome under the "Viewing as" banner.
+ */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import NotFound from '@/pages/not-found';
 import {
+  Redirect,
   Route,
   Switch,
-  useLocation,
   Router as WouterRouter,
 } from 'wouter';
 
-import { Shell } from '@/components/layout/Shell';
-import Overview from '@/pages/Overview';
-import Patients from '@/pages/Patients';
-import PatientDetail from '@/pages/PatientDetail';
-import Analytics from '@/pages/Analytics';
-import Leaderboard from '@/pages/Leaderboard';
-import Subscriptions from '@/pages/Subscriptions';
+import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
+import SignIn from '@/pages/SignIn';
+import { AdminShell } from '@/components/admin/AdminShell';
+import HqOverview from '@/pages/admin/HqOverview';
+import Accounts from '@/pages/admin/Accounts';
+import AccountDetail from '@/pages/admin/AccountDetail';
+import OfficeDrillIn from '@/pages/admin/OfficeDrillIn';
+import Conversations from '@/pages/admin/Conversations';
+import Team from '@/pages/admin/Team';
+import OrgSettings from '@/pages/admin/OrgSettings';
+import Training from '@/pages/admin/Training';
+import Files from '@/pages/admin/Files';
 import { PatientSessionProvider } from '@/contexts/patient-session';
 import { DateRangeProvider } from '@/contexts/date-range';
+import { SessionProvider, useSession } from '@/contexts/session';
+import { HqDataProvider } from '@/contexts/hq-data';
 
 const queryClient = new QueryClient();
 
-function Router() {
+/** Everything a signed-in HQ admin can reach. */
+function AdminArea() {
   return (
     <RoutedErrorBoundary>
-      <Shell>
-        <PatientRouteScrollBehavior />
-        <Switch>
-          <Route path="/" component={Overview} />
-          <Route path="/patients" component={Patients} />
-          <Route path="/patients/:id" component={PatientDetail} />
-          <Route path="/analytics" component={Analytics} />
-          <Route path="/leaderboard" component={Leaderboard} />
-          <Route path="/subscriptions" component={Subscriptions} />
-          <Route component={NotFound} />
-        </Switch>
-      </Shell>
+      <Switch>
+        {/* Drill-in first: it must win over the general admin chrome below,
+            and it mounts the office app (with its own Shell) via `nest`. */}
+        <Route path="/admin/accounts/:id/office" nest component={OfficeDrillIn} />
+        <Route>
+          <AdminShell>
+            <Switch>
+              <Route path="/admin" component={HqOverview} />
+              <Route path="/admin/accounts" component={Accounts} />
+              <Route path="/admin/accounts/:id" component={AccountDetail} />
+              <Route path="/admin/conversations" component={Conversations} />
+              <Route path="/admin/team" component={Team} />
+              <Route path="/admin/settings" component={OrgSettings} />
+              <Route path="/admin/training" component={Training} />
+              <Route path="/admin/files" component={Files} />
+              {/* Admin persona anywhere else (including office URLs) → HQ. */}
+              <Route>
+                <Redirect to="/admin" replace />
+              </Route>
+            </Switch>
+          </AdminShell>
+        </Route>
+      </Switch>
     </RoutedErrorBoundary>
   );
 }
 
-function PatientRouteScrollBehavior() {
-  const [location] = useLocation();
-  const navigationEntry = typeof performance !== 'undefined'
-    ? performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
-    : undefined;
-  const isHistoryNavigation = useRef(
-    navigationEntry?.type === 'back_forward',
+/**
+ * Routes by persona. No persona shows the sign-in chooser at any URL; each
+ * persona is then locked to its own area.
+ */
+function PersonaRouter() {
+  const { persona } = useSession();
+
+  if (persona === null) return <SignIn />;
+
+  if (persona === 'office') {
+    return (
+      <Switch>
+        {/* Office staff can never reach the admin umbrella. */}
+        <Route path="/admin" nest>
+          <Redirect to="~/" replace />
+        </Route>
+        <Route>
+          <OfficeApp />
+        </Route>
+      </Switch>
+    );
+  }
+
+  return (
+    <HqDataProvider>
+      <AdminArea />
+    </HqDataProvider>
   );
-
-  useEffect(() => {
-    const markHistoryNavigation = () => {
-      isHistoryNavigation.current = true;
-    };
-    window.addEventListener('popstate', markHistoryNavigation);
-    return () => window.removeEventListener('popstate', markHistoryNavigation);
-  }, []);
-
-  useEffect(() => {
-    const isPatientRecord = /^\/patients\/[^/]+$/.test(location);
-    if (isPatientRecord && !isHistoryNavigation.current) {
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-    }
-    isHistoryNavigation.current = false;
-  }, [location]);
-
-  return null;
-}
-
-function RoutedErrorBoundary({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
-  return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
 }
 
 function App() {
@@ -80,11 +105,13 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL?.replace(/\/$/, '') || ''}>
-          <PatientSessionProvider>
-            <DateRangeProvider>
-              <Router />
-            </DateRangeProvider>
-          </PatientSessionProvider>
+          <SessionProvider>
+            <PatientSessionProvider>
+              <DateRangeProvider>
+                <PersonaRouter />
+              </DateRangeProvider>
+            </PatientSessionProvider>
+          </SessionProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

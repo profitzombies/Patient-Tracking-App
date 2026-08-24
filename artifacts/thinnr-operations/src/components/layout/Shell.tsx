@@ -4,6 +4,7 @@ import {
   Bell,
   ChevronDown,
   LayoutDashboard,
+  LogOut,
   Search,
   Settings2,
   Users,
@@ -12,8 +13,19 @@ import {
   Trophy
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { MOCK_PATIENTS } from '@/data/mock-data';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
+import { useProviderScope } from '@/contexts/provider-scope';
+import { useSession } from '@/contexts/session';
+import { useScopedPatients } from '@/data/scoped-data';
+
+/** Initials for the header identity chip, skipping honorifics/credentials. */
+const NAME_NOISE = new Set(['dr', 'mr', 'mrs', 'ms', 'np', 'rn', 'md', 'pa', 'do']);
+function initialsOf(name: string): string {
+  const parts = name
+    .split(/[\s,]+/)
+    .filter((word) => word && !NAME_NOISE.has(word.replace(/\./g, '').toLowerCase()));
+  return parts.map((word) => word[0]?.toUpperCase() ?? '').slice(0, 2).join('') || 'TH';
+}
 
 function ActionButton({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -32,6 +44,11 @@ export function Shell({ children }: { children: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
+  // HQ drill-in scope: null in the standalone office demo. When scoped, the
+  // shell rebrands to the drilled-in office and fits under the HQ banner.
+  const scope = useProviderScope();
+  const { signOut } = useSession();
+  const patients = useScopedPatients();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollPositionsRef = useRef(new Map<string, number>());
   const isHistoryNavigationRef = useRef(false);
@@ -78,15 +95,17 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [location]);
 
   useEffect(() => {
-    document.title = `${activeItem.label} — THINNR Med Spa Operations`;
+    document.title = scope
+      ? `${activeItem.label} — ${scope.officeName} · THINNR HQ view`
+      : `${activeItem.label} — THINNR Med Spa Operations`;
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     description?.setAttribute('content', `Synthetic THINNR med spa operations demo: ${activeItem.label.toLowerCase()}, patient progress, outcomes, and recurring deliveries.`);
-  }, [activeItem.label]);
+  }, [activeItem.label, scope]);
 
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       const normalizedQuery = searchQuery.trim().toLowerCase();
-      const match = MOCK_PATIENTS.find((patient) =>
+      const match = patients.find((patient) =>
         patient.name.toLowerCase().includes(normalizedQuery) ||
         patient.email.toLowerCase().includes(normalizedQuery) ||
         patient.id.toLowerCase() === normalizedQuery
@@ -104,7 +123,7 @@ export function Shell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="min-h-[100dvh] max-w-full overflow-x-hidden bg-background font-sans text-foreground flex">
+    <div className={`${scope ? 'h-full' : 'min-h-[100dvh]'} max-w-full overflow-x-hidden bg-background font-sans text-foreground flex`}>
       {/* Sidebar - Hidden on very small screens, visible md and up */}
       <aside className="hidden w-[252px] shrink-0 border-r border-sidebar-border bg-sidebar px-5 py-5 md:flex md:flex-col">
         <button
@@ -114,9 +133,11 @@ export function Shell({ children }: { children: ReactNode }) {
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-navy text-brand-foreground shadow-soft">
             <span className="text-[11px] font-bold tracking-[.04em]">TH</span>
           </span>
-          <span className="min-w-0 whitespace-nowrap">
+          <span className={scope ? 'min-w-0' : 'min-w-0 whitespace-nowrap'}>
             <strong className="block font-serif text-[15px] font-bold tracking-[.01em] text-navy">THINNR</strong>
-            <span className="text-[10px] uppercase tracking-[.14em] text-muted-foreground">operations desk</span>
+            <span className={`text-[10px] uppercase tracking-[.14em] text-muted-foreground ${scope ? 'block truncate' : ''}`}>
+              {scope ? scope.officeName : 'operations desk'}
+            </span>
           </span>
           <ChevronDown size={14} className="ml-auto text-muted-foreground" />
         </button>
@@ -139,7 +160,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 <span className={isActive ? 'text-primary' : undefined}>{item.icon}</span>
                 <span className="min-w-0 flex-1">{item.label}</span>
                 {item.path === '/patients' && (
-                  <span className="ml-auto rounded-sm bg-accent px-1.5 py-0.5 text-[10px] font-bold text-primary">32</span>
+                  <span className="ml-auto rounded-sm bg-accent px-1.5 py-0.5 text-[10px] font-bold text-primary">{patients.length}</span>
                 )}
               </Link>
             );
@@ -165,7 +186,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main Content Area */}
-      <section className="min-w-0 flex-1 flex flex-col h-[100dvh]">
+      <section className={`min-w-0 flex-1 flex flex-col ${scope ? 'h-full' : 'h-[100dvh]'}`}>
         <header className="flex shrink-0 h-[68px] items-center justify-between gap-2 border-b border-border bg-paper-alt px-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <span className="text-xs text-muted-foreground hidden sm:inline">Operations</span>
@@ -190,15 +211,30 @@ export function Shell({ children }: { children: ReactNode }) {
             <ActionButton label="Notifications" onClick={() => toast({ title: "Notifications", description: "No new notifications." })}>
               <Bell size={16} />
             </ActionButton>
+            {!scope && (
+              /* Standalone personas sign out here; the HQ drill-in exits via
+                 its own "Back to HQ" banner instead. */
+              <ActionButton
+                label="Sign out"
+                onClick={() => {
+                  signOut();
+                  navigate('/');
+                }}
+              >
+                <LogOut size={16} />
+              </ActionButton>
+            )}
 
             <button
               onClick={() => toast({ title: "Account menu opened" })}
               className="ml-1 flex items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <span className="grid h-8 w-8 place-items-center rounded-md bg-primary text-[10px] font-bold text-primary-foreground shadow-xs">SJ</span>
+              <span className="grid h-8 w-8 place-items-center rounded-md bg-primary text-[10px] font-bold text-primary-foreground shadow-xs">
+                {scope ? initialsOf(scope.providerName) : 'SJ'}
+              </span>
               <span className="hidden text-left md:block">
-                <b className="block text-xs font-semibold text-navy">Dr. Sarah Jenkins</b>
-                <small className="text-[10px] text-muted-foreground">Medical Director</small>
+                <b className="block text-xs font-semibold text-navy">{scope ? scope.providerName : 'Dr. Sarah Jenkins'}</b>
+                <small className="text-[10px] text-muted-foreground">{scope ? scope.providerRole : 'Medical Director'}</small>
               </span>
               <ChevronDown size={13} className="text-muted-foreground" />
             </button>

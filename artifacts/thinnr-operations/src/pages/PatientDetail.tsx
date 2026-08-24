@@ -12,7 +12,8 @@ import {
   Target,
   Truck,
 } from "lucide-react";
-import { MOCK_PATIENTS, MOCK_PRODUCTS, MOCK_PROVIDERS, MOCK_SUBSCRIPTIONS, type ActivityItem } from "@/data/mock-data";
+import { MOCK_PRODUCTS, type ActivityItem } from "@/data/mock-data";
+import { useScopedPatients, useScopedProviders, useScopedSubscriptions } from "@/data/scoped-data";
 import { TODAY_KEY } from "@/data/nutrition-data";
 import { WeightTrend } from "@/components/patient/WeightTrend";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
@@ -59,9 +60,14 @@ export default function PatientDetail() {
   const { id } = useParams();
   const { toast } = useToast();
   const { addWeightEntry, getCurrentWeight, getProgressHistory } = usePatientSession();
-  const patient = MOCK_PATIENTS.find((candidate) => candidate.id === id);
-  const provider = MOCK_PROVIDERS.find((candidate) => candidate.id === patient?.providerId);
-  const subscription = MOCK_SUBSCRIPTIONS.find((candidate) => candidate.patientId === patient?.id);
+  // Scoped lookups: inside the HQ drill-in, another office's patient id is
+  // simply "not found" here — the umbrella never leaks records across offices.
+  const patients = useScopedPatients();
+  const providers = useScopedProviders();
+  const subscriptions = useScopedSubscriptions();
+  const patient = patients.find((candidate) => candidate.id === id);
+  const provider = providers.find((candidate) => candidate.id === patient?.providerId);
+  const subscription = subscriptions.find((candidate) => candidate.patientId === patient?.id);
   const products = patient?.products
     .map((productId) => MOCK_PRODUCTS.find((product) => product.id === productId))
     .filter((product): product is NonNullable<typeof product> => Boolean(product)) ?? [];

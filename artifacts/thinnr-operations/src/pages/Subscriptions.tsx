@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { Search, Filter, Box, AlertCircle, CheckCircle2, PackageOpen } from "lucide-react";
-import { MOCK_PATIENTS, MOCK_PRODUCTS, MOCK_SUBSCRIPTIONS } from "@/data/mock-data";
+import { MOCK_PRODUCTS } from "@/data/mock-data";
+import { useScopedPatients, useScopedSubscriptions } from "@/data/scoped-data";
 import { useToast } from "@/hooks/use-toast";
 import { addDaysToKey, keyToDate, useDateRange } from "@/contexts/date-range";
 
@@ -38,14 +39,17 @@ export default function Subscriptions() {
   const [query, setQuery] = useState('');
   const { toast } = useToast();
   const { range } = useDateRange();
+  // One office's book of business inside the HQ drill-in; program-wide otherwise.
+  const patients = useScopedPatients();
+  const subs = useScopedSubscriptions();
 
-  const filteredSubs = useMemo(() => MOCK_SUBSCRIPTIONS.filter((subscription) => {
-    const patient = MOCK_PATIENTS.find((candidate) => candidate.id === subscription.patientId);
+  const filteredSubs = useMemo(() => subs.filter((subscription) => {
+    const patient = patients.find((candidate) => candidate.id === subscription.patientId);
     const matchesStatus = statusFilter === 'all' || subscription.status === statusFilter;
     const normalizedQuery = query.trim().toLowerCase();
     const matchesQuery = !normalizedQuery || patient?.name.toLowerCase().includes(normalizedQuery) || subscription.id.toLowerCase().includes(normalizedQuery);
     return matchesStatus && matchesQuery;
-  }), [query, statusFilter]);
+  }), [subs, patients, query, statusFilter]);
 
   // Upcoming shipments are counted against the shared operations range, not the
   // viewer's clock: the 7 demo days immediately after the selected window ends.
@@ -55,10 +59,10 @@ export default function Subscriptions() {
     start: addDaysToKey(range.end, 1),
     end: addDaysToKey(range.end, 7),
   }), [range.end]);
-  const upcomingCount = useMemo(() => MOCK_SUBSCRIPTIONS.filter((subscription) => {
+  const upcomingCount = useMemo(() => subs.filter((subscription) => {
     const shipKey = isoToKey(subscription.nextShipment);
     return subscription.status === 'active' && shipKey >= upcomingWindow.start && shipKey <= upcomingWindow.end;
-  }).length, [upcomingWindow]);
+  }).length, [subs, upcomingWindow]);
 
   const getStatusColor = (status: string) => {
     if (status === 'active') return "border-accent-border bg-accent text-primary";
@@ -83,7 +87,7 @@ export default function Subscriptions() {
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Active Subs</p>
             <p className="mt-0.5 font-serif text-[26px] leading-none text-navy" data-testid="text-kpi-active-subs">
-              {MOCK_SUBSCRIPTIONS.filter(s => s.status === 'active').length}
+              {subs.filter(s => s.status === 'active').length}
             </p>
             <p className="mt-1 text-[10px] text-muted-foreground">Recurring monthly deliveries</p>
           </div>
@@ -95,7 +99,7 @@ export default function Subscriptions() {
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Action Needed</p>
             <p className="mt-0.5 font-serif text-[26px] leading-none text-destructive" data-testid="text-kpi-action-needed">
-              {MOCK_SUBSCRIPTIONS.filter(s => s.status === 'overdue' || s.paymentStatus === 'failed').length}
+              {subs.filter(s => s.status === 'overdue' || s.paymentStatus === 'failed').length}
             </p>
             <p className="mt-1 text-[10px] text-muted-foreground">Overdue or failed payment</p>
           </div>
@@ -198,7 +202,7 @@ export default function Subscriptions() {
             </thead>
             <tbody className="divide-y divide-border">
               {filteredSubs.map((sub) => {
-                const patient = MOCK_PATIENTS.find(p => p.id === sub.patientId);
+                const patient = patients.find(p => p.id === sub.patientId);
                 const isFailed = sub.paymentStatus === 'failed';
 
                 return (
@@ -264,7 +268,7 @@ export default function Subscriptions() {
         </div>
         <div className="divide-y divide-border md:hidden">
           {filteredSubs.map((subscription) => {
-            const patient = MOCK_PATIENTS.find((candidate) => candidate.id === subscription.patientId);
+            const patient = patients.find((candidate) => candidate.id === subscription.patientId);
             return (
               <article key={subscription.id} className="p-4" data-testid={`card-subscription-${subscription.id}`}>
                 <div className="flex items-start justify-between gap-3">

@@ -31,3 +31,4 @@
 - [Range-calibrated analytics](range-calibrated-analytics.md) — seeded series calibrated so the default range reproduces approved headline figures; comparisons predating the dataset go honestly null.
 - [Ingredient decomposition](ingredient-decomposition.md) — per-ingredient nutrition: exact curated sums, scale from ORIGINAL baseline, delta totals, server largest-remainder normalization; adjustments persist only recipe-linked.
 - [Expo multi-artifact preview routing](expo-multi-artifact-preview.md) — multiple Expo apps can share a direct domain; verify the intended artifact by local port and served title.
+- [Provider-scope pattern](provider-scope-pattern.md) — office screens read via useScoped* hooks (unscoped = exact singletons, byte-identical demo); HQ accounts must partition program totals exactly.

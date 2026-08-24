@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { Link, useSearch } from "wouter";
 import { Search, Filter, ArrowUpDown, ChevronRight } from "lucide-react";
-import { MOCK_PATIENTS, MOCK_PROVIDERS, type Status } from "@/data/mock-data";
+import { type Status } from "@/data/mock-data";
+import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
 import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
 import { usePatientSession } from "@/contexts/patient-session";
 
@@ -45,6 +46,9 @@ function LoggingSignal({ stats, align = 'left' }: { stats: LoggingStats; align?:
 
 export default function Patients() {
   const { getCurrentWeight } = usePatientSession();
+  // One office's roster inside the HQ drill-in; the full program otherwise.
+  const patients = useScopedPatients();
+  const providers = useScopedProviders();
   const searchParams = useSearch();
   const arrivedLapsed = new URLSearchParams(searchParams).get('logging') === 'lapsed';
   const [search, setSearch] = useState("");
@@ -63,12 +67,12 @@ export default function Patients() {
   }, [arrivedLapsed]);
 
   const statsById = useMemo(
-    () => new Map(MOCK_PATIENTS.map((patient) => [patient.id, getLoggingStats(patient)])),
-    [],
+    () => new Map(patients.map((patient) => [patient.id, getLoggingStats(patient)])),
+    [patients],
   );
 
   const filteredAndSortedPatients = useMemo(() => {
-    let result = MOCK_PATIENTS.filter(p => {
+    let result = patients.filter(p => {
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
                             p.email.toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
@@ -103,7 +107,7 @@ export default function Patients() {
     });
 
     return result;
-  }, [search, statusFilter, loggingFilter, sortField, sortOrder, getCurrentWeight, statsById]);
+  }, [patients, search, statusFilter, loggingFilter, sortField, sortOrder, getCurrentWeight, statsById]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -186,7 +190,7 @@ export default function Patients() {
 
         <div className="divide-y divide-border md:hidden">
           {filteredAndSortedPatients.map((patient) => {
-            const provider = MOCK_PROVIDERS.find((candidate) => candidate.id === patient.providerId);
+            const provider = providers.find((candidate) => candidate.id === patient.providerId);
             const weightLoss = patient.startingWeight - getCurrentWeight(patient);
             const percentLoss = ((weightLoss / patient.startingWeight) * 100).toFixed(1);
             return (
@@ -269,7 +273,7 @@ export default function Patients() {
             </thead>
             <tbody>
               {filteredAndSortedPatients.map((patient) => {
-                const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
+                const provider = providers.find(p => p.id === patient.providerId);
                 const weightLoss = patient.startingWeight - getCurrentWeight(patient);
                 const percentLoss = ((weightLoss / patient.startingWeight) * 100).toFixed(1);
                 

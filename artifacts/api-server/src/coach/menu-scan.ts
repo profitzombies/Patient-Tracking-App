@@ -20,6 +20,7 @@ import { openai } from "@workspace/integrations-openai-ai-server";
 import { BEFORE_YOU_ORDER_COMPARTMENT, getCompartmentById } from "./compartments";
 import { cleanModelText, extractModelJson } from "./model-json";
 import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
+import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 
 const MENU_SCAN_MODEL = "gpt-5.6-terra";
 
@@ -162,6 +163,11 @@ async function callModel(
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_LIMIT; attempt++) {
+    // Idle deadline per attempt: a wedged vision upstream must become a
+    // prompt, explainable failure, not a request that hangs until a proxy
+    // kills the connection.
+    const deadline = createUpstreamDeadline(signal);
+    const attemptStartedAt = Date.now();
     try {
       const completion = await openai.chat.completions.create(
         {
@@ -172,15 +178,26 @@ async function callModel(
           response_format: { type: "json_object" },
           messages,
         },
-        { signal },
+        { signal: deadline.signal },
       );
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {
+      // A deadline expiry already consumed the full idle budget; a transient
+      // retry would stack another silent wait on top of it, so surface the
+      // named timeout immediately instead of burning the retry.
+      if (deadline.expired) {
+        throw new UpstreamTimeoutError("menu scan model call", deadline.idleMs, { cause: error });
+      }
       lastError = error;
       if (signal.aborted || attempt >= TRANSIENT_RETRY_LIMIT) throw error;
-      log.warn({ err: error, attempt }, "menu scan model call failed; retrying once");
+      log.warn(
+        { err: error, attempt, elapsedMs: Date.now() - attemptStartedAt },
+        "menu scan model call failed; retrying once",
+      );
       await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
       if (signal.aborted) throw error;
+    } finally {
+      deadline.finish();
     }
   }
   throw lastError;

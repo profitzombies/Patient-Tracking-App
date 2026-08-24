@@ -11,6 +11,13 @@
  * Web uses the browser's streaming fetch; native uses expo/fetch, which
  * supports ReadableStream bodies on device. If a body stream is unavailable,
  * the full response text is parsed at once as a graceful fallback.
+ *
+ * During long silent model calls the server interleaves SSE comment lines
+ * (`: keepalive`) so proxies never see an idle connection; only `data:`
+ * lines carry events, so the parser skips everything else. A stream that
+ * ends WITHOUT a done/error event is a dropped connection, not a finished
+ * reply — it surfaces the generic retryable error rather than presenting a
+ * truncated answer as complete.
  */
 import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
@@ -193,7 +200,15 @@ export async function streamCoachChat(
     if (!state.finished) {
       state.finished = true;
       // A stop that lands between the last read and here still stays silent.
-      if (!signal?.aborted) callbacks.onDone();
+      if (signal?.aborted) return;
+      // The connection ended without a done (or error) event: the server
+      // never finished this reply — most likely a proxy dropped the stream
+      // mid-turn. Finalizing would present a silently truncated (or empty)
+      // answer as complete, so surface the standard retryable error instead;
+      // the chat replaces any partial text with the error bubble, and RETRY
+      // replays the question.
+      console.error('Coach chat stream ended without a done event');
+      callbacks.onError(FRIENDLY_ERROR, true);
     }
   } catch (error) {
     if (!state.finished) {

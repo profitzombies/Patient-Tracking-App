@@ -12,6 +12,11 @@ import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-ch
 import { MarkerFilter } from "../coach/markers";
 import { firstQuickReplySet } from "../coach/quick-replies";
 import {
+  UpstreamTimeoutError,
+  createUpstreamDeadline,
+  keepaliveIntervalMs,
+} from "../coach/upstream";
+import {
   INVALID_PHOTO_MESSAGE,
   MAX_PHOTO_BYTES,
   PHOTO_BODY_LIMIT,
@@ -33,6 +38,7 @@ export const COACH_CHAT_PATH = "/api/coach/chat";
 const MAX_HISTORY = 12;
 
 router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req, res) => {
+  const startedAt = Date.now();
   // Limit first: this endpoint spends paid model credits, so even invalid
   // spam should burn the caller's budget, not the server's CPU.
   const slot = acquireChatSlot(req.ip ?? "unknown");
@@ -109,6 +115,11 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     // answer.
     const modelHistory = toModelMessages(history);
 
+    // Which model pipeline answers this turn — failure/completion logs carry
+    // it (plus elapsed time) so a mystery error bubble can be traced to the
+    // pipeline and duration that produced it.
+    let pipeline: "plain" | "menu" | "menu-recipe" | "recipe" | "cravings" = "plain";
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -116,6 +127,18 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
 
     const abort = new AbortController();
     res.on("close", () => abort.abort());
+
+    // Keepalive from stream start until the turn ends. SSE comment lines are
+    // invisible to consumers (the app parses only `data:` lines) but keep
+    // bytes flowing, so idle-connection proxies never drop the stream during
+    // long silent stretches — recipe/cravings/menu turns answer with ONE
+    // non-streaming model call (worst case several in a row) and previously
+    // wrote nothing at all until the last call finished.
+    const keepalive = setInterval(() => {
+      if (!abort.signal.aborted && !res.writableEnded) {
+        res.write(": keepalive\n\n");
+      }
+    }, keepaliveIntervalMs());
 
     try {
       // ── Menu photo turn ─────────────────────────────────────────────────
@@ -126,6 +149,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // Not-a-menu / unreadable photos are warm conversational outcomes here,
       // never error events. The photo lives in this request's memory only.
       if (image !== undefined) {
+        pipeline = "menu";
         const menuTurn = await generateMenuChatTurn({
           image,
           patient: patientContext,
@@ -142,7 +166,13 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           }
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
           req.log.info(
-            { outcome: menuTurn.outcome, order: menuTurn.orderCount, avoid: menuTurn.avoidCount },
+            {
+              pipeline,
+              elapsedMs: Date.now() - startedAt,
+              outcome: menuTurn.outcome,
+              order: menuTurn.orderCount,
+              avoid: menuTurn.avoidCount,
+            },
             "coach menu photo turn completed",
           );
         }
@@ -155,6 +185,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // replayed history as the suggestions text, so the photo is never
       // re-sent.
       if (detectMenuRecipeFollowUp(history)) {
+        pipeline = "menu-recipe";
         req.log.info({}, "coach menu recipe follow-up turn");
         const result = await generateRecipeTurn({
           mode: "recipe",
@@ -171,6 +202,10 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
             res.write(`data: ${JSON.stringify({ card: result.card })}\n\n`);
           }
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { pipeline, elapsedMs: Date.now() - startedAt, card: result.card !== null },
+            "coach chat turn completed",
+          );
         }
         return;
       }
@@ -181,6 +216,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // Recipe turns use their own prompt, so no product block applies there.
       const intent = detectRecipeIntent(latest.content);
       if (intent) {
+        pipeline = intent;
         req.log.info({ intent }, "coach recipe turn");
         const result = await generateRecipeTurn({
           mode: intent,
@@ -196,46 +232,68 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
             res.write(`data: ${JSON.stringify({ card: result.card })}\n\n`);
           }
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { pipeline, elapsedMs: Date.now() - startedAt, card: result.card !== null },
+            "coach chat turn completed",
+          );
         }
         return;
       }
-
-      const stream = await openai.chat.completions.create(
-        {
-          model: "gpt-5.6-terra",
-          // Reasoning models spend part of this budget on internal reasoning
-          // tokens; the AI integration requires >= 8192 to avoid empty replies.
-          max_completion_tokens: 8192,
-          // Deliberately NO reasoning_effort override: a trial of "low"
-          // (2026-08-23) kept answers grounded and trimmed the worst silent
-          // wait, but suppressed the optional one-tap replies marker on
-          // questions that reliably get chips at the default effort (0/5 vs
-          // 2/2 runs). The typed-out reveal in the app covers the wait
-          // instead; don't lower effort without re-checking marker emission.
-          stream: true,
-          messages: [
-            {
-              role: "system",
-              content: buildSystemPrompt(selection.compartments, patientContext, offeredProducts),
-            },
-            ...modelHistory,
-          ],
-        },
-        { signal: abort.signal },
-      );
 
       // Control markers (product recommendation, one-tap answer set) are
       // signals, never visible text: the filter strips them from the stream
       // (even split across chunks) and records the ids for validation below.
       const markerFilter = new MarkerFilter(["product", "replies"]);
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          const visible = markerFilter.push(delta);
-          if (visible) {
-            res.write(`data: ${JSON.stringify({ content: visible })}\n\n`);
+
+      // Idle deadline, restarted on every chunk: it bounds SILENCE (the
+      // reasoning preamble before the first token, or an upstream that wedges
+      // mid-stream), not total reply length. Expiry aborts only the child
+      // signal — the route's catch still reads `abort.signal` to tell a
+      // client disconnect (stay silent) from this failure (error event).
+      const deadline = createUpstreamDeadline(abort.signal);
+      try {
+        const stream = await openai.chat.completions.create(
+          {
+            model: "gpt-5.6-terra",
+            // Reasoning models spend part of this budget on internal reasoning
+            // tokens; the AI integration requires >= 8192 to avoid empty replies.
+            max_completion_tokens: 8192,
+            // Deliberately NO reasoning_effort override: a trial of "low"
+            // (2026-08-23) kept answers grounded and trimmed the worst silent
+            // wait, but suppressed the optional one-tap replies marker on
+            // questions that reliably get chips at the default effort (0/5 vs
+            // 2/2 runs). The typed-out reveal in the app covers the wait
+            // instead; don't lower effort without re-checking marker emission.
+            stream: true,
+            messages: [
+              {
+                role: "system",
+                content: buildSystemPrompt(selection.compartments, patientContext, offeredProducts),
+              },
+              ...modelHistory,
+            ],
+          },
+          { signal: deadline.signal },
+        );
+
+        for await (const chunk of stream) {
+          deadline.touch();
+          const delta = chunk.choices[0]?.delta?.content;
+          if (delta) {
+            const visible = markerFilter.push(delta);
+            if (visible) {
+              res.write(`data: ${JSON.stringify({ content: visible })}\n\n`);
+            }
           }
         }
+      } catch (error) {
+        // Name the timeout so the failure log says WHY the turn died instead
+        // of a generic aborted-request error.
+        throw deadline.expired
+          ? new UpstreamTimeoutError("coach chat completion", deadline.idleMs, { cause: error })
+          : error;
+      } finally {
+        deadline.finish();
       }
       const tail = markerFilter.flush();
       if (tail) {
@@ -266,14 +324,22 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         req.log.info({ quickReplySet: replySet.id }, "coach chat quick replies attached");
       }
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      req.log.info({ pipeline, elapsedMs: Date.now() - startedAt }, "coach chat turn completed");
     } catch (error) {
-      if (!abort.signal.aborted) {
-        req.log.error({ err: error }, "coach chat stream failed");
+      const elapsedMs = Date.now() - startedAt;
+      if (abort.signal.aborted) {
+        // The client went away mid-turn (stop, app closed, or a proxy cut
+        // the connection). Nothing can be written, but the log keeps dropped
+        // streams observable instead of vanishing without a trace.
+        req.log.info({ pipeline, elapsedMs }, "coach chat turn aborted by client");
+      } else {
+        req.log.error({ err: error, pipeline, elapsedMs }, "coach chat stream failed");
         res.write(
           `data: ${JSON.stringify({ error: "The coach is unavailable right now. Please try again." })}\n\n`,
         );
       }
     } finally {
+      clearInterval(keepalive);
       res.end();
     }
   } finally {

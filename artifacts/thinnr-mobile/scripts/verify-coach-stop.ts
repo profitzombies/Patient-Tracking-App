@@ -11,7 +11,10 @@
  * reintroduce a locked chat, a stray error bubble, or a card that outruns
  * its text:
  *   1. an aborted stream invokes no callbacks (CoachStreamOptions.signal
- *      contract — section 1 tests streamCoachChat directly),
+ *      contract — section 1 tests streamCoachChat directly); an UN-aborted
+ *      stream that ends without done/error is a dropped connection and
+ *      surfaces the generic retryable error (1d), while the server's SSE
+ *      comment keepalives stay invisible to the parser (1a),
  *   2. stop() finalizes the UI and unlocks the input synchronously — stop
  *      while the reply is still empty removes the bubble, stop mid-stream
  *      keeps exactly the text revealed on screen, and a follow-up send in
@@ -95,6 +98,8 @@ interface ScriptedSse {
   /** Parsed JSON body the client sent (request sanity checks only). */
   requestBody: { messages?: Array<{ role: string; content: string; image?: string }> };
   emit(payload: Record<string, unknown>): void;
+  /** Enqueues raw bytes with no data: framing (SSE comment keepalives). */
+  raw(text: string): void;
   close(): void;
 }
 
@@ -144,6 +149,10 @@ function scriptedFetch(
     emit(payload) {
       if (dead) return;
       controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+    },
+    raw(text) {
+      if (dead) return;
+      controller.enqueue(encoder.encode(text));
     },
     close() {
       if (dead) return;
@@ -262,6 +271,9 @@ async function main() {
   const realConsoleError = console.error.bind(console);
   console.error = (...args: unknown[]) => {
     if (typeof args[0] === 'string' && args[0].includes('react-test-renderer is deprecated')) return;
+    // 1d intentionally drops a stream without done; the client logs that
+    // drop for field debugging, which would read as scary noise here.
+    if (typeof args[0] === 'string' && args[0].includes('stream ended without a done event')) return;
     realConsoleError(...args);
   };
   const rendererModule = (await import('react-test-renderer')) as unknown as {
@@ -273,7 +285,9 @@ async function main() {
 
   // ── 1. streamCoachChat signal contract: aborted streams stay silent ───────
   {
-    // 1a. Baseline: deltas arrive in order, then exactly one done.
+    // 1a. Baseline: deltas arrive in order, then exactly one done. The
+    // server's comment keepalives (sent during long silent model calls) ride
+    // the same stream and must be invisible to the parser.
     const rec = recorder();
     const run = streamCoachChat(
       { messages: [{ role: 'user', content: 'baseline' }] },
@@ -284,7 +298,9 @@ async function main() {
       'the request carries the caller message',
       stream.requestBody.messages?.[0]?.content === 'baseline',
     );
+    stream.raw(': keepalive\n\n');
     stream.emit({ content: 'Lean protein' });
+    stream.raw(': keepalive\n\n');
     stream.emit({ content: ' every meal.' });
     stream.emit({ done: true });
     stream.close();
@@ -343,8 +359,11 @@ async function main() {
     );
   }
   {
-    // 1d. Un-aborted close without a done event DOES finalize — proving 1c
-    // was guarded by the abort, not by luck.
+    // 1d. Un-aborted close without a done event is a DROPPED connection, not
+    // a success: the server always ends a finished turn with done (or error),
+    // so the client surfaces the generic retryable error instead of
+    // presenting a truncated (or empty) reply as complete. Contrast 1c: the
+    // very same close stays silent only because the caller aborted.
     const rec = recorder();
     const run = streamCoachChat(
       { messages: [{ role: 'user', content: 'close without done' }] },
@@ -355,9 +374,9 @@ async function main() {
     stream.close();
     await run;
     assertEqual(
-      'unaborted close-without-done synthesizes exactly one done',
+      'unaborted close-without-done surfaces the retryable generic error',
       rec.events.join('|'),
-      'delta:Sleep 8 hours.|done',
+      'delta:Sleep 8 hours.|error(retryable):The coach is unavailable right now. Please try again.',
     );
   }
   {

@@ -20,6 +20,7 @@ import { openai } from "@workspace/integrations-openai-ai-server";
 import { COMPARTMENTS, type Compartment } from "./compartments";
 import { cleanModelText, extractModelJson } from "./model-json";
 import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
+import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 import {
   approvedItemName,
   catalogPromptLines,
@@ -412,6 +413,11 @@ async function callModel(
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_LIMIT; attempt++) {
+    // Idle deadline per attempt: recipe turns are the longest silent calls in
+    // the coach, so a wedged upstream here must become a prompt, explainable
+    // failure instead of a stream that hangs until a proxy kills it.
+    const deadline = createUpstreamDeadline(signal);
+    const attemptStartedAt = Date.now();
     try {
       const completion = await openai.chat.completions.create(
         {
@@ -422,17 +428,30 @@ async function callModel(
           response_format: { type: "json_object" },
           messages,
         },
-        { signal },
+        { signal: deadline.signal },
       );
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {
+      // A deadline expiry already consumed the full idle budget; a transient
+      // retry would stack another silent wait on top of it, so surface the
+      // named timeout immediately instead of burning the retry.
+      if (deadline.expired) {
+        throw new UpstreamTimeoutError("coach recipe model call", deadline.idleMs, {
+          cause: error,
+        });
+      }
       lastError = error;
       // Never retry a request the client abandoned, and don't swallow the
       // final failure — the route's catch logs it and tells the client.
       if (signal.aborted || attempt === TRANSIENT_RETRY_LIMIT) throw error;
-      log.warn({ err: error, attempt }, "coach recipe model call failed; retrying once");
+      log.warn(
+        { err: error, attempt, elapsedMs: Date.now() - attemptStartedAt },
+        "coach recipe model call failed; retrying once",
+      );
       await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
       if (signal.aborted) throw error;
+    } finally {
+      deadline.finish();
     }
   }
   throw lastError;

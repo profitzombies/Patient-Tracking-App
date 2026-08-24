@@ -11,12 +11,20 @@
  * (thinnr-mobile/assets/images/recipes/): flat illustrated top-down dish on
  * a white plate with cobalt accents — NOT photography — so coach-saved
  * recipes sit next to seeded ones as one family.
+ *
+ * Reliability: generation runs under the shared upstream idle deadline and
+ * aborts when the client disconnects, so a hung call can never pin one of
+ * the two concurrent image slots indefinitely (that jam was how later images
+ * silently stopped generating). Image failures stay invisible in the chat by
+ * design — the client swallows them — so the log lines here are the ONLY
+ * trace; they carry pipeline/elapsedMs like the chat pipelines.
  */
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { CoachRecipeImageBody } from "@workspace/api-zod";
 import { sanitizeInline } from "../coach/prompt";
 import { acquireImageSlot } from "../coach/limits";
+import { UpstreamTimeoutError, createUpstreamDeadline } from "../coach/upstream";
 
 const router: IRouter = Router();
 
@@ -27,6 +35,16 @@ router.post("/coach/recipe-image", async (req, res) => {
     res.status(slot.status).json({ error: slot.message });
     return;
   }
+
+  const startedAt = Date.now();
+  // A client that gave up (left the screen, closed the app) must not keep
+  // burning a generation slot. `close` also fires after a normal completion,
+  // hence the writableEnded guard.
+  const abort = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) abort.abort();
+  });
+  const deadline = createUpstreamDeadline(abort.signal);
 
   try {
     const parsed = CoachRecipeImageBody.safeParse(req.body);
@@ -53,23 +71,41 @@ router.post("/coach/recipe-image", async (req, res) => {
       "digital illustration, not photorealistic, no photo textures. " +
       "No people, no hands, no text, no logos.";
 
-    const response = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt,
-      size: "1024x1024",
-      quality: "low",
-      output_format: "jpeg",
-    });
+    const response = await openai.images.generate(
+      {
+        model: "gpt-image-1",
+        prompt,
+        size: "1024x1024",
+        quality: "low",
+        output_format: "jpeg",
+      },
+      { signal: deadline.signal },
+    );
 
     const b64 = response.data?.[0]?.b64_json;
     if (!b64) throw new Error("image response contained no data");
     res.json({ image: `data:image/jpeg;base64,${b64}` });
+    req.log.info({ pipeline: "image", elapsedMs: Date.now() - startedAt }, "recipe image generated");
   } catch (error) {
-    req.log.error({ err: error }, "recipe image generation failed");
+    const elapsedMs = Date.now() - startedAt;
+    if (abort.signal.aborted) {
+      // The client is gone; there is nobody to answer. Logged so abandoned
+      // generations stay visible when reasoning about slot pressure.
+      req.log.info({ pipeline: "image", elapsedMs }, "recipe image request abandoned by client");
+      return;
+    }
+    const failure = deadline.expired
+      ? new UpstreamTimeoutError("recipe image generation", deadline.idleMs, { cause: error })
+      : error;
+    req.log.error({ err: failure, pipeline: "image", elapsedMs }, "recipe image generation failed");
     if (!res.headersSent) {
       res.status(502).json({ error: "Photo generation failed. Please try again." });
     }
   } finally {
+    // Stopping the deadline AFTER the call settles (success, failure, or
+    // timeout-abort) guarantees the slot below can never leak behind a hung
+    // upstream again.
+    deadline.finish();
     slot.release();
   }
 });

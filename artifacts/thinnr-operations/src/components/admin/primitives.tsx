@@ -12,9 +12,13 @@ import type { ReactNode } from 'react';
 import { Eye } from 'lucide-react';
 import { CHIP_COBALT, CHIP_WARM } from '@/components/patient/heritage';
 
-/** Standard admin page container — same measure as the office pages. */
+/**
+ * Standard admin page container — spans the full content column, keeping only
+ * the comfortable edge padding. (The office pages keep their own centered
+ * measure; prose inside HQ pages stays readable via per-element ch caps.)
+ */
 export function AdminPage({ children }: { children: ReactNode }) {
-  return <div className="mx-auto w-full max-w-[1160px] px-4 py-6 md:px-8 md:py-8">{children}</div>;
+  return <div className="w-full px-4 py-6 md:px-8 md:py-8">{children}</div>;
 }
 
 interface PageHeaderProps {

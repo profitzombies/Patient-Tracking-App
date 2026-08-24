@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Link, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { Search, Filter, ArrowUpDown, ChevronRight } from "lucide-react";
 import { type Status } from "@/data/mock-data";
 import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
@@ -49,6 +49,9 @@ export default function Patients() {
   // One office's roster inside the HQ drill-in; the full program otherwise.
   const patients = useScopedPatients();
   const providers = useScopedProviders();
+  // Base-aware navigate: resolves against the mount point exactly like the
+  // roster's <Link>s, so row clicks stay inside the HQ drill-in scope too.
+  const [, navigate] = useLocation();
   const searchParams = useSearch();
   const arrivedLapsed = new URLSearchParams(searchParams).get('logging') === 'lapsed';
   const [search, setSearch] = useState("");
@@ -278,7 +281,27 @@ export default function Patients() {
                 const percentLoss = ((weightLoss / patient.startingWeight) * 100).toFixed(1);
                 
                 return (
-                  <tr key={patient.id} className="group border-b border-border last:border-0 hover:bg-accent/40 transition-colors">
+                  <tr
+                    key={patient.id}
+                    tabIndex={0}
+                    aria-label={`Open ${patient.name}’s patient record`}
+                    onClick={(event) => {
+                      // Row navigation is a convenience layer over the real
+                      // profile links: leave nested controls (the trailing
+                      // arrow), text selection, and modified clicks alone.
+                      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                      if ((event.target as Element).closest('a, button, input, select, textarea')) return;
+                      if (window.getSelection()?.toString()) return;
+                      navigate(`/patients/${patient.id}`);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      navigate(`/patients/${patient.id}`);
+                    }}
+                    className="group cursor-pointer border-b border-border last:border-0 transition-colors hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent text-[10px] font-bold text-primary">
@@ -312,8 +335,17 @@ export default function Patients() {
                       <span className="text-[10px] text-muted-foreground">{percentLoss}%</span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link href={`/patients/${patient.id}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                        <ChevronRight size={16} />
+                      {/* Still a real link (new-tab, context menu, assistive
+                          tech), but out of the tab order — the focusable row
+                          is the single keyboard stop, so no duplicate stops
+                          or double navigation. */}
+                      <Link
+                        href={`/patients/${patient.id}`}
+                        aria-label={`Open ${patient.name}’s patient record`}
+                        tabIndex={-1}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-primary group-hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <ChevronRight size={16} aria-hidden="true" />
                       </Link>
                     </td>
                   </tr>

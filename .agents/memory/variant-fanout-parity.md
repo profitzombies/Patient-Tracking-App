@@ -10,5 +10,5 @@ When fanning out parallel design subagents that all render one shared demo-data 
 
 ## Promised side effects are a second drift axis
 Fan-out page agents also write UI copy that PROMISES shared-layer behavior (confirm dialogs, toasts promising data will be preserved/created). The shared context may not implement that promise — the page still demos fine, so e2e passes miss it; only reviewing copy against the shared mutations catches it.
-**Why:** each page agent assumes the shared layer does what its copy implies, and nothing in a page-scoped build or e2e pass ever executes the cross-layer promise.
+**Why:** In the training-portal fan-out, a delete-confirm promised videos would survive sub-group deletion (context silently dropped them) and an invite toast promised a viewer that was never created. Both shipped past a full e2e pass; only an architect review comparing copy against the shared mutations caught them.
 **How to apply:** After any fan-out against a shared data layer, have the review round explicitly check every dialog/toast/empty-state promise against the actual context implementation, and prefer wiring the real mutation over softening the copy.

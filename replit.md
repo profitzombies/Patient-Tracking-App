@@ -1,6 +1,6 @@
-# [Project name]
+# THINNR Med Spa Operations
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Investor-demo platform for the THINNR weight-loss program: a staff/HQ operations web app, a patient mobile companion (Expo), and an API server — real Supabase sign-in at the front door, synthetic demo data underneath.
 
 ## Run & Operate
 
@@ -30,9 +30,19 @@ _Replace the heading above with the project's name, and this line with one sente
 - `artifacts/thinnr-mobile/data/restaurant-guide.json` — quoted eating-out guidance plus the THINNR Restaurant Guide directory (25 restaurants with verbatim approved-order lines; typed access via `data/restaurant-directory.ts`). Powers the patient Restaurant Guide hub (`/restaurant-guide`), its guidance page, and the per-restaurant detail pages; the API server reads its `sections[]` for coach grounding (directory keys are ignored there). Guarded by the `test:restaurant-guide` verbatim check.
 - `artifacts/thinnr-mobile/data/product-catalog.json` — curated THINNR product catalog (copy, supplement facts, disclaimers quoted verbatim from getthinnr.com; prices are demo values matching the staff dataset). Powers coach product suggestions and the `/product/[id]` demo shop page; the API server reads it at runtime for grounding. Name/price parity with the staff `MOCK_PRODUCTS` is enforced by `test:parity`.
 
+## Authentication (Supabase)
+
+Real Supabase auth is the front door on both apps; everything behind it still runs on synthetic demo data. The guided demo stays reachable without an account: web sign-in → "Exploring? Browse the guided demo…", mobile patient sign-in → "Browse without an account".
+
+- Client env vars (already set, client-safe publishable key; no service-role key in this workspace): `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` (web), `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (mobile).
+- Roles come from a pre-approved allowlist (`role_assignments` table) checked by a DB trigger at signup: andrew@thinnrweightloss.com → HQ admin, andrew+provider@… → provider staff, andrew+patient@… → patient. Anyone not on the list becomes a patient. Adding a row only affects *future* signups; to change an existing user, update `profiles.role`.
+- Web lands each role in its workspace: hq_admin → `/admin`, provider_staff → office desk, patient → a "the patient experience lives in the mobile app" notice. Mobile treats any real session as a patient — it *is* the patient surface.
+- Email confirmation is ON and Supabase's built-in mailer is rate-limited (a few emails/hour) — fine for the demo accounts, not crowds. Toggle: Supabase dashboard → Authentication → Sign In/Up → "Confirm email". Confirmation links bounce to the Site URL (Authentication → URL Configuration) — add the app URL there so links land back in the app.
+- Phone + password (SMS code at signup) is fully built but stays dark until Twilio Verify is connected: Supabase dashboard → Authentication → Sign In/Up → Phone → enable, provider "Twilio Verify", paste Account SID / Auth Token / Verify Service SID from the Twilio console. Until then both apps explain "text verification is still being connected".
+
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Real auth is a *front door only*: the Supabase session and role decide which workspace you land in, but all product data stays synthetic and identical for every account. Demo personas bypass auth entirely (web persona is sessionStorage-scoped; a real session always outranks it).
 
 ## Product
 

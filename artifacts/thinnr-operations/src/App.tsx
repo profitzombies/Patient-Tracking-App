@@ -1,9 +1,11 @@
 /**
- * App entry — providers, simulated sign-in gate, and the two persona areas.
+ * App entry — providers, the real-auth front door, and the two persona areas.
  *
- * The demo opens on a persona chooser (no real auth): office staff get the
+ * The app opens on a real Supabase sign-in (email or phone + password), with
+ * an explicit "Explore the demo" bypass: office staff get the
  * operations desk exactly as it runs standalone, THINNR HQ admins get the
- * umbrella above it. Gating is absolute in both directions — the office
+ * umbrella above it. A signed-in account's profile role picks the area;
+ * signed-in patients are pointed at the mobile app. Gating is absolute in both directions — the office
  * persona can never render an /admin URL (it bounces to the dashboard), and
  * the admin persona always lands inside /admin (any other URL bounces to the
  * HQ overview). The office drill-in mounts the office app under
@@ -22,6 +24,7 @@ import {
 
 import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 import SignIn from '@/pages/SignIn';
+import { BootScreen, PatientOnWebNotice, ProfileErrorScreen } from '@/pages/AuthScreens';
 import { AdminShell } from '@/components/admin/AdminShell';
 import HqOverview from '@/pages/admin/HqOverview';
 import Accounts from '@/pages/admin/Accounts';
@@ -89,11 +92,19 @@ function AdminArea() {
 }
 
 /**
- * Routes by persona. No persona shows the sign-in chooser at any URL; each
- * persona is then locked to its own area.
+ * Routes by session. Real auth resolves first — booting, profile trouble,
+ * or a signed-in patient pre-empt everything. Otherwise the resolved
+ * persona (real role, or the demo bypass) locks each area exactly as before.
  */
 function PersonaRouter() {
-  const { persona } = useSession();
+  const { persona, authStatus, authRole, roleStatus } = useSession();
+
+  if (authStatus === 'loading') return <BootScreen />;
+  if (authStatus === 'signed-in') {
+    if (roleStatus === 'idle' || roleStatus === 'loading') return <BootScreen />;
+    if (roleStatus === 'error') return <ProfileErrorScreen />;
+    if (authRole === 'patient') return <PatientOnWebNotice />;
+  }
 
   if (persona === null) return <SignIn />;
 

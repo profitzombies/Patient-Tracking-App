@@ -11,6 +11,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
+import { supabase, useSupabaseSession } from '@/lib/supabase';
 
 const CARD_SHADOW = '0 8px 20px rgba(40, 55, 74, 0.07)';
 
@@ -69,6 +70,7 @@ export default function PersonaScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { mode, setMode } = useAppMode();
+  const { session } = useSupabaseSession();
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
@@ -78,12 +80,20 @@ export default function PersonaScreen() {
     router.replace('/');
   };
 
-  // Patient taps go through the entry chooser: existing account (Emma) or
-  // the simulated new-patient onboarding. Mode is only set once they choose.
-  const openPatientEntry = () => {
+  // Patient taps go to the real sign-in screen; the guided demo (Emma or the
+  // simulated onboarding) stays one tap away from there.
+  const openPatientLogin = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/patient-entry');
+    router.push('/patient-login');
   };
+
+  const signOutReal = async () => {
+    if (!supabase) return;
+    Haptics.selectionAsync();
+    await supabase.auth.signOut();
+  };
+
+  const sessionLabel = session?.user.email ?? (session?.user.phone ? `+${session.user.phone}` : null);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad + 28 }]}>
@@ -113,11 +123,27 @@ export default function PersonaScreen() {
           testID="persona-patient"
           icon="user"
           title="Patient"
-          person="Emma Smith · Maintenance stage"
-          body="Daily companion — sign in as Emma or simulate the new-patient onboarding flow."
+          person="Your daily companion"
+          body="Sign in with your account, or explore the demo as Emma Smith — diary, check-ins, and coach chat."
           current={mode === 'patient'}
-          onPress={openPatientEntry}
+          onPress={openPatientLogin}
         />
+
+        {session ? (
+          <View
+            style={[
+              styles.sessionRow,
+              { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
+            ]}
+          >
+            <Text style={[styles.sessionText, { color: colors.bodyText }]} numberOfLines={1}>
+              Signed in as {sessionLabel ?? 'your account'}
+            </Text>
+            <Pressable testID="persona-signout" accessibilityRole="button" onPress={signOutReal} hitSlop={8}>
+              <Text style={[styles.sessionSignOut, { color: colors.cobalt }]}>Sign out</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
 
       <View style={[styles.footer, { borderTopColor: colors.divider }]}>
@@ -234,6 +260,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontFamily: 'Inter_700Bold',
     letterSpacing: 0.4,
+  },
+  sessionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  sessionText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: 'Inter_500Medium',
+  },
+  sessionSignOut: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
   },
   footer: {
     borderTopWidth: 1,

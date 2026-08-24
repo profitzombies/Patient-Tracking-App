@@ -71,6 +71,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
     "expo-image-manipulator": "~14.0.8"
   }
 }

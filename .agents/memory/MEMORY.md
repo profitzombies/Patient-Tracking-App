@@ -18,7 +18,7 @@
 - [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
 - [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — merges don't restart running workflows; restart Metro after a merge batch and grep the served bundle for a new-code marker before trusting device reports.
 - [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.
-- [Variant fan-out parity](variant-fanout-parity.md) — parallel design subagents drift on state semantics (signs, filled-vs-outlined markers); put the data spec in briefs AND the review prompt.
+- [Variant fan-out parity](variant-fanout-parity.md) — parallel subagents drift on state semantics AND promise shared-layer behavior that isn't implemented; spec briefs + review the seams.
 - [Custom tab labels drop accessible names](tab-label-a11y.md) — a function tabBarLabel needs tabBarAccessibilityLabel per screen, or every tab silently loses its screen-reader name.
 - [Expo persona gate](expo-persona-gate.md) — patient screens hide behind the persona chooser on Expo web; verify via the testing subagent; compare app vs mockup in one capture pipeline.
 - [Mobile e2e quirks](mobile-e2e-quirks.md) — snackbar Undo isn't automatable (use undo script workflows); delete/copy snackbars carry Undo, add bars don't; Chrome [DOM] warnings may miss console capture.

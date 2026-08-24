@@ -39,7 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: <MessagesSquare size={16} /> },
   { path: '/admin/team', label: 'Team', icon: <Users size={16} /> },
   { path: '/admin/settings', label: 'Settings', icon: <Settings2 size={16} /> },
-  { path: '/admin/training', label: 'Training', icon: <GraduationCap size={16} />, preview: true },
+  { path: '/admin/training', label: 'Training', icon: <GraduationCap size={16} /> },
   { path: '/admin/files', label: 'Files', icon: <FolderOpen size={16} />, preview: true },
 ];
 

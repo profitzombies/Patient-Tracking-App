@@ -30,12 +30,20 @@ import OfficeDrillIn from '@/pages/admin/OfficeDrillIn';
 import Conversations from '@/pages/admin/Conversations';
 import Team from '@/pages/admin/Team';
 import OrgSettings from '@/pages/admin/OrgSettings';
-import Training from '@/pages/admin/Training';
+import TrainingDashboard from '@/pages/admin/training/TrainingDashboard';
+import TrainingCourses from '@/pages/admin/training/TrainingCourses';
+import CourseEditor from '@/pages/admin/training/CourseEditor';
+import VideoEditor from '@/pages/admin/training/VideoEditor';
+import TrainingViewers from '@/pages/admin/training/TrainingViewers';
+import ViewerProfile from '@/pages/admin/training/ViewerProfile';
+import TrainingAnalytics from '@/pages/admin/training/TrainingAnalytics';
+import LearnerPreview from '@/pages/admin/training/LearnerPreview';
 import Files from '@/pages/admin/Files';
 import { PatientSessionProvider } from '@/contexts/patient-session';
 import { DateRangeProvider } from '@/contexts/date-range';
 import { SessionProvider, useSession } from '@/contexts/session';
 import { HqDataProvider } from '@/contexts/hq-data';
+import { TrainingDataProvider } from '@/contexts/training-data';
 
 const queryClient = new QueryClient();
 
@@ -47,6 +55,10 @@ function AdminArea() {
         {/* Drill-in first: it must win over the general admin chrome below,
             and it mounts the office app (with its own Shell) via `nest`. */}
         <Route path="/admin/accounts/:id/office" nest component={OfficeDrillIn} />
+        {/* Learner-facing course preview renders without the admin chrome,
+            like the office drill-in — it simulates what an office teammate
+            sees after opening the share link. */}
+        <Route path="/admin/training/preview/:courseId" component={LearnerPreview} />
         <Route>
           <AdminShell>
             <Switch>
@@ -56,7 +68,13 @@ function AdminArea() {
               <Route path="/admin/conversations" component={Conversations} />
               <Route path="/admin/team" component={Team} />
               <Route path="/admin/settings" component={OrgSettings} />
-              <Route path="/admin/training" component={Training} />
+              <Route path="/admin/training" component={TrainingDashboard} />
+              <Route path="/admin/training/courses" component={TrainingCourses} />
+              <Route path="/admin/training/courses/:courseId/videos/:videoId" component={VideoEditor} />
+              <Route path="/admin/training/courses/:courseId" component={CourseEditor} />
+              <Route path="/admin/training/viewers" component={TrainingViewers} />
+              <Route path="/admin/training/viewers/:viewerId" component={ViewerProfile} />
+              <Route path="/admin/training/analytics" component={TrainingAnalytics} />
               <Route path="/admin/files" component={Files} />
               {/* Admin persona anywhere else (including office URLs) → HQ. */}
               <Route>
@@ -95,7 +113,9 @@ function PersonaRouter() {
 
   return (
     <HqDataProvider>
-      <AdminArea />
+      <TrainingDataProvider>
+        <AdminArea />
+      </TrainingDataProvider>
     </HqDataProvider>
   );
 }

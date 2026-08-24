@@ -64,6 +64,10 @@ args = "onboarding-gate"
 task = "workflow.run"
 args = "recipe-nutrition"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "training-invariants"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -192,6 +196,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:recipe-nutrition"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "training-invariants"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:training"
 
 [workflows.workflow.metadata]
 isValidation = true

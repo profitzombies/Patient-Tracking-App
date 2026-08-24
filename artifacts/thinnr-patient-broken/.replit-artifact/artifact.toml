@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/thinnr-patient-broken/"
+title = "THINNR Patient (Broken Demo)"
+description = "A deliberately rough, stripped-down patient companion for THINNR with the same core daily nutrition, diary, recipe, coach, progress, library, and plan flows presented as an intentionally broken-looking prototype."
+version = "1.0.0"
+id = "artifacts/thinnr-patient-broken"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/thinnr-patient-broken/" ]
+localPort = 25049
+
+[services.development]
+run = "pnpm --filter @workspace/thinnr-patient-broken run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/thinnr-patient-broken", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/thinnr-patient-broken", "run", "serve" ]
+
+[services.env]
+PORT = "25049"
+BASE_PATH = "/thinnr-patient-broken/"

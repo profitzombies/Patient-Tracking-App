@@ -28,6 +28,15 @@ export type RoleStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type SignUpOutcome = 'session' | 'confirm-email' | 'verify-phone' | 'error';
 
 const STORAGE_KEY = 'thinnr-ops-persona';
+const STAFF_ROLE_POLL_MS = 10_000;
+
+function isAuthRole(value: unknown): value is AuthRole {
+  return value === 'hq_admin' || value === 'provider_staff' || value === 'patient';
+}
+
+function isStaffRole(role: AuthRole | null): role is 'hq_admin' | 'provider_staff' {
+  return role === 'hq_admin' || role === 'provider_staff';
+}
 
 /** sessionStorage can throw (privacy modes); the demo degrades to in-memory. */
 function readStoredPersona(): Persona | null {
@@ -149,6 +158,56 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [userId, roleNonce]);
+
+  // A staff approval can be revoked while the browser is open. Realtime gives
+  // an immediate update where enabled; polling is the safe fallback for
+  // projects that have not published profiles to Realtime yet.
+  useEffect(() => {
+    const client = supabase;
+    if (!client || !userId || !isStaffRole(authRole)) return;
+    let disposed = false;
+
+    const refreshActiveStaffRole = async () => {
+      const { data, error } = await client
+        .from('profiles')
+        .select('role, display_name')
+        .eq('id', userId)
+        .maybeSingle();
+      if (disposed) return;
+
+      const nextRole = data?.role;
+      if (error || !data || !isAuthRole(nextRole) || nextRole === 'patient') {
+        // Remove privileged UI before invalidating the persisted auth session.
+        setAuthRole(nextRole === 'patient' ? nextRole : null);
+        setProfileName(null);
+        setRoleStatus(error || !data ? 'error' : 'ready');
+        writeStoredPersona(null);
+        setDemoPersona(null);
+        await client.auth.signOut();
+        return;
+      }
+
+      setAuthRole(nextRole);
+      setProfileName((data.display_name as string | null) ?? null);
+      setRoleStatus('ready');
+    };
+
+    const channel = client
+      .channel(`thinnr-active-role-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+        () => void refreshActiveStaffRole(),
+      )
+      .subscribe();
+    const pollId = window.setInterval(() => void refreshActiveStaffRole(), STAFF_ROLE_POLL_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(pollId);
+      void client.removeChannel(channel);
+    };
+  }, [userId, authRole]);
 
   const signIn = useCallback((next: Persona) => {
     writeStoredPersona(next);

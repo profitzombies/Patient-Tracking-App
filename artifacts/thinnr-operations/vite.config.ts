@@ -29,6 +29,14 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
+  // Only the publishable client settings are compiled into the browser bundle.
+  // Never expose SUPABASE_SERVICE_ROLE_KEY through Vite.
+  define: {
+    'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.SUPABASE_URL ?? ''),
+    'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify(
+      process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY ?? '',
+    ),
+  },
   plugins: [
     react(),
     tailwindcss(),

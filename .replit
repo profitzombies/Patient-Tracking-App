@@ -241,3 +241,6 @@ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_x_jS0otm2b7K8wc_HLXbUg_6D
 EXPO_PUBLIC_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
 VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_x_jS0otm2b7K8wc_HLXbUg_6Dq3_Haz"
 VITE_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
+
+[nix]
+channel = "stable-25_05"

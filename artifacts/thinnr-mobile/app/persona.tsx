@@ -8,7 +8,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { supabase, useSupabaseSession } from '@/lib/supabase';
@@ -84,7 +84,9 @@ export default function PersonaScreen() {
   // simulated onboarding) stays one tap away from there.
   const openPatientLogin = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/patient-login');
+    // This screen is registered in the root Stack. Cast while Expo's generated
+    // typed-route cache catches up with the newly added route file.
+    router.push('/patient-login' as Href);
   };
 
   const signOutReal = async () => {

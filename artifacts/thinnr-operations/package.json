@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:parity": "TZ=UTC tsx scripts/verify-demo-parity.ts && TZ=Pacific/Kiritimati tsx scripts/verify-demo-parity.ts && TZ=America/Anchorage tsx scripts/verify-demo-parity.ts",
     "test:training": "tsx scripts/verify-training.ts",
-    "test:conversations": "TZ=UTC tsx scripts/verify-conversations.ts && TZ=Pacific/Kiritimati tsx scripts/verify-conversations.ts && TZ=America/Anchorage tsx scripts/verify-conversations.ts"
+    "test:conversations": "TZ=UTC tsx scripts/verify-conversations.ts && TZ=Pacific/Kiritimati tsx scripts/verify-conversations.ts && TZ=America/Anchorage tsx scripts/verify-conversations.ts",
+    "test:supabase-roles": "tsx scripts/verify-supabase-role-revocation.ts"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

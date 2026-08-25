@@ -35,4 +35,4 @@
 - [Expo multi-artifact preview routing](expo-multi-artifact-preview.md) — multiple Expo apps can share a direct domain; verify the intended artifact by local port and served title.
 - [Provider-scope pattern](provider-scope-pattern.md) — office screens read via useScoped* hooks (unscoped = exact singletons, byte-identical demo); HQ accounts must partition program totals exactly.
 - [URL-persisted admin filters](url-state-admin-filters.md) — query string as single source of truth; per-keystroke replace-navigation verified safe (no focus loss, no scroll reset) on HQ pages.
-- [Supabase e2e auth seeding](supabase-auth-seeding.md) — hosted signup rejects example.com and the mailer 429s; seed test users via SQL into auth.users+identities with crypt(), prove via password grant, delete cascades.
+- [Supabase profile migrations](supabase-profile-migrations.md) — profile RLS migrations must carry their own non-recursive admin helper and tolerate the legacy profile shape.

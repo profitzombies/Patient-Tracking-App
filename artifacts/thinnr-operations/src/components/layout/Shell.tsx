@@ -48,7 +48,7 @@ export function Shell({ children }: { children: ReactNode }) {
   // HQ drill-in scope: null in the standalone office demo. When scoped, the
   // shell rebrands to the drilled-in office and fits under the HQ banner.
   const scope = useProviderScope();
-  const { signOut } = useSession();
+  const { signOut, authStatus, authRole, authUser } = useSession();
   const patients = useScopedPatients();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollPositionsRef = useRef(new Map<string, number>());
@@ -103,6 +103,20 @@ export function Shell({ children }: { children: ReactNode }) {
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     description?.setAttribute('content', `Synthetic THINNR med spa operations demo: ${activeItem.label.toLowerCase()}, patient progress, outcomes, and recurring deliveries.`);
   }, [activeItem.label, scope]);
+
+  // The account chip shows the real signed-in staffer when there is one; the
+  // demo persona and the HQ drill-in keep their seeded identities.
+  const isRealStaff = authStatus === 'signed-in' && authRole === 'provider_staff' && authUser !== null;
+  const accountName = isRealStaff
+    ? (authUser.displayName ?? 'Office staff')
+    : scope
+      ? scope.providerName
+      : 'Dr. Sarah Jenkins';
+  const accountRole = isRealStaff
+    ? (scope?.officeName ?? 'Office staff')
+    : scope
+      ? scope.providerRole
+      : 'Medical Director';
 
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -232,11 +246,11 @@ export function Shell({ children }: { children: ReactNode }) {
               className="ml-1 flex items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span className="grid h-8 w-8 place-items-center rounded-md bg-primary text-[10px] font-bold text-primary-foreground shadow-xs">
-                {scope ? initialsOf(scope.providerName) : 'SJ'}
+                {initialsOf(accountName)}
               </span>
               <span className="hidden text-left md:block">
-                <b className="block text-xs font-semibold text-navy">{scope ? scope.providerName : 'Dr. Sarah Jenkins'}</b>
-                <small className="text-[10px] text-muted-foreground">{scope ? scope.providerRole : 'Medical Director'}</small>
+                <b className="block text-xs font-semibold text-navy">{accountName}</b>
+                <small className="text-[10px] text-muted-foreground">{accountRole}</small>
               </span>
               <ChevronDown size={13} className="text-muted-foreground" />
             </button>

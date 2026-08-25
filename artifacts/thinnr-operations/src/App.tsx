@@ -115,9 +115,16 @@ function ScopedOfficeApp() {
     [authStatus, providerAccountCode],
   );
   if (!account) return <OfficeApp />;
+  // Standalone scoped desk (real staff sign-in): the Shell switches to h-full
+  // in scoped mode because the HQ drill-in sizes it under its banner. Standalone
+  // must provide that viewport-height frame itself — without it the whole
+  // document scrolls, unpinning the header/tab bar and making mobile Safari's
+  // collapsing URL bar reflow the page on every scroll.
   return (
     <ProviderScopeProvider account={account}>
-      <OfficeApp />
+      <div className="h-[100dvh]">
+        <OfficeApp />
+      </div>
     </ProviderScopeProvider>
   );
 }

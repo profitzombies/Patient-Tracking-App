@@ -24,7 +24,7 @@
  * re-syncs positions from the transformed course (see syncPlacements), so
  * "append at length" is always correct and assembly order is stable.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -282,32 +282,31 @@ const EMPTY_COMPLETIONS: TrainingCompletion[] = [];
 
 export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const { authStatus, authRole, authUser, providerAccountCode } = useSession();
+  const { authStatus, authRole, authUser, providerAccountCode, roleStatus } = useSession();
   const canEdit = authStatus === 'signed-in' && authRole === 'hq_admin';
   const canAddStaff =
     authStatus === 'signed-in' && (authRole === 'hq_admin' || authRole === 'provider_staff');
 
-  const query = useQuery({
-    queryKey: TRAINING_QUERY_KEY,
-    queryFn: fetchSnapshot,
-    enabled: supabase !== null,
-    staleTime: 30_000,
-  });
-
   // Row-level security widens/narrows what the snapshot can see as auth
   // changes (e.g. provider staff gain their office's non-demo rows), so the
-  // cached snapshot is stale the moment the signed-in user changes.
+  // cache is PARTITIONED by auth scope: each scope (user + role + office) gets
+  // its own snapshot entry, and one scope's rows can never be served to
+  // another — including across provider remounts (sign-out → sign-in), where
+  // an in-place invalidation would never fire.
   const authUserId = authUser?.id ?? null;
-  // Refetch whenever the AUTH SCOPE changes, not just the user: a role change
-  // or an office reassignment alters what RLS lets this session read, and a
-  // cached snapshot from the previous scope would leak the old office's rows.
   const authScopeKey = `${authUserId ?? 'anon'}:${authRole ?? 'none'}:${providerAccountCode ?? ''}`;
-  const lastAuthScopeRef = useRef(authScopeKey);
-  useEffect(() => {
-    if (lastAuthScopeRef.current === authScopeKey) return;
-    lastAuthScopeRef.current = authScopeKey;
-    void queryClient.invalidateQueries({ queryKey: TRAINING_QUERY_KEY });
-  }, [authScopeKey, queryClient]);
+  // Fetch only once auth has settled (session + profile resolved): the scope
+  // key is meaningless mid-boot, and gating here means the boot sequence runs
+  // exactly one fetch instead of one per transition (anon → role → office).
+  const scopeSettled =
+    authStatus !== 'loading' &&
+    (authStatus !== 'signed-in' || roleStatus === 'ready' || roleStatus === 'error');
+  const query = useQuery({
+    queryKey: [...TRAINING_QUERY_KEY, authScopeKey],
+    queryFn: fetchSnapshot,
+    enabled: supabase !== null && scopeSettled,
+    staleTime: 30_000,
+  });
 
   const courses = query.data?.courses ?? EMPTY_COURSES;
   const viewers = query.data?.viewers ?? EMPTY_VIEWERS;

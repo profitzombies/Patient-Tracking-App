@@ -26,6 +26,9 @@ import { officeCourseStats, officeRoster, videoAvailability, videoTeamDone } fro
 import { TrainingLoading, TrainingLoadError } from '@/components/admin/training/shared';
 import { CHIP_COBALT, MICRO_LABEL, SectionCard } from '@/components/patient/heritage';
 
+/** Page frame — office pages pad themselves; same rhythm as the other screens. */
+const PAGE_WRAP = 'mx-auto max-w-[1320px] space-y-6 px-4 py-6 sm:px-5 sm:py-7 md:px-8';
+
 export default function OfficeTrainingCourse({ params }: { params: { courseId: string } }) {
   const {
     status,
@@ -77,7 +80,7 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
 
   if (status !== 'ready') {
     return (
-      <div className="space-y-6">
+      <div className={PAGE_WRAP}>
         {backLink}
         {status === 'loading' ? <TrainingLoading /> : <TrainingLoadError message={errorMessage} onRetry={refresh} />}
       </div>
@@ -86,7 +89,7 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
 
   if (!course || !isLive) {
     return (
-      <div className="space-y-6">
+      <div className={PAGE_WRAP}>
         {backLink}
         <SectionCard title="This course isn't available">
           <p className="px-5 py-6 text-xs text-muted-foreground" data-testid="text-course-unavailable">
@@ -110,7 +113,7 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
   let lastModuleId: string | null = null;
 
   return (
-    <div className="space-y-6">
+    <div className={PAGE_WRAP}>
       <header className="space-y-3">
         {backLink}
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -153,7 +156,7 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
               <li key={item.video.id} className="last:pb-2">
                 {moduleHeader}
                 <div
-                  className={`flex items-center gap-3 px-5 py-3 ${availability === 'locked' ? 'opacity-55' : ''}`}
+                  className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-5 ${availability === 'locked' ? 'opacity-55' : ''}`}
                   data-testid={`row-video-${item.video.id}`}
                 >
                   <span
@@ -174,7 +177,7 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
                       <Lock size={14} />
                     )}
                   </span>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-[200px] flex-1">
                     <p className="truncate text-xs font-semibold text-navy">
                       <span className="mr-1.5 text-muted-foreground">{item.numbering}</span>
                       {item.video.title}
@@ -188,7 +191,7 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
                   </div>
                   {canMark && (
                     <button
-                      className="shrink-0 rounded-md border border-accent-border bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-primary transition hover:bg-accent/70 disabled:opacity-60"
+                      className="ml-auto inline-flex h-9 shrink-0 items-center rounded-md border border-accent-border bg-accent px-3 text-xs font-semibold text-primary transition hover:bg-accent/70 disabled:opacity-60 sm:h-8"
                       onClick={() => void markComplete(item.video.id, item.video.title)}
                       disabled={markingId !== null}
                       data-testid={`button-mark-${item.video.id}`}

@@ -41,6 +41,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+/** Page frame — office pages pad themselves; same rhythm as the other screens. */
+const PAGE_WRAP = 'mx-auto max-w-[1320px] space-y-6 px-4 py-6 sm:px-5 sm:py-7 md:px-8';
+
 export default function OfficeTraining() {
   const {
     status,
@@ -158,8 +161,8 @@ export default function OfficeTraining() {
             : 'THINNR program training across every office in the demo.'}
         </p>
       </div>
-      <button className={BTN_PRIMARY} onClick={openAddTeammate} data-testid="button-add-teammate">
-        <Plus size={14} className="mr-1.5 inline-block" aria-hidden="true" />
+      <button className={`${BTN_PRIMARY} h-9 shrink-0 px-4`} onClick={openAddTeammate} data-testid="button-add-teammate">
+        <Plus size={14} aria-hidden="true" />
         Add teammate
       </button>
     </header>
@@ -167,7 +170,7 @@ export default function OfficeTraining() {
 
   if (status !== 'ready') {
     return (
-      <div className="space-y-6">
+      <div className={PAGE_WRAP}>
         {header}
         {status === 'loading' ? <TrainingLoading /> : <TrainingLoadError message={errorMessage} onRetry={refresh} />}
       </div>
@@ -175,7 +178,7 @@ export default function OfficeTraining() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={PAGE_WRAP}>
       {header}
 
       {myViewer && primaryCourse && self && (
@@ -193,7 +196,7 @@ export default function OfficeTraining() {
               <div className="h-full bg-primary transition-all" style={{ width: `${self.pct}%` }} />
             </div>
             {self.next ? (
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className={MICRO_LABEL}>Next up — {self.next.numbering}</p>
                   <p className="mt-0.5 truncate text-sm font-semibold text-navy" data-testid="text-next-video">
@@ -202,7 +205,7 @@ export default function OfficeTraining() {
                   <p className="mt-0.5 text-xs text-muted-foreground">{formatClock(self.next.video.duration)}</p>
                 </div>
                 <button
-                  className={BTN_PRIMARY}
+                  className={`${BTN_PRIMARY} h-9 w-full px-4 sm:w-auto sm:shrink-0`}
                   onClick={() => void markNext()}
                   disabled={marking}
                   data-testid="button-mark-next-complete"
@@ -253,15 +256,15 @@ export default function OfficeTraining() {
         }
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-xs">
+          <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
-                <th className="px-5 py-3 font-bold">Name</th>
-                <th className="px-3 py-3 font-bold">Email</th>
-                {!accountId && <th className="px-3 py-3 font-bold">Office</th>}
+                <th className="px-4 py-3 font-bold sm:px-5">Name</th>
+                <th className="hidden px-3 py-3 font-bold lg:table-cell">Email</th>
+                {!accountId && <th className="hidden px-3 py-3 font-bold xl:table-cell">Office</th>}
                 <th className="px-3 py-3 font-bold">Progress</th>
-                <th className="px-3 py-3 text-right font-bold">Watch time</th>
-                <th className="px-5 py-3 text-right font-bold">Last active</th>
+                <th className="hidden px-3 py-3 text-right font-bold sm:table-cell">Watch time</th>
+                <th className="px-4 py-3 text-right font-bold sm:px-5">Last active</th>
               </tr>
             </thead>
             <tbody>
@@ -272,17 +275,26 @@ export default function OfficeTraining() {
                     className="border-b border-border transition hover:bg-accent/40 last:border-b-0"
                     data-testid={`row-team-${entry.viewer.id}`}
                   >
-                    <td className="px-5 py-3">
-                      <span className="font-semibold text-navy">{entry.viewer.name}</span>
-                      {entry.isSelf && (
-                        <span className={`${CHIP_COBALT} ml-2`} data-testid="chip-you">
-                          You
+                    <td className="px-4 py-3 sm:px-5">
+                      <div className="flex items-center gap-2">
+                        <span className="max-w-[9.5rem] truncate font-semibold text-navy sm:max-w-none">
+                          {entry.viewer.name}
                         </span>
-                      )}
+                        {entry.isSelf && (
+                          <span className={`${CHIP_COBALT} shrink-0`} data-testid="chip-you">
+                            You
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 max-w-[11rem] truncate text-[11px] text-muted-foreground lg:hidden">
+                        {entry.viewer.email}
+                      </p>
                     </td>
-                    <td className="px-3 py-3 text-muted-foreground">{entry.viewer.email}</td>
+                    <td className="hidden px-3 py-3 text-muted-foreground lg:table-cell">
+                      <span className="block max-w-[260px] truncate">{entry.viewer.email}</span>
+                    </td>
                     {!accountId && (
-                      <td className="px-3 py-3 text-muted-foreground">
+                      <td className="hidden px-3 py-3 text-muted-foreground xl:table-cell">
                         {entry.viewer.accountId
                           ? (findSeededAccount(entry.viewer.accountId)?.officeName ?? entry.viewer.accountId)
                           : '—'}
@@ -298,8 +310,10 @@ export default function OfficeTraining() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-right text-muted-foreground">{formatHours(entry.watchSeconds)}</td>
-                    <td className="px-5 py-3 text-right text-muted-foreground whitespace-nowrap">
+                    <td className="hidden px-3 py-3 text-right text-muted-foreground sm:table-cell">
+                      {formatHours(entry.watchSeconds)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap sm:px-5">
                       {formatLastSeen(entry.viewer)}
                     </td>
                   </tr>
@@ -360,7 +374,7 @@ export default function OfficeTraining() {
           </div>
           <DialogFooter>
             <button
-              className={BTN_PRIMARY}
+              className={`${BTN_PRIMARY} h-9 w-full px-4 sm:w-auto`}
               onClick={() => void submitTeammate()}
               disabled={saving || newName.trim() === '' || newEmail.trim() === ''}
               data-testid="button-save-teammate"

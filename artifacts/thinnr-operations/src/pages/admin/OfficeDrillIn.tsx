@@ -31,7 +31,7 @@ export default function OfficeDrillIn() {
             {account.officeName} has no patients linked. The dashboard unlocks once patients onboard in the mobile app
             with provider code <span className="font-mono tracking-[.08em] text-foreground">{account.providerCode}</span>.
           </p>
-          <Link href="~/admin" className={`${BTN_SECONDARY} mt-5 h-9 px-3.5`} data-testid="link-back-to-hq">
+          <Link href={`~/admin/accounts/${account.id}`} className={`${BTN_SECONDARY} mt-5 h-9 px-3.5`} data-testid="link-back-to-hq">
             <ArrowLeft size={14} aria-hidden="true" />
             Back to HQ
           </Link>
@@ -55,7 +55,7 @@ export default function OfficeDrillIn() {
           </span>
         </p>
         <Link
-          href="~/admin"
+          href={`~/admin/accounts/${account.id}`}
           data-testid="link-back-to-hq"
           className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-brand-foreground/30 bg-brand-foreground/10 px-2.5 text-[11px] font-semibold text-brand-foreground transition hover:bg-brand-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-foreground/60"
         >

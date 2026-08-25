@@ -9,6 +9,7 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard-systems/OperationsSignalPress.tsx": () => import("../components/mockups/dashboard-systems/OperationsSignalPress.tsx"),
   "./components/mockups/dashboard-systems/OperationsSystem.tsx": () => import("../components/mockups/dashboard-systems/OperationsSystem.tsx"),
   "./components/mockups/dashboard-systems/OperationsUltravioletGrid.tsx": () => import("../components/mockups/dashboard-systems/OperationsUltravioletGrid.tsx"),
+  "./components/mockups/side-menu/Porcelain.tsx": () => import("../components/mockups/side-menu/Porcelain.tsx"),
   "./components/mockups/patient-home/CobaltHeritage.tsx": () => import("../components/mockups/patient-home/CobaltHeritage.tsx"),
   "./components/mockups/patient-home/CobaltSignal.tsx": () => import("../components/mockups/patient-home/CobaltSignal.tsx"),
   "./components/mockups/patient-home/CobaltThaw.tsx": () => import("../components/mockups/patient-home/CobaltThaw.tsx"),

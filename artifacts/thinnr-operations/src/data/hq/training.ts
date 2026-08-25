@@ -1030,3 +1030,54 @@ export function getVideoEngagement(videoId: string, completions: TrainingComplet
     completionPct: started > 0 ? Math.round((completed / started) * 1000) / 10 : null,
   };
 }
+
+export interface RetentionPoint {
+  /** Seconds from the start of the video. */
+  at: number;
+  /** Share of this video's watchers still watching at `at`, 0-100 (one decimal). */
+  pct: number;
+}
+
+export interface VideoRetention {
+  /** Viewers with any watch row on this video. */
+  viewers: number;
+  /**
+   * Survival curve sampled evenly from 0 to the runtime (inclusive). Empty
+   * when nobody has watched or the runtime is zero — the UI shows an honest
+   * empty state instead of a fake flat line.
+   */
+  points: RetentionPoint[];
+}
+
+/**
+ * Survival curve for one video: at each sampled timestamp, the share of its
+ * watchers whose watch position reaches at least that far. A completed row
+ * counts as watched to the end; an in-progress row counts up to its recorded
+ * watchSeconds, clamped to the runtime (rewatch metadata can exceed it).
+ *
+ * Deliberately timestamp-free: `completedAt` is only checked for presence and
+ * nothing is ever Date-parsed, so the curve is byte-identical in every
+ * timezone and across renders (no clock reads).
+ */
+export function getVideoRetention(
+  video: Pick<TrainingVideo, 'id' | 'duration'>,
+  completions: TrainingCompletion[],
+  samples = 48,
+): VideoRetention {
+  const duration = Math.max(0, Math.round(video.duration));
+  const stops: number[] = [];
+  for (const row of completions) {
+    if (row.videoId !== video.id) continue;
+    stops.push(row.completedAt ? duration : Math.min(Math.max(0, row.watchSeconds), duration));
+  }
+  const viewers = stops.length;
+  if (viewers === 0 || duration <= 0 || samples < 1) return { viewers, points: [] };
+  const points: RetentionPoint[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const at = (duration * i) / samples;
+    let still = 0;
+    for (const stop of stops) if (stop >= at) still += 1;
+    points.push({ at, pct: Math.round((still / viewers) * 1000) / 10 });
+  }
+  return { viewers, points };
+}

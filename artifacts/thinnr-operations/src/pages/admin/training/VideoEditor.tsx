@@ -40,9 +40,11 @@ import {
   formatClock,
   formatHours,
   getVideoEngagement,
+  getVideoRetention,
   hashId,
   type TrainingChapter,
-  type TrainingVideo
+  type TrainingVideo,
+  type VideoRetention
 } from '@/data/hq/training';
 import { useTrainingData, type VideoPatch } from '@/contexts/training-data';
 import {
@@ -64,6 +66,55 @@ const UNLOCK_LABELS: Record<TrainingVideo['unlock'], string> = {
   sequential: 'Sequential',
   free: 'Free'
 };
+
+/**
+ * Survival area chart for the Retention card — pure geometry from the sampled
+ * curve (no clocks, no randomness), so the same rows always paint the same
+ * shape. The stretched viewBox plus non-scaling strokes keep the line crisp
+ * at any rail width.
+ */
+function RetentionChart({ points }: { points: VideoRetention['points'] }) {
+  const width = 100;
+  const height = 36;
+  const duration = points[points.length - 1]?.at || 1;
+  const coords = points.map(
+    (point) => `${((point.at / duration) * width).toFixed(2)},${(height - (point.pct / 100) * height).toFixed(2)}`,
+  );
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      className="block h-28 w-full text-primary"
+      aria-hidden="true"
+      data-testid="retention-chart"
+    >
+      {[0.25, 0.5, 0.75].map((fraction) => (
+        <line
+          key={fraction}
+          x1="0"
+          y1={height * fraction}
+          x2={width}
+          y2={height * fraction}
+          className="text-border"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeDasharray="2 4"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+      <polygon points={`0,${height} ${coords.join(' ')} ${width},${height}`} fill="currentColor" fillOpacity="0.14" />
+      <polyline
+        points={coords.join(' ')}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
 
 export default function VideoEditor() {
   const [, params] = useRoute('/admin/training/courses/:courseId/videos/:videoId');
@@ -213,6 +264,7 @@ export default function VideoEditor() {
 
   const currentChapterIndex = chapterIndexAt({ chapters: draft.chapters ?? [] }, scrub);
   const engagement = getVideoEngagement(video.id, completions);
+  const retention = getVideoRetention({ id: video.id, duration: durationSecs }, completions);
 
   const generateDescription = () => {
     setAiSpinner('desc');
@@ -304,6 +356,7 @@ export default function VideoEditor() {
   return (
     <AdminPage>
       <PageHeader
+        className="mx-auto max-w-[1200px]"
         kicker="Enablement — Training"
         title={
           <span className="flex items-center gap-2">
@@ -325,15 +378,15 @@ export default function VideoEditor() {
                 Discard
               </button>
             )}
-            <Link href={`/admin/training/preview/${course.id}`} className={BTN_SECONDARY}>
+            <Link href={`/admin/training/preview/${course.id}`} className={`${BTN_SECONDARY} h-9 px-3.5`}>
               <Eye size={14} /> Preview page
             </Link>
-            <Link href={`/admin/training/courses/${course.id}`} className={BTN_SECONDARY}>
+            <Link href={`/admin/training/courses/${course.id}`} className={`${BTN_SECONDARY} h-9 px-3.5`}>
               View course
             </Link>
             <button
               type="button"
-              className={BTN_PRIMARY}
+              className={`${BTN_PRIMARY} h-9 px-4 disabled:cursor-not-allowed disabled:opacity-50`}
               onClick={handleSave}
               disabled={!isDirty}
               data-testid="button-save-video"
@@ -344,8 +397,8 @@ export default function VideoEditor() {
         }
       />
 
-      <div className="flex flex-col lg:flex-row gap-6">
-        <div className="flex-1 flex flex-col gap-6 min-w-0">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 lg:flex-row">
+        <div className="flex min-w-0 flex-col gap-6 lg:w-[60%]">
           
           {/* Player Card */}
           <SectionCard title={null} className="p-0 overflow-hidden">
@@ -394,65 +447,6 @@ export default function VideoEditor() {
                 {formatClock(scrub)} / {formatClock(durationSecs)}
               </div>
             </div>
-          </SectionCard>
-
-          {/* Chapters Card */}
-          <SectionCard 
-            title="Chapters" 
-            sub="Chapters drive the slides, the timeline ticks and the thumbnail picker."
-            action={
-              <button 
-                type="button"
-                className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors"
-                onClick={generateChapters}
-                disabled={aiSpinner === 'chapters'}
-              >
-                {aiSpinner === 'chapters' ? <RefreshCw size={12} className="animate-spin" /> : <Wand2 size={12} />}
-                Generate with AI
-              </button>
-            }
-          >
-             <div className="p-4 border-b border-border bg-card">
-               <button 
-                 type="button"
-                 className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
-                 onClick={addChapter}
-               >
-                 <Plus size={12} /> Add at current time
-               </button>
-             </div>
-             <div className="divide-y divide-border">
-               {(draft.chapters ?? []).map((ch, i) => (
-                 <div key={ch.id} className="flex items-center gap-3 p-3 bg-card hover:bg-secondary/50 group">
-                   <span className="text-[10px] font-bold text-muted-foreground w-6 text-center">{i + 1}</span>
-                   <input
-                     type="text"
-                     className={`${INPUT_CLASS} w-16 h-8 text-center px-1 font-mono`}
-                     value={formatClock(ch.at)}
-                     onChange={(e) => {
-                       const parts = e.target.value.split(':');
-                       if (parts.length === 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]))) {
-                         updateChapter(ch.id, { at: Number(parts[0]) * 60 + Number(parts[1]) });
-                       }
-                     }}
-                   />
-                   <input
-                     type="text"
-                     className={`${INPUT_CLASS} flex-1 h-8`}
-                     value={ch.title}
-                     onChange={(e) => updateChapter(ch.id, { title: e.target.value })}
-                   />
-                   <button 
-                     type="button"
-                     className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
-                     onClick={() => removeChapter(ch.id)}
-                     disabled={(draft.chapters ?? []).length <= 1}
-                   >
-                     <Trash2 size={14} />
-                   </button>
-                 </div>
-               ))}
-             </div>
           </SectionCard>
 
           {/* Details Card */}
@@ -558,9 +552,68 @@ export default function VideoEditor() {
               </div>
             </div>
           </SectionCard>
+
+          {/* Chapters Card */}
+          <SectionCard 
+            title="Chapters" 
+            sub="Chapters drive the slides, the timeline ticks and the thumbnail picker."
+            action={
+              <button 
+                type="button"
+                className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors"
+                onClick={generateChapters}
+                disabled={aiSpinner === 'chapters'}
+              >
+                {aiSpinner === 'chapters' ? <RefreshCw size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                Generate with AI
+              </button>
+            }
+          >
+             <div className="p-4 border-b border-border bg-card">
+               <button 
+                 type="button"
+                 className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                 onClick={addChapter}
+               >
+                 <Plus size={12} /> Add at current time
+               </button>
+             </div>
+             <div className="divide-y divide-border">
+               {(draft.chapters ?? []).map((ch, i) => (
+                 <div key={ch.id} className="flex items-center gap-3 p-3 bg-card hover:bg-secondary/50 group">
+                   <span className="text-[10px] font-bold text-muted-foreground w-6 text-center">{i + 1}</span>
+                   <input
+                     type="text"
+                     className={`${INPUT_CLASS} w-16 h-8 text-center px-1 font-mono`}
+                     value={formatClock(ch.at)}
+                     onChange={(e) => {
+                       const parts = e.target.value.split(':');
+                       if (parts.length === 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]))) {
+                         updateChapter(ch.id, { at: Number(parts[0]) * 60 + Number(parts[1]) });
+                       }
+                     }}
+                   />
+                   <input
+                     type="text"
+                     className={`${INPUT_CLASS} flex-1 h-8`}
+                     value={ch.title}
+                     onChange={(e) => updateChapter(ch.id, { title: e.target.value })}
+                   />
+                   <button 
+                     type="button"
+                     className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
+                     onClick={() => removeChapter(ch.id)}
+                     disabled={(draft.chapters ?? []).length <= 1}
+                   >
+                     <Trash2 size={14} />
+                   </button>
+                 </div>
+               ))}
+             </div>
+          </SectionCard>
         </div>
 
-        <div className="lg:w-[360px] flex flex-col gap-6 shrink-0">
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
           
           {/* Media Card */}
           <SectionCard title="Media">
@@ -681,13 +734,39 @@ export default function VideoEditor() {
             </div>
           </SectionCard>
 
-          {/* Engagement Card — real numbers from completion rows */}
-          <SectionCard 
-            title="Engagement"
-            sub="Live numbers from this video's completion rows."
+          {/* Retention Card — survival curve + this video's live engagement numbers */}
+          <SectionCard
+            title="Retention"
+            sub="Share of viewers still watching at each point of the timeline."
           >
             <div className="p-5">
-              <div className="grid grid-cols-2 gap-4">
+              {retention.points.length > 0 ? (
+                <div data-testid="panel-retention-curve">
+                  <div
+                    role="img"
+                    aria-label={`Retention curve: 100% of viewers at the start, ${retention.points[retention.points.length - 1]!.pct}% still watching at ${formatClock(durationSecs)}.`}
+                    className="overflow-hidden rounded-md border border-border bg-secondary/30 p-2"
+                  >
+                    <RetentionChart points={retention.points} />
+                  </div>
+                  <div aria-hidden="true" className="mt-1.5 flex items-center justify-between text-[9px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                    <span>0:00</span>
+                    <span>{formatClock(durationSecs)}</span>
+                  </div>
+                  <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground" data-testid="text-retention-caption">
+                    {retention.viewers} {retention.viewers === 1 ? 'viewer' : 'viewers'} — deep drops show where people stop watching
+                  </p>
+                </div>
+              ) : (
+                <p
+                  className="rounded-md border border-dashed border-border bg-secondary/30 px-4 py-6 text-center text-xs text-muted-foreground"
+                  data-testid="text-retention-empty"
+                >
+                  No viewer has opened this video yet — the retention curve fills in as people watch.
+                </p>
+              )}
+
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-border pt-4">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Started</p>
                   <p className="mt-1 font-serif text-[22px] font-bold leading-none text-navy" data-testid="text-engagement-started">
@@ -713,31 +792,26 @@ export default function VideoEditor() {
                   </p>
                 </div>
               </div>
-              {engagement.started === 0 && (
-                <p className="mt-4 text-[10px] leading-relaxed text-muted-foreground">
-                  No viewer has opened this video yet.
-                </p>
-              )}
             </div>
           </SectionCard>
 
-          {/* Danger Zone */}
-          <div className="border border-destructive/30 rounded-lg p-5 bg-[#fff0f0]/30 shadow-sm mt-4">
-             <h3 className="text-sm font-semibold text-destructive mb-1.5">Danger Zone</h3>
-             <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-               Deletes this video entry — its chapters, attachment names and all viewer progress. There is no hosted
-               file to remove. This cannot be undone.
-             </p>
-             <button 
-               type="button"
-               className="h-8 px-3 text-xs font-semibold text-destructive border border-destructive bg-card rounded-md hover:bg-destructive hover:text-white transition-colors"
-               onClick={handleRemoveVideo}
-             >
-               Delete video
-             </button>
-          </div>
-
         </div>
+      </div>
+
+      {/* Danger Zone — the page's very last section, below both columns */}
+      <div className="mx-auto mt-6 w-full max-w-[1200px] rounded-lg border border-destructive/30 bg-[#fff0f0]/30 p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-destructive mb-1.5">Danger Zone</h3>
+        <p className="text-xs text-muted-foreground mb-4 leading-relaxed max-w-[68ch]">
+          Deletes this video entry — its chapters, attachment names and all viewer progress. There is no hosted
+          file to remove. This cannot be undone.
+        </p>
+        <button
+          type="button"
+          className="h-8 px-3 text-xs font-semibold text-destructive border border-destructive bg-card rounded-md hover:bg-destructive hover:text-white transition-colors"
+          onClick={handleRemoveVideo}
+        >
+          Delete video
+        </button>
       </div>
 
       <Dialog open={thumbnailDialogOpen} onOpenChange={setThumbnailDialogOpen}>
@@ -771,10 +845,10 @@ export default function VideoEditor() {
           </div>
 
           <DialogFooter>
-            <button type="button" className={BTN_SECONDARY} onClick={() => setThumbnailDialogOpen(false)}>
+            <button type="button" className={`${BTN_SECONDARY} h-9 px-4`} onClick={() => setThumbnailDialogOpen(false)}>
               Cancel
             </button>
-            <button type="button" className={BTN_PRIMARY} onClick={saveThumbnail}>
+            <button type="button" className={`${BTN_PRIMARY} h-9 px-4`} onClick={saveThumbnail}>
               Use this frame
             </button>
           </DialogFooter>

@@ -38,6 +38,7 @@ import {
   getRecentViewers,
   getTrainingTotals,
   getVideoEngagement,
+  getVideoRetention,
   hasStartedVideo,
   isVideoCompleted,
   mapCompletionRow,
@@ -735,6 +736,54 @@ console.log('13. Teammate stats resolve through the office lens across the live 
   const rosterEntry = officeRoster(viewers, 'acct-p1', orderA, index, 'self').find((entry) => entry.viewer.id === 'tm');
   check('teammate page and roster agree on the flagship course',
     rosterEntry !== undefined && tm!.courses[0]!.done === rosterEntry!.done && tm!.courses[0]!.watchSeconds === rosterEntry!.watchSeconds);
+}
+
+console.log('14. Retention survival curve is pure, clamped, and timezone-free');
+{
+  const watchRow = (videoId: string, watchSeconds: number, completedAt: string | null): TrainingCompletion => ({
+    viewerId: `rw-${videoId}-${watchSeconds}-${completedAt ? 'done' : 'part'}`,
+    videoId,
+    watchSeconds,
+    firstWatchedAt: '2026-08-01T00:00:00Z',
+    completedAt,
+  });
+  const rows = [
+    watchRow('rv', 999, '2026-08-02T00:00:00Z'), // completed — counts to the end despite rewatch overflow
+    watchRow('rv', 50, null), // stopped halfway
+    watchRow('rv', 10, null), // stopped early
+    watchRow('other', 100, '2026-08-02T00:00:00Z'), // different video — excluded
+  ];
+  const curve = getVideoRetention({ id: 'rv', duration: 100 }, rows, 4);
+  check('watchers counted for this video only', curve.viewers === 3, String(curve.viewers));
+  check(
+    'curve samples 0..duration inclusive',
+    curve.points.length === 5 && curve.points[0]!.at === 0 && curve.points[4]!.at === 100,
+    JSON.stringify(curve.points.map((point) => point.at)),
+  );
+  check('everyone is watching at the start', curve.points[0]!.pct === 100, String(curve.points[0]!.pct));
+  check(
+    'drops land where watchers stop (50s keeps its watcher, 75s loses them)',
+    curve.points[1]!.pct === 66.7 && curve.points[2]!.pct === 66.7 && curve.points[3]!.pct === 33.3,
+    JSON.stringify(curve.points),
+  );
+  check('completed rows survive to the end, clamped to the runtime', curve.points[4]!.pct === 33.3, String(curve.points[4]!.pct));
+  check('curve never rises', curve.points.every((point, i) => i === 0 || point.pct <= curve.points[i - 1]!.pct));
+  check(
+    'same rows → identical curve (deterministic)',
+    JSON.stringify(getVideoRetention({ id: 'rv', duration: 100 }, rows, 4)) === JSON.stringify(curve),
+  );
+  const mangledTimestamps = rows.map((row) => ({
+    ...row,
+    firstWatchedAt: 'not-a-timestamp',
+    completedAt: row.completedAt ? 'also-not-a-timestamp' : null,
+  }));
+  check(
+    'timestamps are never parsed — only completion presence matters (timezone-safe)',
+    JSON.stringify(getVideoRetention({ id: 'rv', duration: 100 }, mangledTimestamps, 4).points) === JSON.stringify(curve.points),
+  );
+  const untouched = getVideoRetention({ id: 'rv', duration: 100 }, []);
+  check('no watchers → honest empty curve', untouched.viewers === 0 && untouched.points.length === 0);
+  check('zero runtime → no curve', getVideoRetention({ id: 'rv', duration: 0 }, rows).points.length === 0);
 }
 
 if (failures > 0) {

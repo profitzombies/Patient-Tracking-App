@@ -27,11 +27,13 @@ interface PageHeaderProps {
   sub?: ReactNode;
   /** Right-aligned slot for the page's primary action. */
   action?: ReactNode;
+  /** Extra classes for pages that keep a centered measure (e.g. the video editor). */
+  className?: string;
 }
 
-export function PageHeader({ kicker, title, sub, action }: PageHeaderProps) {
+export function PageHeader({ kicker, title, sub, action, className }: PageHeaderProps) {
   return (
-    <header className="mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+    <header className={`mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3 ${className ?? ''}`}>
       <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">{kicker}</p>
         <h1 className="mt-1 font-serif text-[26px] font-bold leading-tight tracking-[-.01em] text-navy">{title}</h1>

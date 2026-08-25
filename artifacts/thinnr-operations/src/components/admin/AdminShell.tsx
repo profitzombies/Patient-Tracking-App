@@ -37,7 +37,7 @@ interface NavItem {
 
 /** Ordered to match the menu's section grouping, top to bottom. */
 const NAV_ITEMS: NavItem[] = [
-  { path: '/admin', label: 'HQ Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
+  { path: '/admin', label: 'Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
   { path: '/admin/accounts', label: 'Provider accounts', mobileLabel: 'Accounts', icon: Building2 },
   { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: MessagesSquare },
   { path: '/admin/team', label: 'Team', icon: Users },

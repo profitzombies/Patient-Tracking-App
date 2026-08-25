@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
+import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { monthlyRevenueOf } from '@/data/hq/accounts';
@@ -288,6 +289,11 @@ export default function AccountDetail() {
             </div>
           </div>
         </SectionCard>
+      </div>
+
+      {/* Staff sign-ins — real office logins, provisioned from this page. */}
+      <div className="mt-5">
+        <StaffAccessCard account={account} />
       </div>
 
       {/* Danger zone — the page's very last section, clearly separated.

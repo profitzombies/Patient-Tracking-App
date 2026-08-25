@@ -13,6 +13,7 @@
     "test:training-access": "tsx scripts/verify-training-access.ts",
     "test:training-staff": "tsx scripts/verify-training-staff.ts",
     "test:account-lock": "tsx scripts/verify-account-lock.ts",
+    "test:staff-logins": "tsx scripts/verify-staff-logins.ts",
     "create:demo-staff": "tsx scripts/create-demo-staff.ts",
     "seed:training": "tsx scripts/seed-training.ts",
     "test:conversations": "TZ=UTC tsx scripts/verify-conversations.ts && TZ=Pacific/Kiritimati tsx scripts/verify-conversations.ts && TZ=America/Anchorage tsx scripts/verify-conversations.ts",

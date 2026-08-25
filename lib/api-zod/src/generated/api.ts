@@ -81,6 +81,143 @@ export const CoachMenuScanResponse = zod.object({
 
 
 /**
+ * HQ admins only. Returns a short-lived presigned PUT URL so the browser uploads the file straight to App Storage (the API never proxies the body), plus the canonical object path to send back to finalize. Nothing is written to the video row until finalize verifies the bytes.
+ * @summary Mint a presigned upload URL for a training video file
+ */
+export const TrainingVideoUploadUrlParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const trainingVideoUploadUrlBodyFileNameMax = 300;
+
+export const trainingVideoUploadUrlBodyContentTypeMax = 100;
+
+export const trainingVideoUploadUrlBodySizeBytesMax = 524288000;
+
+
+
+export const TrainingVideoUploadUrlBody = zod.object({
+  "fileName": zod.string().max(trainingVideoUploadUrlBodyFileNameMax).describe('Original file name, for logs and error copy only'),
+  "contentType": zod.string().max(trainingVideoUploadUrlBodyContentTypeMax).describe('MIME type the browser will send on the PUT (video\/mp4, video\/webm, video\/quicktime)'),
+  "sizeBytes": zod.number().min(1).max(trainingVideoUploadUrlBodySizeBytesMax).describe('File size in bytes; the hard cap is 500 MB')
+})
+
+export const TrainingVideoUploadUrlResponse = zod.object({
+  "uploadUrl": zod.string().describe('Presigned PUT URL, valid for ~15 minutes'),
+  "objectPath": zod.string().describe('Canonical object path to send to finalize; never a URL')
+})
+
+
+/**
+ * HQ admins only. Verifies the uploaded object exists under this video's prefix, ffprobes it (authoritative duration and playability check), persists the object path and duration, clears the previous file's transcript/thumbnail, and deletes the replaced object. Stores only the object path — playback URLs are minted per request.
+ * @summary Attach an uploaded file to the video after verifying it
+ */
+export const TrainingVideoFinalizeParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const trainingVideoFinalizeBodyObjectPathMax = 500;
+
+
+
+export const TrainingVideoFinalizeBody = zod.object({
+  "objectPath": zod.string().max(trainingVideoFinalizeBodyObjectPathMax).describe('The object path returned by upload-url after the PUT succeeded')
+})
+
+export const TrainingVideoFinalizeResponse = zod.object({
+  "videoSource": zod.string().describe('Object path now stored on the video row'),
+  "durationSeconds": zod.number().describe('Duration probed from the file (rounded seconds)')
+})
+
+
+/**
+ * HQ admins only. Clears the video's hosted file, thumbnail, and transcript, and deletes the stored objects. The lesson itself keeps its metadata and returns to the simulated-slides experience.
+ * @summary Remove the hosted file (the lesson row stays)
+ */
+export const TrainingVideoRemoveFileParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const TrainingVideoRemoveFileResponse = zod.object({
+  "removed": zod.boolean()
+})
+
+
+/**
+ * HQ admins and provider staff. Returns signed GET URLs for the video file (and thumbnail when one exists) so the <video> element's range requests hit storage directly — that is what makes seeking work. URLs expire; clients re-request rather than persist them.
+ * @summary Short-lived signed playback URLs for a hosted video
+ */
+export const TrainingVideoMediaParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const TrainingVideoMediaResponse = zod.object({
+  "videoUrl": zod.string().describe('Signed GET URL for the video file; supports range requests'),
+  "thumbnailUrl": zod.string().nullable().describe('Signed GET URL for the captured thumbnail, when one exists'),
+  "expiresAtMs": zod.number().describe('Epoch milliseconds after which these URLs stop working')
+})
+
+
+/**
+ * HQ admins only (the editor's transcript viewer). Segments follow the transcription grid — near-minute slices with start/end seconds.
+ * @summary Timed transcript of the hosted video
+ */
+export const TrainingVideoTranscriptParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const TrainingVideoTranscriptResponse = zod.object({
+  "segments": zod.array(zod.object({
+  "at": zod.number().describe('Segment start in seconds from the top of the video'),
+  "end": zod.number().describe('Segment end in seconds'),
+  "text": zod.string()
+}))
+})
+
+
+/**
+ * HQ admins only. The editor's thumbnail dialog scrubs the real video client-side, then sends the chosen time; the server extracts that frame with ffmpeg, stores it, and replaces the previous thumbnail.
+ * @summary Capture a video frame as the lesson thumbnail
+ */
+export const TrainingVideoThumbnailParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const trainingVideoThumbnailBodyAtSecondsMin = 0;
+export const trainingVideoThumbnailBodyAtSecondsMax = 86400;
+
+
+
+export const TrainingVideoThumbnailBody = zod.object({
+  "atSeconds": zod.number().min(trainingVideoThumbnailBodyAtSecondsMin).max(trainingVideoThumbnailBodyAtSecondsMax).describe('Video time of the frame to capture, clamped to the duration')
+})
+
+export const TrainingVideoThumbnailResponse = zod.object({
+  "thumbnailSource": zod.string().describe('Object path now stored on the video row'),
+  "thumbnailUrl": zod.string().describe('Signed GET URL for immediate display')
+})
+
+
+/**
+ * HQ admins only; one run per video at a time. Streams step-by-step progress as SSE "data:" JSON lines — {"step", "status": "running"|"done"|"failed"|"skipped", ...payload} with comment keepalives — and ends with {"done": true, "ok": boolean}. Steps in order: "transcribe" (audio → timed segments, saved server-side), "describe" (model writes catalog paragraphs from the transcript), "chapters" (model picks chapter starts on the transcription grid), "thumbnail" (first frame captured and stored). Each step persists on success immediately; a failed step reports plainly and later runs can retry just the remaining steps via "steps". Description/chapters are skipped when transcription fails in the same run.
+ * @summary Run the AI pass over the hosted video (SSE progress)
+ */
+export const TrainingVideoProcessParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const trainingVideoProcessBodyStepsMax = 4;
+
+
+
+export const TrainingVideoProcessBody = zod.object({
+  "steps": zod.array(zod.enum(['transcribe', 'describe', 'chapters', 'thumbnail'])).max(trainingVideoProcessBodyStepsMax).optional().describe('Subset of steps to run, in pipeline order; omit for the full pass. Used by retries to resume from a failed step without re-spending the ones that succeeded.')
+})
+
+export const TrainingVideoProcessResponse = zod.unknown()
+
+
+/**
  * Returns server health status
  * @summary Health check
  */

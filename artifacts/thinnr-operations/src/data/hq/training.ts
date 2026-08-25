@@ -13,9 +13,11 @@
  * scripts/verify-training.ts can exercise it directly. The React layer lives
  * in contexts/training-data.tsx.
  *
- * Videos are METADATA ONLY — no video files exist anywhere. The database
- * keeps a nullable `video_source` slot for a future storage provider; nothing
- * reads or writes it today.
+ * Videos MAY host a real file: `video_source` holds an App Storage object
+ * path written by the API server after a staff upload (never a URL — playback
+ * URLs are short-lived and minted per request). Lessons without a file keep
+ * the simulated slide experience. `thumbnail_source` works the same way for
+ * the captured poster frame.
  */
 
 // ---------------------------------------------------------------------------
@@ -42,7 +44,8 @@ export interface TrainingAttachment {
 export interface TrainingVideo {
   id: string;
   title: string;
-  /** Duration in seconds — editable metadata; no file is hosted anywhere. */
+  /** Duration in seconds — authored by hand until a video file is uploaded,
+   * then measured from the file itself. */
   duration: number;
   published: PublishState;
   unlock: UnlockMode;
@@ -52,6 +55,10 @@ export interface TrainingVideo {
   chapters: TrainingChapter[];
   /** Chapter index whose slide frame is the poster/thumbnail everywhere. */
   thumbnailChapter: number;
+  /** App Storage object path of the hosted video file (null = simulated slides). */
+  videoSource: string | null;
+  /** App Storage object path of the captured thumbnail frame (null = slide poster). */
+  thumbnailSource: string | null;
   attachments: TrainingAttachment[];
 }
 
@@ -167,8 +174,10 @@ export interface TrainingVideoRow {
   thumbnail_chapter: number;
   attachments: unknown;
   position: number;
-  /** Always null today — reserved slot for a future storage provider. */
+  /** App Storage object path when a file is hosted (null = metadata only). */
   video_source: string | null;
+  /** Captured poster frame's object path; optional so older fixtures compile. */
+  thumbnail_source?: string | null;
 }
 
 export interface TrainingViewerRow {
@@ -250,6 +259,8 @@ export function mapVideoRow(row: TrainingVideoRow): TrainingVideo {
     description: sanitizeParagraphs(row.description),
     chapters: sanitizeChapters(row.chapters),
     thumbnailChapter: Math.max(0, row.thumbnail_chapter ?? 0),
+    videoSource: row.video_source ?? null,
+    thumbnailSource: row.thumbnail_source ?? null,
     attachments: sanitizeAttachments(row.attachments),
   };
 }
@@ -504,7 +515,7 @@ export function buildNewVideoDefaults(title: string, chapterIdPrefix: string): O
     unlock: 'sequential',
     addStaff: 'auto',
     description: [
-      `Outline for ${title}. Describe what this walkthrough covers — this entry stores metadata only; video file hosting isn't set up yet.`,
+      `Outline for ${title}. Describe what this walkthrough covers — or upload the video file and let AI draft this from its transcript.`,
     ],
     chapters: titles.map((chapterTitle, index) => ({
       id: `${chapterIdPrefix}-ch${index + 1}`,
@@ -512,6 +523,8 @@ export function buildNewVideoDefaults(title: string, chapterIdPrefix: string): O
       title: chapterTitle,
     })),
     thumbnailChapter: 0,
+    videoSource: null,
+    thumbnailSource: null,
     attachments: [],
   };
 }

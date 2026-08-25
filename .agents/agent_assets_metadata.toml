@@ -1,0 +1,9 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "5201eNMqJ_DycQRhC2KEO"
+uri = "file://tmp/thinnr-e2e/narration.mp3"
+type = "audio"
+title = "thinnr training narration"
+description = "Text-to-speech audio: Welcome to the THINNR consultation walkthrough. In this lesson we cover how the front desk prepares a new patient for their first visit. Before the patient arrives, open their i…"

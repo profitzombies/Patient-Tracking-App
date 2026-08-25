@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRoute, useLocation, Link } from 'wouter';
 import {
+  AlertTriangle,
+  CheckCircle2,
   ChevronRight,
   Eye,
+  FileText,
   Trash2,
   Image as ImageIcon,
   Film,
   Paperclip,
+  Upload,
   X,
   Play,
   Pause,
@@ -48,6 +52,22 @@ import {
 } from '@/data/hq/training';
 import { useTrainingData, type VideoPatch } from '@/contexts/training-data';
 import {
+  captureThumbnail,
+  describeFileProblem,
+  fetchTranscript,
+  finalizeUpload,
+  processVideo,
+  removeVideoFile,
+  requestUploadUrl,
+  resolveVideoType,
+  uploadToStorage,
+  PROCESS_STEPS,
+  type ProcessEvent,
+  type ProcessStep,
+  type TranscriptSegment,
+} from '@/lib/training-media';
+import { HostedVideoPlayer, useVideoMedia } from '@/components/training/HostedVideoPlayer';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -65,6 +85,23 @@ const ADD_STAFF_LABELS: Record<TrainingVideo['addStaff'], string> = {
 const UNLOCK_LABELS: Record<TrainingVideo['unlock'], string> = {
   sequential: 'Sequential',
   free: 'Free'
+};
+
+/** Per-step UI state for the AI pass. `idle` = not attempted this visit. */
+type StepStatus = 'idle' | 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+
+const IDLE_STEPS: Record<ProcessStep, StepStatus> = {
+  transcribe: 'idle',
+  describe: 'idle',
+  chapters: 'idle',
+  thumbnail: 'idle',
+};
+
+const STEP_LABELS: Record<ProcessStep, string> = {
+  transcribe: 'Pull the transcript',
+  describe: 'Write the description',
+  chapters: 'Create the chapters',
+  thumbnail: 'Set the thumbnail',
 };
 
 /**
@@ -137,7 +174,53 @@ export default function VideoEditor() {
   const [thumbnailScrub, setThumbnailScrub] = useState(0);
   const [newAttachmentName, setNewAttachmentName] = useState('');
 
+  // --- Hosted file: upload, AI pass, transcript, thumbnail capture ---
+  const [uploadPhase, setUploadPhase] = useState<'idle' | 'uploading' | 'verifying'>('idle');
+  const [uploadPct, setUploadPct] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [stepStates, setStepStates] = useState<Record<ProcessStep, StepStatus>>(IDLE_STEPS);
+  const [stepErrors, setStepErrors] = useState<Partial<Record<ProcessStep, string>>>({});
+  const [aiActive, setAiActive] = useState(false);
+  const [aiProgress, setAiProgress] = useState<{ done: number; total: number } | null>(null);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptState, setTranscriptState] = useState<{
+    status: 'idle' | 'loading' | 'ready' | 'missing' | 'error';
+    segments: TranscriptSegment[];
+    message?: string;
+  }>({ status: 'idle', segments: [] });
+  const [thumbBusy, setThumbBusy] = useState(false);
+  const [removingFile, setRemovingFile] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const thumbVideoRef = useRef<HTMLVideoElement | null>(null);
+  /** Which video the mounted editor is showing — a still-running upload or AI
+   * stream from a previous video must not touch the current one's UI. */
+  const currentVideoIdRef = useRef<string | null>(null);
+
   const playbackRef = useRef<number | null>(null);
+
+  // Signed playback URLs — only for a real signed-in HQ admin (demo personas
+  // have no staff session, so the fetch would just 401).
+  const { media, loading: mediaLoading, error: mediaError, reload: reloadMedia } = useVideoMedia(
+    locationResult?.video.id ?? '',
+    locationResult?.video.videoSource ?? null,
+    canEdit,
+  );
+
+  // Keep the thumbnail dialog's real-frame preview parked on the scrub time.
+  useEffect(() => {
+    if (!thumbnailDialogOpen) return;
+    const preview = thumbVideoRef.current;
+    if (preview && Number.isFinite(thumbnailScrub)) {
+      try {
+        preview.currentTime = thumbnailScrub;
+      } catch {
+        // Metadata not loaded yet — the element seeks once it is.
+      }
+    }
+  }, [thumbnailDialogOpen, thumbnailScrub, media]);
 
   useEffect(() => {
     return () => {
@@ -167,6 +250,23 @@ export default function VideoEditor() {
         window.clearInterval(playbackRef.current);
         playbackRef.current = null;
       }
+      // Hosted-file UI is per-video: reset it on switch. In-flight work for
+      // the previous video keeps running server-side; its events are ignored
+      // here thanks to currentVideoIdRef.
+      currentVideoIdRef.current = locationResult.video.id;
+      setUploadPhase('idle');
+      setUploadPct(0);
+      setUploadError(null);
+      setDragOver(false);
+      setStepStates(IDLE_STEPS);
+      setStepErrors({});
+      setAiActive(false);
+      setAiProgress(null);
+      setAiNote(null);
+      setTranscriptOpen(false);
+      setTranscriptState({ status: 'idle', segments: [] });
+      setThumbBusy(false);
+      setRemovingFile(false);
     }
   }, [locationResult, draft, draftVideoId]);
 
@@ -202,6 +302,7 @@ export default function VideoEditor() {
   }
 
   const { video, course, module, subgroup } = locationResult;
+  const hosted = Boolean(video.videoSource);
   const durationSecs = draft.duration ?? video.duration;
   const isDirty = JSON.stringify(draft) !== JSON.stringify({
     title: video.title,
@@ -266,7 +367,190 @@ export default function VideoEditor() {
   const engagement = getVideoEngagement(video.id, completions);
   const retention = getVideoRetention({ id: video.id, duration: durationSecs }, completions);
 
+  /**
+   * One SSE event from the AI pass. Results are already persisted server-side
+   * when a step reports done — this mirrors them into the open draft so the
+   * editor shows them instantly, but only if the user is still on that video.
+   */
+  const applyStepEvent = (runVideoId: string, event: ProcessEvent) => {
+    const step = event.step;
+    if (!step) return;
+    const onThisVideo = currentVideoIdRef.current === runVideoId;
+    if (onThisVideo && event.status) {
+      setStepStates((prev) => ({ ...prev, [step]: event.status as StepStatus }));
+      if (step === 'transcribe' && event.status === 'running' && typeof event.total === 'number') {
+        setAiProgress({ done: typeof event.done === 'number' ? event.done : 0, total: event.total });
+      }
+      if (event.status === 'failed' && event.error) {
+        setStepErrors((prev) => ({ ...prev, [step]: event.error }));
+      }
+    }
+    if (event.status !== 'done') return;
+    if (onThisVideo) {
+      if (step === 'describe' && event.description) setDraftField('description', event.description);
+      if (step === 'chapters' && event.chapters) setDraftField('chapters', event.chapters);
+      if (step === 'transcribe' && event.transcript) {
+        setTranscriptState({ status: 'ready', segments: event.transcript.segments });
+      }
+      if (step === 'thumbnail') reloadMedia();
+    }
+    refresh(); // the snapshot changed server-side either way
+  };
+
+  /** Start the AI pass (all steps, or a retry subset). Progress streams in. */
+  const runPipeline = (runVideoId: string, steps?: ProcessStep[]) => {
+    if (aiActive) return;
+    const requested = steps && steps.length > 0 ? steps : [...PROCESS_STEPS];
+    if (currentVideoIdRef.current === runVideoId) {
+      setAiActive(true);
+      setAiNote(null);
+      setAiProgress(null);
+      setStepStates((prev) => {
+        const next = { ...prev };
+        for (const step of requested) next[step] = 'pending';
+        return next;
+      });
+      setStepErrors((prev) => {
+        const next = { ...prev };
+        for (const step of requested) delete next[step];
+        return next;
+      });
+    }
+    void (async () => {
+      try {
+        const outcome = await processVideo(runVideoId, steps, (event) => applyStepEvent(runVideoId, event));
+        if (currentVideoIdRef.current === runVideoId && !outcome.ok) {
+          setAiNote(outcome.error ?? 'Some AI steps failed — retry the ones marked below.');
+        }
+      } catch (error) {
+        if (currentVideoIdRef.current === runVideoId) {
+          setAiNote(error instanceof Error ? error.message : 'AI processing failed — try again.');
+          setStepStates((prev) => {
+            const next = { ...prev };
+            for (const step of requested) {
+              if (next[step] === 'pending' || next[step] === 'running') next[step] = 'failed';
+            }
+            return next;
+          });
+        }
+      } finally {
+        if (currentVideoIdRef.current === runVideoId) {
+          setAiActive(false);
+          setAiProgress(null);
+        }
+      }
+    })();
+  };
+
+  /** Upload (or replace) the hosted file, then kick off the full AI pass. */
+  const beginUpload = (file: File) => {
+    if (!canEdit || uploadPhase !== 'idle') return;
+    const problem = describeFileProblem(file);
+    if (problem) {
+      setUploadError(problem);
+      return;
+    }
+    const contentType = resolveVideoType(file);
+    if (!contentType) return; // describeFileProblem already caught this
+    const runVideoId = video.id;
+    setUploadError(null);
+    setUploadPct(0);
+    setUploadPhase('uploading');
+    void (async () => {
+      try {
+        const { uploadUrl, objectPath } = await requestUploadUrl(runVideoId, file, contentType);
+        await uploadToStorage(uploadUrl, file, contentType, (pct) => {
+          if (currentVideoIdRef.current === runVideoId) setUploadPct(pct);
+        });
+        if (currentVideoIdRef.current === runVideoId) setUploadPhase('verifying');
+        const result = await finalizeUpload(runVideoId, objectPath);
+        refresh();
+        if (currentVideoIdRef.current === runVideoId) {
+          setDraftField('duration', result.durationSeconds);
+          setUploadPhase('idle');
+          setUploadPct(0);
+          toast({
+            title: 'Video uploaded',
+            description: `Runtime ${formatClock(result.durationSeconds)} — starting the AI pass.`,
+          });
+        }
+        runPipeline(runVideoId);
+      } catch (error) {
+        if (currentVideoIdRef.current === runVideoId) {
+          setUploadPhase('idle');
+          setUploadPct(0);
+          setUploadError(error instanceof Error ? error.message : 'Upload failed — try again.');
+        }
+      }
+    })();
+  };
+
+  const openTranscript = () => {
+    setTranscriptOpen(true);
+    if (transcriptState.status === 'ready' || transcriptState.status === 'loading') return;
+    const runVideoId = video.id;
+    setTranscriptState({ status: 'loading', segments: [] });
+    void fetchTranscript(runVideoId)
+      .then((segments) => {
+        if (currentVideoIdRef.current !== runVideoId) return;
+        setTranscriptState(
+          segments ? { status: 'ready', segments } : { status: 'missing', segments: [] },
+        );
+      })
+      .catch((error: unknown) => {
+        if (currentVideoIdRef.current !== runVideoId) return;
+        setTranscriptState({
+          status: 'error',
+          segments: [],
+          message: error instanceof Error ? error.message : 'Could not load the transcript.',
+        });
+      });
+  };
+
+  const handleRemoveFile = () => {
+    if (!hosted || removingFile) return;
+    if (
+      !window.confirm(
+        'Removes the hosted video file, its transcript and its thumbnail from storage. The lesson entry and its metadata stay. This cannot be undone.',
+      )
+    )
+      return;
+    const runVideoId = video.id;
+    setRemovingFile(true);
+    void (async () => {
+      try {
+        await removeVideoFile(runVideoId);
+        refresh();
+        if (currentVideoIdRef.current === runVideoId) {
+          setStepStates(IDLE_STEPS);
+          setStepErrors({});
+          setAiNote(null);
+          setTranscriptState({ status: 'idle', segments: [] });
+          toast({
+            title: 'Video file removed',
+            description: 'The lesson is back to the simulated slide experience.',
+          });
+        }
+      } catch (error) {
+        if (currentVideoIdRef.current === runVideoId) {
+          toast({
+            title: 'Could not remove the file',
+            description: error instanceof Error ? error.message : 'Try again.',
+          });
+        }
+      } finally {
+        if (currentVideoIdRef.current === runVideoId) setRemovingFile(false);
+      }
+    })();
+  };
+
   const generateDescription = () => {
+    if (hosted) {
+      // Written from the stored transcript server-side; fails plainly if
+      // there is no transcript yet.
+      runPipeline(video.id, ['describe']);
+      return;
+    }
     setAiSpinner('desc');
     setTimeout(() => {
       // Functional update: edits made during the fake generation must survive.
@@ -277,6 +561,10 @@ export default function VideoEditor() {
   };
 
   const generateChapters = () => {
+    if (hosted) {
+      runPipeline(video.id, ['chapters']);
+      return;
+    }
     setAiSpinner('chapters');
     setTimeout(() => {
       setDraft((prev) => (prev ? { ...prev, chapters: aiChapters(video, chapterVariant) } : prev));
@@ -322,7 +610,12 @@ export default function VideoEditor() {
   };
 
   const handleThumbnailDialog = () => {
-    setThumbnailScrub(draft.thumbnailChapter !== undefined && draft.chapters ? draft.chapters[draft.thumbnailChapter]?.at ?? 0 : 0);
+    if (hosted) {
+      // Real-frame scrubbing starts from wherever the preview is parked.
+      setThumbnailScrub(Math.max(0, Math.min(scrub, Math.max(0, durationSecs - 1))));
+    } else {
+      setThumbnailScrub(draft.thumbnailChapter !== undefined && draft.chapters ? draft.chapters[draft.thumbnailChapter]?.at ?? 0 : 0);
+    }
     setThumbnailDialogOpen(true);
   };
 
@@ -333,10 +626,55 @@ export default function VideoEditor() {
     if (canEdit) toast({ title: 'Thumbnail updated everywhere it appears.' });
     setThumbnailDialogOpen(false);
   };
+
+  /** Hosted variant: the server captures the chosen frame with ffmpeg. */
+  const captureHostedThumbnail = () => {
+    if (thumbBusy) return;
+    const runVideoId = video.id;
+    setThumbBusy(true);
+    void (async () => {
+      try {
+        await captureThumbnail(runVideoId, thumbnailScrub);
+        refresh();
+        if (currentVideoIdRef.current === runVideoId) {
+          reloadMedia();
+          setStepStates((prev) => ({ ...prev, thumbnail: 'done' }));
+          toast({ title: 'Thumbnail updated everywhere it appears.' });
+          setThumbnailDialogOpen(false);
+        }
+      } catch (error) {
+        if (currentVideoIdRef.current === runVideoId) {
+          toast({
+            title: 'Could not capture that frame',
+            description: error instanceof Error ? error.message : 'Try again.',
+          });
+        }
+      } finally {
+        if (currentVideoIdRef.current === runVideoId) setThumbBusy(false);
+      }
+    })();
+  };
   
   const handleRemoveVideo = () => {
-    if (!window.confirm('Deletes this video entry — its chapters, attachment names and all viewer progress. This cannot be undone.')) return;
+    const warning = hosted
+      ? 'Deletes this video entry — its hosted file, transcript, chapters, attachment names and all viewer progress. This cannot be undone.'
+      : 'Deletes this video entry — its chapters, attachment names and all viewer progress. This cannot be undone.';
+    if (!window.confirm(warning)) return;
     void (async () => {
+      if (hosted && canEdit) {
+        // Take the file, transcript and thumbnail out of storage first so
+        // deleting the row can't orphan them. If that fails, stop — the
+        // entry stays, and the user hears why.
+        try {
+          await removeVideoFile(video.id);
+        } catch (error) {
+          toast({
+            title: 'Could not remove the hosted file',
+            description: `${error instanceof Error ? error.message : 'Try again.'} The video entry was not deleted.`,
+          });
+          return;
+        }
+      }
       await removeVideo(course.id, video.id);
       setLocation(`/admin/training/courses/${course.id}`);
     })();
@@ -400,8 +738,42 @@ export default function VideoEditor() {
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 lg:flex-row">
         <div className="flex min-w-0 flex-col gap-6 lg:w-[60%]">
           
-          {/* Player Card */}
+          {/* Player Card — real playback once a file is hosted, else the
+              simulated slide deck (demo personas always get the deck: they
+              have no staff session to stream with). */}
           <SectionCard title={null} className="p-0 overflow-hidden">
+            {hosted && canEdit ? (
+              media ? (
+                <HostedVideoPlayer
+                  src={media.videoUrl}
+                  poster={media.thumbnailUrl}
+                  chapters={draft.chapters ?? []}
+                  durationSeconds={durationSecs}
+                  onTimeChange={(seconds) => setScrub(Math.round(seconds))}
+                  testId="player-hosted"
+                />
+              ) : mediaLoading ? (
+                <div
+                  className="flex aspect-video w-full items-center justify-center bg-navy/90"
+                  data-testid="player-loading"
+                >
+                  <p className="text-xs font-semibold text-card">Loading the video…</p>
+                </div>
+              ) : (
+                <div
+                  className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-navy/90 px-6 text-center"
+                  data-testid="player-error"
+                >
+                  <p className="text-xs font-semibold text-card" role="alert">
+                    {mediaError ?? 'Could not load the video.'}
+                  </p>
+                  <button type="button" className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`} onClick={reloadMedia}>
+                    Try again
+                  </button>
+                </div>
+              )
+            ) : (
+              <>
              <SlideFrame 
               video={{ ...video, title: draft.title ?? video.title, chapters: draft.chapters ?? [] }} 
               chapterIndex={currentChapterIndex} 
@@ -447,6 +819,13 @@ export default function VideoEditor() {
                 {formatClock(scrub)} / {formatClock(durationSecs)}
               </div>
             </div>
+                {hosted && (
+                  <p className="border-t border-border bg-secondary/50 px-4 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+                    A video file is hosted for this lesson — sign in as THINNR HQ to play it here.
+                  </p>
+                )}
+              </>
+            )}
           </SectionCard>
 
           {/* Details Card */}
@@ -536,11 +915,14 @@ export default function VideoEditor() {
                   </label>
                   <button 
                     type="button"
-                    className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors"
+                    className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={generateDescription}
-                    disabled={aiSpinner === 'desc'}
+                    disabled={hosted ? aiActive : aiSpinner === 'desc'}
+                    title={hosted ? 'Written from the video transcript' : undefined}
                   >
-                    {aiSpinner === 'desc' ? <RefreshCw size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                    {(hosted ? aiActive && (stepStates.describe === 'pending' || stepStates.describe === 'running') : aiSpinner === 'desc')
+                      ? <RefreshCw size={12} className="animate-spin" />
+                      : <Wand2 size={12} />}
                     Generate with AI
                   </button>
                 </div>
@@ -560,11 +942,14 @@ export default function VideoEditor() {
             action={
               <button 
                 type="button"
-                className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors"
+                className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={generateChapters}
-                disabled={aiSpinner === 'chapters'}
+                disabled={hosted ? aiActive : aiSpinner === 'chapters'}
+                title={hosted ? 'Created from the video transcript' : undefined}
               >
-                {aiSpinner === 'chapters' ? <RefreshCw size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                {(hosted ? aiActive && (stepStates.chapters === 'pending' || stepStates.chapters === 'running') : aiSpinner === 'chapters')
+                  ? <RefreshCw size={12} className="animate-spin" />
+                  : <Wand2 size={12} />}
                 Generate with AI
               </button>
             }
@@ -620,34 +1005,233 @@ export default function VideoEditor() {
              <div className="p-4 space-y-5">
                <div>
                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground mb-2">Video file</p>
-                 <div className="w-full border border-dashed border-border rounded-md bg-secondary/50 p-5 flex flex-col items-center justify-center gap-2 text-center" data-testid="notice-no-video-file">
-                   <Film size={18} className="text-muted-foreground" aria-hidden="true" />
-                   <p className="text-xs font-medium text-foreground">No video file — hosting isn&rsquo;t set up yet</p>
-                   <p className="text-[10px] leading-relaxed text-muted-foreground">
-                     This entry stores metadata only: title, duration, chapters and attachment names. A storage
-                     provider can be plugged in later without losing anything here.
-                   </p>
-                 </div>
+                 {hosted ? (
+                   <div className="flex items-center gap-3 rounded-md border border-border bg-card p-3" data-testid="notice-video-on-file">
+                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-accent-border bg-accent text-primary">
+                       <Film size={16} aria-hidden="true" />
+                     </span>
+                     <div className="min-w-0 flex-1">
+                       <p className="text-xs font-semibold text-foreground">Video on file · {formatClock(video.duration)}</p>
+                       <p className="text-[10px] leading-relaxed text-muted-foreground">
+                         Streams from App Storage for signed-in staff{canEdit ? ' — drop a new file below to replace it' : ''}.
+                       </p>
+                     </div>
+                   </div>
+                 ) : (
+                   <div className="w-full border border-dashed border-border rounded-md bg-secondary/50 p-5 flex flex-col items-center justify-center gap-2 text-center" data-testid="notice-no-video-file">
+                     <Film size={18} className="text-muted-foreground" aria-hidden="true" />
+                     <p className="text-xs font-medium text-foreground">No video file yet</p>
+                     <p className="text-[10px] leading-relaxed text-muted-foreground">
+                       {canEdit
+                         ? 'Learners see the simulated workbook slides until one is uploaded. Drop a file below — AI pulls the transcript, writes the description, creates the chapters and sets the thumbnail.'
+                         : 'Learners see the simulated workbook slides. Sign in as THINNR HQ to upload a file.'}
+                     </p>
+                   </div>
+                 )}
+
+                 {canEdit && (
+                   <>
+                     <div
+                       className={`mt-3 w-full rounded-md border border-dashed p-4 text-center transition-colors ${dragOver ? 'border-primary bg-accent/40' : 'border-border bg-secondary/50'}`}
+                       onDragOver={(e) => {
+                         e.preventDefault();
+                         setDragOver(true);
+                       }}
+                       onDragLeave={() => setDragOver(false)}
+                       onDrop={(e) => {
+                         e.preventDefault();
+                         setDragOver(false);
+                         const file = e.dataTransfer.files?.[0];
+                         if (file) beginUpload(file);
+                       }}
+                       data-testid="dropzone-video-upload"
+                     >
+                       {uploadPhase === 'idle' ? (
+                         <div className="flex flex-col items-center gap-2">
+                           <Upload size={16} className="text-muted-foreground" aria-hidden="true" />
+                           <p className="text-xs font-medium text-foreground">
+                             {hosted ? 'Drop a new video here to replace the current one' : 'Drag a video here'}
+                           </p>
+                           <button
+                             type="button"
+                             className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`}
+                             onClick={() => fileInputRef.current?.click()}
+                             data-testid="button-browse-video"
+                           >
+                             Browse files
+                           </button>
+                           <p className="text-[10px] text-muted-foreground">MP4, WebM or MOV · up to 500 MB</p>
+                         </div>
+                       ) : uploadPhase === 'uploading' ? (
+                         <div className="space-y-2" data-testid="progress-video-upload">
+                           <p className="text-xs font-medium text-foreground">Uploading… {uploadPct}%</p>
+                           <div
+                             className="h-1.5 w-full overflow-hidden rounded-full bg-border"
+                             role="progressbar"
+                             aria-valuemin={0}
+                             aria-valuemax={100}
+                             aria-valuenow={uploadPct}
+                             aria-label="Upload progress"
+                           >
+                             <div className="h-full bg-primary transition-[width]" style={{ width: `${uploadPct}%` }} />
+                           </div>
+                         </div>
+                       ) : (
+                         <p
+                           className="flex items-center justify-center gap-2 text-xs font-medium text-foreground"
+                           data-testid="text-upload-verifying"
+                         >
+                           <RefreshCw size={12} className="animate-spin text-primary" aria-hidden="true" />
+                           Checking the file and reading its runtime…
+                         </p>
+                       )}
+                     </div>
+                     <input
+                       ref={fileInputRef}
+                       type="file"
+                       accept="video/mp4,video/webm,video/quicktime,.mp4,.m4v,.webm,.mov"
+                       className="hidden"
+                       onChange={(e) => {
+                         const file = e.target.files?.[0];
+                         if (file) beginUpload(file);
+                         e.target.value = '';
+                       }}
+                       data-testid="input-video-file"
+                     />
+                     {uploadError && (
+                       <p className="mt-2 text-[11px] font-medium text-destructive" role="alert" data-testid="text-upload-error">
+                         {uploadError}
+                       </p>
+                     )}
+                   </>
+                 )}
+
+                 {hosted && canEdit && (
+                   <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                     <button
+                       type="button"
+                       className="flex items-center gap-1.5 text-xs font-semibold text-foreground transition-colors hover:text-primary"
+                       onClick={openTranscript}
+                       data-testid="button-view-transcript"
+                     >
+                       <FileText size={13} aria-hidden="true" /> View transcript
+                     </button>
+                     <button
+                       type="button"
+                       className="flex items-center gap-1.5 text-xs font-semibold text-foreground transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                       onClick={() => runPipeline(video.id)}
+                       disabled={aiActive}
+                       data-testid="button-run-ai"
+                     >
+                       <Wand2 size={13} aria-hidden="true" /> Run AI processing
+                     </button>
+                   </div>
+                 )}
+
+                 {hosted && canEdit && (aiActive || aiNote !== null || PROCESS_STEPS.some((step) => stepStates[step] !== 'idle')) && (
+                   <div className="mt-3 rounded-md border border-border bg-card" data-testid="panel-ai-steps">
+                     <p className="border-b border-border px-3 py-2 text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                       AI processing
+                     </p>
+                     <ul className="divide-y divide-border">
+                       {PROCESS_STEPS.map((step) => {
+                         const state = stepStates[step];
+                         return (
+                           <li key={step} className="flex items-start gap-2.5 px-3 py-2" data-testid={`step-ai-${step}`}>
+                             <span className="mt-0.5 shrink-0">
+                               {state === 'running' ? (
+                                 <RefreshCw size={13} className="animate-spin text-primary" aria-hidden="true" />
+                               ) : state === 'done' ? (
+                                 <CheckCircle2 size={13} className="text-primary" aria-hidden="true" />
+                               ) : state === 'failed' ? (
+                                 <AlertTriangle size={13} className="text-destructive" aria-hidden="true" />
+                               ) : (
+                                 <span
+                                   className={`block h-[13px] w-[13px] rounded-full border ${state === 'pending' ? 'border-primary/50' : 'border-border'}`}
+                                   aria-hidden="true"
+                                 />
+                               )}
+                             </span>
+                             <span className="min-w-0 flex-1">
+                               <span className="block text-xs font-medium text-foreground">{STEP_LABELS[step]}</span>
+                               <span className="block text-[10px] leading-relaxed text-muted-foreground" data-testid={`status-ai-${step}`}>
+                                 {state === 'running' && step === 'transcribe' && aiProgress
+                                   ? `Transcribing minute ${Math.min(aiProgress.done + 1, aiProgress.total)} of ${aiProgress.total}…`
+                                   : state === 'running'
+                                     ? 'Working…'
+                                     : state === 'done'
+                                       ? 'Done'
+                                       : state === 'failed'
+                                         ? stepErrors[step] ?? 'Failed — retry below.'
+                                         : state === 'skipped'
+                                           ? 'Skipped — waiting on the transcript.'
+                                           : state === 'pending'
+                                             ? 'Queued'
+                                             : 'Not run yet'}
+                               </span>
+                             </span>
+                           </li>
+                         );
+                       })}
+                     </ul>
+                     {(aiNote !== null ||
+                       (!aiActive && PROCESS_STEPS.some((s) => stepStates[s] === 'failed' || stepStates[s] === 'skipped'))) && (
+                       <div className="space-y-2 border-t border-border px-3 py-2.5">
+                         {aiNote && (
+                           <p className="text-[11px] font-medium text-destructive" role="alert" data-testid="text-ai-note">
+                             {aiNote}
+                           </p>
+                         )}
+                         {!aiActive && PROCESS_STEPS.some((s) => stepStates[s] === 'failed' || stepStates[s] === 'skipped') && (
+                           <button
+                             type="button"
+                             className={`${BTN_SECONDARY} h-8 gap-1.5 px-3 text-[11px]`}
+                             onClick={() =>
+                               runPipeline(
+                                 video.id,
+                                 PROCESS_STEPS.filter((s) => stepStates[s] === 'failed' || stepStates[s] === 'skipped'),
+                               )
+                             }
+                             data-testid="button-retry-ai"
+                           >
+                             <RefreshCw size={12} aria-hidden="true" /> Retry failed steps
+                           </button>
+                         )}
+                       </div>
+                     )}
+                   </div>
+                 )}
+
                  <div className="mt-3">
-                   <label htmlFor="video-duration" className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
-                     Duration (mm:ss)
-                   </label>
-                   <input
-                     id="video-duration"
-                     type="text"
-                     className={`${INPUT_CLASS} h-8 w-24 px-1 text-center font-mono`}
-                     value={formatClock(durationSecs)}
-                     onChange={(e) => {
-                       const parts = e.target.value.split(':');
-                       if (parts.length === 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]))) {
-                         setDraftField('duration', Math.max(30, Number(parts[0]) * 60 + Number(parts[1])));
-                       }
-                     }}
-                     data-testid="input-video-duration"
-                   />
-                   <p className="mt-1.5 text-[10px] text-muted-foreground">
-                     Listed runtime for learners — there&rsquo;s no file to measure, so set it here.
-                   </p>
+                   {hosted ? (
+                     <div data-testid="text-video-duration-hosted">
+                       <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Duration</p>
+                       <p className="font-mono text-sm text-foreground">{formatClock(durationSecs)}</p>
+                       <p className="mt-1.5 text-[10px] text-muted-foreground">Measured from the uploaded file.</p>
+                     </div>
+                   ) : (
+                     <>
+                       <label htmlFor="video-duration" className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                         Duration (mm:ss)
+                       </label>
+                       <input
+                         id="video-duration"
+                         type="text"
+                         className={`${INPUT_CLASS} h-8 w-24 px-1 text-center font-mono`}
+                         value={formatClock(durationSecs)}
+                         onChange={(e) => {
+                           const parts = e.target.value.split(':');
+                           if (parts.length === 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]))) {
+                             setDraftField('duration', Math.max(30, Number(parts[0]) * 60 + Number(parts[1])));
+                           }
+                         }}
+                         data-testid="input-video-duration"
+                       />
+                       <p className="mt-1.5 text-[10px] text-muted-foreground">
+                         Listed runtime for learners — it fills in automatically once a video file is uploaded.
+                       </p>
+                     </>
+                   )}
                  </div>
                </div>
                
@@ -655,22 +1239,34 @@ export default function VideoEditor() {
                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground mb-2">Thumbnail</p>
                  <div className="flex gap-4">
                    <div className="w-[120px] shrink-0 border border-border rounded overflow-hidden">
-                     <SlideFrame 
-                       video={{ ...video, title: draft.title ?? video.title, chapters: draft.chapters ?? [] }} 
-                       chapterIndex={draft.thumbnailChapter ?? 0}
-                       compact
-                     />
+                     {hosted && media?.thumbnailUrl ? (
+                       <img
+                         src={media.thumbnailUrl}
+                         alt="Current thumbnail — a frame captured from the video"
+                         className="block aspect-video w-full object-cover"
+                         data-testid="img-video-thumbnail"
+                       />
+                     ) : (
+                       <SlideFrame
+                         video={{ ...video, title: draft.title ?? video.title, chapters: draft.chapters ?? [] }}
+                         chapterIndex={draft.thumbnailChapter ?? 0}
+                         compact
+                       />
+                     )}
                    </div>
                    <div className="flex flex-col justify-center gap-2">
                      <button 
                        type="button" 
-                       className="text-xs font-semibold text-foreground flex items-center gap-2 hover:text-primary transition-colors"
+                       className="text-xs font-semibold text-foreground flex items-center gap-2 hover:text-primary transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                        onClick={handleThumbnailDialog}
+                       disabled={hosted && canEdit && !media}
                      >
                        <ImageIcon size={13} /> Generate thumbnail
                      </button>
                      <p className="text-[10px] leading-relaxed text-muted-foreground">
-                       Thumbnails come from chapter slides — image uploads need file hosting.
+                       {hosted
+                         ? 'Scrub the real video and capture any frame — the AI pass starts with the first frame.'
+                         : 'Thumbnails come from chapter slides — upload a video to capture real frames.'}
                      </p>
                    </div>
                  </div>
@@ -700,7 +1296,7 @@ export default function VideoEditor() {
                      <button 
                        type="button" 
                        className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:underline px-2"
-                       onClick={() => toast({ title: 'No file to download', description: "Attachments are metadata only — file hosting isn't set up yet." })}
+                       onClick={() => toast({ title: 'No file to download', description: 'Attachments are name-only metadata — only the lesson video itself is hosted.' })}
                      >
                        Download
                      </button>
@@ -801,9 +1397,27 @@ export default function VideoEditor() {
       {/* Danger Zone — the page's very last section, below both columns */}
       <div className="mx-auto mt-6 w-full max-w-[1200px] rounded-lg border border-destructive/30 bg-[#fff0f0]/30 p-5 shadow-sm">
         <h3 className="text-sm font-semibold text-destructive mb-1.5">Danger Zone</h3>
+        {hosted && canEdit && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-4 py-3">
+            <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
+              <span className="font-semibold text-foreground">Remove the video file.</span> Takes the hosted file,
+              its transcript and its thumbnail out of storage — the lesson entry and its metadata stay.
+            </p>
+            <button
+              type="button"
+              className="h-8 rounded-md border border-border bg-card px-3 text-xs font-semibold text-foreground transition-colors hover:border-destructive hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={handleRemoveFile}
+              disabled={removingFile}
+              data-testid="button-remove-video-file"
+            >
+              {removingFile ? 'Removing…' : 'Remove video file'}
+            </button>
+          </div>
+        )}
         <p className="text-xs text-muted-foreground mb-4 leading-relaxed max-w-[68ch]">
-          Deletes this video entry — its chapters, attachment names and all viewer progress. There is no hosted
-          file to remove. This cannot be undone.
+          {hosted
+            ? 'Deletes this video entry — its hosted file, transcript, chapters, attachment names and all viewer progress. This cannot be undone.'
+            : 'Deletes this video entry — its chapters, attachment names and all viewer progress. There is no hosted file to remove. This cannot be undone.'}
         </p>
         <button
           type="button"
@@ -824,6 +1438,19 @@ export default function VideoEditor() {
           </DialogHeader>
           
           <div className="my-4">
+             {hosted && media ? (
+               <div className="mb-4 overflow-hidden rounded-md border border-border bg-navy">
+                 <video
+                   ref={thumbVideoRef}
+                   src={media.videoUrl}
+                   preload="auto"
+                   muted
+                   playsInline
+                   className="block aspect-video w-full object-contain"
+                   data-testid="video-thumbnail-preview"
+                 />
+               </div>
+             ) : (
              <div className="rounded-md border border-border overflow-hidden bg-muted/20 mb-4 flex justify-center p-4">
                <div className="w-[80%]">
                  <SlideFrame 
@@ -832,15 +1459,18 @@ export default function VideoEditor() {
                  />
                </div>
              </div>
+             )}
              
              <input
                type="range"
                min={0}
-               max={durationSecs}
+               max={Math.max(1, hosted ? Math.max(0, Math.floor(durationSecs - 1)) : durationSecs)}
                step={1}
                value={thumbnailScrub}
                onChange={(e) => setThumbnailScrub(Number(e.target.value))}
                className="w-full accent-primary"
+               aria-label="Scrub to a frame"
+               data-testid="input-thumbnail-scrub"
              />
           </div>
 
@@ -848,8 +1478,59 @@ export default function VideoEditor() {
             <button type="button" className={`${BTN_SECONDARY} h-9 px-4`} onClick={() => setThumbnailDialogOpen(false)}>
               Cancel
             </button>
-            <button type="button" className={`${BTN_PRIMARY} h-9 px-4`} onClick={saveThumbnail}>
-              Use this frame
+            <button
+              type="button"
+              className={`${BTN_PRIMARY} h-9 px-4`}
+              onClick={hosted ? captureHostedThumbnail : saveThumbnail}
+              disabled={hosted && (thumbBusy || !media)}
+              data-testid="button-use-frame"
+            >
+              {hosted && thumbBusy ? 'Capturing…' : 'Use this frame'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={transcriptOpen} onOpenChange={setTranscriptOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Transcript</DialogTitle>
+            <DialogDescription>
+              Pulled from the video&rsquo;s audio — the description and chapters are written from it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1" data-testid="dialog-transcript-body">
+            {transcriptState.status === 'loading' && (
+              <p className="text-xs text-muted-foreground">Loading the transcript…</p>
+            )}
+            {transcriptState.status === 'missing' && (
+              <p className="text-xs text-muted-foreground" data-testid="text-transcript-missing">
+                No transcript yet — run AI processing to pull one from the video&rsquo;s audio.
+              </p>
+            )}
+            {transcriptState.status === 'error' && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-destructive" role="alert">
+                  {transcriptState.message}
+                </p>
+                <button type="button" className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`} onClick={openTranscript}>
+                  Try again
+                </button>
+              </div>
+            )}
+            {transcriptState.status === 'ready' &&
+              transcriptState.segments.map((segment) => (
+                <div key={segment.at} className="flex gap-3">
+                  <span className="w-12 shrink-0 pt-0.5 text-right text-[10px] font-bold tabular-nums text-muted-foreground">
+                    {formatClock(segment.at)}
+                  </span>
+                  <p className="min-w-0 flex-1 text-xs leading-relaxed text-foreground/90">{segment.text}</p>
+                </div>
+              ))}
+          </div>
+          <DialogFooter>
+            <button type="button" className={`${BTN_SECONDARY} h-9 px-4`} onClick={() => setTranscriptOpen(false)}>
+              Close
             </button>
           </DialogFooter>
         </DialogContent>

@@ -99,3 +99,106 @@ export interface CoachMenuScanResult {
   avoid: CoachMenuScanAvoidItem[];
 }
 
+export interface TrainingUploadUrlInput {
+  /**
+     * Original file name, for logs and error copy only
+     * @maxLength 300
+     */
+  fileName: string;
+  /**
+     * MIME type the browser will send on the PUT (video/mp4, video/webm, video/quicktime)
+     * @maxLength 100
+     */
+  contentType: string;
+  /**
+     * File size in bytes; the hard cap is 500 MB
+     * @minimum 1
+     * @maximum 524288000
+     */
+  sizeBytes: number;
+}
+
+export interface TrainingUploadUrlResult {
+  /** Presigned PUT URL, valid for ~15 minutes */
+  uploadUrl: string;
+  /** Canonical object path to send to finalize; never a URL */
+  objectPath: string;
+}
+
+export interface TrainingFinalizeInput {
+  /**
+     * The object path returned by upload-url after the PUT succeeded
+     * @maxLength 500
+     */
+  objectPath: string;
+}
+
+export interface TrainingFinalizeResult {
+  /** Object path now stored on the video row */
+  videoSource: string;
+  /** Duration probed from the file (rounded seconds) */
+  durationSeconds: number;
+}
+
+export interface TrainingRemoveFileResult {
+  removed: boolean;
+}
+
+export interface TrainingMediaResult {
+  /** Signed GET URL for the video file; supports range requests */
+  videoUrl: string;
+  /**
+     * Signed GET URL for the captured thumbnail, when one exists
+     * @nullable
+     */
+  thumbnailUrl: string | null;
+  /** Epoch milliseconds after which these URLs stop working */
+  expiresAtMs: number;
+}
+
+export interface TrainingTranscriptSegment {
+  /** Segment start in seconds from the top of the video */
+  at: number;
+  /** Segment end in seconds */
+  end: number;
+  text: string;
+}
+
+export interface TrainingTranscriptResult {
+  segments: TrainingTranscriptSegment[];
+}
+
+export interface TrainingThumbnailInput {
+  /**
+     * Video time of the frame to capture, clamped to the duration
+     * @minimum 0
+     * @maximum 86400
+     */
+  atSeconds: number;
+}
+
+export interface TrainingThumbnailResult {
+  /** Object path now stored on the video row */
+  thumbnailSource: string;
+  /** Signed GET URL for immediate display */
+  thumbnailUrl: string;
+}
+
+export type TrainingProcessInputStepsItem = typeof TrainingProcessInputStepsItem[keyof typeof TrainingProcessInputStepsItem];
+
+
+export const TrainingProcessInputStepsItem = {
+  transcribe: 'transcribe',
+  describe: 'describe',
+  chapters: 'chapters',
+  thumbnail: 'thumbnail',
+} as const;
+
+export interface TrainingProcessInput {
+  /**
+     * Subset of steps to run, in pipeline order; omit for the full pass. Used by retries to resume from a failed step without re-spending the ones that succeeded.
+     * @maxItems 4
+     */
+  steps?: TrainingProcessInputStepsItem[];
+}
+

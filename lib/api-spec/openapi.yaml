@@ -12,6 +12,11 @@ tags:
     description: Health operations
   - name: coach
     description: AI coach chat for patients
+  - name: training
+    description: >-
+      Hosted training-video media. Callers authenticate with their existing
+      Supabase staff session (Authorization: Bearer <access token>); HQ admins
+      manage files and run AI processing, provider staff fetch playback URLs.
 paths:
   /coach/chat:
     post:
@@ -108,6 +113,228 @@ paths:
           description: Rate limited
         "502":
           description: Menu scan failed
+  /training/videos/{videoId}/upload-url:
+    post:
+      operationId: trainingVideoUploadUrl
+      tags: [training]
+      summary: Mint a presigned upload URL for a training video file
+      description: >-
+        HQ admins only. Returns a short-lived presigned PUT URL so the browser
+        uploads the file straight to App Storage (the API never proxies the
+        body), plus the canonical object path to send back to finalize.
+        Nothing is written to the video row until finalize verifies the bytes.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingUploadUrlInput"
+      responses:
+        "200":
+          description: Presigned PUT URL and the object path it creates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingUploadUrlResult"
+        "400":
+          description: Invalid request body
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such training video
+        "413":
+          description: File exceeds the 500 MB limit
+        "415":
+          description: Not an accepted video container (MP4/WebM/MOV)
+  /training/videos/{videoId}/video:
+    post:
+      operationId: trainingVideoFinalize
+      tags: [training]
+      summary: Attach an uploaded file to the video after verifying it
+      description: >-
+        HQ admins only. Verifies the uploaded object exists under this video's
+        prefix, ffprobes it (authoritative duration and playability check),
+        persists the object path and duration, clears the previous file's
+        transcript/thumbnail, and deletes the replaced object. Stores only the
+        object path — playback URLs are minted per request.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingFinalizeInput"
+      responses:
+        "200":
+          description: The file is now this lesson's hosted video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingFinalizeResult"
+        "400":
+          description: Invalid body or object path outside this video's prefix
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: Video row or uploaded object not found
+        "413":
+          description: File exceeds the 500 MB limit
+        "422":
+          description: The bytes are not a playable video
+    delete:
+      operationId: trainingVideoRemoveFile
+      tags: [training]
+      summary: Remove the hosted file (the lesson row stays)
+      description: >-
+        HQ admins only. Clears the video's hosted file, thumbnail, and
+        transcript, and deletes the stored objects. The lesson itself keeps
+        its metadata and returns to the simulated-slides experience.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      responses:
+        "200":
+          description: Hosted file removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingRemoveFileResult"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such training video
+        "409":
+          description: There is no hosted file to remove
+  /training/videos/{videoId}/media:
+    get:
+      operationId: trainingVideoMedia
+      tags: [training]
+      summary: Short-lived signed playback URLs for a hosted video
+      description: >-
+        HQ admins and provider staff. Returns signed GET URLs for the video
+        file (and thumbnail when one exists) so the <video> element's range
+        requests hit storage directly — that is what makes seeking work. URLs
+        expire; clients re-request rather than persist them.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      responses:
+        "200":
+          description: Signed playback URLs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingMediaResult"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not staff
+        "404":
+          description: Video row missing or no file hosted
+  /training/videos/{videoId}/transcript:
+    get:
+      operationId: trainingVideoTranscript
+      tags: [training]
+      summary: Timed transcript of the hosted video
+      description: >-
+        HQ admins only (the editor's transcript viewer). Segments follow the
+        transcription grid — near-minute slices with start/end seconds.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      responses:
+        "200":
+          description: Timed transcript segments in playback order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingTranscriptResult"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: Video row missing or no transcript yet
+  /training/videos/{videoId}/thumbnail:
+    post:
+      operationId: trainingVideoThumbnail
+      tags: [training]
+      summary: Capture a video frame as the lesson thumbnail
+      description: >-
+        HQ admins only. The editor's thumbnail dialog scrubs the real video
+        client-side, then sends the chosen time; the server extracts that
+        frame with ffmpeg, stores it, and replaces the previous thumbnail.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingThumbnailInput"
+      responses:
+        "200":
+          description: Thumbnail captured and stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingThumbnailResult"
+        "400":
+          description: Invalid request body
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such training video
+        "409":
+          description: No hosted video to capture from
+  /training/videos/{videoId}/process:
+    post:
+      operationId: trainingVideoProcess
+      tags: [training]
+      summary: Run the AI pass over the hosted video (SSE progress)
+      description: >-
+        HQ admins only; one run per video at a time. Streams step-by-step
+        progress as SSE "data:" JSON lines — {"step", "status":
+        "running"|"done"|"failed"|"skipped", ...payload} with comment
+        keepalives — and ends with {"done": true, "ok": boolean}. Steps in
+        order: "transcribe" (audio → timed segments, saved server-side),
+        "describe" (model writes catalog paragraphs from the transcript),
+        "chapters" (model picks chapter starts on the transcription grid),
+        "thumbnail" (first frame captured and stored). Each step persists on
+        success immediately; a failed step reports plainly and later runs can
+        retry just the remaining steps via "steps". Description/chapters are
+        skipped when transcription fails in the same run.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingProcessInput"
+      responses:
+        "200":
+          description: SSE stream of step progress events
+          content:
+            text/event-stream: {}
+        "400":
+          description: Invalid request body
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such training video
+        "409":
+          description: No hosted video, or a run is already in progress
   /healthz:
     get:
       operationId: healthCheck
@@ -259,3 +486,146 @@ components:
         - message
         - order
         - avoid
+    TrainingUploadUrlInput:
+      type: object
+      properties:
+        fileName:
+          type: string
+          maxLength: 300
+          description: Original file name, for logs and error copy only
+        contentType:
+          type: string
+          maxLength: 100
+          description: MIME type the browser will send on the PUT (video/mp4, video/webm, video/quicktime)
+        sizeBytes:
+          type: number
+          minimum: 1
+          maximum: 524288000
+          description: File size in bytes; the hard cap is 500 MB
+      required:
+        - fileName
+        - contentType
+        - sizeBytes
+    TrainingUploadUrlResult:
+      type: object
+      properties:
+        uploadUrl:
+          type: string
+          description: Presigned PUT URL, valid for ~15 minutes
+        objectPath:
+          type: string
+          description: Canonical object path to send to finalize; never a URL
+      required:
+        - uploadUrl
+        - objectPath
+    TrainingFinalizeInput:
+      type: object
+      properties:
+        objectPath:
+          type: string
+          maxLength: 500
+          description: The object path returned by upload-url after the PUT succeeded
+      required:
+        - objectPath
+    TrainingFinalizeResult:
+      type: object
+      properties:
+        videoSource:
+          type: string
+          description: Object path now stored on the video row
+        durationSeconds:
+          type: number
+          description: Duration probed from the file (rounded seconds)
+      required:
+        - videoSource
+        - durationSeconds
+    TrainingRemoveFileResult:
+      type: object
+      properties:
+        removed:
+          type: boolean
+      required:
+        - removed
+    TrainingMediaResult:
+      type: object
+      properties:
+        videoUrl:
+          type: string
+          description: Signed GET URL for the video file; supports range requests
+        thumbnailUrl:
+          type: ["string", "null"]
+          description: Signed GET URL for the captured thumbnail, when one exists
+        expiresAtMs:
+          type: number
+          description: Epoch milliseconds after which these URLs stop working
+      required:
+        - videoUrl
+        - thumbnailUrl
+        - expiresAtMs
+    TrainingTranscriptSegment:
+      type: object
+      properties:
+        at:
+          type: number
+          description: Segment start in seconds from the top of the video
+        end:
+          type: number
+          description: Segment end in seconds
+        text:
+          type: string
+      required:
+        - at
+        - end
+        - text
+    TrainingTranscriptResult:
+      type: object
+      properties:
+        segments:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrainingTranscriptSegment"
+      required:
+        - segments
+    TrainingThumbnailInput:
+      type: object
+      properties:
+        atSeconds:
+          type: number
+          minimum: 0
+          maximum: 86400
+          description: Video time of the frame to capture, clamped to the duration
+      required:
+        - atSeconds
+    TrainingThumbnailResult:
+      type: object
+      properties:
+        thumbnailSource:
+          type: string
+          description: Object path now stored on the video row
+        thumbnailUrl:
+          type: string
+          description: Signed GET URL for immediate display
+      required:
+        - thumbnailSource
+        - thumbnailUrl
+    TrainingProcessInput:
+      type: object
+      properties:
+        steps:
+          type: array
+          maxItems: 4
+          description: >-
+            Subset of steps to run, in pipeline order; omit for the full pass.
+            Used by retries to resume from a failed step without re-spending
+            the ones that succeeded.
+          items:
+            type: string
+            enum: [transcribe, describe, chapters, thumbnail]
+  parameters:
+    TrainingVideoId:
+      name: videoId
+      in: path
+      required: true
+      description: UUID of the training video row
+      schema:
+        type: string

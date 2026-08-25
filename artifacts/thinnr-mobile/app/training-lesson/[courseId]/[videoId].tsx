@@ -356,8 +356,8 @@ function LessonBody({
             </>
           ) : null}
           <Text style={[styles.playerNote, { color: colors.subtleText }]}>
-            Simulated player — no video file is hosted in this demo, so the chapters step through
-            the lesson's workbook slides.
+            Simulated player — the mobile app doesn't stream lesson videos, so the chapters step
+            through the lesson's workbook slides.
           </Text>
         </LedgerCard>
       </View>

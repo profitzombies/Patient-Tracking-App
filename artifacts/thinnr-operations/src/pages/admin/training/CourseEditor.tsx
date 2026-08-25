@@ -383,7 +383,7 @@ export default function CourseEditor() {
     if (vid) {
       toast({
         title: 'Video entry added',
-        description: `"${vid.title}" is a draft metadata entry (${formatClock(vid.duration)}) — video file hosting isn't set up yet.`,
+        description: `"${vid.title}" is a draft entry (${formatClock(vid.duration)}) — open it to upload the video file.`,
       });
     }
   };

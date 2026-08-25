@@ -447,7 +447,7 @@ console.log('10. New-entity defaults are honest metadata-only drafts');
     defaults.chapters.length === 4 &&
       defaults.chapters.every((ch, i) => ch.id.startsWith('qa-ch') && ch.at >= 0 && ch.at < defaults.duration && (i === 0 || ch.at > defaults.chapters[i - 1]!.at)),
   );
-  check('copy admits there is no hosted file', defaults.description[0]!.includes("hosting isn't set up"));
+  check('copy invites uploading the video file', defaults.description[0]!.includes('upload the video file'));
   check('slugify produces clean slugs', /^[a-z0-9-]+$/.test(slugifyTitle('QA — Front Desk Refresher!')), slugifyTitle('QA — Front Desk Refresher!'));
   const taken = new Set(['front-desk']);
   const slug = nextFreeSlug('Front Desk', taken);

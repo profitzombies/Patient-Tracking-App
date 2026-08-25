@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import coachRouter from "./coach";
 import recipeImageRouter from "./recipe-image";
 import menuScanRouter from "./menu-scan";
+import trainingMediaRouter from "./training-media";
 
 const router: IRouter = Router();
 
@@ -10,5 +11,6 @@ router.use(healthRouter);
 router.use(coachRouter);
 router.use(recipeImageRouter);
 router.use(menuScanRouter);
+router.use(trainingMediaRouter);
 
 export default router;

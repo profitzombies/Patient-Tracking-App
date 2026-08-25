@@ -17,8 +17,11 @@
  *
  * Timestamps are seeded relative to "now" (first seen N days ago), so the
  * dashboard's "new this week" and "last seen" stay lively no matter when the
- * seed last ran. Videos are metadata only — no files are uploaded anywhere
- * and the `video_source` column is intentionally left NULL.
+ * seed last ran. Seeded lessons carry no video files — `video_source` stays
+ * NULL on purpose (staff upload real files from the video editor; the seed
+ * never touches App Storage, and `--reset` won't orphan uploads it didn't
+ * make — remove hosted files from the editor first if you reset a course
+ * that had uploads).
  */
 import { createHash } from 'node:crypto';
 
@@ -481,7 +484,8 @@ function pushVideo(video: VideoSeed, moduleKey: string, subgroupKey: string | nu
     thumbnail_chapter: video.thumbnailChapter ?? 0,
     attachments: video.attachments ?? [],
     position,
-    // video_source stays NULL on purpose: no storage provider is configured.
+    // video_source stays NULL on purpose: seeded demo lessons ship without
+    // files — staff upload real videos from the editor's Media card.
   });
 }
 

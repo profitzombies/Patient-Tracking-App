@@ -24,8 +24,10 @@
  * sequential-unlock frontier sits at the first lesson; team numbers come
  * from the live demo viewer/completion rows.
  *
- * Videos are METADATA ONLY — no video files exist anywhere. Chapters step
- * through typographic "workbook slides" instead.
+ * Web lessons can host a real video file (HQ admins upload them; the row
+ * then carries video_source/thumbnail_source). Mobile deliberately keeps the
+ * simulated workbook-slide player — it carries those fields for row parity
+ * but never streams, so the training experience here stays unchanged.
  */
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,8 @@ export interface TrainingAttachment {
 export interface TrainingVideo {
   id: string;
   title: string;
-  /** Duration in seconds — authored metadata; no file is hosted anywhere. */
+  /** Duration in seconds — authored by hand until the web app hosts a video
+   * file for the lesson, then measured from the file itself. */
   duration: number;
   published: PublishState;
   unlock: UnlockMode;
@@ -62,6 +65,10 @@ export interface TrainingVideo {
   chapters: TrainingChapter[];
   /** Chapter index whose slide frame is the poster/thumbnail everywhere. */
   thumbnailChapter: number;
+  /** App Storage object path of the hosted video file (null = simulated slides). */
+  videoSource: string | null;
+  /** App Storage object path of the captured thumbnail frame (null = slide poster). */
+  thumbnailSource: string | null;
   attachments: TrainingAttachment[];
 }
 
@@ -165,7 +172,10 @@ export interface TrainingVideoRow {
   thumbnail_chapter: number;
   attachments: unknown;
   position: number;
+  /** App Storage object path when a file is hosted (null = metadata only). */
   video_source: string | null;
+  /** Captured poster frame's object path; optional so older fixtures compile. */
+  thumbnail_source?: string | null;
 }
 
 export interface TrainingViewerRow {
@@ -247,6 +257,8 @@ export function mapVideoRow(row: TrainingVideoRow): TrainingVideo {
     description: sanitizeParagraphs(row.description),
     chapters: sanitizeChapters(row.chapters),
     thumbnailChapter: Math.max(0, row.thumbnail_chapter ?? 0),
+    videoSource: row.video_source ?? null,
+    thumbnailSource: row.thumbnail_source ?? null,
     attachments: sanitizeAttachments(row.attachments),
   };
 }

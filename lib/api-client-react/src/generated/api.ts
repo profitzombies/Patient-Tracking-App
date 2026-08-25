@@ -25,7 +25,17 @@ import type {
   CoachMenuScanResult,
   CoachRecipeImageInput,
   CoachRecipeImageResult,
-  HealthStatus
+  HealthStatus,
+  TrainingFinalizeInput,
+  TrainingFinalizeResult,
+  TrainingMediaResult,
+  TrainingProcessInput,
+  TrainingRemoveFileResult,
+  TrainingThumbnailInput,
+  TrainingThumbnailResult,
+  TrainingTranscriptResult,
+  TrainingUploadUrlInput,
+  TrainingUploadUrlResult
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -269,6 +279,526 @@ export const useCoachMenuScan = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getCoachMenuScanMutationOptions(options));
+    }
+
+export const getTrainingVideoUploadUrlUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/upload-url`
+}
+
+/**
+ * HQ admins only. Returns a short-lived presigned PUT URL so the browser uploads the file straight to App Storage (the API never proxies the body), plus the canonical object path to send back to finalize. Nothing is written to the video row until finalize verifies the bytes.
+ * @summary Mint a presigned upload URL for a training video file
+ */
+export const trainingVideoUploadUrl = async (videoId: string,
+    trainingUploadUrlInput: TrainingUploadUrlInput, options?: Parameters<typeof customFetch>[1]): Promise<TrainingUploadUrlResult> => {
+
+  return customFetch<TrainingUploadUrlResult>(getTrainingVideoUploadUrlUrl(videoId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trainingUploadUrlInput)
+  }
+);}
+
+
+
+
+
+export const getTrainingVideoUploadUrlMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingUploadUrlInput>}, TContext> => {
+
+const mutationKey = ['trainingVideoUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, {videoId: string;data: BodyType<TrainingUploadUrlInput>}> = (props) => {
+          const {videoId,data} = props ?? {};
+
+          return  trainingVideoUploadUrl(videoId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingVideoUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof trainingVideoUploadUrl>>>
+    export type TrainingVideoUploadUrlMutationBody = BodyType<TrainingUploadUrlInput>
+    export type TrainingVideoUploadUrlMutationError = ErrorType<void>
+
+    /**
+ * @summary Mint a presigned upload URL for a training video file
+ */
+export const useTrainingVideoUploadUrl = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingVideoUploadUrl>>,
+        TError,
+        {videoId: string;data: BodyType<TrainingUploadUrlInput>},
+        TContext
+      > => {
+      return useMutation(getTrainingVideoUploadUrlMutationOptions(options));
+    }
+
+export const getTrainingVideoFinalizeUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/video`
+}
+
+/**
+ * HQ admins only. Verifies the uploaded object exists under this video's prefix, ffprobes it (authoritative duration and playability check), persists the object path and duration, clears the previous file's transcript/thumbnail, and deletes the replaced object. Stores only the object path — playback URLs are minted per request.
+ * @summary Attach an uploaded file to the video after verifying it
+ */
+export const trainingVideoFinalize = async (videoId: string,
+    trainingFinalizeInput: TrainingFinalizeInput, options?: Parameters<typeof customFetch>[1]): Promise<TrainingFinalizeResult> => {
+
+  return customFetch<TrainingFinalizeResult>(getTrainingVideoFinalizeUrl(videoId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trainingFinalizeInput)
+  }
+);}
+
+
+
+
+
+export const getTrainingVideoFinalizeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoFinalize>>, TError,{videoId: string;data: BodyType<TrainingFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoFinalize>>, TError,{videoId: string;data: BodyType<TrainingFinalizeInput>}, TContext> => {
+
+const mutationKey = ['trainingVideoFinalize'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoFinalize>>, {videoId: string;data: BodyType<TrainingFinalizeInput>}> = (props) => {
+          const {videoId,data} = props ?? {};
+
+          return  trainingVideoFinalize(videoId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingVideoFinalizeMutationResult = NonNullable<Awaited<ReturnType<typeof trainingVideoFinalize>>>
+    export type TrainingVideoFinalizeMutationBody = BodyType<TrainingFinalizeInput>
+    export type TrainingVideoFinalizeMutationError = ErrorType<void>
+
+    /**
+ * @summary Attach an uploaded file to the video after verifying it
+ */
+export const useTrainingVideoFinalize = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoFinalize>>, TError,{videoId: string;data: BodyType<TrainingFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingVideoFinalize>>,
+        TError,
+        {videoId: string;data: BodyType<TrainingFinalizeInput>},
+        TContext
+      > => {
+      return useMutation(getTrainingVideoFinalizeMutationOptions(options));
+    }
+
+export const getTrainingVideoRemoveFileUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/video`
+}
+
+/**
+ * HQ admins only. Clears the video's hosted file, thumbnail, and transcript, and deletes the stored objects. The lesson itself keeps its metadata and returns to the simulated-slides experience.
+ * @summary Remove the hosted file (the lesson row stays)
+ */
+export const trainingVideoRemoveFile = async (videoId: string, options?: Parameters<typeof customFetch>[1]): Promise<TrainingRemoveFileResult> => {
+
+  return customFetch<TrainingRemoveFileResult>(getTrainingVideoRemoveFileUrl(videoId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getTrainingVideoRemoveFileMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, TError,{videoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, TError,{videoId: string}, TContext> => {
+
+const mutationKey = ['trainingVideoRemoveFile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, {videoId: string}> = (props) => {
+          const {videoId} = props ?? {};
+
+          return  trainingVideoRemoveFile(videoId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingVideoRemoveFileMutationResult = NonNullable<Awaited<ReturnType<typeof trainingVideoRemoveFile>>>
+
+    export type TrainingVideoRemoveFileMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove the hosted file (the lesson row stays)
+ */
+export const useTrainingVideoRemoveFile = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, TError,{videoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingVideoRemoveFile>>,
+        TError,
+        {videoId: string},
+        TContext
+      > => {
+      return useMutation(getTrainingVideoRemoveFileMutationOptions(options));
+    }
+
+export const getTrainingVideoMediaUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/media`
+}
+
+/**
+ * HQ admins and provider staff. Returns signed GET URLs for the video file (and thumbnail when one exists) so the <video> element's range requests hit storage directly — that is what makes seeking work. URLs expire; clients re-request rather than persist them.
+ * @summary Short-lived signed playback URLs for a hosted video
+ */
+export const trainingVideoMedia = async (videoId: string, options?: Parameters<typeof customFetch>[1]): Promise<TrainingMediaResult> => {
+
+  return customFetch<TrainingMediaResult>(getTrainingVideoMediaUrl(videoId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getTrainingVideoMediaQueryKey = (videoId: string,) => {
+    return [
+    `/api/training/videos/${videoId}/media`
+    ] as const;
+    }
+
+
+export const getTrainingVideoMediaQueryOptions = <TData = Awaited<ReturnType<typeof trainingVideoMedia>>, TError = ErrorType<void>>(videoId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof trainingVideoMedia>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getTrainingVideoMediaQueryKey(videoId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof trainingVideoMedia>>> = ({ signal }) => trainingVideoMedia(videoId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: videoId !== null && videoId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof trainingVideoMedia>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type TrainingVideoMediaQueryResult = NonNullable<Awaited<ReturnType<typeof trainingVideoMedia>>>
+export type TrainingVideoMediaQueryError = ErrorType<void>
+
+
+/**
+ * @summary Short-lived signed playback URLs for a hosted video
+ */
+
+export function useTrainingVideoMedia<TData = Awaited<ReturnType<typeof trainingVideoMedia>>, TError = ErrorType<void>>(
+ videoId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof trainingVideoMedia>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getTrainingVideoMediaQueryOptions(videoId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getTrainingVideoTranscriptUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/transcript`
+}
+
+/**
+ * HQ admins only (the editor's transcript viewer). Segments follow the transcription grid — near-minute slices with start/end seconds.
+ * @summary Timed transcript of the hosted video
+ */
+export const trainingVideoTranscript = async (videoId: string, options?: Parameters<typeof customFetch>[1]): Promise<TrainingTranscriptResult> => {
+
+  return customFetch<TrainingTranscriptResult>(getTrainingVideoTranscriptUrl(videoId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getTrainingVideoTranscriptQueryKey = (videoId: string,) => {
+    return [
+    `/api/training/videos/${videoId}/transcript`
+    ] as const;
+    }
+
+
+export const getTrainingVideoTranscriptQueryOptions = <TData = Awaited<ReturnType<typeof trainingVideoTranscript>>, TError = ErrorType<void>>(videoId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof trainingVideoTranscript>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getTrainingVideoTranscriptQueryKey(videoId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof trainingVideoTranscript>>> = ({ signal }) => trainingVideoTranscript(videoId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: videoId !== null && videoId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof trainingVideoTranscript>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type TrainingVideoTranscriptQueryResult = NonNullable<Awaited<ReturnType<typeof trainingVideoTranscript>>>
+export type TrainingVideoTranscriptQueryError = ErrorType<void>
+
+
+/**
+ * @summary Timed transcript of the hosted video
+ */
+
+export function useTrainingVideoTranscript<TData = Awaited<ReturnType<typeof trainingVideoTranscript>>, TError = ErrorType<void>>(
+ videoId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof trainingVideoTranscript>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getTrainingVideoTranscriptQueryOptions(videoId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getTrainingVideoThumbnailUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/thumbnail`
+}
+
+/**
+ * HQ admins only. The editor's thumbnail dialog scrubs the real video client-side, then sends the chosen time; the server extracts that frame with ffmpeg, stores it, and replaces the previous thumbnail.
+ * @summary Capture a video frame as the lesson thumbnail
+ */
+export const trainingVideoThumbnail = async (videoId: string,
+    trainingThumbnailInput: TrainingThumbnailInput, options?: Parameters<typeof customFetch>[1]): Promise<TrainingThumbnailResult> => {
+
+  return customFetch<TrainingThumbnailResult>(getTrainingVideoThumbnailUrl(videoId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trainingThumbnailInput)
+  }
+);}
+
+
+
+
+
+export const getTrainingVideoThumbnailMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoThumbnail>>, TError,{videoId: string;data: BodyType<TrainingThumbnailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoThumbnail>>, TError,{videoId: string;data: BodyType<TrainingThumbnailInput>}, TContext> => {
+
+const mutationKey = ['trainingVideoThumbnail'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoThumbnail>>, {videoId: string;data: BodyType<TrainingThumbnailInput>}> = (props) => {
+          const {videoId,data} = props ?? {};
+
+          return  trainingVideoThumbnail(videoId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingVideoThumbnailMutationResult = NonNullable<Awaited<ReturnType<typeof trainingVideoThumbnail>>>
+    export type TrainingVideoThumbnailMutationBody = BodyType<TrainingThumbnailInput>
+    export type TrainingVideoThumbnailMutationError = ErrorType<void>
+
+    /**
+ * @summary Capture a video frame as the lesson thumbnail
+ */
+export const useTrainingVideoThumbnail = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoThumbnail>>, TError,{videoId: string;data: BodyType<TrainingThumbnailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingVideoThumbnail>>,
+        TError,
+        {videoId: string;data: BodyType<TrainingThumbnailInput>},
+        TContext
+      > => {
+      return useMutation(getTrainingVideoThumbnailMutationOptions(options));
+    }
+
+export const getTrainingVideoProcessUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/process`
+}
+
+/**
+ * HQ admins only; one run per video at a time. Streams step-by-step progress as SSE "data:" JSON lines — {"step", "status": "running"|"done"|"failed"|"skipped", ...payload} with comment keepalives — and ends with {"done": true, "ok": boolean}. Steps in order: "transcribe" (audio → timed segments, saved server-side), "describe" (model writes catalog paragraphs from the transcript), "chapters" (model picks chapter starts on the transcription grid), "thumbnail" (first frame captured and stored). Each step persists on success immediately; a failed step reports plainly and later runs can retry just the remaining steps via "steps". Description/chapters are skipped when transcription fails in the same run.
+ * @summary Run the AI pass over the hosted video (SSE progress)
+ */
+export const trainingVideoProcess = async (videoId: string,
+    trainingProcessInput?: TrainingProcessInput, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getTrainingVideoProcessUrl(videoId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trainingProcessInput)
+  }
+);}
+
+
+
+
+
+export const getTrainingVideoProcessMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoProcess>>, TError,{videoId: string;data?: BodyType<TrainingProcessInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoProcess>>, TError,{videoId: string;data?: BodyType<TrainingProcessInput>}, TContext> => {
+
+const mutationKey = ['trainingVideoProcess'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoProcess>>, {videoId: string;data?: BodyType<TrainingProcessInput>}> = (props) => {
+          const {videoId,data} = props ?? {};
+
+          return  trainingVideoProcess(videoId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingVideoProcessMutationResult = NonNullable<Awaited<ReturnType<typeof trainingVideoProcess>>>
+    export type TrainingVideoProcessMutationBody = BodyType<TrainingProcessInput> | undefined
+    export type TrainingVideoProcessMutationError = ErrorType<void>
+
+    /**
+ * @summary Run the AI pass over the hosted video (SSE progress)
+ */
+export const useTrainingVideoProcess = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoProcess>>, TError,{videoId: string;data?: BodyType<TrainingProcessInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingVideoProcess>>,
+        TError,
+        {videoId: string;data?: BodyType<TrainingProcessInput>},
+        TContext
+      > => {
+      return useMutation(getTrainingVideoProcessMutationOptions(options));
     }
 
 export const getHealthCheckUrl = () => {

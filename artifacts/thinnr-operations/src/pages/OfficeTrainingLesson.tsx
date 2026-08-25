@@ -3,22 +3,28 @@
  *
  * Reads the same live snapshot and unlock rules as the outline (lessonState
  * reuses videoAvailability), so a deep link can never bypass sequential
- * unlock: locked lessons render an explanation instead of content. The
- * player is the simulated THINNR chapter/slide deck — no video files are
- * hosted anywhere yet (the database keeps a video_source slot for a future
- * storage provider) and the page says so plainly instead of pretending a
- * file exists. Signed-in staff mark the lesson complete right here, which
- * refreshes the shared snapshot (outline progress, team counts, and the next
- * lesson's unlock all follow); demo personas browse read-only.
+ * unlock: locked lessons render an explanation instead of content. Playback
+ * has two modes: a lesson with an uploaded file streams the real video from
+ * App Storage over short-lived signed URLs (signed-in staff only — the media
+ * endpoint verifies the caller's Supabase session), while a lesson without
+ * one keeps the simulated THINNR chapter/slide deck and says so plainly.
+ * Signed-in staff mark the lesson complete right here, which refreshes the
+ * shared snapshot (outline progress, team counts, and the next lesson's
+ * unlock all follow); demo personas browse read-only.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { ArrowLeft, ArrowRight, CheckCircle2, FileText, Lock } from 'lucide-react';
 import { useTrainingData } from '@/contexts/training-data';
 import { useToast } from '@/hooks/use-toast';
 import { completionsFor, formatClock, type OrderedVideo, type TrainingCourse } from '@/data/hq/training';
 import { lessonState, type LessonState, type VideoAvailability } from '@/data/office-training';
-import { SlideFrame, TrainingLoading, TrainingLoadError } from '@/components/admin/training/shared';
+import { chapterIndexAt, SlideFrame, TrainingLoading, TrainingLoadError } from '@/components/admin/training/shared';
+import {
+  HostedVideoPlayer,
+  useVideoMedia,
+  type HostedVideoPlayerHandle,
+} from '@/components/training/HostedVideoPlayer';
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
@@ -169,7 +175,20 @@ function LessonView({
   const [, navigate] = useLocation();
   const video = item.video;
   const [chapterIndex, setChapterIndex] = useState(0);
+  const [playerTime, setPlayerTime] = useState(0);
   const [marking, setMarking] = useState(false);
+  const playerRef = useRef<HostedVideoPlayerHandle | null>(null);
+
+  // Real playback needs a staff session (the media endpoint verifies it);
+  // demo personas keep the simulated deck, with no doomed fetch attempted.
+  const { media, loading: mediaLoading, error: mediaError, reload: reloadMedia } = useVideoMedia(
+    video.id,
+    video.videoSource,
+    canAddStaff,
+  );
+  const hostedPlayback = Boolean(video.videoSource) && canAddStaff;
+  // Sidebar highlight: follows playback time when streaming, clicks otherwise.
+  const activeChapterIndex = hostedPlayback ? chapterIndexAt(video, playerTime) : chapterIndex;
 
   const done = state.availability === 'done';
   const canMark = Boolean(myViewer) && canAddStaff && state.availability === 'available';
@@ -230,7 +249,42 @@ function LessonView({
         </div>
       </header>
 
-      {/* Simulated player — the THINNR slide deck standing in for a video file. */}
+      {hostedPlayback ? (
+        /* Real player — streams the uploaded file from App Storage. */
+        <div className="overflow-hidden rounded-lg border border-card-border bg-card shadow-soft">
+          {media ? (
+            <HostedVideoPlayer
+              ref={playerRef}
+              src={media.videoUrl}
+              poster={media.thumbnailUrl}
+              chapters={video.chapters}
+              durationSeconds={video.duration}
+              onTimeChange={setPlayerTime}
+              testId="player-lesson"
+            />
+          ) : mediaLoading ? (
+            <div
+              className="flex aspect-video w-full items-center justify-center bg-navy/90"
+              data-testid="player-loading"
+            >
+              <p className="text-xs font-semibold text-card">Loading the video…</p>
+            </div>
+          ) : (
+            <div
+              className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-navy/90 px-6 text-center"
+              data-testid="player-error"
+            >
+              <p className="text-xs font-semibold text-card" role="alert">
+                {mediaError ?? 'Could not load the video.'}
+              </p>
+              <button type="button" className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`} onClick={reloadMedia}>
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+      /* Simulated player — the THINNR slide deck standing in for a video file. */
       <div className="overflow-hidden rounded-lg border border-card-border bg-card shadow-soft">
         <SlideFrame video={video} chapterIndex={chapterIndex} className="rounded-none border-none" />
         <div className="flex flex-col gap-2.5 border-t border-border px-4 py-3">
@@ -268,10 +322,12 @@ function LessonView({
           className="border-t border-border bg-secondary/50 px-4 py-2.5 text-[11px] leading-relaxed text-muted-foreground"
           data-testid="text-simulated-player"
         >
-          Simulated player — no video file is hosted in this demo yet, so the chapters step through the
-          lesson&rsquo;s workbook slides.
+          {video.videoSource
+            ? 'A video file is hosted for this lesson — sign in with a staff account to stream it. The chapters here step through the workbook slides instead.'
+            : 'Simulated player — no video file has been uploaded for this lesson yet, so the chapters step through the lesson\u2019s workbook slides.'}
         </p>
       </div>
+      )}
 
       <div className="flex flex-col gap-6 md:flex-row md:gap-7">
         <div className="min-w-0 flex-1 space-y-6">
@@ -353,12 +409,15 @@ function LessonView({
             >
               <ol className="space-y-1 px-3 py-3">
                 {video.chapters.map((chapter, idx) => {
-                  const isCurrent = idx === chapterIndex;
+                  const isCurrent = idx === activeChapterIndex;
                   return (
                     <li key={chapter.id}>
                       <button
                         type="button"
-                        onClick={() => setChapterIndex(idx)}
+                        onClick={() => {
+                          if (hostedPlayback) playerRef.current?.seekTo(chapter.at);
+                          else setChapterIndex(idx);
+                        }}
                         aria-current={isCurrent ? 'true' : undefined}
                         className={`flex w-full items-start gap-3 rounded-md border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                           isCurrent

@@ -1,3 +1,4 @@
+// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -39,3 +40,4 @@
 - [Supabase DDL via management API](supabase-management-api.md) — no direct pg socket: run migrations through the management API, keep the repo migration file canonical, re-check security advisors after DDL.
 - [Training live-data patterns](training-live-data.md) — flat rows + client assembly; edits re-sync contiguous positions; progress = rows ∩ published order; learner writes ride opaque capability tokens, PII out of anon reads.
 - [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.
+- [Indefinite-height flex chains](indefinite-height-flex.md) — h-full collapses (to zero for absolute-child wrappers) inside min-h-full columns; omit heights and let flex stretch; screenshots catch it, DOM checks don't.

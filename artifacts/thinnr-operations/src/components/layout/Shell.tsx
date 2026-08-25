@@ -3,30 +3,20 @@ import { Link, useLocation } from 'wouter';
 import {
   Bell,
   ChevronDown,
-  GraduationCap,
-  LayoutDashboard,
   LogOut,
   Search,
   Settings2,
-  Users,
-  WalletCards,
-  Box,
-  Trophy
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useSession } from '@/contexts/session';
 import { useScopedPatients } from '@/data/scoped-data';
-
-/** Initials for the header identity chip, skipping honorifics/credentials. */
-const NAME_NOISE = new Set(['dr', 'mr', 'mrs', 'ms', 'np', 'rn', 'md', 'pa', 'do']);
-function initialsOf(name: string): string {
-  const parts = name
-    .split(/[\s,]+/)
-    .filter((word) => word && !NAME_NOISE.has(word.replace(/\./g, '').toLowerCase()));
-  return parts.map((word) => word[0]?.toUpperCase() ?? '').slice(0, 2).join('') || 'TH';
-}
+import {
+  findActiveOfficeNavItem,
+  OFFICE_NAV_ITEMS,
+  useOfficeIdentity,
+} from '@/components/layout/nav-config';
 
 function ActionButton({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -48,25 +38,15 @@ export function Shell({ children }: { children: ReactNode }) {
   // HQ drill-in scope: null in the standalone office demo. When scoped, the
   // shell rebrands to the drilled-in office and fits under the HQ banner.
   const scope = useProviderScope();
-  const { signOut, authStatus, authRole, authUser } = useSession();
+  const { signOut } = useSession();
   const patients = useScopedPatients();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollPositionsRef = useRef(new Map<string, number>());
   const isHistoryNavigationRef = useRef(false);
 
-  const navItems = [
-    { path: '/', label: 'Overview', icon: <LayoutDashboard size={16} /> },
-    { path: '/patients', label: 'Patients', icon: <Users size={16} /> },
-    { path: '/analytics', label: 'Revenue & Outcomes', icon: <WalletCards size={16} /> },
-    { path: '/leaderboard', label: 'Leaderboard', icon: <Trophy size={16} /> },
-    { path: '/subscriptions', label: 'Subscriptions', icon: <Box size={16} /> },
-    { path: '/training', label: 'Training', icon: <GraduationCap size={16} /> },
-  ];
-
-  const activeItem = navItems.find(item => {
-    if (item.path === '/') return location === '/';
-    return location.startsWith(item.path);
-  }) || navItems[0];
+  // One shared item list drives this menu and the /menu design lab.
+  const navItems = OFFICE_NAV_ITEMS;
+  const activeItem = findActiveOfficeNavItem(location);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -104,19 +84,8 @@ export function Shell({ children }: { children: ReactNode }) {
     description?.setAttribute('content', `Synthetic THINNR med spa operations demo: ${activeItem.label.toLowerCase()}, patient progress, outcomes, and recurring deliveries.`);
   }, [activeItem.label, scope]);
 
-  // The account chip shows the real signed-in staffer when there is one; the
-  // demo persona and the HQ drill-in keep their seeded identities.
-  const isRealStaff = authStatus === 'signed-in' && authRole === 'provider_staff' && authUser !== null;
-  const accountName = isRealStaff
-    ? (authUser.displayName ?? 'Office staff')
-    : scope
-      ? scope.providerName
-      : 'Dr. Sarah Jenkins';
-  const accountRole = isRealStaff
-    ? (scope?.officeName ?? 'Office staff')
-    : scope
-      ? scope.providerRole
-      : 'Medical Director';
+  // The account chip identity is shared with the /menu design lab.
+  const { accountName, accountRole, initials } = useOfficeIdentity();
 
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -173,7 +142,7 @@ export function Shell({ children }: { children: ReactNode }) {
                     : "border-transparent text-muted-foreground hover:bg-sidebar-accent hover:text-navy"
                 }`}
               >
-                <span className={isActive ? 'text-primary' : undefined}>{item.icon}</span>
+                <span className={isActive ? 'text-primary' : undefined}><item.icon size={16} /></span>
                 <span className="min-w-0 flex-1">{item.label}</span>
                 {item.path === '/patients' && (
                   <span className="ml-auto rounded-sm bg-accent px-1.5 py-0.5 text-[10px] font-bold text-primary">{patients.length}</span>
@@ -246,7 +215,7 @@ export function Shell({ children }: { children: ReactNode }) {
               className="ml-1 flex items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span className="grid h-8 w-8 place-items-center rounded-md bg-primary text-[10px] font-bold text-primary-foreground shadow-xs">
-                {initialsOf(accountName)}
+                {initials}
               </span>
               <span className="hidden text-left md:block">
                 <b className="block text-xs font-semibold text-navy">{accountName}</b>
@@ -265,7 +234,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <nav aria-label="Mobile primary navigation" className="grid shrink-0 grid-cols-6 border-t border-border bg-paper-alt md:hidden">
           {navItems.map((item) => {
             const isActive = activeItem.path === item.path;
-            const mobileLabel = item.path === '/analytics' ? 'Outcomes' : item.label;
+            const mobileLabel = item.mobileLabel;
             return (
               <Link
                 key={item.path}
@@ -277,7 +246,7 @@ export function Shell({ children }: { children: ReactNode }) {
                     : 'border-transparent text-muted-foreground hover:bg-secondary'
                 }`}
               >
-                <span className={isActive ? 'text-primary' : undefined}>{item.icon}</span>
+                <span className={isActive ? 'text-primary' : undefined}><item.icon size={16} /></span>
                 <span className="leading-tight">{mobileLabel}</span>
               </Link>
             );

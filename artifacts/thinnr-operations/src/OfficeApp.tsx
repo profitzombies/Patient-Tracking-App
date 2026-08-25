@@ -24,25 +24,33 @@ import Subscriptions from '@/pages/Subscriptions';
 import OfficeTraining from '@/pages/OfficeTraining';
 import OfficeTrainingCourse from '@/pages/OfficeTrainingCourse';
 import OfficeTrainingLesson from '@/pages/OfficeTrainingLesson';
+import MenuLab from '@/pages/MenuLab';
 
 export function OfficeApp() {
   return (
     <RoutedErrorBoundary>
-      <Shell>
-        <PatientRouteScrollBehavior />
-        <Switch>
-          <Route path="/" component={Overview} />
-          <Route path="/patients" component={Patients} />
-          <Route path="/patients/:id" component={PatientDetail} />
-          <Route path="/analytics" component={Analytics} />
-          <Route path="/leaderboard" component={Leaderboard} />
-          <Route path="/subscriptions" component={Subscriptions} />
-          <Route path="/training" component={OfficeTraining} />
-          <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />
-          <Route path="/training/:courseId" component={OfficeTrainingCourse} />
-          <Route component={NotFound} />
-        </Switch>
-      </Shell>
+      <Switch>
+        {/* Side-menu design lab: renders without the app chrome so the
+            candidate menus are the only chrome on screen. */}
+        <Route path="/menu" component={MenuLab} />
+        <Route>
+          <Shell>
+            <PatientRouteScrollBehavior />
+            <Switch>
+              <Route path="/" component={Overview} />
+              <Route path="/patients" component={Patients} />
+              <Route path="/patients/:id" component={PatientDetail} />
+              <Route path="/analytics" component={Analytics} />
+              <Route path="/leaderboard" component={Leaderboard} />
+              <Route path="/subscriptions" component={Subscriptions} />
+              <Route path="/training" component={OfficeTraining} />
+              <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />
+              <Route path="/training/:courseId" component={OfficeTrainingCourse} />
+              <Route component={NotFound} />
+            </Switch>
+          </Shell>
+        </Route>
+      </Switch>
     </RoutedErrorBoundary>
   );
 }

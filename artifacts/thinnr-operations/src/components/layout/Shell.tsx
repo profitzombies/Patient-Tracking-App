@@ -3,6 +3,7 @@ import { Link, useLocation } from 'wouter';
 import {
   Bell,
   ChevronDown,
+  GraduationCap,
   LayoutDashboard,
   LogOut,
   Search,
@@ -59,6 +60,7 @@ export function Shell({ children }: { children: ReactNode }) {
     { path: '/analytics', label: 'Revenue & Outcomes', icon: <WalletCards size={16} /> },
     { path: '/leaderboard', label: 'Leaderboard', icon: <Trophy size={16} /> },
     { path: '/subscriptions', label: 'Subscriptions', icon: <Box size={16} /> },
+    { path: '/training', label: 'Training', icon: <GraduationCap size={16} /> },
   ];
 
   const activeItem = navItems.find(item => {
@@ -246,7 +248,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {children}
         </div>
 
-        <nav aria-label="Mobile primary navigation" className="grid shrink-0 grid-cols-5 border-t border-border bg-paper-alt md:hidden">
+        <nav aria-label="Mobile primary navigation" className="grid shrink-0 grid-cols-6 border-t border-border bg-paper-alt md:hidden">
           {navItems.map((item) => {
             const isActive = activeItem.path === item.path;
             const mobileLabel = item.path === '/analytics' ? 'Outcomes' : item.label;

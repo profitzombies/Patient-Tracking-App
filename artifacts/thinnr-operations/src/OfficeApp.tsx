@@ -21,6 +21,8 @@ import PatientDetail from '@/pages/PatientDetail';
 import Analytics from '@/pages/Analytics';
 import Leaderboard from '@/pages/Leaderboard';
 import Subscriptions from '@/pages/Subscriptions';
+import OfficeTraining from '@/pages/OfficeTraining';
+import OfficeTrainingCourse from '@/pages/OfficeTrainingCourse';
 
 export function OfficeApp() {
   return (
@@ -34,6 +36,8 @@ export function OfficeApp() {
           <Route path="/analytics" component={Analytics} />
           <Route path="/leaderboard" component={Leaderboard} />
           <Route path="/subscriptions" component={Subscriptions} />
+          <Route path="/training" component={OfficeTraining} />
+          <Route path="/training/:courseId" component={OfficeTrainingCourse} />
           <Route component={NotFound} />
         </Switch>
       </Shell>

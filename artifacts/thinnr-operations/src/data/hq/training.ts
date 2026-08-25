@@ -99,6 +99,8 @@ export interface TrainingViewer {
   accountId: string | null;
   /** Set when a learner added this person via the Add Staff button. */
   staffOfViewerId: string | null;
+  /** Confirmed staff sign-in that owns this row; absent for demo/gate viewers. */
+  authUserId?: string | null;
   location: string;
   /** ISO timestamps from the database. */
   firstSeenAt: string;
@@ -176,6 +178,7 @@ export interface TrainingViewerRow {
   phone: string;
   account_id: string | null;
   staff_of_viewer_id: string | null;
+  auth_user_id?: string | null;
   location: string;
   first_seen_at: string;
   last_seen_at: string;
@@ -259,6 +262,7 @@ export function mapViewerRow(row: TrainingViewerRow): TrainingViewer {
     phone: row.phone,
     accountId: row.account_id,
     staffOfViewerId: row.staff_of_viewer_id,
+    authUserId: row.auth_user_id ?? null,
     location: row.location,
     firstSeenAt: row.first_seen_at,
     lastSeenAt: row.last_seen_at,

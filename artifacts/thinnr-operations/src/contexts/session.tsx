@@ -70,6 +70,8 @@ interface SessionValue {
   authStatus: AuthStatus;
   authUser: AuthUser | null;
   authRole: AuthRole | null;
+  /** Provider office (seeded account id) for signed-in provider staff; null otherwise. */
+  providerAccountCode: string | null;
   roleStatus: RoleStatus;
   /** False when the Supabase env vars are missing (demo-only mode). */
   supabaseEnabled: boolean;
@@ -103,6 +105,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
   const [authRole, setAuthRole] = useState<AuthRole | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
+  const [providerAccountCode, setProviderAccountCode] = useState<string | null>(null);
   const [roleStatus, setRoleStatus] = useState<RoleStatus>('idle');
   const [roleNonce, setRoleNonce] = useState(0);
 
@@ -131,6 +134,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!supabase || !userId) {
       setAuthRole(null);
       setProfileName(null);
+      setProviderAccountCode(null);
       setRoleStatus('idle');
       return;
     }
@@ -138,7 +142,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setRoleStatus('loading');
     void supabase
       .from('profiles')
-      .select('role, display_name')
+      .select('role, display_name, provider_account_code')
       .eq('id', userId)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -147,11 +151,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (error || !data || (role !== 'hq_admin' && role !== 'provider_staff' && role !== 'patient')) {
           setAuthRole(null);
           setProfileName(null);
+          setProviderAccountCode(null);
           setRoleStatus('error');
           return;
         }
         setAuthRole(role);
         setProfileName((data.display_name as string | null) ?? null);
+        setProviderAccountCode(
+          role === 'provider_staff' ? ((data.provider_account_code as string | null) ?? null) : null,
+        );
         setRoleStatus('ready');
       });
     return () => {
@@ -170,7 +178,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const refreshActiveStaffRole = async () => {
       const { data, error } = await client
         .from('profiles')
-        .select('role, display_name')
+        .select('role, display_name, provider_account_code')
         .eq('id', userId)
         .maybeSingle();
       if (disposed) return;
@@ -180,6 +188,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // Remove privileged UI before invalidating the persisted auth session.
         setAuthRole(nextRole === 'patient' ? nextRole : null);
         setProfileName(null);
+        setProviderAccountCode(null);
         setRoleStatus(error || !data ? 'error' : 'ready');
         writeStoredPersona(null);
         setDemoPersona(null);
@@ -189,6 +198,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       setAuthRole(nextRole);
       setProfileName((data.display_name as string | null) ?? null);
+      setProviderAccountCode(
+        nextRole === 'provider_staff' ? ((data.provider_account_code as string | null) ?? null) : null,
+      );
       setRoleStatus('ready');
     };
 
@@ -320,6 +332,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       authStatus,
       authUser,
       authRole,
+      providerAccountCode,
       roleStatus,
       supabaseEnabled: supabaseConfigured,
       signIn,
@@ -335,6 +348,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       authStatus,
       authUser,
       authRole,
+      providerAccountCode,
       roleStatus,
       signIn,
       signOut,

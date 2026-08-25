@@ -1,0 +1,421 @@
+/**
+ * Office Training — the provider office's window into THINNR enablement.
+ *
+ * Reads the same live training snapshot as the HQ portal, scoped to this
+ * office: a "My training" card for the signed-in staffer's own progress,
+ * the live course catalog, and the team roster with per-person progress.
+ * Provider staff (and HQ admins drilled into an office) can add teammates
+ * here — the add pre-approves the email for staff sign-up under this office
+ * and puts them on the roster immediately; no invite email is sent.
+ *
+ * The unscoped demo office browses read-only across every office learner,
+ * mirroring how the rest of the office demo shows program-wide singletons.
+ */
+import { useMemo, useState } from 'react';
+import { Link } from 'wouter';
+import { ArrowRight, CheckCircle2, GraduationCap, Plus } from 'lucide-react';
+import { useTrainingData } from '@/contexts/training-data';
+import { useProviderScope } from '@/contexts/provider-scope';
+import { useSession } from '@/contexts/session';
+import { useToast } from '@/hooks/use-toast';
+import { findSeededAccount } from '@/data/hq/accounts';
+import {
+  completionsFor,
+  countVideos,
+  courseDuration,
+  formatClock,
+  formatHours,
+  formatLastSeen,
+  getOrderedVideos,
+  type TrainingCourse,
+} from '@/data/hq/training';
+import { officeCourseStats, officeRoster, selfCourseState } from '@/data/office-training';
+import { TrainingLoading, TrainingLoadError } from '@/components/admin/training/shared';
+import { BTN_PRIMARY, CHIP_COBALT, INPUT_CLASS, MICRO_LABEL, SectionCard } from '@/components/patient/heritage';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+
+export default function OfficeTraining() {
+  const {
+    status,
+    errorMessage,
+    refresh,
+    courses,
+    viewers,
+    completionIndex,
+    myViewer,
+    canAddStaff,
+    addStaffMember,
+    markMyVideoComplete,
+  } = useTrainingData();
+  const scope = useProviderScope();
+  const { authStatus, authRole, providerAccountCode } = useSession();
+  const { toast } = useToast();
+
+  // Scope resolution: HQ drill-in and matched staff sign-ins arrive with a
+  // provider scope; a staff sign-in whose office is not a seeded account
+  // still filters by their assigned code; the demo persona stays unscoped.
+  const accountId =
+    scope?.id ??
+    (authStatus === 'signed-in' && authRole === 'provider_staff' ? providerAccountCode : null);
+  const officeName =
+    scope?.officeName ?? (accountId ? (findSeededAccount(accountId)?.officeName ?? null) : null);
+
+  const liveCourses = useMemo(
+    () => courses.filter((course) => course.status === 'live'),
+    [courses],
+  );
+  const primaryCourse = liveCourses[0] ?? null;
+  const primaryOrder = useMemo(
+    () => (primaryCourse ? getOrderedVideos(primaryCourse, true) : []),
+    [primaryCourse],
+  );
+  const roster = useMemo(
+    () => officeRoster(viewers, accountId, primaryOrder, completionIndex, myViewer?.id ?? null),
+    [viewers, accountId, primaryOrder, completionIndex, myViewer],
+  );
+  const teamStats = useMemo(() => officeCourseStats(roster), [roster]);
+  const self = useMemo(
+    () =>
+      primaryCourse && myViewer
+        ? selfCourseState(primaryCourse, completionsFor(completionIndex, myViewer.id))
+        : null,
+    [primaryCourse, myViewer, completionIndex],
+  );
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [marking, setMarking] = useState(false);
+
+  const openAddTeammate = () => {
+    if (!canAddStaff) {
+      toast({
+        title: 'Sign in to make changes',
+        description: 'The demo persona can browse training, but adding teammates needs a real staff sign-in.',
+      });
+      return;
+    }
+    if (!accountId) {
+      toast({
+        title: 'No office on this sign-in yet',
+        description: 'Your account has no office assigned, so there is nowhere to add teammates.',
+      });
+      return;
+    }
+    setDialogOpen(true);
+  };
+
+  const submitTeammate = async () => {
+    if (!accountId || saving) return;
+    setSaving(true);
+    const viewer = await addStaffMember(accountId, { name: newName, email: newEmail });
+    setSaving(false);
+    if (viewer) {
+      setDialogOpen(false);
+      setNewName('');
+      setNewEmail('');
+      toast({
+        title: `${viewer.name} is on the roster`,
+        description:
+          'When they sign up with this email, office training access links automatically — no invite email needed.',
+      });
+    }
+  };
+
+  const markNext = async () => {
+    if (!self?.next || marking) return;
+    setMarking(true);
+    const completion = await markMyVideoComplete(self.next.video.id);
+    setMarking(false);
+    if (completion) {
+      const remaining = self.total - self.done - 1;
+      toast({
+        title: `Marked "${self.next.video.title}" complete`,
+        description:
+          remaining > 0
+            ? `${remaining} video${remaining === 1 ? '' : 's'} to go in ${primaryCourse?.title ?? 'this course'}.`
+            : 'That was the last one — course complete.',
+      });
+    }
+  };
+
+  const header = (
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p className={MICRO_LABEL}>Enablement</p>
+        <h1 className="mt-1 font-serif text-[32px] leading-none tracking-[-.02em] text-navy">Training</h1>
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="text-training-scope">
+          {officeName
+            ? `${officeName} — your team's THINNR program training.`
+            : 'THINNR program training across every office in the demo.'}
+        </p>
+      </div>
+      <button className={BTN_PRIMARY} onClick={openAddTeammate} data-testid="button-add-teammate">
+        <Plus size={14} className="mr-1.5 inline-block" aria-hidden="true" />
+        Add teammate
+      </button>
+    </header>
+  );
+
+  if (status !== 'ready') {
+    return (
+      <div className="space-y-6">
+        {header}
+        {status === 'loading' ? <TrainingLoading /> : <TrainingLoadError message={errorMessage} onRetry={refresh} />}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {header}
+
+      {myViewer && primaryCourse && self && (
+        <SectionCard
+          title="My training"
+          sub={primaryCourse.title}
+          action={
+            <span className={CHIP_COBALT} data-testid="chip-my-progress">
+              {self.done}/{self.total} complete
+            </span>
+          }
+        >
+          <div className="px-5 py-4">
+            <div className="h-2 overflow-hidden rounded-full bg-border" aria-hidden="true">
+              <div className="h-full bg-primary transition-all" style={{ width: `${self.pct}%` }} />
+            </div>
+            {self.next ? (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className={MICRO_LABEL}>Next up — {self.next.numbering}</p>
+                  <p className="mt-0.5 truncate text-sm font-semibold text-navy" data-testid="text-next-video">
+                    {self.next.video.title}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{formatClock(self.next.video.duration)}</p>
+                </div>
+                <button
+                  className={BTN_PRIMARY}
+                  onClick={() => void markNext()}
+                  disabled={marking}
+                  data-testid="button-mark-next-complete"
+                >
+                  {marking ? 'Saving…' : 'Mark complete & continue'}
+                </button>
+              </div>
+            ) : (
+              <p className="mt-4 flex items-center gap-2 text-sm font-semibold text-navy" data-testid="text-course-finished">
+                <CheckCircle2 size={16} className="text-primary" aria-hidden="true" />
+                All caught up — you've finished {primaryCourse.title}.
+              </p>
+            )}
+          </div>
+        </SectionCard>
+      )}
+
+      <SectionCard
+        title="Live courses"
+        sub="Published by THINNR HQ — the same material every office trains on."
+      >
+        {liveCourses.length > 0 ? (
+          <div className="grid gap-px bg-border sm:grid-cols-2">
+            {liveCourses.map((course) => (
+              <CourseCard
+                key={course.id}
+                course={course}
+                accountId={accountId}
+                viewers={viewers}
+                completionIndex={completionIndex}
+                myViewerId={myViewer?.id ?? null}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="px-5 py-8 text-center text-xs text-muted-foreground">
+            No live courses yet — they appear here as soon as THINNR HQ publishes training.
+          </p>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title="Team roster"
+        sub={
+          officeName
+            ? 'Progress on the flagship course. Add your front desk and providers so their training is tracked.'
+            : 'Office learners across the program, with flagship-course progress.'
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-xs">
+            <thead>
+              <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                <th className="px-5 py-3 font-bold">Name</th>
+                <th className="px-3 py-3 font-bold">Email</th>
+                {!accountId && <th className="px-3 py-3 font-bold">Office</th>}
+                <th className="px-3 py-3 font-bold">Progress</th>
+                <th className="px-3 py-3 text-right font-bold">Watch time</th>
+                <th className="px-5 py-3 text-right font-bold">Last active</th>
+              </tr>
+            </thead>
+            <tbody>
+              {roster.length > 0 ? (
+                roster.map((entry) => (
+                  <tr
+                    key={entry.viewer.id}
+                    className="border-b border-border transition hover:bg-accent/40 last:border-b-0"
+                    data-testid={`row-team-${entry.viewer.id}`}
+                  >
+                    <td className="px-5 py-3">
+                      <span className="font-semibold text-navy">{entry.viewer.name}</span>
+                      {entry.isSelf && (
+                        <span className={`${CHIP_COBALT} ml-2`} data-testid="chip-you">
+                          You
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-muted-foreground">{entry.viewer.email}</td>
+                    {!accountId && (
+                      <td className="px-3 py-3 text-muted-foreground">
+                        {entry.viewer.accountId
+                          ? (findSeededAccount(entry.viewer.accountId)?.officeName ?? entry.viewer.accountId)
+                          : '—'}
+                      </td>
+                    )}
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-9 text-right font-semibold text-navy">
+                          {entry.done}/{entry.total}
+                        </span>
+                        <div className="h-1.5 w-[60px] overflow-hidden rounded-full bg-border" aria-hidden="true">
+                          <div className="h-full bg-primary" style={{ width: `${entry.pct}%` }} />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-right text-muted-foreground">{formatHours(entry.watchSeconds)}</td>
+                    <td className="px-5 py-3 text-right text-muted-foreground whitespace-nowrap">
+                      {formatLastSeen(entry.viewer)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={accountId ? 5 : 6} className="px-5 py-8 text-center text-xs text-muted-foreground">
+                    No teammates on the roster yet — add your front desk and providers above.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {roster.length > 0 && (
+          <div className="flex flex-wrap items-center gap-4 border-t border-border px-5 py-3 text-xs text-muted-foreground">
+            <span data-testid="text-team-avg">
+              Team average <span className="font-semibold text-navy">{teamStats.avgPct}%</span>
+            </span>
+            <span data-testid="text-team-finishers">
+              Finished the flagship course <span className="font-semibold text-navy">{teamStats.finishers}</span>
+            </span>
+          </div>
+        )}
+      </SectionCard>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Add a teammate</DialogTitle>
+            <DialogDescription>
+              {officeName ? `They join ${officeName}'s roster right away.` : 'They join this office right away.'}{' '}
+              When they sign up with this email, training access links automatically — nothing is emailed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <label className="block">
+              <span className={MICRO_LABEL}>Full name</span>
+              <input
+                className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                placeholder="e.g. Dana Reyes"
+                data-testid="input-teammate-name"
+              />
+            </label>
+            <label className="block">
+              <span className={MICRO_LABEL}>Work email</span>
+              <input
+                className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                type="email"
+                value={newEmail}
+                onChange={(event) => setNewEmail(event.target.value)}
+                placeholder="name@office.com"
+                data-testid="input-teammate-email"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <button
+              className={BTN_PRIMARY}
+              onClick={() => void submitTeammate()}
+              disabled={saving || newName.trim() === '' || newEmail.trim() === ''}
+              data-testid="button-save-teammate"
+            >
+              {saving ? 'Adding…' : 'Add to office'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function CourseCard({
+  course,
+  accountId,
+  viewers,
+  completionIndex,
+  myViewerId,
+}: {
+  course: TrainingCourse;
+  accountId: string | null;
+  viewers: Parameters<typeof officeRoster>[0];
+  completionIndex: Parameters<typeof officeRoster>[3];
+  myViewerId: string | null;
+}) {
+  const order = useMemo(() => getOrderedVideos(course, true), [course]);
+  const stats = useMemo(
+    () => officeCourseStats(officeRoster(viewers, accountId, order, completionIndex, myViewerId)),
+    [viewers, accountId, order, completionIndex, myViewerId],
+  );
+  return (
+    <div className="flex flex-col gap-3 bg-card px-5 py-4" data-testid={`card-course-${course.id}`}>
+      <div className="flex items-start gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-accent-border bg-accent text-primary">
+          <GraduationCap size={16} aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <h3 className="font-serif text-[15px] leading-snug text-navy">{course.title}</h3>
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{course.description}</p>
+        </div>
+      </div>
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          {countVideos(course, true)} videos · {formatHours(courseDuration(course, true))} · team avg{' '}
+          <span className="font-semibold text-navy">{stats.avgPct}%</span>
+        </span>
+        <Link
+          href={`/training/${course.id}`}
+          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+          data-testid={`link-open-course-${course.id}`}
+        >
+          Open <ArrowRight size={12} aria-hidden="true" />
+        </Link>
+      </div>
+    </div>
+  );
+}

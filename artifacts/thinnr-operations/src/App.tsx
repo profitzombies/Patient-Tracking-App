@@ -12,6 +12,7 @@
  * /admin/accounts/:id/office via a nested route, outside the admin shell so
  * the office keeps its own chrome under the "Viewing as" banner.
  */
+import { useMemo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -47,6 +48,8 @@ import { DateRangeProvider } from '@/contexts/date-range';
 import { SessionProvider, useSession } from '@/contexts/session';
 import { HqDataProvider } from '@/contexts/hq-data';
 import { TrainingDataProvider } from '@/contexts/training-data';
+import { ProviderScopeProvider } from '@/contexts/provider-scope';
+import { findSeededAccount } from '@/data/hq/accounts';
 
 const queryClient = new QueryClient();
 
@@ -96,6 +99,29 @@ function AdminArea() {
  * or a signed-in patient pre-empt everything. Otherwise the resolved
  * persona (real role, or the demo bypass) locks each area exactly as before.
  */
+/**
+ * The office area, scoped to the signed-in staffer's own provider account
+ * when their profile carries one that matches a seeded office. The demo
+ * bypass (and any unmatched account code) keeps the unscoped office exactly
+ * as it always ran.
+ */
+function ScopedOfficeApp() {
+  const { authStatus, providerAccountCode } = useSession();
+  const account = useMemo(
+    () =>
+      authStatus === 'signed-in' && providerAccountCode
+        ? (findSeededAccount(providerAccountCode) ?? null)
+        : null,
+    [authStatus, providerAccountCode],
+  );
+  if (!account) return <OfficeApp />;
+  return (
+    <ProviderScopeProvider account={account}>
+      <OfficeApp />
+    </ProviderScopeProvider>
+  );
+}
+
 function PersonaRouter() {
   const { persona, authStatus, authRole, roleStatus } = useSession();
 
@@ -110,15 +136,17 @@ function PersonaRouter() {
 
   if (persona === 'office') {
     return (
-      <Switch>
-        {/* Office staff can never reach the admin umbrella. */}
-        <Route path="/admin" nest>
-          <Redirect to="~/" replace />
-        </Route>
-        <Route>
-          <OfficeApp />
-        </Route>
-      </Switch>
+      <TrainingDataProvider>
+        <Switch>
+          {/* Office staff can never reach the admin umbrella. */}
+          <Route path="/admin" nest>
+            <Redirect to="~/" replace />
+          </Route>
+          <Route>
+            <ScopedOfficeApp />
+          </Route>
+        </Switch>
+      </TrainingDataProvider>
     );
   }
 

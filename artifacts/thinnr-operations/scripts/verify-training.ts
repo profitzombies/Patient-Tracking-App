@@ -60,6 +60,13 @@ import {
   type TrainingVideoRow,
   type TrainingViewerRow,
 } from '../src/data/hq/training';
+import {
+  officeCourseStats,
+  officeRoster,
+  selfCourseState,
+  videoAvailability,
+  videoTeamDone,
+} from '../src/data/office-training';
 
 let failures = 0;
 function check(name: string, condition: boolean, detail = '') {
@@ -443,6 +450,101 @@ console.log('10. New-entity defaults are honest metadata-only drafts');
   const slug = nextFreeSlug('Front Desk', taken);
   check('nextFreeSlug avoids collisions', !taken.has(slug) && /^front-desk/.test(slug) && /^[a-z0-9-]+$/.test(slug), slug);
   check('nextFreeSlug is identity when free', nextFreeSlug('Front Desk', new Set()) === 'front-desk');
+}
+
+console.log('11. The office training lens agrees with HQ math');
+{
+  const videoRow = (id: string, position: number, unlock: 'sequential' | 'free'): any => ({
+    id,
+    module_id: 'om1',
+    subgroup_id: null,
+    title: id.toUpperCase(),
+    duration_seconds: 100,
+    published: 'published',
+    unlock_mode: unlock,
+    add_staff: 'auto',
+    description: [],
+    chapters: [],
+    thumbnail_chapter: 0,
+    attachments: [],
+    position,
+    video_source: null,
+  });
+  const [course] = assembleCourses({
+    courses: [
+      { id: 'oc', slug: 'oc', title: 'Office Course', description: '', status: 'live', sequential_unlock: true, created_at: '2026-08-01T00:00:00Z' },
+    ] as any,
+    modules: [
+      { id: 'om1', course_id: 'oc', title: 'Module One', published: 'published', unlock_mode: 'sequential', position: 0 },
+    ] as any,
+    subgroups: [],
+    videos: [videoRow('va', 0, 'sequential'), videoRow('vb', 1, 'sequential'), videoRow('vc', 2, 'sequential'), videoRow('vd', 3, 'free')],
+  });
+  const officeViewer = (id: string, accountId: string | null, lastSeenAt: string, authUserId: string | null = null) => ({
+    id,
+    name: id.toUpperCase(),
+    email: `${id}@office.test`,
+    phone: '—',
+    accountId,
+    staffOfViewerId: null,
+    authUserId,
+    location: '—',
+    firstSeenAt: '2026-08-01T00:00:00Z',
+    lastSeenAt,
+    sessions: 1,
+  });
+  const self = officeViewer('self', 'acct-p1', '2026-08-10T00:00:00Z', 'user-1');
+  const teammate = officeViewer('tm', 'acct-p1', '2026-08-20T00:00:00Z');
+  const otherOffice = officeViewer('other', 'acct-p2', '2026-08-21T00:00:00Z');
+  const unassigned = officeViewer('una', null, '2026-08-22T00:00:00Z');
+  const allViewers = [self, teammate, otherOffice, unassigned];
+  const done = (viewerId: string, videoId: string): TrainingCompletion => ({
+    viewerId,
+    videoId,
+    watchSeconds: 100,
+    firstWatchedAt: '2026-08-05T00:00:00Z',
+    completedAt: '2026-08-05T00:10:00Z',
+  });
+  const index = buildCompletionIndex([
+    done('self', 'va'),
+    done('tm', 'va'), done('tm', 'vb'), done('tm', 'vc'), done('tm', 'vd'),
+    done('other', 'va'),
+  ]);
+  const order = getOrderedVideos(course!, true);
+
+  const scoped = officeRoster(allViewers, 'acct-p1', order, index, 'self');
+  check('scoped roster is the office plus self, self pinned first',
+    scoped.length === 2 && scoped[0]!.viewer.id === 'self' && scoped[1]!.viewer.id === 'tm');
+  check('roster math matches HQ helpers',
+    scoped[0]!.done === 1 && scoped[0]!.pct === 25 && scoped[1]!.done === 4 && scoped[1]!.pct === 100 &&
+      scoped[1]!.watchSeconds === 400);
+  const unscoped = officeRoster(allViewers, null, order, index, null);
+  check('unscoped demo roster lists office-assigned learners only',
+    unscoped.length === 3 && !unscoped.some((entry) => entry.viewer.id === 'una'));
+  const crossScope = officeRoster(allViewers, 'acct-p2', order, index, 'self');
+  check('self stays on the roster even when filed under another office',
+    crossScope.some((entry) => entry.viewer.id === 'self') && crossScope.some((entry) => entry.viewer.id === 'other'));
+
+  const stats = officeCourseStats(scoped);
+  check('team stats: average rounds, finishers require every video', stats.avgPct === 63 && stats.finishers === 1);
+  check('empty roster yields honest zeros', officeCourseStats([]).avgPct === 0 && officeCourseStats([]).finishers === 0);
+
+  const selfState = selfCourseState(course!, completionsFor(index, 'self'));
+  check('self state points at the frontier video',
+    selfState.done === 1 && selfState.total === 4 && selfState.pct === 25 && selfState.next?.video.id === 'vb');
+  const finishedState = selfCourseState(course!, completionsFor(index, 'tm'));
+  check('finished course has no next video', finishedState.next === null && finishedState.pct === 100);
+
+  const selfMap = completionsFor(index, 'self');
+  const frontier = frontierIndex(selfMap, order);
+  const availability = order.map((item, i) => videoAvailability(course!, item, i, selfMap, frontier));
+  check('availability: done, frontier open, later locked, free skips the line',
+    availability[0] === 'done' && availability[1] === 'available' && availability[2] === 'locked' && availability[3] === 'available');
+  const freeCourse = { ...course!, sequentialUnlock: false };
+  check('non-sequential course opens everything',
+    order.every((item, i) => videoAvailability(freeCourse, item, i, selfMap, frontier) !== 'locked'));
+
+  check('per-video team counts', videoTeamDone('va', scoped, index) === 2 && videoTeamDone('vc', scoped, index) === 1 && videoTeamDone('vd', unscoped, index) === 1);
 }
 
 if (failures > 0) {

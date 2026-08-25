@@ -24,7 +24,7 @@
  * re-syncs positions from the transformed course (see syncPlacements), so
  * "append at length" is always correct and assembly order is stable.
  */
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -200,6 +200,10 @@ interface TrainingDataValue {
   refresh: () => void;
   /** True for a real signed-in HQ admin; demo personas browse read-only. */
   canEdit: boolean;
+  /** True for signed-in staff (HQ admin or provider staff) — gates teammate adds. */
+  canAddStaff: boolean;
+  /** The signed-in staffer's own linked viewer row (null for demo, anon, or HQ-only sign-ins). */
+  myViewer: TrainingViewer | null;
 
   courses: TrainingCourse[];
   viewers: TrainingViewer[];
@@ -259,6 +263,15 @@ interface TrainingDataValue {
   inviteStaff: (token: string, email: string) => Promise<boolean>;
   /** Learner preview progress — persists and returns the completion row. */
   markVideoComplete: (token: string, videoId: string) => Promise<TrainingCompletion | null>;
+
+  /**
+   * Office self-serve teammate add: pre-approves the email for staff sign-up
+   * under the office and puts them on the roster immediately. HQ admins may
+   * target any office; provider staff only their own (RLS enforces both).
+   */
+  addStaffMember: (accountId: string, input: { name: string; email: string }) => Promise<TrainingViewer | null>;
+  /** Signed-in staff progress — persists against the caller's own linked viewer row. */
+  markMyVideoComplete: (videoId: string) => Promise<TrainingCompletion | null>;
 }
 
 const TrainingDataContext = createContext<TrainingDataValue | null>(null);
@@ -269,8 +282,10 @@ const EMPTY_COMPLETIONS: TrainingCompletion[] = [];
 
 export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const { authStatus, authRole } = useSession();
+  const { authStatus, authRole, authUser, providerAccountCode } = useSession();
   const canEdit = authStatus === 'signed-in' && authRole === 'hq_admin';
+  const canAddStaff =
+    authStatus === 'signed-in' && (authRole === 'hq_admin' || authRole === 'provider_staff');
 
   const query = useQuery({
     queryKey: TRAINING_QUERY_KEY,
@@ -278,6 +293,21 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
     enabled: supabase !== null,
     staleTime: 30_000,
   });
+
+  // Row-level security widens/narrows what the snapshot can see as auth
+  // changes (e.g. provider staff gain their office's non-demo rows), so the
+  // cached snapshot is stale the moment the signed-in user changes.
+  const authUserId = authUser?.id ?? null;
+  // Refetch whenever the AUTH SCOPE changes, not just the user: a role change
+  // or an office reassignment alters what RLS lets this session read, and a
+  // cached snapshot from the previous scope would leak the old office's rows.
+  const authScopeKey = `${authUserId ?? 'anon'}:${authRole ?? 'none'}:${providerAccountCode ?? ''}`;
+  const lastAuthScopeRef = useRef(authScopeKey);
+  useEffect(() => {
+    if (lastAuthScopeRef.current === authScopeKey) return;
+    lastAuthScopeRef.current = authScopeKey;
+    void queryClient.invalidateQueries({ queryKey: TRAINING_QUERY_KEY });
+  }, [authScopeKey, queryClient]);
 
   const courses = query.data?.courses ?? EMPTY_COURSES;
   const viewers = query.data?.viewers ?? EMPTY_VIEWERS;
@@ -301,6 +331,11 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const flagshipCourse = useMemo(
     () => courses.find((course) => course.status === 'live') ?? courses[0] ?? null,
     [courses],
+  );
+
+  const myViewer = useMemo(
+    () => (authUserId ? (viewers.find((viewer) => viewer.authUserId === authUserId) ?? null) : null),
+    [viewers, authUserId],
   );
 
   const findCourse = useCallback(
@@ -353,6 +388,21 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       return runWrite(operation);
     },
     [canEdit, notifyReadOnly, runWrite],
+  );
+
+  /** Like authorWrite, but for actions any signed-in staffer may take. */
+  const staffWrite = useCallback(
+    async <T,>(operation: () => Promise<T>): Promise<T | null> => {
+      if (!canAddStaff) {
+        toast({
+          title: 'Sign in to make changes',
+          description: 'The demo persona can browse training, but staff actions need a real staff sign-in.',
+        });
+        return null;
+      }
+      return runWrite(operation);
+    },
+    [canAddStaff, runWrite],
   );
 
   // -------------------------------------------------------------------------
@@ -670,12 +720,44 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
     [runWrite],
   );
 
+  // -------------------------------------------------------------------------
+  // Signed-in staff flows — auth.uid()-keyed RPCs (no tokens involved).
+  // -------------------------------------------------------------------------
+
+  const addStaffMember = useCallback<TrainingDataValue['addStaffMember']>(
+    (accountId, input) =>
+      staffWrite(async () => {
+        const payload = unwrap(
+          await requireClient().rpc('training_add_staff', {
+            p_account_id: accountId,
+            p_name: input.name.trim(),
+            p_email: input.email.trim().toLowerCase(),
+          }),
+        ) as { viewer: TrainingViewerRow };
+        return mapViewerRow(payload.viewer);
+      }),
+    [staffWrite],
+  );
+
+  const markMyVideoComplete = useCallback<TrainingDataValue['markMyVideoComplete']>(
+    (videoId) =>
+      staffWrite(async () => {
+        const row = unwrap(
+          await requireClient().rpc('training_mark_video_complete_self', { p_video_id: videoId }),
+        ) as TrainingCompletionRow;
+        return mapCompletionRow(row);
+      }),
+    [staffWrite],
+  );
+
   const value = useMemo<TrainingDataValue>(
     () => ({
       status,
       errorMessage,
       refresh,
       canEdit,
+      canAddStaff,
+      myViewer,
       courses,
       viewers,
       completions,
@@ -701,12 +783,16 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       fetchLearnerState,
       inviteStaff,
       markVideoComplete,
+      addStaffMember,
+      markMyVideoComplete,
     }),
     [
       status,
       errorMessage,
       refresh,
       canEdit,
+      canAddStaff,
+      myViewer,
       courses,
       viewers,
       completions,
@@ -732,6 +818,8 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       fetchLearnerState,
       inviteStaff,
       markVideoComplete,
+      addStaffMember,
+      markMyVideoComplete,
     ],
   );
 

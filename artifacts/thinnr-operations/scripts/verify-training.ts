@@ -61,6 +61,7 @@ import {
   type TrainingViewerRow,
 } from '../src/data/hq/training';
 import {
+  lessonState,
   officeCourseStats,
   officeRoster,
   selfCourseState,
@@ -545,6 +546,83 @@ console.log('11. The office training lens agrees with HQ math');
     order.every((item, i) => videoAvailability(freeCourse, item, i, selfMap, frontier) !== 'locked'));
 
   check('per-video team counts', videoTeamDone('va', scoped, index) === 2 && videoTeamDone('vc', scoped, index) === 1 && videoTeamDone('vd', unscoped, index) === 1);
+}
+
+console.log('12. The lesson page resolves lessons with outline-identical unlock rules');
+{
+  const lessonVideoRow = (id: string, position: number, unlock: 'sequential' | 'free', published = 'published'): any => ({
+    id,
+    module_id: 'lm1',
+    subgroup_id: null,
+    title: id.toUpperCase(),
+    duration_seconds: 100,
+    published,
+    unlock_mode: unlock,
+    add_staff: 'auto',
+    description: [],
+    chapters: [],
+    thumbnail_chapter: 0,
+    attachments: [],
+    position,
+    video_source: null,
+  });
+  const [course] = assembleCourses({
+    courses: [
+      { id: 'lco', slug: 'lco', title: 'Lesson Course', description: '', status: 'live', sequential_unlock: true, created_at: '2026-08-01T00:00:00Z' },
+    ] as any,
+    modules: [
+      { id: 'lm1', course_id: 'lco', title: 'Module One', published: 'published', unlock_mode: 'sequential', position: 0 },
+    ] as any,
+    subgroups: [],
+    videos: [
+      lessonVideoRow('la', 0, 'sequential'),
+      lessonVideoRow('lb', 1, 'sequential'),
+      lessonVideoRow('lc1', 2, 'sequential'),
+      lessonVideoRow('ld', 3, 'free'),
+      lessonVideoRow('le', 4, 'sequential', 'draft'),
+    ],
+  });
+  const done = (viewerId: string, videoId: string): TrainingCompletion => ({
+    viewerId,
+    videoId,
+    watchSeconds: 100,
+    firstWatchedAt: '2026-08-05T00:00:00Z',
+    completedAt: '2026-08-05T00:10:00Z',
+  });
+  // The viewer finished lesson 1 and the free lesson 4 out of order → frontier = lb.
+  const index = buildCompletionIndex([done('lv', 'la'), done('lv', 'ld')]);
+  const map = completionsFor(index, 'lv');
+  const order = getOrderedVideos(course!, true);
+
+  const sa = lessonState(course!, 'la', map);
+  check('completed lesson resolves done with adjacency',
+    sa.availability === 'done' && sa.index === 0 && sa.prev === null && sa.next?.video.id === 'lb' && sa.nextAvailability === 'available');
+  const sb = lessonState(course!, 'lb', map);
+  check('frontier lesson is available with no blocker',
+    sb.availability === 'available' && sb.blocker === null && sb.prev?.video.id === 'la' && sb.prevAvailability === 'done' && sb.nextAvailability === 'locked');
+  const sc = lessonState(course!, 'lc1', map);
+  check('locked lesson names the frontier as its blocker',
+    sc.availability === 'locked' && sc.blocker?.video.id === 'lb' && sc.index === 2);
+  check('the blocker always sits before the locked lesson',
+    sc.blocker !== null && order.findIndex((entry) => entry.video.id === sc.blocker!.video.id) < sc.index);
+  const sd = lessonState(course!, 'ld', map);
+  check('free lesson completed out of order is done; its locked neighbor shows locked',
+    sd.availability === 'done' && sd.prevAvailability === 'locked' && sd.next === null);
+  check('lesson position and count exclude drafts', sd.index === 3 && sd.order.length === 4);
+  check('unknown id resolves to no lesson', lessonState(course!, 'nope', map).item === null);
+  check('draft lesson resolves to no lesson (deep links cannot see drafts)', lessonState(course!, 'le', map).item === null);
+
+  const afterMap = completionsFor(buildCompletionIndex([done('lv', 'la'), done('lv', 'ld'), done('lv', 'lb')]), 'lv');
+  check('completing the blocker unlocks the next lesson',
+    lessonState(course!, 'lc1', afterMap).availability === 'available' && lessonState(course!, 'lb', afterMap).availability === 'done');
+  const freeCourse = { ...course!, sequentialUnlock: false };
+  check('non-sequential course never locks a lesson',
+    order.every((entry) => lessonState(freeCourse, entry.video.id, map).availability !== 'locked'));
+  check('lesson state agrees with the outline availability for every row',
+    order.every((entry, i) => lessonState(course!, entry.video.id, map).availability === videoAvailability(course!, entry, i, map, frontierIndex(map, order))));
+  const emptyMap = completionsFor(index, 'ghost');
+  check('empty progress: first lesson open, later sequential lessons locked',
+    lessonState(course!, 'la', emptyMap).availability === 'available' && lessonState(course!, 'lb', emptyMap).availability === 'locked');
 }
 
 if (failures > 0) {

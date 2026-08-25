@@ -146,3 +146,61 @@ export function officeCourseStats(roster: OfficeRosterEntry[]): OfficeCourseStat
   const finishers = roster.filter((entry) => entry.total > 0 && entry.done >= entry.total).length;
   return { avgPct, finishers };
 }
+
+export interface LessonState {
+  /** The course's full published order (for "Lesson n of m" and adjacency). */
+  order: OrderedVideo[];
+  /** The requested lesson, or null when it isn't in the published order. */
+  item: OrderedVideo | null;
+  /** Index of `item` in `order`; -1 when item is null. */
+  index: number;
+  /** Unlock state for the supplied completion map (meaningless when item is null). */
+  availability: VideoAvailability;
+  prev: OrderedVideo | null;
+  next: OrderedVideo | null;
+  prevAvailability: VideoAvailability | null;
+  nextAvailability: VideoAvailability | null;
+  /** When locked: the first unfinished lesson standing in the way (the frontier). */
+  blocker: OrderedVideo | null;
+}
+
+/**
+ * Everything the office lesson page needs to render one lesson, derived with
+ * the same availability rules as the course outline — so a deep link can
+ * never bypass sequential unlock: a lesson the outline shows locked resolves
+ * locked here too, and unpublished or unknown ids resolve to `item: null`.
+ */
+export function lessonState(course: TrainingCourse, videoId: string, map: CompletionMap): LessonState {
+  const order = getOrderedVideos(course, true);
+  const frontier = frontierIndex(map, order);
+  const index = order.findIndex((entry) => entry.video.id === videoId);
+  if (index === -1) {
+    return {
+      order,
+      item: null,
+      index,
+      availability: 'locked',
+      prev: null,
+      next: null,
+      prevAvailability: null,
+      nextAvailability: null,
+      blocker: null,
+    };
+  }
+  const availabilityAt = (i: number) => videoAvailability(course, order[i]!, i, map, frontier);
+  const availability = availabilityAt(index);
+  const prev = index > 0 ? (order[index - 1] ?? null) : null;
+  const next = index + 1 < order.length ? (order[index + 1] ?? null) : null;
+  return {
+    order,
+    item: order[index] ?? null,
+    index,
+    availability,
+    prev,
+    next,
+    prevAvailability: prev ? availabilityAt(index - 1) : null,
+    nextAvailability: next ? availabilityAt(index + 1) : null,
+    // Locked implies index > frontier, so the frontier lesson always exists.
+    blocker: availability === 'locked' && frontier < index ? (order[frontier] ?? null) : null,
+  };
+}

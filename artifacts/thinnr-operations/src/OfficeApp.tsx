@@ -23,6 +23,7 @@ import Leaderboard from '@/pages/Leaderboard';
 import Subscriptions from '@/pages/Subscriptions';
 import OfficeTraining from '@/pages/OfficeTraining';
 import OfficeTrainingCourse from '@/pages/OfficeTrainingCourse';
+import OfficeTrainingLesson from '@/pages/OfficeTrainingLesson';
 
 export function OfficeApp() {
   return (
@@ -37,6 +38,7 @@ export function OfficeApp() {
           <Route path="/leaderboard" component={Leaderboard} />
           <Route path="/subscriptions" component={Subscriptions} />
           <Route path="/training" component={OfficeTraining} />
+          <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />
           <Route path="/training/:courseId" component={OfficeTrainingCourse} />
           <Route component={NotFound} />
         </Switch>

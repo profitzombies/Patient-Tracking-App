@@ -199,9 +199,13 @@ export default function OfficeTraining() {
               <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className={MICRO_LABEL}>Next up — {self.next.numbering}</p>
-                  <p className="mt-0.5 truncate text-sm font-semibold text-navy" data-testid="text-next-video">
+                  <Link
+                    href={`/training/${primaryCourse.id}/videos/${self.next.video.id}`}
+                    className="mt-0.5 block truncate rounded-sm text-sm font-semibold text-navy hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    data-testid="text-next-video"
+                  >
                     {self.next.video.title}
-                  </p>
+                  </Link>
                   <p className="mt-0.5 text-xs text-muted-foreground">{formatClock(self.next.video.duration)}</p>
                 </div>
                 <button

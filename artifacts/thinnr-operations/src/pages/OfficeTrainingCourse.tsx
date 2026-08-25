@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from 'react';
 import { Link } from 'wouter';
-import { ArrowLeft, CheckCircle2, Lock, PlayCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Lock, PlayCircle } from 'lucide-react';
 import { useTrainingData } from '@/contexts/training-data';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useSession } from '@/contexts/session';
@@ -138,8 +138,8 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
         title="Course outline"
         sub={
           myViewer
-            ? 'Your progress unlocks in order — free videos can be taken any time.'
-            : 'Sign in with a staff account to track your own progress here.'
+            ? 'Open any available lesson to view it — your progress unlocks in order, and free videos can be taken any time.'
+            : 'Open any available lesson to view it. Sign in with a staff account to track your own progress here.'
         }
       >
         <ul className="divide-y divide-border">
@@ -152,46 +152,83 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
               ) : null;
             lastModuleId = item.module.id;
             const canMark = Boolean(myViewer) && canAddStaff && availability === 'available';
+            const blocker = availability === 'locked' && frontier < order.length ? order[frontier] : null;
+            const rowBody = (
+              <>
+                <span
+                  className={
+                    availability === 'done'
+                      ? 'text-primary'
+                      : availability === 'available'
+                        ? 'text-navy'
+                        : 'text-muted-foreground'
+                  }
+                  aria-hidden="true"
+                >
+                  {availability === 'done' ? (
+                    <CheckCircle2 size={16} />
+                  ) : availability === 'available' ? (
+                    <PlayCircle size={16} />
+                  ) : (
+                    <Lock size={14} />
+                  )}
+                </span>
+                <div className="min-w-[200px] flex-1">
+                  <p className="truncate text-xs font-semibold text-navy">
+                    <span className="mr-1.5 text-muted-foreground">{item.numbering}</span>
+                    {item.video.title}
+                    {item.subgroup && (
+                      <span className="ml-2 text-[10px] font-normal text-muted-foreground">{item.subgroup.title}</span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {formatClock(item.video.duration)} · {teamDone}/{roster.length || 0} on your team finished
+                  </p>
+                </div>
+              </>
+            );
             return (
               <li key={item.video.id} className="last:pb-2">
                 {moduleHeader}
                 <div
-                  className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-5 ${availability === 'locked' ? 'opacity-55' : ''}`}
+                  className={`flex flex-wrap items-center gap-x-2 gap-y-2 px-2 py-0.5 sm:px-3 ${availability === 'locked' ? 'opacity-55' : ''}`}
                   data-testid={`row-video-${item.video.id}`}
                 >
-                  <span
-                    className={
-                      availability === 'done'
-                        ? 'text-primary'
-                        : availability === 'available'
-                          ? 'text-navy'
-                          : 'text-muted-foreground'
-                    }
-                    aria-hidden="true"
-                  >
-                    {availability === 'done' ? (
-                      <CheckCircle2 size={16} />
-                    ) : availability === 'available' ? (
-                      <PlayCircle size={16} />
-                    ) : (
-                      <Lock size={14} />
-                    )}
-                  </span>
-                  <div className="min-w-[200px] flex-1">
-                    <p className="truncate text-xs font-semibold text-navy">
-                      <span className="mr-1.5 text-muted-foreground">{item.numbering}</span>
-                      {item.video.title}
-                      {item.subgroup && (
-                        <span className="ml-2 text-[10px] font-normal text-muted-foreground">{item.subgroup.title}</span>
-                      )}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {formatClock(item.video.duration)} · {teamDone}/{roster.length || 0} on your team finished
-                    </p>
-                  </div>
+                  {availability === 'locked' ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        toast({
+                          title: 'This lesson is still locked',
+                          description: blocker
+                            ? `Finish "${blocker.video.title}" first — lessons unlock in order.`
+                            : 'Lessons unlock in order.',
+                        })
+                      }
+                      aria-disabled="true"
+                      title="Complete the previous lessons to unlock"
+                      className="flex min-w-0 flex-1 cursor-not-allowed flex-wrap items-center gap-x-3 gap-y-2 rounded-md px-2 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      data-testid={`button-locked-${item.video.id}`}
+                    >
+                      {rowBody}
+                    </button>
+                  ) : (
+                    <Link
+                      href={`/training/${course.id}/videos/${item.video.id}`}
+                      className="group flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 rounded-md px-2 py-2.5 transition hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      data-testid={`link-lesson-${item.video.id}`}
+                    >
+                      {rowBody}
+                      <ArrowRight
+                        size={14}
+                        className="shrink-0 text-muted-foreground transition group-hover:text-primary"
+                        aria-hidden="true"
+                      />
+                    </Link>
+                  )}
                   {canMark && (
                     <button
-                      className="ml-auto inline-flex h-9 shrink-0 items-center rounded-md border border-accent-border bg-accent px-3 text-xs font-semibold text-primary transition hover:bg-accent/70 disabled:opacity-60 sm:h-8"
+                      className="inline-flex h-9 shrink-0 items-center rounded-md border border-accent-border bg-accent px-3 text-xs font-semibold text-primary transition hover:bg-accent/70 disabled:opacity-60 sm:h-8"
                       onClick={() => void markComplete(item.video.id, item.video.title)}
                       disabled={markingId !== null}
                       data-testid={`button-mark-${item.video.id}`}

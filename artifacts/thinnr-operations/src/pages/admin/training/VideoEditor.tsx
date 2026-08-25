@@ -228,6 +228,22 @@ export default function VideoEditor() {
     };
   }, []);
 
+  // A drop that misses the upload box must never make the browser navigate
+  // into the video file (which silently discards the editor). While an admin
+  // can upload, swallow page-level drags so only the drop zone reacts.
+  useEffect(() => {
+    if (!canEdit) return;
+    const swallow = (event: DragEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener('dragover', swallow);
+    window.addEventListener('drop', swallow);
+    return () => {
+      window.removeEventListener('dragover', swallow);
+      window.removeEventListener('drop', swallow);
+    };
+  }, [canEdit]);
+
   useEffect(() => {
     // Re-hydrate whenever the route points at a different video — navigating
     // between videos keeps this component mounted, so `!draft` alone is stale.
@@ -469,12 +485,25 @@ export default function VideoEditor() {
           setDraftField('duration', result.durationSeconds);
           setUploadPhase('idle');
           setUploadPct(0);
+          if (result.thumbnailSource) {
+            // Finalize already captured the first frame — show it right away.
+            setStepStates((prev) => ({ ...prev, thumbnail: 'done' }));
+            reloadMedia();
+          }
           toast({
             title: 'Video uploaded',
-            description: `Runtime ${formatClock(result.durationSeconds)} — starting the AI pass.`,
+            description: result.thumbnailSource
+              ? `Runtime ${formatClock(result.durationSeconds)} — thumbnail set, starting the AI pass.`
+              : `Runtime ${formatClock(result.durationSeconds)} — starting the AI pass.`,
           });
         }
-        runPipeline(runVideoId);
+        // The AI thumbnail step would only re-capture the same first frame —
+        // skip it when finalize already set one; if the capture failed, the
+        // step stays in the run as the automatic retry.
+        runPipeline(
+          runVideoId,
+          result.thumbnailSource ? ['transcribe', 'describe', 'chapters'] : undefined,
+        );
       } catch (error) {
         if (currentVideoIdRef.current === runVideoId) {
           setUploadPhase('idle');
@@ -1005,106 +1034,125 @@ export default function VideoEditor() {
              <div className="p-4 space-y-5">
                <div>
                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground mb-2">Video file</p>
-                 {hosted ? (
-                   <div className="flex items-center gap-3 rounded-md border border-border bg-card p-3" data-testid="notice-video-on-file">
-                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-accent-border bg-accent text-primary">
-                       <Film size={16} aria-hidden="true" />
-                     </span>
-                     <div className="min-w-0 flex-1">
-                       <p className="text-xs font-semibold text-foreground">Video on file · {formatClock(video.duration)}</p>
+                 {/* The whole section is one drop target — notice box included —
+                     so a file dropped anywhere here uploads (or replaces). */}
+                 <div
+                   onDragEnter={(e) => {
+                     if (!canEdit || uploadPhase !== 'idle') return;
+                     e.preventDefault();
+                     setDragOver(true);
+                   }}
+                   onDragOver={(e) => {
+                     if (!canEdit || uploadPhase !== 'idle') return;
+                     e.preventDefault();
+                     setDragOver(true);
+                   }}
+                   onDragLeave={(e) => {
+                     // Moving between children fires leave/enter pairs — only
+                     // clear the highlight when the pointer truly left.
+                     if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+                     setDragOver(false);
+                   }}
+                   onDrop={(e) => {
+                     if (!canEdit) return;
+                     e.preventDefault();
+                     setDragOver(false);
+                     if (uploadPhase !== 'idle') return;
+                     const file = e.dataTransfer.files?.[0];
+                     if (file) beginUpload(file);
+                   }}
+                   data-testid="area-video-dropzone"
+                 >
+                   {hosted ? (
+                     <div className="flex items-center gap-3 rounded-md border border-border bg-card p-3" data-testid="notice-video-on-file">
+                       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-accent-border bg-accent text-primary">
+                         <Film size={16} aria-hidden="true" />
+                       </span>
+                       <div className="min-w-0 flex-1">
+                         <p className="text-xs font-semibold text-foreground">Video on file · {formatClock(video.duration)}</p>
+                         <p className="text-[10px] leading-relaxed text-muted-foreground">
+                           Streams from App Storage for signed-in staff{canEdit ? ' — drop a new file anywhere in this section to replace it' : ''}.
+                         </p>
+                       </div>
+                     </div>
+                   ) : (
+                     <div className="w-full border border-dashed border-border rounded-md bg-secondary/50 p-5 flex flex-col items-center justify-center gap-2 text-center" data-testid="notice-no-video-file">
+                       <Film size={18} className="text-muted-foreground" aria-hidden="true" />
+                       <p className="text-xs font-medium text-foreground">No video file yet</p>
                        <p className="text-[10px] leading-relaxed text-muted-foreground">
-                         Streams from App Storage for signed-in staff{canEdit ? ' — drop a new file below to replace it' : ''}.
+                         {canEdit
+                           ? 'Learners see the simulated workbook slides until one is uploaded. Drop a file below — the thumbnail is set automatically, and AI pulls the transcript, writes the description and creates the chapters.'
+                           : 'Learners see the simulated workbook slides. Sign in as THINNR HQ to upload a file.'}
                        </p>
                      </div>
-                   </div>
-                 ) : (
-                   <div className="w-full border border-dashed border-border rounded-md bg-secondary/50 p-5 flex flex-col items-center justify-center gap-2 text-center" data-testid="notice-no-video-file">
-                     <Film size={18} className="text-muted-foreground" aria-hidden="true" />
-                     <p className="text-xs font-medium text-foreground">No video file yet</p>
-                     <p className="text-[10px] leading-relaxed text-muted-foreground">
-                       {canEdit
-                         ? 'Learners see the simulated workbook slides until one is uploaded. Drop a file below — AI pulls the transcript, writes the description, creates the chapters and sets the thumbnail.'
-                         : 'Learners see the simulated workbook slides. Sign in as THINNR HQ to upload a file.'}
-                     </p>
-                   </div>
-                 )}
+                   )}
 
-                 {canEdit && (
-                   <>
-                     <div
-                       className={`mt-3 w-full rounded-md border border-dashed p-4 text-center transition-colors ${dragOver ? 'border-primary bg-accent/40' : 'border-border bg-secondary/50'}`}
-                       onDragOver={(e) => {
-                         e.preventDefault();
-                         setDragOver(true);
-                       }}
-                       onDragLeave={() => setDragOver(false)}
-                       onDrop={(e) => {
-                         e.preventDefault();
-                         setDragOver(false);
-                         const file = e.dataTransfer.files?.[0];
-                         if (file) beginUpload(file);
-                       }}
-                       data-testid="dropzone-video-upload"
-                     >
-                       {uploadPhase === 'idle' ? (
-                         <div className="flex flex-col items-center gap-2">
-                           <Upload size={16} className="text-muted-foreground" aria-hidden="true" />
-                           <p className="text-xs font-medium text-foreground">
-                             {hosted ? 'Drop a new video here to replace the current one' : 'Drag a video here'}
-                           </p>
-                           <button
-                             type="button"
-                             className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`}
-                             onClick={() => fileInputRef.current?.click()}
-                             data-testid="button-browse-video"
-                           >
-                             Browse files
-                           </button>
-                           <p className="text-[10px] text-muted-foreground">MP4, WebM or MOV · up to 500 MB</p>
-                         </div>
-                       ) : uploadPhase === 'uploading' ? (
-                         <div className="space-y-2" data-testid="progress-video-upload">
-                           <p className="text-xs font-medium text-foreground">Uploading… {uploadPct}%</p>
-                           <div
-                             className="h-1.5 w-full overflow-hidden rounded-full bg-border"
-                             role="progressbar"
-                             aria-valuemin={0}
-                             aria-valuemax={100}
-                             aria-valuenow={uploadPct}
-                             aria-label="Upload progress"
-                           >
-                             <div className="h-full bg-primary transition-[width]" style={{ width: `${uploadPct}%` }} />
+                   {canEdit && (
+                     <>
+                       <div
+                         className={`mt-3 w-full rounded-md border border-dashed p-4 text-center transition-colors ${dragOver ? 'border-primary bg-accent/40' : 'border-border bg-secondary/50'}`}
+                         data-testid="dropzone-video-upload"
+                       >
+                         {uploadPhase === 'idle' ? (
+                           <div className="flex flex-col items-center gap-2">
+                             <Upload size={16} className="text-muted-foreground" aria-hidden="true" />
+                             <p className="text-xs font-medium text-foreground">
+                               {hosted ? 'Drop a new video here to replace the current one' : 'Drag a video here'}
+                             </p>
+                             <button
+                               type="button"
+                               className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`}
+                               onClick={() => fileInputRef.current?.click()}
+                               data-testid="button-browse-video"
+                             >
+                               Browse files
+                             </button>
+                             <p className="text-[10px] text-muted-foreground">MP4, WebM or MOV · up to 500 MB</p>
                            </div>
-                         </div>
-                       ) : (
-                         <p
-                           className="flex items-center justify-center gap-2 text-xs font-medium text-foreground"
-                           data-testid="text-upload-verifying"
-                         >
-                           <RefreshCw size={12} className="animate-spin text-primary" aria-hidden="true" />
-                           Checking the file and reading its runtime…
+                         ) : uploadPhase === 'uploading' ? (
+                           <div className="space-y-2" data-testid="progress-video-upload">
+                             <p className="text-xs font-medium text-foreground">Uploading… {uploadPct}%</p>
+                             <div
+                               className="h-1.5 w-full overflow-hidden rounded-full bg-border"
+                               role="progressbar"
+                               aria-valuemin={0}
+                               aria-valuemax={100}
+                               aria-valuenow={uploadPct}
+                               aria-label="Upload progress"
+                             >
+                               <div className="h-full bg-primary transition-[width]" style={{ width: `${uploadPct}%` }} />
+                             </div>
+                           </div>
+                         ) : (
+                           <p
+                             className="flex items-center justify-center gap-2 text-xs font-medium text-foreground"
+                             data-testid="text-upload-verifying"
+                           >
+                             <RefreshCw size={12} className="animate-spin text-primary" aria-hidden="true" />
+                             Checking the file and reading its runtime…
+                           </p>
+                         )}
+                       </div>
+                       <input
+                         ref={fileInputRef}
+                         type="file"
+                         accept="video/mp4,video/webm,video/quicktime,.mp4,.m4v,.webm,.mov"
+                         className="hidden"
+                         onChange={(e) => {
+                           const file = e.target.files?.[0];
+                           if (file) beginUpload(file);
+                           e.target.value = '';
+                         }}
+                         data-testid="input-video-file"
+                       />
+                       {uploadError && (
+                         <p className="mt-2 text-[11px] font-medium text-destructive" role="alert" data-testid="text-upload-error">
+                           {uploadError}
                          </p>
                        )}
-                     </div>
-                     <input
-                       ref={fileInputRef}
-                       type="file"
-                       accept="video/mp4,video/webm,video/quicktime,.mp4,.m4v,.webm,.mov"
-                       className="hidden"
-                       onChange={(e) => {
-                         const file = e.target.files?.[0];
-                         if (file) beginUpload(file);
-                         e.target.value = '';
-                       }}
-                       data-testid="input-video-file"
-                     />
-                     {uploadError && (
-                       <p className="mt-2 text-[11px] font-medium text-destructive" role="alert" data-testid="text-upload-error">
-                         {uploadError}
-                       </p>
-                     )}
-                   </>
-                 )}
+                     </>
+                   )}
+                 </div>
 
                  {hosted && canEdit && (
                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -1265,7 +1313,7 @@ export default function VideoEditor() {
                      </button>
                      <p className="text-[10px] leading-relaxed text-muted-foreground">
                        {hosted
-                         ? 'Scrub the real video and capture any frame — the AI pass starts with the first frame.'
+                         ? 'Every upload sets the first frame automatically — scrub the real video to capture a different one.'
                          : 'Thumbnails come from chapter slides — upload a video to capture real frames.'}
                      </p>
                    </div>

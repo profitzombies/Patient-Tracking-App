@@ -96,6 +96,55 @@ function videoPrefix(videoId: string): string {
   return `/objects/training-videos/${videoId}/`;
 }
 
+/**
+ * Capture one frame of the hosted video and persist it as this video's
+ * thumbnail, deleting the thumbnail it replaces. Shared by finalize (the
+ * automatic first-frame capture on every upload) and the manual scrubber
+ * route. Remote capture can trip on moov-at-end files, so it retries once
+ * from a local download.
+ */
+async function persistThumbnailFrame(
+  record: { id: string; video_source: string | null; thumbnail_source: string | null },
+  atSeconds: number,
+): Promise<{ thumbnailSource: string; thumbnailUrl: string }> {
+  if (!record.video_source) {
+    throw new Error("No hosted video to capture a frame from.");
+  }
+  const workDir = await makeWorkDir();
+  try {
+    const outPath = join(workDir, "thumb.jpg");
+    const sourceUrl = await objectStorage.signedDownloadURL(record.video_source, 900);
+    try {
+      await captureFrame(sourceUrl, atSeconds, outPath);
+    } catch {
+      const localPath = join(workDir, "video-src");
+      const file = await objectStorage.entityFile(record.video_source);
+      await file.download({ destination: localPath });
+      await captureFrame(localPath, atSeconds, outPath);
+    }
+    const frame = await readFile(outPath);
+    const thumbnailSource = `${videoPrefix(record.id)}thumb-${randomUUID()}.jpg`;
+    await objectStorage.saveBuffer(thumbnailSource, frame, "image/jpeg");
+    // The capture took real seconds. If the video changed underneath us
+    // (another admin replaced or removed the file meanwhile), this frame
+    // describes a file that no longer exists — drop it instead of stamping
+    // a stale cover onto the new state.
+    const current = await getVideoRecord(record.id);
+    if (!current || current.video_source !== record.video_source) {
+      await objectStorage.deleteObject(thumbnailSource);
+      throw new Error("The video changed while capturing the frame — try again.");
+    }
+    await updateVideoRecord(record.id, { thumbnail_source: thumbnailSource });
+    if (current.thumbnail_source) {
+      await objectStorage.deleteObject(current.thumbnail_source);
+    }
+    const thumbnailUrl = await objectStorage.signedDownloadURL(thumbnailSource, PLAYBACK_URL_TTL_SEC);
+    return { thumbnailSource, thumbnailUrl };
+  } finally {
+    await cleanupWorkDir(workDir);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Presigned upload
 // ---------------------------------------------------------------------------
@@ -212,7 +261,22 @@ router.post(
         await objectStorage.deleteObject(previousThumb);
       }
 
-      res.json({ videoSource: objectPath, durationSeconds });
+      // Automatic thumbnail: capture the first frame right away so the
+      // lesson has real cover art the moment the upload lands — even if the
+      // AI pass never runs. A capture failure is non-fatal: the response
+      // says null, and the AI pass or the scrubber dialog can set one later.
+      let thumbnailSource: string | null = null;
+      try {
+        const captured = await persistThumbnailFrame(
+          { id: record.id, video_source: objectPath, thumbnail_source: null },
+          0,
+        );
+        thumbnailSource = captured.thumbnailSource;
+      } catch (error) {
+        req.log?.error({ err: error, videoId: record.id }, "training auto-thumbnail failed");
+      }
+
+      res.json({ videoSource: objectPath, durationSeconds, thumbnailSource });
     } catch (error) {
       req.log?.error({ err: error }, "training finalize failed");
       res.status(500).json({ error: "Could not attach the uploaded video — try again." });
@@ -312,7 +376,6 @@ router.post(
   "/training/videos/:videoId/thumbnail",
   requireStaff(["hq_admin"]),
   async (req: Request, res: Response) => {
-    let workDir: string | null = null;
     try {
       const parsed = TrainingVideoThumbnailBody.safeParse(req.body);
       if (!parsed.success) {
@@ -329,34 +392,11 @@ router.post(
         Math.max(0, parsed.data.atSeconds),
         Math.max(0, record.duration_seconds - 0.1),
       );
-
-      workDir = await makeWorkDir();
-      const outPath = join(workDir, "thumb.jpg");
-      const sourceUrl = await objectStorage.signedDownloadURL(record.video_source, 900);
-      try {
-        await captureFrame(sourceUrl, atSeconds, outPath);
-      } catch {
-        // Remote seeks can trip on moov-at-end files; one local retry.
-        const localPath = join(workDir, "video-src");
-        const file = await objectStorage.entityFile(record.video_source);
-        await file.download({ destination: localPath });
-        await captureFrame(localPath, atSeconds, outPath);
-      }
-      const frame = await readFile(outPath);
-
-      const thumbnailSource = `${videoPrefix(record.id)}thumb-${randomUUID()}.jpg`;
-      await objectStorage.saveBuffer(thumbnailSource, frame, "image/jpeg");
-      await updateVideoRecord(record.id, { thumbnail_source: thumbnailSource });
-      if (record.thumbnail_source) {
-        await objectStorage.deleteObject(record.thumbnail_source);
-      }
-      const thumbnailUrl = await objectStorage.signedDownloadURL(thumbnailSource, PLAYBACK_URL_TTL_SEC);
+      const { thumbnailSource, thumbnailUrl } = await persistThumbnailFrame(record, atSeconds);
       res.json({ thumbnailSource, thumbnailUrl });
     } catch (error) {
       req.log?.error({ err: error }, "training thumbnail capture failed");
       res.status(500).json({ error: "Could not capture that frame — try again." });
-    } finally {
-      if (workDir) await cleanupWorkDir(workDir);
     }
   },
 );

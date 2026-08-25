@@ -15,3 +15,8 @@ Lesson videos are hosted in Replit App Storage; the API server owns every storag
 - Demo/demo-seed boundary: seeded lessons stay file-less; mobile carries the hosted-file columns for row parity but deliberately never streams.
 
 **How to apply:** any new hosted-media surface (attachments, avatars, exports) should copy this shape — presign + finalize probe, paths-in-DB, per-request signed reads, derived-artifact lifecycle tied to the source file, SSE with explicit terminal event.
+
+## Auto-thumbnail + dedicated bucket (Aug 2026)
+- Finalize captures frame 0 as the thumbnail immediately (shared helper with the manual scrubber route); the AI thumbnail step runs only as a retry when that capture failed, and the client skips it when finalize returns a thumbnail.
+- Any thumbnail persist re-reads the row first and drops the frame if video_source changed mid-capture — replaces/removals during slow captures must never stamp a stale cover.
+- TRAINING_OBJECT_DIR (/<bucketId>/.private) routes ALL training media (upload minting + /objects/ resolution) to a dedicated bucket, falling back to PRIVATE_OBJECT_DIR. Stored paths carry no bucket name: flipping the knob while hosted files exist strands them in the old bucket — flip only at zero hosted files, or migrate objects first.

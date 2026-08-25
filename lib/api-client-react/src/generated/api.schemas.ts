@@ -138,6 +138,11 @@ export interface TrainingFinalizeResult {
   videoSource: string;
   /** Duration probed from the file (rounded seconds) */
   durationSeconds: number;
+  /**
+     * Object path of the automatically captured first-frame thumbnail; null when the capture failed (the upload itself still succeeded)
+     * @nullable
+     */
+  thumbnailSource: string | null;
 }
 
 export interface TrainingRemoveFileResult {

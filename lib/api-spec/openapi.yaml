@@ -159,8 +159,10 @@ paths:
         HQ admins only. Verifies the uploaded object exists under this video's
         prefix, ffprobes it (authoritative duration and playability check),
         persists the object path and duration, clears the previous file's
-        transcript/thumbnail, and deletes the replaced object. Stores only the
-        object path — playback URLs are minted per request.
+        transcript/thumbnail, and deletes the replaced object. Then captures
+        the first frame as the thumbnail automatically — a capture failure is
+        non-fatal and reported as thumbnailSource null. Stores only object
+        paths — playback URLs are minted per request.
       parameters:
         - $ref: "#/components/parameters/TrainingVideoId"
       requestBody:
@@ -536,9 +538,15 @@ components:
         durationSeconds:
           type: number
           description: Duration probed from the file (rounded seconds)
+        thumbnailSource:
+          type: ["string", "null"]
+          description: >-
+            Object path of the automatically captured first-frame thumbnail;
+            null when the capture failed (the upload itself still succeeded)
       required:
         - videoSource
         - durationSeconds
+        - thumbnailSource
     TrainingRemoveFileResult:
       type: object
       properties:

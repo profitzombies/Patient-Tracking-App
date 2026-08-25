@@ -363,7 +363,7 @@ export const getTrainingVideoFinalizeUrl = (videoId: string,) => {
 }
 
 /**
- * HQ admins only. Verifies the uploaded object exists under this video's prefix, ffprobes it (authoritative duration and playability check), persists the object path and duration, clears the previous file's transcript/thumbnail, and deletes the replaced object. Stores only the object path — playback URLs are minted per request.
+ * HQ admins only. Verifies the uploaded object exists under this video's prefix, ffprobes it (authoritative duration and playability check), persists the object path and duration, clears the previous file's transcript/thumbnail, and deletes the replaced object. Then captures the first frame as the thumbnail automatically — a capture failure is non-fatal and reported as thumbnailSource null. Stores only object paths — playback URLs are minted per request.
  * @summary Attach an uploaded file to the video after verifying it
  */
 export const trainingVideoFinalize = async (videoId: string,

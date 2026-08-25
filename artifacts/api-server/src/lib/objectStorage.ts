@@ -1,12 +1,15 @@
 /**
  * Replit App Storage access for hosted training videos.
  *
- * Objects live under PRIVATE_OBJECT_DIR (bucket provisioned by the platform;
- * the sidecar at 127.0.0.1:1106 mints credentials and signed URLs — works in
- * the workspace AND in deployments). The database stores only canonical
- * object paths (`/objects/training-videos/<videoId>/<objectId>`); signed URLs
- * are short-lived and minted per request so playback range requests hit
- * storage directly and nothing long-lived ever lands in a table.
+ * Objects live under TRAINING_OBJECT_DIR when it is set — the dedicated
+ * training-video bucket (value shaped like `/<bucket-id>/.private`) — and
+ * fall back to PRIVATE_OBJECT_DIR (the app's default bucket) so a fresh
+ * setup still works before the dedicated bucket exists. The sidecar at
+ * 127.0.0.1:1106 mints credentials and signed URLs — works in the workspace
+ * AND in deployments. The database stores only canonical object paths
+ * (`/objects/training-videos/<videoId>/<objectId>`); signed URLs are
+ * short-lived and minted per request so playback range requests hit storage
+ * directly and nothing long-lived ever lands in a table.
  */
 import { randomUUID } from "crypto";
 import { File, Storage } from "@google-cloud/storage";
@@ -51,6 +54,19 @@ function getPrivateObjectDir(): string {
     );
   }
   return dir.replace(/\/$/, "");
+}
+
+/**
+ * Where training media lives. TRAINING_OBJECT_DIR points every training
+ * upload, thumbnail, and playback lookup at the dedicated training bucket;
+ * without it everything resolves against the default private dir. One knob —
+ * upload and lookup can never disagree about which bucket a path means.
+ */
+function getTrainingObjectDir(): string {
+  const dir = process.env.TRAINING_OBJECT_DIR || "";
+  if (!dir) return getPrivateObjectDir();
+  const withLeadingSlash = dir.startsWith("/") ? dir : `/${dir}`;
+  return withLeadingSlash.replace(/\/$/, "");
 }
 
 function parseObjectPath(path: string): { bucketName: string; objectName: string } {
@@ -113,7 +129,7 @@ export class ObjectStorageService {
   ): Promise<{ uploadUrl: string; objectPath: string }> {
     const objectId = `${kind}-${randomUUID()}`;
     const objectPath = `/objects/training-videos/${videoId}/${objectId}`;
-    const fullPath = `${getPrivateObjectDir()}/training-videos/${videoId}/${objectId}`;
+    const fullPath = `${getTrainingObjectDir()}/training-videos/${videoId}/${objectId}`;
     const { bucketName, objectName } = parseObjectPath(fullPath);
     const uploadUrl = await signObjectURL({
       bucketName,
@@ -170,7 +186,7 @@ export class ObjectStorageService {
     if (!entityId) {
       throw new ObjectNotFoundError();
     }
-    return parseObjectPath(`${getPrivateObjectDir()}/${entityId}`);
+    return parseObjectPath(`${getTrainingObjectDir()}/${entityId}`);
   }
 }
 

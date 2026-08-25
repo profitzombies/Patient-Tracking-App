@@ -168,7 +168,7 @@ export function uploadToStorage(
 export async function finalizeUpload(
   videoId: string,
   objectPath: string,
-): Promise<{ videoSource: string; durationSeconds: number }> {
+): Promise<{ videoSource: string; durationSeconds: number; thumbnailSource: string | null }> {
   return apiFetch(`/training/videos/${videoId}/video`, {
     method: 'POST',
     body: JSON.stringify({ objectPath }),

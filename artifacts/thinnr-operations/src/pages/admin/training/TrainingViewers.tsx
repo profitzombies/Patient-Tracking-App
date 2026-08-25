@@ -3,17 +3,28 @@ import { Link } from 'wouter';
 import { Search } from 'lucide-react';
 import { useTrainingData } from '@/contexts/training-data';
 import { useHqData } from '@/contexts/hq-data';
-import { TrainingSection } from '@/components/admin/training/shared';
+import { TrainingSection, TrainingLoading, TrainingLoadError } from '@/components/admin/training/shared';
 import { INPUT_CLASS, SectionCard, WARM_TEXT } from '@/components/patient/heritage';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getOrderedVideos, viewerWatchSeconds, completedCount, formatHours, formatLastSeen } from '@/data/hq/training';
+import {
+  getOrderedVideos,
+  completionsFor,
+  viewerWatchSeconds,
+  completedCount,
+  formatHours,
+  formatLastSeen,
+} from '@/data/hq/training';
 
 export default function TrainingViewers() {
-  const { viewers, flagshipCourse, assignViewerAccount } = useTrainingData();
+  const { viewers, flagshipCourse, assignViewerAccount, completionIndex, status, errorMessage, refresh } =
+    useTrainingData();
   const { accounts } = useHqData();
   const [search, setSearch] = useState('');
 
-  const order = useMemo(() => getOrderedVideos(flagshipCourse, true), [flagshipCourse]);
+  const order = useMemo(
+    () => (flagshipCourse ? getOrderedVideos(flagshipCourse, true) : []),
+    [flagshipCourse],
+  );
   const totalVideos = order.length;
 
   const filteredViewers = useMemo(() => {
@@ -24,11 +35,22 @@ export default function TrainingViewers() {
         (v) => v.name.toLowerCase().includes(q) || v.email.toLowerCase().includes(q) || v.phone.toLowerCase().includes(q)
       );
     }
-    return result.sort((a, b) => {
-      if (a.lastSeenKey !== b.lastSeenKey) return b.lastSeenKey.localeCompare(a.lastSeenKey);
-      return b.lastSeenMinute - a.lastSeenMinute;
+    return [...result].sort((a, b) => {
+      const diff = Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt);
+      return diff !== 0 ? diff : a.name.localeCompare(b.name);
     });
   }, [viewers, search]);
+
+  if (status !== 'ready') {
+    return (
+      <TrainingSection
+        title="Viewers"
+        sub="Everyone who entered the email gate — click a viewer for their full activity profile."
+      >
+        {status === 'loading' ? <TrainingLoading /> : <TrainingLoadError message={errorMessage} onRetry={refresh} />}
+      </TrainingSection>
+    );
+  }
 
   return (
     <TrainingSection
@@ -70,10 +92,11 @@ export default function TrainingViewers() {
             <tbody>
               {filteredViewers.length > 0 ? (
                 filteredViewers.map((viewer) => {
-                  const watchTime = viewerWatchSeconds(viewer, order);
-                  const done = completedCount(viewer, order);
+                  const completionMap = completionsFor(completionIndex, viewer.id);
+                  const watchTime = viewerWatchSeconds(completionMap, order);
+                  const done = completedCount(completionMap, order);
                   const progressPct = totalVideos > 0 ? Math.min(100, Math.round((done / totalVideos) * 100)) : 0;
-                  
+
                   let staffOfName = null;
                   if (viewer.staffOfViewerId) {
                     const boss = viewers.find(v => v.id === viewer.staffOfViewerId);
@@ -99,7 +122,7 @@ export default function TrainingViewers() {
                       <td className="px-3 py-3">
                         <Select
                           value={viewer.accountId || 'none'}
-                          onValueChange={(val) => assignViewerAccount(viewer.id, val === 'none' ? null : val)}
+                          onValueChange={(val) => void assignViewerAccount(viewer.id, val === 'none' ? null : val)}
                         >
                           <SelectTrigger className="h-7 w-[160px] text-[11px]" data-testid={`select-client-${viewer.id}`}>
                             <SelectValue placeholder="No client" />
@@ -134,7 +157,9 @@ export default function TrainingViewers() {
               ) : (
                 <tr>
                   <td colSpan={9} className="px-5 py-8 text-center text-xs text-muted-foreground">
-                    No viewers match.
+                    {search.trim()
+                      ? 'No viewers match.'
+                      : 'No viewers yet — they appear here after entering the email gate on a shared course link.'}
                   </td>
                 </tr>
               )}

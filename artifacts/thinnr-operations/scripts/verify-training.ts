@@ -1,41 +1,64 @@
 /**
- * Training-portal authoring + progress invariants.
+ * Training-portal invariants — live data model.
  *
- * Viewer progress is a SET of completed video ids; every count is derived
- * against the CURRENT published order. This suite pins the properties that
- * keep the numbers truthful through every authoring mutation:
+ * The portal now reads flat Supabase rows and assembles them client-side;
+ * progress is an intersection of completion rows with the CURRENT published
+ * order. This suite pins the pure logic that keeps the numbers truthful,
+ * entirely offline (synthetic rows, no database):
  *
- *   1. New courses/videos are built as PURE values before setState.
- *   2. Unlock resolves through the hierarchy (course → module → sub-group →
+ *   1. Row → course assembly is deterministic and defensive (jsonb sanitized).
+ *   2. collectPlacements is the inverse of assembly, and structural
+ *      transforms always leave contiguous per-container positions.
+ *   3. Unlock resolves through the hierarchy (course → module → sub-group →
  *      video), so the editor's module/sub-group unlock controls are real.
- *   3. Completing a video credits exactly that video — never skipped ones.
- *   4. Reordering and moving videos never change anyone's counts.
- *   5. Unpublish→republish is a perfect analytics round-trip.
- *   6. Deleting mid-course content never mints finishers.
- *   7. The seeded demo reproduces the approved headline figures exactly.
+ *   4. Completing a video credits exactly that video — never skipped ones;
+ *      a started-not-finished row counts as started, not completed.
+ *   5. Reordering and moving videos never change anyone's counts.
+ *   6. Unpublish → republish is a perfect analytics round-trip.
+ *   7. Deleting mid-course content never mints finishers.
+ *   8. Analytics derive from real rows: drafts and other-course rows are
+ *      excluded everywhere; watch time is summed watch metadata.
+ *   9. An empty database yields zeros and empty lists — no demo numbers.
+ *  10. New-entity defaults are honest metadata-only drafts.
  *
  *   pnpm --filter @workspace/thinnr-operations run test:training
  */
 import {
-  SEEDED_COURSES,
-  SEEDED_VIEWERS,
-  FLAGSHIP_COURSE_ID,
-  collectIds,
-  buildNewCourse,
-  buildNewModule,
-  buildNewVideo,
+  assembleCourses,
+  buildCompletionIndex,
+  buildNewVideoDefaults,
+  collectPlacements,
   completedCount,
-  frontierIndex,
-  isVideoCompletedBy,
-  viewerStartedVideo,
+  completionsFor,
   effectiveUnlock,
-  getOrderedVideos,
+  frontierIndex,
   getCourseAnalytics,
+  getMostWatched,
+  getOrderedVideos,
+  getRecentViewers,
   getTrainingTotals,
-  formatHours,
+  getVideoEngagement,
+  hasStartedVideo,
+  isVideoCompleted,
+  mapCompletionRow,
+  mapVideoRow,
+  mapViewerRow,
+  moveVideoInCourse,
+  moveVideoToContainerInCourse,
+  nextFreeSlug,
+  removeSubgroupKeepVideos,
+  slugifyTitle,
+  startedCount,
+  stripVideoFromCourse,
+  viewerWatchSeconds,
+  type TrainingCompletion,
   type TrainingCourse,
-  type TrainingViewer,
+  type TrainingCourseRow,
+  type TrainingModuleRow,
+  type TrainingSubgroupRow,
   type TrainingVideo,
+  type TrainingVideoRow,
+  type TrainingViewerRow,
 } from '../src/data/hq/training';
 
 let failures = 0;
@@ -48,25 +71,109 @@ function check(name: string, condition: boolean, detail = '') {
   }
 }
 
-const flagship = SEEDED_COURSES.find((course) => course.id === FLAGSHIP_COURSE_ID)!;
-const order = getOrderedVideos(flagship, true);
-const n = order.length;
+// --- Synthetic row fixture ---------------------------------------------------
+// One live sequential course (2 published modules + 1 draft module, one free
+// sub-group, one draft video) plus one draft course. Positions are the same
+// contiguous per-container scheme the seed and the context writer use.
 
-// --- Structural mutation helpers (mirror the context's pure updates) --------
-const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-const stripVideo = (course: TrainingCourse, videoId: string): TrainingCourse => ({
-  ...course,
-  modules: course.modules.map((module) => ({
-    ...module,
-    entries: module.entries
-      .filter((entry) => !(entry.kind === 'video' && entry.video.id === videoId))
-      .map((entry) =>
-        entry.kind === 'subgroup'
-          ? { kind: 'subgroup' as const, subgroup: { ...entry.subgroup, videos: entry.subgroup.videos.filter((v) => v.id !== videoId) } }
-          : entry,
-      ),
-  })),
+const courseRows: TrainingCourseRow[] = [
+  { id: 'c1', slug: 'office-onboarding-qa', title: 'Office Onboarding QA', description: 'd', status: 'live', sequential_unlock: true, created_at: '2026-07-01T12:00:00Z' },
+  { id: 'c2', slug: 'reporting-draft-qa', title: 'Reporting Draft QA', description: 'd', status: 'draft', sequential_unlock: false, created_at: '2026-08-01T12:00:00Z' },
+];
+
+const moduleRows: TrainingModuleRow[] = [
+  { id: 'm1', course_id: 'c1', title: 'M1', published: 'published', unlock_mode: 'sequential', position: 0 },
+  { id: 'm2', course_id: 'c1', title: 'M2', published: 'published', unlock_mode: 'free', position: 1 },
+  { id: 'm3', course_id: 'c1', title: 'M3 (draft)', published: 'draft', unlock_mode: 'sequential', position: 2 },
+  { id: 'mc2', course_id: 'c2', title: 'C2 M1', published: 'published', unlock_mode: 'sequential', position: 0 },
+];
+
+const subgroupRows: TrainingSubgroupRow[] = [
+  { id: 'sg1', module_id: 'm1', title: 'SG1', published: 'published', unlock_mode: 'free', position: 2 },
+];
+
+const videoRow = (
+  over: Partial<TrainingVideoRow> & Pick<TrainingVideoRow, 'id' | 'module_id' | 'position'>,
+): TrainingVideoRow => ({
+  subgroup_id: null,
+  title: over.id,
+  duration_seconds: 300,
+  published: 'published',
+  unlock_mode: 'sequential',
+  add_staff: 'auto',
+  description: ['p1'],
+  chapters: [
+    { id: `${over.id}-ch1`, at: 0, title: 'Intro' },
+    { id: `${over.id}-ch2`, at: 90, title: 'Body' },
+  ],
+  thumbnail_chapter: 0,
+  attachments: [],
+  video_source: null,
+  ...over,
 });
+
+const videoRows: TrainingVideoRow[] = [
+  videoRow({ id: 'v1', module_id: 'm1', position: 0, duration_seconds: 300 }),
+  videoRow({ id: 'v2', module_id: 'm1', position: 1, duration_seconds: 240, unlock_mode: 'free' }),
+  videoRow({ id: 'v3', module_id: 'm1', subgroup_id: 'sg1', position: 0, duration_seconds: 200 }),
+  videoRow({ id: 'v4', module_id: 'm1', position: 3, duration_seconds: 500, published: 'draft' }),
+  videoRow({ id: 'v5', module_id: 'm2', position: 0, duration_seconds: 400 }),
+  videoRow({ id: 'v6', module_id: 'm3', position: 0, duration_seconds: 150 }),
+  videoRow({ id: 'vc2', module_id: 'mc2', position: 0, duration_seconds: 100 }),
+];
+
+const viewerRow = (
+  over: Partial<TrainingViewerRow> & Pick<TrainingViewerRow, 'id' | 'first_seen_at' | 'last_seen_at' | 'sessions'>,
+): TrainingViewerRow => ({
+  name: over.id,
+  email: `${over.id}@example.test`,
+  phone: '(555) 010-0000',
+  account_id: null,
+  staff_of_viewer_id: null,
+  location: 'QA',
+  ...over,
+});
+
+const viewers = [
+  viewerRow({ id: 'va', first_seen_at: '2026-08-01T10:00:00Z', last_seen_at: '2026-08-21T15:00:00Z', sessions: 5 }),
+  viewerRow({ id: 'vb', first_seen_at: '2026-08-05T10:00:00Z', last_seen_at: '2026-08-23T09:00:00Z', sessions: 3 }),
+  viewerRow({ id: 'vc', first_seen_at: '2026-08-20T09:00:00Z', last_seen_at: '2026-08-20T09:05:00Z', sessions: 1 }),
+  viewerRow({ id: 'vd', first_seen_at: '2026-08-10T10:00:00Z', last_seen_at: '2026-08-22T11:00:00Z', sessions: 2 }),
+].map(mapViewerRow);
+
+const completion = (viewerId: string, videoId: string, watch: number, completedAt: string | null): TrainingCompletion =>
+  mapCompletionRow({
+    viewer_id: viewerId,
+    video_id: videoId,
+    watch_seconds: watch,
+    first_watched_at: '2026-08-02T10:00:00Z',
+    completed_at: completedAt,
+  });
+
+// va finishes everything (plus the draft-course video); vb finishes v1,
+// stalls mid-v2, and "completed" the DRAFT v4 (must count nowhere); vd
+// completed only the free-module video v5, out of order.
+const completions: TrainingCompletion[] = [
+  completion('va', 'v1', 320, '2026-08-03T10:00:00Z'),
+  completion('va', 'v2', 250, '2026-08-04T10:00:00Z'),
+  completion('va', 'v3', 210, '2026-08-05T10:00:00Z'),
+  completion('va', 'v5', 410, '2026-08-06T10:00:00Z'),
+  completion('va', 'vc2', 90, '2026-08-07T10:00:00Z'),
+  completion('vb', 'v1', 305, '2026-08-06T09:00:00Z'),
+  completion('vb', 'v2', 60, null),
+  completion('vb', 'v4', 100, '2026-08-07T09:00:00Z'),
+  completion('vd', 'v5', 395, '2026-08-12T10:00:00Z'),
+];
+
+const NOW = new Date('2026-08-24T12:00:00Z');
+const bundle = { courses: courseRows, modules: moduleRows, subgroups: subgroupRows, videos: videoRows };
+const courses = assembleCourses(bundle);
+const c1 = courses.find((course) => course.id === 'c1')!;
+const order = getOrderedVideos(c1, true);
+const n = order.length;
+const index = buildCompletionIndex(completions);
+
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const mapVideos = (course: TrainingCourse, fn: (video: TrainingVideo) => TrainingVideo): TrainingCourse => ({
   ...course,
   modules: course.modules.map((module) => ({
@@ -78,8 +185,8 @@ const mapVideos = (course: TrainingCourse, fn: (video: TrainingVideo) => Trainin
     ),
   })),
 });
-const analyticsSignature = (course: TrainingCourse, viewers: TrainingViewer[]) => {
-  const a = getCourseAnalytics(course, viewers);
+const analyticsSignature = (course: TrainingCourse) => {
+  const a = getCourseAnalytics(course, viewers, completions);
   return JSON.stringify({
     population: a.population,
     avgCompletionPct: a.avgCompletionPct,
@@ -88,208 +195,254 @@ const analyticsSignature = (course: TrainingCourse, viewers: TrainingViewer[]) =
     perVideo: a.stats.map((s) => [s.video.id, s.completedCount, s.started]),
   });
 };
+const baselineSignature = analyticsSignature(c1);
 
-console.log('1. Course/video builders are pure, unique, immediately usable');
+console.log('1. Row → course assembly is deterministic and defensive');
 {
-  const courseA = buildNewCourse(SEEDED_COURSES, { title: 'QA — Front Desk Refresher!', description: 'd' });
-  check('new course id unused', !collectIds(SEEDED_COURSES).has(courseA.id), courseA.id);
-  check('new course usable', courseA.title === 'QA — Front Desk Refresher!' && courseA.modules.length === 1 && courseA.modules[0]!.entries.length === 0);
-  check('new course slug clean', /^[a-z0-9-]+$/.test(courseA.slug), courseA.slug);
-  const courseB = buildNewCourse([...SEEDED_COURSES, courseA], { title: 'Another', description: 'd' });
-  check('second course id differs', courseB.id !== courseA.id, `${courseA.id} vs ${courseB.id}`);
+  check('courses ordered by created_at', courses.map((c) => c.id).join(',') === 'c1,c2');
+  check('course status maps live/draft', c1.status === 'live' && courses[1]!.status === 'draft');
+  check('modules ordered by position', c1.modules.map((m) => m.id).join(',') === 'm1,m2,m3');
+  const m1 = c1.modules[0]!;
+  check(
+    'root videos and sub-groups share one entry-order space',
+    m1.entries.map((e) => (e.kind === 'video' ? e.video.id : e.subgroup.id)).join(',') === 'v1,v2,sg1,v4',
+    m1.entries.map((e) => (e.kind === 'video' ? e.video.id : e.subgroup.id)).join(','),
+  );
+  const sg = m1.entries.find((e) => e.kind === 'subgroup');
+  check('sub-group videos assembled inside it', sg?.kind === 'subgroup' && sg.subgroup.videos.map((v) => v.id).join(',') === 'v3');
+  check('published order intersects draft flags', order.map((item) => item.video.id).join(',') === 'v1,v2,v3,v5', order.map((i) => i.video.id).join(','));
+  check('numbering matches the editor', order.map((item) => item.numbering).join(' ') === '1.1 1.2 1.3.1 2.1');
+  check(
+    'admin order still shows drafts',
+    getOrderedVideos(c1, false).map((i) => i.video.id).join(',') === 'v1,v2,v3,v4,v5,v6',
+    getOrderedVideos(c1, false).map((i) => i.video.id).join(','),
+  );
 
-  const videoA = buildNewVideo(SEEDED_COURSES, 'Greeting walk-ins');
-  check('new video id unused', !collectIds(SEEDED_COURSES).has(videoA.id), videoA.id);
-  check('new video usable', videoA.title === 'Greeting walk-ins' && videoA.duration >= 180 && videoA.duration < 480 && videoA.published === 'draft');
+  const dirty = mapVideoRow(
+    videoRow({
+      id: 'vx',
+      module_id: 'm1',
+      position: 9,
+      duration_seconds: -10,
+      description: 'not-an-array' as unknown,
+      chapters: [{ id: 'ok', at: 'bad', title: 7 }, { nope: true }, { id: 'neg', at: -5 }] as unknown,
+      attachments: { a: 1 } as unknown,
+      thumbnail_chapter: null as unknown as number,
+    }),
+  );
+  check('jsonb sanitized: paragraphs', dirty.description.length === 0);
   check(
-    'new video chapters well-formed',
-    videoA.chapters.length === 4 &&
-      videoA.chapters.every((ch, i) => ch.at >= 0 && ch.at < videoA.duration && (i === 0 || ch.at > videoA.chapters[i - 1]!.at)),
+    'jsonb sanitized: chapters keep only well-formed entries',
+    dirty.chapters.length === 2 && dirty.chapters.every((ch) => ch.at === 0 && typeof ch.title === 'string'),
+    JSON.stringify(dirty.chapters),
   );
-  const withVideo = SEEDED_COURSES.map((course) =>
-    course.id !== flagship.id
-      ? course
-      : { ...course, modules: course.modules.map((m, i) => (i !== 0 ? m : { ...m, entries: [...m.entries, { kind: 'video' as const, video: videoA }] })) },
-  );
-  const videoB = buildNewVideo(withVideo, 'Greeting walk-ins');
-  check('second video id differs', videoB.id !== videoA.id, `${videoA.id} vs ${videoB.id}`);
-
-  const moduleA = buildNewModule(SEEDED_COURSES, 'Advanced Reporting');
-  check('new module id unused', !collectIds(SEEDED_COURSES).has(moduleA.id), moduleA.id);
-  check(
-    'new module usable',
-    moduleA.title === 'Advanced Reporting' && moduleA.published === 'published' &&
-      moduleA.unlock === 'sequential' && moduleA.entries.length === 0,
-    JSON.stringify(moduleA),
-  );
-  const modHost = SEEDED_COURSES.find((c) => c.id === FLAGSHIP_COURSE_ID)!;
-  const withModule = { ...modHost, modules: [...modHost.modules, moduleA] };
-  check(
-    'empty module publishes nothing new',
-    getOrderedVideos(withModule).length === getOrderedVideos(modHost).length,
-    `${getOrderedVideos(withModule).length} vs ${getOrderedVideos(modHost).length}`,
-  );
-  const moduleB = buildNewModule(
-    [...SEEDED_COURSES.filter((c) => c.id !== modHost.id), withModule],
-    'Second module',
-  );
-  check('second module id differs', moduleB.id !== moduleA.id, `${moduleA.id} vs ${moduleB.id}`);
+  check('jsonb sanitized: attachments + numbers clamped', dirty.attachments.length === 0 && dirty.duration === 0 && dirty.thumbnailChapter === 0);
 }
 
-console.log('2. Unlock resolves through the hierarchy (module/sub-group controls are real)');
+console.log('2. Placements invert assembly; transforms keep positions contiguous');
 {
-  const mk = (id: string, unlock: 'sequential' | 'free'): TrainingVideo => ({
-    id,
-    title: id,
-    duration: 200,
-    published: 'published',
-    unlock,
-    addStaff: 'hide',
-    description: [],
-    chapters: [],
-    thumbnailChapter: 0,
-    attachments: [],
-  });
-  const course: TrainingCourse = {
-    id: 'qa-unlock',
-    slug: 'qa-unlock',
-    title: 'Unlock QA',
-    description: '',
-    status: 'published',
-    sequentialUnlock: true,
-    createdKey: '2026-08-22',
-    modules: [
-      {
-        id: 'qa-m1',
-        title: 'M1',
-        published: 'published',
-        unlock: 'sequential',
-        entries: [
-          { kind: 'video', video: mk('qa-v-seq', 'sequential') },
-          { kind: 'video', video: mk('qa-v-free', 'free') },
-          { kind: 'subgroup', subgroup: { id: 'qa-sg', title: 'SG', published: 'published', unlock: 'free', videos: [mk('qa-v-in-free-sg', 'sequential')] } },
-        ],
-      },
-      {
-        id: 'qa-m2',
-        title: 'M2',
-        published: 'published',
-        unlock: 'free',
-        entries: [{ kind: 'video', video: mk('qa-v-in-free-module', 'sequential') }],
-      },
-    ],
+  const inputPlacement = new Map(videoRows.map((row) => [row.id, `${row.module_id}/${row.subgroup_id ?? ''}/${row.position}`]));
+  const collected = courses.flatMap((course) => collectPlacements(course).videos);
+  check(
+    'collectPlacements(assembleCourses(rows)) reproduces every video row placement',
+    collected.length === videoRows.length &&
+      collected.every((v) => inputPlacement.get(v.id) === `${v.moduleId}/${v.subgroupId ?? ''}/${v.position}`),
+  );
+  const subgroupPlacement = collectPlacements(c1).subgroups[0]!;
+  check('sub-group placement matches its entry slot', subgroupPlacement.id === 'sg1' && subgroupPlacement.moduleId === 'm1' && subgroupPlacement.position === 2);
+
+  const contiguous = (course: TrainingCourse): boolean => {
+    const p = collectPlacements(course);
+    const moduleSlots = p.modules.map((m) => m.position).sort((a, b) => a - b);
+    if (!moduleSlots.every((slot, i) => slot === i)) return false;
+    return course.modules.every((module) => {
+      const entrySlots = [
+        ...p.videos.filter((v) => v.moduleId === module.id && v.subgroupId === null).map((v) => v.position),
+        ...p.subgroups.filter((s) => s.moduleId === module.id).map((s) => s.position),
+      ].sort((a, b) => a - b);
+      if (!entrySlots.every((slot, i) => slot === i)) return false;
+      return module.entries.every((entry) => {
+        if (entry.kind !== 'subgroup') return true;
+        const videoSlots = p.videos.filter((v) => v.subgroupId === entry.subgroup.id).map((v) => v.position).sort((a, b) => a - b);
+        return videoSlots.every((slot, i) => slot === i);
+      });
+    });
   };
-  const ordered = getOrderedVideos(course, true);
-  const modeOf = (id: string) => effectiveUnlock(ordered.find((item) => item.video.id === id)!);
-  check('plain sequential video stays sequential', modeOf('qa-v-seq') === 'sequential');
-  check('video-level free wins', modeOf('qa-v-free') === 'free');
-  check('free sub-group frees its videos', modeOf('qa-v-in-free-sg') === 'free');
-  check('free module frees its videos', modeOf('qa-v-in-free-module') === 'free');
+  check('fixture placements are contiguous per container', contiguous(c1));
+  check('move keeps placements contiguous', contiguous(moveVideoInCourse(c1, 'v2', 'down')));
+  check('cross-container move keeps placements contiguous', contiguous(moveVideoToContainerInCourse(c1, 'v1', { moduleId: 'm2', subgroupId: null })));
+  check('ungroup keeps placements contiguous', contiguous(removeSubgroupKeepVideos(c1, 'sg1')));
+  check('delete keeps placements contiguous', contiguous(stripVideoFromCourse(c1, 'v2')));
 }
 
-console.log('3. Completion credits exactly the watched video');
+console.log('3. Unlock resolves through the hierarchy');
 {
-  const partial = SEEDED_VIEWERS.find((viewer) => viewer.startedExtra === 1)!;
-  const done = completedCount(partial, order);
-  check('frontier sits at the first gap', frontierIndex(partial, order) === done, `${frontierIndex(partial, order)} vs ${done}`);
-  check('startedExtra marks only the frontier video', viewerStartedVideo(partial, order, done) && !viewerStartedVideo(partial, order, done + 1));
-
-  // Complete a free-style video far ahead of the frontier.
-  const aheadId = order[done + 5]!.video.id;
-  const after: TrainingViewer = { ...partial, completedVideoIds: [...partial.completedVideoIds, aheadId] };
-  check('count grows by exactly one', completedCount(after, order) === done + 1);
-  check('frontier does not move (skipped videos uncredited)', frontierIndex(after, order) === done);
-  check('skipped video stays uncompleted', !isVideoCompletedBy(after, order[done + 1]!.video.id));
-  check('idempotent re-completion', completedCount({ ...after, completedVideoIds: [...after.completedVideoIds] }, order) === done + 1);
+  const modeOf = (id: string) => effectiveUnlock(order.find((item) => item.video.id === id)!);
+  check('plain sequential video stays sequential', modeOf('v1') === 'sequential');
+  check('video-level free wins', modeOf('v2') === 'free');
+  check('free sub-group frees its videos', modeOf('v3') === 'free');
+  check('free module frees its videos', modeOf('v5') === 'free');
 }
 
-console.log('4. Reordering / moving videos never changes progress');
+console.log('4. Completion credits exactly the watched video (row ∩ published order)');
 {
-  const before = analyticsSignature(flagship, SEEDED_VIEWERS);
-  const perViewerBefore = SEEDED_VIEWERS.map((viewer) => completedCount(viewer, order));
+  check('unknown viewer gets an empty map', completionsFor(index, 'nobody').size === 0 && completedCount(completionsFor(index, 'nobody'), order) === 0);
+  const vb = completionsFor(index, 'vb');
+  check('started-not-finished counts as started, not completed', hasStartedVideo(vb, 'v2') && !isVideoCompleted(vb, 'v2'));
+  check('vb completed/started/frontier', completedCount(vb, order) === 1 && startedCount(vb, order) === 2 && frontierIndex(vb, order) === 1);
+  check('draft-video row counts nowhere', !order.some((item) => item.video.id === 'v4') && viewerWatchSeconds(vb, order) === 365, String(viewerWatchSeconds(vb, order)));
 
-  // Swap the first two plain-video entries of module 1.
-  const swapped = clone(flagship);
-  const m1 = swapped.modules[0]!;
-  const vi = m1.entries.map((entry, i) => (entry.kind === 'video' ? i : -1)).filter((i) => i >= 0);
-  check('module 1 has two swappable videos', vi.length >= 2);
-  [m1.entries[vi[0]!], m1.entries[vi[1]!]] = [m1.entries[vi[1]!]!, m1.entries[vi[0]!]!];
+  const vd = completionsFor(index, 'vd');
+  check('out-of-order completion never moves the frontier', completedCount(vd, order) === 1 && frontierIndex(vd, order) === 0);
+
+  // Simulate the mark-complete RPC upsert: vb finishes v2 (their frontier).
+  const afterIndex = buildCompletionIndex([...completions, completion('vb', 'v2', 240, '2026-08-23T10:00:00Z')]);
+  const vbAfter = completionsFor(afterIndex, 'vb');
+  check('completing the frontier advances it by one', completedCount(vbAfter, order) === 2 && frontierIndex(vbAfter, order) === 2);
+  const dupIndex = buildCompletionIndex([...completions, completion('vb', 'v2', 240, '2026-08-23T10:00:00Z'), completion('vb', 'v2', 240, '2026-08-23T10:00:00Z')]);
+  check('idempotent re-completion (upsert semantics)', completedCount(completionsFor(dupIndex, 'vb'), order) === 2);
+
+  // Completing far ahead (free unlock) credits only that video.
+  const aheadIndex = buildCompletionIndex([...completions, completion('vb', 'v5', 400, '2026-08-23T11:00:00Z')]);
+  const vbAhead = completionsFor(aheadIndex, 'vb');
+  check('skipped videos stay uncredited', completedCount(vbAhead, order) === 2 && frontierIndex(vbAhead, order) === 1 && !isVideoCompleted(vbAhead, 'v3'));
+}
+
+console.log('5. Reordering / moving videos never changes progress');
+{
+  const perViewerBefore = viewers.map((viewer) => completedCount(completionsFor(index, viewer.id), order));
+
+  const swapped = moveVideoInCourse(clone(c1), 'v2', 'down');
   const swappedOrder = getOrderedVideos(swapped, true);
-  check('swap changed the order', swappedOrder[vi[0]!]!.video.id !== order[vi[0]!]!.video.id);
+  check('move changed the order', swappedOrder.map((i) => i.video.id).join(',') !== order.map((i) => i.video.id).join(','));
+  check('move preserved the published set', new Set(swappedOrder.map((i) => i.video.id)).size === n && swappedOrder.length === n);
   check(
     'per-viewer counts unchanged by reorder',
-    SEEDED_VIEWERS.every((viewer, i) => completedCount(viewer, swappedOrder) === perViewerBefore[i]),
+    viewers.every((viewer, i) => completedCount(completionsFor(index, viewer.id), swappedOrder) === perViewerBefore[i]),
   );
-  const swappedAnalytics = getCourseAnalytics(swapped, SEEDED_VIEWERS);
-  const baseAnalytics = getCourseAnalytics(flagship, SEEDED_VIEWERS);
-  check('population/finished unchanged by reorder', swappedAnalytics.population === baseAnalytics.population && swappedAnalytics.finished === baseAnalytics.finished);
-  const statFor = (course: TrainingCourse, id: string) => getCourseAnalytics(course, SEEDED_VIEWERS).stats.find((s) => s.video.id === id)!;
-  const movedId = order[vi[0]!]!.video.id;
-  check('per-video completion follows the video, not the slot', statFor(swapped, movedId).completedCount === statFor(flagship, movedId).completedCount);
+  const statFor = (course: TrainingCourse, id: string) =>
+    getCourseAnalytics(course, viewers, completions).stats.find((s) => s.video.id === id)!;
+  check('per-video completion follows the video, not the slot', statFor(swapped, 'v2').completedCount === statFor(c1, 'v2').completedCount);
 
-  // Move a module-1 video into module 2 (cross-container move).
-  const moved = clone(flagship);
-  const src = moved.modules[0]!;
-  const idx = src.entries.findIndex((entry) => entry.kind === 'video');
-  const [entry] = src.entries.splice(idx, 1);
-  moved.modules[1]!.entries.push(entry!);
+  const moved = moveVideoToContainerInCourse(clone(c1), 'v1', { moduleId: 'm2', subgroupId: null });
   const movedOrder = getOrderedVideos(moved, true);
-  check('move preserved the published set', movedOrder.length === n);
+  check('cross-container move preserves the published set', movedOrder.length === n && new Set(movedOrder.map((i) => i.video.id)).size === n);
   check(
     'per-viewer counts unchanged by cross-container move',
-    SEEDED_VIEWERS.every((viewer, i) => completedCount(viewer, movedOrder) === perViewerBefore[i]),
+    viewers.every((viewer, i) => completedCount(completionsFor(index, viewer.id), movedOrder) === perViewerBefore[i]),
   );
-  check('flagship untouched by simulations', analyticsSignature(flagship, SEEDED_VIEWERS) === before);
+
+  const ungrouped = removeSubgroupKeepVideos(clone(c1), 'sg1');
+  const ungroupedOrder = getOrderedVideos(ungrouped, true);
+  check('ungroup keeps the videos', ungroupedOrder.length === n && ungroupedOrder.some((i) => i.video.id === 'v3' && i.subgroup === null));
+  check(
+    'per-viewer counts unchanged by ungroup',
+    viewers.every((viewer, i) => completedCount(completionsFor(index, viewer.id), ungroupedOrder) === perViewerBefore[i]),
+  );
+  check('fixture untouched by simulations', analyticsSignature(c1) === baselineSignature);
 }
 
-console.log('5. Unpublish → republish is a perfect analytics round-trip');
+console.log('6. Unpublish → republish is a perfect analytics round-trip');
 {
-  const target = order[3]!.video.id;
-  const before = analyticsSignature(flagship, SEEDED_VIEWERS);
-  const unpublished = mapVideos(flagship, (video) => (video.id === target ? { ...video, published: 'draft' } : video));
+  const target = 'v2';
+  const unpublished = mapVideos(c1, (video) => (video.id === target ? { ...video, published: 'draft' } : video));
   const shrunkOrder = getOrderedVideos(unpublished, true);
   check('published order shrank by one', shrunkOrder.length === n - 1);
-  const completersOfTarget = SEEDED_VIEWERS.filter((viewer) => isVideoCompletedBy(viewer, target)).length;
-  const dropPerViewer = SEEDED_VIEWERS.every(
-    (viewer) => completedCount(viewer, shrunkOrder) === completedCount(viewer, order) - (isVideoCompletedBy(viewer, target) ? 1 : 0),
-  );
-  check('counts drop exactly for viewers who completed it', dropPerViewer, `${completersOfTarget} completers`);
-  check('nobody exceeds the shrunken course', SEEDED_VIEWERS.every((viewer) => completedCount(viewer, shrunkOrder) <= n - 1));
+  const dropPerViewer = viewers.every((viewer) => {
+    const map = completionsFor(index, viewer.id);
+    return completedCount(map, shrunkOrder) === completedCount(map, order) - (isVideoCompleted(map, target) ? 1 : 0);
+  });
+  check('counts drop exactly for viewers who completed it', dropPerViewer);
+  check('nobody exceeds the shrunken course', viewers.every((viewer) => completedCount(completionsFor(index, viewer.id), shrunkOrder) <= n - 1));
   const republished = mapVideos(unpublished, (video) => (video.id === target ? { ...video, published: 'published' } : video));
-  check('republish restores analytics exactly', analyticsSignature(republished, SEEDED_VIEWERS) === before);
+  check('republish restores analytics exactly', analyticsSignature(republished) === baselineSignature);
 }
 
-console.log('6. Deleting mid-course content never mints finishers');
+console.log('7. Deleting mid-course content never mints finishers');
 {
-  const baseFinished = getCourseAnalytics(flagship, SEEDED_VIEWERS).finished;
-  const midId = order[5]!.video.id; // the biggest-drop video
-  const afterDelete = stripVideo(flagship, midId);
-  const a = getCourseAnalytics(afterDelete, SEEDED_VIEWERS);
-  check('mid deletion keeps finisher count', a.finished === baseFinished, `${baseFinished} -> ${a.finished}`);
-  check('mid deletion preserves population', a.population === getCourseAnalytics(flagship, SEEDED_VIEWERS).population);
+  const baseFinished = getCourseAnalytics(c1, viewers, completions).finished;
+  check('baseline has exactly one finisher', baseFinished === 1, String(baseFinished));
 
-  const tailId = order[n - 1]!.video.id;
-  const afterTail = getCourseAnalytics(stripVideo(flagship, tailId), SEEDED_VIEWERS);
-  check('tail deletion keeps the two seeded finishers finished', afterTail.finished === baseFinished, `${baseFinished} -> ${afterTail.finished}`);
+  const afterMid = getCourseAnalytics(stripVideoFromCourse(c1, 'v3'), viewers, completions);
+  check('mid deletion keeps finisher count', afterMid.finished === baseFinished, `${baseFinished} -> ${afterMid.finished}`);
+  check('mid deletion keeps the population', afterMid.population === 3, String(afterMid.population));
 
-  const emptied = { ...flagship, modules: [] };
-  check('deleting everything leaves zero finishers', getTrainingTotals([emptied], SEEDED_VIEWERS).fullCourseCompletions === 0);
+  const afterTail = getCourseAnalytics(stripVideoFromCourse(c1, 'v5'), viewers, completions);
+  check('tail deletion keeps the finisher finished', afterTail.finished === baseFinished, `${baseFinished} -> ${afterTail.finished}`);
+  check('tail deletion drops vd out of the population', afterTail.population === 2, String(afterTail.population));
+
+  const emptied = { ...c1, modules: [] };
+  check('deleting everything leaves zero full completions', getTrainingTotals([emptied], viewers, completions, NOW).fullCourseCompletions === 0);
 }
 
-console.log('7. Seeded demo reproduces the approved headline figures');
+console.log('8. Analytics derive from real rows (drafts and other courses excluded)');
 {
-  const totals = getTrainingTotals(SEEDED_COURSES, SEEDED_VIEWERS);
-  check('flagship publishes 36 videos', n === 36, String(n));
-  check('28 viewers', totals.totalViewers === 28, String(totals.totalViewers));
-  check('378 video completions', totals.videoCompletions === 378, String(totals.videoCompletions));
-  check('2 full-course completions', totals.fullCourseCompletions === 2, String(totals.fullCourseCompletions));
-  check('42h 21m total watch time', formatHours(totals.totalWatchSeconds) === '42h 21m', formatHours(totals.totalWatchSeconds));
-  const analytics = getCourseAnalytics(flagship, SEEDED_VIEWERS);
-  check('population of 27 active viewers', analytics.population === 27, String(analytics.population));
-  check('average completion 38.9%', analytics.avgCompletionPct === 38.9, String(analytics.avgCompletionPct));
-  check('biggest drop at video 6', analytics.biggestDrop !== null && analytics.biggestDrop.stat.position === 6, String(analytics.biggestDrop?.stat.position));
-  check('biggest drop is 14.8 pts', analytics.biggestDrop !== null && analytics.biggestDrop.pts === 14.8, String(analytics.biggestDrop?.pts));
-  check('every seeded completion id is a published flagship video', SEEDED_VIEWERS.every((viewer) => viewer.completedVideoIds.every((id) => order.some((item) => item.video.id === id))));
+  const a = getCourseAnalytics(c1, viewers, completions);
+  check('population = viewers with ≥1 row on the published order', a.population === 3, String(a.population));
+  check('finished / finishedPct', a.finished === 1 && a.finishedPct === 33.3, `${a.finished} ${a.finishedPct}`);
+  check('per-video: completed ≤ started ≤ population', a.stats.every((s) => s.completedCount <= s.started && s.started <= a.population));
+  check('watch time is summed watch metadata', a.totalWatchSeconds === 1950, String(a.totalWatchSeconds));
+  check('avg watch across active viewers', a.avgWatchSecondsPerViewer === 650, String(a.avgWatchSecondsPerViewer));
+  check('avg completion pct', a.avgCompletionPct === 50, String(a.avgCompletionPct));
+  check('biggest drop lands after the first video', a.biggestDrop !== null && a.biggestDrop.stat.video.id === 'v2' && a.biggestDrop.pts > 0, JSON.stringify(a.biggestDrop?.pts));
+  check(
+    'buckets partition the population',
+    a.buckets.reduce((sum, b) => sum + b.count, 0) === a.population &&
+      a.buckets.find((b) => b.label === '100%')!.count === 1 &&
+      a.buckets.find((b) => b.label === '1-25%')!.count === 2,
+    JSON.stringify(a.buckets),
+  );
+  check('finisher wall-clock span is real (5 days)', a.avgCompletionSeconds === 5 * 86_400, String(a.avgCompletionSeconds));
+
+  const engagement = getVideoEngagement('v2', completions);
+  check('video engagement from rows', engagement.started === 2 && engagement.completed === 1 && engagement.totalWatchSeconds === 310 && engagement.completionPct === 50);
+  check('most watched sorts by real watch time', getMostWatched(c1, viewers, completions, 2).map((s) => s.video.id).join(',') === 'v5,v1');
+  check('recent viewers sort by last seen', getRecentViewers(viewers, 2).map((v) => v.id).join(',') === 'vb,vd');
+
+  const totals = getTrainingTotals(courses, viewers, completions, NOW);
+  check('total viewers counts the roster', totals.totalViewers === 4);
+  check('new this week uses first_seen', totals.newViewersThisWeek === 1, String(totals.newViewersThisWeek));
+  check('video completions exclude drafts + draft courses', totals.videoCompletions === 6, String(totals.videoCompletions));
+  check('watch time excludes drafts + draft courses', totals.totalWatchSeconds === 1950, String(totals.totalWatchSeconds));
+  check('full-course completions ignore the draft course', totals.fullCourseCompletions === 1, String(totals.fullCourseCompletions));
+  check('sessions summed', totals.totalSessions === 11, String(totals.totalSessions));
+  check('library counts include drafts', totals.libraryVideoCount === 7 && totals.libraryDuration === 1890, `${totals.libraryVideoCount} ${totals.libraryDuration}`);
+}
+
+console.log('9. An empty database yields zeros — no demo numbers');
+{
+  check('no rows → no courses', assembleCourses({ courses: [], modules: [], subgroups: [], videos: [] }).length === 0);
+  const totals = getTrainingTotals([], [], [], NOW);
+  check(
+    'totals are all zero',
+    totals.totalViewers === 0 && totals.videoCompletions === 0 && totals.fullCourseCompletions === 0 &&
+      totals.totalWatchSeconds === 0 && totals.libraryVideoCount === 0 && totals.totalSessions === 0,
+  );
+  const a = getCourseAnalytics(c1, [], []);
+  check(
+    'course analytics with no viewers are honest zeros',
+    a.population === 0 && a.finished === 0 && a.totalWatchSeconds === 0 && a.avgCompletionPct === 0 &&
+      a.buckets.every((b) => b.count === 0),
+  );
+  const engagement = getVideoEngagement('v1', []);
+  check('engagement with no rows', engagement.started === 0 && engagement.completionPct === null);
+}
+
+console.log('10. New-entity defaults are honest metadata-only drafts');
+{
+  const defaults = buildNewVideoDefaults('Greeting walk-ins', 'qa');
+  check('new video is a draft with the default runtime', defaults.published === 'draft' && defaults.duration === 300 && defaults.attachments.length === 0);
+  check(
+    'chapters are well-formed and prefixed',
+    defaults.chapters.length === 4 &&
+      defaults.chapters.every((ch, i) => ch.id.startsWith('qa-ch') && ch.at >= 0 && ch.at < defaults.duration && (i === 0 || ch.at > defaults.chapters[i - 1]!.at)),
+  );
+  check('copy admits there is no hosted file', defaults.description[0]!.includes("hosting isn't set up"));
+  check('slugify produces clean slugs', /^[a-z0-9-]+$/.test(slugifyTitle('QA — Front Desk Refresher!')), slugifyTitle('QA — Front Desk Refresher!'));
+  const taken = new Set(['front-desk']);
+  const slug = nextFreeSlug('Front Desk', taken);
+  check('nextFreeSlug avoids collisions', !taken.has(slug) && /^front-desk/.test(slug) && /^[a-z0-9-]+$/.test(slug), slug);
+  check('nextFreeSlug is identity when free', nextFreeSlug('Front Desk', new Set()) === 'front-desk');
 }
 
 if (failures > 0) {

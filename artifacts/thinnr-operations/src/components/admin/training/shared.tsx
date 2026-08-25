@@ -1,15 +1,18 @@
 /**
  * Shared chrome for the training portal pages.
  *
- * Owned by the integrating agent so all six pages agree on: the section tab
- * bar, the editorial SlideFrame that stands in for real video frames, the
- * Live/Draft chip, and the mock "Generate with AI" content pools. Pages reuse
- * these instead of inventing their own.
+ * All training pages agree on: the section tab bar, loading/error/empty
+ * states, the editorial SlideFrame that stands in for real video frames (no
+ * video files are hosted — entries are metadata only), the Live/Draft chip,
+ * and the offline "Generate with AI" content pools. Pages reuse these instead
+ * of inventing their own.
  */
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { CHIP_COBALT, CHIP_WARM } from '@/components/patient/heritage';
+import { Eye, Loader2 } from 'lucide-react';
+import { BTN_SECONDARY, CHIP_COBALT, CHIP_WARM } from '@/components/patient/heritage';
 import { AdminPage, PageHeader } from '@/components/admin/primitives';
+import { useTrainingData } from '@/contexts/training-data';
 import { formatClock, hashId, type TrainingChapter, type TrainingVideo } from '@/data/hq/training';
 
 // ---------------------------------------------------------------------------
@@ -59,12 +62,68 @@ interface TrainingSectionProps {
 
 /** Standard scaffold for the four top-level training pages. */
 export function TrainingSection({ title, sub, action, children }: TrainingSectionProps) {
+  const { status, canEdit } = useTrainingData();
   return (
     <AdminPage>
       <PageHeader kicker="Enablement — Training" title={title} sub={sub} action={action} />
       <TrainingTabs />
+      {status === 'ready' && !canEdit && (
+        <div
+          className="mb-5 flex items-start gap-2 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-3.5 py-2.5 text-xs leading-relaxed text-[#904719]"
+          data-testid="banner-training-read-only"
+        >
+          <Eye size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>
+            <span className="font-semibold">Browsing read-only.</span> The demo persona can explore live training
+            data — sign in as a THINNR HQ admin to make changes.
+          </span>
+        </div>
+      )}
       {children}
     </AdminPage>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading / error / empty chrome — pages share these instead of inventing
+// their own. Training data now lives in Supabase, so every page has a real
+// loading and failure path.
+// ---------------------------------------------------------------------------
+
+export function TrainingLoading({ label = 'Loading training data…' }: { label?: string }) {
+  return (
+    <div
+      className="rounded-lg border border-card-border bg-card px-6 py-16 text-center shadow-soft"
+      role="status"
+      data-testid="training-loading"
+    >
+      <Loader2 size={20} className="mx-auto animate-spin text-muted-foreground" aria-hidden="true" />
+      <p className="mt-3 text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+export function TrainingLoadError({ message, onRetry }: { message: string | null; onRetry: () => void }) {
+  return (
+    <div className="rounded-lg border border-card-border bg-card px-6 py-14 text-center shadow-soft" data-testid="training-error">
+      <h2 className="font-serif text-lg font-bold text-navy">Couldn&rsquo;t load training data</h2>
+      <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-muted-foreground">
+        {message ?? 'Something went wrong while talking to the database.'}
+      </p>
+      <button type="button" className={`${BTN_SECONDARY} mt-5 h-9 px-4`} onClick={onRetry} data-testid="button-training-retry">
+        Try again
+      </button>
+    </div>
+  );
+}
+
+export function TrainingEmpty({ title, sub, action }: { title: string; sub: string; action?: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border bg-card px-6 py-16 text-center shadow-soft" data-testid="training-empty">
+      <h2 className="font-serif text-lg font-bold text-navy">{title}</h2>
+      <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-muted-foreground">{sub}</p>
+      {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
+    </div>
   );
 }
 

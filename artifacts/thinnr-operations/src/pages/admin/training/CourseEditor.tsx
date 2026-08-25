@@ -27,7 +27,7 @@ import {
   type TrainingVideo,
 } from '@/data/hq/training';
 import { AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
-import { CourseLiveChip } from '@/components/admin/training/shared';
+import { CourseLiveChip, TrainingLoading, TrainingLoadError } from '@/components/admin/training/shared';
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
@@ -318,6 +318,9 @@ export default function CourseEditor() {
     updateSubgroup,
     removeSubgroup,
     addVideo,
+    status,
+    errorMessage,
+    refresh,
   } = useTrainingData();
   const { toast } = useToast();
 
@@ -334,7 +337,13 @@ export default function CourseEditor() {
   if (!course) {
     return (
       <AdminPage>
-        <div className="py-12 text-center text-muted-foreground">Course not found.</div>
+        {status === 'loading' ? (
+          <TrainingLoading />
+        ) : status === 'error' ? (
+          <TrainingLoadError message={errorMessage} onRetry={refresh} />
+        ) : (
+          <div className="py-12 text-center text-muted-foreground">Course not found.</div>
+        )}
       </AdminPage>
     );
   }
@@ -351,8 +360,7 @@ export default function CourseEditor() {
 
   const handleAddModule = () => {
     if (newModuleName.trim()) {
-      addModule(course.id, newModuleName.trim());
-      toast({ title: 'Module added', description: `"${newModuleName.trim()}" is ready for videos and sub-groups.` });
+      void addModule(course.id, newModuleName.trim());
     }
     setAddingModule(false);
     setNewModuleName('');
@@ -360,22 +368,24 @@ export default function CourseEditor() {
 
   const handleAddSubgroup = (moduleId: string) => {
     if (newSubgroupName.trim()) {
-      addSubgroup(course.id, moduleId, newSubgroupName.trim());
+      void addSubgroup(course.id, moduleId, newSubgroupName.trim());
     }
     setAddingSubgroupTo(null);
     setNewSubgroupName('');
   };
 
-  const handleAddVideo = (target: { moduleId: string; subgroupId?: string | null }) => {
-    if (newVideoTitle.trim()) {
-      const vid = addVideo(course.id, target, newVideoTitle.trim());
-      toast({
-        title: 'Video added',
-        description: `Added "${vid.title}" as draft. Upload and auto-encode simulated (${formatClock(vid.duration)}).`,
-      });
-    }
+  const handleAddVideo = async (target: { moduleId: string; subgroupId?: string | null }) => {
+    const title = newVideoTitle.trim();
     setAddingVideoTo(null);
     setNewVideoTitle('');
+    if (!title) return;
+    const vid = await addVideo(course.id, target, title);
+    if (vid) {
+      toast({
+        title: 'Video entry added',
+        description: `"${vid.title}" is a draft metadata entry (${formatClock(vid.duration)}) — video file hosting isn't set up yet.`,
+      });
+    }
   };
 
   const orderedVideos = getOrderedVideos(course, false);

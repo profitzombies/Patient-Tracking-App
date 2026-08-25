@@ -1,16 +1,23 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'wouter';
-import { Check, Play, Lock, ArrowLeft, Download, LogOut, CheckCircle2, Users } from 'lucide-react';
-import { useTrainingData } from '@/contexts/training-data';
-import { getOrderedVideos, courseDuration, completedCount, effectiveUnlock, frontierIndex, isVideoCompletedBy, formatClock, formatHours, type TrainingVideo, type OrderedVideo } from '@/data/hq/training';
+import { Check, Play, Lock, ArrowLeft, Download, LogOut, CheckCircle2, Users, Loader2 } from 'lucide-react';
+import { useTrainingData, type LearnerSession } from '@/contexts/training-data';
+import { getOrderedVideos, courseDuration, completedCount, effectiveUnlock, frontierIndex, isVideoCompleted, formatClock, formatHours, type TrainingVideo, type TrainingCompletion, type OrderedVideo } from '@/data/hq/training';
 import { CourseLiveChip, SlideFrame } from '@/components/admin/training/shared';
 import { INPUT_CLASS, BTN_PRIMARY, BTN_SECONDARY } from '@/components/patient/heritage';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
+/** sessionStorage key for the learner capability token minted by the email gate. */
+const GATE_TOKEN_KEY = 'thinnr-training-gate-token';
+
+const toCompletionMap = (rows: readonly TrainingCompletion[]): ReadonlyMap<string, TrainingCompletion> =>
+  new Map(rows.map((completion) => [completion.videoId, completion]));
+
 export default function LearnerPreview() {
   const { courseId } = useParams();
-  const { courses, viewers, addViewerFromGate, inviteStaff, markVideoComplete } = useTrainingData();
+  const { courses, registerLearner, fetchLearnerState, inviteStaff, markVideoComplete, status, errorMessage, refresh } =
+    useTrainingData();
   const { toast } = useToast();
 
   const course = useMemo(() => {
@@ -19,7 +26,12 @@ export default function LearnerPreview() {
   }, [courses, courseId]);
 
   const [gateEmail, setGateEmail] = useState('');
-  const [viewerId, setViewerId] = useState<string | null>(null);
+  // The learner's private session (their viewer row + capability token), from
+  // the email gate or restored via sessionStorage. Gate registrations aren't
+  // readable in the shared snapshot, so progress lives here, fed by the RPCs.
+  const [learner, setLearner] = useState<LearnerSession | null>(null);
+  const [learnerCompletions, setLearnerCompletions] = useState<ReadonlyMap<string, TrainingCompletion>>(new Map());
+  const [restoring, setRestoring] = useState(() => !!sessionStorage.getItem(GATE_TOKEN_KEY));
   // Admins may explicitly open a draft/unpublished course; plain learner links stay blocked.
   const [draftOverride, setDraftOverride] = useState(false);
 
@@ -28,31 +40,67 @@ export default function LearnerPreview() {
   const [showCompletionCard, setShowCompletionCard] = useState(false);
   const [addStaffOpen, setAddStaffOpen] = useState(false);
   const [addStaffEmail, setAddStaffEmail] = useState('');
+  const [gateBusy, setGateBusy] = useState(false);
+  const [staffBusy, setStaffBusy] = useState(false);
+  const [completeBusy, setCompleteBusy] = useState(false);
 
   useEffect(() => {
-    const stored = sessionStorage.getItem('thinnr-training-gate-email');
-    if (stored) {
-      const existing = viewers.find((v) => v.email.toLowerCase() === stored.toLowerCase());
-      if (existing) setViewerId(existing.id);
-    }
-  }, [viewers]);
+    const token = sessionStorage.getItem(GATE_TOKEN_KEY);
+    if (!token) return;
+    let cancelled = false;
+    setRestoring(true);
+    void fetchLearnerState(token).then((session) => {
+      if (cancelled) return;
+      if (session) {
+        setLearner(session);
+        setLearnerCompletions(toCompletionMap(session.completions));
+      } else {
+        // Stale or revoked token — clear it and fall back to the email gate.
+        sessionStorage.removeItem(GATE_TOKEN_KEY);
+      }
+      setRestoring(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchLearnerState]);
 
   const handleGateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gateEmail || !gateEmail.includes('@')) return;
-    const newViewer = addViewerFromGate(gateEmail);
-    sessionStorage.setItem('thinnr-training-gate-email', newViewer.email);
-    setViewerId(newViewer.id);
+    if (!gateEmail || !gateEmail.includes('@') || gateBusy) return;
+    setGateBusy(true);
+    void (async () => {
+      try {
+        const session = await registerLearner(gateEmail);
+        if (session) {
+          sessionStorage.setItem(GATE_TOKEN_KEY, session.token);
+          setLearner(session);
+          setLearnerCompletions(toCompletionMap(session.completions));
+        }
+      } finally {
+        setGateBusy(false);
+      }
+    })();
   };
 
   const handleAddStaffSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addStaffEmail || !addStaffEmail.includes('@') || !viewer) return;
-    // Really create the teammate so the toast's promise holds up in Viewers.
-    inviteStaff(viewer.id, addStaffEmail);
-    toast({ title: 'Invite sent', description: 'Your teammate now appears under Viewers.' });
-    setAddStaffOpen(false);
-    setAddStaffEmail('');
+    if (!addStaffEmail || !addStaffEmail.includes('@') || !learner || staffBusy) return;
+    setStaffBusy(true);
+    void (async () => {
+      try {
+        // The RPC records the invite server-side; it deliberately reveals
+        // nothing about the invited email's account.
+        const invited = await inviteStaff(learner.token, addStaffEmail);
+        if (invited) {
+          toast({ title: 'Invite sent', description: 'Your teammate can enter their email at this course link to pick up their own progress.' });
+          setAddStaffOpen(false);
+          setAddStaffEmail('');
+        }
+      } finally {
+        setStaffBusy(false);
+      }
+    })();
   };
 
   const publishedVideoList = useMemo(() => (course ? getOrderedVideos(course, true) : []), [course]);
@@ -65,18 +113,19 @@ export default function LearnerPreview() {
     return map;
   }, [publishedVideoList]);
 
-  const viewer = viewers.find((v) => v.id === viewerId);
+  const viewer = learner?.viewer;
+  const viewerCompletions = learnerCompletions;
 
   useEffect(() => {
     if (viewer && publishedVideoList.length > 0 && !selectedVideoId && !showCompletionCard) {
-      const frontier = frontierIndex(viewer, publishedVideoList);
+      const frontier = frontierIndex(viewerCompletions, publishedVideoList);
       if (frontier >= publishedVideoList.length) {
         setShowCompletionCard(true);
       } else {
         setSelectedVideoId(publishedVideoList[frontier]!.video.id);
       }
     }
-  }, [viewer, publishedVideoList, selectedVideoId, showCompletionCard]);
+  }, [viewer, viewerCompletions, publishedVideoList, selectedVideoId, showCompletionCard]);
 
   const handleSelectVideo = (videoId: string, isAvailable: boolean) => {
     if (!isAvailable) return;
@@ -86,26 +135,70 @@ export default function LearnerPreview() {
   };
 
   const handleMarkComplete = () => {
-    if (!viewer || !selectedVideoId) return;
+    if (!learner || !selectedVideoId || completeBusy) return;
     const currentIndex = publishedVideoList.findIndex((v) => v.video.id === selectedVideoId);
     if (currentIndex === -1) return;
+    const justCompleted = selectedVideoId;
+    setCompleteBusy(true);
+    void (async () => {
+      try {
+        // Credits exactly the watched video — completing a free-unlock video out
+        // of order never marks the skipped ones complete. The RPC persists it
+        // against the session token and returns the stored row.
+        const saved = await markVideoComplete(learner.token, justCompleted);
+        if (!saved) return; // failure already toasted — stay on the video
 
-    // Credits exactly the watched video — completing a free-unlock video out
-    // of order never marks the skipped ones complete.
-    markVideoComplete(viewer.id, selectedVideoId);
+        setLearnerCompletions((prev) => {
+          const next = new Map(prev);
+          next.set(saved.videoId, saved);
+          return next;
+        });
 
-    // The context update lands async; navigate off a local "after" set.
-    const doneAfter = new Set([...viewer.completedVideoIds, selectedVideoId]);
-    const remaining = publishedVideoList.filter((ov) => !doneAfter.has(ov.video.id));
-    if (remaining.length === 0) {
-      setShowCompletionCard(true);
-      setSelectedVideoId(null);
-      return;
-    }
-    const nextAfter = publishedVideoList.find((ov, i) => i > currentIndex && !doneAfter.has(ov.video.id));
-    setSelectedVideoId((nextAfter ?? remaining[0]!).video.id);
-    setSelectedChapterIndex(0);
+        // Navigate off a local "after" set — the state update lands next render.
+        const doneAfter = new Set<string>();
+        for (const ov of publishedVideoList) {
+          if (isVideoCompleted(viewerCompletions, ov.video.id)) doneAfter.add(ov.video.id);
+        }
+        doneAfter.add(justCompleted);
+        const remaining = publishedVideoList.filter((ov) => !doneAfter.has(ov.video.id));
+        if (remaining.length === 0) {
+          setShowCompletionCard(true);
+          setSelectedVideoId(null);
+          return;
+        }
+        const nextAfter = publishedVideoList.find((ov, i) => i > currentIndex && !doneAfter.has(ov.video.id));
+        setSelectedVideoId((nextAfter ?? remaining[0]!).video.id);
+        setSelectedChapterIndex(0);
+      } finally {
+        setCompleteBusy(false);
+      }
+    })();
   };
+
+  // State 0: snapshot still loading / failed — full-screen states, no admin chrome.
+  if (status === 'loading') {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background p-8">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground" data-testid="training-loading">
+          <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+          Loading training…
+        </div>
+      </div>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background p-8">
+        <div className="rounded-lg border border-card-border bg-card shadow-soft p-8 text-center max-w-sm w-full" data-testid="training-error">
+          <h1 className="font-serif text-xl font-bold text-navy mb-2">Couldn't load training</h1>
+          <p className="text-sm text-muted-foreground mb-6">{errorMessage ?? 'Something went wrong while loading.'}</p>
+          <button type="button" className={`${BTN_PRIMARY} h-9 px-4`} onClick={refresh} data-testid="button-training-retry">
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // State 1: Unknown Course
   if (!course) {
@@ -149,8 +242,20 @@ export default function LearnerPreview() {
     );
   }
 
+  // State 1.75: resuming a stored learner session from its capability token.
+  if (!viewer && restoring) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background p-8">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground" data-testid="training-restoring">
+          <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+          Resuming your session…
+        </div>
+      </div>
+    );
+  }
+
   // State 2: Email Gate
-  if (!viewerId || !viewer) {
+  if (!viewer) {
     const totalDuration = courseDuration(course, true);
     const moduleCount = course.modules.filter((m) => m.published === 'published').length;
 
@@ -172,7 +277,7 @@ export default function LearnerPreview() {
           </div>
           <form onSubmit={handleGateSubmit} className="space-y-4">
             <p className="text-sm text-center text-foreground leading-relaxed">
-              Enter your work email to start — your progress is saved for your office.
+              Enter an email to start — progress is saved under it, so use the same one to pick up where you left off.
             </p>
             <div className="pt-2">
               <input
@@ -185,11 +290,11 @@ export default function LearnerPreview() {
                 data-testid="input-gate-email"
               />
             </div>
-            <button type="submit" className={`${BTN_PRIMARY} w-full h-10 mt-2`} data-testid="button-gate-submit">
-              Continue
+            <button type="submit" className={`${BTN_PRIMARY} w-full h-10 mt-2`} disabled={gateBusy} data-testid="button-gate-submit">
+              {gateBusy ? 'Starting…' : 'Continue'}
             </button>
             <p className="text-[11px] text-center text-muted-foreground mt-4 pt-2">
-              Demo gate — any email works.
+              Demo gate — any email works, so feel free to make one up. Entries are visible only to THINNR HQ admins.
             </p>
           </form>
         </div>
@@ -202,8 +307,8 @@ export default function LearnerPreview() {
   const selectedVideoOV = publishedVideoList.find((ov) => ov.video.id === selectedVideoId);
   const selectedVideo = selectedVideoOV?.video;
   const videoIndex = selectedVideoOV ? selectedVideoOV.position - 1 : -1;
-  const isVideoCompleted = !!viewer && !!selectedVideo && isVideoCompletedBy(viewer, selectedVideo.id);
-  const viewerFrontier = viewer ? frontierIndex(viewer, publishedVideoList) : 0;
+  const selectedVideoCompleted = !!selectedVideo && isVideoCompleted(viewerCompletions, selectedVideo.id);
+  const viewerFrontier = frontierIndex(viewerCompletions, publishedVideoList);
 
   let showAddStaff = false;
   if (selectedVideo) {
@@ -219,10 +324,10 @@ export default function LearnerPreview() {
 
     let isAvailable = true;
     if (course.sequentialUnlock && effectiveUnlock(meta.ov) !== 'free') {
-      isAvailable = index <= viewerFrontier || isVideoCompletedBy(viewer, video.id);
+      isAvailable = index <= viewerFrontier || isVideoCompleted(viewerCompletions, video.id);
     }
 
-    const isCompleted = isVideoCompletedBy(viewer, video.id);
+    const isCompleted = isVideoCompleted(viewerCompletions, video.id);
     const isSelected = selectedVideoId === video.id && !showCompletionCard;
 
     return (
@@ -279,7 +384,7 @@ export default function LearnerPreview() {
             <span className="font-medium text-foreground">{viewer.email}</span>
             <span>·</span>
             <span>
-              {completedCount(viewer, publishedVideoList)} of {publishedVideoList.length} complete
+              {completedCount(viewerCompletions, publishedVideoList)} of {publishedVideoList.length} complete
             </span>
           </div>
           <Link href="/admin/training" className="text-xs font-semibold text-muted-foreground hover:text-navy flex items-center gap-1.5 transition" data-testid="link-exit-preview">
@@ -399,7 +504,7 @@ export default function LearnerPreview() {
                         <h2 className="font-serif text-[22px] font-bold leading-tight text-navy">
                           {selectedVideo.title}
                         </h2>
-                        {isVideoCompleted && (
+                        {selectedVideoCompleted && (
                           <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[.12em] text-muted-foreground border border-border bg-secondary px-2 py-0.5 rounded-sm">
                             <CheckCircle2 size={12} aria-hidden="true" />
                             Completed
@@ -422,7 +527,7 @@ export default function LearnerPreview() {
                           {selectedVideo.attachments.map((att) => (
                             <button
                               key={att.id}
-                              onClick={() => toast({ description: 'Downloads are disabled in this demo.' })}
+                              onClick={() => toast({ description: "No file to download — attachments are metadata only until file hosting is set up." })}
                               className="w-full flex items-center justify-between p-3 rounded-md border border-border bg-card hover:bg-secondary/50 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               data-testid={`button-download-${att.id}`}
                             >
@@ -445,9 +550,10 @@ export default function LearnerPreview() {
                       <button
                         onClick={handleMarkComplete}
                         className={`${BTN_PRIMARY} h-9 px-6`}
+                        disabled={completeBusy}
                         data-testid="button-mark-complete"
                       >
-                        {isVideoCompleted ? 'Continue to next' : 'Mark complete & continue'}
+                        {completeBusy ? 'Saving…' : selectedVideoCompleted ? 'Continue to next' : 'Mark complete & continue'}
                       </button>
                       {showAddStaff && (
                         <button
@@ -526,8 +632,8 @@ export default function LearnerPreview() {
               >
                 Cancel
               </button>
-              <button type="submit" className={`${BTN_PRIMARY} h-9 px-4`} data-testid="button-staff-submit">
-                Send invite
+              <button type="submit" className={`${BTN_PRIMARY} h-9 px-4`} disabled={staffBusy} data-testid="button-staff-submit">
+                {staffBusy ? 'Sending…' : 'Send invite'}
               </button>
             </DialogFooter>
           </form>

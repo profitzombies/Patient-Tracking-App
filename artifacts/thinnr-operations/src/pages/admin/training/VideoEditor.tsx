@@ -5,7 +5,7 @@ import {
   Eye,
   Trash2,
   Image as ImageIcon,
-  Upload,
+  Film,
   Paperclip,
   X,
   Play,
@@ -30,13 +30,16 @@ import { AdminPage, PageHeader } from '@/components/admin/primitives';
 import {
   SlideFrame,
   TrainingTabs,
+  TrainingLoading,
+  TrainingLoadError,
   aiChapters,
   aiDescription,
   chapterIndexAt
 } from '@/components/admin/training/shared';
 import {
   formatClock,
-  getRetentionCurve,
+  formatHours,
+  getVideoEngagement,
   hashId,
   type TrainingChapter,
   type TrainingVideo
@@ -64,7 +67,8 @@ const UNLOCK_LABELS: Record<TrainingVideo['unlock'], string> = {
 
 export default function VideoEditor() {
   const [, params] = useRoute('/admin/training/courses/:courseId/videos/:videoId');
-  const { locateVideo, updateVideo, moveVideoToContainer, removeVideo } = useTrainingData();
+  const { locateVideo, updateVideo, moveVideoToContainer, removeVideo, completions, canEdit, status, errorMessage, refresh } =
+    useTrainingData();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -96,6 +100,7 @@ export default function VideoEditor() {
     if (locationResult && (!draft || draftVideoId !== locationResult.video.id)) {
       setDraft({
         title: locationResult.video.title,
+        duration: locationResult.video.duration,
         description: locationResult.video.description,
         published: locationResult.video.published,
         unlock: locationResult.video.unlock,
@@ -115,6 +120,18 @@ export default function VideoEditor() {
   }, [locationResult, draft, draftVideoId]);
 
   if (!locationResult || !draft) {
+    // Data still loading (or hydrating the draft) — don't flash "not found".
+    if (status === 'loading' || status === 'error' || (locationResult && !draft)) {
+      return (
+        <AdminPage>
+          {status === 'error' ? (
+            <TrainingLoadError message={errorMessage} onRetry={refresh} />
+          ) : (
+            <TrainingLoading />
+          )}
+        </AdminPage>
+      );
+    }
     return (
       <AdminPage>
         <PageHeader
@@ -134,8 +151,10 @@ export default function VideoEditor() {
   }
 
   const { video, course, module, subgroup } = locationResult;
+  const durationSecs = draft.duration ?? video.duration;
   const isDirty = JSON.stringify(draft) !== JSON.stringify({
     title: video.title,
+    duration: video.duration,
     description: video.description,
     published: video.published,
     unlock: video.unlock,
@@ -146,13 +165,14 @@ export default function VideoEditor() {
   });
 
   const handleSave = () => {
-    updateVideo(course.id, video.id, draft);
-    toast({ title: 'Video saved', description: 'Changes have been saved successfully.' });
+    void updateVideo(course.id, video.id, draft);
+    if (canEdit) toast({ title: 'Video saved', description: 'Changes have been saved successfully.' });
   };
 
   const handleDiscard = () => {
     setDraft({
       title: video.title,
+      duration: video.duration,
       description: video.description,
       published: video.published,
       unlock: video.unlock,
@@ -174,10 +194,10 @@ export default function VideoEditor() {
       playbackRef.current = window.setInterval(() => {
         setScrub((prev) => {
           const next = prev + 1;
-          if (next >= video.duration) {
+          if (next >= durationSecs) {
             if (playbackRef.current) window.clearInterval(playbackRef.current);
             setPlaying(false);
-            return video.duration;
+            return durationSecs;
           }
           return next;
         });
@@ -188,11 +208,11 @@ export default function VideoEditor() {
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const pos = (e.clientX - rect.left) / rect.width;
-    setScrub(Math.round(pos * video.duration));
+    setScrub(Math.round(pos * durationSecs));
   };
 
   const currentChapterIndex = chapterIndexAt({ chapters: draft.chapters ?? [] }, scrub);
-  const retention = getRetentionCurve(video);
+  const engagement = getVideoEngagement(video.id, completions);
 
   const generateDescription = () => {
     setAiSpinner('desc');
@@ -256,17 +276,18 @@ export default function VideoEditor() {
 
   const saveThumbnail = () => {
     const newIndex = chapterIndexAt({ chapters: draft.chapters ?? [] }, thumbnailScrub);
-    updateVideo(course.id, video.id, { thumbnailChapter: newIndex });
+    void updateVideo(course.id, video.id, { thumbnailChapter: newIndex });
     setDraftField('thumbnailChapter', newIndex);
-    toast({ title: 'Thumbnail updated everywhere it appears.' });
+    if (canEdit) toast({ title: 'Thumbnail updated everywhere it appears.' });
     setThumbnailDialogOpen(false);
   };
   
   const handleRemoveVideo = () => {
-    if (window.confirm('Deletes the video, its file, thumbnail, attachments, chapters and all viewer progress. This cannot be undone.')) {
-      removeVideo(course.id, video.id);
+    if (!window.confirm('Deletes this video entry — its chapters, attachment names and all viewer progress. This cannot be undone.')) return;
+    void (async () => {
+      await removeVideo(course.id, video.id);
       setLocation(`/admin/training/courses/${course.id}`);
-    }
+    })();
   };
   
   const addAttachment = (e: React.FormEvent) => {
@@ -350,11 +371,11 @@ export default function VideoEditor() {
                 <div className="absolute inset-x-0 h-1.5 bg-border rounded-full overflow-hidden">
                   <div 
                     className="absolute inset-y-0 left-0 bg-primary" 
-                    style={{ width: `${(scrub / video.duration) * 100}%` }}
+                    style={{ width: `${(scrub / durationSecs) * 100}%` }}
                   />
                 </div>
                 {(draft.chapters ?? []).map((ch, i) => {
-                   const pos = (ch.at / video.duration) * 100;
+                   const pos = (ch.at / durationSecs) * 100;
                    return (
                      <div 
                        key={ch.id} 
@@ -370,7 +391,7 @@ export default function VideoEditor() {
               </div>
               
               <div className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground w-16 text-right shrink-0">
-                {formatClock(scrub)} / {formatClock(video.duration)}
+                {formatClock(scrub)} / {formatClock(durationSecs)}
               </div>
             </div>
           </SectionCard>
@@ -546,17 +567,35 @@ export default function VideoEditor() {
              <div className="p-4 space-y-5">
                <div>
                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground mb-2">Video file</p>
-                 <button 
-                   className="w-full border border-dashed border-border rounded-md bg-secondary/50 hover:bg-secondary p-6 flex flex-col items-center justify-center gap-2 text-center transition-colors group cursor-pointer"
-                   onClick={() => toast({ title: 'Upload simulated', description: 'Auto-encoded copy saved.' })}
-                 >
-                   <Upload size={20} className="text-muted-foreground group-hover:text-primary transition-colors" />
-                   <p className="text-xs text-foreground font-medium">Drop a new video to replace</p>
-                   <p className="text-[10px] text-muted-foreground">MP4, WebM or MOV up to 500MB</p>
-                 </button>
-                 <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1.5">
-                   <Play size={10} /> Video on file · {formatClock(video.duration)}
-                 </p>
+                 <div className="w-full border border-dashed border-border rounded-md bg-secondary/50 p-5 flex flex-col items-center justify-center gap-2 text-center" data-testid="notice-no-video-file">
+                   <Film size={18} className="text-muted-foreground" aria-hidden="true" />
+                   <p className="text-xs font-medium text-foreground">No video file — hosting isn&rsquo;t set up yet</p>
+                   <p className="text-[10px] leading-relaxed text-muted-foreground">
+                     This entry stores metadata only: title, duration, chapters and attachment names. A storage
+                     provider can be plugged in later without losing anything here.
+                   </p>
+                 </div>
+                 <div className="mt-3">
+                   <label htmlFor="video-duration" className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                     Duration (mm:ss)
+                   </label>
+                   <input
+                     id="video-duration"
+                     type="text"
+                     className={`${INPUT_CLASS} h-8 w-24 px-1 text-center font-mono`}
+                     value={formatClock(durationSecs)}
+                     onChange={(e) => {
+                       const parts = e.target.value.split(':');
+                       if (parts.length === 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]))) {
+                         setDraftField('duration', Math.max(30, Number(parts[0]) * 60 + Number(parts[1])));
+                       }
+                     }}
+                     data-testid="input-video-duration"
+                   />
+                   <p className="mt-1.5 text-[10px] text-muted-foreground">
+                     Listed runtime for learners — there&rsquo;s no file to measure, so set it here.
+                   </p>
+                 </div>
                </div>
                
                <div>
@@ -573,17 +612,13 @@ export default function VideoEditor() {
                      <button 
                        type="button" 
                        className="text-xs font-semibold text-foreground flex items-center gap-2 hover:text-primary transition-colors"
-                       onClick={() => toast({ title: 'Demo notice', description: 'Custom image uploads are disabled in this demo.' })}
-                     >
-                       <Upload size={13} /> Upload image
-                     </button>
-                     <button 
-                       type="button" 
-                       className="text-xs font-semibold text-foreground flex items-center gap-2 hover:text-primary transition-colors"
                        onClick={handleThumbnailDialog}
                      >
                        <ImageIcon size={13} /> Generate thumbnail
                      </button>
+                     <p className="text-[10px] leading-relaxed text-muted-foreground">
+                       Thumbnails come from chapter slides — image uploads need file hosting.
+                     </p>
                    </div>
                  </div>
                </div>
@@ -593,7 +628,7 @@ export default function VideoEditor() {
           {/* File Attachments Card */}
           <SectionCard 
             title="File attachments"
-            sub="Learners can download these below the video."
+            sub="Name-only metadata — the files themselves aren't hosted yet."
           >
             <div className="divide-y divide-border">
               {(draft.attachments ?? []).length === 0 && (
@@ -612,7 +647,7 @@ export default function VideoEditor() {
                      <button 
                        type="button" 
                        className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:underline px-2"
-                       onClick={() => toast({ title: 'Downloads are disabled in this demo' })}
+                       onClick={() => toast({ title: 'No file to download', description: "Attachments are metadata only — file hosting isn't set up yet." })}
                      >
                        Download
                      </button>
@@ -646,29 +681,43 @@ export default function VideoEditor() {
             </div>
           </SectionCard>
 
-          {/* Retention Card */}
+          {/* Engagement Card — real numbers from completion rows */}
           <SectionCard 
-            title="Retention"
-            sub="N viewers — steep drops show where people stop watching."
+            title="Engagement"
+            sub="Live numbers from this video's completion rows."
           >
             <div className="p-5">
-              <div className="h-[120px] flex items-end gap-[1px] pt-4">
-                 {retention.map((pt, i) => {
-                   const drop = i > 0 ? retention[i - 1]!.pct - pt.pct : 0;
-                   const isSteep = drop > 8;
-                   return (
-                     <div 
-                       key={i} 
-                       className={`flex-1 rounded-t-sm transition-all ${isSteep ? 'bg-[#e8b47c]' : 'bg-primary/80'}`}
-                       style={{ height: `${Math.max(1, pt.pct)}%` }}
-                     />
-                   );
-                 })}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Started</p>
+                  <p className="mt-1 font-serif text-[22px] font-bold leading-none text-navy" data-testid="text-engagement-started">
+                    {engagement.started}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Completed</p>
+                  <p className="mt-1 font-serif text-[22px] font-bold leading-none text-navy" data-testid="text-engagement-completed">
+                    {engagement.completed}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Completion rate</p>
+                  <p className="mt-1 font-serif text-[22px] font-bold leading-none text-navy" data-testid="text-engagement-rate">
+                    {engagement.completionPct === null ? '—' : `${engagement.completionPct}%`}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Watch time</p>
+                  <p className="mt-1 font-serif text-[22px] font-bold leading-none text-navy" data-testid="text-engagement-watch">
+                    {formatHours(engagement.totalWatchSeconds)}
+                  </p>
+                </div>
               </div>
-              <div className="flex justify-between mt-2 text-[9px] font-bold uppercase tracking-[.12em] text-muted-foreground">
-                <span>0:00</span>
-                <span>{formatClock(video.duration)}</span>
-              </div>
+              {engagement.started === 0 && (
+                <p className="mt-4 text-[10px] leading-relaxed text-muted-foreground">
+                  No viewer has opened this video yet.
+                </p>
+              )}
             </div>
           </SectionCard>
 
@@ -676,7 +725,8 @@ export default function VideoEditor() {
           <div className="border border-destructive/30 rounded-lg p-5 bg-[#fff0f0]/30 shadow-sm mt-4">
              <h3 className="text-sm font-semibold text-destructive mb-1.5">Danger Zone</h3>
              <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-               Deletes the video, its file, thumbnail, attachments, chapters and all viewer progress. This cannot be undone.
+               Deletes this video entry — its chapters, attachment names and all viewer progress. There is no hosted
+               file to remove. This cannot be undone.
              </p>
              <button 
                type="button"
@@ -695,7 +745,7 @@ export default function VideoEditor() {
           <DialogHeader>
             <DialogTitle className="font-serif text-navy">Scrub to the frame you want</DialogTitle>
             <DialogDescription>
-              {formatClock(thumbnailScrub)} / {formatClock(video.duration)}
+              {formatClock(thumbnailScrub)} / {formatClock(durationSecs)}
             </DialogDescription>
           </DialogHeader>
           
@@ -712,7 +762,7 @@ export default function VideoEditor() {
              <input
                type="range"
                min={0}
-               max={video.duration}
+               max={durationSecs}
                step={1}
                value={thumbnailScrub}
                onChange={(e) => setThumbnailScrub(Number(e.target.value))}

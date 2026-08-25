@@ -1,178 +1,166 @@
 /**
- * Session-mutable training portal state: courses and viewers.
+ * Live training portal state: courses, viewers, and completions from Supabase.
  *
- * Same contract as the rest of the HQ demo — there is no server. The seeded
- * catalog from data/hq/training.ts is the initial state; every mutation
- * (authoring edits, publish toggles, viewer assignment, learner-gate
- * sign-ins) produces a structurally-new copy that mirrors into
- * sessionStorage, so the demo persists across reloads in this tab and resets
- * when the tab closes. Unlike hq-data (where seeds are immutable for parity),
- * training data has no cross-app parity constraints, so whole-state
- * copy-on-write is safe and keeps the authoring UX honest.
+ * Unlike the rest of the HQ demo, training is real data — every read comes
+ * from the project database and every authoring edit writes back to it, so
+ * the portal looks the same in any browser and survives reloads. One
+ * react-query snapshot holds the whole (small) dataset; mutations write
+ * through the Supabase client and then invalidate the snapshot.
+ *
+ * Authoring writes require a real signed-in HQ admin (RLS enforces this on
+ * the server; `canEdit` mirrors it in the UI so demo personas get a friendly
+ * "sign in to make changes" nudge instead of a 401). The learner-preview
+ * flows — email gate, staff invites, mark-complete — go through narrow
+ * SECURITY DEFINER RPCs keyed by an opaque per-registration session token,
+ * never by a caller-supplied viewer id.
+ *
+ * Privacy: only seeded demo viewers (is_demo) — and their completions and
+ * invites — are readable without a real admin session. Email-gate
+ * registrations are invisible to anon reads, so the learner page keeps its
+ * own progress state from the RPC payloads rather than this snapshot.
+ *
+ * Ordering invariant: `position` columns stay contiguous per container
+ * (0..n-1). The seed writes them that way and every structural mutation here
+ * re-syncs positions from the transformed course (see syncPlacements), so
+ * "append at length" is always correct and assembly order is stable.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  FLAGSHIP_COURSE_ID,
-  buildNewCourse,
-  buildNewModule,
-  buildNewVideo,
-  SEEDED_COURSES,
-  SEEDED_VIEWERS,
+  assembleCourses,
+  buildCompletionIndex,
+  buildNewVideoDefaults,
+  collectPlacements,
   findVideoInCourse,
-  hashId,
+  mapCompletionRow,
+  mapViewerRow,
+  mapVideoRow,
+  moveVideoInCourse,
+  moveVideoToContainerInCourse,
+  nextFreeSlug,
+  removeSubgroupKeepVideos,
+  stripVideoFromCourse,
   type AddStaffMode,
-  type ModuleEntry,
+  type CompletionIndex,
+  type CoursePlacements,
   type PublishState,
   type TrainingChapter,
+  type TrainingCompletion,
+  type TrainingCompletionRow,
   type TrainingCourse,
+  type TrainingCourseRow,
   type TrainingModule,
+  type TrainingModuleRow,
   type TrainingSubgroup,
+  type TrainingSubgroupRow,
   type TrainingVideo,
+  type TrainingVideoRow,
   type TrainingViewer,
+  type TrainingViewerRow,
   type UnlockMode,
   type VideoLocation,
 } from '@/data/hq/training';
-import { TODAY_KEY } from '@/data/nutrition-data';
+import { supabase } from '@/lib/supabase';
+import { useSession } from '@/contexts/session';
+import { toast } from '@/hooks/use-toast';
 
-const STORAGE_KEY = 'thinnr-hq-training-v1';
-
-interface StoredTrainingState {
-  courses: TrainingCourse[];
-  viewers: TrainingViewer[];
-}
-
-function readStoredState(): StoredTrainingState {
-  const fallback: StoredTrainingState = { courses: SEEDED_COURSES, viewers: SEEDED_VIEWERS };
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<StoredTrainingState>;
-    if (!Array.isArray(parsed.courses) || parsed.courses.length === 0) return fallback;
-    if (!Array.isArray(parsed.viewers) || parsed.viewers.length === 0) return fallback;
-    return { courses: parsed.courses as TrainingCourse[], viewers: parsed.viewers as TrainingViewer[] };
-  } catch {
-    return fallback;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Pure course-transform helpers (structural copies, JSON-safe)
-// ---------------------------------------------------------------------------
-
-const mapCourse = (courses: TrainingCourse[], courseId: string, fn: (course: TrainingCourse) => TrainingCourse) =>
-  courses.map((course) => (course.id === courseId ? fn(course) : course));
-
-const mapModule = (course: TrainingCourse, moduleId: string, fn: (module: TrainingModule) => TrainingModule): TrainingCourse => ({
-  ...course,
-  modules: course.modules.map((module) => (module.id === moduleId ? fn(module) : module)),
-});
-
-const mapSubgroup = (course: TrainingCourse, subgroupId: string, fn: (subgroup: TrainingSubgroup) => TrainingSubgroup): TrainingCourse => ({
-  ...course,
-  modules: course.modules.map((module) => ({
-    ...module,
-    entries: module.entries.map((entry) =>
-      entry.kind === 'subgroup' && entry.subgroup.id === subgroupId ? { kind: 'subgroup', subgroup: fn(entry.subgroup) } : entry,
-    ),
-  })),
-});
-
-const mapVideo = (course: TrainingCourse, videoId: string, fn: (video: TrainingVideo) => TrainingVideo): TrainingCourse => ({
-  ...course,
-  modules: course.modules.map((module) => ({
-    ...module,
-    entries: module.entries.map((entry) =>
-      entry.kind === 'video'
-        ? entry.video.id === videoId
-          ? { kind: 'video', video: fn(entry.video) }
-          : entry
-        : {
-            kind: 'subgroup',
-            subgroup: {
-              ...entry.subgroup,
-              videos: entry.subgroup.videos.map((videoItem) => (videoItem.id === videoId ? fn(videoItem) : videoItem)),
-            },
-          },
-    ),
-  })),
-});
-
-const stripVideo = (course: TrainingCourse, videoId: string): TrainingCourse => ({
-  ...course,
-  modules: course.modules.map((module) => ({
-    ...module,
-    entries: module.entries
-      .filter((entry) => !(entry.kind === 'video' && entry.video.id === videoId))
-      .map((entry) =>
-        entry.kind === 'subgroup'
-          ? { kind: 'subgroup' as const, subgroup: { ...entry.subgroup, videos: entry.subgroup.videos.filter((videoItem) => videoItem.id !== videoId) } }
-          : entry,
-      ),
-  })),
-});
-
-/** All video ids in a course list (uniqueness scans for new ids). */
-function allIds(courses: TrainingCourse[]): Set<string> {
-  const ids = new Set<string>();
-  for (const course of courses) {
-    ids.add(course.id);
-    for (const module of course.modules) {
-      ids.add(module.id);
-      for (const entry of module.entries) {
-        if (entry.kind === 'video') ids.add(entry.video.id);
-        else {
-          ids.add(entry.subgroup.id);
-          for (const videoItem of entry.subgroup.videos) ids.add(videoItem.id);
-        }
-      }
-    }
-  }
-  return ids;
-}
-
-function nextId(prefix: string, taken: Set<string>): string {
-  for (let i = 1; ; i++) {
-    const candidate = `${prefix}-${i}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
+const TRAINING_QUERY_KEY = ['training-data'] as const;
 
 /**
- * Move a video one step through the course's flattened admin order. The
- * entry/subgroup structure stays fixed; the ordered video list is permuted
- * and refilled slot by slot — so an "up" at a boundary slides the video into
- * the neighboring sub-group or module, exactly like a small drag would.
+ * Per-table fetch guard. PostgREST caps responses at 1000 rows server-side
+ * anyway; at demo scale (dozens of videos, hundreds of completions) the whole
+ * dataset fits comfortably in one snapshot.
  */
-function moveVideoInCourse(course: TrainingCourse, videoId: string, direction: 'up' | 'down'): TrainingCourse {
-  const ordered: TrainingVideo[] = [];
-  for (const module of course.modules) {
-    for (const entry of module.entries) {
-      if (entry.kind === 'video') ordered.push(entry.video);
-      else ordered.push(...entry.subgroup.videos);
-    }
-  }
-  const from = ordered.findIndex((videoItem) => videoItem.id === videoId);
-  const to = direction === 'up' ? from - 1 : from + 1;
-  if (from < 0 || to < 0 || to >= ordered.length) return course;
-  const permuted = [...ordered];
-  const [moved] = permuted.splice(from, 1);
-  permuted.splice(to, 0, moved!);
+const FETCH_LIMIT = 1000;
 
-  let cursor = 0;
-  const next = () => permuted[cursor++]!;
+interface TrainingSnapshot {
+  courses: TrainingCourse[];
+  viewers: TrainingViewer[];
+  completions: TrainingCompletion[];
+}
+
+function requireClient(): SupabaseClient {
+  if (!supabase) throw new Error('The database is not configured for this environment.');
+  return supabase;
+}
+
+/** Throw a readable error for any failed PostgREST response. */
+function assertOk(error: { message: string } | null): void {
+  if (error) throw new Error(error.message);
+}
+
+function unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
+  assertOk(result.error);
+  if (result.data === null) throw new Error('The database returned no data.');
+  return result.data;
+}
+
+async function fetchSnapshot(): Promise<TrainingSnapshot> {
+  const client = requireClient();
+  const [courses, modules, subgroups, videos, viewers, completions] = await Promise.all([
+    client.from('training_courses').select('*').order('created_at', { ascending: true }).limit(FETCH_LIMIT),
+    client.from('training_modules').select('*').order('position', { ascending: true }).limit(FETCH_LIMIT),
+    client.from('training_subgroups').select('*').order('position', { ascending: true }).limit(FETCH_LIMIT),
+    client.from('training_videos').select('*').order('position', { ascending: true }).limit(FETCH_LIMIT),
+    client.from('training_viewers').select('*').order('first_seen_at', { ascending: true }).limit(FETCH_LIMIT),
+    client.from('training_completions').select('*').order('first_watched_at', { ascending: true }).limit(FETCH_LIMIT),
+  ]);
+  for (const result of [courses, modules, subgroups, videos, viewers, completions]) {
+    assertOk(result.error);
+  }
   return {
-    ...course,
-    modules: course.modules.map((module) => ({
-      ...module,
-      entries: module.entries.map((entry): ModuleEntry =>
-        entry.kind === 'video'
-          ? { kind: 'video', video: next() }
-          : { kind: 'subgroup', subgroup: { ...entry.subgroup, videos: entry.subgroup.videos.map(() => next()) } },
-      ),
-    })),
+    courses: assembleCourses({
+      courses: (courses.data ?? []) as TrainingCourseRow[],
+      modules: (modules.data ?? []) as TrainingModuleRow[],
+      subgroups: (subgroups.data ?? []) as TrainingSubgroupRow[],
+      videos: (videos.data ?? []) as TrainingVideoRow[],
+    }),
+    viewers: ((viewers.data ?? []) as TrainingViewerRow[]).map(mapViewerRow),
+    completions: ((completions.data ?? []) as TrainingCompletionRow[]).map(mapCompletionRow),
   };
 }
 
+/**
+ * Write only the placement rows that changed between two course shapes.
+ * Placements are derived from array indexes (collectPlacements), so this
+ * both persists the transform AND re-compacts positions to 0..n-1 — which is
+ * what keeps the contiguity invariant alive across deletes and moves.
+ */
+async function syncPlacements(client: SupabaseClient, before: CoursePlacements, after: CoursePlacements): Promise<void> {
+  const beforeModules = new Map(before.modules.map((item) => [item.id, item]));
+  const beforeSubgroups = new Map(before.subgroups.map((item) => [item.id, item]));
+  const beforeVideos = new Map(before.videos.map((item) => [item.id, item]));
+
+  const writes: PromiseLike<{ error: { message: string } | null }>[] = [];
+  for (const item of after.modules) {
+    const prev = beforeModules.get(item.id);
+    if (!prev || prev.position !== item.position) {
+      writes.push(client.from('training_modules').update({ position: item.position }).eq('id', item.id));
+    }
+  }
+  for (const item of after.subgroups) {
+    const prev = beforeSubgroups.get(item.id);
+    if (!prev || prev.moduleId !== item.moduleId || prev.position !== item.position) {
+      writes.push(
+        client.from('training_subgroups').update({ module_id: item.moduleId, position: item.position }).eq('id', item.id),
+      );
+    }
+  }
+  for (const item of after.videos) {
+    const prev = beforeVideos.get(item.id);
+    if (!prev || prev.moduleId !== item.moduleId || prev.subgroupId !== item.subgroupId || prev.position !== item.position) {
+      writes.push(
+        client
+          .from('training_videos')
+          .update({ module_id: item.moduleId, subgroup_id: item.subgroupId, position: item.position })
+          .eq('id', item.id),
+      );
+    }
+  }
+  const results = await Promise.all(writes);
+  for (const result of results) assertOk(result.error);
+}
 
 // ---------------------------------------------------------------------------
 // Context
@@ -181,6 +169,8 @@ function moveVideoInCourse(course: TrainingCourse, videoId: string, direction: '
 export interface VideoPatch {
   title?: string;
   description?: string[];
+  /** Seconds — the editor's duration field (video files aren't hosted, so this is authored metadata). */
+  duration?: number;
   published?: PublishState;
   unlock?: UnlockMode;
   addStaff?: AddStaffMode;
@@ -189,321 +179,507 @@ export interface VideoPatch {
   attachments?: TrainingVideo['attachments'];
 }
 
+export type TrainingStatus = 'loading' | 'error' | 'ready';
+
+/**
+ * A learner's private session: their own viewer row, completion rows, and the
+ * opaque capability token the learner RPCs require. Never part of the shared
+ * snapshot — non-demo learners aren't readable by other anonymous visitors.
+ */
+export interface LearnerSession {
+  viewer: TrainingViewer;
+  token: string;
+  completions: TrainingCompletion[];
+}
+
 interface TrainingDataValue {
+  status: TrainingStatus;
+  /** Set when status === 'error'. */
+  errorMessage: string | null;
+  /** Refetch the snapshot (error-state retry button). */
+  refresh: () => void;
+  /** True for a real signed-in HQ admin; demo personas browse read-only. */
+  canEdit: boolean;
+
   courses: TrainingCourse[];
   viewers: TrainingViewer[];
-  /** The live flagship course (falls back to the first course). */
-  flagshipCourse: TrainingCourse;
+  completions: TrainingCompletion[];
+  /** viewerId → (videoId → completion row), rebuilt with the snapshot. */
+  completionIndex: CompletionIndex;
+  /** The first live course (falls back to the first course; null while empty). */
+  flagshipCourse: TrainingCourse | null;
   findCourse: (courseId: string | undefined) => TrainingCourse | undefined;
   locateVideo: (courseId: string | undefined, videoId: string | undefined) => VideoLocation | null;
 
-  addCourse: (input: { title: string; description: string }) => TrainingCourse;
-  updateCourse: (courseId: string, patch: Partial<Pick<TrainingCourse, 'title' | 'description' | 'status' | 'sequentialUnlock'>>) => void;
+  addCourse: (input: { title: string; description: string }) => Promise<TrainingCourse | null>;
+  updateCourse: (
+    courseId: string,
+    patch: Partial<Pick<TrainingCourse, 'title' | 'description' | 'status' | 'sequentialUnlock'>>,
+  ) => Promise<void>;
 
-  addModule: (courseId: string, title: string) => void;
-  updateModule: (courseId: string, moduleId: string, patch: Partial<Pick<TrainingModule, 'title' | 'published' | 'unlock'>>) => void;
-  removeModule: (courseId: string, moduleId: string) => void;
+  addModule: (courseId: string, title: string) => Promise<void>;
+  updateModule: (
+    courseId: string,
+    moduleId: string,
+    patch: Partial<Pick<TrainingModule, 'title' | 'published' | 'unlock'>>,
+  ) => Promise<void>;
+  removeModule: (courseId: string, moduleId: string) => Promise<void>;
 
-  addSubgroup: (courseId: string, moduleId: string, title: string) => void;
-  updateSubgroup: (courseId: string, subgroupId: string, patch: Partial<Pick<TrainingSubgroup, 'title' | 'published' | 'unlock'>>) => void;
-  removeSubgroup: (courseId: string, subgroupId: string) => void;
+  addSubgroup: (courseId: string, moduleId: string, title: string) => Promise<void>;
+  updateSubgroup: (
+    courseId: string,
+    subgroupId: string,
+    patch: Partial<Pick<TrainingSubgroup, 'title' | 'published' | 'unlock'>>,
+  ) => Promise<void>;
+  removeSubgroup: (courseId: string, subgroupId: string) => Promise<void>;
 
-  /** New videos land as drafts with an "auto-encoded" duration and AI-seeded chapters. */
-  addVideo: (courseId: string, target: { moduleId: string; subgroupId?: string | null }, title: string) => TrainingVideo;
-  updateVideo: (courseId: string, videoId: string, patch: VideoPatch) => void;
-  moveVideo: (courseId: string, videoId: string, direction: 'up' | 'down') => void;
+  /** New videos land as drafts with placeholder metadata (no file upload exists). */
+  addVideo: (
+    courseId: string,
+    target: { moduleId: string; subgroupId?: string | null },
+    title: string,
+  ) => Promise<TrainingVideo | null>;
+  updateVideo: (courseId: string, videoId: string, patch: VideoPatch) => Promise<void>;
+  moveVideo: (courseId: string, videoId: string, direction: 'up' | 'down') => Promise<void>;
   /** Reassign a video's sub-group (or none) within its module — the editor's SUB-GROUP dropdown. */
-  moveVideoToContainer: (courseId: string, videoId: string, target: { moduleId: string; subgroupId: string | null }) => void;
-  /** Danger zone: removes the video and its chapters/attachments permanently. */
-  removeVideo: (courseId: string, videoId: string) => void;
+  moveVideoToContainer: (
+    courseId: string,
+    videoId: string,
+    target: { moduleId: string; subgroupId: string | null },
+  ) => Promise<void>;
+  /** Danger zone: removes the video, its chapters/attachments, and its completion rows permanently. */
+  removeVideo: (courseId: string, videoId: string) => Promise<void>;
 
-  assignViewerAccount: (viewerId: string, accountId: string | null) => void;
-  /** Email gate on the learner view — returns the existing viewer for a repeat email. */
-  addViewerFromGate: (email: string) => TrainingViewer;
-  /** Learner "Add your staff" — creates a teammate viewer linked to the inviter (dedupes by email). */
-  inviteStaff: (staffOfViewerId: string, email: string) => TrainingViewer;
-  /** Learner preview progress ("mark complete & continue"). */
-  markVideoComplete: (viewerId: string, videoId: string) => void;
+  assignViewerAccount: (viewerId: string, accountId: string | null) => Promise<void>;
+  /** Email gate on the learner view — registers (or resumes) the email and returns a private session. */
+  registerLearner: (email: string) => Promise<LearnerSession | null>;
+  /** Rehydrate a stored learner token. Resolves null (silently) when the token is stale. */
+  fetchLearnerState: (token: string) => Promise<LearnerSession | null>;
+  /** Learner "Add your staff" — records the invite server-side without exposing the invitee. */
+  inviteStaff: (token: string, email: string) => Promise<boolean>;
+  /** Learner preview progress — persists and returns the completion row. */
+  markVideoComplete: (token: string, videoId: string) => Promise<TrainingCompletion | null>;
 }
 
 const TrainingDataContext = createContext<TrainingDataValue | null>(null);
 
-export function TrainingDataProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<StoredTrainingState>(readStoredState);
+const EMPTY_COURSES: TrainingCourse[] = [];
+const EMPTY_VIEWERS: TrainingViewer[] = [];
+const EMPTY_COMPLETIONS: TrainingCompletion[] = [];
 
-  useEffect(() => {
-    try {
-      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      // Storage may be unavailable; in-memory state still works.
-    }
-  }, [state]);
+export function TrainingDataProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const { authStatus, authRole } = useSession();
+  const canEdit = authStatus === 'signed-in' && authRole === 'hq_admin';
+
+  const query = useQuery({
+    queryKey: TRAINING_QUERY_KEY,
+    queryFn: fetchSnapshot,
+    enabled: supabase !== null,
+    staleTime: 30_000,
+  });
+
+  const courses = query.data?.courses ?? EMPTY_COURSES;
+  const viewers = query.data?.viewers ?? EMPTY_VIEWERS;
+  const completions = query.data?.completions ?? EMPTY_COMPLETIONS;
+
+  const status: TrainingStatus = !supabase ? 'error' : query.isError ? 'error' : query.data ? 'ready' : 'loading';
+  const errorMessage = !supabase
+    ? 'The database is not configured for this environment.'
+    : query.isError
+      ? query.error instanceof Error
+        ? query.error.message
+        : 'Could not load training data.'
+      : null;
+
+  const refresh = useCallback(() => {
+    void query.refetch();
+  }, [query.refetch]);
+
+  const completionIndex = useMemo(() => buildCompletionIndex(completions), [completions]);
+
+  const flagshipCourse = useMemo(
+    () => courses.find((course) => course.status === 'live') ?? courses[0] ?? null,
+    [courses],
+  );
 
   const findCourse = useCallback(
-    (courseId: string | undefined) => state.courses.find((course) => course.id === courseId),
-    [state.courses],
+    (courseId: string | undefined) => courses.find((course) => course.id === courseId),
+    [courses],
   );
 
   const locateVideo = useCallback(
     (courseId: string | undefined, videoId: string | undefined): VideoLocation | null => {
-      const course = state.courses.find((item) => item.id === courseId);
+      const course = courses.find((item) => item.id === courseId);
       if (!course || !videoId) return null;
       return findVideoInCourse(course, videoId);
     },
-    [state.courses],
+    [courses],
   );
 
-  const addCourse = useCallback((input: { title: string; description: string }): TrainingCourse => {
-    // Built OUTSIDE setState: React may defer functional updaters, so a value
-    // smuggled out of one is not reliably populated when this returns.
-    const course = buildNewCourse(state.courses, input);
-    setState((current) => ({ ...current, courses: [...current.courses, course] }));
-    return course;
-  }, [state.courses]);
-
-  const updateCourse = useCallback<TrainingDataValue['updateCourse']>((courseId, patch) => {
-    setState((current) => ({ ...current, courses: mapCourse(current.courses, courseId, (course) => ({ ...course, ...patch })) }));
+  const notifyReadOnly = useCallback(() => {
+    toast({
+      title: 'Sign in to make changes',
+      description: 'The demo persona can browse training, but authoring needs a real THINNR HQ sign-in.',
+    });
   }, []);
 
-  const addModule = useCallback<TrainingDataValue['addModule']>((courseId, title) => {
-    const module = buildNewModule(state.courses, title);
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => ({
-        ...course,
-        modules: [...course.modules, module],
-      })),
-    }));
-  }, [state.courses]);
+  /** Run a write, refresh the snapshot, surface failures as a toast. */
+  const runWrite = useCallback(
+    async <T,>(operation: () => Promise<T>): Promise<T | null> => {
+      try {
+        const result = await operation();
+        await queryClient.invalidateQueries({ queryKey: TRAINING_QUERY_KEY });
+        return result;
+      } catch (error) {
+        toast({
+          title: 'Change not saved',
+          description: error instanceof Error ? error.message : 'Unexpected database error.',
+          variant: 'destructive',
+        });
+        return null;
+      }
+    },
+    [queryClient],
+  );
 
-  const updateModule = useCallback<TrainingDataValue['updateModule']>((courseId, moduleId, patch) => {
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => mapModule(course, moduleId, (module) => ({ ...module, ...patch }))),
-    }));
-  }, []);
+  /** Same as runWrite, but blocked (with the nudge) for demo personas. */
+  const authorWrite = useCallback(
+    async <T,>(operation: () => Promise<T>): Promise<T | null> => {
+      if (!canEdit) {
+        notifyReadOnly();
+        return null;
+      }
+      return runWrite(operation);
+    },
+    [canEdit, notifyReadOnly, runWrite],
+  );
 
-  const removeModule = useCallback<TrainingDataValue['removeModule']>((courseId, moduleId) => {
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => ({
-        ...course,
-        modules: course.modules.filter((module) => module.id !== moduleId),
-      })),
-    }));
-  }, []);
+  // -------------------------------------------------------------------------
+  // Authoring mutations (RLS mirrors the canEdit gate server-side)
+  // -------------------------------------------------------------------------
 
-  const addSubgroup = useCallback<TrainingDataValue['addSubgroup']>((courseId, moduleId, title) => {
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) =>
-        mapModule(course, moduleId, (module) => {
-          const taken = allIds(current.courses);
-          return {
-            ...module,
-            entries: [
-              ...module.entries,
-              {
-                kind: 'subgroup',
-                subgroup: { id: nextId('sg-new', taken), title, published: 'published', unlock: 'free', videos: [] },
-              },
-            ],
-          };
-        }),
-      ),
-    }));
-  }, []);
-
-  const updateSubgroup = useCallback<TrainingDataValue['updateSubgroup']>((courseId, subgroupId, patch) => {
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => mapSubgroup(course, subgroupId, (subgroup) => ({ ...subgroup, ...patch }))),
-    }));
-  }, []);
-
-  const removeSubgroup = useCallback<TrainingDataValue['removeSubgroup']>((courseId, subgroupId) => {
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => ({
-        ...course,
-        modules: course.modules.map((module) => ({
-          ...module,
-          // The editor promises deleting a sub-group keeps its videos: they
-          // slide back to the module level, in place, in their old order.
-          entries: module.entries.flatMap((entry) =>
-            entry.kind === 'subgroup' && entry.subgroup.id === subgroupId
-              ? entry.subgroup.videos.map((video) => ({ kind: 'video' as const, video }))
-              : [entry],
-          ),
-        })),
-      })),
-    }));
-  }, []);
-
-  const addVideo = useCallback<TrainingDataValue['addVideo']>((courseId, target, title) => {
-    // Same rule as addCourse: build first, then insert.
-    const video = buildNewVideo(state.courses, title);
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => {
-        if (target.subgroupId) {
-          return mapSubgroup(course, target.subgroupId, (subgroup) => ({ ...subgroup, videos: [...subgroup.videos, video] }));
-        }
-        return mapModule(course, target.moduleId, (module) => ({
-          ...module,
-          entries: [...module.entries, { kind: 'video', video }],
-        }));
+  const addCourse = useCallback<TrainingDataValue['addCourse']>(
+    (input) =>
+      authorWrite(async () => {
+        const client = requireClient();
+        const slug = nextFreeSlug(input.title, new Set(courses.map((course) => course.slug)));
+        const courseRow = unwrap(
+          await client
+            .from('training_courses')
+            .insert({ slug, title: input.title, description: input.description, status: 'draft', sequential_unlock: true })
+            .select('*')
+            .single<TrainingCourseRow>(),
+        );
+        // Every course starts with a module so the editor has somewhere to add videos.
+        const moduleRow = unwrap(
+          await client
+            .from('training_modules')
+            .insert({ course_id: courseRow.id, title: 'Module 1', published: 'published', unlock_mode: 'sequential', position: 0 })
+            .select('*')
+            .single<TrainingModuleRow>(),
+        );
+        return assembleCourses({ courses: [courseRow], modules: [moduleRow], subgroups: [], videos: [] })[0]!;
       }),
-    }));
-    return video;
-  }, [state.courses]);
+    [authorWrite, courses],
+  );
 
-  const updateVideo = useCallback<TrainingDataValue['updateVideo']>((courseId, videoId, patch) => {
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => mapVideo(course, videoId, (video) => ({ ...video, ...patch }))),
-    }));
-  }, []);
+  const updateCourse = useCallback<TrainingDataValue['updateCourse']>(
+    async (courseId, patch) => {
+      const row: Record<string, unknown> = {};
+      if (patch.title !== undefined) row.title = patch.title;
+      if (patch.description !== undefined) row.description = patch.description;
+      if (patch.status !== undefined) row.status = patch.status;
+      if (patch.sequentialUnlock !== undefined) row.sequential_unlock = patch.sequentialUnlock;
+      if (Object.keys(row).length === 0) return;
+      await authorWrite(async () => {
+        assertOk((await requireClient().from('training_courses').update(row).eq('id', courseId)).error);
+      });
+    },
+    [authorWrite],
+  );
 
-  const moveVideo = useCallback<TrainingDataValue['moveVideo']>((courseId, videoId, direction) => {
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => moveVideoInCourse(course, videoId, direction)),
-    }));
-  }, []);
+  const addModule = useCallback<TrainingDataValue['addModule']>(
+    async (courseId, title) => {
+      const course = findCourse(courseId);
+      const position = course ? course.modules.length : 0;
+      await authorWrite(async () => {
+        assertOk(
+          (
+            await requireClient()
+              .from('training_modules')
+              .insert({ course_id: courseId, title, published: 'published', unlock_mode: 'sequential', position })
+          ).error,
+        );
+      });
+    },
+    [authorWrite, findCourse],
+  );
 
-  const moveVideoToContainer = useCallback<TrainingDataValue['moveVideoToContainer']>((courseId, videoId, target) => {
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => {
-        const located = findVideoInCourse(course, videoId);
-        if (!located) return course;
-        const without = stripVideo(course, videoId);
-        if (target.subgroupId) {
-          return mapSubgroup(without, target.subgroupId, (subgroup) => ({ ...subgroup, videos: [...subgroup.videos, located.video] }));
+  const updateModule = useCallback<TrainingDataValue['updateModule']>(
+    async (_courseId, moduleId, patch) => {
+      const row: Record<string, unknown> = {};
+      if (patch.title !== undefined) row.title = patch.title;
+      if (patch.published !== undefined) row.published = patch.published;
+      if (patch.unlock !== undefined) row.unlock_mode = patch.unlock;
+      if (Object.keys(row).length === 0) return;
+      await authorWrite(async () => {
+        assertOk((await requireClient().from('training_modules').update(row).eq('id', moduleId)).error);
+      });
+    },
+    [authorWrite],
+  );
+
+  const removeModule = useCallback<TrainingDataValue['removeModule']>(
+    async (courseId, moduleId) => {
+      const course = findCourse(courseId);
+      await authorWrite(async () => {
+        const client = requireClient();
+        // Cascades sub-groups, videos, and their completion rows.
+        assertOk((await client.from('training_modules').delete().eq('id', moduleId)).error);
+        if (course) {
+          const after = { ...course, modules: course.modules.filter((module) => module.id !== moduleId) };
+          await syncPlacements(client, collectPlacements(course), collectPlacements(after));
         }
-        return mapModule(without, target.moduleId, (module) => ({
-          ...module,
-          entries: [...module.entries, { kind: 'video', video: located.video }],
-        }));
+      });
+    },
+    [authorWrite, findCourse],
+  );
+
+  const addSubgroup = useCallback<TrainingDataValue['addSubgroup']>(
+    async (courseId, moduleId, title) => {
+      const course = findCourse(courseId);
+      const module = course?.modules.find((item) => item.id === moduleId);
+      const position = module ? module.entries.length : 0;
+      await authorWrite(async () => {
+        assertOk(
+          (
+            await requireClient()
+              .from('training_subgroups')
+              .insert({ module_id: moduleId, title, published: 'published', unlock_mode: 'free', position })
+          ).error,
+        );
+      });
+    },
+    [authorWrite, findCourse],
+  );
+
+  const updateSubgroup = useCallback<TrainingDataValue['updateSubgroup']>(
+    async (_courseId, subgroupId, patch) => {
+      const row: Record<string, unknown> = {};
+      if (patch.title !== undefined) row.title = patch.title;
+      if (patch.published !== undefined) row.published = patch.published;
+      if (patch.unlock !== undefined) row.unlock_mode = patch.unlock;
+      if (Object.keys(row).length === 0) return;
+      await authorWrite(async () => {
+        assertOk((await requireClient().from('training_subgroups').update(row).eq('id', subgroupId)).error);
+      });
+    },
+    [authorWrite],
+  );
+
+  const removeSubgroup = useCallback<TrainingDataValue['removeSubgroup']>(
+    async (courseId, subgroupId) => {
+      const course = findCourse(courseId);
+      if (!course) return;
+      // The editor promises deleting a sub-group keeps its videos: they slide
+      // back to the module level, in place, in their old order.
+      const after = removeSubgroupKeepVideos(course, subgroupId);
+      await authorWrite(async () => {
+        const client = requireClient();
+        await syncPlacements(client, collectPlacements(course), collectPlacements(after));
+        assertOk((await client.from('training_subgroups').delete().eq('id', subgroupId)).error);
+      });
+    },
+    [authorWrite, findCourse],
+  );
+
+  const addVideo = useCallback<TrainingDataValue['addVideo']>(
+    (courseId, target, title) =>
+      authorWrite(async () => {
+        const course = findCourse(courseId);
+        const module = course?.modules.find((item) => item.id === target.moduleId);
+        const subgroup = target.subgroupId
+          ? module?.entries.find(
+              (entry) => entry.kind === 'subgroup' && entry.subgroup.id === target.subgroupId,
+            )
+          : undefined;
+        const position =
+          target.subgroupId && subgroup?.kind === 'subgroup'
+            ? subgroup.subgroup.videos.length
+            : (module?.entries.length ?? 0);
+        const defaults = buildNewVideoDefaults(title, crypto.randomUUID().slice(0, 8));
+        const row = unwrap(
+          await requireClient()
+            .from('training_videos')
+            .insert({
+              module_id: target.moduleId,
+              subgroup_id: target.subgroupId ?? null,
+              title: defaults.title,
+              duration_seconds: defaults.duration,
+              published: defaults.published,
+              unlock_mode: defaults.unlock,
+              add_staff: defaults.addStaff,
+              description: defaults.description,
+              chapters: defaults.chapters,
+              thumbnail_chapter: defaults.thumbnailChapter,
+              attachments: defaults.attachments,
+              position,
+            })
+            .select('*')
+            .single<TrainingVideoRow>(),
+        );
+        return mapVideoRow(row);
       }),
-    }));
+    [authorWrite, findCourse],
+  );
+
+  const updateVideo = useCallback<TrainingDataValue['updateVideo']>(
+    async (_courseId, videoId, patch) => {
+      const row: Record<string, unknown> = {};
+      if (patch.title !== undefined) row.title = patch.title;
+      if (patch.description !== undefined) row.description = patch.description;
+      if (patch.duration !== undefined) row.duration_seconds = Math.max(0, Math.round(patch.duration));
+      if (patch.published !== undefined) row.published = patch.published;
+      if (patch.unlock !== undefined) row.unlock_mode = patch.unlock;
+      if (patch.addStaff !== undefined) row.add_staff = patch.addStaff;
+      if (patch.chapters !== undefined) row.chapters = patch.chapters;
+      if (patch.thumbnailChapter !== undefined) row.thumbnail_chapter = patch.thumbnailChapter;
+      if (patch.attachments !== undefined) row.attachments = patch.attachments;
+      if (Object.keys(row).length === 0) return;
+      await authorWrite(async () => {
+        assertOk((await requireClient().from('training_videos').update(row).eq('id', videoId)).error);
+      });
+    },
+    [authorWrite],
+  );
+
+  const moveVideo = useCallback<TrainingDataValue['moveVideo']>(
+    async (courseId, videoId, direction) => {
+      const course = findCourse(courseId);
+      if (!course) return;
+      const after = moveVideoInCourse(course, videoId, direction);
+      if (after === course) return; // Already at the boundary.
+      await authorWrite(() => syncPlacements(requireClient(), collectPlacements(course), collectPlacements(after)));
+    },
+    [authorWrite, findCourse],
+  );
+
+  const moveVideoToContainer = useCallback<TrainingDataValue['moveVideoToContainer']>(
+    async (courseId, videoId, target) => {
+      const course = findCourse(courseId);
+      if (!course) return;
+      const after = moveVideoToContainerInCourse(course, videoId, target);
+      if (after === course) return;
+      await authorWrite(() => syncPlacements(requireClient(), collectPlacements(course), collectPlacements(after)));
+    },
+    [authorWrite, findCourse],
+  );
+
+  const removeVideo = useCallback<TrainingDataValue['removeVideo']>(
+    async (courseId, videoId) => {
+      const course = findCourse(courseId);
+      await authorWrite(async () => {
+        const client = requireClient();
+        // Cascades the video's completion rows; counts are always re-derived
+        // against the current published order, so no reconciliation needed.
+        assertOk((await client.from('training_videos').delete().eq('id', videoId)).error);
+        if (course) {
+          const after = stripVideoFromCourse(course, videoId);
+          await syncPlacements(client, collectPlacements(course), collectPlacements(after));
+        }
+      });
+    },
+    [authorWrite, findCourse],
+  );
+
+  const assignViewerAccount = useCallback<TrainingDataValue['assignViewerAccount']>(
+    async (viewerId, accountId) => {
+      await authorWrite(async () => {
+        assertOk((await requireClient().from('training_viewers').update({ account_id: accountId }).eq('id', viewerId)).error);
+      });
+    },
+    [authorWrite],
+  );
+
+  // -------------------------------------------------------------------------
+  // Learner flows — SECURITY DEFINER RPCs keyed by an opaque session token.
+  // Open to the demo/anon session; a caller can only ever act as (and see)
+  // the registration whose token it holds.
+  // -------------------------------------------------------------------------
+
+  const registerLearner = useCallback<TrainingDataValue['registerLearner']>(
+    (email) =>
+      runWrite(async () => {
+        const payload = unwrap(
+          await requireClient().rpc('training_register_viewer', { p_email: email.trim().toLowerCase() }),
+        ) as { viewer: TrainingViewerRow; token: string; completions: TrainingCompletionRow[] };
+        return {
+          viewer: mapViewerRow(payload.viewer),
+          token: payload.token,
+          completions: (payload.completions ?? []).map(mapCompletionRow),
+        };
+      }),
+    [runWrite],
+  );
+
+  const fetchLearnerState = useCallback<TrainingDataValue['fetchLearnerState']>(async (token) => {
+    try {
+      const payload = unwrap(await requireClient().rpc('training_learner_state', { p_token: token })) as {
+        viewer: TrainingViewerRow;
+        completions: TrainingCompletionRow[];
+      };
+      return {
+        viewer: mapViewerRow(payload.viewer),
+        token,
+        completions: (payload.completions ?? []).map(mapCompletionRow),
+      };
+    } catch {
+      // Stale or revoked token (or a transient failure): callers fall back to
+      // the email gate, which mints a fresh session.
+      return null;
+    }
   }, []);
 
-  const removeVideo = useCallback<TrainingDataValue['removeVideo']>((courseId, videoId) => {
-    // No progress reconciliation needed: viewer progress is a set of video
-    // ids and every count is derived against the CURRENT published order.
-    setState((current) => ({
-      ...current,
-      courses: mapCourse(current.courses, courseId, (course) => stripVideo(course, videoId)),
-    }));
-  }, []);
+  const inviteStaff = useCallback<TrainingDataValue['inviteStaff']>(
+    async (token, email) => {
+      const result = await runWrite(async () => {
+        assertOk(
+          (
+            await requireClient().rpc('training_invite_staff', {
+              p_token: token,
+              p_email: email.trim().toLowerCase(),
+            })
+          ).error,
+        );
+        return true;
+      });
+      return result === true;
+    },
+    [runWrite],
+  );
 
-  const assignViewerAccount = useCallback<TrainingDataValue['assignViewerAccount']>((viewerId, accountId) => {
-    setState((current) => ({
-      ...current,
-      viewers: current.viewers.map((viewer) => (viewer.id === viewerId ? { ...viewer, accountId } : viewer)),
-    }));
-  }, []);
-
-  const addViewerFromGate = useCallback<TrainingDataValue['addViewerFromGate']>((email) => {
-    const normalized = email.trim().toLowerCase();
-    const existing = state.viewers.find((viewer) => viewer.email.toLowerCase() === normalized);
-    if (existing) return existing;
-    const local = normalized.split('@')[0] ?? 'new.viewer';
-    const name = local
-      .split(/[._-]+/)
-      .filter(Boolean)
-      .map((part) => part[0]!.toUpperCase() + part.slice(1))
-      .join(' ');
-    const viewer: TrainingViewer = {
-      id: `vw-gate-${hashId(normalized) % 100000}`,
-      name: name || 'New Viewer',
-      email: normalized,
-      phone: '—',
-      accountId: null,
-      staffOfViewerId: null,
-      location: '—',
-      firstSeenKey: TODAY_KEY,
-      lastSeenKey: TODAY_KEY,
-      // Deterministic morning-to-afternoon minute from the email.
-      lastSeenMinute: 8 * 60 + (hashId(normalized) % (9 * 60)),
-      sessions: 1,
-      completedVideoIds: [],
-      startedExtra: 0,
-      replay: 1.0,
-    };
-    setState((current) =>
-      current.viewers.some((item) => item.email.toLowerCase() === normalized)
-        ? current
-        : { ...current, viewers: [...current.viewers, viewer] },
-    );
-    return viewer;
-  }, [state.viewers]);
-
-  const inviteStaff = useCallback<TrainingDataValue['inviteStaff']>((staffOfViewerId, email) => {
-    const normalized = email.trim().toLowerCase();
-    const existing = state.viewers.find((viewer) => viewer.email.toLowerCase() === normalized);
-    if (existing) return existing;
-    const local = normalized.split('@')[0] ?? 'new.teammate';
-    const name = local
-      .split(/[._-]+/)
-      .filter(Boolean)
-      .map((part) => part[0]!.toUpperCase() + part.slice(1))
-      .join(' ');
-    const inviter = state.viewers.find((viewer) => viewer.id === staffOfViewerId);
-    const viewer: TrainingViewer = {
-      id: `vw-staff-${hashId(normalized) % 100000}`,
-      name: name || 'New Teammate',
-      email: normalized,
-      phone: '—',
-      // Staff inherit the inviter's office so per-account rollups stay honest.
-      accountId: inviter?.accountId ?? null,
-      staffOfViewerId,
-      location: inviter?.location ?? '—',
-      firstSeenKey: TODAY_KEY,
-      lastSeenKey: TODAY_KEY,
-      lastSeenMinute: 8 * 60 + (hashId(normalized) % (9 * 60)),
-      sessions: 0,
-      completedVideoIds: [],
-      startedExtra: 0,
-      replay: 1.0,
-    };
-    setState((current) =>
-      current.viewers.some((item) => item.email.toLowerCase() === normalized)
-        ? current
-        : { ...current, viewers: [...current.viewers, viewer] },
-    );
-    return viewer;
-  }, [state.viewers]);
-
-  const markVideoComplete = useCallback<TrainingDataValue['markVideoComplete']>((viewerId, videoId) => {
-    setState((current) => ({
-      ...current,
-      viewers: current.viewers.map((viewer) =>
-        viewer.id === viewerId
-          ? {
-              ...viewer,
-              completedVideoIds: viewer.completedVideoIds.includes(videoId)
-                ? viewer.completedVideoIds
-                : [...viewer.completedVideoIds, videoId],
-              startedExtra: 0,
-              lastSeenKey: TODAY_KEY,
-            }
-          : viewer,
-      ),
-    }));
-  }, []);
-
-  const flagshipCourse = useMemo(
-    () => state.courses.find((course) => course.id === FLAGSHIP_COURSE_ID) ?? state.courses[0]!,
-    [state.courses],
+  const markVideoComplete = useCallback<TrainingDataValue['markVideoComplete']>(
+    (token, videoId) =>
+      runWrite(async () => {
+        const row = unwrap(
+          await requireClient().rpc('training_mark_video_complete', { p_token: token, p_video_id: videoId }),
+        ) as TrainingCompletionRow;
+        return mapCompletionRow(row);
+      }),
+    [runWrite],
   );
 
   const value = useMemo<TrainingDataValue>(
     () => ({
-      courses: state.courses,
-      viewers: state.viewers,
+      status,
+      errorMessage,
+      refresh,
+      canEdit,
+      courses,
+      viewers,
+      completions,
+      completionIndex,
       flagshipCourse,
       findCourse,
       locateVideo,
@@ -521,13 +697,20 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       moveVideoToContainer,
       removeVideo,
       assignViewerAccount,
-      addViewerFromGate,
+      registerLearner,
+      fetchLearnerState,
       inviteStaff,
       markVideoComplete,
     }),
     [
-      state.courses,
-      state.viewers,
+      status,
+      errorMessage,
+      refresh,
+      canEdit,
+      courses,
+      viewers,
+      completions,
+      completionIndex,
       flagshipCourse,
       findCourse,
       locateVideo,
@@ -545,7 +728,8 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       moveVideoToContainer,
       removeVideo,
       assignViewerAccount,
-      addViewerFromGate,
+      registerLearner,
+      fetchLearnerState,
       inviteStaff,
       markVideoComplete,
     ],

@@ -12,6 +12,9 @@ Investor-demo platform for the THINNR weight-loss program: a staff/HQ operations
 - `pnpm --filter @workspace/thinnr-mobile run test:approved-foods` — verify every Approved Foods string in the mobile app is verbatim from the docs archive (run after touching `artifacts/thinnr-mobile/data/approved-foods.ts`)
 - `pnpm --filter @workspace/thinnr-mobile run test:restaurant-guide` — verify all Restaurant Guide wording (eating-out guidance plus every restaurant name and order line) is verbatim from the docs archive (run after touching `artifacts/thinnr-mobile/data/restaurant-guide.json`)
 - Automated demo gate: the `demo-parity` and `approved-foods` validation checks run together on every validation run — web↔mobile demo-data parity plus verbatim Approved Foods wording — and either one failing fails the run
+- `pnpm --filter @workspace/thinnr-operations run seed:training` — idempotent sample data for the live training portal (re-run any time; add `--reset` to wipe all training rows first and reseed)
+- `pnpm --filter @workspace/thinnr-operations run test:training` — training-portal invariants (pure logic, offline)
+- `pnpm --filter @workspace/thinnr-operations run test:training-access` — live anon access-boundary checks against the real Supabase project (network; run after training schema/RLS changes — deliberately not a hermetic validation command)
 - Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
@@ -43,6 +46,7 @@ Real Supabase auth is the front door on both apps; everything behind it still ru
 ## Architecture decisions
 
 - Real auth is a *front door only*: the Supabase session and role decide which workspace you land in, but all product data stays synthetic and identical for every account. Demo personas bypass auth entirely (web persona is sessionStorage-scoped; a real session always outranks it).
+- **HQ Training is the one live-data area**: courses/modules/videos/viewers/completions live in Supabase (`supabase/migrations/20260825000000_training.sql`; assembly + analytics in `artifacts/thinnr-operations/src/data/hq/training.ts`, react-query layer in `src/contexts/training-data.tsx`). Catalog reads (courses/modules/videos) are open to the anon key, but viewer/completion/invite rows are anon-readable only for seeded demo rows (`is_demo`) — email-gate registrations are visible to real HQ admins alone. Authoring writes require a real signed-in `hq_admin` (RLS) — demo personas browse read-only with a banner and a "sign in to make changes" nudge. The learner preview's email gate, staff invites, and mark-complete go through narrow SECURITY DEFINER RPCs keyed by an opaque per-registration session token (`training_learner_sessions`, readable by no role), never by caller-supplied viewer ids (`supabase/migrations/20260826000000_training_learner_privacy.sql`; boundaries proven live by `test:training-access`). Videos are **metadata only** (title/duration/chapters/attachment names): no file hosting or storage is configured anywhere, the UI says so, and `training_videos.video_source` stays a nullable slot nothing writes until a storage provider is plugged in.
 
 ## Product
 

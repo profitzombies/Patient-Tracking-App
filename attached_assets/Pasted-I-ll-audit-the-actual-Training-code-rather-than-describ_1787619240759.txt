@@ -1,0 +1,478 @@
+I'll audit the actual Training code rather than describe it from memory. Let me start broad.
+
+Now let me read the core AI generation pipeline files.
+
+Now the upload pipeline and media serving.
+
+Now analytics tracking, chapters persistence, and the thumbnail routes.
+
+Now the player/scrubbing internals and analytics surfaces.
+
+I've read the actual implementation end to end. Before the breakdown, three corrections to the premises in your question — I'd rather flag these than let them propagate into another chat:
+
+- **Frame-by-frame scrubbing does not exist.** Nothing in the codebase steps by frame. I grepped for `requestVideoFrameCallback`, frame-rate math, and step handlers — zero hits. What exists is a **0.1-second** range slider in the thumbnail frame picker and **5-second** arrow-key seeking on the player timeline. Details in §6.
+- **Videos are never encoded or transcoded.** The original file is stored byte-for-byte and served as-is. The only media processing is a *non-re-encoding* audio remux for AI, and canvas JPEG capture for thumbnails. Details in §7.
+- **Chapters are auto-generated on upload, but from the audio transcript, not from "watching" the video** — except in a silent-video fallback. Details in §3.
+
+
+---
+
+# PZHub Training Workspace — Complete Feature Breakdown
+
+## 1. Architecture foundations
+
+**Database:** all tables live in a dedicated `training` Postgres schema in Supabase. `lib/training/data.ts` → `createTrainingAdminClient()` builds a service-role client with `db: { schema: "training" }`. RLS is enabled with **no policies** — the schema is service-role-only, same isolation model as `redlight`. There is no learner-facing direct DB access; everything goes through route handlers.
+
+**Tables** (from `scripts/*training*.sql` + query usage):
+
+- `courses` — `id, slug, title, description, is_live, sequential_unlock, created_at`
+- `modules` — `id, course_id, title, sort_order, always_unlocked`
+- `videos` — `id, module_id, title, sub_group, sort_order, blob_pathname, thumbnail_pathname, duration_seconds, aspect_ratio, description_html, is_published, always_unlocked, add_staff_enabled, is_course_finisher`
+- `video_chapters` — `id, video_id (FK CASCADE), title, start_seconds, sort_order, created_at`
+- `video_attachments` — downloadable resources per video
+- `viewers` — `id, email, first_name, last_name, phone, name_history (JSONB), client_id, added_by_viewer_id, created_at, last_seen_at`
+- `viewer_sessions` — `id, viewer_id, started_at, last_active_at, ip, city, region, country, user_agent, device_type`
+- `viewer_events` — `id, session_id, viewer_id, video_id, type, seconds_watched, position_seconds, created_at`
+- `video_progress` — `viewer_id + video_id` composite conflict target, `watched_seconds, max_position_seconds, completed_at, completed_via, updated_at`
+
+
+**Two separate auth models — this is the single most important thing to understand:**
+
+|  | Admin side | Learner side
+|-----|-----|-----
+| Identity | Supabase staff session | Signed HttpOnly cookie
+| Check | `getCurrentUser()` + `userCanInUI(user, "training.manage")` | `verifyTrainingCookie(jar.get(TRAINING_COOKIE_NAME))`
+| Routes | `/api/admin/training/**` | `/api/public/training/**`
+
+
+The learner cookie is set with `sameSite: "none"` + `secure: true` **deliberately** — `lax` cookies get silently dropped in third-party iframe contexts (v0 preview, embeds), which made the gate appear to clear its fields and never log anyone in.
+
+**Admin preview bypass:** the learner video-stream and thumbnail routes *also* accept a staff session with `training.manage` when no viewer cookie is present. Without this the preview page renders but the video 401s. Consequence: **admins see everything unlocked**, which is why sequential gating looks broken when you test it as staff.
+
+**Storage:** Vercel Blob, `access: "private"` for everything — videos, thumbnails, attachments. Clients never receive storage pathnames; every asset is addressed by **video id** through a proxy route that resolves the pathname server-side.
+
+---
+
+## 2. The upload pipeline
+
+Owner: `components/admin/training-upload-provider.tsx`, mounted in `app/admin/layout.tsx`. It lives at **layout level** so an upload survives any in-app navigation. The video editor is a thin client of it.
+
+### Stage 0 — `startUpload()`validation (synchronous, returns an error string or null)
+
+1. `/^video\//.test(file.type)` — else `"That doesn't look like a video file (MP4, WebM, or MOV)."`
+2. `file.size === 0` → rejected. **This guard exists because a 0-byte file made both `onloadedmetadata` and `onerror` never fire, hanging the pipeline at "Uploading 0%" forever.**
+3. One job per `videoId`; an in-flight job blocks a second.
+4. `unlockAudio()` is called **here**, inside the file-pick click gesture, so the completion chime can legally play minutes later on a different page.
+
+
+### Stage 1 — local metadata read (parallel, before upload)
+
+`Promise.all([readDuration(file), captureFirstFrame(file)])`, both via a throwaway hidden `<video>` + `URL.createObjectURL`.
+
+- `readDuration` — `preload="metadata"`, resolves `el.duration`.
+- `captureFirstFrame` — `preload="auto"`, seeks `currentTime = 0`, on `onseeked` draws to canvas at **native resolution capped at 1920px wide**, exports `image/jpeg` quality **0.92**. Also returns `videoWidth / videoHeight` as `aspectRatio`.
+- Both carry `METADATA_TIMEOUT_MS = 15_000`. Metadata is best-effort and must never block the upload.
+
+
+### Stage 2 — direct-to-Blob client upload
+
+`upload()` from `@vercel/blob/client` to `training/videos/${videoId}/${Date.now()}.${ext}`, where `ext` is `webm` / `mov` / `mp4` derived from MIME. `onUploadProgress` drives the `pct`.
+
+Token minted by `POST /api/admin/training/videos/[videoId]/upload-token`:
+
+- `onBeforeGenerateToken` enforces the pathname prefix `training/videos/{videoId}/`
+- `allowedContentTypes: ["video/mp4", "video/webm", "video/quicktime"]`
+- `maximumSizeInBytes: 500MB`, `allowOverwrite: true`
+- **No `onUploadCompleted` webhook** — localhost can't receive it, and the SDK errors if it's set without a reachable callback. One explicit code path instead.
+
+
+Why direct-to-Blob at all: the old flow POSTed the file through the serverless function body, which silently breaks past ~4.5MB — the client XHR "succeeded" while the route saw an empty form and returned "Missing file".
+
+### Stage 3 — `finalize-upload`
+
+`POST /api/admin/training/videos/[videoId]/finalize-upload` writes `blob_pathname`, plus `duration_seconds` (accepted only if `0 < d < 12h`) and `aspect_ratio` (accepted only if `0.2 < ar < 9` — 9:1 ultrawide to 1:5 vertical). Re-validates the pathname prefix. Best-effort `del()` of the previous blob when the pathname changed.
+
+### Stage 4 — first-frame thumbnail
+
+POSTs the captured canvas blob to the thumbnail route. Fully best-effort: `.catch(() => {})`.
+
+### Stage 5 — `router.refresh()`fires **here**, before AI
+
+Deliberate: the video + thumbnail are durable at this point, so the player and thumb appear immediately rather than waiting on the slow AI step.
+
+### Stage 6 — AI description + chapters, in parallel
+
+`Promise.allSettled` of two self-contained sequences. Each **generates and immediately saves**:
+
+- description → `POST .../description/generate` → `PATCH /api/admin/training/videos/[videoId]` with `{ descriptionHtml }` **only** (a partial PATCH, so unsaved title/sub-group edits in an open editor are never clobbered)
+- chapters → `POST .../chapters/generate` → `PUT .../chapters`
+
+
+A failure here does **not** fail the job — the upload itself succeeded. The tray still reads "Done" but surfaces `error` text listing what needs a manual re-run.
+
+### Stage 7 — notification
+
+- Full success: **chime only** (`playSound()`), no toast. The tray row already says "Done — N chapters saved"; a toast double-reported it.
+- Partial/total failure: chime **plus** a red toast with explicit inline style (`#fef2f2` / `#fecaca` / `#b91c1c`), 8s duration — the layout `<Toaster>` has no `richColors`, so a plain `toast.error` would render white.
+
+
+### Tray behavior
+
+Fixed bottom-right, `role="status"`, `aria-live="polite"`, `aria-label="Video upload progress"`. Collapsible. Stage labels: `Uploading` / `Saving video` / `Generating description & chapters` / `Done` / `Failed`. Once **every** job settles, a 20s timer clears successful rows; **error rows persist until manually dismissed**. `beforeunload` warning while any job is active — in-app nav is safe, closing the tab is not.
+
+---
+
+## 3. How chapters are generated
+
+Route: `POST /api/admin/training/videos/[videoId]/chapters/generate`, `maxDuration = 300`.
+
+It is **transcription-first**, not vision-first. That design exists because of a hard finding: **Gemini via the AI Gateway rejects URL file parts for video** ("Request contains an invalid argument") even for public blob URLs — only inline bytes work, which caps you at ~100MB.
+
+### Path 1 (preferred) — audio remux → Whisper → Gemini
+
+1. Guard `training.manage`; load `id, title, blob_pathname, duration_seconds`; 400 if no `blob_pathname`.
+2. `get(blob_pathname, { access: "private" })`; reject over **500MB** (`MAX_DOWNLOAD_BYTES`) with a 413 telling the admin to add chapters manually. Buffer to `Uint8Array`.
+3. `extractAudioTrack()` (`lib/training/extract-audio.ts`) — uses **mediabunny** to demux the primary audio track and remux it into an audio-only MP4 as a **pure packet copy, no re-encode**. Runs in plain Node, no ffmpeg, no WebCodecs. Typically **~100x smaller** — a 58MB screen recording becomes ~0.5MB of AAC. This is the whole reason transcription-first works past inline-media limits. Returns `null` on no audio track or an undemuxable container, which triggers the fallback. It also shifts negative starting timestamps forward (QuickTime/OBS edit lists emit them and the muxer rejects them).
+4. If audio ≤ **24MB** (`MAX_AUDIO_BYTES`, headroom under OpenAI's ~25MB cap — only exceeded around 4h of runtime), transcribe via `gateway.transcription("openai/whisper-1").doGenerate({ audio, mediaType, providerOptions: {} })`.
+5. **Silent-video detection:** the transcript is only accepted if `transcript.text.trim().length >= 20`. Music-only or silent clips fall through.
+6. Build `transcriptBlock` as one line per segment: `[m:ss] text`, using `segment.startSecond`. If Whisper returned no segments, the flat text is used instead.
+7. `generateText({ model: "google/gemini-2.5-flash", experimental_output: Output.object({ schema: chaptersSchema }) })`.
+
+
+**Zod schema:**
+
+```plaintext
+chapters: Array<{
+  title: string       // "Short chapter title, 2-6 words, describing what this section covers"
+  startSeconds: number // "Timestamp in seconds where this chapter starts"
+}>                     // "Chronological chapter markers for the video"
+```
+
+**Exact prompt** (`chapterRules()` + transcript):
+
+```plaintext
+Break the training video titled "{TITLE}" (duration: {N} seconds) into chapters.
+Rules:
+- Chapters mark meaningful topic or step transitions (e.g. moving from one feature to another in a walkthrough).
+- First chapter starts at 0 seconds.
+- Titles are short (2-6 words) and describe what the viewer learns in that section.
+- No timestamp may exceed {N} seconds.
+- For a short video (<60s), 2-4 chapters is plenty. Longer walkthroughs can have more, but never more than one chapter per 20 seconds of runtime.
+
+Below is the video's narration transcript with [m:ss] timestamps marking when each line is spoken. Derive the chapters from topic shifts in the narration:
+
+[0:00] ...
+```
+
+The duration line and the `(duration: N seconds)` clause are omitted entirely when `duration_seconds` is 0/null.
+
+### Path 2 (fallback) — Gemini watches the video
+
+Only when there is no usable transcript. Requires the video ≤ **95MB** (`MAX_GEMINI_VIDEO_BYTES`); over that it 413s with "no narration to transcribe and is too large for visual AI analysis." Sends the same rules prefixed with `Watch this video.` plus a `{ type: "file", data: videoBytes, mediaType }` part.
+
+### Post-processing (applies to both paths)
+
+`titleCaseAsTyped(title.trim().slice(0, 200))` → floor + clamp `startSeconds` to ≥0 → drop empty titles and any timestamp past the duration → sort ascending → **dedupe to strictly increasing timestamps**. Zero survivors → **422** "The AI could not identify chapters in this video". Returns `{ drafts }` — **the generate route saves nothing.**
+
+## 3b. Where chapters go, and why
+
+**Persistence:** `PUT /api/admin/training/videos/[videoId]/chapters` — a **bulk replace**: `DELETE WHERE video_id` then `INSERT` the whole ordered list. Chosen because it makes reordering and deletion trivial with no diffing. Caps at **100** chapters. Re-applies `titleCaseAsTyped` and clamps `start_seconds` to the duration server-side (never trusts the client). `sort_order` is the **array index**. Returns the re-read rows so the client adopts real DB ids.
+
+**Who calls the PUT:** the upload pipeline (auto), and `ChaptersCard`'s Save button / its own AI generate. In the pipeline the whole generate→PUT sequence is client-orchestrated, so **closing the tab mid-generation loses the chapters** even though the video is safe.
+
+**Where they're read:** `getVideoChapters(videoId)` in `lib/training/data.ts`, ordered by `sort_order`. Consumed by:
+
+1. **Learner video page** → `VideoPlayer` → `PlayerChrome` — renders chapter **dots** on the timeline (skipping `0` and anything ≥ duration) and a hover tooltip `m:ss · Chapter Title`.
+2. **Collapsible chapter list** under the video (`chapter-list.tsx`) — collapsed by default for learners via `defaultOpen`, open for the admin player.
+3. **Admin `CustomVideoPlayer`** — same chrome, same dots.
+4. **Click-to-seek magnetism:** a click within `CHAPTER_SNAP_PX = 12` of a dot snaps *exactly* onto the chapter start. **Drags deliberately don't snap** — that made scrubbing feel sticky.
+
+
+**One real inconsistency to be aware of:** `ChaptersCard` supports dnd-kit drag reordering, and the PUT derives `sort_order` from array position. But adding a chapter or editing a timestamp re-sorts by time. So a drag can persist a `sort_order` that disagrees with chronological order, and since both players render in `sort_order`, the dots stay positionally correct but the *list* can read out of time order. Nothing validates monotonicity at rest.
+
+---
+
+## 4. The auto-generated description
+
+Route: `POST /api/admin/training/videos/[videoId]/description/generate`, `maxDuration = 300`. Identical pipeline shape to chapters — same 500MB / 24MB / 95MB limits, same remux → Whisper → Gemini, same silent-video vision fallback, same `>= 20` chars transcript-validity check. It selects only `id, title, blob_pathname` (no duration needed).
+
+**Exact prompt** (`descriptionRules()`):
+
+```plaintext
+Write a description for the training video titled "{TITLE}".
+Rules:
+- 2-4 sentences of flowing prose describing what the video covers and what the viewer will learn.
+- Plain sentences only — NO bullet points, NO lists, NO headings, NO markdown formatting.
+- Written for the learner who is about to watch it (e.g. "This video walks through…").
+- Do not restate the title verbatim as the first words.
+- Do not include timestamps or chapter references.
+Respond with ONLY the description text, nothing else.
+```
+
+No structured output here — plain `generateText`, then `text`.
+
+**`toDescriptionHtml()`** defends against the model ignoring the no-markdown rule: strips leading `#+`, strips leading `-`/`*`/`•` bullets, unwraps `**bold**`, HTML-escapes `& < >`, then wraps each blank-line-separated block in `<p>`, dropping empty ones. Empty result → **422**.
+
+**Saving:** `PATCH /api/admin/training/videos/[videoId]` with `{ descriptionHtml }`. Server-side: `sanitizeTrainingHtml(html.slice(0, 50_000))` (allowlist) → `videos.description_html`, or `null` if it sanitizes empty.
+
+**The blank-line bug and its fix** (worth knowing, it's subtle): tiptap saves intentional blank lines as `<p></p>`, which renders at **zero height** outside the editor — the editor only *appears* to show the gap because of its invisible trailing break. Author gaps collapsed on the learner page. `lib/training/sanitize-html.ts` now strips *trailing* empty paragraphs, then converts remaining **mid-document** `<p></p>` (including whitespace/`&nbsp;`) into `<p><br></p>`. The learner page **re-sanitizes on every render** as defense-in-depth, so already-saved descriptions got the fix with **no backfill**.
+
+**UI:** a "Generate with AI" text button (Sparkles / Loader2, cyan, `text-xs`) right-aligned next to the Description label, rendered only when `video.blob_pathname` exists. Reads "Watching video…" while running. Uses `RichTextEditor`, which *does* sync external value changes — so setting the description from outside is safe.
+
+---
+
+## 5. Thumbnail generation
+
+**Three ways a thumbnail gets set — all converge on one endpoint.**
+
+1. **Automatic first frame** on upload (§Stage 1/4) — canvas capture at `currentTime = 0`.
+2. **Manual file upload** — file picker / drag-drop in the editor's Media card.
+3. **Frame picker** — pick any moment from the already-uploaded video (§6).
+
+
+**`POST /api/admin/training/videos/[videoId]/thumbnail`:** guard `training.manage`; `multipart/form-data` field `file`; allowed types `image/jpeg`, `image/png`, `image/webp`; max **5MB** (413 otherwise). Writes to `training/thumbs/${videoId}-${Date.now()}.${ext}`, `access: "private"`. Updates `videos.thumbnail_pathname`. Best-effort `del()` of the old blob.
+
+**Why the `Date.now()` suffix:** overwriting a fixed pathname left Vercel Blob's CDN serving the stale image — the classic "thumbnail won't update" bug. Every save mints a new pathname.
+
+**The second staleness bug and the `thumbVersion` fix.** The public URL `/api/public/training/thumb/[videoId]` never changes and the route sends `Cache-Control: private, max-age=86400`. So the browser served the day-old cached image without revalidating, and ETag can't help until `max-age` expires — the editor showed the new image (fresh object URL) while the learner still saw the old one. Fix: `thumbVersion(pathname)` in `lib/training/data.ts` — a **djb2 hash → base36** of the thumbnail pathname. Since every save writes a new timestamped pathname, the hash flips exactly when the image changes, and being non-reversible it never leaks the private storage path. It's appended as `?v=` to the `<video poster>` and to `UpcomingRail` rows. The route itself was left untouched — same long cache, new URL per image. **Any future thumb consumer (course-home tiles, etc.) must append `?v=thumbVersion(pathname)` too or it will show stale images.**
+
+**Serving:** `GET /api/public/training/thumb/[videoId]` — viewer cookie or admin-preview, resolves `thumbnail_pathname`, honors `If-None-Match` → 304, `Cache-Control: private, max-age=86400`. Admin side uses `GET .../media?kind=thumb` with `max-age=60` instead.
+
+**Editor repaint gotcha:** changing the `poster` attribute on an already-loaded `<video>` does not repaint. The editor forces a remount with `key={`$videoBust-$thumbBust`}`.
+
+---
+
+## 6. Scrubbing — what actually exists
+
+**There is no frame-accurate scrubbing anywhere in this codebase.** Three separate seek surfaces exist:
+
+**A. Player timeline** (`components/training/player-chrome.tsx`, shared by both players). A custom `<div role="slider">`, not an `<input type="range">`:
+
+- `aria-valuemin/max/now` + `aria-valuetext` as `"m:ss of m:ss"`
+- `onPointerDown` calls `setPointerCapture` then seeks **with chapter snapping**; `onPointerMove` with `e.buttons === 1` seeks **without** snapping (drag)
+- Keyboard: `ArrowRight` / `ArrowLeft` = **±5 seconds**, clamped. No modifier for finer steps.
+- Visuals: 4px idle → 10px on hover; buffered band from `video.buffered` via `onProgress`; white knob on hover; chapter dots; hover tooltip
+- Resolution is limited by pixel width — `pctFromPointer` maps clientX to a percentage of track width, so on a ~1250px player a 10-minute video gives roughly **0.5s per pixel**
+
+
+**B. Thumbnail frame picker** — the closest thing to frame scrubbing, and what you're probably thinking of. An `<input type="range">` with `min={0}`, `max={Math.max(pickerDuration, 0.1)}`, **`step={0.1}`**. `onChange` → `pickerSeek(t)` sets `el.currentTime = t` directly. Shows `fmtDur(pickerTime) / fmtDur(pickerDuration)`. "Use this frame" canvas-captures at native resolution (1920px cap, JPEG 0.92) and POSTs to the thumbnail route. The `<video>` is `preload="auto" muted playsInline crossOrigin="anonymous"` — **`crossOrigin` is required or the canvas is tainted and `toBlob` fails**. Guards `el.videoWidth === 0` with "Frame not ready yet". Range seeking against the private Blob is what makes this work at all.
+
+So: **0.1-second granularity, which is 3 frames at 30fps.** True per-frame stepping would need `requestVideoFrameCallback` or a known frame rate plus `currentTime += 1/fps` buttons. Neither exists. This is a small, well-scoped addition if you want it.
+
+**C. Chapter "Add at current time"** — reads the admin player's live position via a `getCurrentTime()` callback prop and floors it to a whole second. Chapter timestamps are integers (`start_seconds integer`), so **sub-second chapter precision is impossible by schema**. Manual entry accepts `m:ss` or raw seconds, parsed by `/^(\d+):([0-5]?\d)$/`, held as local text state and committed on blur so partially-typed values like `"1:"` aren't clobbered.
+
+---
+
+## 7. Encoding — there is none
+
+**No transcoding, no re-encoding, no ABR ladder, no HLS/DASH, no separate renditions.** The file the admin picks is the exact bytes stored in Blob and the exact bytes the learner's browser decodes. Accepted containers are whatever the browser can play: `video/mp4`, `video/webm`, `video/quicktime`.
+
+The only media processing anywhere:
+
+1. **Audio remux for AI** — mediabunny packet copy, explicitly *not* a re-encode. Output discarded after transcription; never stored.
+2. **Canvas JPEG capture** for thumbnails.
+
+
+**Delivery is HTTP range streaming through a proxy**, which was the subject of the single most expensive bug in this workspace:
+
+`GET /api/public/training/video/[videoId]` forwards a validated `Range` header **upstream** to Blob via `get()`'s `headers` escape hatch and pipes the body straight through. The previous implementation buffered the **entire file** from Blob on every request and sliced the range locally. Browsers issue dozens of small range requests per viewing, so a single view billed the full file size in Blob egress dozens of times over — **~137 GB billed for ~9 viewers on Aug 6.** The admin `media?kind=video` route carries the identical fix.
+
+Implementation details: only syntactically valid single ranges are forwarded (`/^bytes=(\d*)-(\d*)$/`, and bare `bytes=-` rejected); anything else is treated as a full-file request. If upstream honors it, the 206 + `Content-Range` are mirrored; if it ignores it (rare), a 200 full body is returned, which `<video>` handles fine. `If-None-Match` → 304. `Cache-Control: private, max-age=3600` with `Accept-Ranges: bytes` — videos are immutable once uploaded. Out-of-bounds ranges surface as a `BlobError` containing "416" and are mapped to a bare 416.
+
+**Practical implications of no encoding:** a 400MB ProRes-ish `.mov` is delivered as 400MB to every viewer; there is no quality adaptation on poor connections; playback compatibility is entirely the source file's problem; and the 500MB ceiling is a hard product limit. The `aspect_ratio` column exists precisely because nothing normalizes dimensions.
+
+---
+
+## 8. Analytics
+
+### 8a. Collection — `POST /api/public/training/track`
+
+Viewer-cookie gated. Event types: `page_view`, `video_play`, `video_pause`, `video_progress`, `mark_complete`, plus staff-only `mark_all_complete`. `video_complete` is written **server-side only**, never accepted from the client.
+
+**Client instrumentation** (`app/training/_components/video-player.tsx`):
+
+- `HEARTBEAT_MS = 10_000`
+- `navigator.sendBeacon` for unload-time flushes, `fetch` otherwise
+- **Active watch-time accounting, speed-credited:** wall-clock play segments × `playbackRate`. 2x playback credits 2s of content per real second; paused/idle credits nothing. Segments are closed at the *old* rate inside `handleRateChange` so a mid-video speed change can't retroactively inflate. `drainWatched()` returns the delta and folds it into `watchedBaseRef`. Flushes below 0.5s are skipped.
+- `liveWatched` state drives the UI gate, refreshed on `timeupdate` (~4x/sec) and pause.
+
+
+**Server-side clamping:** `secondsWatched` clamped to `[0, 60]` (heartbeats are ~10s apart), `positionSeconds` clamped to `[0, 6h]`.
+
+**Sessionization** (`lib/training/session.ts`): 30-minute idle window. A gate submit *always* creates a fresh session; a returning cookie-holder reuses the latest session if `last_active_at` is inside the window (bumping it), else starts a new one. Captures IP, city, region, country, UA, and `device_type` derived by UA regex (`tablet` → `mobile` → `desktop`).
+
+### 8b. The 90% active-watch rule — one rule everywhere
+
+`COMPLETE_THRESHOLD = 0.9`. **Completion requires accumulated `watched_seconds` ≥ 90% of duration.** `max_position_seconds` is **resume-only and never gates completion** — skipping ahead never counts.
+
+- **Auto-complete:** on a `video_progress` heartbeat, when `watched >= duration * 0.9`, the server stamps `completed_at`, sets `completed_via = "watch"`, and inserts a synthetic `video_complete` event.
+- **Manual `mark_complete`:** re-checks the same threshold server-side and returns **403** "Watch at least 90% of the video to mark it complete." if unmet. Rows already carrying `completed_at` are **grandfathered** — the check is skipped entirely.
+- `watched_seconds` accumulates; `max_position_seconds` ratchets via `Math.max`.
+- Verified behavior: seek to end → button stays disabled; 12s of real play → still disabled.
+
+
+### 8c. Staff-only `mark_all_complete`
+
+Requires **both** a viewer cookie (whose rows get written) **and** a staff session with `training.manage`, re-verified server-side. Learners with a valid cookie get 403 "Staff only". Bulk-upserts every video in the course with `watched_seconds = max_position = duration` and `completed_via = "admin_unlock"`. The button only renders from the **admin-preview branch** of the course page.
+
+### 8d. Course completion + Slack
+
+`maybeCompleteCourse()` is **fire-and-forget** (`void (async () => …)()`) and never blocks or fails the tracking response. It fires only on a *transition* to completed, only when `videos.is_course_finisher` is true, resolves the course via the module, and calls `recordCourseCompletion()` which is **deduped per viewer**. Posts to `#training-completions` tagging `@channel`. The finisher toggle only surfaces on the last published video (or if already set, so it can be turned off).
+
+### 8e. Retention curve — `getVideoRetention(videoId, durationSeconds)`
+
+Reads `max_position_seconds, completed_at` for every progress row on the video. Builds **~60 buckets** (`bucketSize = max(1, floor(duration / 60))` — the floor keeps short videos honest) and for each bucket counts viewers where `completed || maxPos >= t`. **Completed viewers count as watching to the end regardless of stored position**, which is what covers manual and admin completions. Always appends the exact final second so the curve reaches the end. Rendered by `retention-chart.tsx` as a Recharts `Area` with `type="stepAfter"`, cyan `#0891b2` gradient fill, Y locked `[0, 100]`.
+
+Note this is a **furthest-position** curve, not a true per-second heatmap — a viewer who skipped to 90% and stopped reads as "still watching" through the whole first 90%.
+
+### 8f. Aggregations (`lib/training/admin-queries.ts`)
+
+- **`getDashboardStats()`** — courses / live courses / videos / total duration / viewers / viewers last 7d / sessions / total watch seconds / completions / course completions. Uses `{ count: "exact", head: true }` for pure counts and reduces fetched rows for sums.
+- **`getVideoAnalytics()`** — per video: starts, completions, total + average watch seconds, sorted by a composite `sortKey` of zero-padded module and video `sort_order`.
+- **`getAnalyticsTree()`** — one fetch, three products:
+
+- **Headline:** active viewers (any progress row), avg watch/viewer, avg completion %, total watch time, course completions, **avg time to complete** measured gate entry (`viewers.created_at`) → last `completed_at` among full completers.
+- **Course → module → video tree** with rollups. Module and course completion rates are **starts-weighted means** of children so a barely-started video can't skew the parent. `viewersStarted` at a parent is the **max** of children, not the sum.
+- **Population overview per course:** population = anyone with a progress row on any of its videos; mean + **median** per-viewer completion %; full completers; a 6-bucket distribution (`0%`, `1–25%`, `26–50%`, `51–75%`, `76–99%`, `100%`); and a **drop-off funnel** in course order carrying `pctOfPopulation` and `dropFromPrev`. Starters with zero completions count as 0% — deliberately the honest population view. Sorted by population descending.
+
+
+
+- **`getViewerProfile()`** — sessions (cap 100), events (cap 500), full progress, plus a **precomputed activity log** so the client card is presentation-only. Events are classified into categories `gate | page | playback | progress | completion`, given human labels ("Entered email gate", "Paused video", "Marked ALL complete (testing)"), and flagged `milestone` for the default "smart" view. Sessions are numbered oldest = Session 1. `page_view` with no `video_id` resolves to the sole course title when unambiguous. Course→module→video progress **includes not-started videos** so percentages reflect the full catalog.
+
+
+**Known scale caveats, stated plainly:** `listViewers` caps at 500 viewers / 5000 sessions and filters search **in JS**; `video_progress` is fetched **unpaginated** in several aggregations, so it is exposed to Supabase's default 1,000-row cap as usage grows. (The PPL analytics pages already hit exactly this and were fixed with a paginated `.range()` loop — the same fix will be needed here.)
+
+---
+
+## 9. Page-by-page breakdown
+
+### Admin — `/admin/training/*`
+
+**`/admin/training`** — workspace dashboard. `getDashboardStats()` tiles.
+
+**`/admin/training/courses`** — `courses-manager.tsx`. Course list with module/video counts and total duration; create/edit courses; Live/Draft state.
+
+**`/admin/training/courses/[courseId]`** — `course-editor.tsx`, the structural workhorse:
+
+- Modules and videos with drag reorder (dedicated reorder endpoints for both)
+- **Sub-groups**: "Add Video" per sub-group header, "Add Video" ungrouped at module level, "Add Subgroup" — all inline forms, **no reload or navigation**. `POST /videos` accepts `subGroup` and returns the full row for optimistic append. Empty new sub-groups stay client-only until their first video (`deriveSections` preserves them across re-sync).
+- **`PublishChip`** per video — `is_published`
+- **`AddStaffChip`** — 3-state Auto / Show / Hidden for `add_staff_enabled` (`null` = auto → first published video). AUTO resolves through `FirstVideoIdContext` provided by the editor to avoid 3-level prop threading. The PATCH uses an explicit "in body" check because `null` is a meaningful value.
+- **`GatingChip`** per module and video — "Sequential" ↔ "Always open"; header chip toggles course-level `sequential_unlock` ("Sequential unlock" cyan/Lock ↔ "All content open" amber/LockOpen). Chips are **disabled with an explanatory `title` tooltip** when a higher level already opens things.
+
+
+**`/admin/training/videos/[videoId]`** — `video-editor.tsx`, two-column:
+
+- *Left:* large `CustomVideoPlayer` (same chrome as the learner), Details (title with title-case-as-typed, sub-group `<select>` of course-wide distinct labels + None + "New sub-group…", `RichTextEditor` description + Generate with AI, Course-finisher toggle), `ChaptersCard`, `RetentionChart`
+- *Right:* Media card (video dropzone/replace, thumbnail preview with lightbox, upload/frame-picker), Attachments (upload, rename, drag reorder, delete)
+- *Bottom:* **Danger Zone** — `GuidedConfirmInput` (case-insensitive auto-correcting type-to-confirm that blocks wrong characters) targeting the video title unlocks "Delete this video forever". The DELETE requires `confirmTitle`, removes `video_attachments` / `video_chapters` / `video_progress` (and `viewer_events` fail-soft), then the video row, then best-effort Blob deletes, then redirects to the course page.
+- **Save button states:** gray + disabled (`#e2e8f0` / `#94a3b8`, `cursor-not-allowed`) when clean; blue when dirty; **stays blue with a spinner while saving** — explicitly not gray. `isDirty` includes `chaptersDirty`.
+
+
+**`/admin/training/analytics`** — gated on `training.viewers.view` (redirects to `/admin/training` otherwise). Six headline `StatTile`s → `ProgressOverview` (funnel + distribution + drop-off) → collapsible `AnalyticsTree`.
+
+**`/admin/training/viewers`** — searchable list (name / email / phone-by-digits), sessions, watch time, X/Y progress, last city/region, inline `ClientLinkSelect`, "Staff of <name>" badges. The client select needs `z-10` + `stopPropagation` so the row's stretched-link overlay doesn't hijack clicks.
+
+**`/admin/training/viewers/[viewerId]`** — profile header (with "Added by" chip for staff and a Briefcase client link), Staff members card, Sessions, `ViewerActivityCard`, `ViewerCourseProgress`.
+
+**`/admin/training/viewers/[viewerId]/session/[sessionId]`** — one session's full timeline, oldest-first. Returns null → 404 if the session doesn't belong to that viewer.
+
+Every route has a `loading.tsx`.
+
+### Learner — `/training/*`
+
+**`/training`** — portal. Email gate (`training-gate.tsx`) or, for cookie-holders, the course list plus a **"Your Staff (N)"** section for top-level viewers, with per-staff per-live-course progress bars (batch-queried, no N+1).
+
+**`/training/[courseSlug]`** — `course-home.tsx`. Module/video tree with lock icons and chips like "Complete the previous module to unlock". Staff-only "mark all complete" button renders **only** from the admin-preview branch.
+
+**`/training/[courseSlug]/video/[videoId]`** — layout order is fixed and user-specified: **video → prev/next → description → chapters → mark-as-complete**. Everything below the video lives *inside* the left flex column so right edges align with the video and never run under the 320px "Up Next" rail. Server-enforced gating: a locked video URL redirects to the course home. Also hosts the "Have staff who should watch this training?" card when `isAddStaffVideo()` and the viewer is top-level.
+
+**Gating logic — `computeGating()` in `lib/training/data.ts`**, fully unit-tested:
+
+- `sequential_unlock === false` → everything open (**only** an explicit `false`; `undefined` stays sequential)
+- `module.always_unlocked` → the module and its videos are open **and the chain skips it** — the next module gates as if it didn't exist, so a resources module never blocks progression
+- `video.always_unlocked` → that video opens (its module must still be unlocked) but the **next** video still waits on its completion
+
+
+**Styling gotcha:** `app/globals.css` sets `--radius: 0rem` for the funnel theme, which zeroes every Tailwind `rounded-*` token class on `/training` pages. Any element that must be rounded there needs a **literal arbitrary radius** like `rounded-[0.75rem]`, never `rounded-xl`.
+
+---
+
+## 10. Full API surface
+
+**Admin** (all `training.manage` unless noted):
+
+| Route | Verbs | Notes
+|-----|-----|-----
+| `courses` / `courses/[courseId]` | POST / PATCH | PATCH takes `sequentialUnlock`
+| `modules` / `modules/[moduleId]` | POST / PATCH | patch-style: `title` and/or `alwaysUnlocked`
+| `modules/reorder`, `modules/[moduleId]/reorder` | POST | module order, videos within a module
+| `subgroups` | — | course-wide distinct sub-group labels
+| `videos` | POST | accepts `subGroup`, returns full row
+| `videos/[videoId]` | PATCH, DELETE | partial PATCH; DELETE requires `confirmTitle`
+| `videos/[videoId]/upload-token` | POST | mints direct-to-Blob token
+| `videos/[videoId]/finalize-upload` | POST | persists pathname/duration/aspect
+| `videos/[videoId]/media` | GET | `?kind=video|thumb`, range-forwarding
+| `videos/[videoId]/thumbnail` | POST | 5MB, JPEG/PNG/WebP
+| `videos/[videoId]/chapters` | GET, PUT | PUT = bulk replace, ≤100
+| `videos/[videoId]/chapters/generate` | POST | drafts only, `maxDuration 300`
+| `videos/[videoId]/description/generate` | POST | draft only, `maxDuration 300`
+| `videos/[videoId]/attachments` (+`/[attachmentId]`) | POST/PATCH/DELETE | resources
+| `slack-test` | POST | Slack wiring check
+
+
+**Public** (viewer cookie, or admin-preview where noted):
+
+| Route | Notes
+|-----|-----|-----
+| `[courseSlug]/access`, `portal/access` | gate submit → `handleGateAccess`
+| `logout` | clears cookie
+| `video/[videoId]` | range-forwarding stream; admin-preview allowed
+| `thumb/[videoId]` | poster; admin-preview allowed
+| `attachment/[attachmentId]` | resource download
+| `track` | all analytics events
+
+
+---
+
+## 11. Constants worth memorizing
+
+| Constant | Value | Where
+|-----|-----|-----
+| `COMPLETE_THRESHOLD` | `0.9` | `lib/training/data.ts` (mirrored in learner player)
+| `HEARTBEAT_MS` | `10_000` | learner player
+| `METADATA_TIMEOUT_MS` | `15_000` | upload provider
+| `SESSION_IDLE_WINDOW_MS` | `30 * 60 * 1000` | `session.ts`
+| upload max | `500MB` | upload-token
+| `MAX_DOWNLOAD_BYTES` | `500MB` | both generate routes
+| `MAX_AUDIO_BYTES` | `24MB` | both generate routes
+| `MAX_GEMINI_VIDEO_BYTES` | `95MB` | both generate routes
+| thumbnail max | `5MB` | thumbnail route
+| description max | `50_000` chars | videos PATCH
+| chapters max | `100` | chapters PUT
+| `CHAPTER_SNAP_PX` | `12` | player-chrome
+| frame-picker step | `0.1s` | video-editor
+| arrow-key seek | `±5s` | player-chrome
+| speeds | `[1, 1.25, 1.5, 2]` | player-chrome (resets to 1x per mount)
+| transcript validity | `>= 20` chars | both generate routes
+| JPEG quality / width cap | `0.92` / `1920px` | all canvas captures
+| models | `openai/whisper-1`, `google/gemini-2.5-flash` | via AI Gateway
+
+
+---
+
+## 12. Genuine gaps
+
+1. **No frame-accurate scrubbing** — 0.1s is the finest granularity anywhere.
+2. **No encoding/transcoding** — no ABR, no compatibility normalization, 500MB hard ceiling.
+3. **AI orchestration is client-side.** Generate→save runs in the browser, so closing the tab mid-generation loses the description and chapters (the video itself is safe). Moving this server-side or into a durable workflow would fix it.
+4. **`video_progress` fetched unpaginated** in several aggregations — exposed to the 1,000-row Supabase cap as usage grows.
+5. **`listViewers` caps at 500** with in-JS search.
+6. **Chapter `sort_order` can disagree with chronological order** after a drag; nothing validates monotonicity at rest.
+7. **Retention is a furthest-position curve**, not a true watch heatmap.
+8. **Chapter timestamps are integer seconds** by schema — sub-second markers are impossible.
+9. **No transcript is ever stored.** It's generated, used, and discarded on every run — so search, captions, and re-generation all re-pay the Whisper cost. Persisting it would be cheap and unlock a lot.
+10. **Course completion counting assumes a single-course world** in `getDashboardStats` (compares a viewer's total completions against the global video count).
+
+
+Item 9 is the one I'd flag as the highest-leverage addition: you're already paying for the transcript twice per upload (once for chapters, once for the description) and throwing it away both times.

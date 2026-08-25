@@ -25,7 +25,7 @@ import {
 
 import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 import SignIn from '@/pages/SignIn';
-import { BootScreen, PatientOnWebNotice, ProfileErrorScreen } from '@/pages/AuthScreens';
+import { AccountLockedScreen, BootScreen, PatientOnWebNotice, ProfileErrorScreen } from '@/pages/AuthScreens';
 import { AdminShell } from '@/components/admin/AdminShell';
 import HqOverview from '@/pages/admin/HqOverview';
 import Accounts from '@/pages/admin/Accounts';
@@ -46,6 +46,7 @@ import Files from '@/pages/admin/Files';
 import { PatientSessionProvider } from '@/contexts/patient-session';
 import { DateRangeProvider } from '@/contexts/date-range';
 import { SessionProvider, useSession } from '@/contexts/session';
+import { AccountLocksProvider, useAccountLocks } from '@/contexts/account-locks';
 import { HqDataProvider } from '@/contexts/hq-data';
 import { TrainingDataProvider } from '@/contexts/training-data';
 import { ProviderScopeProvider } from '@/contexts/provider-scope';
@@ -107,6 +108,7 @@ function AdminArea() {
  */
 function ScopedOfficeApp() {
   const { authStatus, providerAccountCode } = useSession();
+  const { isLocked } = useAccountLocks();
   const account = useMemo(
     () =>
       authStatus === 'signed-in' && providerAccountCode
@@ -114,6 +116,15 @@ function ScopedOfficeApp() {
         : null,
     [authStatus, providerAccountCode],
   );
+  // THINNR's account lock outranks everything office-side: locked staff see
+  // the blocked notice, never the workspace. Keyed on the raw profile code
+  // (not the resolved seeded account) so a lock also blocks codes without a
+  // seeded office. The demo bypass never trips this — it isn't signed in —
+  // and this gate is UX: row level security is what actually closes the
+  // office's data server-side while locked.
+  if (authStatus === 'signed-in' && providerAccountCode && isLocked(providerAccountCode)) {
+    return <AccountLockedScreen />;
+  }
   if (!account) return <OfficeApp />;
   // Standalone scoped desk (real staff sign-in): the Shell switches to h-full
   // in scoped mode because the HQ drill-in sizes it under its banner. Standalone
@@ -174,7 +185,9 @@ function App() {
           <SessionProvider>
             <PatientSessionProvider>
               <DateRangeProvider>
-                <PersonaRouter />
+                <AccountLocksProvider>
+                  <PersonaRouter />
+                </AccountLocksProvider>
               </DateRangeProvider>
             </PatientSessionProvider>
           </SessionProvider>

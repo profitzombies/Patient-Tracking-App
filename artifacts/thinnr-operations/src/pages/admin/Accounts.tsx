@@ -22,7 +22,8 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BTN_PRIMARY, BTN_SECONDARY, INPUT_CLASS, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
-import { AccountStatusChip, AdminPage, PageHeader } from '@/components/admin/primitives';
+import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader } from '@/components/admin/primitives';
+import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { monthlyRevenueOf, type AccountPlan } from '@/data/hq/accounts';
 import { formatDateKey } from '@/data/nutrition-data';
@@ -42,6 +43,7 @@ const EMPTY_FORM = {
 
 export default function Accounts() {
   const { accounts, addAccount, settingsValues } = useHqData();
+  const { isLocked } = useAccountLocks();
   const { toast } = useToast();
 
   const [open, setOpen] = useState(false);
@@ -129,7 +131,12 @@ export default function Accounts() {
                   </td>
                   <td className="px-3 py-3 font-mono text-[11px] tracking-[.08em] text-foreground">{account.providerCode}</td>
                   <td className="px-3 py-3 text-foreground">{account.plan}</td>
-                  <td className="px-3 py-3"><AccountStatusChip status={account.status} /></td>
+                  <td className="px-3 py-3">
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <AccountStatusChip status={account.status} />
+                      {isLocked(account.id) && <AccountLockedChip testId={`chip-locked-${account.id}`} />}
+                    </span>
+                  </td>
                   <td className="px-3 py-3 text-right font-semibold text-navy">{fmt(account.activePatientCount)}</td>
                   <td className="px-3 py-3 text-right text-foreground">
                     {monthlyRevenueOf(account) > 0 ? `$${fmt(monthlyRevenueOf(account))}` : '—'}

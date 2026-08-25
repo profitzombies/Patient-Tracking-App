@@ -10,13 +10,16 @@
 import { Link, Redirect, useParams } from 'wouter';
 import { ArrowLeft, Eye } from 'lucide-react';
 import { BTN_SECONDARY } from '@/components/patient/heritage';
+import { AccountLockedChip } from '@/components/admin/primitives';
 import { ProviderScopeProvider } from '@/contexts/provider-scope';
+import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 
 export default function OfficeDrillIn() {
   const { id } = useParams<{ id: string }>();
   const { findAccount } = useHqData();
+  const { isLocked } = useAccountLocks();
   const account = findAccount(id);
 
   // Stale or hand-typed URL: land back on the accounts list, not a dead end.
@@ -54,6 +57,8 @@ export default function OfficeDrillIn() {
             Provider code {account.providerCode} · {account.providerName}
           </span>
         </p>
+        {/* HQ can drill in while locked — the lock only shuts out the provider side. */}
+        {isLocked(account.id) && <AccountLockedChip testId="chip-drillin-locked" />}
         <Link
           href={`~/admin/accounts/${account.id}`}
           data-testid="link-back-to-hq"

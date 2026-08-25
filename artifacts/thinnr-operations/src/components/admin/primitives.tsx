@@ -9,8 +9,8 @@
  * reads as one family and matches the office desk next door.
  */
 import type { ReactNode } from 'react';
-import { Eye } from 'lucide-react';
-import { CHIP_COBALT, CHIP_WARM } from '@/components/patient/heritage';
+import { Eye, Lock } from 'lucide-react';
+import { CHIP_COBALT, CHIP_RISK, CHIP_WARM } from '@/components/patient/heritage';
 
 /**
  * Standard admin page container — spans the full content column, keeping only
@@ -82,6 +82,16 @@ export function AccountStatusChip({ status }: { status: 'active' | 'pending' }) 
     <span className={CHIP_COBALT}>Active</span>
   ) : (
     <span className={CHIP_WARM}>Pending</span>
+  );
+}
+
+/** Risk chip for accounts THINNR has locked out of the office side. */
+export function AccountLockedChip({ testId }: { testId?: string }) {
+  return (
+    <span className={CHIP_RISK} data-testid={testId}>
+      <Lock size={9} aria-hidden="true" />
+      Locked
+    </span>
   );
 }
 

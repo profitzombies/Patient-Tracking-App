@@ -3,8 +3,9 @@
  * profile lookup, and the "patients live in the mobile app" notice. All
  * keep the Heritage look of the sign-in screen.
  */
-import { AlertTriangle, LogOut, RefreshCw, Smartphone } from 'lucide-react';
+import { AlertTriangle, Lock, LogOut, RefreshCw, Smartphone } from 'lucide-react';
 import { useSession } from '@/contexts/session';
+import { findSeededAccount } from '@/data/hq/accounts';
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -72,6 +73,47 @@ export function ProfileErrorScreen() {
             Sign out
           </button>
         </div>
+      </section>
+    </Frame>
+  );
+}
+
+/**
+ * Shown instead of the office workspace while THINNR has the staffer's
+ * provider account locked. The lock lives in Supabase, so this appears on a
+ * fresh sign-in in any browser and mid-session via the lock poll/realtime
+ * refresh — and clears itself the moment HQ unlocks the account.
+ */
+export function AccountLockedScreen() {
+  const { signOut, providerAccountCode } = useSession();
+  const office = providerAccountCode ? findSeededAccount(providerAccountCode) : undefined;
+  return (
+    <Frame>
+      <section
+        className="rounded-lg border border-card-border bg-card p-6 text-center shadow-soft"
+        data-testid="screen-account-locked"
+      >
+        <span className="mx-auto grid h-10 w-10 place-items-center rounded-md bg-destructive/10 text-destructive" aria-hidden="true">
+          <Lock size={20} />
+        </span>
+        <h1 className="mt-4 font-serif text-xl font-bold tracking-[-.01em] text-navy">
+          This account is locked
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          THINNR has paused {office?.officeName ?? 'your office'}&rsquo;s access to the operations
+          portal, so staff sign-ins are temporarily out of service. Contact THINNR to restore
+          access — nothing has been deleted, and everything returns the moment the account is
+          unlocked.
+        </p>
+        <button
+          type="button"
+          onClick={signOut}
+          data-testid="button-signout-locked"
+          className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <LogOut size={15} aria-hidden="true" />
+          Sign out
+        </button>
       </section>
     </Frame>
   );

@@ -1,18 +1,35 @@
 /**
- * One provider account, in full — office profile, exact seeded metrics, a
- * roster preview, and the door into that office's own dashboard.
+ * One provider account, in full — Account metrics and the Roster preview side
+ * by side as the two main columns, the Office profile beneath them, and (last,
+ * deliberately separated) the danger zone where THINNR locks the account.
  *
  * The drill-in button is the umbrella's key move: it opens the existing
  * office screens scoped to this provider inside the admin shell. For
  * session-added accounts (zero patients) the button explains itself instead
  * of opening an empty dashboard — patients appear only after they onboard
  * with the office's code, which never happens inside the demo session.
+ *
+ * The lock is the one piece of live data on the page: it lives in Supabase
+ * (world-readable, HQ-admin-writable) so a locked office stays locked in
+ * every browser, while the account records themselves stay seeded demo data.
+ * HQ keeps full visibility into a locked account — badges here and on the
+ * accounts list — because the lock only shuts out the provider side.
  */
+import { useState } from 'react';
 import { Link, useParams } from 'wouter';
-import { ArrowLeft, ArrowRight, Copy, MessagesSquare } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Copy, Lock, MessagesSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
-import { AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
+import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
+import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { monthlyRevenueOf } from '@/data/hq/accounts';
 import { getConversations } from '@/data/hq/conversations';
@@ -35,7 +52,11 @@ function Stat({ label, value, testId }: { label: string; value: React.ReactNode;
 export default function AccountDetail() {
   const { id } = useParams<{ id: string }>();
   const { findAccount } = useHqData();
+  const { locks, isLocked, setAccountLock } = useAccountLocks();
   const { toast } = useToast();
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const account = findAccount(id);
 
@@ -62,6 +83,16 @@ export default function AccountDetail() {
     : [];
   const conversationCount = getConversations(account.id).length;
 
+  // Only seeded accounts get the lock control: session-added accounts are
+  // per-browser figments whose ids repeat across sessions, so a global
+  // Supabase lock keyed to them would leak between unrelated demos.
+  const lockable = Boolean(account.providerId);
+  const locked = isLocked(account.id);
+  const lock = locks.get(account.id);
+  const lockedSince = lock?.lockedAt
+    ? new Date(lock.lockedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : null;
+
   const copyCode = async () => {
     const landed = await copyText(account.providerCode);
     toast(
@@ -69,6 +100,31 @@ export default function AccountDetail() {
         ? { title: 'Provider code copied', description: `${account.providerCode} — the code patients type during mobile onboarding.` }
         : { title: 'Copy unavailable', description: 'Select the code text and copy it manually.' },
     );
+  };
+
+  const confirmLock = async () => {
+    setSaving(true);
+    const landed = await setAccountLock(account.id, true);
+    setSaving(false);
+    setConfirmOpen(false);
+    if (landed) {
+      toast({
+        title: `${account.officeName} locked`,
+        description: 'Provider and staff access is shut off until THINNR unlocks the account.',
+      });
+    }
+  };
+
+  const unlock = async () => {
+    setSaving(true);
+    const landed = await setAccountLock(account.id, false);
+    setSaving(false);
+    if (landed) {
+      toast({
+        title: `${account.officeName} unlocked`,
+        description: 'Office access is restored exactly as it was — nothing needed re-creating.',
+      });
+    }
   };
 
   return (
@@ -89,6 +145,7 @@ export default function AccountDetail() {
         }
         action={
           <div className="flex flex-wrap items-center gap-2">
+            {locked && <AccountLockedChip testId="chip-account-locked" />}
             <AccountStatusChip status={account.status} />
             <span className={CHIP_COBALT}>{account.plan} plan</span>
           </div>
@@ -126,71 +183,75 @@ export default function AccountDetail() {
         </Link>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,7fr),minmax(0,5fr)]">
-        <div className="space-y-5">
-          <SectionCard
-            title="Account metrics"
-            sub={hasPatients ? 'Exact split of the program totals at the demo anchor' : 'Awaiting first patients'}
-          >
-            {hasPatients ? (
-              <div className="grid gap-3 px-5 py-4 sm:grid-cols-3">
-                <Stat label="Active patients" value={fmt(account.activePatientCount)} testId="text-account-patients" />
-                <Stat label="New enrollments" value={fmt(account.newEnrollments)} />
-                <Stat label="Monthly revenue" value={`$${fmt(monthlyRevenueOf(account))}`} testId="text-account-revenue" />
-                <Stat label="Subscriptions" value={fmt(account.activeSubscriptions)} />
-                <Stat label="Deliveries · 30d" value={fmt(account.deliveriesInWindow)} />
-                <Stat label="Engagement" value={`${account.engagementRate}%`} />
-                <Stat label="Avg pounds lost" value={account.avgPoundsLost} />
-                <Stat label="Goal completion" value={`${account.goalCompletion}%`} />
-                <Stat label="Retention" value={`${account.retention}%`} />
-              </div>
-            ) : (
-              <p className="px-5 py-6 text-xs leading-relaxed text-muted-foreground">
-                No metrics yet — this account was created during the demo session. Numbers begin once patients onboard in
-                the mobile app with provider code <span className="font-mono tracking-[.08em] text-foreground">{account.providerCode}</span>.
-              </p>
-            )}
-          </SectionCard>
+      {/* The two main columns: metrics beside the roster, equal widths. */}
+      <div className="grid items-start gap-5 lg:grid-cols-2">
+        <SectionCard
+          title="Account metrics"
+          sub={hasPatients ? 'Exact split of the program totals at the demo anchor' : 'Awaiting first patients'}
+        >
+          {hasPatients ? (
+            // Two-up on phones, three-up from sm — the tiles fill the column
+            // instead of leaving the old dead white space.
+            <div className="grid grid-cols-2 gap-2.5 px-4 py-4 sm:grid-cols-3">
+              <Stat label="Active patients" value={fmt(account.activePatientCount)} testId="text-account-patients" />
+              <Stat label="New enrollments" value={fmt(account.newEnrollments)} />
+              <Stat label="Monthly revenue" value={`$${fmt(monthlyRevenueOf(account))}`} testId="text-account-revenue" />
+              <Stat label="Subscriptions" value={fmt(account.activeSubscriptions)} />
+              <Stat label="Deliveries · 30d" value={fmt(account.deliveriesInWindow)} />
+              <Stat label="Engagement" value={`${account.engagementRate}%`} />
+              <Stat label="Avg pounds lost" value={account.avgPoundsLost} />
+              <Stat label="Goal completion" value={`${account.goalCompletion}%`} />
+              <Stat label="Retention" value={`${account.retention}%`} />
+            </div>
+          ) : (
+            <p className="px-5 py-6 text-xs leading-relaxed text-muted-foreground">
+              No metrics yet — this account was created during the demo session. Numbers begin once patients onboard in
+              the mobile app with provider code <span className="font-mono tracking-[.08em] text-foreground">{account.providerCode}</span>.
+            </p>
+          )}
+        </SectionCard>
 
-          <SectionCard
-            title="Roster preview"
-            sub={
-              hasPatients
-                ? `First ${rosterPreview.length} of the office's tracked patients`
-                : 'No patients linked yet'
-            }
-          >
-            {rosterPreview.length > 0 ? (
-              <>
-                <ul>
-                  {rosterPreview.map((patient) => (
-                    <li key={patient.id} className="flex items-center gap-3 border-b border-border px-5 py-3 last:border-b-0" data-testid={`row-roster-${patient.id}`}>
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent text-[10px] font-bold text-primary">
-                        {patient.name.split(' ').map((word) => word[0]).slice(0, 2).join('')}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <b className="block truncate text-xs font-semibold text-navy">{patient.name}</b>
-                        <small className="block truncate text-[10px] text-muted-foreground">{patient.email}</small>
-                      </span>
-                      <span className="shrink-0 text-[10px] uppercase tracking-[.06em] text-muted-foreground">{patient.status}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="border-t border-border px-5 py-3 text-[10px] text-muted-foreground">
-                  Open the office dashboard to work the full roster as this office sees it.
-                </p>
-              </>
-            ) : (
-              <p className="px-5 py-6 text-xs leading-relaxed text-muted-foreground">
-                Patients appear here after they enter this office&rsquo;s provider code during mobile onboarding.
+        <SectionCard
+          title="Roster preview"
+          sub={
+            hasPatients
+              ? `First ${rosterPreview.length} of the office's tracked patients`
+              : 'No patients linked yet'
+          }
+        >
+          {rosterPreview.length > 0 ? (
+            <>
+              <ul>
+                {rosterPreview.map((patient) => (
+                  <li key={patient.id} className="flex items-center gap-3 border-b border-border px-5 py-3 last:border-b-0" data-testid={`row-roster-${patient.id}`}>
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent text-[10px] font-bold text-primary">
+                      {patient.name.split(' ').map((word) => word[0]).slice(0, 2).join('')}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <b className="block truncate text-xs font-semibold text-navy">{patient.name}</b>
+                      <small className="block truncate text-[10px] text-muted-foreground">{patient.email}</small>
+                    </span>
+                    <span className="shrink-0 text-[10px] uppercase tracking-[.06em] text-muted-foreground">{patient.status}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="border-t border-border px-5 py-3 text-[10px] text-muted-foreground">
+                Open the office dashboard to work the full roster as this office sees it.
               </p>
-            )}
-          </SectionCard>
-        </div>
+            </>
+          ) : (
+            <p className="px-5 py-6 text-xs leading-relaxed text-muted-foreground">
+              Patients appear here after they enter this office&rsquo;s provider code during mobile onboarding.
+            </p>
+          )}
+        </SectionCard>
+      </div>
 
+      {/* Office profile spans the full measure beneath the two columns. */}
+      <div className="mt-5">
         <SectionCard title="Office profile" sub="Contact and linking details">
-          <div>
-            <div className="border-b border-border px-5 py-4">
+          <div className="md:grid md:grid-cols-[minmax(0,2fr),minmax(0,3fr)]">
+            <div className="border-b border-border px-5 py-4 md:border-b-0 md:border-r">
               <p className={PANEL_LABEL}>Provider code</p>
               <div className="mt-1.5 flex items-center gap-2">
                 <span className="font-mono text-xl font-bold tracking-[.18em] text-navy" data-testid="text-account-code">
@@ -211,21 +272,106 @@ export default function AccountDetail() {
                 Patients type this six-digit code during mobile onboarding to link their account to this office.
               </p>
             </div>
-            {[
-              { label: 'Email', value: account.email },
-              { label: 'Phone', value: account.phone },
-              { label: 'Location', value: `${account.city}, ${account.state}` },
-              { label: 'Joined', value: formatDateKey(account.joinedKey, true) },
-              { label: 'Plan', value: account.plan },
-            ].map((row) => (
-              <div key={row.label} className="flex items-baseline justify-between gap-4 border-b border-border px-5 py-3 last:border-b-0">
-                <span className={MICRO_LABEL}>{row.label}</span>
-                <span className="min-w-0 truncate text-xs text-foreground">{row.value}</span>
-              </div>
-            ))}
+            <div>
+              {[
+                { label: 'Email', value: account.email },
+                { label: 'Phone', value: account.phone },
+                { label: 'Location', value: `${account.city}, ${account.state}` },
+                { label: 'Joined', value: formatDateKey(account.joinedKey, true) },
+                { label: 'Plan', value: account.plan },
+              ].map((row) => (
+                <div key={row.label} className="flex items-baseline justify-between gap-4 border-b border-border px-5 py-3 last:border-b-0">
+                  <span className={MICRO_LABEL}>{row.label}</span>
+                  <span className="min-w-0 truncate text-xs text-foreground">{row.value}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </SectionCard>
       </div>
+
+      {/* Danger zone — the page's very last section, clearly separated.
+          Styled to match the training video editor's danger zone. */}
+      {lockable && (
+        <section
+          className="mt-6 rounded-lg border border-destructive/30 bg-[#fff0f0]/30 p-5 shadow-sm"
+          data-testid="section-danger-zone"
+        >
+          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>
+            {locked && <AccountLockedChip testId="chip-danger-locked" />}
+          </div>
+          {locked ? (
+            <>
+              <p className="mb-4 max-w-[68ch] text-xs leading-relaxed text-muted-foreground">
+                THINNR locked this account{lockedSince ? ` on ${lockedSince}` : ''} — {account.providerName} and
+                their staff can&rsquo;t use the office side right now, while HQ keeps full visibility. Unlocking
+                restores access exactly as it was; nothing needs re-creating.
+              </p>
+              <button
+                type="button"
+                className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`}
+                data-testid="button-unlock-account"
+                onClick={unlock}
+                disabled={saving}
+              >
+                Unlock account
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="mb-4 max-w-[68ch] text-xs leading-relaxed text-muted-foreground">
+                Locking this account shuts off the office side for {account.providerName} and every staff member —
+                sign-ins land on a locked notice and the office&rsquo;s data stays closed until THINNR unlocks it.
+                Nothing is deleted, and unlocking restores access exactly as it was.
+              </p>
+              <button
+                type="button"
+                className="h-8 rounded-md border border-destructive bg-card px-3 text-xs font-semibold text-destructive transition-colors hover:bg-destructive hover:text-white"
+                data-testid="button-lock-account"
+                onClick={() => setConfirmOpen(true)}
+              >
+                <Lock size={12} aria-hidden="true" className="mr-1.5 inline-block align-[-2px]" />
+                Lock this account
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-lock-confirm">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Lock {account.officeName}?</DialogTitle>
+            <DialogDescription>
+              {account.providerName} and all of their staff immediately lose access to the office side of THINNR —
+              dashboard, roster, and training. Their data stays intact, and unlocking restores access exactly as it
+              was.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button
+              type="button"
+              className={`${BTN_SECONDARY} h-9 px-3.5`}
+              data-testid="button-cancel-lock"
+              onClick={() => setConfirmOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-destructive px-4 text-xs font-semibold text-white transition-colors hover:bg-destructive/90 disabled:opacity-60"
+              data-testid="button-confirm-lock"
+              onClick={confirmLock}
+              disabled={saving}
+            >
+              <Lock size={12} aria-hidden="true" />
+              {saving ? 'Locking…' : 'Lock account'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AdminPage>
   );
 }

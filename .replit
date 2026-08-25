@@ -259,3 +259,6 @@ VITE_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
 
 [nix]
 channel = "stable-25_05"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea"

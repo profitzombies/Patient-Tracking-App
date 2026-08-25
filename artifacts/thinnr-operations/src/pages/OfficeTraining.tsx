@@ -12,8 +12,8 @@
  * mirroring how the rest of the office demo shows program-wide singletons.
  */
 import { useMemo, useState } from 'react';
-import { Link } from 'wouter';
-import { ArrowRight, CheckCircle2, GraduationCap, Plus } from 'lucide-react';
+import { Link, useLocation } from 'wouter';
+import { ArrowRight, CheckCircle2, ChevronRight, GraduationCap, Plus } from 'lucide-react';
 import { useTrainingData } from '@/contexts/training-data';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useSession } from '@/contexts/session';
@@ -60,6 +60,9 @@ export default function OfficeTraining() {
   const scope = useProviderScope();
   const { authStatus, authRole, providerAccountCode } = useSession();
   const { toast } = useToast();
+  // Base-aware navigate — resolves against the mount point exactly like the
+  // Link component, so roster rows work standalone and under the HQ drill-in.
+  const [, navigate] = useLocation();
 
   // Scope resolution: HQ drill-in and matched staff sign-ins arrive with a
   // provider scope; a staff sign-in whose office is not a seeded account
@@ -268,7 +271,13 @@ export default function OfficeTraining() {
                 {!accountId && <th className="hidden px-3 py-3 font-bold xl:table-cell">Office</th>}
                 <th className="px-3 py-3 font-bold">Progress</th>
                 <th className="hidden px-3 py-3 text-right font-bold sm:table-cell">Watch time</th>
-                <th className="px-4 py-3 text-right font-bold sm:px-5">Last active</th>
+                <th className="hidden px-3 py-3 text-right font-bold sm:table-cell">Last active</th>
+                {/* relative contains the absolutely-positioned sr-only span;
+                    without it the span escapes the overflow-x wrapper at the
+                    table's full width and widens the page on phones. */}
+                <th className="relative w-10 py-3 pr-3 sm:w-12 sm:pr-4">
+                  <span className="sr-only">Open teammate stats</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -276,7 +285,17 @@ export default function OfficeTraining() {
                 roster.map((entry) => (
                   <tr
                     key={entry.viewer.id}
-                    className="border-b border-border transition hover:bg-accent/40 last:border-b-0"
+                    onClick={(event) => {
+                      // Pointer-only convenience: the row duplicates its real,
+                      // announced control (the trailing chevron link — the
+                      // row's one keyboard stop). Leave nested controls,
+                      // modified clicks, and text selection alone.
+                      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                      if ((event.target as Element).closest('a, button, input, select, textarea')) return;
+                      if (window.getSelection()?.toString()) return;
+                      navigate(`/training/team/${entry.viewer.id}`);
+                    }}
+                    className="group cursor-pointer border-b border-border transition-colors hover:bg-accent/40 has-[a:focus-visible]:bg-accent/60 last:border-b-0"
                     data-testid={`row-team-${entry.viewer.id}`}
                   >
                     <td className="px-4 py-3 sm:px-5">
@@ -290,7 +309,10 @@ export default function OfficeTraining() {
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 max-w-[11rem] truncate text-[11px] text-muted-foreground lg:hidden">
+                      {/* The email cap sets this cell's min-content width in
+                          the table algorithm — keep it narrow on phones so the
+                          roster fits 390px without internal scroll. */}
+                      <p className="mt-0.5 max-w-[7.5rem] truncate text-[11px] text-muted-foreground sm:max-w-[11rem] lg:hidden">
                         {entry.viewer.email}
                       </p>
                     </td>
@@ -317,14 +339,30 @@ export default function OfficeTraining() {
                     <td className="hidden px-3 py-3 text-right text-muted-foreground sm:table-cell">
                       {formatHours(entry.watchSeconds)}
                     </td>
-                    <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap sm:px-5">
+                    {/* Phone keeps who + progress + open; last-active lives one
+                        tap away on the teammate page (same column-hiding
+                        precedent as Watch time / Email / Office). */}
+                    <td className="hidden px-3 py-3 text-right text-muted-foreground whitespace-nowrap sm:table-cell">
                       {formatLastSeen(entry.viewer)}
+                    </td>
+                    <td className="py-2 pr-3 text-right sm:pr-4">
+                      {/* The row's real control: a native link in the tab
+                          order, announced by name — the row's onClick is just
+                          a bigger pointer target for the same navigation. */}
+                      <Link
+                        href={`/training/team/${entry.viewer.id}`}
+                        aria-label={`Open ${entry.viewer.name}’s training stats`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-primary group-hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        data-testid={`link-teammate-${entry.viewer.id}`}
+                      >
+                        <ChevronRight size={16} aria-hidden="true" />
+                      </Link>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={accountId ? 5 : 6} className="px-5 py-8 text-center text-xs text-muted-foreground">
+                  <td colSpan={accountId ? 6 : 7} className="px-5 py-8 text-center text-xs text-muted-foreground">
                     No teammates on the roster yet — add your front desk and providers above.
                   </td>
                 </tr>
@@ -410,14 +448,30 @@ function CourseCard({
     () => officeCourseStats(officeRoster(viewers, accountId, order, completionIndex, myViewerId)),
     [viewers, accountId, order, completionIndex, myViewerId],
   );
+  const href = `/training/${course.id}`;
   return (
-    <div className="flex flex-col gap-3 bg-card px-5 py-4" data-testid={`card-course-${course.id}`}>
+    // Stretched-link card: the title anchor's ::after overlay spans this
+    // relative container, so the whole card is one NATIVE link — announced
+    // as a link named by the course title, Enter/middle-click/context menu
+    // for free, and exactly one tab stop per card.
+    <div
+      className="group relative flex flex-col gap-3 bg-card px-5 py-4 transition-colors hover:bg-accent/40 has-[a:focus-visible]:bg-accent/60 has-[a:focus-visible]:outline-2 has-[a:focus-visible]:-outline-offset-2 has-[a:focus-visible]:outline-ring"
+      data-testid={`card-course-${course.id}`}
+    >
       <div className="flex items-start gap-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-accent-border bg-accent text-primary">
           <GraduationCap size={16} aria-hidden="true" />
         </span>
         <div className="min-w-0">
-          <h3 className="font-serif text-[15px] leading-snug text-navy">{course.title}</h3>
+          <h3 className="font-serif text-[15px] leading-snug text-navy">
+            <Link
+              href={href}
+              className="after:absolute after:inset-0 focus-visible:outline-none"
+              data-testid={`link-open-course-${course.id}`}
+            >
+              {course.title}
+            </Link>
+          </h3>
           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{course.description}</p>
         </div>
       </div>
@@ -426,13 +480,15 @@ function CourseCard({
           {countVideos(course, true)} videos · {formatHours(courseDuration(course, true))} · team avg{' '}
           <span className="font-semibold text-navy">{stats.avgPct}%</span>
         </span>
-        <Link
-          href={`/training/${course.id}`}
-          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-          data-testid={`link-open-course-${course.id}`}
+        {/* Decorative affordance — the card's real link is the stretched
+            title anchor above; a second anchor here would only add a
+            duplicate tab stop. */}
+        <span
+          aria-hidden="true"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-primary group-hover:underline"
         >
           Open <ArrowRight size={12} aria-hidden="true" />
-        </Link>
+        </span>
       </div>
     </div>
   );

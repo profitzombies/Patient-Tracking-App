@@ -65,6 +65,7 @@ import {
   officeCourseStats,
   officeRoster,
   selfCourseState,
+  teammateStats,
   videoAvailability,
   videoTeamDone,
 } from '../src/data/office-training';
@@ -623,6 +624,117 @@ console.log('12. The lesson page resolves lessons with outline-identical unlock 
   const emptyMap = completionsFor(index, 'ghost');
   check('empty progress: first lesson open, later sequential lessons locked',
     lessonState(course!, 'la', emptyMap).availability === 'available' && lessonState(course!, 'lb', emptyMap).availability === 'locked');
+}
+
+console.log('13. Teammate stats resolve through the office lens across the live catalog');
+{
+  const catalogVideoRow = (id: string, moduleId: string, position: number, duration: number): any => ({
+    id,
+    module_id: moduleId,
+    subgroup_id: null,
+    title: id.toUpperCase(),
+    duration_seconds: duration,
+    published: 'published',
+    unlock_mode: 'sequential',
+    add_staff: 'auto',
+    description: [],
+    chapters: [],
+    thumbnail_chapter: 0,
+    attachments: [],
+    position,
+    video_source: null,
+  });
+  // Two live courses + one draft course: catalog math must span exactly the
+  // live ones, in catalog order.
+  const courses = assembleCourses({
+    courses: [
+      { id: 'tca', slug: 'tca', title: 'Catalog Course A', description: '', status: 'live', sequential_unlock: true, created_at: '2026-08-01T00:00:00Z' },
+      { id: 'tcb', slug: 'tcb', title: 'Catalog Course B', description: '', status: 'live', sequential_unlock: false, created_at: '2026-08-02T00:00:00Z' },
+      { id: 'tcc', slug: 'tcc', title: 'Catalog Draft', description: '', status: 'draft', sequential_unlock: true, created_at: '2026-08-03T00:00:00Z' },
+    ] as any,
+    modules: [
+      { id: 'tam1', course_id: 'tca', title: 'A M1', published: 'published', unlock_mode: 'sequential', position: 0 },
+      { id: 'tbm1', course_id: 'tcb', title: 'B M1', published: 'published', unlock_mode: 'sequential', position: 0 },
+      { id: 'tcm1', course_id: 'tcc', title: 'C M1', published: 'published', unlock_mode: 'sequential', position: 0 },
+    ] as any,
+    subgroups: [],
+    videos: [
+      catalogVideoRow('aa1', 'tam1', 0, 100),
+      catalogVideoRow('aa2', 'tam1', 1, 150),
+      catalogVideoRow('aa3', 'tam1', 2, 200),
+      catalogVideoRow('bb1', 'tbm1', 0, 100),
+      catalogVideoRow('bb2', 'tbm1', 1, 100),
+      catalogVideoRow('cc1', 'tcm1', 0, 999),
+    ],
+  });
+  const teammateViewer = (id: string, accountId: string | null): any => ({
+    id,
+    name: id.toUpperCase(),
+    email: `${id}@office.test`,
+    phone: '—',
+    accountId,
+    staffOfViewerId: null,
+    authUserId: null,
+    location: '—',
+    firstSeenAt: '2026-08-01T00:00:00Z',
+    lastSeenAt: '2026-08-20T00:00:00Z',
+    sessions: 1,
+  });
+  const viewers = [
+    teammateViewer('self', 'acct-p1'),
+    teammateViewer('tm', 'acct-p1'),
+    teammateViewer('other', 'acct-p2'),
+    teammateViewer('una', null),
+  ];
+  const watchRow = (viewerId: string, videoId: string, watchSeconds: number, completedAt: string | null): TrainingCompletion => ({
+    viewerId,
+    videoId,
+    watchSeconds,
+    firstWatchedAt: '2026-08-01T00:00:00Z',
+    completedAt,
+  });
+  const index = buildCompletionIndex([
+    watchRow('tm', 'aa1', 100, '2026-08-02T00:10:00Z'),
+    watchRow('tm', 'aa2', 150, '2026-08-09T00:10:00Z'),
+    watchRow('tm', 'bb1', 120, '2026-08-05T00:10:00Z'),
+    watchRow('tm', 'bb2', 40, null), // started, not finished
+    watchRow('tm', 'cc1', 999, '2026-08-08T00:10:00Z'), // draft course — never counts
+    watchRow('self', 'bb1', 100, '2026-08-03T00:10:00Z'),
+    watchRow('self', 'bb2', 100, '2026-08-04T00:10:00Z'),
+  ]);
+
+  const tm = teammateStats(viewers, 'acct-p1', 'tm', courses, index, 'self');
+  check('scoped lookup resolves an own-office teammate', tm !== null && tm!.isSelf === false);
+  check('catalog totals span live courses only',
+    tm!.done === 3 && tm!.total === 5 && tm!.pct === 60 && tm!.courses.length === 2);
+  check('watch time sums live-catalog rows, including started-not-finished', tm!.watchSeconds === 410);
+  check('per-course breakdown matches HQ math',
+    tm!.courses[0]!.done === 2 && tm!.courses[0]!.total === 3 && tm!.courses[0]!.pct === 67 && tm!.courses[0]!.watchSeconds === 250 &&
+      tm!.courses[1]!.done === 1 && tm!.courses[1]!.total === 2 && tm!.courses[1]!.pct === 50 && tm!.courses[1]!.watchSeconds === 160);
+  check('an unfinished catalog finishes no courses', tm!.coursesFinished === 0);
+  check('completed lessons list finished videos only, newest first',
+    tm!.completedLessons.length === 3 &&
+      tm!.completedLessons.map((lesson) => lesson.item.video.id).join(',') === 'aa2,bb1,aa1');
+  check('draft-course completions never leak into the list',
+    tm!.completedLessons.every((lesson) => lesson.courseId !== 'tcc'));
+
+  const selfStats = teammateStats(viewers, 'acct-p1', 'self', courses, index, 'self');
+  check('own row resolves with the self flag and counts finished courses',
+    selfStats !== null && selfStats!.isSelf && selfStats!.coursesFinished === 1 && selfStats!.done === 2 && selfStats!.pct === 40);
+
+  check('cross-office lookups resolve null for scoped staff',
+    teammateStats(viewers, 'acct-p1', 'other', courses, index, 'self') === null);
+  check('unknown ids resolve null', teammateStats(viewers, 'acct-p1', 'nope', courses, index, 'self') === null);
+  const demoOther = teammateStats(viewers, null, 'other', courses, index, null);
+  check('the demo lens reads any office-assigned learner', demoOther !== null && demoOther!.done === 0);
+  check('the demo lens still hides unassigned learners (except self)',
+    teammateStats(viewers, null, 'una', courses, index, null) === null &&
+      teammateStats(viewers, null, 'una', courses, index, 'una') !== null);
+
+  const orderA = getOrderedVideos(courses[0]!, true);
+  const rosterEntry = officeRoster(viewers, 'acct-p1', orderA, index, 'self').find((entry) => entry.viewer.id === 'tm');
+  check('teammate page and roster agree on the flagship course',
+    rosterEntry !== undefined && tm!.courses[0]!.done === rosterEntry!.done && tm!.courses[0]!.watchSeconds === rosterEntry!.watchSeconds);
 }
 
 if (failures > 0) {

@@ -38,11 +38,26 @@ export interface OfficeRosterEntry {
 }
 
 /**
+ * The one membership rule for the office lens: the signed-in staffer's own
+ * row always belongs (even if HQ has not filed it under an office yet, so
+ * "My training" and the roster never disagree); otherwise the unscoped demo
+ * office (`accountId === null`) sees every office-assigned learner, and a
+ * scoped office sees exactly its own people. The roster and the teammate
+ * page share this predicate, so a deep link can never widen the lens.
+ */
+export function isOfficeTeammate(
+  viewer: TrainingViewer,
+  accountId: string | null,
+  selfViewerId: string | null,
+): boolean {
+  if (selfViewerId !== null && viewer.id === selfViewerId) return true;
+  return accountId === null ? viewer.accountId !== null : viewer.accountId === accountId;
+}
+
+/**
  * The office's team roster with per-person progress against one course
- * order. `accountId === null` (the unscoped demo office) lists every
- * office-assigned learner; a scoped office lists its own people — plus the
- * signed-in staffer's own row even if HQ has not filed it under an office
- * yet, so "My training" and the roster never disagree.
+ * order. Membership comes from `isOfficeTeammate` (demo lens = every
+ * office-assigned learner; scoped = own office plus self).
  */
 export function officeRoster(
   viewers: TrainingViewer[],
@@ -51,11 +66,7 @@ export function officeRoster(
   completionIndex: CompletionIndex,
   selfViewerId: string | null = null,
 ): OfficeRosterEntry[] {
-  const members = viewers.filter((viewer) =>
-    accountId === null
-      ? viewer.accountId !== null || viewer.id === selfViewerId
-      : viewer.accountId === accountId || viewer.id === selfViewerId,
-  );
+  const members = viewers.filter((viewer) => isOfficeTeammate(viewer, accountId, selfViewerId));
   const total = order.length;
   return members
     .map((viewer) => {
@@ -202,5 +213,106 @@ export function lessonState(course: TrainingCourse, videoId: string, map: Comple
     nextAvailability: next ? availabilityAt(index + 1) : null,
     // Locked implies index > frontier, so the frontier lesson always exists.
     blocker: availability === 'locked' && frontier < index ? (order[frontier] ?? null) : null,
+  };
+}
+
+export interface TeammateCourseProgress {
+  course: TrainingCourse;
+  /** Finished videos out of `total` in this course's published order. */
+  done: number;
+  total: number;
+  /** 0–100, rounded. */
+  pct: number;
+  watchSeconds: number;
+}
+
+export interface TeammateCompletedLesson {
+  courseId: string;
+  courseTitle: string;
+  item: OrderedVideo;
+  /** ISO timestamp of the finishing watch. */
+  completedAt: string;
+}
+
+export interface TeammateStats {
+  viewer: TrainingViewer;
+  isSelf: boolean;
+  /** Finished videos out of `total` across the whole live catalog. */
+  done: number;
+  total: number;
+  /** 0–100, rounded. */
+  pct: number;
+  watchSeconds: number;
+  /** Live courses where every published video is finished. */
+  coursesFinished: number;
+  courses: TeammateCourseProgress[];
+  /** Newest finish first. */
+  completedLessons: TeammateCompletedLesson[];
+}
+
+/**
+ * One teammate's training stats across the live catalog — the data behind
+ * the office teammate page (the read-only office cousin of the HQ viewer
+ * profile). Resolves null when the viewer doesn't exist or falls outside
+ * this office's lens (`isOfficeTeammate`), so deep links can never show a
+ * person the roster wouldn't. Draft courses never count, mirroring how the
+ * catalog and roster only surface live material.
+ */
+export function teammateStats(
+  viewers: TrainingViewer[],
+  accountId: string | null,
+  viewerId: string,
+  courses: TrainingCourse[],
+  completionIndex: CompletionIndex,
+  selfViewerId: string | null = null,
+): TeammateStats | null {
+  const viewer = viewers.find((candidate) => candidate.id === viewerId) ?? null;
+  if (!viewer || !isOfficeTeammate(viewer, accountId, selfViewerId)) return null;
+  const map = completionsFor(completionIndex, viewer.id);
+  const perCourse: TeammateCourseProgress[] = [];
+  const completedLessons: TeammateCompletedLesson[] = [];
+  let done = 0;
+  let total = 0;
+  let watchSeconds = 0;
+  let coursesFinished = 0;
+  for (const course of courses) {
+    if (course.status !== 'live') continue;
+    const order = getOrderedVideos(course, true);
+    const courseDone = completedCount(map, order);
+    const courseWatch = viewerWatchSeconds(map, order);
+    perCourse.push({
+      course,
+      done: courseDone,
+      total: order.length,
+      pct: order.length > 0 ? Math.min(100, Math.round((courseDone / order.length) * 100)) : 0,
+      watchSeconds: courseWatch,
+    });
+    done += courseDone;
+    total += order.length;
+    watchSeconds += courseWatch;
+    if (order.length > 0 && courseDone >= order.length) coursesFinished += 1;
+    for (const item of order) {
+      const row = map.get(item.video.id);
+      if (row?.completedAt) {
+        completedLessons.push({ courseId: course.id, courseTitle: course.title, item, completedAt: row.completedAt });
+      }
+    }
+  }
+  completedLessons.sort(
+    (a, b) =>
+      Date.parse(b.completedAt) - Date.parse(a.completedAt) ||
+      a.courseTitle.localeCompare(b.courseTitle) ||
+      a.item.numbering.localeCompare(b.item.numbering),
+  );
+  return {
+    viewer,
+    isSelf: selfViewerId !== null && viewer.id === selfViewerId,
+    done,
+    total,
+    pct: total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0,
+    watchSeconds,
+    coursesFinished,
+    courses: perCourse,
+    completedLessons,
   };
 }

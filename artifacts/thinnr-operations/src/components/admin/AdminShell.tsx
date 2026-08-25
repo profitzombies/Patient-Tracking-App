@@ -1,13 +1,13 @@
 /**
  * Navigation shell for the THINNR HQ admin umbrella.
  *
- * Mirrors the office Shell's Heritage geometry — 252px sidebar, 68px header,
- * one scrollable content column, mobile bottom nav, synthetic-data footer —
- * so drilling from HQ into an office feels like moving floors in the same
- * building, not switching apps. Differences are deliberate: HQ pages are
- * anchored to the fixed demo date (no date-range control), the identity block
- * is the HQ owner rather than a provider, and the header carries the
- * sign-out button for the simulated session.
+ * Mirrors the office Shell's Heritage geometry — the shared Porcelain side
+ * menu, 68px header, one scrollable content column, mobile bottom nav,
+ * synthetic-data footer — so drilling from HQ into an office feels like
+ * moving floors in the same building, not switching apps. Differences are
+ * deliberate: HQ pages are anchored to the fixed demo date (no date-range
+ * control), the identity block is the HQ owner rather than a provider, and
+ * the header carries the sign-out button for the simulated session.
  */
 import { ReactNode, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'wouter';
@@ -20,33 +20,44 @@ import {
   MessagesSquare,
   Settings2,
   Users,
+  type LucideIcon,
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
 import { HQ_ADMIN_IDENTITY } from '@/data/hq/team';
+import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
 
 interface NavItem {
   path: string;
   label: string;
   mobileLabel?: string;
-  icon: ReactNode;
+  icon: LucideIcon;
   preview?: boolean;
 }
 
+/** Ordered to match the menu's section grouping, top to bottom. */
 const NAV_ITEMS: NavItem[] = [
-  { path: '/admin', label: 'HQ Overview', mobileLabel: 'Overview', icon: <LayoutDashboard size={16} /> },
-  { path: '/admin/accounts', label: 'Provider accounts', mobileLabel: 'Accounts', icon: <Building2 size={16} /> },
-  { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: <MessagesSquare size={16} /> },
-  { path: '/admin/team', label: 'Team', icon: <Users size={16} /> },
-  { path: '/admin/settings', label: 'Settings', icon: <Settings2 size={16} /> },
-  { path: '/admin/training', label: 'Training', icon: <GraduationCap size={16} /> },
-  { path: '/admin/files', label: 'Files', icon: <FolderOpen size={16} />, preview: true },
+  { path: '/admin', label: 'HQ Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
+  { path: '/admin/accounts', label: 'Provider accounts', mobileLabel: 'Accounts', icon: Building2 },
+  { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: MessagesSquare },
+  { path: '/admin/team', label: 'Team', icon: Users },
+  { path: '/admin/training', label: 'Training', icon: GraduationCap },
+  { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
+  { path: '/admin/settings', label: 'Settings', icon: Settings2 },
+];
+
+const ADMIN_NAV_SECTION_DEFS = [
+  { label: 'Dashboard', paths: ['/admin'] },
+  { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/team'] },
+  { label: 'Learning', paths: ['/admin/training'] },
+  { label: 'Manage', paths: ['/admin/files', '/admin/settings'] },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const [location, navigate] = useLocation();
   const { signOut } = useSession();
   const { accounts } = useHqData();
+  const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Exact match for the overview root, prefix match for everything below it —
@@ -76,62 +87,35 @@ export function AdminShell({ children }: { children: ReactNode }) {
     navigate('/', { replace: true });
   };
 
+  // The Porcelain menu: admin sections, live links, real sign-out.
+  const menuSections = groupMenuSections(NAV_ITEMS, ADMIN_NAV_SECTION_DEFS).map((section) => ({
+    label: section.label,
+    items: section.items.map((item) => ({
+      path: item.path,
+      label: item.label,
+      icon: item.icon,
+      count: item.path === '/admin/accounts' ? accounts.length : undefined,
+      tag: item.preview ? 'Preview' : undefined,
+      testId: `link-admin-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`,
+    })),
+  }));
+
   return (
     <div className="min-h-[100dvh] max-w-full overflow-x-hidden bg-background font-sans text-foreground flex">
-      {/* Sidebar - hidden on very small screens, visible md and up */}
-      <aside className="hidden w-[252px] shrink-0 border-r border-sidebar-border bg-sidebar px-5 py-5 md:flex md:flex-col">
-        <div className="mb-9 flex items-center gap-3 border-b border-sidebar-border px-2 pb-5">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-navy text-brand-foreground shadow-soft">
-            <span className="text-[11px] font-bold tracking-[.04em]">TH</span>
-          </span>
-          <span className="min-w-0 whitespace-nowrap">
-            <strong className="block font-serif text-[15px] font-bold tracking-[.01em] text-navy">THINNR</strong>
-            <span className="text-[10px] uppercase tracking-[.14em] text-muted-foreground">HQ admin</span>
-          </span>
-        </div>
-
-        <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Headquarters</p>
-
-        <nav className="space-y-1">
-          {NAV_ITEMS.map((item) => {
-            const isActive = activeItem.path === item.path;
-            return (
-              <Link
-                key={item.path}
-                href={item.path}
-                data-testid={`link-admin-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-                className={`flex w-full items-center gap-3 whitespace-nowrap rounded-md border-l-2 px-3 py-2.5 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  isActive
-                    ? 'border-primary bg-card font-semibold text-navy shadow-soft'
-                    : 'border-transparent text-muted-foreground hover:bg-sidebar-accent hover:text-navy'
-                }`}
-              >
-                <span className={isActive ? 'text-primary' : undefined}>{item.icon}</span>
-                <span className="min-w-0 flex-1">{item.label}</span>
-                {item.path === '/admin/accounts' && (
-                  <span className="ml-auto rounded-sm bg-accent px-1.5 py-0.5 text-[10px] font-bold text-primary">
-                    {accounts.length}
-                  </span>
-                )}
-                {item.preview && (
-                  <span className="ml-auto rounded-sm border border-[#e8b47c] bg-[#fff4e6] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[.06em] text-[#b65c22]">
-                    Preview
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="mt-auto rounded-lg border border-border bg-card p-3 shadow-soft">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Demo session</span>
-            <span className="h-2 w-2 rounded-full bg-primary" />
-          </div>
-          <p className="mt-2 text-xs font-medium text-foreground">Edits persist in this tab</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">Close the tab to reset the demo</p>
-        </div>
-      </aside>
+      {/* Sidebar — the Porcelain menu (hidden on phones, which use the tab bar) */}
+      <SideMenu
+        label="Admin sidebar"
+        mode={menuMode}
+        onModeChange={setMenuMode}
+        sections={menuSections}
+        isItemActive={(path) => activeItem.path === path}
+        brandSubtitle="HQ admin"
+        accountName={HQ_ADMIN_IDENTITY.name}
+        accountRole={HQ_ADMIN_IDENTITY.title}
+        accountInitials={HQ_ADMIN_IDENTITY.initials}
+        onSignOut={handleSignOut}
+        onSettings={() => navigate('/admin/settings')}
+      />
 
       {/* Main content area */}
       <section className="min-w-0 flex-1 flex flex-col h-[100dvh]">
@@ -186,7 +170,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                     : 'border-transparent text-muted-foreground hover:bg-secondary'
                 }`}
               >
-                <span className={isActive ? 'text-primary' : undefined}>{item.icon}</span>
+                <span className={isActive ? 'text-primary' : undefined}><item.icon size={16} /></span>
                 <span className="leading-tight">{item.mobileLabel ?? item.label}</span>
               </Link>
             );

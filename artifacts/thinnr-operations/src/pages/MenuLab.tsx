@@ -1,7 +1,7 @@
 /**
  * /menu — the side-menu design lab.
  *
- * Five candidate redesigns of the office rail render against a mock
+ * Six candidate redesigns of the office rail render against a mock
  * workspace backdrop so they can be compared live, each with a Pinned /
  * Hover behavior toggle. Everything here is a preview: nav clicks re-point
  * the simulated active state, sign-out and settings only toast, and the live
@@ -54,8 +54,8 @@ export default function MenuLab() {
               Side menu lab
             </h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              Five directions for the operations rail. Flip through, try both behaviors, and reply
-              with a favorite — the live menu stays as-is until then.
+              Six directions for the operations rail. Porcelain (6) is the one running in the
+              live app; flip through the others to compare.
             </p>
           </div>
           <div className="hidden items-center gap-3 md:flex">
@@ -127,6 +127,7 @@ export default function MenuLab() {
             items={OFFICE_NAV_ITEMS}
             activePath={activePath}
             onSelect={setActivePath}
+            onModeChange={(nextMode) => setModes((prev) => ({ ...prev, [selected.id]: nextMode }))}
             patientCount={patients.length}
             workspaceLabel={identity.workspaceLabel}
             accountName={identity.accountName}
@@ -156,7 +157,7 @@ export default function MenuLab() {
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The menu lab compares hover-retract behavior side by side, which needs a pointer and
-              a wide screen. Open /menu on a computer to flip through the five live previews.
+              a wide screen. Open /menu on a computer to flip through the six live previews.
             </p>
             <ol className="mt-4 space-y-3">
               {MENU_DESIGN_OPTIONS.map((option, index) => (

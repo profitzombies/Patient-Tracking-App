@@ -36,6 +36,14 @@ export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/training', label: 'Training', mobileLabel: 'Training', icon: GraduationCap },
 ];
 
+/** The Porcelain menu's section grouping, shared by the live Shell and the lab. */
+export const OFFICE_NAV_SECTION_DEFS = [
+  { label: 'Dashboard', paths: ['/'] },
+  { label: 'Operations', paths: ['/patients', '/subscriptions'] },
+  { label: 'Insights', paths: ['/analytics', '/leaderboard'] },
+  { label: 'Learning', paths: ['/training'] },
+];
+
 /** Overview is an exact match; every other section owns its subtree. */
 export function isOfficeNavItemActive(itemPath: string, location: string): boolean {
   if (itemPath === '/') return location === '/';

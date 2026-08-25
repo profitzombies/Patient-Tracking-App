@@ -4,8 +4,8 @@ import {
   Bell,
   ChevronDown,
   LogOut,
+  Plus,
   Search,
-  Settings2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
@@ -15,8 +15,10 @@ import { useScopedPatients } from '@/data/scoped-data';
 import {
   findActiveOfficeNavItem,
   OFFICE_NAV_ITEMS,
+  OFFICE_NAV_SECTION_DEFS,
   useOfficeIdentity,
 } from '@/components/layout/nav-config';
+import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
 
 function ActionButton({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -40,6 +42,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const scope = useProviderScope();
   const { signOut } = useSession();
   const patients = useScopedPatients();
+  const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollPositionsRef = useRef(new Map<string, number>());
   const isHistoryNavigationRef = useRef(false);
@@ -85,7 +88,18 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [activeItem.label, scope]);
 
   // The account chip identity is shared with the /menu design lab.
-  const { accountName, accountRole, initials } = useOfficeIdentity();
+  const { accountName, accountRole, initials, workspaceLabel } = useOfficeIdentity();
+
+  // The Porcelain menu: shared sections, live links, real sign-out.
+  const menuSections = groupMenuSections(navItems, OFFICE_NAV_SECTION_DEFS).map((section) => ({
+    label: section.label,
+    items: section.items.map((item) => ({
+      path: item.path,
+      label: item.label,
+      icon: item.icon,
+      count: item.path === '/patients' ? patients.length : undefined,
+    })),
+  }));
 
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -109,66 +123,28 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className={`${scope ? 'h-full' : 'min-h-[100dvh]'} max-w-full overflow-x-hidden bg-background font-sans text-foreground flex`}>
-      {/* Sidebar - Hidden on very small screens, visible md and up */}
-      <aside className="hidden w-[252px] shrink-0 border-r border-sidebar-border bg-sidebar px-5 py-5 md:flex md:flex-col">
-        <button
-          onClick={() => toast({ title: "Workspace Switcher", description: "Not implemented in mock." })}
-          className="mb-9 flex items-center gap-3 rounded-sm border-b border-sidebar-border px-2 pb-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-navy text-brand-foreground shadow-soft">
-            <span className="text-[11px] font-bold tracking-[.04em]">TH</span>
-          </span>
-          <span className={scope ? 'min-w-0' : 'min-w-0 whitespace-nowrap'}>
-            <strong className="block font-serif text-[15px] font-bold tracking-[.01em] text-navy">THINNR</strong>
-            <span className={`text-[10px] uppercase tracking-[.14em] text-muted-foreground ${scope ? 'block truncate' : ''}`}>
-              {scope ? scope.officeName : 'operations desk'}
-            </span>
-          </span>
-          <ChevronDown size={14} className="ml-auto text-muted-foreground" />
-        </button>
-
-        <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Workspace</p>
-
-        <nav className="space-y-1">
-          {navItems.map((item) => {
-            const isActive = activeItem.path === item.path;
-            return (
-              <Link
-                key={item.path}
-                href={item.path}
-                className={`flex w-full items-center gap-3 whitespace-nowrap rounded-md border-l-2 px-3 py-2.5 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  isActive
-                    ? "border-primary bg-card font-semibold text-navy shadow-soft"
-                    : "border-transparent text-muted-foreground hover:bg-sidebar-accent hover:text-navy"
-                }`}
-              >
-                <span className={isActive ? 'text-primary' : undefined}><item.icon size={16} /></span>
-                <span className="min-w-0 flex-1">{item.label}</span>
-                {item.path === '/patients' && (
-                  <span className="ml-auto rounded-sm bg-accent px-1.5 py-0.5 text-[10px] font-bold text-primary">{patients.length}</span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <p className="mb-2 mt-8 px-2 text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Manage</p>
-        <button
-          onClick={() => toast({ title: "Settings opened" })}
-          className="flex w-full items-center gap-3 whitespace-nowrap rounded-md px-3 py-2.5 text-left text-sm text-muted-foreground transition hover:bg-sidebar-accent hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Settings2 size={16} />Settings
-        </button>
-
-        <div className="mt-auto rounded-lg border border-border bg-card p-3 shadow-soft">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Data status</span>
-            <span className="h-2 w-2 rounded-full bg-primary" />
-          </div>
-          <p className="mt-2 text-xs font-medium text-foreground">All systems reporting</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">Updated just now</p>
-        </div>
-      </aside>
+      {/* Sidebar — the Porcelain menu (hidden on phones, which use the tab bar) */}
+      <SideMenu
+        mode={menuMode}
+        onModeChange={setMenuMode}
+        sections={menuSections}
+        isItemActive={(path) => activeItem.path === path}
+        brandSubtitle={workspaceLabel}
+        cta={{ label: 'Add patient', icon: Plus, href: '/patients' }}
+        accountName={accountName}
+        accountRole={accountRole}
+        accountInitials={initials}
+        onSignOut={
+          scope
+            ? undefined
+            : /* The HQ drill-in exits via its own "Back to HQ" banner instead. */
+              () => {
+                signOut();
+                navigate('/');
+              }
+        }
+        onSettings={() => toast({ title: 'Settings opened' })}
+      />
 
       {/* Main Content Area */}
       <section className={`min-w-0 flex-1 flex flex-col ${scope ? 'h-full' : 'h-[100dvh]'}`}>

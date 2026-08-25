@@ -41,3 +41,5 @@
 - [Training live-data patterns](training-live-data.md) — flat rows + client assembly; edits re-sync contiguous positions; progress = rows ∩ published order; learner writes ride opaque capability tokens, PII out of anon reads.
 - [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.
 - [Indefinite-height flex chains](indefinite-height-flex.md) — h-full collapses (to zero for absolute-child wrappers) inside min-h-full columns; omit heights and let flex stretch; screenshots catch it, DOM checks don't.
+- [Root artifact paths](root-artifact-paths.md) — operations web is the ROOT artifact: URLs are root-relative (/menu); wrong prefixes SPA-fallback into the in-app 404 and module probes return index.html.
+- [Fluid menu rail](menu-rail-fluid.md) — collapsed rails size blocks fluidly (w-full in gutters + overflow-hidden → 44px boxes); fixed-width clipping slices box edges and was rejected.

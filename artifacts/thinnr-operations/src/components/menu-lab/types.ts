@@ -1,7 +1,8 @@
 import type { OfficeNavItem } from '@/components/layout/nav-config';
+import type { RailMode } from '@/components/layout/side-menu';
 
 /** Pinned keeps the menu expanded; hover retracts it to a slim icon rail. */
-export type RailMode = 'pinned' | 'hover';
+export type { RailMode };
 
 /**
  * Every lab design is a pure presentation of the same shared content: the
@@ -20,4 +21,10 @@ export interface MenuDesignProps {
   accountInitials: string;
   onSettings: () => void;
   onSignOut: () => void;
+  /**
+   * Present for designs that embed their own Pinned/Hover control (Porcelain's
+   * foot pill); the lab wires it to the same per-design mode state as the
+   * header toggle so the two stay in sync.
+   */
+  onModeChange?: (mode: RailMode) => void;
 }

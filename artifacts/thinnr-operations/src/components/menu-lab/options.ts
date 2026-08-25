@@ -5,6 +5,7 @@ import { CobaltStandard } from './CobaltStandard';
 import { MidnightLedger } from './MidnightLedger';
 import { InkBrass } from './InkBrass';
 import { GalleryRail } from './GalleryRail';
+import { Porcelain } from './Porcelain';
 
 export interface MenuDesignOption {
   id: string;
@@ -14,7 +15,10 @@ export interface MenuDesignOption {
   Component: ComponentType<MenuDesignProps>;
 }
 
-/** The five candidate directions, lightest to darkest, structural last. */
+/**
+ * The candidate directions: the five originals lightest to darkest with the
+ * structural cut last, then the white-console reference addition.
+ */
 export const MENU_DESIGN_OPTIONS: MenuDesignOption[] = [
   {
     id: 'pressed-linen',
@@ -50,5 +54,12 @@ export const MENU_DESIGN_OPTIONS: MenuDesignOption[] = [
     blurb:
       'A navy spine carries the icons, labels sit on a tinted wing — two tones, zero white panels.',
     Component: GalleryRail,
+  },
+  {
+    id: 'porcelain',
+    name: 'Porcelain',
+    blurb:
+      'The chosen one, now running live — white console with section dividers, ink action button, cobalt room marker, pin control at the foot.',
+    Component: Porcelain,
   },
 ];

@@ -72,6 +72,10 @@ args = "training-invariants"
 task = "workflow.run"
 args = "hq-conversations"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "provider-training"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -222,6 +226,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:conversations"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "provider-training"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:provider-training"
 
 [workflows.workflow.metadata]
 isValidation = true

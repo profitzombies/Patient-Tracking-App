@@ -38,3 +38,4 @@
 - [Supabase profile migrations](supabase-profile-migrations.md) — profile RLS migrations must carry their own non-recursive admin helper and tolerate the legacy profile shape.
 - [Supabase DDL via management API](supabase-management-api.md) — no direct pg socket: run migrations through the management API, keep the repo migration file canonical, re-check security advisors after DDL.
 - [Training live-data patterns](training-live-data.md) — flat rows + client assembly; edits re-sync contiguous positions; progress = rows ∩ published order; learner writes ride opaque capability tokens, PII out of anon reads.
+- [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.

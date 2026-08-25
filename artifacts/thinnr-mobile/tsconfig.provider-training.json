@@ -1,0 +1,26 @@
+{
+  // tsx config for scripts/verify-provider-training.ts ONLY (not part of typecheck).
+  //
+  // The suite renders the REAL training screens (Training tab, course
+  // outline, lesson page) with react-test-renderer under Node and runs the
+  // mobile training data layer against the web operations modules on shared
+  // fixtures. Native-only bare specifiers are remapped to Node stubs, and
+  // two app-internal modules are remapped so the suite can control them:
+  // '@/lib/supabase' (swappable fake client) and '@/context/AppModeContext'
+  // (persona without AsyncStorage). Exact path keys win over the '@/*'
+  // wildcard, so every other '@/…' import resolves to the real code.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/supabase": ["./scripts/provider-training-stubs/supabase.ts"],
+      "@/context/AppModeContext": ["./scripts/provider-training-stubs/app-mode.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/provider-training-stubs/react-native.ts"],
+      "expo-router": ["./scripts/provider-training-stubs/expo-router.ts"],
+      "expo-haptics": ["./scripts/onboarding-hints-stubs/expo-haptics.ts"],
+      "@expo/vector-icons": ["./scripts/provider-training-stubs/expo-vector-icons.ts"],
+      "react-native-safe-area-context": ["./scripts/onboarding-hints-stubs/safe-area-context.ts"]
+    }
+  }
+}

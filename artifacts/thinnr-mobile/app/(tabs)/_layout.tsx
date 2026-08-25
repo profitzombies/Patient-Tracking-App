@@ -33,6 +33,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'shippingbox', selected: 'shippingbox.fill' }} />
         <Label>Subscriptions</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="training">
+        <Icon sf={{ default: 'graduationcap', selected: 'graduationcap.fill' }} />
+        <Label>Training</Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
@@ -207,6 +211,23 @@ function ClassicTabLayout() {
               <SymbolView name="shippingbox" tintColor={color} size={22} />
             ) : (
               <Feather name="package" size={20} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="training"
+        options={{
+          title: 'Training',
+          tabBarAccessibilityLabel: 'Training',
+          headerShown: false,
+          tabBarLabel: ({ focused, color }) => (
+            <HeritageTabLabel label="Training" focused={focused} color={color} />
+          ),
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="graduationcap" tintColor={color} size={22} />
+            ) : (
+              <Feather name="book-open" size={20} color={color} />
             ),
         }}
       />

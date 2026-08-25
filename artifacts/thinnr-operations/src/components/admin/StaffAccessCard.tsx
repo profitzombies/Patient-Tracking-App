@@ -18,7 +18,16 @@ import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { UserPlus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   BTN_PRIMARY,
+  BTN_SECONDARY,
   CHIP_COBALT,
   INPUT_CLASS,
   MICRO_LABEL,
@@ -50,6 +59,7 @@ function initialsOf(name: string): string {
 
 export function StaffAccessCard({ account }: { account: ProviderAccount }) {
   const { viewers, canEdit, refresh, status } = useTrainingData();
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<{ message: string; field: StaffFormField | null } | null>(null);
@@ -126,6 +136,7 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
         description: 'Their email and the password you set work on the office sign-in right away.',
       });
       setForm(EMPTY_FORM);
+      setOpen(false);
       refresh();
     } catch (cause) {
       if (cause instanceof StaffProvisioningError) {
@@ -138,8 +149,31 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
     }
   };
 
+  const openAddDialog = () => {
+    setForm(EMPTY_FORM);
+    setError(null);
+    setOpen(true);
+  };
+
   return (
-    <SectionCard title="Staff sign-ins" sub="Who can open the office side of THINNR for this account">
+    <>
+      <SectionCard
+        title="Staff sign-ins"
+        sub="Who can open the office side of THINNR for this account"
+        action={
+          officeCode ? (
+            <button
+              type="button"
+              className={`${BTN_PRIMARY} h-9 px-3.5`}
+              onClick={openAddDialog}
+              data-testid="button-add-team-member"
+            >
+              <UserPlus size={14} aria-hidden="true" />
+              Add Team Member
+            </button>
+          ) : undefined
+        }
+      >
       <div data-testid="section-staff-access">
         {officeCode ? (
           <>
@@ -174,113 +208,12 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
                 data-testid="text-staff-empty"
               >
                 {status === 'ready'
-                  ? 'No staff filed under this office on the training roster yet — create the first sign-in below.'
+                  ? 'No staff filed under this office on the training roster yet — use Add Team Member above to create the first sign-in.'
                   : status === 'error'
                     ? 'The live roster could not be loaded, so this list may be incomplete.'
                     : 'Loading the office roster…'}
               </p>
             )}
-
-            <form onSubmit={submit} className="px-5 py-4">
-              <p className={PANEL_LABEL}>Add a staff sign-in</p>
-              <p className="mt-1 max-w-[68ch] text-[11px] leading-relaxed text-muted-foreground">
-                Creates a real login for this office: they sign in with this email and password
-                immediately — no reset required — and appear on the office training roster. Share the
-                password with them yourself; THINNR never emails it.
-              </p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className={MICRO_LABEL}>First name *</span>
-                  <input
-                    className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-                    value={form.firstName}
-                    onChange={setField('firstName')}
-                    autoComplete="off"
-                    aria-invalid={error?.field === 'firstName' || undefined}
-                    placeholder="e.g. Dana"
-                    data-testid="input-staff-first-name"
-                  />
-                </label>
-                <label className="block">
-                  <span className={MICRO_LABEL}>Last name *</span>
-                  <input
-                    className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-                    value={form.lastName}
-                    onChange={setField('lastName')}
-                    autoComplete="off"
-                    aria-invalid={error?.field === 'lastName' || undefined}
-                    placeholder="e.g. Reyes"
-                    data-testid="input-staff-last-name"
-                  />
-                </label>
-                <label className="block">
-                  <span className={MICRO_LABEL}>Email *</span>
-                  <input
-                    type="email"
-                    className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-                    value={form.email}
-                    onChange={setField('email')}
-                    autoComplete="off"
-                    aria-invalid={error?.field === 'email' || undefined}
-                    placeholder="name@office.example.com"
-                    data-testid="input-staff-email"
-                  />
-                </label>
-                <label className="block">
-                  <span className={MICRO_LABEL}>Phone (optional)</span>
-                  <input
-                    type="tel"
-                    className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-                    value={form.phone}
-                    onChange={setField('phone')}
-                    autoComplete="off"
-                    aria-invalid={error?.field === 'phone' || undefined}
-                    placeholder="(555) 000-0000"
-                    data-testid="input-staff-phone"
-                  />
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className={MICRO_LABEL}>Password *</span>
-                  <input
-                    type="password"
-                    className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-                    value={form.password}
-                    onChange={setField('password')}
-                    autoComplete="new-password"
-                    aria-invalid={error?.field === 'password' || undefined}
-                    data-testid="input-staff-password"
-                  />
-                  <span className="mt-1 block text-[10px] text-muted-foreground">
-                    At least 8 characters. The staff member keeps using exactly this password.
-                  </span>
-                </label>
-              </div>
-              {error && (
-                <p
-                  role="alert"
-                  className="mt-3 text-xs font-semibold text-destructive"
-                  data-testid="text-staff-form-error"
-                >
-                  {error.message}
-                </p>
-              )}
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <button
-                  type="submit"
-                  className={`${BTN_PRIMARY} h-9 px-3.5`}
-                  disabled={submitting}
-                  data-testid="button-create-staff-login"
-                >
-                  <UserPlus size={14} aria-hidden="true" />
-                  {submitting ? 'Creating sign-in…' : 'Create sign-in'}
-                </button>
-                {!canEdit && (
-                  <span className="text-[10px] text-muted-foreground" data-testid="text-staff-demo-note">
-                    Browsing as the demo persona — creating sign-ins needs a real THINNR HQ sign-in.
-                  </span>
-                )}
-              </div>
-            </form>
           </>
         ) : (
           <p
@@ -293,6 +226,118 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
           </p>
         )}
       </div>
-    </SectionCard>
+      </SectionCard>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[520px]" data-testid="dialog-add-team-member">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Add Team Member</DialogTitle>
+            <DialogDescription>
+              Creates a real login for this office. They can sign in immediately with the email and
+              password you set, and will appear on the office training roster.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={submit}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className={MICRO_LABEL}>First name *</span>
+                <input
+                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                  value={form.firstName}
+                  onChange={setField('firstName')}
+                  autoComplete="off"
+                  aria-invalid={error?.field === 'firstName' || undefined}
+                  placeholder="e.g. Dana"
+                  data-testid="input-staff-first-name"
+                />
+              </label>
+              <label className="block">
+                <span className={MICRO_LABEL}>Last name *</span>
+                <input
+                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                  value={form.lastName}
+                  onChange={setField('lastName')}
+                  autoComplete="off"
+                  aria-invalid={error?.field === 'lastName' || undefined}
+                  placeholder="e.g. Reyes"
+                  data-testid="input-staff-last-name"
+                />
+              </label>
+              <label className="block">
+                <span className={MICRO_LABEL}>Email *</span>
+                <input
+                  type="email"
+                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                  value={form.email}
+                  onChange={setField('email')}
+                  autoComplete="off"
+                  aria-invalid={error?.field === 'email' || undefined}
+                  placeholder="name@office.example.com"
+                  data-testid="input-staff-email"
+                />
+              </label>
+              <label className="block">
+                <span className={MICRO_LABEL}>Phone (optional)</span>
+                <input
+                  type="tel"
+                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                  value={form.phone}
+                  onChange={setField('phone')}
+                  autoComplete="off"
+                  aria-invalid={error?.field === 'phone' || undefined}
+                  placeholder="(555) 000-0000"
+                  data-testid="input-staff-phone"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className={MICRO_LABEL}>Password *</span>
+                <input
+                  type="password"
+                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                  value={form.password}
+                  onChange={setField('password')}
+                  autoComplete="new-password"
+                  aria-invalid={error?.field === 'password' || undefined}
+                  data-testid="input-staff-password"
+                />
+                <span className="mt-1 block text-[10px] text-muted-foreground">
+                  At least 8 characters. The staff member keeps using exactly this password. Share the
+                  password with them yourself; THINNR never emails it.
+                </span>
+              </label>
+            </div>
+            {error && (
+              <p
+                role="alert"
+                className="mt-3 text-xs font-semibold text-destructive"
+                data-testid="text-staff-form-error"
+              >
+                {error.message}
+              </p>
+            )}
+            <DialogFooter className="mt-5">
+              <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={`${BTN_PRIMARY} h-9 px-3.5`}
+                disabled={submitting}
+                data-testid="button-create-staff-login"
+              >
+                <UserPlus size={14} aria-hidden="true" />
+                {submitting ? 'Creating sign-in…' : 'Create sign-in'}
+              </button>
+            </DialogFooter>
+            {!canEdit && (
+              <p className="mt-3 text-[10px] leading-relaxed text-muted-foreground" data-testid="text-staff-demo-note">
+                Browsing as the demo persona — creating sign-ins needs a real THINNR HQ sign-in.
+              </p>
+            )}
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

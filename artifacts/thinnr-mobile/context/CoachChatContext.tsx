@@ -37,7 +37,9 @@ import {
   type CoachRequestMessage,
 } from '@/lib/coach-api';
 import { parseRecipeCardPayload, type AiRecipeSuggestion } from '@/lib/ai-recipe';
+import { parseLabelDraft, type LabelDraft, type LabelFoodCardPayload } from '@/lib/label-food';
 import { localTimeForDate } from '@/lib/meal-slot';
+import { toTitleCase } from '@/lib/title-case';
 
 /** Rich-card slot rendered under an assistant message (see CoachCardSlot). */
 export interface CoachCard {
@@ -48,10 +50,12 @@ export interface CoachCard {
 /**
  * What a photo turn's picture shows — decides which server pipeline answers
  * it: "menu" runs the restaurant menu scan, "meal" the plate-logging
- * analysis that returns an editable meal card. Turns sent without a kind
- * (the chat composer's camera) let the server look at the photo and decide.
+ * analysis that returns an editable meal card, "label" the Nutrition Facts
+ * reader that opens the name-then-food-card conversation. Turns sent
+ * without a kind (the chat composer's camera) let the server look at the
+ * photo and decide.
  */
-export type PhotoKind = 'menu' | 'meal';
+export type PhotoKind = 'menu' | 'meal' | 'label';
 
 /** Options for sendPhoto beyond the pipeline kind. */
 export interface SendPhotoOptions {
@@ -164,6 +168,26 @@ interface CoachChatContextValue {
   getRecipeSuggestion: (id: string) => AiRecipeSuggestion | undefined;
   /** Caches a generated photo on a suggestion so re-opens don't regenerate. */
   setSuggestionPhoto: (id: string, photoUri: string) => void;
+  /**
+   * Active label-to-food conversation (null when none). While set, send()
+   * resolves the patient's text client-side (name, confirm, rename) instead
+   * of calling the server; the chat screen can read the phase for its
+   * affordances.
+   */
+  labelFlow: LabelFlowState | null;
+  /**
+   * Puts the flow into `renaming` for the given food-card message: the next
+   * text the patient sends renames that card in place (Title Case) instead
+   * of reaching the server. No-op on unknown ids, non-food cards, cards
+   * already added, or while a reply is in flight.
+   */
+  beginLabelRename: (cardMessageId: string) => void;
+  /**
+   * Marks a food card's payload as added (and to which slot) after Add
+   * saved the custom food and logged the entry — the card then freezes so a
+   * double tap cannot save twice.
+   */
+  markLabelFoodAdded: (cardMessageId: string, slot: MealSlot) => void;
 }
 
 const CoachChatContext = createContext<CoachChatContextValue | null>(null);
@@ -202,6 +226,8 @@ interface RevealState {
   card?: CoachCard;
   /** Held like the card so chips can never appear before the text is done. */
   quickReplies?: string[];
+  /** Held like the card: a label read opens its flow once the text is done. */
+  labelDraft?: LabelDraft;
   timer: ReturnType<typeof setInterval> | null;
 }
 
@@ -234,8 +260,60 @@ export const MENU_PHOTO_MESSAGE_TEXT = 'I sent a photo of a restaurant menu.';
 /** Replay text for meal photo turns (see MENU_PHOTO_MESSAGE_TEXT). */
 export const MEAL_PHOTO_MESSAGE_TEXT = 'I sent a photo of my meal.';
 
+/** Replay text for nutrition label photo turns (see MENU_PHOTO_MESSAGE_TEXT). */
+export const LABEL_PHOTO_MESSAGE_TEXT = 'I sent a photo of a nutrition label.';
+
 /** Replay text for photo turns sent without a kind (the server decides). */
 export const PHOTO_MESSAGE_TEXT = 'I sent a photo.';
+
+// ─── Label flow: photographed Nutrition Facts → named custom food ──────────
+//
+// A label photo turn ends with the coach asking what the product is called
+// (the one thing the panel never prints). The streamed `labelDraft` is held
+// HERE, in client state — the follow-up name conversation is deterministic
+// and never relies on model recall. While a flow is active, send()
+// resolves the patient's text client-side (no network): name → confirm
+// (one-tap chips) → client-built "food" card; a rename, from the card or by
+// typing, edits the held name or the card payload in place. Only the
+// card's Add button touches patient state.
+
+export type LabelFlowPhase = 'awaiting-name' | 'confirming' | 'renaming';
+
+export interface LabelFlowState {
+  phase: LabelFlowPhase;
+  /** The held server transcription this conversation is about. */
+  draft: LabelDraft;
+  /** Proposed product name, already Title Case (confirming phase). */
+  name?: string;
+  /** Id of the chat message whose food card is being renamed. */
+  cardMessageId?: string;
+}
+
+/** One-tap labels on the confirm bubble; send() matches them exactly. */
+export const LABEL_CONFIRM_CREATE = 'Create the food';
+export const LABEL_CONFIRM_FIX = 'Fix the name';
+
+/**
+ * The confirm question. The ONLY client-built bubble that ends with "?" —
+ * so it must carry its own quick replies (the two labels above), keeping
+ * the chat screen's fallback yes/no chips from ever appearing under it.
+ */
+export function labelConfirmText(name: string): string {
+  return `So I'll call it ${name}. Ready to turn it into a food you can log anytime, or want to fix the name first?`;
+}
+
+/** Reply to the Fix-the-name chip. Never ends "?" (no chips belong here). */
+export const LABEL_RENAME_ASK =
+  "No problem. Type the name exactly how you want it and I'll use that.";
+
+/** Bubble above the food card. Never ends "?" — the card is the affordance. */
+export const LABEL_CARD_INTRO =
+  'Here it is. Look it over, pick the meal it goes under, and tap Add when it reads right.';
+
+/** Acknowledges a rename of an existing card. Never ends "?". */
+export function labelRenamedAck(name: string): string {
+  return `Done, it's ${name} now.`;
+}
 
 /**
  * True when the chat should offer its "Retake photo" chip: the latest
@@ -324,6 +402,14 @@ export function CoachChatProvider({
   // preview screen reads full details from here (route params carry only the
   // id). Session-only by design, like the chat itself.
   const suggestionsRef = useRef(new Map<string, AiRecipeSuggestion>());
+  // Active label-to-food conversation. State drives the UI; the ref gives
+  // send() a synchronous read (a chip tap can land before the re-render).
+  const [labelFlow, setLabelFlow] = useState<LabelFlowState | null>(null);
+  const labelFlowRef = useRef<LabelFlowState | null>(null);
+  const updateLabelFlow = useCallback((next: LabelFlowState | null) => {
+    labelFlowRef.current = next;
+    setLabelFlow(next);
+  }, []);
   // Mirror of `messages` so `send` can snapshot history without re-memoizing;
   // safe because sends are single-flight (inFlightRef) while it lags. Seeded
   // with the same initial array so a send before the first effect run still
@@ -366,7 +452,7 @@ export function CoachChatProvider({
     }
     revealRef.current = null;
     abortRef.current = null;
-    const { assistantId, card, quickReplies } = reveal;
+    const { assistantId, card, quickReplies, labelDraft } = reveal;
     setMessages(current =>
       current.map(m => {
         if (m.id !== assistantId) return m;
@@ -376,9 +462,12 @@ export function CoachChatProvider({
         return next;
       }),
     );
+    // A finished label read opens the name conversation exactly when its
+    // ask text is fully on screen.
+    if (labelDraft) updateLabelFlow({ phase: 'awaiting-name', draft: labelDraft });
     inFlightRef.current = false;
     setIsStreaming(false);
-  }, []);
+  }, [updateLabelFlow]);
 
   /**
    * Starts the reveal timer when it is not already running. Each tick moves
@@ -494,6 +583,13 @@ export function CoachChatProvider({
             // Held like the card; first suggestion wins.
             if (!reveal.quickReplies) reveal.quickReplies = labels;
           },
+          onLabelDraft: raw => {
+            if (isStale()) return;
+            // Validate HERE (not in the API layer) so a malformed draft
+            // drops the flow instead of half-opening it. First one wins.
+            const draft = parseLabelDraft(raw);
+            if (draft && !reveal.labelDraft) reveal.labelDraft = draft;
+          },
           onPhotoKind: kind => {
             if (isStale() || !photoOriginId) return;
             // Stamp the server-resolved route onto the photo turn (never
@@ -543,10 +639,103 @@ export function CoachChatProvider({
     [ensureRevealTimer, finalizeReveal],
   );
 
+  /**
+   * Advances the label flow with the patient's text: proposes a Title Case
+   * name, reads a confirm chip (or a typed correction), or applies a
+   * rename. Entirely client-side — the assistant bubbles here are fixed
+   * strings in the coach voice, appended as already-done messages, and no
+   * request leaves the device.
+   */
+  const resolveLabelFlowText = useCallback(
+    (flow: LabelFlowState, text: string) => {
+      const userMessage: CoachMessage = { id: nextId(), role: 'user', text, status: 'done' };
+      const reply = (replyText: string, extras?: Partial<CoachMessage>): CoachMessage => ({
+        id: nextId(),
+        role: 'assistant',
+        text: replyText,
+        status: 'done',
+        replyToId: userMessage.id,
+        ...extras,
+      });
+
+      if (flow.phase === 'awaiting-name') {
+        const name = toTitleCase(text);
+        updateLabelFlow({ phase: 'confirming', draft: flow.draft, name });
+        setMessages(prev => [
+          ...prev,
+          userMessage,
+          reply(labelConfirmText(name), {
+            quickReplies: [LABEL_CONFIRM_CREATE, LABEL_CONFIRM_FIX],
+          }),
+        ]);
+        return;
+      }
+
+      if (flow.phase === 'confirming') {
+        if (text === LABEL_CONFIRM_FIX) {
+          updateLabelFlow({ phase: 'awaiting-name', draft: flow.draft });
+          setMessages(prev => [...prev, userMessage, reply(LABEL_RENAME_ASK)]);
+          return;
+        }
+        if (text === LABEL_CONFIRM_CREATE && flow.name) {
+          // The card payload is the held server draft plus the confirmed
+          // name — the name never round-tripped through the model.
+          const payload: LabelFoodCardPayload = { ...flow.draft, name: flow.name };
+          updateLabelFlow(null);
+          setMessages(prev => [
+            ...prev,
+            userMessage,
+            reply(LABEL_CARD_INTRO, { card: { kind: 'food', payload } }),
+          ]);
+          return;
+        }
+        // Anything else typed here is a corrected name — reconfirm with it.
+        const name = toTitleCase(text);
+        updateLabelFlow({ phase: 'confirming', draft: flow.draft, name });
+        setMessages(prev => [
+          ...prev,
+          userMessage,
+          reply(labelConfirmText(name), {
+            quickReplies: [LABEL_CONFIRM_CREATE, LABEL_CONFIRM_FIX],
+          }),
+        ]);
+        return;
+      }
+
+      // renaming: the text is the new name for the existing food card.
+      const { cardMessageId } = flow;
+      const name = toTitleCase(text);
+      updateLabelFlow(null);
+      setMessages(prev => [
+        ...prev.map(m =>
+          m.id === cardMessageId && m.card?.kind === 'food'
+            ? {
+                ...m,
+                card: {
+                  kind: 'food',
+                  payload: { ...(m.card.payload as LabelFoodCardPayload), name },
+                },
+              }
+            : m,
+        ),
+        userMessage,
+        reply(labelRenamedAck(name)),
+      ]);
+    },
+    [updateLabelFlow],
+  );
+
   const send = useCallback(
     (rawText: string) => {
       const text = rawText.trim();
       if (!text || inFlightRef.current) return;
+      // An active label flow answers this text client-side — the name
+      // conversation is deterministic state, never a model exchange.
+      const flow = labelFlowRef.current;
+      if (flow) {
+        resolveLabelFlowText(flow, text);
+        return;
+      }
       inFlightRef.current = true;
 
       const controller = new AbortController();
@@ -583,7 +772,7 @@ export function CoachChatProvider({
         controller,
       );
     },
-    [streamInto, clock],
+    [streamInto, clock, resolveLabelFlowText],
   );
 
   const sendPhoto = useCallback(
@@ -594,6 +783,9 @@ export function CoachChatProvider({
     ) => {
       if (!photo.uri || inFlightRef.current) return;
       inFlightRef.current = true;
+      // A fresh photo abandons any pending label conversation: the held
+      // draft belongs to the previous photo, not this one.
+      updateLabelFlow(null);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -608,7 +800,9 @@ export function CoachChatProvider({
             ? MEAL_PHOTO_MESSAGE_TEXT
             : kind === 'menu'
               ? MENU_PHOTO_MESSAGE_TEXT
-              : PHOTO_MESSAGE_TEXT,
+              : kind === 'label'
+                ? LABEL_PHOTO_MESSAGE_TEXT
+                : PHOTO_MESSAGE_TEXT,
         status: 'done',
         photo: {
           ...photo,
@@ -676,7 +870,7 @@ export function CoachChatProvider({
         userMessage.id,
       );
     },
-    [streamInto, clock],
+    [streamInto, clock, updateLabelFlow],
   );
 
   const retry = useCallback(
@@ -775,6 +969,19 @@ export function CoachChatProvider({
     revealRef.current = null;
     const heldCard = reveal?.card;
     const heldQuickReplies = reveal?.quickReplies;
+    const heldLabelDraft = reveal?.labelDraft;
+    // A held label read survives the stop like a card does — but only when
+    // the reply bubble itself is kept (the patient saw at least part of the
+    // read). A dropped bubble means nothing was shown, so opening the name
+    // conversation would have the coach reference an answer that never
+    // appeared.
+    if (heldLabelDraft) {
+      const streaming = messagesRef.current.find(m => m.status === 'streaming');
+      const keepsBubble =
+        streaming !== undefined &&
+        (streaming.text.trimEnd().length > 0 || Boolean(streaming.card ?? heldCard));
+      if (keepsBubble) updateLabelFlow({ phase: 'awaiting-name', draft: heldLabelDraft });
+    }
     // Finalize locally — the aborted stream stays silent (no onDone/onError).
     // Single-flight means at most one message is mid-stream: keep its partial
     // text as a finished reply flagged `stopped` (so the next request marks
@@ -794,11 +1001,56 @@ export function CoachChatProvider({
     );
     inFlightRef.current = false;
     setIsStreaming(false);
-  }, []);
+  }, [updateLabelFlow]);
 
   const getRecipeSuggestion = useCallback(
     (id: string) => suggestionsRef.current.get(id),
     [],
+  );
+
+  const beginLabelRename = useCallback(
+    (cardMessageId: string) => {
+      // Renames ride the label flow's send() interception, so they cannot
+      // start while a real exchange is in flight.
+      if (inFlightRef.current) return;
+      const message = messagesRef.current.find(m => m.id === cardMessageId);
+      if (!message || message.card?.kind !== 'food') return;
+      const payload = message.card.payload as LabelFoodCardPayload;
+      // An added card is frozen: the food is saved, so renames happen in
+      // the library's edit screen like any other custom food.
+      if (payload.added) return;
+      // The payload is a superset of the draft; re-parse rather than trust.
+      const draft = parseLabelDraft(payload);
+      if (!draft) return;
+      updateLabelFlow({ phase: 'renaming', draft, cardMessageId });
+    },
+    [updateLabelFlow],
+  );
+
+  const markLabelFoodAdded = useCallback(
+    (cardMessageId: string, slot: MealSlot) => {
+      // Adding while a rename waits on this card ends the rename: the food
+      // is saved now, so later text must reach the coach, not the card.
+      if (labelFlowRef.current?.cardMessageId === cardMessageId) updateLabelFlow(null);
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === cardMessageId && m.card?.kind === 'food'
+            ? {
+                ...m,
+                card: {
+                  kind: 'food',
+                  payload: {
+                    ...(m.card.payload as LabelFoodCardPayload),
+                    added: true,
+                    addedSlot: slot,
+                  },
+                },
+              }
+            : m,
+        ),
+      );
+    },
+    [updateLabelFlow],
   );
 
   const setSuggestionPhoto = useCallback((id: string, photoUri: string) => {
@@ -816,8 +1068,23 @@ export function CoachChatProvider({
       stop,
       getRecipeSuggestion,
       setSuggestionPhoto,
+      labelFlow,
+      beginLabelRename,
+      markLabelFoodAdded,
     }),
-    [messages, isStreaming, send, sendPhoto, retry, stop, getRecipeSuggestion, setSuggestionPhoto],
+    [
+      messages,
+      isStreaming,
+      send,
+      sendPhoto,
+      retry,
+      stop,
+      getRecipeSuggestion,
+      setSuggestionPhoto,
+      labelFlow,
+      beginLabelRename,
+      markLabelFoodAdded,
+    ],
   );
 
   return <CoachChatContext.Provider value={value}>{children}</CoachChatContext.Provider>;

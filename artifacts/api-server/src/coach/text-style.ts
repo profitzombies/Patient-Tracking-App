@@ -20,6 +20,11 @@
  * Scope: coach surfaces only. Training transcripts and verbatim program
  * quotes elsewhere keep their original punctuation — never route them
  * through here except where they surface inside a coach chat reply.
+ *
+ * toTitleCase() lives here too: every food or meal name the app CREATES
+ * (recipe cards, meal cards, label foods) is Title Case at the moment it is
+ * created. The mobile app carries a twin of this helper (lib/title-case.ts)
+ * for names created on-device — keep the two rule sets identical.
  */
 
 /** Characters that can participate in a dash bridge spanning two chunks. */
@@ -78,4 +83,57 @@ export class DashSmoother {
     // A reply cannot end on the comma a trailing dash left behind.
     return tail.replace(/,[ \t]*$/, "");
   }
+}
+
+// ─── Title Case ──────────────────────────────────────────────────────────────
+
+/**
+ * Small connector words stay lowercase mid-name ("Chicken with Rice"), but
+ * always capitalize as the first or last word ("With a Twist" stays odd but
+ * correct).
+ */
+const SMALL_WORDS = new Set([
+  "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into",
+  "nor", "of", "on", "onto", "or", "over", "per", "so", "the", "to", "up",
+  "via", "with",
+]);
+
+/** True when the word carries an uppercase letter past its first character. */
+function hasInnerCaps(word: string): boolean {
+  return /[A-Z]/.test(word.slice(1));
+}
+
+function capitalizeSegment(segment: string): string {
+  // Capitalize the first LETTER, wherever it sits ("(low sodium)" → "(Low
+  // sodium)" handled per word, quotes and digits pass through untouched).
+  const index = segment.search(/\p{L}/u);
+  if (index === -1) return segment;
+  return (
+    segment.slice(0, index) +
+    segment.charAt(index).toUpperCase() +
+    segment.slice(index + 1)
+  );
+}
+
+/**
+ * Title Case for food and meal names: first letter of each word up, small
+ * connector words down (except first/last), hyphen segments each capitalized
+ * ("sugar-free" → "Sugar-Free"). Words already carrying caps past their
+ * first letter — acronyms, brand spellings like "PB&J" or "McCann's" — are
+ * left exactly as written. Whitespace runs collapse to single spaces.
+ */
+export function toTitleCase(name: string): string {
+  const words = name.trim().split(/\s+/);
+  return words
+    .map((word, index) => {
+      if (hasInnerCaps(word)) return word;
+      const isEdge = index === 0 || index === words.length - 1;
+      const bare = word.toLowerCase().replace(/[^\p{L}]/gu, "");
+      if (!isEdge && SMALL_WORDS.has(bare)) return word.toLowerCase();
+      return word
+        .split("-")
+        .map((segment) => capitalizeSegment(segment.toLowerCase()))
+        .join("-");
+    })
+    .join(" ");
 }

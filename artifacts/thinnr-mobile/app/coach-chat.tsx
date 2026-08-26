@@ -51,6 +51,7 @@ import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
 // into the card slot.
 import "@/components/coach/ProductSuggestionCard";
 import "@/components/coach/RecipeSuggestionCard";
+import "@/components/coach/FoodDraftCard";
 import { MealPhotoButton } from "@/components/patient/MealPhotoButton";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -677,7 +678,9 @@ function MessageBubble({ message }: { message: CoachMessage }) {
                 ? "Your meal photo"
                 : message.photo.kind === "menu"
                   ? "Your menu photo"
-                  : "Your photo"
+                  : message.photo.kind === "label"
+                    ? "Your nutrition label photo"
+                    : "Your photo"
             }
           />
         </View>
@@ -741,7 +744,7 @@ function MessageBubble({ message }: { message: CoachMessage }) {
           STOPPED
         </Text>
       ) : null}
-      {message.card ? <CoachCardSlot card={message.card} /> : null}
+      {message.card ? <CoachCardSlot card={message.card} messageId={message.id} /> : null}
       {/* Final failures (retryable === false, e.g. the daily budget is spent
           until tomorrow) hide the chip — the message already says waiting is
           the only fix, so offering RETRY would invite pointless taps. */}

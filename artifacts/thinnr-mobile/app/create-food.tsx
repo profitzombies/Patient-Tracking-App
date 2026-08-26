@@ -13,6 +13,7 @@ import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollV
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
+import { toTitleCase } from '@/lib/title-case';
 
 function parseNum(raw: string): number {
   const value = parseFloat(raw.replace(',', '.'));
@@ -101,7 +102,9 @@ export default function CreateFoodScreen() {
       const fatVal = Number.isNaN(parseNum(fat)) ? 0 : parseNum(fat);
       const trimmedBrand = brand.trim();
       const payload = {
-        name: trimmedName,
+        // Created names are Title Case everywhere (matches coach cards and
+        // the chat's label flow); deliberate caps like "PB&J" survive.
+        name: toTitleCase(trimmedName),
         ...(trimmedBrand ? { brand: trimmedBrand } : {}),
         serving: serving.trim() || '1 serving',
         calories: Math.round(calories),

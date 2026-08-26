@@ -31,14 +31,20 @@ paths:
         "data: {\"card\": {\"kind\", \"payload\"}}" event before done.
         A photo turn sent without photoKind is triaged server-side and the
         resolved route is announced early as one
-        "data: {\"photoKind\": \"menu\"|\"meal\"}" event, so a client retry
-        of that turn can name the same route explicitly.
+        "data: {\"photoKind\": \"menu\"|\"meal\"|\"label\"}" event, so a
+        client retry of that turn can name the same route explicitly.
         Card kinds: "product" — a curated THINNR product suggestion
         ({\"id\", \"name\", \"line\", \"price\"}); "recipe" — a structured
         recipe suggestion emitted on meal-idea and craving turns, whose
         ingredients in cravings mode are validated server-side against the
-        official Approved Foods list. Patient program context is derived
-        server-side from the demo seed; rate limits apply.
+        official Approved Foods list. A nutrition label photo turn also
+        emits one "data: {\"labelDraft\": {...}}" event before done — the
+        validated per-serving read (servingSize, servingsPerContainer,
+        calories, protein, carbs, fat, optional fiber/sugar/sodium,
+        suggestedSlot, flagged) that the client holds through the follow-up
+        name conversation; clients that predate it ignore the event. Patient
+        program context is derived server-side from the demo seed; rate
+        limits apply.
       requestBody:
         required: true
         content:
@@ -470,14 +476,16 @@ components:
             stored. Ignored on assistant messages.
         photoKind:
           type: string
-          enum: [menu, meal]
+          enum: [menu, meal, label]
           description: >-
             What the attached photo shows, chosen by the client flow that
             captured it: "menu" runs the restaurant menu scan; "meal" runs
             the meal analysis that identifies visible foods with estimated
-            portions and returns an editable meal card. When absent, the
-            server inspects the photo and routes it to the fitting pipeline
-            itself. Ignored without an image.
+            portions and returns an editable meal card; "label" runs the
+            nutrition label reader that transcribes the printed facts and
+            emits a labelDraft event for the client's name conversation.
+            When absent, the server inspects the photo and routes it to the
+            fitting pipeline itself. Ignored without an image.
       required:
         - role
         - content

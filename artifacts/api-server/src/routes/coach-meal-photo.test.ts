@@ -248,7 +248,8 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(card.kind).toBe("recipe");
     expect(card.payload.mode).toBe("meal");
     expect(card.payload.id.startsWith("meal_")).toBe(true);
-    expect(card.payload.name).toBe("Grilled chicken with sweet potatoes");
+    // Created names are Title Case at payload assembly ("with" stays small).
+    expect(card.payload.name).toBe("Grilled Chicken with Sweet Potatoes");
     expect(card.payload.servings).toBe(1);
     expect(card.payload.minutes).toBe(0);
     expect(card.payload.steps).toEqual([]);

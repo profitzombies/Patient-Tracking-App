@@ -8,7 +8,15 @@
 import React from 'react';
 import type { CoachCard } from '@/context/CoachChatContext';
 
-type CoachCardRenderer = (props: { payload: unknown }) => React.ReactElement | null;
+type CoachCardRenderer = (props: {
+  payload: unknown;
+  /**
+   * Id of the chat message this card rides on. Cards that act in place
+   * (e.g. the label flow's food card) use it to address their message in
+   * the chat context; display-only cards ignore it.
+   */
+  messageId: string;
+}) => React.ReactElement | null;
 
 const CARD_RENDERERS: Record<string, CoachCardRenderer> = {};
 
@@ -16,8 +24,8 @@ export function registerCoachCard(kind: string, renderer: CoachCardRenderer): vo
   CARD_RENDERERS[kind] = renderer;
 }
 
-export function CoachCardSlot({ card }: { card: CoachCard }) {
+export function CoachCardSlot({ card, messageId }: { card: CoachCard; messageId: string }) {
   const Renderer = CARD_RENDERERS[card.kind];
   if (!Renderer) return null;
-  return <Renderer payload={card.payload} />;
+  return <Renderer payload={card.payload} messageId={messageId} />;
 }

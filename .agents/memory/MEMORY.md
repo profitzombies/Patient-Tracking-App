@@ -30,6 +30,7 @@
 - [Announced error pattern](a11y-announced-errors.md) — ErrorBox self-announces (alert role + live region + iOS announce; never nest live regions); blocked CTAs intercept taps via aria-disabled instead of swallowing them.
 - [Generated recipe image style](recipe-image-style.md) — coach images must match the seeded illustrated family; "crisp outlines" → ink-lines gotcha; the AI-recipe preview shows zero generation UI by design.
 - [Menu & meal photo scans](menu-photo-scan.md) — vision via data-URI parts; image rides only the request tail; kindless photos: server triage announces photoKind, client stamps it so retries never re-triage.
+- [Coach client-held flows](coach-client-flows.md) — sub-conversations that bind a reply to held data (label naming) resolve client-side; finished bubbles ride the bounded request history window.
 - [Coach no-dash voice](coach-no-dash.md) — dashes stripped structurally: whole strings + a chunk-bridging stream smoother that must flush on every writable end, error paths included; catalog names de-dash at display only.
 - [Range picker restart](range-picker-restart.md) — a pre-filled complete range must restart on the next day-click; react-day-picker's default stretches the old range instead.
 - [Tailwind v4 color-token mapping](tailwind-theme-color-mapping.md) — a css var only becomes a utility class once mapped --color-* in @theme inline; unmapped bg-chart-*/text-warn silently render nothing.

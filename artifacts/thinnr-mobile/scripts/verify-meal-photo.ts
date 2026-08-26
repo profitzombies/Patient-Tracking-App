@@ -39,6 +39,21 @@
  *      steps, minutes 0, patient photo, "meal photo" tag) — the Library's
  *      data source — and addEntry lands the adjusted meal in the diary for
  *      its date with the adjustment list preserved.
+ *   7. The label flow: an explicit label turn sends photoKind "label" and
+ *      shows its replay text; the streamed labelDraft is HELD until the
+ *      reply finalizes, then send() resolves the name conversation
+ *      client-side (no network): Title Case proposal → confirm chips →
+ *      client-built "food" card (draft + confirmed name, which never
+ *      round-trips through the model) → rename by chip, by typing, or from
+ *      the card via beginLabelRename.
+ *   8. Kindless label routing: the route announcement stamps the turn and a
+ *      retry names "label" explicitly; label turns never offer the meal
+ *      retake chip; a new photo abandons a pending flow; an errored label
+ *      turn drops the held draft; stop() keeps it when text was shown.
+ *   9. Add-from-card integration: buildCustomFoodFromLabel +
+ *      buildLabelDiaryEntry run the SAME paths as Add Food (custom food in
+ *      "My Foods", editable like any other, diary entry for the chosen
+ *      slot), and markLabelFoodAdded freezes the card payload.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:meal-photo
  */
@@ -47,9 +62,16 @@ import React, { act } from 'react';
 import {
   CoachChatProvider,
   GREETING_MESSAGE_ID,
+  LABEL_CARD_INTRO,
+  LABEL_CONFIRM_CREATE,
+  LABEL_CONFIRM_FIX,
+  LABEL_PHOTO_MESSAGE_TEXT,
+  LABEL_RENAME_ASK,
   MEAL_PHOTO_MESSAGE_TEXT,
   MENU_PHOTO_MESSAGE_TEXT,
   PHOTO_MESSAGE_TEXT,
+  labelConfirmText,
+  labelRenamedAck,
   offersMealPhotoRetake,
   useCoachChat,
   type CoachMessage,
@@ -57,11 +79,22 @@ import {
 import { PatientProvider, usePatient } from '../context/PatientContext';
 import { parseRecipeCardPayload } from '../lib/ai-recipe';
 import {
+  buildCustomFoodFromLabel,
+  buildLabelDiaryEntry,
+  parseLabelFoodCardPayload,
+} from '../lib/label-food';
+import { toTitleCase } from '../lib/title-case';
+import {
   adjustedPerServing,
   applyAdjustments,
   totalsForQuantity,
 } from '../data/ingredient-nutrition';
-import type { MealLogEntry, RecipeIngredient, SavedRecipe } from '../data/patient-data';
+import {
+  TODAY_KEY,
+  type MealLogEntry,
+  type RecipeIngredient,
+  type SavedRecipe,
+} from '../data/patient-data';
 
 let checks = 0;
 let failures = 0;
@@ -222,7 +255,8 @@ async function waitUntil(
 const MEAL_CARD_PAYLOAD = {
   id: 'meal_test_1',
   mode: 'meal',
-  name: 'Grilled chicken with sweet potatoes',
+  // The real server Title Cases created names at payload assembly.
+  name: 'Grilled Chicken with Sweet Potatoes',
   description: 'Grilled chicken breast with a side of roasted sweet potatoes.',
   meal: 'dinner',
   minutes: 0,
@@ -257,6 +291,30 @@ const MEAL_REPLY_TEXT = [
 const MEAL_PHOTO = { uri: 'file:///meal-photo.jpg', width: 800, height: 600 };
 const RETRY_PHOTO = { uri: 'file:///meal-retake.jpg', width: 800, height: 600 };
 const MENU_PHOTO = { uri: 'file:///menu-photo.jpg', width: 800, height: 600 };
+
+/** The server's validated Nutrition Facts read for one label photo. */
+const LABEL_DRAFT = {
+  id: 'label_test_1',
+  servingSize: '2/3 cup (55g)',
+  servingsPerContainer: 8,
+  calories: 230,
+  protein: 8,
+  carbs: 37,
+  fat: 8,
+  fiber: 4,
+  sugar: 12,
+  sodium: 160,
+  suggestedSlot: 'lunch',
+};
+
+const LABEL_REPLY_TEXT = [
+  'Nice, a label I can actually read.',
+  'Per serving (2/3 cup (55g)): 230 cal · 8g protein · 37g carbs · 8g fat\nServings per container: 8\nAlso printed: 4g fiber · 12g sugar · 160mg sodium',
+  "One thing the label never tells me is the name. Type what this food is called, brand and all, and I'll set it up as a food you can log anytime.",
+].join('\n\n');
+
+const LABEL_PHOTO = { uri: 'file:///label-photo.jpg', width: 800, height: 600 };
+const LABEL_KINDLESS_PHOTO = { uri: 'file:///label-kindless.jpg', width: 800, height: 600 };
 
 async function main() {
   process.env.EXPO_PUBLIC_DOMAIN = 'meal-photo.internal';
@@ -814,6 +872,418 @@ async function main() {
     assertEqual('the logged entry links back to the saved meal', entry?.refId ?? '', saved?.id ?? '');
   }
   patientTree.unmount();
+
+  // ── 5. The label flow: photo → read → name → confirm → card → rename ──────
+  // One tree carries BOTH providers so the Add integration later drives the
+  // same context pair the food card component sees.
+  let labelTree!: { unmount(): void };
+  await act(async () => {
+    labelTree = TestRenderer.create!(
+      React.createElement(
+        PatientProvider,
+        null,
+        React.createElement(PatientProbe),
+        React.createElement(
+          CoachChatProvider,
+          { now: () => FIXED_NOW },
+          React.createElement(ChatProbe),
+        ),
+      ),
+    );
+    await settle();
+  });
+  await waitUntil(
+    'patient state hydrates for the label flow',
+    () => patient !== undefined && patient.hydrated,
+  );
+
+  // 5a. Explicit label turn: replay text, kept kind, tail-only photoKind
+  // "label", and the streamed draft opens the name conversation only once
+  // the reply finalizes.
+  await actSettle(() => {
+    chat.sendPhoto(LABEL_PHOTO, 'label');
+  });
+  const labelTurn = chat.messages[chat.messages.length - 2];
+  assertEqual('the label turn shows the label replay text', labelTurn.text, LABEL_PHOTO_MESSAGE_TEXT);
+  assertEqual('the label turn keeps the photo kind', labelTurn.photo?.kind ?? '', 'label');
+  const sL1 = takeStream('label turn');
+  {
+    const msgs = sL1.requestBody.messages ?? [];
+    const tail = msgs[msgs.length - 1];
+    assertEqual('the label request tail carries the image', tail?.image ?? '', LABEL_PHOTO.uri);
+    assertEqual('the label request tail carries photoKind "label"', tail?.photoKind ?? '', 'label');
+    assertEqual('the label request carries the injected local time', sL1.requestBody.localTime ?? '', '14:05');
+  }
+  await actSettle(() => {
+    sL1.emit({ content: LABEL_REPLY_TEXT });
+    sL1.emit({ labelDraft: LABEL_DRAFT });
+  });
+  assert('the held draft opens no flow while streaming', chat.labelFlow === null);
+  await actSettle(() => {
+    sL1.emit({ done: true });
+    sL1.close();
+  });
+  await waitUntil(
+    'the label reply reveals fully and finalizes',
+    () => tailMessage().status === 'done' && tailMessage().text === LABEL_REPLY_TEXT,
+  );
+  await waitUntil(
+    'the finalized label reply opens the name conversation',
+    () => chat.labelFlow?.phase === 'awaiting-name',
+  );
+  assertEqual('the flow holds the draft calories', chat.labelFlow?.draft.calories ?? -1, 230);
+  assertEqual('the flow holds the suggested slot', chat.labelFlow?.draft.suggestedSlot ?? '', 'lunch');
+  assert(
+    'a label reply never offers the meal retake chip',
+    offersMealPhotoRetake(chat.messages, chat.isStreaming) === false,
+  );
+  assert(
+    'the name ask ends the reply without fallback chips',
+    !tailMessage().text.trimEnd().endsWith('?') && tailMessage().quickReplies === undefined,
+  );
+
+  // 5b. The patient names the product: resolved CLIENT-SIDE (no stream), the
+  // proposal is Title Case, and the confirm bubble carries its two chips.
+  await actSettle(() => {
+    chat.send('overnight muesli original');
+  });
+  assertEqual('the name reply opens NO coach stream', opened.length, 0);
+  {
+    const userBubble = chat.messages[chat.messages.length - 2];
+    const confirm = tailMessage();
+    assertEqual('the typed name shows as a user bubble', userBubble.text, 'overnight muesli original');
+    assertEqual('the confirm bubble proposes the Title Case name', confirm.text, labelConfirmText('Overnight Muesli Original'));
+    assert('the confirm bubble ends with a question', confirm.text.trimEnd().endsWith('?'));
+    assert('the confirm bubble is already done', confirm.status === 'done');
+    assertEqual('the confirm bubble replies to the name turn', confirm.replyToId ?? '', userBubble.id);
+    assertEqual(
+      'the confirm bubble carries the two label chips',
+      (confirm.quickReplies ?? []).join('|'),
+      `${LABEL_CONFIRM_CREATE}|${LABEL_CONFIRM_FIX}`,
+    );
+  }
+  assertEqual('the flow moves to confirming', chat.labelFlow?.phase ?? '', 'confirming');
+
+  // 5c. "Fix the name" loops back to the ask.
+  await actSettle(() => {
+    chat.send(LABEL_CONFIRM_FIX);
+  });
+  assertEqual('the fix chip opens NO coach stream', opened.length, 0);
+  assertEqual('the fix chip re-asks for the name', tailMessage().text, LABEL_RENAME_ASK);
+  assertEqual('the flow returns to awaiting-name', chat.labelFlow?.phase ?? '', 'awaiting-name');
+
+  // 5d. A fresh name re-confirms; deliberate inner caps survive Title Case.
+  await actSettle(() => {
+    chat.send('PB&J overnight muesli');
+  });
+  assertEqual(
+    'the corrected name reconfirms with inner caps intact',
+    tailMessage().text,
+    labelConfirmText('PB&J Overnight Muesli'),
+  );
+  assertEqual('the flow is confirming again', chat.labelFlow?.phase ?? '', 'confirming');
+
+  // 5e. Typing during confirm (not a chip) is treated as a correction.
+  await actSettle(() => {
+    chat.send('overnight muesli jar');
+  });
+  assertEqual(
+    'typed text during confirm becomes the new proposal',
+    tailMessage().text,
+    labelConfirmText('Overnight Muesli Jar'),
+  );
+
+  // 5f. "Create the food" builds the card from the HELD draft + name.
+  await actSettle(() => {
+    chat.send(LABEL_CONFIRM_CREATE);
+  });
+  assertEqual('the create chip opens NO coach stream', opened.length, 0);
+  const cardMessage = tailMessage();
+  assertEqual('the card bubble carries the intro line', cardMessage.text, LABEL_CARD_INTRO);
+  assert('the card intro does not end in a question', !LABEL_CARD_INTRO.trimEnd().endsWith('?'));
+  assert('the card bubble carries a food card', cardMessage.card?.kind === 'food');
+  assert('creating the food closes the flow', chat.labelFlow === null);
+  const cardPayload = parseLabelFoodCardPayload(cardMessage.card?.payload);
+  assert('the card payload parses', cardPayload !== null);
+  if (cardPayload) {
+    assertEqual('the card carries the confirmed name', cardPayload.name, 'Overnight Muesli Jar');
+    assertEqual('the card carries the draft id', cardPayload.id, 'label_test_1');
+    assertEqual('the card carries the serving size', cardPayload.servingSize, '2/3 cup (55g)');
+    assertEqual('the card carries the calories', cardPayload.calories, 230);
+    assertEqual('the card carries the suggested slot', cardPayload.suggestedSlot, 'lunch');
+    assertEqual('the card carries the fiber extra', cardPayload.fiber ?? -1, 4);
+    assert('an unflagged read carries no flag', cardPayload.flagged === undefined);
+    assert('a fresh card is not added yet', cardPayload.added === undefined);
+  }
+
+  // 5g. Rename from the card: beginLabelRename hands the NEXT typed message
+  // to the card, updating its payload in place.
+  await actSettle(() => {
+    chat.beginLabelRename(cardMessage.id);
+  });
+  assertEqual('beginLabelRename opens the renaming flow', chat.labelFlow?.phase ?? '', 'renaming');
+  assertEqual('the renaming flow targets the card message', chat.labelFlow?.cardMessageId ?? '', cardMessage.id);
+  await actSettle(() => {
+    chat.send('overnight muesli original jar');
+  });
+  assertEqual('the rename opens NO coach stream', opened.length, 0);
+  {
+    const renamed = chat.messages.find(m => m.id === cardMessage.id);
+    const renamedPayload = parseLabelFoodCardPayload(renamed?.card?.payload);
+    assertEqual(
+      'the card payload takes the Title Case rename in place',
+      renamedPayload?.name ?? '',
+      'Overnight Muesli Original Jar',
+    );
+    assertEqual(
+      'the rename is acknowledged in the coach voice',
+      tailMessage().text,
+      labelRenamedAck('Overnight Muesli Original Jar'),
+    );
+    assert('the rename closes the flow', chat.labelFlow === null);
+  }
+
+  // 5h. With the flow closed, text reaches the coach again. The name
+  // conversation happened client-side, but its bubbles are ordinary done
+  // messages, so the request history carries them: the coach's later turns
+  // know the food and its confirmed name without any model-side state.
+  await actSettle(() => {
+    chat.send('Thanks coach.');
+  });
+  const sL2 = takeStream('post-flow follow-up');
+  {
+    const msgs = sL2.requestBody.messages ?? [];
+    assertEqual(
+      'the post-flow send reaches the coach',
+      msgs[msgs.length - 1]?.content ?? '',
+      'Thanks coach.',
+    );
+    assert(
+      'the client-side rename ack rides the request history',
+      msgs.some(
+        m => m.role === 'assistant' && m.content === labelRenamedAck('Overnight Muesli Original Jar'),
+      ),
+    );
+    assert(
+      "the patient's typed rename rides the request history",
+      msgs.some(m => m.role === 'user' && m.content === 'overnight muesli original jar'),
+    );
+    assert(
+      'no message in the follow-up carries an image or photoKind',
+      msgs.every(m => m.image === undefined && m.photoKind === undefined),
+    );
+  }
+  await actSettle(() => {
+    sL2.emit({ content: 'Anytime. That jar sounds like a solid breakfast.' });
+    sL2.emit({ done: true });
+    sL2.close();
+  });
+  await waitUntil('the post-flow reply finalizes', () => tailMessage().status === 'done');
+
+  // ── 6. Kindless label routing, retry pinning, abandon, error, stop ────────
+
+  // 6a. A kindless photo the server announces as "label" stamps the turn;
+  // retry() names the label route explicitly and the retried reply opens
+  // the flow (flagged draft with a blank container parses through).
+  await actSettle(() => {
+    chat.sendPhoto(LABEL_KINDLESS_PHOTO);
+  });
+  const kindlessLabelTurnId = chat.messages[chat.messages.length - 2].id;
+  const sL3 = takeStream('kindless label turn');
+  {
+    const msgs = sL3.requestBody.messages ?? [];
+    assert(
+      'the kindless label send carries NO photoKind',
+      msgs[msgs.length - 1]?.photoKind === undefined,
+    );
+  }
+  await actSettle(() => {
+    sL3.emit({ photoKind: 'label' });
+    sL3.emit({ error: 'The coach hit a snag reading that photo.' });
+    sL3.close();
+  });
+  await waitUntil('the kindless label turn errors', () => tailMessage().status === 'error');
+  assertEqual(
+    "the route announcement stamped 'label' onto the photo turn",
+    chat.messages.find(m => m.id === kindlessLabelTurnId)?.photo?.kind ?? '',
+    'label',
+  );
+  assert('an errored label turn holds no draft', chat.labelFlow === null);
+  assert(
+    'a stamped label turn offers no meal retake chip',
+    offersMealPhotoRetake(chat.messages, chat.isStreaming) === false,
+  );
+  const labelErrorId = tailMessage().id;
+  await actSettle(() => {
+    chat.retry(labelErrorId);
+  });
+  const sL4 = takeStream('label retry');
+  {
+    const msgs = sL4.requestBody.messages ?? [];
+    const tail = msgs[msgs.length - 1];
+    assertEqual('the retry names the announced label route', tail?.photoKind ?? '', 'label');
+    assertEqual('the retry re-sends the same label photo', tail?.image ?? '', LABEL_KINDLESS_PHOTO.uri);
+    assertEqual('the retry keeps the generic replay text', tail?.content ?? '', PHOTO_MESSAGE_TEXT);
+  }
+  await actSettle(() => {
+    sL4.emit({ content: 'Got it this time. Now, what is this one called?' });
+    sL4.emit({
+      labelDraft: {
+        id: 'label_test_2',
+        servingSize: '1 bar (40g)',
+        servingsPerContainer: null,
+        calories: 190,
+        protein: 9,
+        carbs: 18,
+        fat: 9,
+        suggestedSlot: 'snacks',
+        flagged: true,
+      },
+    });
+    sL4.emit({ done: true });
+    sL4.close();
+  });
+  await waitUntil(
+    'the retried label reply opens the flow',
+    () => chat.labelFlow?.phase === 'awaiting-name',
+  );
+  assert('a flagged draft parses through', chat.labelFlow?.draft.flagged === true);
+  assert(
+    'a blank servings-per-container parses through',
+    chat.labelFlow?.draft.servingsPerContainer === null,
+  );
+
+  // 6b. A new photo abandons the pending name conversation.
+  await actSettle(() => {
+    chat.sendPhoto(MENU_PHOTO);
+  });
+  assert('a fresh photo abandons the pending label flow', chat.labelFlow === null);
+  const sL5 = takeStream('abandoning photo turn');
+  await actSettle(() => {
+    sL5.emit({ photoKind: 'menu' });
+    sL5.emit({ content: 'Menu noted.' });
+    sL5.emit({ done: true });
+    sL5.close();
+  });
+  await waitUntil('the abandoning turn finalizes', () => tailMessage().status === 'done');
+
+  // 6c. Stop mid-reveal: the held draft survives exactly when the partial
+  // bubble was kept, so the name ask refers to text the patient saw.
+  await actSettle(() => {
+    chat.sendPhoto(LABEL_PHOTO, 'label');
+  });
+  const sL6 = takeStream('stopped label turn');
+  await actSettle(() => {
+    sL6.emit({ content: LABEL_REPLY_TEXT });
+    sL6.emit({ labelDraft: LABEL_DRAFT });
+  });
+  await waitUntil('the stopped turn revealed some text', () => tailMessage().text.length > 0);
+  await actSettle(() => {
+    chat.stop();
+  });
+  {
+    const stoppedTail = tailMessage();
+    assert('stop finalizes the partial bubble', stoppedTail.status === 'done' && stoppedTail.stopped === true);
+  }
+  assertEqual(
+    'stop with a kept bubble still opens the name conversation',
+    chat.labelFlow?.phase ?? '',
+    'awaiting-name',
+  );
+
+  // ── 7. Add-from-card integration: the same paths as Add Food ──────────────
+  {
+    const payload = parseLabelFoodCardPayload(
+      chat.messages.find(m => m.id === cardMessage.id)?.card?.payload,
+    );
+    if (!payload) {
+      fail('the food card payload should still parse for the add step');
+      finish();
+    }
+
+    const foodsBefore = patient.customFoods.length;
+    const entriesBefore = patient.entriesForDate(TODAY_KEY).length;
+
+    let food!: Awaited<ReturnType<typeof patient.addCustomFood>>;
+    await act(async () => {
+      food = await patient.addCustomFood(buildCustomFoodFromLabel(payload));
+    });
+    assertEqual('the saved food keeps the confirmed name', food.name, 'Overnight Muesli Original Jar');
+    assertEqual('the saved food serves the label serving', food.serving, '2/3 cup (55g)');
+    assertEqual('the saved food keeps the label calories', food.calories, 230);
+    assertEqual('the saved food keeps the label protein', food.protein, 8);
+    assertEqual('the saved food lands in "My Foods"', food.category, 'My Foods');
+    assertEqual('the food list grew by one', patient.customFoods.length, foodsBefore + 1);
+    assert(
+      'the saved food is visible in the Add Food data source',
+      patient.customFoods.some(f => f.id === food.id),
+    );
+
+    await act(async () => {
+      await patient.addEntry(buildLabelDiaryEntry(food, 'lunch', TODAY_KEY));
+    });
+    const entries = patient.entriesForDate(TODAY_KEY);
+    assertEqual('the diary gained exactly one entry', entries.length, entriesBefore + 1);
+    const entry = entries.find(e => e.refId === food.id);
+    assert('the logged entry references the saved food', entry !== undefined);
+    assertEqual('the entry lands in the chosen slot', entry?.meal ?? '', 'lunch');
+    assertEqual('the entry logs one serving', entry?.detail ?? '', '1 × 2/3 cup (55g)');
+    assertEqual('the entry carries the label calories', entry?.calories ?? -1, 230);
+    assertEqual('the entry kind is "food"', entry?.kind ?? '', 'food');
+
+    // The card freezes once added: payload flips, and beginLabelRename
+    // refuses (renames now belong to the custom-food edit screen).
+    await actSettle(() => {
+      chat.markLabelFoodAdded(cardMessage.id, 'lunch');
+    });
+    const frozen = parseLabelFoodCardPayload(
+      chat.messages.find(m => m.id === cardMessage.id)?.card?.payload,
+    );
+    assert('markLabelFoodAdded flips the payload', frozen?.added === true);
+    assertEqual('the frozen payload remembers the slot', frozen?.addedSlot ?? '', 'lunch');
+    await actSettle(() => {
+      chat.beginLabelRename(cardMessage.id);
+    });
+    assert(
+      'beginLabelRename refuses an added card',
+      chat.labelFlow === null || chat.labelFlow.phase === 'awaiting-name',
+    );
+
+    // Saved from chat means editable like any custom food.
+    await act(async () => {
+      await patient.updateCustomFood(food.id, {
+        name: 'Muesli Jar',
+        serving: food.serving,
+        calories: food.calories,
+        protein: food.protein,
+        carbs: food.carbs,
+        fat: food.fat,
+      });
+    });
+    assertEqual(
+      'the saved food edits like any custom food',
+      patient.customFoods.find(f => f.id === food.id)?.name ?? '',
+      'Muesli Jar',
+    );
+  }
+
+  assertEqual('every label-flow stream was accounted for', opened.length, 0);
+  labelTree.unmount();
+
+  // ── 8. Title Case: the one shared naming helper ────────────────────────────
+  assertEqual('title-cases a plain lowercase name', toTitleCase('overnight muesli'), 'Overnight Muesli');
+  assertEqual(
+    'keeps small words down mid-name',
+    toTitleCase('grilled chicken with sweet potatoes'),
+    'Grilled Chicken with Sweet Potatoes',
+  );
+  assertEqual('capitalizes the first word even when small', toTitleCase('on the go trail mix'), 'On the Go Trail Mix');
+  assertEqual('capitalizes the last word even when small', toTitleCase('food to go'), 'Food to Go');
+  assertEqual('leaves deliberate caps alone', toTitleCase('PB&J bar'), 'PB&J Bar');
+  assertEqual("keeps brand inner caps (McCann's)", toTitleCase("McCann's steel cut oats"), "McCann's Steel Cut Oats");
+  assertEqual('capitalizes hyphen segments', toTitleCase('7-grain crackers'), '7-Grain Crackers');
+  assertEqual('collapses stray whitespace', toTitleCase('  greek   yogurt '), 'Greek Yogurt');
+  assertEqual('is idempotent', toTitleCase(toTitleCase('overnight muesli original')), 'Overnight Muesli Original');
 
   finish();
 }

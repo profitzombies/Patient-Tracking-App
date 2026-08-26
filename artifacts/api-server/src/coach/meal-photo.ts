@@ -25,7 +25,7 @@
 import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { cleanModelText, extractModelJson } from "./model-json";
-import { stripDashes } from "./text-style";
+import { stripDashes, toTitleCase } from "./text-style";
 import { patientContextLine, type PatientContext } from "./prompt";
 import {
   normalizeIngredientNutrition,
@@ -390,7 +390,9 @@ function toMealPayload(
   return {
     id: `meal_${Date.now().toString(36)}_${mealSeq}`,
     mode: "meal",
-    name: shaped.name,
+    // Created names are Title Case everywhere (chat label foods, the
+    // create-food screen, recipe cards) — meal cards included.
+    name: toTitleCase(shaped.name),
     description: shaped.description,
     meal: shaped.meal,
     minutes: 0,

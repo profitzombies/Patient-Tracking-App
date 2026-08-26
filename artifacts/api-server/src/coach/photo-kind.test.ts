@@ -1,8 +1,9 @@
 /**
  * Unit tests for the chat camera's photo triage: menu photos route to the
- * menu scan, everything else (food, other, invalid output, upstream
- * failures) resolves to the meal pipeline, whose not-food outcome reads
- * junk photos warmly. Client disconnects propagate instead of defaulting.
+ * menu scan, Nutrition Facts panels to the label reader, everything else
+ * (food, other, invalid output, upstream failures) resolves to the meal
+ * pipeline, whose not-food outcome reads junk photos warmly. Client
+ * disconnects propagate instead of defaulting.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -49,6 +50,12 @@ describe("resolvePhotoKind", () => {
     modelState.content = '{"subject":"menu"}';
     const kind = await resolvePhotoKind({ image: IMAGE, signal: freshSignal(), log: makeLog() });
     expect(kind).toBe("menu");
+  });
+
+  it("routes a Nutrition Facts panel to the label pipeline", async () => {
+    modelState.content = '{"subject":"label"}';
+    const kind = await resolvePhotoKind({ image: IMAGE, signal: freshSignal(), log: makeLog() });
+    expect(kind).toBe("label");
   });
 
   it("routes food to the meal pipeline", async () => {

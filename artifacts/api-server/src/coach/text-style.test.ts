@@ -4,8 +4,9 @@
  * guard that the canned coach strings themselves obey the rule.
  */
 import { describe, expect, it } from "vitest";
-import { DashSmoother, stripDashes } from "./text-style";
+import { DashSmoother, stripDashes, toTitleCase } from "./text-style";
 import { MEAL_CARD_CLOSER, MEAL_TRY_ANOTHER_PHOTO } from "./meal-chat";
+import { LABEL_CHECK_NOTE, LABEL_NAME_ASK, LABEL_TRY_ANOTHER_PHOTO } from "./label-chat";
 import { MENU_RECIPE_OFFER, MENU_RECIPE_OFFER_EMPTY } from "./menu-chat";
 import { COACH_VOICE_RULES } from "./prompt";
 
@@ -96,11 +97,57 @@ describe("canned coach strings obey the no-dash voice rule", () => {
     ["MEAL_TRY_ANOTHER_PHOTO", MEAL_TRY_ANOTHER_PHOTO],
     ["MENU_RECIPE_OFFER", MENU_RECIPE_OFFER],
     ["MENU_RECIPE_OFFER_EMPTY", MENU_RECIPE_OFFER_EMPTY],
+    ["LABEL_NAME_ASK", LABEL_NAME_ASK],
+    ["LABEL_TRY_ANOTHER_PHOTO", LABEL_TRY_ANOTHER_PHOTO],
+    ["LABEL_CHECK_NOTE", LABEL_CHECK_NOTE],
   ])("%s carries no em or en dash", (_name, text) => {
     expect(text).not.toMatch(/[\u2013\u2014]/);
   });
 
   it("the shared voice rules ban the em dash by name", () => {
     expect(COACH_VOICE_RULES).toContain("em dash");
+  });
+});
+
+describe("toTitleCase", () => {
+  it("capitalizes plain lowercase names", () => {
+    expect(toTitleCase("grilled chicken with sweet potatoes")).toBe(
+      "Grilled Chicken with Sweet Potatoes",
+    );
+  });
+
+  it("keeps small connector words lowercase mid-name", () => {
+    expect(toTitleCase("bowl of oats and berries")).toBe("Bowl of Oats and Berries");
+  });
+
+  it("capitalizes a small word at the start and at the end", () => {
+    expect(toTitleCase("on the go trail mix")).toBe("On the Go Trail Mix");
+    expect(toTitleCase("smoothie to go")).toBe("Smoothie to Go");
+  });
+
+  it("capitalizes each hyphen segment", () => {
+    expect(toTitleCase("sugar-free vanilla pudding")).toBe("Sugar-Free Vanilla Pudding");
+  });
+
+  it("leaves acronyms and brand spellings untouched", () => {
+    expect(toTitleCase("PB&J energy bites")).toBe("PB&J Energy Bites");
+    expect(toTitleCase("McCann's steel cut oats")).toBe("McCann's Steel Cut Oats");
+    expect(toTitleCase("THINNR shake")).toBe("THINNR Shake");
+  });
+
+  it("normalizes shouty single-case words but preserves digits and punctuation", () => {
+    expect(toTitleCase("greek yogurt (2%)")).toBe("Greek Yogurt (2%)");
+    expect(toTitleCase("7-grain bread")).toBe("7-Grain Bread");
+  });
+
+  it("collapses stray whitespace", () => {
+    expect(toTitleCase("  overnight   oats ")).toBe("Overnight Oats");
+  });
+
+  it("returns already Title Case names byte-identical", () => {
+    expect(toTitleCase("Baked Salmon Bowl")).toBe("Baked Salmon Bowl");
+    expect(toTitleCase("Grilled Chicken with Sweet Potatoes")).toBe(
+      "Grilled Chicken with Sweet Potatoes",
+    );
   });
 });

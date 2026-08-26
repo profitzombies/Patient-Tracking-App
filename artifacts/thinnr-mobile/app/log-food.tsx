@@ -32,6 +32,7 @@ import {
   type MealSlot,
 } from '@/data/patient-data';
 import { useLoggableItems, type LoggableItem } from '@/hooks/useLoggableItems';
+import { toTitleCase } from '@/lib/title-case';
 
 type Scope = 'recent' | 'favorites' | 'all';
 
@@ -268,7 +269,8 @@ export default function LogFoodScreen() {
       const fat = Number.isNaN(parseNum(quickFat)) ? 0 : parseNum(quickFat);
       const serving = quickServing.trim() || '1 serving';
       const food = await patient.addCustomFood({
-        name,
+        // Created names are Title Case everywhere foods are created.
+        name: toTitleCase(name),
         serving,
         calories: Math.round(calories),
         protein: Math.round(protein),

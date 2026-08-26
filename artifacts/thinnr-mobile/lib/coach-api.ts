@@ -8,8 +8,11 @@
  * one-tap answers fitting the reply's closing question), then
  * `data: {"done": true}` (or `data: {"error": "..."}`). A photo turn sent
  * without a kind is triaged server-side; the resolved route arrives early as
- * one `data: {"photoKind": "menu"|"meal"}` event so the client can stamp the
- * photo turn and a retry names the same route explicitly.
+ * one `data: {"photoKind": "menu"|"meal"|"label"}` event so the client can
+ * stamp the photo turn and a retry names the same route explicitly. A
+ * nutrition-label turn additionally carries one `data: {"labelDraft": {...}}`
+ * event — the validated transcription the chat context holds through the
+ * follow-up name conversation (see lib/label-food.ts).
  *
  * Web uses the browser's streaming fetch; native uses expo/fetch, which
  * supports ReadableStream bodies on device. If a body stream is unavailable,
@@ -46,10 +49,11 @@ export interface CoachRequestMessage {
   /**
    * What the attached photo shows: "menu" (default when absent) runs the
    * restaurant menu scan, "meal" the plate-logging analysis that answers
-   * with an editable meal card. Sent only alongside `image` on the final
-   * message; meaningless without one.
+   * with an editable meal card, "label" the Nutrition Facts reader that
+   * answers with a transcription plus a labelDraft event. Sent only
+   * alongside `image` on the final message; meaningless without one.
    */
-  photoKind?: 'menu' | 'meal';
+  photoKind?: 'menu' | 'meal' | 'label';
 }
 
 export interface CoachChatRequestBody {
@@ -98,7 +102,14 @@ export interface CoachStreamCallbacks {
    * Server-resolved pipeline for a photo sent without a kind. Arrives before
    * the reply text; lets the client pin the route for retries.
    */
-  onPhotoKind?: (kind: 'menu' | 'meal') => void;
+  onPhotoKind?: (kind: 'menu' | 'meal' | 'label') => void;
+  /**
+   * Validated Nutrition Facts read for a label photo turn (sent before
+   * done). Passed through unparsed — the chat context validates the shape
+   * (lib/label-food.ts) and holds it for the name conversation, so a
+   * malformed draft drops the flow there instead of half-opening it.
+   */
+  onLabelDraft?: (draft: unknown) => void;
 }
 
 export interface CoachStreamOptions {
@@ -145,6 +156,7 @@ function drainSseBuffer(
         card?: unknown;
         quickReplies?: unknown;
         photoKind?: unknown;
+        labelDraft?: unknown;
         done?: boolean;
         error?: string;
       };
@@ -161,8 +173,14 @@ function drainSseBuffer(
       } else if (payload.quickReplies !== undefined) {
         const labels = parseQuickReplies(payload.quickReplies);
         if (labels.length > 0) callbacks.onQuickReplies?.(labels);
-      } else if (payload.photoKind === 'menu' || payload.photoKind === 'meal') {
+      } else if (
+        payload.photoKind === 'menu' ||
+        payload.photoKind === 'meal' ||
+        payload.photoKind === 'label'
+      ) {
         callbacks.onPhotoKind?.(payload.photoKind);
+      } else if (payload.labelDraft !== undefined) {
+        callbacks.onLabelDraft?.(payload.labelDraft);
       } else if (payload.error) {
         state.finished = true;
         // Mid-stream errors are outages, not budget denials — retrying helps.

@@ -8,6 +8,7 @@ import { acquireChatSlot, acquireMenuScanSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
 import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
+import { generateLabelChatTurn } from "../coach/label-chat";
 import { generateMealChatTurn } from "../coach/meal-chat";
 import { buildMealSlotContext } from "../coach/meal-slot";
 import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
@@ -133,7 +134,8 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     // Which model pipeline answers this turn — failure/completion logs carry
     // it (plus elapsed time) so a mystery error bubble can be traced to the
     // pipeline and duration that produced it.
-    let pipeline: "plain" | "menu" | "meal" | "menu-recipe" | "recipe" | "cravings" = "plain";
+    let pipeline: "plain" | "menu" | "meal" | "label" | "menu-recipe" | "recipe" | "cravings" =
+      "plain";
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -161,10 +163,11 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // menu screen and older clients say "menu". The chat composer's camera
       // sends NO kind — the patient just snapped whatever is in front of
       // them — so a tiny vision triage looks at the photo and picks the
-      // pipeline itself: a menu gets the ordering scan, anything else the
-      // plate-logging analysis (whose not-food outcome reads junk photos
-      // warmly). The keepalive above is already running, so the extra call
-      // never leaves the stream silent.
+      // pipeline itself: a menu gets the ordering scan, a Nutrition Facts
+      // panel the label reader, anything else the plate-logging analysis
+      // (whose not-food outcome reads junk photos warmly). The keepalive
+      // above is already running, so the extra call never leaves the stream
+      // silent.
       const resolvedPhotoKind =
         image === undefined
           ? undefined
@@ -211,6 +214,43 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               items: mealTurn.itemCount,
             },
             "coach meal photo turn completed",
+          );
+        }
+        return;
+      }
+
+      // ── Nutrition label turn ────────────────────────────────────────────
+      // A packaged food's Nutrition Facts panel: the label reader transcribes
+      // the printed values (never estimates) and the reply reads them back,
+      // then asks what the product is called. The validated read rides the
+      // dedicated `labelDraft` event — no card here, because the client holds
+      // the draft through the name conversation and builds the food card
+      // locally once the name settles. Old clients ignore the extra event and
+      // simply see the text. Unreadable and not-a-label photos are warm
+      // conversational outcomes, never errors.
+      if (image !== undefined && resolvedPhotoKind === "label") {
+        pipeline = "label";
+        const labelTurn = await generateLabelChatTurn({
+          image,
+          patient: patientContext,
+          slot: slotContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: labelTurn.reply })}\n\n`);
+          if (labelTurn.draft) {
+            res.write(`data: ${JSON.stringify({ labelDraft: labelTurn.draft })}\n\n`);
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            {
+              pipeline,
+              elapsedMs: Date.now() - startedAt,
+              outcome: labelTurn.outcome,
+              flagged: labelTurn.draft?.flagged === true,
+            },
+            "coach label photo turn completed",
           );
         }
         return;

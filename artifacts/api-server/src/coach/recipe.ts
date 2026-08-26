@@ -19,7 +19,7 @@ import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { COMPARTMENTS, type Compartment } from "./compartments";
 import { cleanModelText, extractModelJson } from "./model-json";
-import { stripDashes } from "./text-style";
+import { stripDashes, toTitleCase } from "./text-style";
 import {
   COACH_PERSONA_LINE,
   COACH_VOICE_RULES,
@@ -475,7 +475,9 @@ function toPayload(recipe: GeneratedRecipe, mode: RecipeMode): RecipeCardPayload
   return {
     id: `sugg_${Date.now().toString(36)}_${suggestionSeq}`,
     mode,
-    name: recipe.name,
+    // Created names are Title Case everywhere (chat label foods, the
+    // create-food screen, meal cards) — recipe cards included.
+    name: toTitleCase(recipe.name),
     description: recipe.description,
     meal: recipe.meal,
     minutes: Math.max(1, Math.round(recipe.minutes)),

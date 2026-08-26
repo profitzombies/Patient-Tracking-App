@@ -8,6 +8,7 @@
  * decides which pipeline should answer:
  *
  *   "menu" → the restaurant menu scan (picks, skips, recipe offer)
+ *   "label" → the nutrition label reader (facts read-back, then a name ask)
  *   anything else → the meal analysis, whose not-food outcome already reads
  *   junk photos warmly (so "other" needs no pipeline of its own).
  *
@@ -29,9 +30,9 @@ import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 export const PHOTO_TRIAGE_MODEL = "gpt-5-nano";
 
 /** The pipelines a chat photo can route to. */
-export type ResolvedPhotoKind = "menu" | "meal";
+export type ResolvedPhotoKind = "menu" | "meal" | "label";
 
-const TriageSchema = z.object({ subject: z.enum(["menu", "food", "other"]) });
+const TriageSchema = z.object({ subject: z.enum(["menu", "food", "label", "other"]) });
 
 /**
  * Kept as an exported constant so route tests can recognize a triage call by
@@ -39,21 +40,23 @@ const TriageSchema = z.object({ subject: z.enum(["menu", "food", "other"]) });
  */
 export const PHOTO_TRIAGE_PROMPT = `You are the photo triage step inside the THINNR patient app. The patient attached a photo in a chat with their coach; decide what it mainly shows so the right helper answers.
 
-Respond with a single JSON object and nothing else, no markdown: {"subject": "menu" | "food" | "other"}
+Respond with a single JSON object and nothing else, no markdown: {"subject": "menu" | "food" | "label" | "other"}
 
 - "menu": a restaurant menu the patient could order from: a printed page, folded card, menu board, or menu shown on a screen, listing dishes or drinks, usually with prices.
+- "label": a packaged food's Nutrition Facts panel is the subject: the boxed table with serving size, calories, and the fat, carbohydrate, and protein rows.
 - "food": actual food or drink in front of the patient: a plate, bowl, cup, container, or packaged item they could eat or drink now.
-- "other": neither of those is clearly the subject.
+- "other": none of those is clearly the subject.
 
-If both appear, pick the one that dominates the frame. Printed dish photos ON a menu page still mean "menu".`;
+If several appear, pick the one that dominates the frame. Printed dish photos ON a menu page still mean "menu". A package shot from the front, brand art showing, is "food"; only the facts panel itself means "label".`;
 
 interface MinimalLog {
   warn: (obj: Record<string, unknown>, msg: string) => void;
 }
 
 /**
- * Classifies one chat photo. Returns "menu" only when the model clearly saw
- * a menu; "food" and "other" both resolve to "meal" (see module docs).
+ * Classifies one chat photo. Returns "menu" or "label" only when the model
+ * clearly saw one; "food" and "other" both resolve to "meal" (see module
+ * docs).
  */
 export async function resolvePhotoKind(args: {
   /** Validated image data URI (jpeg/png/webp). Kept in memory only. */
@@ -89,7 +92,9 @@ export async function resolvePhotoKind(args: {
       args.log.warn({ raw: raw.slice(0, 200) }, "photo triage output invalid; defaulting to meal");
       return "meal";
     }
-    return parsed.data.subject === "menu" ? "menu" : "meal";
+    if (parsed.data.subject === "menu") return "menu";
+    if (parsed.data.subject === "label") return "label";
+    return "meal";
   } catch (error) {
     if (deadline.expired) {
       throw new UpstreamTimeoutError("photo triage call", deadline.idleMs, { cause: error });

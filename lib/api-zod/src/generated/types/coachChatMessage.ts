@@ -19,6 +19,6 @@ export interface CoachChatMessage {
      * @maxLength 8000000
      */
   image?: string;
-  /** What the attached photo shows, chosen by the client flow that captured it: "menu" runs the restaurant menu scan; "meal" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card. When absent, the server inspects the photo and routes it to the fitting pipeline itself. Ignored without an image. */
+  /** What the attached photo shows, chosen by the client flow that captured it: "menu" runs the restaurant menu scan; "meal" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card; "label" runs the nutrition label reader that transcribes the printed facts and emits a labelDraft event for the client's name conversation. When absent, the server inspects the photo and routes it to the fitting pipeline itself. Ignored without an image. */
   photoKind?: CoachChatMessagePhotoKind;
 }

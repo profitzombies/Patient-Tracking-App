@@ -215,6 +215,85 @@ paths:
           description: No such training video
         "409":
           description: There is no hosted file to remove
+  /training/videos/{videoId}/thumbnail-upload-url:
+    post:
+      operationId: trainingThumbnailUploadUrl
+      tags: [training]
+      summary: Mint a presigned upload URL for a custom lesson thumbnail
+      description: >-
+        HQ admins only. Returns a short-lived presigned PUT URL for a JPG, PNG,
+        or WebP thumbnail plus the current video source revision. The revision
+        is sent to finalize so a thumbnail upload cannot land on a replacement
+        video.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingThumbnailUploadUrlInput"
+      responses:
+        "200":
+          description: Presigned PUT URL and the current video revision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingThumbnailUploadUrlResult"
+        "400":
+          description: Invalid request body
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such training video
+        "409":
+          description: No hosted video
+        "413":
+          description: File exceeds the 10 MB limit
+        "415":
+          description: Not an accepted image type (JPG/PNG/WebP)
+  /training/videos/{videoId}/thumbnail-upload:
+    post:
+      operationId: trainingThumbnailUpload
+      tags: [training]
+      summary: Validate and attach a custom lesson thumbnail
+      description: >-
+        HQ admins only. Verifies the uploaded object belongs to this video,
+        checks its size, MIME declaration, and image signature/dimensions, then
+        replaces the prior thumbnail safely. The supplied video source revision
+        prevents an upload started before a video replacement from becoming
+        the cover of the new video.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingThumbnailFinalizeInput"
+      responses:
+        "200":
+          description: Custom thumbnail attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingThumbnailResult"
+        "400":
+          description: Invalid body or object path outside this video's thumbnail prefix
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: Video row or uploaded object not found
+        "409":
+          description: No hosted video or the video changed during upload
+        "413":
+          description: File is empty or exceeds the 10 MB limit
+        "422":
+          description: Uploaded bytes are not a valid JPG, PNG, or WebP
   /training/videos/{videoId}/media:
     get:
       operationId: trainingVideoMedia
@@ -520,6 +599,61 @@ components:
       required:
         - uploadUrl
         - objectPath
+    TrainingThumbnailUploadUrlInput:
+      type: object
+      properties:
+        fileName:
+          type: string
+          maxLength: 300
+          description: Original file name, for browser metadata only
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+          description: MIME type sent on the presigned PUT
+        sizeBytes:
+          type: number
+          minimum: 1
+          maximum: 10485760
+          description: File size in bytes; the hard cap is 10 MB
+      required:
+        - fileName
+        - contentType
+        - sizeBytes
+    TrainingThumbnailUploadUrlResult:
+      type: object
+      properties:
+        uploadUrl:
+          type: string
+          description: Presigned PUT URL, valid for about 15 minutes
+        objectPath:
+          type: string
+          description: Canonical object path to send to thumbnail finalize
+        videoSource:
+          type: string
+          description: Current hosted-video object path; send back to finalize
+      required:
+        - uploadUrl
+        - objectPath
+        - videoSource
+    TrainingThumbnailFinalizeInput:
+      type: object
+      properties:
+        objectPath:
+          type: string
+          maxLength: 500
+          description: The object path returned by thumbnail-upload-url
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+          description: MIME type declared on the upload
+        videoSource:
+          type: string
+          maxLength: 500
+          description: Video source revision returned by thumbnail-upload-url
+      required:
+        - objectPath
+        - contentType
+        - videoSource
     TrainingFinalizeInput:
       type: object
       properties:

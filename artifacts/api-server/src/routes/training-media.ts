@@ -19,13 +19,15 @@
  * failure never rolls back an earlier result.
  */
 import { randomUUID } from "crypto";
-import { readFile } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   TrainingVideoUploadUrlBody,
   TrainingVideoFinalizeBody,
   TrainingVideoThumbnailBody,
+  TrainingThumbnailUploadUrlBody,
+  TrainingThumbnailUploadBody,
   TrainingVideoProcessBody,
 } from "@workspace/api-zod";
 import { requireStaff } from "../lib/staff-auth";
@@ -33,12 +35,16 @@ import {
   ObjectNotFoundError,
   objectStorage,
   PLAYBACK_URL_TTL_SEC,
+  THUMBNAIL_CONTENT_TYPES,
+  detectThumbnailContentType,
 } from "../lib/objectStorage";
 import {
   deleteTranscript,
   getTranscript,
   getVideoRecord,
   isVideoId,
+  replaceThumbnailIfCurrent,
+  updateHostedMediaIfCurrent,
   updateVideoRecord,
   upsertTranscript,
   type TranscriptSegment,
@@ -50,6 +56,7 @@ import {
   makeWorkDir,
   probeMedia,
   transcribeSegments,
+  validateThumbnailImage,
   writeChapters,
   writeDescription,
 } from "../training/pipeline";
@@ -58,6 +65,7 @@ import { keepaliveIntervalMs, UpstreamTimeoutError } from "../coach/upstream";
 const router: IRouter = Router();
 
 export const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
+export const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
 
 /** Container types the Media card accepts (MP4 / WebM / MOV). */
 const ALLOWED_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
@@ -125,24 +133,30 @@ async function persistThumbnailFrame(
     const frame = await readFile(outPath);
     const thumbnailSource = `${videoPrefix(record.id)}thumb-${randomUUID()}.jpg`;
     await objectStorage.saveBuffer(thumbnailSource, frame, "image/jpeg");
-    // The capture took real seconds. If the video changed underneath us
-    // (another admin replaced or removed the file meanwhile), this frame
-    // describes a file that no longer exists — drop it instead of stamping
-    // a stale cover onto the new state.
-    const current = await getVideoRecord(record.id);
-    if (!current || current.video_source !== record.video_source) {
+    const replaced = await replaceThumbnailIfCurrent(
+      record.id,
+      record.video_source,
+      record.thumbnail_source,
+      thumbnailSource,
+    );
+    if (!replaced) {
       await objectStorage.deleteObject(thumbnailSource);
       throw new Error("The video changed while capturing the frame — try again.");
     }
-    await updateVideoRecord(record.id, { thumbnail_source: thumbnailSource });
-    if (current.thumbnail_source) {
-      await objectStorage.deleteObject(current.thumbnail_source);
+    if (record.thumbnail_source) {
+      await objectStorage.deleteObject(record.thumbnail_source);
     }
     const thumbnailUrl = await objectStorage.signedDownloadURL(thumbnailSource, PLAYBACK_URL_TTL_SEC);
     return { thumbnailSource, thumbnailUrl };
   } finally {
     await cleanupWorkDir(workDir);
   }
+}
+
+function isThumbnailObjectPath(videoId: string, objectPath: string): boolean {
+  const prefix = videoPrefix(videoId);
+  const name = objectPath.slice(prefix.length);
+  return objectPath.startsWith(prefix) && name.startsWith("thumb-") && !name.includes("/");
 }
 
 // ---------------------------------------------------------------------------
@@ -243,22 +257,43 @@ router.post(
       }
 
       const durationSeconds = Math.min(86_400, Math.max(1, Math.round(probe.durationSeconds)));
-      const previousVideo = record.video_source;
-      const previousThumb = record.thumbnail_source;
-
       // A replaced file's transcript and thumbnail describe the OLD video;
       // clear them so nothing stale pretends to describe the new upload.
-      await updateVideoRecord(record.id, {
-        video_source: objectPath,
-        duration_seconds: durationSeconds,
-        thumbnail_source: null,
-      });
-      await deleteTranscript(record.id);
-      if (previousVideo && previousVideo !== objectPath) {
-        await objectStorage.deleteObject(previousVideo);
+      let displaced:
+        | { videoSource: string | null; thumbnailSource: string | null }
+        | null = null;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const current = await getVideoRecord(record.id);
+        if (!current || current.video_source !== record.video_source) break;
+        const updated = await updateHostedMediaIfCurrent(
+          record.id,
+          current.video_source,
+          current.thumbnail_source,
+          {
+            video_source: objectPath,
+            duration_seconds: durationSeconds,
+            thumbnail_source: null,
+          },
+        );
+        if (updated) {
+          displaced = {
+            videoSource: current.video_source,
+            thumbnailSource: current.thumbnail_source,
+          };
+          break;
+        }
       }
-      if (previousThumb) {
-        await objectStorage.deleteObject(previousThumb);
+      if (!displaced) {
+        await objectStorage.deleteObject(objectPath);
+        res.status(409).json({ error: "The video changed while finalizing — upload the replacement again." });
+        return;
+      }
+      await deleteTranscript(record.id);
+      if (displaced.videoSource && displaced.videoSource !== objectPath) {
+        await objectStorage.deleteObject(displaced.videoSource);
+      }
+      if (displaced.thumbnailSource) {
+        await objectStorage.deleteObject(displaced.thumbnailSource);
       }
 
       // Automatic thumbnail: capture the first frame right away so the
@@ -299,16 +334,178 @@ router.delete(
         res.status(409).json({ error: "There is no hosted file to remove." });
         return;
       }
-      await updateVideoRecord(record.id, { video_source: null, thumbnail_source: null });
+      let displaced:
+        | { videoSource: string; thumbnailSource: string | null }
+        | null = null;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const current = await getVideoRecord(record.id);
+        if (!current || current.video_source !== record.video_source) break;
+        const updated = await updateHostedMediaIfCurrent(
+          record.id,
+          current.video_source,
+          current.thumbnail_source,
+          { video_source: null, thumbnail_source: null },
+        );
+        if (updated) {
+          displaced = {
+            videoSource: current.video_source,
+            thumbnailSource: current.thumbnail_source,
+          };
+          break;
+        }
+      }
+      if (!displaced) {
+        res.status(409).json({ error: "The video changed while removing it — refresh and try again." });
+        return;
+      }
       await deleteTranscript(record.id);
-      await objectStorage.deleteObject(record.video_source);
-      if (record.thumbnail_source) {
-        await objectStorage.deleteObject(record.thumbnail_source);
+      await objectStorage.deleteObject(displaced.videoSource);
+      if (displaced.thumbnailSource) {
+        await objectStorage.deleteObject(displaced.thumbnailSource);
       }
       res.json({ removed: true });
     } catch (error) {
       req.log?.error({ err: error }, "training remove file failed");
       res.status(500).json({ error: "Could not remove the video file — try again." });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Custom thumbnail upload (presigned PUT, then byte-validated finalize)
+// ---------------------------------------------------------------------------
+
+router.post(
+  "/training/videos/:videoId/thumbnail-upload-url",
+  requireStaff(["hq_admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = TrainingThumbnailUploadUrlBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "Invalid request body" });
+        return;
+      }
+      const record = await loadVideoOr404(String(req.params.videoId), res);
+      if (!record) return;
+      if (!record.video_source) {
+        res.status(409).json({ error: "Upload a video before adding a custom thumbnail." });
+        return;
+      }
+      const { contentType, sizeBytes } = parsed.data;
+      if (!THUMBNAIL_CONTENT_TYPES.has(contentType)) {
+        res.status(415).json({ error: "Upload a JPG, PNG, or WebP image." });
+        return;
+      }
+      if (sizeBytes > MAX_THUMBNAIL_BYTES) {
+        res.status(413).json({ error: "That thumbnail is over the 10 MB limit." });
+        return;
+      }
+      const { uploadUrl, objectPath } = await objectStorage.trainingUploadURL(record.id, "thumb");
+      res.json({ uploadUrl, objectPath, videoSource: record.video_source });
+    } catch (error) {
+      req.log?.error({ err: error }, "training thumbnail upload-url failed");
+      res.status(500).json({ error: "Could not prepare the thumbnail upload — try again." });
+    }
+  },
+);
+
+router.post(
+  "/training/videos/:videoId/thumbnail-upload",
+  requireStaff(["hq_admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = TrainingThumbnailUploadBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "Invalid request body" });
+        return;
+      }
+      const record = await loadVideoOr404(String(req.params.videoId), res);
+      if (!record) return;
+      if (!isThumbnailObjectPath(record.id, parsed.data.objectPath)) {
+        res.status(400).json({ error: "That upload doesn't belong to this video's thumbnail." });
+        return;
+      }
+      if (!record.video_source) {
+        await objectStorage.deleteObject(parsed.data.objectPath);
+        res.status(409).json({ error: "Upload a video before adding a custom thumbnail." });
+        return;
+      }
+      if (parsed.data.videoSource !== record.video_source) {
+        await objectStorage.deleteObject(parsed.data.objectPath);
+        res.status(409).json({ error: "The video changed while you were uploading — choose the thumbnail again." });
+        return;
+      }
+
+      let file;
+      try {
+        file = await objectStorage.entityFile(parsed.data.objectPath);
+      } catch (error) {
+        if (error instanceof ObjectNotFoundError) {
+          res.status(404).json({ error: "The uploaded thumbnail never arrived — try the upload again." });
+          return;
+        }
+        throw error;
+      }
+      const [metadata] = await file.getMetadata();
+      const sizeBytes = Number(metadata.size ?? 0);
+      if (sizeBytes <= 0 || sizeBytes > MAX_THUMBNAIL_BYTES) {
+        await objectStorage.deleteObject(parsed.data.objectPath);
+        res.status(413).json({ error: "That thumbnail is empty or over the 10 MB limit." });
+        return;
+      }
+      const [content] = await file.download();
+      const detectedType = detectThumbnailContentType(content);
+      if (
+        !detectedType ||
+        !THUMBNAIL_CONTENT_TYPES.has(parsed.data.contentType) ||
+        detectedType !== parsed.data.contentType
+      ) {
+        await objectStorage.deleteObject(parsed.data.objectPath);
+        res.status(422).json({ error: "That file doesn't look like a valid JPG, PNG, or WebP image." });
+        return;
+      }
+      if (metadata.contentType && metadata.contentType !== detectedType) {
+        await objectStorage.deleteObject(parsed.data.objectPath);
+        res.status(422).json({ error: "The uploaded image type didn't match its contents." });
+        return;
+      }
+
+      const imageDir = await makeWorkDir();
+      try {
+        const extension = detectedType === "image/jpeg" ? "jpg" : detectedType.slice("image/".length);
+        const imagePath = join(imageDir, `uploaded-thumbnail.${extension}`);
+        await writeFile(imagePath, content);
+        await validateThumbnailImage(imagePath);
+      } catch {
+        await objectStorage.deleteObject(parsed.data.objectPath);
+        res.status(422).json({ error: "That image is damaged or couldn't be decoded." });
+        return;
+      } finally {
+        await cleanupWorkDir(imageDir);
+      }
+
+      const replaced = await replaceThumbnailIfCurrent(
+        record.id,
+        parsed.data.videoSource,
+        record.thumbnail_source,
+        parsed.data.objectPath,
+      );
+      if (!replaced) {
+        await objectStorage.deleteObject(parsed.data.objectPath);
+        res.status(409).json({ error: "The video changed while you were uploading — choose the thumbnail again." });
+        return;
+      }
+      if (record.thumbnail_source && record.thumbnail_source !== parsed.data.objectPath) {
+        await objectStorage.deleteObject(record.thumbnail_source);
+      }
+      const thumbnailUrl = await objectStorage.signedDownloadURL(
+        parsed.data.objectPath,
+        PLAYBACK_URL_TTL_SEC,
+      );
+      res.json({ thumbnailSource: parsed.data.objectPath, thumbnailUrl });
+    } catch (error) {
+      req.log?.error({ err: error }, "training custom thumbnail finalize failed");
+      res.status(500).json({ error: "Could not attach that thumbnail — try again." });
     }
   },
 );
@@ -526,22 +723,7 @@ router.post(
             await updateVideoRecord(record.id, { chapters });
             send({ step, status: "done", chapters });
           } else if (step === "thumbnail") {
-            const videoPath = await ensureLocalVideo();
-            workDir ??= await makeWorkDir();
-            const outPath = join(workDir, "first-frame.jpg");
-            await captureFrame(videoPath, 0, outPath);
-            const frame = await readFile(outPath);
-            const thumbnailSource = `${videoPrefix(record.id)}thumb-${randomUUID()}.jpg`;
-            await objectStorage.saveBuffer(thumbnailSource, frame, "image/jpeg");
-            const current = await getVideoRecord(record.id);
-            await updateVideoRecord(record.id, { thumbnail_source: thumbnailSource });
-            if (current?.thumbnail_source) {
-              await objectStorage.deleteObject(current.thumbnail_source);
-            }
-            const thumbnailUrl = await objectStorage.signedDownloadURL(
-              thumbnailSource,
-              PLAYBACK_URL_TTL_SEC,
-            );
+            const { thumbnailSource, thumbnailUrl } = await persistThumbnailFrame(record, 0);
             send({ step, status: "done", thumbnailSource, thumbnailUrl });
           }
         } catch (error) {

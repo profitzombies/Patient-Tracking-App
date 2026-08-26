@@ -145,6 +145,59 @@ export const TrainingVideoRemoveFileResponse = zod.object({
 
 
 /**
+ * HQ admins only. Returns a short-lived presigned PUT URL for a JPG, PNG, or WebP thumbnail plus the current video source revision. The revision is sent to finalize so a thumbnail upload cannot land on a replacement video.
+ * @summary Mint a presigned upload URL for a custom lesson thumbnail
+ */
+export const TrainingThumbnailUploadUrlParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const trainingThumbnailUploadUrlBodyFileNameMax = 300;
+
+export const trainingThumbnailUploadUrlBodySizeBytesMax = 10485760;
+
+
+
+export const TrainingThumbnailUploadUrlBody = zod.object({
+  "fileName": zod.string().max(trainingThumbnailUploadUrlBodyFileNameMax).describe('Original file name, for browser metadata only'),
+  "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp']).describe('MIME type sent on the presigned PUT'),
+  "sizeBytes": zod.number().min(1).max(trainingThumbnailUploadUrlBodySizeBytesMax).describe('File size in bytes; the hard cap is 10 MB')
+})
+
+export const TrainingThumbnailUploadUrlResponse = zod.object({
+  "uploadUrl": zod.string().describe('Presigned PUT URL, valid for about 15 minutes'),
+  "objectPath": zod.string().describe('Canonical object path to send to thumbnail finalize'),
+  "videoSource": zod.string().describe('Current hosted-video object path; send back to finalize')
+})
+
+
+/**
+ * HQ admins only. Verifies the uploaded object belongs to this video, checks its size, MIME declaration, and image signature/dimensions, then replaces the prior thumbnail safely. The supplied video source revision prevents an upload started before a video replacement from becoming the cover of the new video.
+ * @summary Validate and attach a custom lesson thumbnail
+ */
+export const TrainingThumbnailUploadParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const trainingThumbnailUploadBodyObjectPathMax = 500;
+
+export const trainingThumbnailUploadBodyVideoSourceMax = 500;
+
+
+
+export const TrainingThumbnailUploadBody = zod.object({
+  "objectPath": zod.string().max(trainingThumbnailUploadBodyObjectPathMax).describe('The object path returned by thumbnail-upload-url'),
+  "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp']).describe('MIME type declared on the upload'),
+  "videoSource": zod.string().max(trainingThumbnailUploadBodyVideoSourceMax).describe('Video source revision returned by thumbnail-upload-url')
+})
+
+export const TrainingThumbnailUploadResponse = zod.object({
+  "thumbnailSource": zod.string().describe('Object path now stored on the video row'),
+  "thumbnailUrl": zod.string().describe('Signed GET URL for immediate display')
+})
+
+
+/**
  * HQ admins and provider staff. Returns signed GET URLs for the video file (and thumbnail when one exists) so the <video> element's range requests hit storage directly — that is what makes seeking work. URLs expire; clients re-request rather than persist them.
  * @summary Short-lived signed playback URLs for a hosted video
  */

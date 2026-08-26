@@ -54,12 +54,16 @@ import { useTrainingData, type VideoPatch } from '@/contexts/training-data';
 import {
   captureThumbnail,
   describeFileProblem,
+  describeThumbnailFileProblem,
   fetchTranscript,
+  finalizeThumbnailUpload,
   finalizeUpload,
   processVideo,
   removeVideoFile,
   requestUploadUrl,
+  requestThumbnailUploadUrl,
   resolveVideoType,
+  resolveThumbnailType,
   uploadToStorage,
   PROCESS_STEPS,
   type ProcessEvent,
@@ -191,9 +195,13 @@ export default function VideoEditor() {
     message?: string;
   }>({ status: 'idle', segments: [] });
   const [thumbBusy, setThumbBusy] = useState(false);
+  const [thumbnailUploadPhase, setThumbnailUploadPhase] = useState<'idle' | 'uploading' | 'finalizing'>('idle');
+  const [thumbnailUploadPct, setThumbnailUploadPct] = useState(0);
+  const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
   const [removingFile, setRemovingFile] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const thumbnailFileInputRef = useRef<HTMLInputElement | null>(null);
   const thumbVideoRef = useRef<HTMLVideoElement | null>(null);
   /** Which video the mounted editor is showing — a still-running upload or AI
    * stream from a previous video must not touch the current one's UI. */
@@ -282,6 +290,9 @@ export default function VideoEditor() {
       setTranscriptOpen(false);
       setTranscriptState({ status: 'idle', segments: [] });
       setThumbBusy(false);
+      setThumbnailUploadPhase('idle');
+      setThumbnailUploadPct(0);
+      setThumbnailUploadError(null);
       setRemovingFile(false);
     }
   }, [locationResult, draft, draftVideoId]);
@@ -680,6 +691,45 @@ export default function VideoEditor() {
         }
       } finally {
         if (currentVideoIdRef.current === runVideoId) setThumbBusy(false);
+      }
+    })();
+  };
+
+  const beginThumbnailUpload = (file: File) => {
+    if (!canEdit || !hosted || thumbnailUploadPhase !== 'idle') return;
+    const problem = describeThumbnailFileProblem(file);
+    if (problem) {
+      setThumbnailUploadError(problem);
+      return;
+    }
+    const contentType = resolveThumbnailType(file);
+    if (!contentType) return;
+    const runVideoId = video.id;
+    setThumbnailUploadError(null);
+    setThumbnailUploadPct(0);
+    setThumbnailUploadPhase('uploading');
+    void (async () => {
+      try {
+        const upload = await requestThumbnailUploadUrl(runVideoId, file, contentType);
+        await uploadToStorage(upload.uploadUrl, file, contentType, (pct) => {
+          if (currentVideoIdRef.current === runVideoId) setThumbnailUploadPct(pct);
+        });
+        if (currentVideoIdRef.current === runVideoId) setThumbnailUploadPhase('finalizing');
+        await finalizeThumbnailUpload(runVideoId, upload.objectPath, contentType, upload.videoSource);
+        refresh();
+        if (currentVideoIdRef.current === runVideoId) {
+          reloadMedia();
+          setStepStates((prev) => ({ ...prev, thumbnail: 'done' }));
+          setThumbnailUploadPhase('idle');
+          setThumbnailUploadPct(0);
+          toast({ title: 'Custom thumbnail uploaded', description: 'The new cover is now shown everywhere.' });
+        }
+      } catch (error) {
+        if (currentVideoIdRef.current === runVideoId) {
+          setThumbnailUploadPhase('idle');
+          setThumbnailUploadPct(0);
+          setThumbnailUploadError(error instanceof Error ? error.message : 'Thumbnail upload failed — try again.');
+        }
       }
     })();
   };
@@ -1308,12 +1358,73 @@ export default function VideoEditor() {
                        className="text-xs font-semibold text-foreground flex items-center gap-2 hover:text-primary transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                        onClick={handleThumbnailDialog}
                        disabled={hosted && canEdit && !media}
+                       data-testid="button-pick-thumbnail-frame"
                      >
-                       <ImageIcon size={13} /> Generate thumbnail
+                       <ImageIcon size={13} aria-hidden="true" /> Choose video frame
                      </button>
+                     {hosted && canEdit && (
+                       <>
+                         <button
+                           type="button"
+                           className="flex items-center gap-2 text-xs font-semibold text-foreground transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                           onClick={() => thumbnailFileInputRef.current?.click()}
+                           disabled={thumbnailUploadPhase !== 'idle'}
+                           data-testid="button-upload-thumbnail"
+                         >
+                           {thumbnailUploadPhase === 'idle' ? (
+                             <Upload size={13} aria-hidden="true" />
+                           ) : (
+                             <RefreshCw size={13} className="animate-spin" aria-hidden="true" />
+                           )}
+                           {thumbnailUploadPhase === 'uploading'
+                             ? `Uploading thumbnail… ${thumbnailUploadPct}%`
+                             : thumbnailUploadPhase === 'finalizing'
+                               ? 'Checking thumbnail…'
+                               : 'Upload custom thumbnail'}
+                         </button>
+                         <input
+                           ref={thumbnailFileInputRef}
+                           type="file"
+                           accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                           className="hidden"
+                           aria-label="Upload a custom lesson thumbnail"
+                           onChange={(event) => {
+                             const file = event.target.files?.[0];
+                             if (file) beginThumbnailUpload(file);
+                             event.target.value = '';
+                           }}
+                           data-testid="input-thumbnail-file"
+                         />
+                         {thumbnailUploadPhase === 'uploading' && (
+                           <div
+                             className="h-1.5 w-full max-w-48 overflow-hidden rounded-full bg-border"
+                             role="progressbar"
+                             aria-label="Thumbnail upload progress"
+                             aria-valuemin={0}
+                             aria-valuemax={100}
+                             aria-valuenow={thumbnailUploadPct}
+                             data-testid="progress-thumbnail-upload"
+                           >
+                             <div
+                               className="h-full bg-primary transition-[width]"
+                               style={{ width: `${thumbnailUploadPct}%` }}
+                             />
+                           </div>
+                         )}
+                         {thumbnailUploadError && (
+                           <p
+                             className="text-[10px] font-medium leading-relaxed text-destructive"
+                             role="alert"
+                             data-testid="text-thumbnail-upload-error"
+                           >
+                             {thumbnailUploadError}
+                           </p>
+                         )}
+                       </>
+                     )}
                      <p className="text-[10px] leading-relaxed text-muted-foreground">
                        {hosted
-                         ? 'Every upload sets the first frame automatically — scrub the real video to capture a different one.'
+                         ? 'Use the automatic first frame, scrub the video, or upload a JPG, PNG or WebP cover.'
                          : 'Thumbnails come from chapter slides — upload a video to capture real frames.'}
                      </p>
                    </div>

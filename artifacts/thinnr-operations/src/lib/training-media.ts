@@ -15,6 +15,7 @@
 import { supabase } from '@/lib/supabase';
 
 export const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
+export const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
 
 /** Container types the upload flow accepts, plus extension fallbacks for
  * browsers that report an empty MIME type (common for .mov on Windows). */
@@ -24,6 +25,13 @@ const EXTENSION_TYPES: Record<string, string> = {
   m4v: 'video/mp4',
   webm: 'video/webm',
   mov: 'video/quicktime',
+};
+const ALLOWED_THUMBNAIL_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const THUMBNAIL_EXTENSION_TYPES: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
 };
 
 export type ProcessStep = 'transcribe' | 'describe' | 'chapters' | 'thumbnail';
@@ -89,6 +97,21 @@ export function describeFileProblem(file: File): string | null {
   return null;
 }
 
+export function resolveThumbnailType(file: File): string | null {
+  if (ALLOWED_THUMBNAIL_TYPES.has(file.type)) return file.type;
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return THUMBNAIL_EXTENSION_TYPES[ext] ?? null;
+}
+
+export function describeThumbnailFileProblem(file: File): string | null {
+  if (!resolveThumbnailType(file)) {
+    return 'That file type isn’t supported — upload a JPG, PNG or WebP image.';
+  }
+  if (file.size === 0) return 'That thumbnail is empty.';
+  if (file.size > MAX_THUMBNAIL_BYTES) return 'That thumbnail is over the 10 MB limit.';
+  return null;
+}
+
 async function staffToken(): Promise<string> {
   if (!supabase) {
     throw new TrainingMediaError('Sign in with a staff account to work with video files.', 401);
@@ -133,6 +156,17 @@ export async function requestUploadUrl(
   contentType: string,
 ): Promise<{ uploadUrl: string; objectPath: string }> {
   return apiFetch(`/training/videos/${videoId}/upload-url`, {
+    method: 'POST',
+    body: JSON.stringify({ fileName: file.name, contentType, sizeBytes: file.size }),
+  });
+}
+
+export async function requestThumbnailUploadUrl(
+  videoId: string,
+  file: File,
+  contentType: string,
+): Promise<{ uploadUrl: string; objectPath: string; videoSource: string }> {
+  return apiFetch(`/training/videos/${videoId}/thumbnail-upload-url`, {
     method: 'POST',
     body: JSON.stringify({ fileName: file.name, contentType, sizeBytes: file.size }),
   });
@@ -201,6 +235,18 @@ export async function captureThumbnail(
   return apiFetch(`/training/videos/${videoId}/thumbnail`, {
     method: 'POST',
     body: JSON.stringify({ atSeconds }),
+  });
+}
+
+export async function finalizeThumbnailUpload(
+  videoId: string,
+  objectPath: string,
+  contentType: string,
+  videoSource: string,
+): Promise<{ thumbnailSource: string; thumbnailUrl: string }> {
+  return apiFetch(`/training/videos/${videoId}/thumbnail-upload`, {
+    method: 'POST',
+    body: JSON.stringify({ objectPath, contentType, videoSource }),
   });
 }
 

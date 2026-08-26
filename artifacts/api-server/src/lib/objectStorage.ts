@@ -46,6 +46,84 @@ export class ObjectNotFoundError extends Error {
 export const UPLOAD_URL_TTL_SEC = 900;
 export const PLAYBACK_URL_TTL_SEC = 3 * 60 * 60;
 
+export const THUMBNAIL_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+/**
+ * Check the bytes rather than trusting a browser-provided MIME type. This is
+ * intentionally a small container validator: thumbnails are displayed as
+ * images, so accepting a text file renamed to .jpg (or an arbitrary object
+ * under the video prefix) would make the upload contract dishonest.
+ */
+export function detectThumbnailContentType(content: Buffer): string | null {
+  if (content.length >= 24 && content.subarray(0, 8).equals(Buffer.from("\x89PNG\r\n\x1a\n", "binary"))) {
+    const width = content.readUInt32BE(16);
+    const height = content.readUInt32BE(20);
+    return width > 0 && height > 0 && width <= 16_000 && height <= 16_000 && width * height <= 64_000_000
+      ? "image/png"
+      : null;
+  }
+
+  if (content.length >= 4 && content[0] === 0xff && content[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 3 < content.length) {
+      if (content[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      while (offset < content.length && content[offset] === 0xff) offset += 1;
+      if (offset >= content.length) break;
+      const marker = content[offset++];
+      if (marker === 0xd8 || marker === 0xd9) continue;
+      if (marker === 0xda) break;
+      if (offset + 1 >= content.length) break;
+      const segmentLength = content.readUInt16BE(offset);
+      if (segmentLength < 2 || offset + segmentLength > content.length) break;
+      const isSizeMarker =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf);
+      if (isSizeMarker && segmentLength >= 7) {
+        const height = content.readUInt16BE(offset + 3);
+        const width = content.readUInt16BE(offset + 5);
+        return width > 0 && height > 0 && width <= 16_000 && height <= 16_000 && width * height <= 64_000_000
+          ? "image/jpeg"
+          : null;
+      }
+      offset += segmentLength;
+    }
+    return null;
+  }
+
+  if (
+    content.length >= 16 &&
+    content.subarray(0, 4).toString("ascii") === "RIFF" &&
+    content.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    const chunk = content.subarray(12, 16).toString("ascii");
+    let width = 0;
+    let height = 0;
+    if (chunk === "VP8X" && content.length >= 30) {
+      width = 1 + content[24] + (content[25] << 8) + (content[26] << 16);
+      height = 1 + content[27] + (content[28] << 8) + (content[29] << 16);
+    } else if (chunk === "VP8 " && content.length >= 30) {
+      if (content[23] !== 0x9d || content[24] !== 0x01 || content[25] !== 0x2a) return null;
+      width = content.readUInt16LE(26) & 0x3fff;
+      height = content.readUInt16LE(28) & 0x3fff;
+    } else if (chunk === "VP8L" && content.length >= 26) {
+      if (content[20] !== 0x2f) return null;
+      width = 1 + (content[21] | (content[22] << 8) | ((content[23] & 0x3f) << 16));
+      height = 1 + ((content[23] >> 6) | (content[24] << 2) | ((content[25] & 0xf) << 10));
+    } else {
+      return null;
+    }
+    return width > 0 && height > 0 && width <= 16_000 && height <= 16_000 && width * height <= 64_000_000
+      ? "image/webp"
+      : null;
+  }
+  return null;
+}
+
 function getPrivateObjectDir(): string {
   const dir = process.env.PRIVATE_OBJECT_DIR || "";
   if (!dir) {

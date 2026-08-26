@@ -26,8 +26,8 @@ import type { TranscriptSegment } from "./videos-store";
 /** Transcription slice length; also the chapter timestamp grid. */
 export const SEGMENT_SECONDS = 60;
 
-const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
-const TEXT_MODEL = "gpt-5.6-terra";
+export const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+export const TEXT_MODEL = "gpt-5-nano";
 
 /** How many audio segments are in flight at once against the AI proxy. */
 const TRANSCRIBE_CONCURRENCY = 2;
@@ -381,5 +381,24 @@ export async function captureFrame(input: string, atSeconds: number, outPath: st
       outPath,
     ],
     2 * 60_000,
+  );
+}
+
+/** Fully decode one image frame; header-only or corrupt files fail loudly. */
+export async function validateThumbnailImage(inputPath: string): Promise<void> {
+  await run(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-nostdin",
+      "-v",
+      "error",
+      "-i",
+      inputPath,
+      "-f",
+      "null",
+      "-",
+    ],
+    30_000,
   );
 }

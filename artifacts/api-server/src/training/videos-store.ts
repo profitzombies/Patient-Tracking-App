@@ -93,6 +93,56 @@ export async function updateVideoRecord(
   await rest("PATCH", `/training_videos?id=eq.${videoId}`, patch);
 }
 
+/**
+ * Atomically replace a thumbnail only while both the hosted video and prior
+ * thumbnail still match the state the caller validated. The conditional
+ * PATCH closes the read/write race between simultaneous frame captures,
+ * custom uploads, video replacement, and removal.
+ */
+export async function replaceThumbnailIfCurrent(
+  videoId: string,
+  expectedVideoSource: string,
+  expectedThumbnailSource: string | null,
+  thumbnailSource: string,
+): Promise<boolean> {
+  if (!isVideoId(videoId)) throw new Error("Invalid video id");
+  const videoFilter = `video_source=eq.${encodeURIComponent(expectedVideoSource)}`;
+  const thumbnailFilter = expectedThumbnailSource === null
+    ? "thumbnail_source=is.null"
+    : `thumbnail_source=eq.${encodeURIComponent(expectedThumbnailSource)}`;
+  const rows = (await rest(
+    "PATCH",
+    `/training_videos?id=eq.${videoId}&${videoFilter}&${thumbnailFilter}&select=id`,
+    { thumbnail_source: thumbnailSource },
+  )) as Array<{ id: string }> | null;
+  return Array.isArray(rows) && rows.length === 1;
+}
+
+export async function updateHostedMediaIfCurrent(
+  videoId: string,
+  expectedVideoSource: string | null,
+  expectedThumbnailSource: string | null,
+  patch: {
+    video_source: string | null;
+    thumbnail_source: string | null;
+    duration_seconds?: number;
+  },
+): Promise<boolean> {
+  if (!isVideoId(videoId)) throw new Error("Invalid video id");
+  const videoFilter = expectedVideoSource === null
+    ? "video_source=is.null"
+    : `video_source=eq.${encodeURIComponent(expectedVideoSource)}`;
+  const thumbnailFilter = expectedThumbnailSource === null
+    ? "thumbnail_source=is.null"
+    : `thumbnail_source=eq.${encodeURIComponent(expectedThumbnailSource)}`;
+  const rows = (await rest(
+    "PATCH",
+    `/training_videos?id=eq.${videoId}&${videoFilter}&${thumbnailFilter}&select=id`,
+    patch,
+  )) as Array<{ id: string }> | null;
+  return Array.isArray(rows) && rows.length === 1;
+}
+
 export async function getTranscript(videoId: string): Promise<TranscriptSegment[] | null> {
   if (!isVideoId(videoId)) return null;
   const rows = (await rest(

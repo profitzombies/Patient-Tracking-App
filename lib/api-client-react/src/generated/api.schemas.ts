@@ -125,6 +125,70 @@ export interface TrainingUploadUrlResult {
   objectPath: string;
 }
 
+/**
+ * MIME type sent on the presigned PUT
+ */
+export type TrainingThumbnailUploadUrlInputContentType = typeof TrainingThumbnailUploadUrlInputContentType[keyof typeof TrainingThumbnailUploadUrlInputContentType];
+
+
+export const TrainingThumbnailUploadUrlInputContentType = {
+  'image/jpeg': 'image/jpeg',
+  'image/png': 'image/png',
+  'image/webp': 'image/webp',
+} as const;
+
+export interface TrainingThumbnailUploadUrlInput {
+  /**
+     * Original file name, for browser metadata only
+     * @maxLength 300
+     */
+  fileName: string;
+  /** MIME type sent on the presigned PUT */
+  contentType: TrainingThumbnailUploadUrlInputContentType;
+  /**
+     * File size in bytes; the hard cap is 10 MB
+     * @minimum 1
+     * @maximum 10485760
+     */
+  sizeBytes: number;
+}
+
+export interface TrainingThumbnailUploadUrlResult {
+  /** Presigned PUT URL, valid for about 15 minutes */
+  uploadUrl: string;
+  /** Canonical object path to send to thumbnail finalize */
+  objectPath: string;
+  /** Current hosted-video object path; send back to finalize */
+  videoSource: string;
+}
+
+/**
+ * MIME type declared on the upload
+ */
+export type TrainingThumbnailFinalizeInputContentType = typeof TrainingThumbnailFinalizeInputContentType[keyof typeof TrainingThumbnailFinalizeInputContentType];
+
+
+export const TrainingThumbnailFinalizeInputContentType = {
+  'image/jpeg': 'image/jpeg',
+  'image/png': 'image/png',
+  'image/webp': 'image/webp',
+} as const;
+
+export interface TrainingThumbnailFinalizeInput {
+  /**
+     * The object path returned by thumbnail-upload-url
+     * @maxLength 500
+     */
+  objectPath: string;
+  /** MIME type declared on the upload */
+  contentType: TrainingThumbnailFinalizeInputContentType;
+  /**
+     * Video source revision returned by thumbnail-upload-url
+     * @maxLength 500
+     */
+  videoSource: string;
+}
+
 export interface TrainingFinalizeInput {
   /**
      * The object path returned by upload-url after the PUT succeeded

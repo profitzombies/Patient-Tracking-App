@@ -22,7 +22,7 @@ import { cleanModelText, extractModelJson } from "./model-json";
 import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 
-const MENU_SCAN_MODEL = "gpt-5.6-terra";
+export const MENU_SCAN_MODEL = "gpt-5-nano";
 
 /** One corrective retry when the model's JSON fails validation. */
 const RETRY_LIMIT = 1;

@@ -31,8 +31,11 @@ import type {
   TrainingMediaResult,
   TrainingProcessInput,
   TrainingRemoveFileResult,
+  TrainingThumbnailFinalizeInput,
   TrainingThumbnailInput,
   TrainingThumbnailResult,
+  TrainingThumbnailUploadUrlInput,
+  TrainingThumbnailUploadUrlResult,
   TrainingTranscriptResult,
   TrainingUploadUrlInput,
   TrainingUploadUrlResult
@@ -497,6 +500,152 @@ export const useTrainingVideoRemoveFile = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getTrainingVideoRemoveFileMutationOptions(options));
+    }
+
+export const getTrainingThumbnailUploadUrlUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/thumbnail-upload-url`
+}
+
+/**
+ * HQ admins only. Returns a short-lived presigned PUT URL for a JPG, PNG, or WebP thumbnail plus the current video source revision. The revision is sent to finalize so a thumbnail upload cannot land on a replacement video.
+ * @summary Mint a presigned upload URL for a custom lesson thumbnail
+ */
+export const trainingThumbnailUploadUrl = async (videoId: string,
+    trainingThumbnailUploadUrlInput: TrainingThumbnailUploadUrlInput, options?: Parameters<typeof customFetch>[1]): Promise<TrainingThumbnailUploadUrlResult> => {
+
+  return customFetch<TrainingThumbnailUploadUrlResult>(getTrainingThumbnailUploadUrlUrl(videoId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trainingThumbnailUploadUrlInput)
+  }
+);}
+
+
+
+
+
+export const getTrainingThumbnailUploadUrlMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}, TContext> => {
+
+const mutationKey = ['trainingThumbnailUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, {videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}> = (props) => {
+          const {videoId,data} = props ?? {};
+
+          return  trainingThumbnailUploadUrl(videoId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingThumbnailUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>>
+    export type TrainingThumbnailUploadUrlMutationBody = BodyType<TrainingThumbnailUploadUrlInput>
+    export type TrainingThumbnailUploadUrlMutationError = ErrorType<void>
+
+    /**
+ * @summary Mint a presigned upload URL for a custom lesson thumbnail
+ */
+export const useTrainingThumbnailUploadUrl = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>,
+        TError,
+        {videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>},
+        TContext
+      > => {
+      return useMutation(getTrainingThumbnailUploadUrlMutationOptions(options));
+    }
+
+export const getTrainingThumbnailUploadUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/thumbnail-upload`
+}
+
+/**
+ * HQ admins only. Verifies the uploaded object belongs to this video, checks its size, MIME declaration, and image signature/dimensions, then replaces the prior thumbnail safely. The supplied video source revision prevents an upload started before a video replacement from becoming the cover of the new video.
+ * @summary Validate and attach a custom lesson thumbnail
+ */
+export const trainingThumbnailUpload = async (videoId: string,
+    trainingThumbnailFinalizeInput: TrainingThumbnailFinalizeInput, options?: Parameters<typeof customFetch>[1]): Promise<TrainingThumbnailResult> => {
+
+  return customFetch<TrainingThumbnailResult>(getTrainingThumbnailUploadUrl(videoId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trainingThumbnailFinalizeInput)
+  }
+);}
+
+
+
+
+
+export const getTrainingThumbnailUploadMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUpload>>, TError,{videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUpload>>, TError,{videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}, TContext> => {
+
+const mutationKey = ['trainingThumbnailUpload'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingThumbnailUpload>>, {videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}> = (props) => {
+          const {videoId,data} = props ?? {};
+
+          return  trainingThumbnailUpload(videoId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingThumbnailUploadMutationResult = NonNullable<Awaited<ReturnType<typeof trainingThumbnailUpload>>>
+    export type TrainingThumbnailUploadMutationBody = BodyType<TrainingThumbnailFinalizeInput>
+    export type TrainingThumbnailUploadMutationError = ErrorType<void>
+
+    /**
+ * @summary Validate and attach a custom lesson thumbnail
+ */
+export const useTrainingThumbnailUpload = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUpload>>, TError,{videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingThumbnailUpload>>,
+        TError,
+        {videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>},
+        TContext
+      > => {
+      return useMutation(getTrainingThumbnailUploadMutationOptions(options));
     }
 
 export const getTrainingVideoMediaUrl = (videoId: string,) => {

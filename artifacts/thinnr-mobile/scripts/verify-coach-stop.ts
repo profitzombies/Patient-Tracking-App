@@ -47,7 +47,7 @@ import { streamCoachChat } from '../lib/coach-api';
 import {
   CoachChatProvider,
   GREETING_MESSAGE_ID,
-  MENU_PHOTO_MESSAGE_TEXT,
+  PHOTO_MESSAGE_TEXT,
   REVEAL_TICK_MS,
   useCoachChat,
   type CoachMessage,
@@ -795,7 +795,7 @@ async function main() {
   assertEqual(
     'sendPhoto shows the photo turn plus an empty streaming bubble',
     tailShapes(2),
-    `user/done:${MENU_PHOTO_MESSAGE_TEXT}|assistant/streaming:`,
+    `user/done:${PHOTO_MESSAGE_TEXT}|assistant/streaming:`,
   );
   const photoTurn = chat.messages[chat.messages.length - 2];
   assert(
@@ -810,7 +810,7 @@ async function main() {
     assertEqual(
       'the photo request tail carries the fixed replay text',
       photoTail?.content ?? '',
-      MENU_PHOTO_MESSAGE_TEXT,
+      PHOTO_MESSAGE_TEXT,
     );
     assertEqual('the photo request tail carries the image', photoTail?.image ?? '', PHOTO.uri);
     assert(
@@ -844,7 +844,7 @@ async function main() {
     const msgs = p2.requestBody.messages ?? [];
     assert(
       'the follow-up request replays the photo turn as its fixed text',
-      msgs.some(m => m.role === 'user' && m.content === MENU_PHOTO_MESSAGE_TEXT),
+      msgs.some(m => m.role === 'user' && m.content === PHOTO_MESSAGE_TEXT),
     );
     assert(
       'no message in the follow-up request carries an image',
@@ -893,7 +893,7 @@ async function main() {
     assertEqual(
       'retry keeps the fixed photo replay text',
       retryTail?.content ?? '',
-      MENU_PHOTO_MESSAGE_TEXT,
+      PHOTO_MESSAGE_TEXT,
     );
     assert(
       'retry attaches the image only to the tail',

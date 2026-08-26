@@ -36,9 +36,9 @@ describe("formatMenuReply", () => {
     expect(reply).toBe(
       [
         "The grill section is your friend here.",
-        "1. Grilled Salmon — Ask for it grilled plain, sauce on the side. Stick to the 4 oz portion.",
-        "2. Chicken Paillard — No oil on the greens, lemon instead of dressing.",
-        "Skip Fettuccine Alfredo — Cream sauce cannot be fixed by asking.",
+        "1. Grilled Salmon: Ask for it grilled plain, sauce on the side. Stick to the 4 oz portion.",
+        "2. Chicken Paillard: No oil on the greens, lemon instead of dressing.",
+        "Skip Fettuccine Alfredo: Cream sauce cannot be fixed by asking.",
         MENU_RECIPE_OFFER,
       ].join("\n\n"),
     );
@@ -50,7 +50,7 @@ describe("formatMenuReply", () => {
       order: [OK_PAYLOAD.order[0]],
       avoid: [],
     });
-    expect(reply).toContain("\n\nGrilled Salmon — ");
+    expect(reply).toContain("\n\nGrilled Salmon: ");
     expect(reply).not.toContain("1. ");
     expect(reply).not.toContain("Skip ");
   });
@@ -77,7 +77,7 @@ describe("formatMenuReply", () => {
   it("still offers a home recipe when nothing on the menu fits", () => {
     const { reply, offerRecipe } = formatMenuReply({
       result: "ok",
-      message: "Honestly, nothing printed here fits — ask for a plain grilled chicken breast.",
+      message: "Honestly, nothing printed here fits. Ask for a plain grilled chicken breast.",
       order: [],
       avoid: [{ name: "Everything fried", reason: "Breading." }],
     });

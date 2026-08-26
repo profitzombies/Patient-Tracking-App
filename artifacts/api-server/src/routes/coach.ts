@@ -10,6 +10,8 @@ import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
 import { generateMealChatTurn } from "../coach/meal-chat";
 import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
+import { resolvePhotoKind } from "../coach/photo-kind";
+import { DashSmoother } from "../coach/text-style";
 import { MarkerFilter } from "../coach/markers";
 import { firstQuickReplySet } from "../coach/quick-replies";
 import {
@@ -142,14 +144,39 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     }, keepaliveIntervalMs());
 
     try {
+      // ── Photo turns ─────────────────────────────────────────────────────
+      // The Library/Diary flows label their photos ("meal"); the standalone
+      // menu screen and older clients say "menu". The chat composer's camera
+      // sends NO kind — the patient just snapped whatever is in front of
+      // them — so a tiny vision triage looks at the photo and picks the
+      // pipeline itself: a menu gets the ordering scan, anything else the
+      // plate-logging analysis (whose not-food outcome reads junk photos
+      // warmly). The keepalive above is already running, so the extra call
+      // never leaves the stream silent.
+      const resolvedPhotoKind =
+        image === undefined
+          ? undefined
+          : latest.photoKind ??
+            (await resolvePhotoKind({ image, signal: abort.signal, log: req.log }));
+      if (image !== undefined && latest.photoKind === undefined) {
+        req.log.info({ resolvedPhotoKind }, "coach chat photo triaged");
+        // Name the route on the wire: the client stamps it onto the photo
+        // turn so a retry of this exact turn sends photoKind explicitly
+        // instead of triaging the same photo again (a second triage is a
+        // second model call that could pick the other pipeline).
+        if (!abort.signal.aborted && resolvedPhotoKind !== undefined) {
+          res.write(`data: ${JSON.stringify({ photoKind: resolvedPhotoKind })}\n\n`);
+        }
+      }
+
       // ── Meal photo turn ─────────────────────────────────────────────────
-      // A photo flagged `photoKind: "meal"` is a plate to log, not a menu to
-      // scan: the vision analysis identifies the VISIBLE foods with committed
-      // portion estimates and the reply carries an editable one-serving meal
-      // card (recipe payload, mode "meal"). No quick replies ride this turn —
-      // the client shows its own "Retake photo" chip instead. Non-food and
-      // unreadable photos are warm conversational outcomes, never errors.
-      if (image !== undefined && latest.photoKind === "meal") {
+      // A plate to log, not a menu to scan: the vision analysis identifies
+      // the VISIBLE foods with committed portion estimates and the reply
+      // carries an editable one-serving meal card (recipe payload, mode
+      // "meal"). No quick replies ride this turn — the client shows its own
+      // "Retake photo" chip instead. Non-food and unreadable photos are warm
+      // conversational outcomes, never errors.
+      if (image !== undefined && resolvedPhotoKind === "meal") {
         pipeline = "meal";
         const mealTurn = await generateMealChatTurn({
           image,
@@ -280,6 +307,11 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // (even split across chunks) and records the ids for validation below.
       const markerFilter = new MarkerFilter(["product", "replies"]);
 
+      // The no-dash voice rule is enforced structurally on the way out (the
+      // prompt alone is not a guarantee), with chunk-spanning bridges like
+      // "word " + "— word" handled by the smoother's held-back tail.
+      const dashSmoother = new DashSmoother();
+
       // Idle deadline, restarted on every chunk: it bounds SILENCE (the
       // reasoning preamble before the first token, or an upstream that wedges
       // mid-stream), not total reply length. Expiry aborts only the child
@@ -315,13 +347,24 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           deadline.touch();
           const delta = chunk.choices[0]?.delta?.content;
           if (delta) {
-            const visible = markerFilter.push(delta);
+            const visible = dashSmoother.push(markerFilter.push(delta));
             if (visible) {
               res.write(`data: ${JSON.stringify({ content: visible })}\n\n`);
             }
           }
         }
       } catch (error) {
+        // The stream died mid-reply: drain what the marker filter and the
+        // dash smoother were still holding back, so every character cleared
+        // for display reaches the wire before the error event. (The client
+        // may replace the partial text with the error bubble, but the wire
+        // contract stays no-drop for any consumer that keeps partials.)
+        if (!abort.signal.aborted) {
+          const held = dashSmoother.push(markerFilter.flush()) + dashSmoother.flush();
+          if (held) {
+            res.write(`data: ${JSON.stringify({ content: held })}\n\n`);
+          }
+        }
         // Name the timeout so the failure log says WHY the turn died instead
         // of a generic aborted-request error.
         throw deadline.expired
@@ -330,7 +373,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       } finally {
         deadline.finish();
       }
-      const tail = markerFilter.flush();
+      const tail = dashSmoother.push(markerFilter.flush()) + dashSmoother.flush();
       if (tail) {
         res.write(`data: ${JSON.stringify({ content: tail })}\n\n`);
       }

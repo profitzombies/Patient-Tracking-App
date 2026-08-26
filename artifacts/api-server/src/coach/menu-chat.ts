@@ -62,12 +62,12 @@ export function formatMenuReply(payload: MenuScanPayload): {
   picks.forEach((dish, index) => {
     const number = picks.length > 1 ? `${index + 1}. ` : "";
     const note = dish.note ? ` ${dish.note}` : "";
-    blocks.push(`${number}${dish.name} — ${dish.howToOrder}${note}`);
+    blocks.push(`${number}${dish.name}: ${dish.howToOrder}${note}`);
   });
 
   const avoids = payload.avoid.slice(0, MAX_CHAT_AVOIDS);
   if (avoids.length > 0) {
-    blocks.push(avoids.map((dish) => `Skip ${dish.name} — ${dish.reason}`).join("\n"));
+    blocks.push(avoids.map((dish) => `Skip ${dish.name}: ${dish.reason}`).join("\n"));
   }
 
   blocks.push(picks.length > 0 ? MENU_RECIPE_OFFER : MENU_RECIPE_OFFER_EMPTY);

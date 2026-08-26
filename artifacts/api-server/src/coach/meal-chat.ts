@@ -27,7 +27,7 @@ import type { RecipeCardPayload } from "./recipe";
  * the actual control is the client's "Retake photo" chip.
  */
 export const MEAL_CARD_CLOSER =
-  "These amounts are my best read of the photo. Open the meal card below to fine-tune them, then log the meal or save it for next time — or retake the photo if I misread your plate.";
+  "These amounts are my best read of the photo. Open the meal card below to fine-tune them, then log the meal or save it for next time. And if I misread your plate, just retake the photo.";
 
 /** Closer for photos that couldn't be read as a meal. No "?" ending either. */
 export const MEAL_TRY_ANOTHER_PHOTO =
@@ -46,7 +46,7 @@ function formatAmount(amount: number): string {
 function itemLine(item: RecipeCardPayload["ingredients"][number]): string {
   const portion = item.unit ? `${formatAmount(item.amount)} ${item.unit}` : formatAmount(item.amount);
   const calories = item.nutrition.calories;
-  return `${capitalize(item.name)} — about ${portion} · est. ${calories} cal`;
+  return `${capitalize(item.name)}: about ${portion} · est. ${calories} cal`;
 }
 
 function capitalize(text: string): string {

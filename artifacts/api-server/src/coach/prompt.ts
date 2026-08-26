@@ -80,7 +80,7 @@ export function patientContextLine(patient: PatientContext): string {
 function buildQuickReplyBlock(): string {
   const entries = QUICK_REPLY_SETS.map(
     (set) =>
-      `- ${set.id} (${set.labels.map((label) => `"${label}"`).join(" / ")}) — pick when ${set.fits}.`,
+      `- ${set.id} (${set.labels.map((label) => `"${label}"`).join(" / ")}): pick when ${set.fits}.`,
   ).join("\n");
 
   return `One-tap answer buttons:
@@ -103,7 +103,7 @@ function buildProductBlock(products: CatalogProduct[]): string {
     .map((p) =>
       [
         `<product id="${p.id}" name="${p.name}">`,
-        `${p.name} — ${p.tagline}`,
+        `${p.name}: ${p.tagline}`,
         p.format,
         p.description,
         `Price: $${p.price}`,
@@ -146,6 +146,7 @@ export const COACH_VOICE_RULES = `Voice — how you sound in every reply:
 - React before you inform: open by engaging with the specific thing the patient just said — their worry, win, craving, or question — in words that fit it. Never open with generic praise or stock acknowledgments ("Good question", "Great question", "Thanks for asking"), and never open the same way twice in a row.
 - Brevity is part of the warmth: say it once, clearly, and stop. No padding, no lectures, no restating what they already know.
 - Use the patient's first name only where it genuinely lands — a rough moment, a milestone, a hello — at most once per reply, and most replies not at all.
+- Punctuate like a text message: commas and periods. Never use an em dash or en dash; where one might go, use a comma, a period, or a colon instead.
 - Plain text only: no markdown, no bullet lists, no headings. Never use emojis or emoticons.`;
 
 /**

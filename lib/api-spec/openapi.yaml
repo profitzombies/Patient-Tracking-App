@@ -29,6 +29,10 @@ paths:
         ("data: {\"content\": \"...\"}" lines followed by
         "data: {\"done\": true}"), optionally with one
         "data: {\"card\": {\"kind\", \"payload\"}}" event before done.
+        A photo turn sent without photoKind is triaged server-side and the
+        resolved route is announced early as one
+        "data: {\"photoKind\": \"menu\"|\"meal\"}" event, so a client retry
+        of that turn can name the same route explicitly.
         Card kinds: "product" — a curated THINNR product suggestion
         ({\"id\", \"name\", \"line\", \"price\"}); "recipe" — a structured
         recipe suggestion emitted on meal-idea and craving turns, whose
@@ -469,10 +473,11 @@ components:
           enum: [menu, meal]
           description: >-
             What the attached photo shows, chosen by the client flow that
-            captured it: "menu" (default when absent) runs the restaurant
-            menu scan; "meal" runs the meal analysis that identifies visible
-            foods with estimated portions and returns an editable meal card.
-            Ignored without an image.
+            captured it: "menu" runs the restaurant menu scan; "meal" runs
+            the meal analysis that identifies visible foods with estimated
+            portions and returns an editable meal card. When absent, the
+            server inspects the photo and routes it to the fitting pipeline
+            itself. Ignored without an image.
       required:
         - role
         - content

@@ -6,7 +6,10 @@
  * optionally one `data: {"card": {...}}` event (e.g. a product suggestion),
  * optionally one `data: {"quickReplies": [...]}` event (server-curated
  * one-tap answers fitting the reply's closing question), then
- * `data: {"done": true}` (or `data: {"error": "..."}`).
+ * `data: {"done": true}` (or `data: {"error": "..."}`). A photo turn sent
+ * without a kind is triaged server-side; the resolved route arrives early as
+ * one `data: {"photoKind": "menu"|"meal"}` event so the client can stamp the
+ * photo turn and a retry names the same route explicitly.
  *
  * Web uses the browser's streaming fetch; native uses expo/fetch, which
  * supports ReadableStream bodies on device. If a body stream is unavailable,
@@ -71,6 +74,11 @@ export interface CoachStreamCallbacks {
    * never from free-form model text.
    */
   onQuickReplies?: (labels: string[]) => void;
+  /**
+   * Server-resolved pipeline for a photo sent without a kind. Arrives before
+   * the reply text; lets the client pin the route for retries.
+   */
+  onPhotoKind?: (kind: 'menu' | 'meal') => void;
 }
 
 export interface CoachStreamOptions {
@@ -116,6 +124,7 @@ function drainSseBuffer(
         content?: string;
         card?: unknown;
         quickReplies?: unknown;
+        photoKind?: unknown;
         done?: boolean;
         error?: string;
       };
@@ -132,6 +141,8 @@ function drainSseBuffer(
       } else if (payload.quickReplies !== undefined) {
         const labels = parseQuickReplies(payload.quickReplies);
         if (labels.length > 0) callbacks.onQuickReplies?.(labels);
+      } else if (payload.photoKind === 'menu' || payload.photoKind === 'meal') {
+        callbacks.onPhotoKind?.(payload.photoKind);
       } else if (payload.error) {
         state.finished = true;
         // Mid-stream errors are outages, not budget denials — retrying helps.

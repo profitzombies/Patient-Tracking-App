@@ -16,11 +16,16 @@
  *      its kind) in client state, and registers the arriving meal card with
  *      the patient's OWN photo as its picture (no AI image generation).
  *      Follow-up requests replay the turn as text with no image/photoKind
- *      anywhere; sendPhoto without a kind stays a menu turn (regression).
+ *      anywhere. sendPhoto without a kind sends NO photoKind at all (the
+ *      server looks at the photo and routes it) with the generic replay
+ *      text; a photo that OPENS the session hides the seeded greeting from
+ *      the transcript while the request history still carries it.
  *   3. offersMealPhotoRetake: true exactly when the LATEST message is a
  *      finished (done or error) reply to a meal-photo turn and nothing is
  *      streaming — false mid-stream, false after a later text turn, false
- *      for menu turns.
+ *      for menu turns. A kindless turn earns the chip exactly when its
+ *      reply came back with a meal-mode card (the server routed it to the
+ *      meal pipeline).
  *   4. retry() on a failed meal turn re-attaches the SAME image and
  *      photoKind "meal" so the retry reaches the meal pipeline again.
  *   5. The breakdown-editor math works on the meal shape (all rows editable):
@@ -37,8 +42,10 @@ import React, { act } from 'react';
 
 import {
   CoachChatProvider,
+  GREETING_MESSAGE_ID,
   MEAL_PHOTO_MESSAGE_TEXT,
   MENU_PHOTO_MESSAGE_TEXT,
+  PHOTO_MESSAGE_TEXT,
   offersMealPhotoRetake,
   useCoachChat,
   type CoachMessage,
@@ -238,9 +245,9 @@ const MEAL_CARD_PAYLOAD = {
 };
 
 const MEAL_REPLY_TEXT = [
-  "That's a solid plate — lean protein and a real vegetable side.",
-  'Grilled chicken breast — about 6 oz · est. 280 cal\nRoasted sweet potatoes — about 1 cup · est. 180 cal',
-  'These amounts are my best read of the photo. Open the meal card below to fine-tune them, then log the meal or save it for next time — or retake the photo if I misread your plate.',
+  "That's a solid plate, lean protein and a real vegetable side.",
+  'Grilled chicken breast: about 6 oz · est. 280 cal\nRoasted sweet potatoes: about 1 cup · est. 180 cal',
+  'These amounts are my best read of the photo. Open the meal card below to fine-tune them, then log the meal or save it for next time. And if I misread your plate, just retake the photo.',
 ].join('\n\n');
 
 const MEAL_PHOTO = { uri: 'file:///meal-photo.jpg', width: 800, height: 600 };
@@ -343,6 +350,15 @@ async function main() {
     'no retake chip while the meal reply is still streaming',
     offersMealPhotoRetake(chat.messages, chat.isStreaming) === false,
   );
+  {
+    // The photo opened this session: the seeded greeting hides from the
+    // transcript but stays in state for request replay.
+    const seededGreeting = chat.messages[0];
+    assert(
+      'a photo-opened session hides the seeded greeting',
+      seededGreeting?.id === GREETING_MESSAGE_ID && seededGreeting?.hidden === true,
+    );
+  }
   const mealTurn = chat.messages[chat.messages.length - 2];
   assertEqual('the meal turn shows the meal replay text', mealTurn.text, MEAL_PHOTO_MESSAGE_TEXT);
   assertEqual('the meal turn keeps the photo in client state', mealTurn.photo?.uri ?? '', MEAL_PHOTO.uri);
@@ -359,6 +375,10 @@ async function main() {
     assert(
       'no earlier message in the meal request carries an image or photoKind',
       msgs.slice(0, -1).every(m => m.image === undefined && m.photoKind === undefined),
+    );
+    assert(
+      'the hidden greeting still opens the request history',
+      msgs[0]?.role === 'assistant' && (msgs[0]?.content ?? '').length > 0,
     );
   }
 
@@ -453,31 +473,145 @@ async function main() {
   });
   await waitUntil('the retried meal turn completes', () => tailMessage().status === 'done');
 
-  // 2d. sendPhoto WITHOUT a kind stays a menu turn (regression): menu replay
-  // text, photoKind "menu" on the tail, and no retake chip on its reply.
+  // 2d. sendPhoto WITHOUT a kind: generic replay text, NO photoKind on the
+  // tail (the server looks at the photo and routes it), kind unset in
+  // state until the server's route announcement stamps it; a menu-routed
+  // reply earns no retake chip.
   await actSettle(() => {
     chat.sendPhoto(MENU_PHOTO);
   });
-  const menuTurn = chat.messages[chat.messages.length - 2];
-  assertEqual('a kindless sendPhoto shows the MENU replay text', menuTurn.text, MENU_PHOTO_MESSAGE_TEXT);
-  assertEqual('a kindless sendPhoto keeps kind "menu" in state', menuTurn.photo?.kind ?? '', 'menu');
-  const s5 = takeStream('menu turn');
+  const kindlessTurn = chat.messages[chat.messages.length - 2];
+  assertEqual('a kindless sendPhoto shows the generic replay text', kindlessTurn.text, PHOTO_MESSAGE_TEXT);
+  assert('a kindless sendPhoto keeps kind unset in state', kindlessTurn.photo?.kind === undefined);
+  const s5 = takeStream('kindless turn');
   {
     const msgs = s5.requestBody.messages ?? [];
-    const menuTail = msgs[msgs.length - 1];
-    assertEqual('the menu request tail carries the image', menuTail?.image ?? '', MENU_PHOTO.uri);
-    assertEqual('the menu request tail carries photoKind "menu"', menuTail?.photoKind ?? '', 'menu');
+    const kindlessTail = msgs[msgs.length - 1];
+    assertEqual('the kindless request tail carries the image', kindlessTail?.image ?? '', MENU_PHOTO.uri);
+    assert('the kindless request tail carries NO photoKind', kindlessTail?.photoKind === undefined);
   }
   await actSettle(() => {
+    s5.emit({ photoKind: 'menu' });
     s5.emit({ content: 'The grill section is your friend here.' });
     s5.emit({ done: true });
     s5.close();
   });
-  await waitUntil('the menu reply finalizes', () => tailMessage().status === 'done');
+  await waitUntil('the kindless (menu-routed) reply finalizes', () => tailMessage().status === 'done');
   assert(
-    'menu replies never offer the meal retake chip',
+    'a kindless reply without a meal card offers no retake chip',
     offersMealPhotoRetake(chat.messages, chat.isStreaming) === false,
   );
+  assertEqual(
+    "the route announcement stamped 'menu' onto the photo turn",
+    chat.messages.find(m => m.id === kindlessTurn.id)?.photo?.kind ?? '',
+    'menu',
+  );
+
+  // 2e. A kindless turn the SERVER routed to the meal pipeline (the reply
+  // carries a meal-mode card) offers the retake chip, and the registered
+  // suggestion keeps the patient's own photo. Deliberately NO route
+  // announcement here — the meal card alone must be tell enough, covering
+  // a reply whose announcement was lost.
+  const PLATE_PHOTO = { uri: 'file:///plate-photo.jpg', width: 800, height: 600 };
+  await actSettle(() => {
+    chat.sendPhoto(PLATE_PHOTO);
+  });
+  const s6 = takeStream('kindless plate turn');
+  await actSettle(() => {
+    s6.emit({ content: MEAL_REPLY_TEXT });
+    s6.emit({ card: { kind: 'recipe', payload: { ...MEAL_CARD_PAYLOAD, id: 'meal_test_2' } } });
+    s6.emit({ done: true });
+    s6.close();
+  });
+  await waitUntil(
+    'the kindless (meal-routed) reply finalizes with its card',
+    () => tailMessage().status === 'done' && tailMessage().card !== undefined,
+  );
+  assert(
+    'a meal-mode card on a kindless turn offers the retake chip',
+    offersMealPhotoRetake(chat.messages, chat.isStreaming) === true,
+  );
+  assertEqual(
+    "a kindless meal card still keeps the patient's own photo",
+    chat.getRecipeSuggestion('meal_test_2')?.photoUri ?? '',
+    PLATE_PHOTO.uri,
+  );
+
+  // 2f. A kindless turn whose route the SERVER announced retries on the
+  // SAME route: the announcement stamps the photo turn, and retry() names
+  // the stamped kind explicitly instead of letting the server triage the
+  // same photo again.
+  const PLATE_RETRY_PHOTO = { uri: 'file:///plate-retry.jpg', width: 800, height: 600 };
+  await actSettle(() => {
+    chat.sendPhoto(PLATE_RETRY_PHOTO);
+  });
+  const stampTurnId = chat.messages[chat.messages.length - 2].id;
+  const s6b = takeStream('kindless stamped failure');
+  {
+    const msgs = s6b.requestBody.messages ?? [];
+    assert(
+      'the stamped-failure send carries NO photoKind',
+      msgs[msgs.length - 1]?.photoKind === undefined,
+    );
+  }
+  await actSettle(() => {
+    s6b.emit({ photoKind: 'meal' });
+    s6b.emit({ error: 'The coach hit a snag reading that photo.' });
+    s6b.close();
+  });
+  await waitUntil(
+    'the stamped kindless turn shows the error bubble',
+    () => tailMessage().status === 'error',
+  );
+  assertEqual(
+    "the route announcement stamped 'meal' before the failure",
+    chat.messages.find(m => m.id === stampTurnId)?.photo?.kind ?? '',
+    'meal',
+  );
+  assert(
+    'a stamped meal turn offers the retake chip on failure',
+    offersMealPhotoRetake(chat.messages, chat.isStreaming) === true,
+  );
+  const stampedErrorId = tailMessage().id;
+  await actSettle(() => {
+    chat.retry(stampedErrorId);
+  });
+  const s6c = takeStream('stamped kindless retry');
+  {
+    const msgs = s6c.requestBody.messages ?? [];
+    const stampedTail = msgs[msgs.length - 1];
+    assertEqual('the stamped retry names the announced route', stampedTail?.photoKind ?? '', 'meal');
+    assertEqual('the stamped retry re-sends the same photo', stampedTail?.image ?? '', PLATE_RETRY_PHOTO.uri);
+    assertEqual('the stamped retry keeps the generic replay text', stampedTail?.content ?? '', PHOTO_MESSAGE_TEXT);
+  }
+  await actSettle(() => {
+    s6c.emit({ content: 'Take two, same plate.' });
+    s6c.emit({ done: true });
+    s6c.close();
+  });
+  await waitUntil('the stamped retry completes', () => tailMessage().status === 'done');
+
+  // 2g. An EXPLICIT menu kind still sends photoKind "menu" (API regression).
+  await actSettle(() => {
+    chat.sendPhoto(MENU_PHOTO, 'menu');
+  });
+  const explicitMenuTurn = chat.messages[chat.messages.length - 2];
+  assertEqual('an explicit menu turn shows the menu replay text', explicitMenuTurn.text, MENU_PHOTO_MESSAGE_TEXT);
+  const s7 = takeStream('explicit menu turn');
+  {
+    const msgs = s7.requestBody.messages ?? [];
+    assertEqual(
+      'the explicit menu tail carries photoKind "menu"',
+      msgs[msgs.length - 1]?.photoKind ?? '',
+      'menu',
+    );
+  }
+  await actSettle(() => {
+    s7.emit({ content: 'Grilled fish, dressing on the side.' });
+    s7.emit({ done: true });
+    s7.close();
+  });
+  await waitUntil('the explicit menu reply finalizes', () => tailMessage().status === 'done');
 
   assertEqual('every coach stream was accounted for', opened.length, 0);
   coachTree.unmount();

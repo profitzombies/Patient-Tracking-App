@@ -127,7 +127,7 @@ describe("upstream idle deadlines", () => {
           // Well inside one idle budget; only touch() restarting the timer
           // lets the TOTAL turn run past a single budget below.
           await sleep(100);
-          yield { choices: [{ delta: { content: "protein." } }] };
+          yield { choices: [{ delta: { content: "protein 24" } }] };
           await hangUntilAborted(options?.signal); // now wedge for good
         },
       }),
@@ -136,8 +136,12 @@ describe("upstream idle deadlines", () => {
     const startedAt = Date.now();
     const res = await postChat("Is grapefruit approved?");
     const text = await res.text();
-    expect(text).toContain('data: {"content":"Lean "}');
-    expect(text).toContain('data: {"content":"protein."}');
+    // The dash smoother holds a chunk's trailing space until the next one.
+    expect(text).toContain('data: {"content":"Lean"}');
+    expect(text).toContain('data: {"content":" protein"}');
+    // The held tail (" 24" — digits could open a dash bridge) is drained to
+    // the wire before the error event, never silently dropped.
+    expect(text).toContain('data: {"content":" 24"}');
     expect(text).toContain(ERROR_EVENT);
     expect(text).not.toContain('"done":true');
     // Total wall time exceeded one idle budget: the budget restarted on data.

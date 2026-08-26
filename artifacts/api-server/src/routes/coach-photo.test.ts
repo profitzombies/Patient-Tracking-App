@@ -11,7 +11,9 @@
  * turn, and that an image is honored ONLY on the latest message.
  *
  * Budgets: this file makes 8 chat requests (burst 10) of which 3 reach the
- * vision model (menu-scan burst 6) — no rate-limit interference.
+ * vision model (menu-scan burst 6) — no rate-limit interference. Kindless
+ * images additionally make one photo-triage model call first (answered by
+ * the mock's triageJson); triage rides the same request slot, not a new one.
  */
 import { afterEach, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
@@ -60,6 +62,8 @@ const DEFAULT_CHUNKS = ["Hello ", "Emma."];
 const modelState = vi.hoisted(() => ({
   scanJson: "",
   recipeJson: "",
+  /** Answer for the photo-triage call a kindless image now makes first. */
+  triageJson: '{"subject":"menu"}',
   chunks: ["Hello ", "Emma."],
   failNext: 0,
   calls: [] as Array<{ hasImage: boolean; stream: boolean; system: string }>,
@@ -78,17 +82,18 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
                   (part) => (part as { type?: string } | null)?.type === "image_url",
                 ),
             );
-            modelState.calls.push({
-              hasImage,
-              stream: params.stream === true,
-              system:
-                typeof params.messages[0]?.content === "string"
-                  ? (params.messages[0].content as string)
-                  : "",
-            });
+            const system =
+              typeof params.messages[0]?.content === "string"
+                ? (params.messages[0].content as string)
+                : "";
+            modelState.calls.push({ hasImage, stream: params.stream === true, system });
             if (modelState.failNext > 0) {
               modelState.failNext -= 1;
               throw new Error("upstream boom");
+            }
+            // A kindless image's first vision call is the triage router.
+            if (hasImage && system.includes("photo triage")) {
+              return { choices: [{ message: { content: modelState.triageJson } }] };
             }
             if (params.stream === true) {
               return {
@@ -129,6 +134,7 @@ afterAll(async () => {
 afterEach(() => {
   modelState.scanJson = SCAN_OK_JSON;
   modelState.recipeJson = RECIPE_JSON;
+  modelState.triageJson = '{"subject":"menu"}';
   modelState.chunks = [...DEFAULT_CHUNKS];
   modelState.failNext = 0;
   modelState.calls = [];
@@ -145,8 +151,10 @@ function postChat(body: unknown) {
 const VALID_IMAGE = "data:image/jpeg;base64,dGVzdA==";
 const PHOTO_TEXT = "I sent a photo of a restaurant menu.";
 
-function photoBody(image: string) {
-  return { messages: [{ role: "user", content: PHOTO_TEXT, image }] };
+function photoBody(image: string, photoKind?: "menu" | "meal") {
+  return {
+    messages: [{ role: "user", content: PHOTO_TEXT, image, ...(photoKind ? { photoKind } : {}) }],
+  };
 }
 
 describe("POST /api/coach/chat with a menu photo", () => {
@@ -171,14 +179,18 @@ describe("POST /api/coach/chat with a menu photo", () => {
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const text = await res.text();
     expect(text).toContain("The grill section is your friend here.");
-    expect(text).toContain("1. Grilled Salmon — Ask for it grilled plain, sauce on the side.");
-    expect(text).toContain("Skip Fettuccine Alfredo — Cream sauce cannot be fixed by asking.");
+    expect(text).toContain("1. Grilled Salmon: Ask for it grilled plain, sauce on the side.");
+    expect(text).toContain("Skip Fettuccine Alfredo: Cream sauce cannot be fixed by asking.");
     expect(text).toContain(MENU_RECIPE_OFFER);
     expect(text).toContain('"quickReplies":["Yes, please","No thanks"]');
     expect(text).not.toContain('"card"');
     expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
-    // The photo actually reached the vision model, as an image part.
-    expect(modelState.calls.some((c) => c.hasImage && !c.stream)).toBe(true);
+    // The kindless photo was triaged first, then reached the scan model —
+    // both as image-carrying vision calls — and the resolved route was
+    // announced so a client retry can name it explicitly.
+    expect(text).toContain('data: {"photoKind":"menu"}');
+    expect(modelState.calls[0]?.system).toContain("photo triage");
+    expect(modelState.calls.filter((c) => c.hasImage && !c.stream)).toHaveLength(2);
   });
 
   it("treats not-a-menu as a warm conversational outcome, not an error", async () => {
@@ -200,7 +212,9 @@ describe("POST /api/coach/chat with a menu photo", () => {
 
   it("surfaces a genuine model failure as the standard SSE error event", async () => {
     modelState.failNext = 2; // both vision attempts (initial + transient retry)
-    const res = await postChat(photoBody(VALID_IMAGE));
+    // Explicit kind: the failure must hit the scan itself, not the triage
+    // (whose failures deliberately fall back to the meal pipeline).
+    const res = await postChat(photoBody(VALID_IMAGE, "menu"));
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain(
@@ -213,7 +227,7 @@ describe("POST /api/coach/chat with a menu photo", () => {
     modelState.recipeJson = RECIPE_JSON;
     const menuReply = [
       "The grill section is your friend here.",
-      "1. Grilled Salmon — Ask for it grilled plain, sauce on the side.",
+      "1. Grilled Salmon: Ask for it grilled plain, sauce on the side.",
       MENU_RECIPE_OFFER,
     ].join("\n\n");
     const res = await postChat({
@@ -247,7 +261,7 @@ describe("POST /api/coach/chat with a menu photo", () => {
     });
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect(text).toContain('data: {"content":"Hello "}');
+    expect(text).toContain('data: {"content":"Hello"}');
     expect(text).not.toContain('"card"');
     expect(modelState.calls.at(-1)?.stream).toBe(true);
   });

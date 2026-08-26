@@ -19,6 +19,12 @@ import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { BEFORE_YOU_ORDER_COMPARTMENT, getCompartmentById } from "./compartments";
 import { cleanModelText, extractModelJson } from "./model-json";
+import { stripDashes } from "./text-style";
+
+/** Coach-surface cleaning: emoji strip + trim, then the no-dash voice rule. */
+function cleanCoachText(text: string): string {
+  return stripDashes(cleanModelText(text)).trim();
+}
 import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 
@@ -111,7 +117,7 @@ Choosing dishes (when "result" is "ok"):
 - Use only dish names actually printed on the menu. Never invent items, and never put the same dish in both lists.
 - Portions: protein amounts follow the patient's phase rules in the sources. When a menu portion is clearly larger, tell the patient to eat only the allowed amount and box the rest.
 - If nothing on the menu can work, leave "order" empty and use "message" to suggest asking the kitchen for a plain grilled approved protein with steamed vegetables, no butter or oil.
-- "message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked the menu over with them, then point at the best option or level with them about the situation. Contractions and plain words; specific, not gushing. Plain text, never emojis.
+- "message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked the menu over with them, then point at the best option or level with them about the situation. Contractions and plain words; specific, not gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods.
 
 You are AI guidance, not the official program materials. Keep every suggestion consistent with the sources below; the app shows your answer next to a link to the official Approved list.
 
@@ -223,7 +229,7 @@ function interpret(raw: string): Interpretation {
   }
 
   const data = parsed.data;
-  const message = cleanModelText(data.message);
+  const message = cleanCoachText(data.message);
   if (!message) {
     return { ok: false, problems: ["message was empty"] };
   }
@@ -234,10 +240,10 @@ function interpret(raw: string): Interpretation {
   const order = readable
     ? data.order
         .map((item) => {
-          const note = item.note ? cleanModelText(item.note) : "";
+          const note = item.note ? cleanCoachText(item.note) : "";
           return {
-            name: cleanModelText(item.name),
-            howToOrder: cleanModelText(item.howToOrder),
+            name: cleanCoachText(item.name),
+            howToOrder: cleanCoachText(item.howToOrder),
             ...(note ? { note } : {}),
           };
         })
@@ -246,10 +252,10 @@ function interpret(raw: string): Interpretation {
   const orderNames = new Set(order.map((item) => item.name.toLowerCase()));
   const avoid = readable
     ? data.avoid
-        .map((item) => ({ name: cleanModelText(item.name), reason: cleanModelText(item.reason) }))
+        .map((item) => ({ name: cleanCoachText(item.name), reason: cleanCoachText(item.reason) }))
         .filter((item) => item.name && item.reason && !orderNames.has(item.name.toLowerCase()))
     : [];
-  const menuTitle = readable && data.menuTitle ? cleanModelText(data.menuTitle) : "";
+  const menuTitle = readable && data.menuTitle ? cleanCoachText(data.menuTitle) : "";
 
   return {
     ok: true,

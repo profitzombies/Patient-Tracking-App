@@ -9,7 +9,7 @@ import * as zod from 'zod';
 
 
 /**
- * Stateless SSE endpoint. The client sends its in-session message history and receives a text/event-stream of assistant chunks ("data: {\"content\": \"...\"}" lines followed by "data: {\"done\": true}"), optionally with one "data: {\"card\": {\"kind\", \"payload\"}}" event before done. Card kinds: "product" — a curated THINNR product suggestion ({\"id\", \"name\", \"line\", \"price\"}); "recipe" — a structured recipe suggestion emitted on meal-idea and craving turns, whose ingredients in cravings mode are validated server-side against the official Approved Foods list. Patient program context is derived server-side from the demo seed; rate limits apply.
+ * Stateless SSE endpoint. The client sends its in-session message history and receives a text/event-stream of assistant chunks ("data: {\"content\": \"...\"}" lines followed by "data: {\"done\": true}"), optionally with one "data: {\"card\": {\"kind\", \"payload\"}}" event before done. A photo turn sent without photoKind is triaged server-side and the resolved route is announced early as one "data: {\"photoKind\": \"menu\"|\"meal\"}" event, so a client retry of that turn can name the same route explicitly. Card kinds: "product" — a curated THINNR product suggestion ({\"id\", \"name\", \"line\", \"price\"}); "recipe" — a structured recipe suggestion emitted on meal-idea and craving turns, whose ingredients in cravings mode are validated server-side against the official Approved Foods list. Patient program context is derived server-side from the demo seed; rate limits apply.
  * @summary Stream an AI coach reply for a patient chat turn
  */
 export const coachChatBodyMessagesItemContentMax = 4000;
@@ -26,7 +26,7 @@ export const CoachChatBody = zod.object({
   "content": zod.string().max(coachChatBodyMessagesItemContentMax),
   "stopped": zod.boolean().optional().describe('True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages.'),
   "image": zod.string().max(coachChatBodyMessagesItemImageMax).optional().describe('Optional photo attached to this user message, as a base64 data URI (JPEG, PNG, or WebP). Honored only on the final message of the request — history replays carry text only, so a photo is never re-sent on later turns. Analyzed in memory and never stored. Ignored on assistant messages.'),
-  "photoKind": zod.enum(['menu', 'meal']).optional().describe('What the attached photo shows, chosen by the client flow that captured it: \"menu\" (default when absent) runs the restaurant menu scan; \"meal\" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card. Ignored without an image.')
+  "photoKind": zod.enum(['menu', 'meal']).optional().describe('What the attached photo shows, chosen by the client flow that captured it: \"menu\" runs the restaurant menu scan; \"meal\" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card. When absent, the server inspects the photo and routes it to the fitting pipeline itself. Ignored without an image.')
 })).min(1).max(coachChatBodyMessagesMax)
 })
 

@@ -121,7 +121,7 @@ export function productGroundingText(): string {
       .map((fact) => (fact.detail ? `${fact.name}: ${fact.detail}` : fact.name))
       .join("\n");
     return [
-      `${product.name} — ${product.tagline}`,
+      `${product.name}: ${product.tagline}`,
       product.format,
       product.description,
       ...product.benefits,

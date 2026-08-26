@@ -25,6 +25,7 @@
 import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { cleanModelText, extractModelJson } from "./model-json";
+import { stripDashes } from "./text-style";
 import { patientContextLine, type PatientContext } from "./prompt";
 import {
   normalizeIngredientNutrition,
@@ -127,7 +128,7 @@ Listing items (when "result" is "ok"):
 - "description": one plain sentence describing what is on the plate.
 - "meal": the diary slot this most looks like.
 
-"message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked at their plate, specific and warm, contractions and plain words, never gushing. Plain text, never emojis. Never say you cannot determine the portions and never ask the patient to weigh or measure anything — your best estimates are already in "items" and the patient can adjust them.`;
+"message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked at their plate, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never say you cannot determine the portions and never ask the patient to weigh or measure anything — your best estimates are already in "items" and the patient can adjust them.`;
 }
 
 // ─── Model call ──────────────────────────────────────────────────────────────
@@ -227,6 +228,11 @@ type Interpretation =
   | { ok: true; outcome: MealPhotoOutcome; message: string; items: CleanItem[]; mealName: string; description: string; meal: (typeof MEALS)[number] }
   | { ok: false; problems: string[] };
 
+/** Coach-surface cleaning: emoji strip + trim, then the no-dash voice rule. */
+function cleanCoachText(text: string): string {
+  return stripDashes(cleanModelText(text)).trim();
+}
+
 function interpret(raw: string): Interpretation {
   const json = extractModelJson(raw);
   if (json === null) {
@@ -241,7 +247,7 @@ function interpret(raw: string): Interpretation {
   }
 
   const data = parsed.data;
-  const message = cleanModelText(data.message);
+  const message = cleanCoachText(data.message);
   if (!message) {
     return { ok: false, problems: ["message was empty"] };
   }
@@ -255,7 +261,7 @@ function interpret(raw: string): Interpretation {
   const problems: string[] = [];
   const items: CleanItem[] = [];
   data.items.forEach((item, index) => {
-    const name = cleanModelText(item.name);
+    const name = cleanCoachText(item.name);
     if (!name) return; // an unnameable row carries no signal — drop it
     // The always-estimate rule is enforced here, not just prompted: a zero
     // amount would render an uneditable row and an "I couldn't tell" meal.
@@ -268,7 +274,7 @@ function interpret(raw: string): Interpretation {
     items.push({
       name,
       amount: item.amount,
-      unit: cleanModelText(item.unit),
+      unit: cleanCoachText(item.unit),
       nutrition: item.nutrition,
     });
   });
@@ -287,9 +293,9 @@ function interpret(raw: string): Interpretation {
     items.length === 1
       ? capitalize(items[0].name)
       : `${capitalize(items[0].name)} with ${items[1].name}`;
-  const mealName = cleanModelText(data.mealName ?? "") || fallbackName;
+  const mealName = cleanCoachText(data.mealName ?? "") || fallbackName;
   const description =
-    cleanModelText(data.description ?? "") ||
+    cleanCoachText(data.description ?? "") ||
     "What I can see on your plate, sized with my best estimates.";
 
   return {

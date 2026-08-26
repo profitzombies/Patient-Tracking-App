@@ -79,7 +79,7 @@ describe("findProduct / productCardPayload", () => {
 describe("productGroundingText", () => {
   it("contains verbatim catalog copy, prices, and sources", () => {
     const text = productGroundingText();
-    expect(text).toContain("Creatine+ — Powerful Muscle & Mind Support");
+    expect(text).toContain("Creatine+: Powerful Muscle & Mind Support");
     expect(text).toContain("Price: $55 (demo pricing)");
     expect(text).toContain("(Source: https://getthinnr.com/products/creatine-plus)");
   });

@@ -104,8 +104,8 @@ describe("POST /api/coach/chat", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const text = await res.text();
-    expect(text).toContain('data: {"content":"Hello "}');
-    expect(text).toContain('data: {"content":"Emma."}');
+    expect(text).toContain('data: {"content":"Hello"}');
+    expect(text).toContain('data: {"content":" Emma."}');
     expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
   });
 

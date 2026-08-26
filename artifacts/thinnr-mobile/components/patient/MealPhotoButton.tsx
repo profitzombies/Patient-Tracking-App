@@ -223,7 +223,7 @@ export function MealPhotoButton({ variant, testID, style }: MealPhotoButtonProps
             </Text>
             <Text style={[styles.cardSub, { color: 'rgba(255, 255, 255, 0.75)' }]}>
               {isStreaming
-                ? 'The coach is replying — one moment'
+                ? 'The coach is replying, one moment'
                 : 'AI reads your plate so you can log it in a tap'}
             </Text>
           </View>
@@ -352,7 +352,7 @@ export function MealPhotoButton({ variant, testID, style }: MealPhotoButtonProps
               />
             ) : null}
             <Text style={[styles.sheetHint, { color: colors.subtleText }]}>
-              The AI coach will list what it sees with estimated amounts — you can adjust
+              The AI coach will list what it sees with estimated amounts. You can adjust
               everything before logging. Photos are analyzed once, never stored.
             </Text>
             {error ? (

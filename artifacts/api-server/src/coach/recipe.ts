@@ -19,6 +19,7 @@ import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { COMPARTMENTS, type Compartment } from "./compartments";
 import { cleanModelText, extractModelJson } from "./model-json";
+import { stripDashes } from "./text-style";
 import {
   COACH_PERSONA_LINE,
   COACH_VOICE_RULES,
@@ -267,8 +268,26 @@ function interpret(raw: string, mode: RecipeMode): Interpretation {
   }
   return {
     ok: true,
-    reply: cleanModelText(reply),
-    recipe: recipe ? normalizeIngredientNutrition(recipe) : null,
+    reply: stripDashes(cleanModelText(reply)).trim(),
+    recipe: recipe ? normalizeIngredientNutrition(dedashRecipeText(recipe)) : null,
+  };
+}
+
+/**
+ * The card's user-facing strings follow the same no-dash voice rule as the
+ * reply. Applied after validation (names were already matched against the
+ * catalog) and before normalization; numbers are untouched.
+ */
+function dedashRecipeText(recipe: GeneratedRecipe): GeneratedRecipe {
+  return {
+    ...recipe,
+    name: stripDashes(recipe.name),
+    description: stripDashes(recipe.description),
+    steps: recipe.steps.map((step) => stripDashes(step)),
+    ingredients: recipe.ingredients.map((ingredient) => ({
+      ...ingredient,
+      name: stripDashes(ingredient.name),
+    })),
   };
 }
 
@@ -396,9 +415,13 @@ function formatGroceryLine(ingredient: GeneratedRecipe["ingredients"][number]): 
     ? approvedItemName(ingredient.approvedItemId)
     : undefined;
   const label = official ?? ingredient.name;
-  if (ingredient.amount <= 0) return label;
+  // Display text follows the coach's no-dash rule even when the official
+  // catalog wording carries one ("Canned Tuna – Water Packed") — validation
+  // matched on the catalog id long before this, so only the shown line
+  // changes.
+  if (ingredient.amount <= 0) return stripDashes(label);
   const unit = ingredient.unit ? ` ${ingredient.unit}` : "";
-  return `${ingredient.amount}${unit} ${label}`;
+  return stripDashes(`${ingredient.amount}${unit} ${label}`);
 }
 
 function toPayload(recipe: GeneratedRecipe, mode: RecipeMode): RecipeCardPayload {

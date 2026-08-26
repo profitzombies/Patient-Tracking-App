@@ -10,11 +10,14 @@
  * visible-only / always-estimate rules, the corrective retry when the model
  * refuses to commit to an amount, non-food photos as warm conversational
  * outcomes (never errors), persistent invalid output as the standard SSE
- * error, and back-compat: an image without photoKind stays on the menu
- * pipeline, and photoKind without an image stays on the plain chat.
+ * error, and routing: an image without photoKind is triaged by a tiny
+ * vision call (menu photos to the menu scan, everything else to the meal
+ * pipeline), and photoKind without an image stays on the plain chat.
  *
- * Budgets: this file makes 6 chat requests (burst 10) of which 5 carry an
- * image (menu-scan/vision burst 6) — no rate-limit interference.
+ * Budgets: this file makes 7 chat requests (burst 10) of which 6 carry an
+ * image (menu-scan/vision burst 6) — no rate-limit interference. The
+ * triage answer (triageJson) is a model call inside the same request, not
+ * an extra request slot.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
@@ -88,6 +91,8 @@ const DEFAULT_CHUNKS = ["Hello ", "Emma."];
 const modelState = vi.hoisted(() => ({
   /** Vision answers consumed in order; the last one repeats when exhausted. */
   scanQueue: [] as string[],
+  /** Answer for the photo-triage call a kindless image makes first. */
+  triageJson: '{"subject":"food"}',
   chunks: ["Hello ", "Emma."],
   failNext: 0,
   calls: [] as Array<{ hasImage: boolean; stream: boolean; system: string; userText: string }>,
@@ -103,18 +108,24 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
               .filter((m) => m.role === "user" && Array.isArray(m.content))
               .flatMap((m) => m.content as Array<{ type?: string; text?: string }>);
             const hasImage = userParts.some((part) => part?.type === "image_url");
+            const system =
+              typeof params.messages[0]?.content === "string"
+                ? (params.messages[0].content as string)
+                : "";
             modelState.calls.push({
               hasImage,
               stream: params.stream === true,
-              system:
-                typeof params.messages[0]?.content === "string"
-                  ? (params.messages[0].content as string)
-                  : "",
+              system,
               userText: userParts.find((part) => part?.type === "text")?.text ?? "",
             });
             if (modelState.failNext > 0) {
               modelState.failNext -= 1;
               throw new Error("upstream boom");
+            }
+            // A kindless image's first vision call is the triage router; it
+            // answers from triageJson and never consumes the scan queue.
+            if (hasImage && system.includes("photo triage")) {
+              return { choices: [{ message: { content: modelState.triageJson } }] };
             }
             if (params.stream === true) {
               return {
@@ -158,6 +169,7 @@ afterAll(async () => {
 
 afterEach(() => {
   modelState.scanQueue = [];
+  modelState.triageJson = '{"subject":"food"}';
   modelState.chunks = [...DEFAULT_CHUNKS];
   modelState.failNext = 0;
   modelState.calls = [];
@@ -214,11 +226,14 @@ describe("POST /api/coach/chat with a meal photo", () => {
     const events = sseEvents(await res.text());
 
     const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
-    expect(reply).toContain("That's a solid plate");
+    // The fixture's coach message carries an em dash; the pipeline's
+    // no-dash cleaning must rewrite it before it reaches the patient.
+    expect(reply).toContain("That's a solid plate, lean protein and a real vegetable side.");
+    expect(reply).not.toContain("—");
     // One line per VISIBLE item, each with a committed best-guess portion
     // and the same integer calories the card shows.
-    expect(reply).toContain("Grilled chicken breast — about 6 oz · est. 280 cal");
-    expect(reply).toContain("Roasted sweet potatoes — about 1 cup · est. 180 cal");
+    expect(reply).toContain("Grilled chicken breast: about 6 oz · est. 280 cal");
+    expect(reply).toContain("Roasted sweet potatoes: about 1 cup · est. 180 cal");
     expect(reply).toContain(MEAL_CARD_CLOSER);
     // Never ends with a question — the client's fallback yes/no chips must
     // stay hidden (the retake chip rides this turn instead).
@@ -271,7 +286,7 @@ describe("POST /api/coach/chat with a meal photo", () => {
     // The retake answer (amount 0) never reached the patient — the second,
     // committed answer did.
     const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
-    expect(reply).toContain("Grilled chicken breast — about 6 oz · est. 280 cal");
+    expect(reply).toContain("Grilled chicken breast: about 6 oz · est. 280 cal");
     expect(events.at(-1)).toEqual({ done: true });
 
     const visionCalls = modelState.calls.filter((c) => c.hasImage);
@@ -314,12 +329,11 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(modelState.calls.filter((c) => c.hasImage)).toHaveLength(2);
   });
 
-  it("keeps an image WITHOUT photoKind on the menu pipeline (back-compat)", async () => {
+  it("triages a kindless image that shows a menu onto the menu pipeline", async () => {
+    modelState.triageJson = '{"subject":"menu"}';
     modelState.scanQueue = [MENU_OK_JSON];
     const res = await postChat({
-      messages: [
-        { role: "user", content: "I sent a photo of a restaurant menu.", image: VALID_IMAGE },
-      ],
+      messages: [{ role: "user", content: "I sent a photo.", image: VALID_IMAGE }],
     });
     expect(res.status).toBe(200);
     const events = sseEvents(await res.text());
@@ -331,6 +345,38 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(events.some((e) => e.quickReplies !== undefined)).toBe(true);
     expect(events.some((e) => e.card !== undefined)).toBe(false);
     expect(events.at(-1)).toEqual({ done: true });
+    // Triage first, then the scan — and the resolved route is announced so
+    // a client retry can name it explicitly instead of triaging again.
+    expect(events).toContainEqual({ photoKind: "menu" });
+    const vision = modelState.calls.filter((c) => c.hasImage);
+    expect(vision).toHaveLength(2);
+    expect(vision[0].system).toContain("photo triage");
+  });
+
+  it("triages a kindless image that shows a plate onto the meal pipeline", async () => {
+    modelState.triageJson = '{"subject":"food"}';
+    modelState.scanQueue = [MEAL_OK_JSON];
+    const res = await postChat({
+      messages: [{ role: "user", content: "I sent a photo.", image: VALID_IMAGE }],
+    });
+    expect(res.status).toBe(200);
+    const events = sseEvents(await res.text());
+
+    const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
+    expect(reply).toContain(MEAL_CARD_CLOSER);
+    const card = events.find((e) => e.card !== undefined)?.card as {
+      kind: string;
+      payload: { mode?: string };
+    };
+    expect(card.kind).toBe("recipe");
+    expect(card.payload.mode).toBe("meal");
+    // Meal turns never carry chips — the client shows its own retake chip.
+    expect(events.some((e) => e.quickReplies !== undefined)).toBe(false);
+    expect(events.at(-1)).toEqual({ done: true });
+    const vision = modelState.calls.filter((c) => c.hasImage);
+    expect(vision).toHaveLength(2);
+    expect(vision[0].system).toContain("photo triage");
+    expect(events).toContainEqual({ photoKind: "meal" });
   });
 
   it("keeps photoKind without an image on the plain chat pipeline", async () => {
@@ -340,7 +386,7 @@ describe("POST /api/coach/chat with a meal photo", () => {
     });
     expect(res.status).toBe(200);
     const events = sseEvents(await res.text());
-    expect(events).toContainEqual({ content: "Hello " });
+    expect(events).toContainEqual({ content: "Hello" });
     expect(events.at(-1)).toEqual({ done: true });
     // No vision call was made — the streaming chat answered.
     expect(modelState.calls.every((c) => !c.hasImage)).toBe(true);

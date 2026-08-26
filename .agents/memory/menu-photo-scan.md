@@ -86,3 +86,12 @@ description: Patterns proven by the menu-scan flow — vision input through the 
 - **Vision e2e fixtures:** the seeded ILLUSTRATED plate images are reliably
   read as food by the vision model — no need to generate photoreal fixtures —
   and any UI screenshot reliably triggers the `not_food` outcome.
+
+
+## Kindless photos: server triage + route announcement
+
+A chat-camera photo sent WITHOUT `photoKind` is triaged server-side (tiny vision call, json_object `{"subject":"menu"|"food"|"other"}`); menu → menu scan, everything else (incl. parse/upstream failure) → meal pipeline, whose not-food outcome stays warm; aborts rethrow. The resolved route is announced early as one SSE event `data: {"photoKind":"menu"|"meal"}`.
+
+**Why:** a client retry that re-sends kindless would trigger a SECOND triage of the same photo, which can pick the other pipeline (different reply shape, cards, chips).
+
+**How to apply:** the client stamps the announced kind onto the origin photo turn (only when kind is still undefined — never overwrite explicit kinds), so retries send the kind explicitly; replay text stays fixed at send time. Keep a fallback inference (meal-mode recipe card ⇒ meal turn) for replies whose announcement was lost, and cover "announce → error → retry carries the stamped kind" in the verify suite.

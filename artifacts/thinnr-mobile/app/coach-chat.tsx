@@ -12,11 +12,13 @@
  * CoachChatContext); the starter prompts render beneath it until the patient
  * sends their first message.
  *
- * Photo turns: the camera button beside the input sends a menu photo into
- * the conversation (take or choose, downscaled by the shared photo-prep
- * helper), rendered as a photo bubble. The coach replies with ordering
- * suggestions and offers a custom recipe via the usual one-tap chips. The
- * photo stays in client state, so a failed turn retries in one tap.
+ * Photo turns: the camera button beside the input sends a photo into the
+ * conversation (take or choose, downscaled by the shared photo-prep
+ * helper), rendered as a photo bubble. No kind is attached — the server
+ * looks at the photo and routes it itself: menus come back as ordering
+ * suggestions with the usual one-tap chips, plates as an editable meal
+ * card. The photo stays in client state, so a failed turn retries in one
+ * tap.
  *
  * Meal photo turns arrive via the shared MealPhotoButton (Library/Diary
  * entry points) with kind "meal": the coach answers with what it sees on
@@ -172,7 +174,7 @@ export default function CoachChatScreen() {
       setPhotoOptionsOpen(false);
       sendPhoto(photo);
     } catch (error) {
-      console.error("Menu photo preparation failed", error);
+      console.error("Chat photo preparation failed", error);
       setPhotoError(
         "That photo could not be prepared. Please try a different one.",
       );
@@ -312,16 +314,20 @@ export default function CoachChatScreen() {
             AI COACH · PLEASE NOTE
           </Text>
           <Text style={[styles.disclosureBody, { color: colors.bodyText }]}>
-            This coach is an AI assistant, for information only — not medical
+            This coach is an AI assistant, for information only, not medical
             advice. Answers come from the official THINNR program materials. It
             can make mistakes, so check with your care team when something
             matters.
           </Text>
         </View>
 
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
-        ))}
+        {/* A hidden greeting stays in state (and request history) but off
+            screen: photo-opened sessions start with the photo itself. */}
+        {messages
+          .filter((message) => !message.hidden)
+          .map((message) => (
+            <MessageBubble key={message.id} message={message} />
+          ))}
         {/* Until the patient joins in, the starter prompts sit under the
             seeded greeting as ready-made conversation openers. */}
         {hasUserMessage ? null : (
@@ -490,7 +496,7 @@ export default function CoachChatScreen() {
                 <Feather name="image" size={13} color={colors.orange} />
                 <Text style={[styles.photoOptionText, { color: colors.navy }]}>
                   {Platform.OS === "web"
-                    ? "Choose a menu photo"
+                    ? "Choose a photo"
                     : "Choose from library"}
                 </Text>
               </Pressable>
@@ -500,7 +506,7 @@ export default function CoachChatScreen() {
             <Pressable
               testID="coach-photo"
               accessibilityRole="button"
-              accessibilityLabel="Send a menu photo"
+              accessibilityLabel="Send a photo"
               accessibilityState={{
                 disabled: isStreaming || preparing,
                 expanded: photoOptionsOpen,
@@ -667,7 +673,11 @@ function MessageBubble({ message }: { message: CoachMessage }) {
             ]}
             contentFit="cover"
             accessibilityLabel={
-              message.photo.kind === "meal" ? "Your meal photo" : "Your menu photo"
+              message.photo.kind === "meal"
+                ? "Your meal photo"
+                : message.photo.kind === "menu"
+                  ? "Your menu photo"
+                  : "Your photo"
             }
           />
         </View>

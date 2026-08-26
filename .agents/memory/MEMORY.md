@@ -56,3 +56,4 @@
 - [Support chat grounding](support-chat-grounding.md) — broaden-marker routing; brand fixes via stream rewrite; history caps fit replayed replies (turn TWO); AI Support + knowledge routes deliberately open, per-IP-limited; never bundle creds.
 - [Unicode in authored TSX](tsx-unicode-escapes.md) — \uXXXX in JSX text renders literally (green builds, broken UI); write real characters when generating files.
 - [Synthetic image fixtures](synthetic-image-fixtures.md) — no sharp/PIL/chromium here: a no-deps Node PNG encoder + 5x7 pixel font makes vision-readable fixtures; certify via curl before e2e.
+- [In-app food camera handoff](food-camera-handoff.md) — camera route settles a module promise with the RAW asset; prep + single blue confirm live at entry points; denied fallbacks live inside the surface.

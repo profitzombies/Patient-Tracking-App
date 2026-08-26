@@ -65,6 +65,20 @@
  *      reused); the rebuilt card keeps the patient's photo and the retake
  *      chip; corrections chain; an unrelated follow-up and correction
  *      words without the meal-card adjacency both stay plain text turns.
+ *  11. The in-app camera handoff (lib/food-camera): one pending request at
+ *      a time, claimed exactly once, the first settle wins, and a new
+ *      request settles an orphaned predecessor with null.
+ *  12. FoodCameraSurface: granted → live surface with a corner thumbnail
+ *      of the newest library photo (plain icon without photo access) and
+ *      a shutter that settles the raw capture exactly once; denied →
+ *      fallback view (library first, re-ask or Settings route, plain
+ *      copy, never a dead end); undetermined → asked automatically,
+ *      exactly once; capture and mount failures stay recoverable.
+ *      MealPhotoButton on device routes through the camera screen and
+ *      stages the SAME single blue confirmation for captures and corner
+ *      picks (Retake vs Choose a different photo); the confirmed send
+ *      carries the prepared data URI, photoKind "meal", and the pinned
+ *      slot, and the web picker path is untouched.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:meal-photo
  */
@@ -111,6 +125,27 @@ import {
   type RecipeIngredient,
   type SavedRecipe,
 } from '../data/patient-data';
+// ── In-app camera pieces (sections 9-11) ────────────────────────────────────
+// The REAL surface, entry-point button, and handoff module run against the
+// meal-photo-local camera/media/router stubs; Platform comes from the mapped
+// react-native stub, whose OS field is mutable per scenario.
+import { Platform } from 'react-native';
+import { FoodCameraSurface } from '../components/patient/FoodCameraSurface';
+import { MealPhotoButton } from '../components/patient/MealPhotoButton';
+import {
+  claimFoodCameraRequest,
+  createFoodCameraRequest,
+  type FoodCameraCapture,
+} from '../lib/food-camera';
+import { cameraState, resetCameraStub } from './meal-photo-stubs/expo-camera';
+import { mediaState } from './meal-photo-stubs/expo-media-library';
+import { pickerState } from './label-scan-stubs/expo-image-picker';
+import {
+  clearRouterCalls,
+  routerCalls,
+  routerState,
+} from './meal-photo-stubs/expo-router';
+import { openSettingsCalls } from './meal-photo-stubs/react-native';
 
 let checks = 0;
 let failures = 0;
@@ -393,6 +428,9 @@ async function main() {
     // suite's act() slices, which React flags as an un-wrapped update. The
     // very next act() flushes it, so the warning is expected noise here.
     if (typeof args[0] === 'string' && args[0].includes('not wrapped in act')) return;
+    // The camera scenarios deliberately fail one capture and one camera
+    // mount; both log through the components' own error paths.
+    if (args[0] === 'In-app capture failed' || args[0] === 'Camera failed to start') return;
     realConsoleError(...args);
   };
   const rendererModule = (await import('react-test-renderer')) as unknown as {
@@ -1561,6 +1599,403 @@ async function main() {
   assertEqual('capitalizes hyphen segments', toTitleCase('7-grain crackers'), '7-Grain Crackers');
   assertEqual('collapses stray whitespace', toTitleCase('  greek   yogurt '), 'Greek Yogurt');
   assertEqual('is idempotent', toTitleCase(toTitleCase('overnight muesli original')), 'Overnight Muesli Original');
+
+  // ── RTR query helpers for the camera component scenarios ──────────────────
+  type HostNode = { type: unknown; props: Record<string, unknown> };
+  type Rendered = {
+    root: { findAll(predicate: (node: HostNode) => boolean): HostNode[] };
+    toJSON(): unknown;
+    unmount(): void;
+  };
+
+  // Host elements only: a composite like <MealPhotoButton testID=…> keeps
+  // the testID in its own props and would shadow the Pressable that
+  // actually carries onPress/disabled.
+  const byTestID = (tree: Rendered, testID: string): HostNode | null =>
+    tree.root.findAll(
+      node => typeof node.type === 'string' && node.props?.testID === testID,
+    )[0] ?? null;
+  const present = (tree: Rendered, testID: string): boolean => byTestID(tree, testID) !== null;
+
+  async function tap(tree: Rendered, testID: string): Promise<void> {
+    const node = byTestID(tree, testID);
+    if (!node) {
+      fail(`tap: no node with testID "${testID}"`);
+      finish();
+    }
+    if (node.props.disabled === true) return; // a disabled Pressable swallows taps
+    const onPress = node.props.onPress as (() => unknown) | undefined;
+    await actSettle(() => {
+      void onPress?.();
+    });
+  }
+
+  function treeText(node: unknown): string {
+    if (node == null || node === false) return '';
+    if (typeof node === 'string') return node;
+    if (Array.isArray(node)) return node.map(treeText).join(' ');
+    const children = (node as { children?: unknown }).children;
+    return treeText(children ?? null);
+  }
+  const surfaceText = (tree: Rendered) => treeText(tree.toJSON());
+
+  const renderSurface = async (
+    results: Array<FoodCameraCapture | null>,
+  ): Promise<Rendered> => {
+    let tree!: Rendered;
+    await act(async () => {
+      tree = TestRenderer.create!(
+        React.createElement(FoodCameraSurface, {
+          onSettle: (capture: FoodCameraCapture | null) => void results.push(capture),
+        }),
+      ) as unknown as Rendered;
+      await settle();
+    });
+    return tree;
+  };
+
+  // ── 9. Food-camera handoff: one pending request, claimed exactly once ─────
+  {
+    assert('claiming with nothing pending returns null', claimFoodCameraRequest() === null);
+
+    const first = createFoodCameraRequest();
+    const second = createFoodCameraRequest();
+    assert('a new capture request settles an orphaned predecessor with null', (await first) === null);
+
+    const session = claimFoodCameraRequest();
+    assert('the pending request claims into a session', session !== null);
+    assert('claiming is once-only', claimFoodCameraRequest() === null);
+
+    session?.settle({
+      asset: { uri: 'file:///handoff.jpg', width: 640, height: 480 },
+      source: 'camera',
+    });
+    session?.settle(null); // idempotent — the first result wins
+    const settled = await second;
+    assertEqual('the session settles the caller with the capture', settled?.asset.uri ?? '', 'file:///handoff.jpg');
+    assertEqual('the capture keeps its source tag', settled?.source ?? '', 'camera');
+  }
+
+  // ── 10. The in-app camera surface ──────────────────────────────────────────
+  // 10a. Granted camera: live surface, corner thumbnail, capture settles once.
+  {
+    resetCameraStub();
+    mediaState.permission = { granted: true, accessPrivileges: 'all' };
+    mediaState.recent = [{ id: 'recent-1', uri: 'ph://recent-1' }];
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+
+    assert('granted camera renders the live surface', present(surface, 'food-camera-shutter'));
+    assert('the flip control rides the live surface', present(surface, 'food-camera-flip'));
+    assertEqual('an already-granted camera is not re-asked on arrival', cameraState.requestCount, 0);
+    assert(
+      'the privacy caption rides the live surface',
+      surfaceText(surface).includes('Photos are analyzed once, never stored.'),
+    );
+    await waitUntil(
+      'the corner button shows the newest library photo as a thumbnail',
+      () => present(surface, 'food-camera-library-thumb'),
+    );
+    {
+      const thumb = byTestID(surface, 'food-camera-library-thumb');
+      const source = (thumb?.props.source ?? {}) as { uri?: string };
+      assertEqual('the thumbnail is the newest library photo', source.uri ?? '', 'ph://recent-1');
+    }
+
+    await tap(surface, 'food-camera-shutter');
+    await waitUntil('a shutter tap settles the capture', () => results.length === 1);
+    assertEqual('the capture hands back the raw camera asset', results[0]?.asset.uri ?? '', 'file:///captured.jpg');
+    assertEqual('the capture keeps the asset width', results[0]?.asset.width ?? -1, 1200);
+    assertEqual('the capture is tagged source "camera"', results[0]?.source ?? '', 'camera');
+
+    await tap(surface, 'food-camera-close');
+    assertEqual('the surface settles exactly once', results.length, 1);
+    surface.unmount();
+  }
+
+  // 10b. Corner library button: plain icon without photo access; declined,
+  // canceled, and successful picks.
+  {
+    resetCameraStub();
+    mediaState.permission = { granted: false };
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+
+    assert('without photo access the corner shows the plain icon', present(surface, 'food-camera-library-icon'));
+    assert('no thumbnail without photo access', !present(surface, 'food-camera-library-thumb'));
+
+    pickerState.libraryPermission = false;
+    await tap(surface, 'food-camera-library');
+    assert('a declined library permission shows the announced error box', present(surface, 'food-camera-error'));
+    assertEqual('the decline keeps the patient on the camera', results.length, 0);
+
+    pickerState.libraryPermission = true;
+    pickerState.library.push({ canceled: true, assets: null });
+    await tap(surface, 'food-camera-library');
+    assertEqual('a canceled corner pick settles nothing', results.length, 0);
+
+    pickerState.library.push({
+      canceled: false,
+      assets: [{ uri: 'file:///corner-pick.jpg', width: 900, height: 700 }],
+    });
+    await tap(surface, 'food-camera-library');
+    await waitUntil('a corner pick settles the choice', () => results.length === 1);
+    assertEqual('the pick hands back the raw library asset', results[0]?.asset.uri ?? '', 'file:///corner-pick.jpg');
+    assertEqual('the pick is tagged source "library"', results[0]?.source ?? '', 'library');
+    surface.unmount();
+  }
+
+  // 10c. Denied camera: fallback view, library primary, re-ask offer, plain copy.
+  {
+    resetCameraStub();
+    cameraState.permission = { granted: false, canAskAgain: true, status: 'denied' };
+    const mountedBefore = cameraState.mounted;
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+
+    assert('a denied camera swaps to the fallback view', present(surface, 'food-camera-fallback'));
+    assert('the fallback hides the live controls', !present(surface, 'food-camera-shutter'));
+    assertEqual('a prior denial is never re-prompted on arrival', cameraState.requestCount, 0);
+    assertEqual('a denied camera never mounts a camera view', cameraState.mounted, mountedBefore);
+    assert('the fallback leads with the library picker', present(surface, 'food-camera-fallback-library'));
+    assert('while the OS would ask again, the fallback offers the ask', present(surface, 'food-camera-allow'));
+    assert('no Settings link while a plain re-ask would work', !present(surface, 'food-camera-settings'));
+    assert(
+      'the fallback explains plainly instead of dead-ending',
+      surfaceText(surface).includes('You can still choose a photo from your library'),
+    );
+
+    pickerState.library.push({
+      canceled: false,
+      assets: [{ uri: 'file:///fallback-pick.jpg', width: 640, height: 640 }],
+    });
+    await tap(surface, 'food-camera-fallback-library');
+    await waitUntil('the fallback library pick settles', () => results.length === 1);
+    assertEqual('the fallback pick is tagged source "library"', results[0]?.source ?? '', 'library');
+    surface.unmount();
+  }
+
+  // 10d. "Allow camera access" asks the OS and flips into the live camera.
+  {
+    resetCameraStub();
+    cameraState.permission = { granted: false, canAskAgain: true, status: 'denied' };
+    cameraState.requestOutcome = { granted: true, canAskAgain: true, status: 'granted' };
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+
+    await tap(surface, 'food-camera-allow');
+    assertEqual('"Allow camera access" asks the OS once', cameraState.requestCount, 1);
+    await waitUntil('granting flips the fallback into the live camera', () => present(surface, 'food-camera-shutter'));
+    surface.unmount();
+    assertEqual('an unresolved unmount leaves settling to the route', results.length, 0);
+  }
+
+  // 10e. Permanent denial: the Settings route replaces the re-ask.
+  {
+    resetCameraStub();
+    cameraState.permission = { granted: false, canAskAgain: false, status: 'denied' };
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+
+    assert('a permanent denial shows the Settings route', present(surface, 'food-camera-settings'));
+    assert('no re-ask button once the OS would refuse to ask', !present(surface, 'food-camera-allow'));
+    const settingsBefore = openSettingsCalls.count;
+    await tap(surface, 'food-camera-settings');
+    assertEqual('the Settings link opens system settings', openSettingsCalls.count, settingsBefore + 1);
+    surface.unmount();
+  }
+
+  // 10f. Undetermined permission: asked automatically, exactly once.
+  {
+    resetCameraStub();
+    cameraState.permission = { granted: false, canAskAgain: true, status: 'undetermined' };
+    cameraState.requestOutcome = { granted: true, canAskAgain: true, status: 'granted' };
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+
+    await waitUntil('an undetermined camera is asked automatically', () => cameraState.requestCount === 1);
+    await waitUntil('granting the auto-ask opens the live camera', () => present(surface, 'food-camera-shutter'));
+    await actSettle();
+    assertEqual('the automatic ask happens exactly once', cameraState.requestCount, 1);
+    surface.unmount();
+  }
+
+  // 10g. A failed capture shows the announced error and the retry works.
+  {
+    resetCameraStub();
+    cameraState.capture = new Error('shutter jam');
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+
+    await tap(surface, 'food-camera-shutter');
+    await waitUntil('a failed capture shows the announced error box', () => present(surface, 'food-camera-error'));
+    assertEqual('a failed capture does not settle', results.length, 0);
+    assert(
+      'the capture error points at the library escape hatch',
+      surfaceText(surface).includes('choose a photo from your library'),
+    );
+    cameraState.capture = { uri: 'file:///second-try.jpg', width: 800, height: 800 };
+    await tap(surface, 'food-camera-shutter');
+    await waitUntil('the retry capture settles', () => results.length === 1);
+    assertEqual('the retry hands back the new shot', results[0]?.asset.uri ?? '', 'file:///second-try.jpg');
+    surface.unmount();
+  }
+
+  // 10h. A camera that fails to start falls back — library only, honest copy.
+  {
+    resetCameraStub();
+    cameraState.mountError = { message: 'camera unavailable' };
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+
+    await waitUntil('a camera that fails to start swaps to the fallback', () => present(surface, 'food-camera-fallback'));
+    assert('the mount-error fallback still leads with the library', present(surface, 'food-camera-fallback-library'));
+    assert(
+      'no permission buttons for a hardware failure',
+      !present(surface, 'food-camera-allow') && !present(surface, 'food-camera-settings'),
+    );
+    assert(
+      'the mount-error copy explains the camera did not start',
+      surfaceText(surface).includes('The camera did not start'),
+    );
+    surface.unmount();
+  }
+
+  // 10i. Closing without a shot settles null.
+  {
+    resetCameraStub();
+    const results: Array<FoodCameraCapture | null> = [];
+    const surface = await renderSurface(results);
+    await tap(surface, 'food-camera-close');
+    assertEqual('close settles exactly once', results.length, 1);
+    assert('close hands back no capture', results[0] === null);
+    surface.unmount();
+  }
+
+  // ── 11. MealPhotoButton drives the in-app camera on device ────────────────
+  // Platform flips to 'ios' so start() takes the camera branch (and
+  // lib/coach-api picks the expo/fetch delegate — same scripted transport).
+  Platform.OS = 'ios';
+  routerState.pathname = '/diary';
+  clearRouterCalls();
+  try {
+    let tree!: Rendered;
+    await act(async () => {
+      tree = TestRenderer.create!(
+        React.createElement(
+          CoachChatProvider,
+          { now: () => FIXED_NOW },
+          React.createElement(ChatProbe),
+          React.createElement(MealPhotoButton, {
+            variant: 'action',
+            testID: 'diary-dinner-photo',
+            mealSlot: 'dinner',
+          }),
+        ),
+      ) as unknown as Rendered;
+      await settle();
+    });
+
+    await tap(tree, 'diary-dinner-photo');
+    assertEqual(
+      'the diary chip opens the in-app camera route',
+      routerCalls.map(c => `${c.method}:${c.target}`).join(','),
+      'push:/food-camera',
+    );
+    assert('no preview before the camera hands a shot back', !present(tree, 'meal-photo-preview'));
+
+    const cameraSession = claimFoodCameraRequest();
+    assert('the chip left a claimable capture request', cameraSession !== null);
+    await actSettle(() => {
+      cameraSession?.settle({
+        asset: { uri: 'file:///from-camera.jpg', width: 900, height: 1200 },
+        source: 'camera',
+      });
+    });
+    await waitUntil(
+      'the camera shot stages the single blue confirmation',
+      () => present(tree, 'meal-photo-preview'),
+    );
+    assert(
+      'the staged preview names the pinned slot',
+      surfaceText(tree).includes('ready to log to Dinner'),
+    );
+    assert('a camera-sourced preview offers "Retake"', surfaceText(tree).includes('Retake'));
+    assertEqual('nothing streams before the confirmation', opened.length, 0);
+
+    clearRouterCalls();
+    await tap(tree, 'meal-photo-retake');
+    assert('retake closes the preview', !present(tree, 'meal-photo-preview'));
+    assertEqual(
+      'retake reopens the in-app camera',
+      routerCalls.map(c => `${c.method}:${c.target}`).join(','),
+      'push:/food-camera',
+    );
+    const retakeSession = claimFoodCameraRequest();
+    assert('retake left a claimable capture request', retakeSession !== null);
+    await actSettle(() => {
+      retakeSession?.settle({
+        asset: { uri: 'file:///from-library.jpg', width: 800, height: 800 },
+        source: 'library',
+      });
+    });
+    await waitUntil(
+      'the corner pick stages the same confirmation',
+      () => present(tree, 'meal-photo-preview'),
+    );
+    assert(
+      'a library-sourced preview offers a different photo instead of a retake',
+      surfaceText(tree).includes('Choose a different photo'),
+    );
+
+    clearRouterCalls();
+    await tap(tree, 'meal-photo-use');
+    assert('confirming closes the preview', !present(tree, 'meal-photo-preview'));
+    const cameraStream = takeStream('camera-flow meal turn');
+    {
+      const msgs = cameraStream.requestBody.messages ?? [];
+      const tail = msgs[msgs.length - 1];
+      const expectedUri = `data:image/jpeg;base64,${Buffer.from('file:///from-library.jpg').toString('base64')}`;
+      assertEqual('the confirmed photo uploads the PREPARED data URI', tail?.image ?? '', expectedUri);
+      assertEqual('the camera flow still stamps photoKind "meal"', tail?.photoKind ?? '', 'meal');
+      assertEqual('the pinned slot rides the confirmed turn', cameraStream.requestBody.mealSlot ?? '', 'dinner');
+      assertEqual('the injected local time rides along', cameraStream.requestBody.localTime ?? '', '14:05');
+    }
+    assertEqual(
+      'confirming away from the chat hands over to the conversation',
+      routerCalls.map(c => `${c.method}:${c.target}`).join(','),
+      'push:/coach-chat',
+    );
+
+    await actSettle(() => {
+      cameraStream.emit({ content: MEAL_REPLY_TEXT });
+      cameraStream.emit({ card: { kind: 'recipe', payload: { ...MEAL_CARD_PAYLOAD, id: 'meal_camera_1' } } });
+      cameraStream.emit({ done: true });
+      cameraStream.close();
+    });
+    await waitUntil(
+      'the camera-sourced meal reply finalizes',
+      () => chat.messages[chat.messages.length - 1].status === 'done' && !chat.isStreaming,
+    );
+
+    clearRouterCalls();
+    await tap(tree, 'diary-dinner-photo');
+    const closedSession = claimFoodCameraRequest();
+    assert('the second visit left a claimable request', closedSession !== null);
+    await actSettle(() => {
+      closedSession?.settle(null);
+    });
+    assert('closing the camera without a shot stages nothing', !present(tree, 'meal-photo-preview'));
+    assertEqual('closing the camera sends nothing', opened.length, 0);
+
+    tree.unmount();
+  } finally {
+    Platform.OS = 'web';
+    routerState.pathname = '/diary';
+    clearRouterCalls();
+  }
+
+  assertEqual('every camera-flow stream was accounted for', opened.length, 0);
 
   finish();
 }

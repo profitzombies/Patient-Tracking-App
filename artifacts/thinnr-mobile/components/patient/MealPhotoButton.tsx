@@ -6,10 +6,12 @@
  * "Retake photo" chip (chip variant). All entry points run the exact same
  * flow:
  *
- *   tap → camera on device (photo library fallback on web, matching the
- *   menu scan) → use-photo / retake preview → the photo enters the coach
- *   chat as a meal turn (sendPhoto kind "meal") → navigate to the chat,
- *   where the AI streams back what it sees with committed portion
+ *   tap → the app's own full-screen camera (app/food-camera: live preview,
+ *   shutter, and a corner library shortcut for picking an existing shot;
+ *   the web preview has no live capture, so it goes straight to the photo
+ *   library picker) → use-photo / retake preview → the photo enters the
+ *   coach chat as a meal turn (sendPhoto kind "meal") → navigate to the
+ *   chat, where the AI streams back what it sees with committed portion
  *   estimates and an editable meal card.
  *
  * An entry point that already knows its diary slot passes `mealSlot`: it
@@ -18,12 +20,16 @@
  * re-sends the same pin).
  *
  * Nothing uploads until "Use this photo" is pressed — the preview modal is
- * the send gate. The photo is downscaled/re-encoded on device by the shared
- * photo-prep helper, analyzed in memory server-side, and never stored.
+ * the send gate and the ONLY confirmation in the flow (the in-app camera
+ * never asks twice). The photo is downscaled/re-encoded on device by the
+ * shared photo-prep helper, analyzed in memory server-side, and never
+ * stored.
  *
- * Camera-permission denials degrade to the library picker (fallback sheet),
- * so a locked-down device can still log a meal. While a coach reply is
- * already streaming the button disables rather than queueing a second turn.
+ * Camera permission lives with the in-app camera screen: a denial degrades
+ * to its built-in library option there, so a locked-down device can still
+ * log a meal. This button's own fallback sheet remains for library-pick
+ * failures. While a coach reply is already streaming the button disables
+ * rather than queueing a second turn.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -44,6 +50,7 @@ import { AppModal } from '@/components/ui/AppModal';
 import { useColors } from '@/hooks/useColors';
 import { useCoachChat } from '@/context/CoachChatContext';
 import { MEAL_LABELS, type MealSlot } from '@/data/patient-data';
+import { createFoodCameraRequest } from '@/lib/food-camera';
 import { preparePhotoForUpload, type PreparedPhoto } from '@/lib/photo-prep';
 
 /** Soft chip shadow shared with the chat's suggestion chips. */
@@ -73,8 +80,8 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
   const pathname = usePathname();
   const { sendPhoto, isStreaming } = useCoachChat();
 
-  // The capture flow's modal state: the fallback sheet (camera declined /
-  // failed → library option) and the use-photo/retake preview. `photo` set
+  // The capture flow's modal state: the fallback sheet (library pick
+  // failed → try again) and the use-photo/retake preview. `photo` set
   // means the preview is up.
   const [fallbackOpen, setFallbackOpen] = useState(false);
   const [photo, setPhoto] = useState<PreparedPhoto | null>(null);
@@ -112,21 +119,17 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
 
   const takePhoto = async () => {
     setError(null);
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      setError('Camera permission was declined. You can still choose a photo from your library.');
-      setFallbackOpen(true);
-      return;
-    }
     sourceRef.current = 'camera';
-    try {
-      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 });
-      await usePickedPhoto(result);
-    } catch (err) {
-      console.error('Camera launch failed', err);
-      setError('The camera could not be opened. Try choosing a photo instead.');
-      setFallbackOpen(true);
-    }
+    // The in-app camera screen (app/food-camera) owns permission prompts
+    // and the denied fallback — it always offers its own library corner, so
+    // this entry point just waits for whichever shot or pick comes back.
+    // Null means the patient closed the camera without choosing.
+    const request = createFoodCameraRequest();
+    router.push('/food-camera');
+    const capture = await request;
+    if (!capture) return;
+    sourceRef.current = capture.source;
+    await usePickedPhoto({ canceled: false, assets: [capture.asset] });
   };
 
   const choosePhoto = async () => {
@@ -157,8 +160,8 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
   const start = () => {
     if (busy) return;
     Haptics.selectionAsync();
-    // Camera on device; the web preview has no live capture, so it goes
-    // straight to the picker — same fallback the menu scan uses.
+    // The in-app camera on device; the web preview has no live capture, so
+    // it goes straight to the picker — same fallback the menu scan uses.
     if (Platform.OS === 'web') void choosePhoto();
     else void takePhoto();
   };
@@ -309,7 +312,7 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
         </Pressable>
       )}
 
-      {/* ── Fallback sheet: camera declined/failed → library option ── */}
+      {/* ── Fallback sheet: library pick declined/failed → try again ── */}
       <AppModal
         visible={fallbackOpen && photo === null}
         transparent

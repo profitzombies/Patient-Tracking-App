@@ -14,3 +14,7 @@ description: Mid-session commits from the main workspace can get swept into a ta
 Also: auto-generated files (e.g. mockup-sandbox src/.generated/mockup-components.ts) reorder themselves whenever their dev server rescans. Diff working-tree noise before completing and git-checkout unrelated generated churn so it stays out of the task diff.
 
 Swept-in commits also bring their VALIDATION COMMANDS, dependency additions, and stale dev servers: completion validation runs the upstream feature's live checks against YOUR environment. Repair before re-completing — `pnpm install` (new package.json deps), restart the dev-server workflows the checks probe (a server started before the sweep lacks the new routes), then re-run the failing command locally to confirm green.
+
+**Upstream merge before review (Aug 2026):** the completion flow merges main-repl into the task branch BEFORE validation + code review, so (1) live-suite validation can fail purely because running dev servers still serve pre-merge code — restart the api-server/web workflows after a rejected completion that pulled upstream commits, then re-run the failed suites; (2) the completion reviewer may attribute upstream commits' changes (even their memory edits) to your task — answer with git show --stat provenance for YOUR commit in drift_reason and request a fresh review, never by reverting the user's merged upstream work.
+
+

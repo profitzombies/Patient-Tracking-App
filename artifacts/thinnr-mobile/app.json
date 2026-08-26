@@ -28,7 +28,20 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "THINNR uses the camera to photograph meals, menus, and nutrition labels for the AI coach.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "THINNR shows your recent photos so you can attach one for the AI coach."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -32,3 +32,5 @@ If a suite prints NOTHING and exits 0, an `await` never settled (e.g. a scripted
 
 - `tap()` must NOT await the handler's promise. Fire it with `void onPress()` inside `act`, then flush a bounded number of microtasks (`for (i<25) await Promise.resolve()`) so settled chains propagate but a hung one can't deadlock the suite.
 - Register a `process.on('beforeExit')` hook that fails loudly; only `finish()`'s explicit `process.exit` may end the run.
+
+- testID queries in RTR suites must filter to HOST nodes (typeof node.type === 'string'): a component that forwards a testID prop (e.g. MealPhotoButton) matches findAll before its inner Pressable and carries no onPress, so taps silently no-op.

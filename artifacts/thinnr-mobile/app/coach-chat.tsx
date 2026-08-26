@@ -12,13 +12,17 @@
  * CoachChatContext); the starter prompts render beneath it until the patient
  * sends their first message.
  *
- * Photo turns: the camera button beside the input sends a photo into the
- * conversation (take or choose, downscaled by the shared photo-prep
- * helper), rendered as a photo bubble. No kind is attached — the server
- * looks at the photo and routes it itself: menus come back as ordering
- * suggestions with the usual one-tap chips, plates as an editable meal
- * card. The photo stays in client state, so a failed turn retries in one
- * tap.
+ * Photo turns: the camera button beside the input offers taking a photo or
+ * choosing one. "Take a photo" opens the app's own full-screen camera
+ * (app/food-camera: live preview with a corner library shortcut); the shot
+ * or corner pick comes back here, is downscaled by the shared photo-prep
+ * helper, and stages the app's single blue "Use this photo" confirmation
+ * before anything sends. The "Choose from library" chip and the web picker
+ * keep their immediate prepare-and-send path. Either way the turn renders
+ * as a photo bubble and no kind is attached — the server looks at the
+ * photo and routes it itself: menus come back as ordering suggestions with
+ * the usual one-tap chips, plates as an editable meal card. The photo
+ * stays in client state, so a failed turn retries in one tap.
  *
  * Meal photo turns arrive via the shared MealPhotoButton (Library/Diary
  * entry points) with kind "meal": the coach answers with what it sees on
@@ -53,13 +57,15 @@ import "@/components/coach/ProductSuggestionCard";
 import "@/components/coach/RecipeSuggestionCard";
 import "@/components/coach/FoodDraftCard";
 import { MealPhotoButton } from "@/components/patient/MealPhotoButton";
+import { AppModal } from "@/components/ui/AppModal";
 import { useColors } from "@/hooks/useColors";
 import {
   offersMealPhotoRetake,
   useCoachChat,
   type CoachMessage,
 } from "@/context/CoachChatContext";
-import { preparePhotoForUpload } from "@/lib/photo-prep";
+import { createFoodCameraRequest, type FoodCameraCapture } from "@/lib/food-camera";
+import { preparePhotoForUpload, type PreparedPhoto } from "@/lib/photo-prep";
 
 /** Heritage soft shadows as boxShadow strings (shadow* props warn on web). */
 const CARD_SHADOW = "0 8px 20px rgba(40, 55, 74, 0.07)";
@@ -112,6 +118,10 @@ function quickRepliesFor(latest: CoachMessage | undefined): string[] {
   const suggested = latest?.quickReplies ?? [];
   return suggested.length > 0 ? suggested : FALLBACK_QUICK_REPLIES;
 }
+/** Clamp the staged preview tile to sane portrait/landscape bounds. */
+const stagedAspect = (photo: PreparedPhoto) =>
+  Math.min(Math.max(photo.width / Math.max(photo.height, 1), 0.62), 1.7);
+
 export default function CoachChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -121,7 +131,14 @@ export default function CoachChatScreen() {
   const [photoOptionsOpen, setPhotoOptionsOpen] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
+  // A camera capture (or the camera's corner library pick) staged for the
+  // single blue confirmation below. The "Choose from library" chip and the
+  // web picker send straight away instead, exactly as before.
+  const [stagedPhoto, setStagedPhoto] = useState<PreparedPhoto | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  // Where the staged photo came from, so "Retake" reopens the same source
+  // (the camera again, or straight back into the library).
+  const stagedSourceRef = useRef<FoodCameraCapture["source"]>("camera");
   // Reveal ticks change `messages` ~30×/s while a reply types out; only pin
   // to the bottom while the patient is already reading there, so scrolling
   // up to re-read older answers never fights the typing animation.
@@ -184,28 +201,85 @@ export default function CoachChatScreen() {
     }
   };
 
+  // ── The in-app camera path: stage the shot, confirm once, send ──────────
+
+  const stageCapture = async (capture: FoodCameraCapture) => {
+    setPreparing(true);
+    try {
+      const prepared = await preparePhotoForUpload(capture.asset);
+      setPhotoError(null);
+      stagedSourceRef.current = capture.source;
+      setStagedPhoto(prepared);
+    } catch (error) {
+      console.error("Chat photo preparation failed", error);
+      setPhotoError(
+        "That photo could not be prepared. Please try a different one.",
+      );
+    } finally {
+      setPreparing(false);
+    }
+  };
+
   const takePhoto = async () => {
     Haptics.selectionAsync();
     setPhotoError(null);
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    // The app's own full-screen camera (app/food-camera) owns permission
+    // prompts and the denied fallback, and its corner button already offers
+    // the library, so this control never dead-ends. Whichever shot or pick
+    // comes back is staged behind the single blue confirmation; null means
+    // the patient closed the camera without choosing.
+    const request = createFoodCameraRequest();
+    router.push("/food-camera");
+    const capture = await request;
+    if (!capture) return;
+    await stageCapture(capture);
+  };
+
+  // "Choose a different photo" under the staged preview: back into the
+  // library picker, but staging the pick (unlike the send-straight-away
+  // library chip in the options row).
+  const restageFromLibrary = async () => {
+    setPhotoError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      setPhotoError(
-        "Camera permission was declined. You can still choose a photo from your library.",
-      );
+      setPhotoError("Photo library permission was declined.");
       return;
     }
     try {
-      const result = await ImagePicker.launchCameraAsync({
+      const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         quality: 1,
       });
-      await usePickedPhoto(result);
+      if (result.canceled || !result.assets?.[0]) return;
+      await stageCapture({ asset: result.assets[0], source: "library" });
     } catch (error) {
-      console.error("Camera launch failed", error);
+      console.error("Photo library launch failed", error);
       setPhotoError(
-        "The camera could not be opened. Try choosing a photo instead.",
+        "Your photo library could not be opened. Please try again.",
       );
     }
+  };
+
+  const retakeStagedPhoto = () => {
+    Haptics.selectionAsync();
+    setStagedPhoto(null);
+    if (stagedSourceRef.current === "camera") void takePhoto();
+    else void restageFromLibrary();
+  };
+
+  const confirmStagedPhoto = () => {
+    if (!stagedPhoto || isStreaming) return;
+    Haptics.selectionAsync();
+    sendPhoto(stagedPhoto);
+    setStagedPhoto(null);
+    setPhotoError(null);
+    setPhotoOptionsOpen(false);
+  };
+
+  const discardStagedPhoto = () => {
+    Haptics.selectionAsync();
+    setStagedPhoto(null);
+    setPhotoError(null);
   };
 
   const choosePhoto = async () => {
@@ -616,6 +690,132 @@ export default function CoachChatScreen() {
           </View>
         </View>
       </InputAboveKeyboard>
+
+      {/* ── The single blue confirmation for camera captures and corner
+          library picks (the library chip and web picks send straight away,
+          as before). ── */}
+      <AppModal
+        visible={stagedPhoto !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={discardStagedPhoto}
+      >
+        <View style={styles.previewBackdrop}>
+          <View
+            testID="coach-photo-preview"
+            style={[
+              styles.previewSheet,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                borderRadius: colors.radius,
+              },
+            ]}
+          >
+            <Text style={[styles.previewLabel, { color: colors.labelText }]}>
+              YOUR PHOTO
+            </Text>
+            {stagedPhoto ? (
+              <Image
+                source={{ uri: stagedPhoto.uri }}
+                style={[
+                  styles.previewPhoto,
+                  {
+                    aspectRatio: stagedAspect(stagedPhoto),
+                    borderRadius: colors.radiusSm,
+                    backgroundColor: colors.paperCardAlt,
+                  },
+                ]}
+                contentFit="cover"
+                accessibilityLabel="Preview of your photo"
+              />
+            ) : null}
+            <Text style={[styles.previewHint, { color: colors.subtleText }]}>
+              The AI coach will look at this photo and reply to what it sees,
+              whether that is a plate, a menu, or a nutrition label. Photos
+              are analyzed once, never stored.
+            </Text>
+            <Pressable
+              testID="coach-photo-use"
+              accessibilityRole="button"
+              accessibilityLabel="Use this photo"
+              accessibilityState={{ disabled: isStreaming }}
+              disabled={isStreaming}
+              onPress={confirmStagedPhoto}
+              style={({ pressed }) => [
+                styles.previewPrimaryBtn,
+                {
+                  backgroundColor: isStreaming
+                    ? colors.cobaltMuted
+                    : colors.cobalt,
+                  borderRadius: colors.radiusSm,
+                },
+                pressed && !isStreaming && { opacity: 0.88 },
+              ]}
+            >
+              <Feather name="send" size={14} color={colors.primaryForeground} />
+              <Text
+                style={[
+                  styles.previewPrimaryText,
+                  { color: colors.primaryForeground },
+                ]}
+              >
+                Use this photo
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="coach-photo-retake"
+              accessibilityRole="button"
+              accessibilityLabel={
+                stagedSourceRef.current === "camera"
+                  ? "Retake the photo"
+                  : "Choose a different photo"
+              }
+              disabled={preparing}
+              onPress={retakeStagedPhoto}
+              style={({ pressed }) => [
+                styles.previewSecondaryBtn,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: pressed ? colors.accent : colors.card,
+                  borderRadius: colors.radiusSm,
+                },
+              ]}
+            >
+              {preparing ? (
+                <ActivityIndicator size="small" color={colors.navyLight} />
+              ) : null}
+              <Text
+                style={[
+                  styles.previewSecondaryText,
+                  { color: colors.navyLight },
+                ]}
+              >
+                {stagedSourceRef.current === "camera"
+                  ? "Retake"
+                  : "Choose a different photo"}
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="coach-photo-discard"
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+              onPress={discardStagedPhoto}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.previewCancelLink,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text
+                style={[styles.previewCancelText, { color: colors.subtleText }]}
+              >
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </AppModal>
     </View>
   );
 }
@@ -1049,5 +1249,68 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 1.5,
+  },
+  // ── The staged-photo confirmation sheet (mirrors MealPhotoButton's) ──
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(23, 32, 46, 0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  previewSheet: {
+    width: "100%",
+    maxWidth: 420,
+    borderWidth: 1,
+    padding: 16,
+    gap: 10,
+  },
+  previewLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.4,
+    fontFamily: "Inter_700Bold",
+  },
+  previewPhoto: {
+    width: "100%",
+  },
+  previewHint: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    fontFamily: "Inter_400Regular",
+  },
+  previewPrimaryBtn: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  previewPrimaryText: {
+    fontSize: 13.5,
+    fontFamily: "Inter_600SemiBold",
+  },
+  previewSecondaryBtn: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+  },
+  previewSecondaryText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
+  previewCancelLink: {
+    alignSelf: "center",
+    minHeight: 24,
+    justifyContent: "center",
+  },
+  previewCancelText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
   },
 });

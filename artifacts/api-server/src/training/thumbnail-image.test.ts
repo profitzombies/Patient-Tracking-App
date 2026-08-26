@@ -30,8 +30,13 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
+// These tests shell out to ffmpeg several times; under a full concurrent
+// validation run that easily exceeds vitest's 5s default, so give the
+// external-process work a generous explicit budget.
+const FFMPEG_TEST_TIMEOUT_MS = 30_000;
+
 describe("thumbnail image decoding", () => {
-  it("decodes JPG, PNG, and WebP and rejects malformed image data", async () => {
+  it("decodes JPG, PNG, and WebP and rejects malformed image data", { timeout: FFMPEG_TEST_TIMEOUT_MS }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "thumbnail-decode-"));
     dirs.push(dir);
     const valid = join(dir, "valid.png");
@@ -56,7 +61,7 @@ describe("thumbnail image decoding", () => {
     await expect(validateThumbnailImage(malformed)).rejects.toThrow();
   });
 
-  it("captures a real video frame without touching OpenAI", async () => {
+  it("captures a real video frame without touching OpenAI", { timeout: FFMPEG_TEST_TIMEOUT_MS }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "thumbnail-capture-"));
     dirs.push(dir);
     const video = join(dir, "source.webm");

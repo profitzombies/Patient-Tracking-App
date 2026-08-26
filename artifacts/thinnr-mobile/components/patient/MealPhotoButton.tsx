@@ -1,8 +1,9 @@
 /**
  * "Take a photo of your meal" — the shared entry point for photo meal
- * logging, placed at the top of the patient Library and Diary screens (card
- * variant) and under a finished meal-photo reply in the coach chat as the
- * "Retake photo" chip (chip variant). Both entry points run the exact same
+ * logging, placed at the top of the patient Library screen (card variant),
+ * on every diary meal section as a compact "Take a photo" chip (action
+ * variant), and under a finished meal-photo reply in the coach chat as the
+ * "Retake photo" chip (chip variant). All entry points run the exact same
  * flow:
  *
  *   tap → camera on device (photo library fallback on web, matching the
@@ -10,6 +11,11 @@
  *   chat as a meal turn (sendPhoto kind "meal") → navigate to the chat,
  *   where the AI streams back what it sees with committed portion
  *   estimates and an editable meal card.
+ *
+ * An entry point that already knows its diary slot passes `mealSlot`: it
+ * rides the photo turn as the explicit meal-slot pin, so the resulting meal
+ * card logs to that slot regardless of the time of day (and a retry
+ * re-sends the same pin).
  *
  * Nothing uploads until "Use this photo" is pressed — the preview modal is
  * the send gate. The photo is downscaled/re-encoded on device by the shared
@@ -37,6 +43,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter, usePathname } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useCoachChat } from '@/context/CoachChatContext';
+import { MEAL_LABELS, type MealSlot } from '@/data/patient-data';
 import { preparePhotoForUpload, type PreparedPhoto } from '@/lib/photo-prep';
 
 /** Soft chip shadow shared with the chat's suggestion chips. */
@@ -45,16 +52,22 @@ const CARD_SHADOW = '0 8px 20px rgba(40, 55, 74, 0.07)';
 
 interface MealPhotoButtonProps {
   /**
-   * "card": the prominent Library/Diary entry point.
+   * "card": the prominent Library entry point.
+   * "action": a diary meal-section chip (pairs with that row's "Add food").
    * "chip": the compact "Retake photo" chip under a coach reply.
    */
-  variant: 'card' | 'chip';
+  variant: 'card' | 'chip' | 'action';
   testID: string;
+  /**
+   * Diary slot this entry point captures for — sent with the photo turn as
+   * the explicit meal-slot pin (overrides the server's clock guess).
+   */
+  mealSlot?: MealSlot;
   /** Extra outer styling (e.g. screen-specific margins). */
   style?: object;
 }
 
-export function MealPhotoButton({ variant, testID, style }: MealPhotoButtonProps) {
+export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoButtonProps) {
   const colors = useColors();
   const router = useRouter();
   const pathname = usePathname();
@@ -167,7 +180,7 @@ export function MealPhotoButton({ variant, testID, style }: MealPhotoButtonProps
   const confirmPhoto = () => {
     if (!photo || isStreaming) return;
     Haptics.selectionAsync();
-    sendPhoto(photo, 'meal');
+    sendPhoto(photo, 'meal', mealSlot ? { mealSlot } : undefined);
     setPhoto(null);
     setError(null);
     // The chat's own retake chip is already on the thread screen; entry
@@ -228,6 +241,43 @@ export function MealPhotoButton({ variant, testID, style }: MealPhotoButtonProps
             </Text>
           </View>
           <Feather name="chevron-right" size={16} color="rgba(255, 255, 255, 0.75)" />
+        </Pressable>
+      ) : variant === 'action' ? (
+        <Pressable
+          testID={testID}
+          accessibilityRole="button"
+          accessibilityLabel={
+            mealSlot
+              ? `Take a photo of your ${MEAL_LABELS[mealSlot].toLowerCase()}`
+              : 'Take a photo of your meal'
+          }
+          accessibilityHint={
+            mealSlot
+              ? `Opens the camera. The AI coach identifies the foods so you can log them to ${MEAL_LABELS[mealSlot]}.`
+              : 'Opens the camera. The AI coach identifies the foods so you can log the meal.'
+          }
+          accessibilityState={{ disabled: busy }}
+          disabled={busy}
+          onPress={start}
+          style={({ pressed }) => [
+            styles.actionChip,
+            {
+              borderColor: colors.activeBorder,
+              backgroundColor: pressed && !busy ? colors.accent : colors.activeBg,
+              borderRadius: colors.radiusSm,
+            },
+            busy && { opacity: 0.5 },
+            style,
+          ]}
+        >
+          {preparing ? (
+            <ActivityIndicator size="small" color={colors.cobalt} />
+          ) : (
+            <Feather name="camera" size={13} color={colors.cobalt} />
+          )}
+          <Text style={[styles.actionChipText, { color: colors.cobalt }]} numberOfLines={1}>
+            Take a photo
+          </Text>
         </Pressable>
       ) : (
         <Pressable
@@ -352,8 +402,9 @@ export function MealPhotoButton({ variant, testID, style }: MealPhotoButtonProps
               />
             ) : null}
             <Text style={[styles.sheetHint, { color: colors.subtleText }]}>
-              The AI coach will list what it sees with estimated amounts. You can adjust
-              everything before logging. Photos are analyzed once, never stored.
+              {mealSlot
+                ? `The AI coach will list what it sees with estimated amounts, ready to log to ${MEAL_LABELS[mealSlot]}. You can adjust everything before logging. Photos are analyzed once, never stored.`
+                : 'The AI coach will list what it sees with estimated amounts. You can adjust everything before logging. Photos are analyzed once, never stored.'}
             </Text>
             {error ? (
               <View
@@ -462,6 +513,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
+  },
+  // Matches the diary meal sections' action chips ("Add food") so the pair
+  // reads as one row of equal actions.
+  actionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+  },
+  actionChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
   },
   backdrop: {
     flex: 1,

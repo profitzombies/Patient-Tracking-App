@@ -229,6 +229,7 @@ function RootLayoutNav() {
       <Stack.Screen name="training-lesson/[courseId]/[videoId]" options={{ headerShown: false }} />
       <Stack.Screen name="create-food" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="log-food" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="yesterday-review" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="coach-chat" options={{ headerShown: false }} />
     </Stack>

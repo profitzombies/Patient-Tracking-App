@@ -23,7 +23,7 @@ import {
   captureRemovedCustomFood,
   type RemovedCustomFood,
 } from '@/data/custom-food-state';
-import { cloneEntriesForCopy } from '@/data/diary-entries';
+import { buildCopyWithExtras, cloneEntriesForCopy } from '@/data/diary-entries';
 import {
   applyRemoveEntries,
   applyRemoveEntry,
@@ -140,6 +140,11 @@ interface PatientContextValue {
   checkInFor: (dateKey: string) => CheckIn | undefined;
   addEntry: (entry: Omit<MealLogEntry, 'id'>) => Promise<void>;
   copyEntries: (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }) => Promise<MealLogEntry[]>;
+  copyEntriesWithExtras: (
+    sources: MealLogEntry[],
+    extras: Array<Omit<MealLogEntry, 'id'>>,
+    target: { dateKey: string; meal: MealSlot },
+  ) => Promise<MealLogEntry[]>;
   removeEntry: (id: string) => Promise<void>;
   removeEntries: (ids: readonly string[]) => Promise<void>;
   updateEntry: (id: string, changes: EntryEditChanges) => Promise<void>;
@@ -251,6 +256,36 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const clones = cloneEntriesForCopy(sources, target, () => nextId('log'));
       await commit({ ...prev, addedEntries: [...prev.addedEntries, ...clones] });
       return clones;
+    });
+  }, [commit, runSerialized]);
+
+  // The "Yesterday's [meal]" review confirm — one commit that lands the kept
+  // yesterday entries as snapshot-preserving copies (same rules as
+  // copyEntries above) plus the review's search-added extras as fresh adds.
+  // Recents split the difference deliberately: copied sources are repetition
+  // and leave recents alone, while extras are new food choices and bump the
+  // recents list exactly like addEntry would. Returns the whole created
+  // batch — captured inside the serialized mutation — so the caller can arm
+  // an Undo that takes back precisely this confirm.
+  const copyEntriesWithExtras = useCallback(async (
+    sources: MealLogEntry[],
+    extras: Array<Omit<MealLogEntry, 'id'>>,
+    target: { dateKey: string; meal: MealSlot },
+  ): Promise<MealLogEntry[]> => {
+    if (sources.length === 0 && extras.length === 0) return [];
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await hydrationGate.current!.promise;
+    return runSerialized(async () => {
+      const prev = stateRef.current;
+      const batch = buildCopyWithExtras(sources, extras, target, () => nextId('log'));
+      const extraRefIds = [...new Set(
+        extras.map(extra => extra.refId).filter((refId): refId is string => Boolean(refId)),
+      )];
+      const recents = extraRefIds.length > 0
+        ? [...extraRefIds, ...prev.recents.filter(r => !extraRefIds.includes(r))].slice(0, 12)
+        : prev.recents;
+      await commit({ ...prev, addedEntries: [...prev.addedEntries, ...batch], recents });
+      return batch;
     });
   }, [commit, runSerialized]);
 
@@ -607,6 +642,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       checkInFor,
       addEntry,
       copyEntries,
+      copyEntriesWithExtras,
       removeEntry,
       removeEntries,
       restoreEntry,
@@ -644,6 +680,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       checkInFor,
       addEntry,
       copyEntries,
+      copyEntriesWithExtras,
       removeEntry,
       removeEntries,
       restoreEntry,

@@ -12,9 +12,20 @@
  *   4. a copy Undo that misses part of its batch, over-removes on a double
  *      tap, or touches anything the copy didn't create.
  *
+ * Also covers Add Food's "Yesterday's [meal]" review on the same helpers:
+ *   5. yesterdaySlotPreview — exactly the previous day's same-slot entries
+ *      (order preserved, calories exact) and null when the slot was empty,
+ *      so the option hides instead of offering an empty review,
+ *   6. buildCopyWithExtras — kept clones first then search-added extras,
+ *      all with fresh unique ids, extras normalized onto the target
+ *      day/meal, pruned (unticked) sources contributing nothing,
+ *   7. the review batch's Undo — one applyRemoveEntries over the whole
+ *      confirm (clones AND extras) round-trips the day exactly, stays a
+ *      no-op on a double tap, and converges after a hand-deleted member.
+ *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:diary-copy
  */
-import { cloneEntriesForCopy } from '../data/diary-entries';
+import { buildCopyWithExtras, cloneEntriesForCopy, yesterdaySlotPreview } from '../data/diary-entries';
 import { applyRemoveEntries, applyRemoveEntry, type DiaryEntryState } from '../data/diary-entry-state';
 import {
   buildSeedEntries,
@@ -239,6 +250,165 @@ const driftedUserEntry: MealLogEntry = {
   assert('empty source list clones nothing', cloneEntriesForCopy([], { dateKey: TODAY_KEY }, makeId).length === 0);
   const state: DiaryEntryState = { addedEntries: [driftedUserEntry], removedEntryIds: [] };
   assert('empty undo batch is a strict no-op (same state reference)', applyRemoveEntries(state, [], isSeedId) === state);
+}
+
+// Search-added extras drafted by the review screen. Their dateKey/meal are
+// deliberately WRONG here — buildCopyWithExtras must normalize both onto the
+// target, because the review drafts extras before the confirm decides where
+// they land. Field order mirrors MealLogEntry so snapshotOf comparisons hold.
+const extraDraftFood: Omit<MealLogEntry, 'id'> = {
+  dateKey: '1999-01-01',
+  meal: 'snacks',
+  kind: 'food',
+  refId: 'fd_extra_demo',
+  name: 'String Cheese',
+  detail: '1 × 1 stick',
+  quantity: 1,
+  calories: 80,
+  protein: 7,
+  carbs: 1,
+  fat: 5,
+};
+const extraDraftRecipe: Omit<MealLogEntry, 'id'> = {
+  dateKey: '1999-01-01',
+  meal: 'snacks',
+  kind: 'recipe',
+  refId: 'rec_extra_demo',
+  name: 'Zucchini Frittata',
+  detail: '1 serving · recipe',
+  quantity: 1,
+  calories: 240,
+  protein: 21,
+  carbs: 9,
+  fat: 13,
+};
+
+// ── 8. yesterdaySlotPreview: the Add Food option's source of truth ──────────
+{
+  const prevDay = SEED_ENTRIES.filter(e => e.dateKey === YESTERDAY_KEY);
+  const expected = prevDay.filter(e => e.meal === 'breakfast');
+  assert('fixture: seeded yesterday has breakfast entries', expected.length > 0);
+
+  const preview = yesterdaySlotPreview(prevDay, 'breakfast');
+  assert('preview exists for a populated slot', preview !== null);
+  assert(
+    'preview lists exactly the same-slot entries in log order',
+    JSON.stringify(preview!.sources) === JSON.stringify(expected),
+  );
+  assert('preview calories are the exact slot sum', preview!.calories === calorieTotal(expected));
+  assert(
+    'an empty slot yields null, so the option hides',
+    yesterdaySlotPreview(prevDay.filter(e => e.meal !== 'snacks'), 'snacks') === null,
+  );
+  assert('an empty previous day yields null', yesterdaySlotPreview([], 'breakfast') === null);
+}
+
+// ── 9. buildCopyWithExtras: kept clones + extras in one batch ────────────────
+{
+  const slotSources = [
+    ...SEED_ENTRIES.filter(e => e.dateKey === YESTERDAY_KEY && e.meal === 'breakfast'),
+    driftedUserEntry,
+  ];
+  const prunedOut = slotSources[0]!; // the patient unticked this one
+  const kept = slotSources.slice(1);
+  const extras = [extraDraftFood, extraDraftRecipe];
+  const target = { dateKey: TODAY_KEY, meal: 'breakfast' as const };
+  const batch = buildCopyWithExtras(kept, extras, target, makeId);
+
+  assert('batch holds one entry per kept source plus one per extra', batch.length === kept.length + extras.length);
+  assert(
+    'kept clones come first and keep their logged snapshots',
+    batch.slice(0, kept.length).every((c, i) => snapshotOf(c) === snapshotOf(kept[i]!)),
+  );
+  const extrasOut = batch.slice(kept.length);
+  assert(
+    'extras follow the clones and keep their drafted snapshots',
+    extrasOut.every((e, i) => {
+      const { dateKey: _d, meal: _m, ...rest } = extras[i]!;
+      return snapshotOf(e) === JSON.stringify(rest);
+    }),
+  );
+  assert('every batch entry lands on the target day', batch.every(e => e.dateKey === TODAY_KEY));
+  assert(
+    'every batch entry lands in the target meal (extras re-slotted from their draft)',
+    batch.every(e => e.meal === 'breakfast'),
+  );
+  assert('every batch id is fresh (never a source or seed id)', batch.every(e => e.id.startsWith('log_copy_')));
+  assert('batch ids are unique', new Set(batch.map(e => e.id)).size === batch.length);
+  assert(
+    'the pruned source contributes nothing to the batch',
+    batch.filter(e => snapshotOf(e) === snapshotOf(prunedOut)).length ===
+      kept.filter(k => snapshotOf(k) === snapshotOf(prunedOut)).length,
+  );
+  assert(
+    'batch calories are exactly kept + extras',
+    calorieTotal(batch) === calorieTotal(kept) + extras.reduce((acc, e) => acc + e.calories, 0),
+  );
+
+  // Degenerate shapes the review can produce.
+  const extrasOnly = buildCopyWithExtras([], extras, { dateKey: TODAY_KEY, meal: 'lunch' }, makeId);
+  assert(
+    'extras-only batch works (everything from yesterday unticked)',
+    extrasOnly.length === extras.length && extrasOnly.every(e => e.meal === 'lunch' && e.dateKey === TODAY_KEY),
+  );
+  const sourcesOnly = buildCopyWithExtras(kept, [], target, makeId);
+  assert(
+    'sources-only batch matches plain clone semantics',
+    sourcesOnly.length === kept.length && sourcesOnly.every((c, i) => snapshotOf(c) === snapshotOf(kept[i]!)),
+  );
+  assert('empty review logs nothing', buildCopyWithExtras([], [], target, makeId).length === 0);
+}
+
+// ── 10. Review confirm → Undo: one batch remove takes back clones AND extras ─
+{
+  const todayUserEntry: MealLogEntry = {
+    ...driftedUserEntry,
+    id: 'log_user_today_review',
+    dateKey: TODAY_KEY,
+    meal: 'lunch',
+    name: 'Pre-review lunch',
+  };
+  const before: DiaryEntryState = {
+    addedEntries: [driftedUserEntry, todayUserEntry],
+    removedEntryIds: [],
+  };
+  const visibleFor = (state: DiaryEntryState, dateKey: string) => {
+    const removed = new Set(state.removedEntryIds);
+    return [...SEED_ENTRIES, ...state.addedEntries].filter(e => e.dateKey === dateKey && !removed.has(e.id));
+  };
+
+  const kept = SEED_ENTRIES.filter(e => e.dateKey === YESTERDAY_KEY && e.meal === 'lunch');
+  assert('fixture: seeded yesterday has lunch entries', kept.length > 0);
+  const batch = buildCopyWithExtras(kept, [extraDraftFood], { dateKey: TODAY_KEY, meal: 'lunch' }, makeId);
+  const batchIds = batch.map(e => e.id);
+  const after: DiaryEntryState = { ...before, addedEntries: [...before.addedEntries, ...batch] };
+  assert(
+    'fixture: the review confirm grew today by the whole batch',
+    visibleFor(after, TODAY_KEY).length === visibleFor(before, TODAY_KEY).length + batch.length,
+  );
+
+  const undone = applyRemoveEntries(after, batchIds, isSeedId);
+  assert(
+    'review undo returns today to the identical pre-confirm state',
+    JSON.stringify(visibleFor(undone, TODAY_KEY)) === JSON.stringify(visibleFor(before, TODAY_KEY)),
+  );
+  assert(
+    'review undo leaves the source day untouched',
+    JSON.stringify(visibleFor(undone, YESTERDAY_KEY)) === JSON.stringify(visibleFor(before, YESTERDAY_KEY)),
+  );
+  assert('review undo records no tombstones', undone.removedEntryIds.length === 0);
+  assert('review undo keeps the unrelated pre-confirm entry', undone.addedEntries.some(e => e.id === todayUserEntry.id));
+
+  const undoneTwice = applyRemoveEntries(undone, batchIds, isSeedId);
+  assert('double review undo is a strict no-op (same state reference)', undoneTwice === undone);
+
+  // The extra (last batch member) deleted by hand before Undo lands.
+  const handDeleted = applyRemoveEntry(after, batchIds[batchIds.length - 1]!, isSeedId);
+  const undonePartial = applyRemoveEntries(handDeleted, batchIds, isSeedId);
+  assert(
+    'review undo after a hand-deleted extra still lands on the pre-confirm day',
+    JSON.stringify(visibleFor(undonePartial, TODAY_KEY)) === JSON.stringify(visibleFor(before, TODAY_KEY)),
+  );
 }
 
 // ── Result ───────────────────────────────────────────────────────────────────

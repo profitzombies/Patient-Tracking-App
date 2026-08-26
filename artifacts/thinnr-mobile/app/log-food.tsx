@@ -1,6 +1,9 @@
 /**
  * Log Food — search the food database and recipes, pick a quantity, and
- * add it to a meal. Includes recents, favorites, and quick-add custom foods.
+ * add it to a meal. Includes recents, favorites, quick-add custom foods,
+ * and — when the viewed day's previous day has entries in the selected
+ * slot — a "Yesterday's [meal]" option above the most-logged group that
+ * opens a review-and-log of that whole slot.
  */
 import React, { useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -14,37 +17,23 @@ import { FavoriteStar } from '@/components/patient/FavoriteStar';
 import { Divider, EmptyState, LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
-import { APPROVED_BADGE_EXPLANATION, isApprovedFood } from '@/data/approved-foods';
-import { rankMostLogged } from '@/data/diary-entries';
+import { APPROVED_BADGE_EXPLANATION } from '@/data/approved-foods';
+import { rankMostLogged, yesterdaySlotPreview } from '@/data/diary-entries';
 import {
+  DIARY_MIN_KEY,
   formatDateKey,
   MEAL_LABELS,
   MEAL_SLOTS,
-  RECIPES,
+  shiftDateKey,
   subDays,
   toDateKey,
   TODAY,
   TODAY_KEY,
   type MealSlot,
 } from '@/data/patient-data';
+import { useLoggableItems, type LoggableItem } from '@/hooks/useLoggableItems';
 
 type Scope = 'recent' | 'favorites' | 'all';
-
-interface LoggableItem {
-  refId: string;
-  kind: 'food' | 'recipe';
-  name: string;
-  sub: string;
-  serving: string;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  /** Food matches the official THINNR Approved Foods list. */
-  approved: boolean;
-  /** Times logged in the most-logged window (set only in that group). */
-  loggedCount?: number;
-}
 
 /** A titled section of the results list (title is null for flat lists). */
 interface ResultGroup {
@@ -114,49 +103,26 @@ export default function LogFoodScreen() {
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 20 : Math.max(insets.bottom, 16);
 
-  const allItems = useMemo<LoggableItem[]>(() => {
-    const foods: LoggableItem[] = patient.allFoods.map(food => ({
-      refId: food.id,
-      kind: 'food',
-      name: food.name,
-      sub: food.brand ?? food.category,
-      serving: food.serving,
-      calories: food.calories,
-      protein: food.protein,
-      carbs: food.carbs,
-      fat: food.fat,
-      approved: isApprovedFood(food.id),
-    }));
-    const recipes: LoggableItem[] = RECIPES.map(recipe => ({
-      refId: recipe.id,
-      kind: 'recipe',
-      name: recipe.name,
-      sub: 'THINNR Recipe',
-      serving: '1 serving',
-      calories: recipe.calories,
-      protein: recipe.protein,
-      carbs: recipe.carbs,
-      fat: recipe.fat,
-      approved: false,
-    }));
-    // Recipes saved from coach (AI) suggestions log like any other recipe;
-    // their nutrition numbers are model estimates, so say so in the sub.
-    const savedRecipes: LoggableItem[] = patient.savedRecipes.map(recipe => ({
-      refId: recipe.id,
-      kind: 'recipe',
-      name: recipe.name,
-      sub: 'Coach recipe · AI estimate',
-      serving: '1 serving',
-      calories: recipe.calories,
-      protein: recipe.protein,
-      carbs: recipe.carbs,
-      fat: recipe.fat,
-      approved: false,
-    }));
-    return [...foods, ...savedRecipes, ...recipes];
-  }, [patient.allFoods, patient.savedRecipes]);
+  // One catalog shared with the "Yesterday's [meal]" review, so both search
+  // the exact same items.
+  const { allItems, byId } = useLoggableItems();
 
-  const byId = useMemo(() => new Map(allItems.map(item => [item.refId, item])), [allItems]);
+  // "Yesterday's [meal]" — the previous day's entries for the selected slot,
+  // offered above the most-logged group as a tap-in review-and-log.
+  // "Yesterday" follows the diary's meaning (the day before the date being
+  // viewed); below the diary horizon there is no previous day, and an empty
+  // slot hides the option entirely.
+  const isToday = dateKey === TODAY_KEY;
+  const prevKey = shiftDateKey(dateKey, -1);
+  const atMin = dateKey <= DIARY_MIN_KEY;
+  const yesterdayOption = atMin
+    ? null
+    : yesterdaySlotPreview(patient.entriesForDate(prevKey), meal);
+  // Same label rule as the diary's copy actions: "Yesterday's …" only when
+  // viewing today; otherwise name the actual source date.
+  const yesterdayTitle = isToday
+    ? `Yesterday's ${MEAL_LABELS[meal]}`
+    : `${MEAL_LABELS[meal]} from ${formatDateKey(prevKey)}`;
 
   // Diary staples: ranked by log frequency over the window, ties by recency.
   // Counts come from all diary entries (seeded + user-added), so the demo
@@ -228,6 +194,11 @@ export default function LogFoodScreen() {
       pathname: '/recipe/[id]',
       params: { id: item.refId, date: dateKey, meal },
     });
+  };
+
+  /** Hand off to the yesterday review — it logs the final selection itself. */
+  const openYesterdayReview = () => {
+    router.push({ pathname: '/yesterday-review', params: { date: dateKey, meal } });
   };
 
   /** Quick-add a recipe at qty=1 without opening the detail page (used by the + button). */
@@ -493,6 +464,42 @@ export default function LogFoodScreen() {
             </View>
           )}
         </LedgerCard>
+
+        {/* ── Yesterday's [meal] — review & log the previous day's slot ── */}
+        {query.trim() === '' && yesterdayOption && (
+          <LedgerCard style={{ marginTop: 12 }}>
+            <Pressable
+              testID="logfood-yesterday"
+              accessibilityRole="button"
+              accessibilityLabel={`${yesterdayTitle}: ${yesterdayOption.sources.map(e => e.name).join(', ')}. ${yesterdayOption.calories} calories total.`}
+              accessibilityHint={`Opens a review where you can remove items or add more before logging to ${MEAL_LABELS[meal]}.`}
+              onPress={openYesterdayReview}
+              style={({ pressed }) => [styles.yesterdayRow, pressed && { opacity: 0.75 }]}
+            >
+              <View
+                style={[
+                  styles.yesterdayIcon,
+                  { backgroundColor: colors.accent, borderRadius: colors.radiusSm },
+                ]}
+              >
+                <Feather name="rotate-ccw" size={14} color={colors.cobalt} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.yesterdayTitle, { color: colors.cobalt }]}>
+                  {yesterdayTitle}
+                </Text>
+                <Text
+                  style={[styles.yesterdayMeta, { color: colors.subtleText }]}
+                  numberOfLines={1}
+                >
+                  {yesterdayOption.sources.map(e => e.name).join(', ')} ·{' '}
+                  {yesterdayOption.calories.toLocaleString('en-US')} cal
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={15} color={colors.subtleText} />
+            </Pressable>
+          </LedgerCard>
+        )}
 
         {/* ── Results ── */}
         <Text style={[styles.resultCount, { color: colors.labelText }]}>
@@ -801,6 +808,29 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     marginTop: 14,
     marginBottom: 8,
+  },
+  yesterdayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  yesterdayIcon: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  yesterdayTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+  },
+  yesterdayMeta: {
+    fontSize: 10.5,
+    marginTop: 2,
+    fontFamily: 'Inter_400Regular',
   },
   groupHeader: {
     fontSize: 9,

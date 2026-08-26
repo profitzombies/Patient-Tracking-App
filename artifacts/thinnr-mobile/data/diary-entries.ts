@@ -90,6 +90,56 @@ export function cloneEntriesForCopy(
   }));
 }
 
+/** What the Add Food "Yesterday's [meal]" option shows before tapping in. */
+export interface YesterdaySlotPreview {
+  /** The previous day's entries for the target slot, in log order. */
+  sources: MealLogEntry[];
+  /** Their combined calories (for the option's description line). */
+  calories: number;
+}
+
+/**
+ * The Add Food screen's "Yesterday's [meal]" option: the previous day's
+ * entries for one slot plus their calorie total, or null when that slot was
+ * empty yesterday — the option then hides entirely. Callers pass the
+ * previous day's visible entries and are responsible for passing an EMPTY
+ * array below the diary horizon (no previous day to copy from), exactly like
+ * the diary's own copy affordances.
+ */
+export function yesterdaySlotPreview(
+  prevDayEntries: MealLogEntry[],
+  meal: MealSlot,
+): YesterdaySlotPreview | null {
+  const sources = prevDayEntries.filter(entry => entry.meal === meal);
+  if (sources.length === 0) return null;
+  return { sources, calories: sources.reduce((acc, entry) => acc + entry.calories, 0) };
+}
+
+/**
+ * One review-confirmed batch for the "Yesterday's [meal]" flow: clones of
+ * the kept yesterday entries (identical snapshot-preserving rules to
+ * cloneEntriesForCopy above) followed by the extra foods picked in the
+ * review, with every entry normalized onto the target day and meal slot
+ * under a fresh id. Order is deterministic — kept sources first (in source
+ * order), then extras (in picked order) — so the diary shows the reviewed
+ * list exactly as confirmed. Inputs are never mutated.
+ */
+export function buildCopyWithExtras(
+  sources: MealLogEntry[],
+  extras: Array<Omit<MealLogEntry, 'id'>>,
+  target: { dateKey: string; meal: MealSlot },
+  makeId: () => string,
+): MealLogEntry[] {
+  const clones = cloneEntriesForCopy(sources, target, makeId);
+  const added = extras.map(extra => ({
+    ...extra,
+    id: makeId(),
+    dateKey: target.dateKey,
+    meal: target.meal,
+  }));
+  return [...clones, ...added];
+}
+
 type EntrySnapshot = Pick<
   MealLogEntry,
   'kind' | 'detail' | 'quantity' | 'calories' | 'protein' | 'carbs' | 'fat'

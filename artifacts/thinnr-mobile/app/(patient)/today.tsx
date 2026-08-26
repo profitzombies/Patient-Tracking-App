@@ -9,7 +9,7 @@
  * All numbers stay live-bound to PatientContext — the reference's demo
  * values are never hardcoded.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -24,7 +24,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
@@ -33,6 +33,7 @@ import { MacroBar } from '@/components/patient/MacroBar';
 import { WaterTracker } from '@/components/patient/WaterTracker';
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
+import { Snackbar } from '@/components/ui/Snackbar';
 import { usePatient } from '@/context/PatientContext';
 import { HOME_HERO_IMAGE } from '@/data/recipe-images';
 import {
@@ -47,12 +48,18 @@ import {
   toDateKey,
   TODAY,
   TODAY_KEY,
+  type MealLogEntry,
   type MealSlot,
 } from '@/data/patient-data';
 import { phaseForDay } from '@/data/program-instructions';
+import { takePendingLogNotice } from '@/lib/pending-log-notice';
 
 // Earliest day the demo history covers — date paging stops here.
 const MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
+
+// How long the "Logged … to [meal]" Undo snackbar stays up (matches the
+// diary's notice window).
+const LOGGED_NOTICE_WINDOW_MS = 5000;
 
 const FIRST_NAME = PATIENT_PROFILE.name.split(' ')[0];
 
@@ -134,6 +141,26 @@ export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const [dateKey, setDateKey] = useState(TODAY_KEY);
+  // The "Yesterday's [meal]" review (reached through this screen's Add Food
+  // shortcuts) commits its batch, parks it, and dismisses back here; pick it
+  // up on focus and offer the same Undo the diary's copy actions get.
+  const [loggedNotice, setLoggedNotice] = useState<{
+    entries: MealLogEntry[];
+    meal: MealSlot;
+  } | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      const pending = takePendingLogNotice();
+      if (pending) setLoggedNotice({ entries: pending.entries, meal: pending.meal });
+    }, []),
+  );
+
+  useEffect(() => {
+    if (!loggedNotice) return;
+    const timer = setTimeout(() => setLoggedNotice(null), LOGGED_NOTICE_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [loggedNotice]);
 
   // The hero extends behind the status bar; the web preview reserves the same
   // fake-chrome space as the shared header does.
@@ -808,6 +835,23 @@ export default function TodayScreen() {
           <SyntheticDisclaimer />
         </View>
       </ScrollView>
+
+      {/* ── Undo for a "Yesterday's [meal]" batch logged via Add Food ── */}
+      {loggedNotice && (
+        <Snackbar
+          testID="today-logged-snackbar"
+          message={`Logged ${loggedNotice.entries.length} item${loggedNotice.entries.length === 1 ? '' : 's'} to ${MEAL_LABELS[loggedNotice.meal]}`}
+          actionLabel="UNDO"
+          actionTestID="today-logged-undo"
+          onAction={() => {
+            if (!loggedNotice) return;
+            setLoggedNotice(null);
+            // Remove exactly the ids the review's confirm created, in one
+            // batched commit — same mechanics as the diary's copy Undo.
+            void patient.removeEntries(loggedNotice.entries.map(e => e.id));
+          }}
+        />
+      )}
     </View>
   );
 }

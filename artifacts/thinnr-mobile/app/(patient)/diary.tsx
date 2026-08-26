@@ -1,20 +1,23 @@
 /**
  * Diary — day-by-day food log grouped by meal, with a date navigator,
- * per-entry removal and inline editing, one-tap copy of a previous day's
- * meals, daily totals, and the water tracker for that day. One transient
- * snackbar slot handles Undo after a removal, Undo after a copy (taking back
- * exactly that copy's batch), and a "Moved to …" confirmation (with a jump)
- * after a cross-day edit.
+ * one-tap copy of the whole previous day, per-entry removal and inline
+ * editing, daily totals, and the water tracker for that day. Each meal
+ * section pairs "Add food" with "Take a photo" — the shared photo-AI entry
+ * point with that section's slot pinned, so the analyzed meal lands exactly
+ * there. One transient snackbar slot handles Undo after a removal, Undo
+ * after a copy (taking back exactly that copy's batch), Undo for a
+ * "Yesterday's [meal]" review batch handed back by the Add Food flow, and a
+ * "Moved to …" confirmation (with a jump) after a cross-day edit.
  *
  * Visual language: Heritage Hero — paper cards with hairline rules, serif
  * (Playfair) card titles, cobalt primaries, soft radius, and orange kept to
  * small accents (the TODAY badge and the over-target status).
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { EntryEditPanel } from '@/components/patient/EntryEditPanel';
@@ -39,16 +42,20 @@ import {
   type MealLogEntry,
   type MealSlot,
 } from '@/data/patient-data';
+import { takePendingLogNotice } from '@/lib/pending-log-notice';
 
 // One snackbar slot on the diary: an undoable removal batch, an undoable copy
-// batch, or a confirmation that an edited entry moved to another day. Rapid
-// deletions stack into the current 'removed' notice (in deletion order) so a
-// quick clean-up's single Undo restores every row, not just the last one. A
-// 'copied' notice carries exactly the clones one copy committed — a newer
-// copy re-arms the slot with its own batch, so Undo always maps to one copy.
+// batch, an undoable "Yesterday's [meal]" review batch (parked by the Add
+// Food flow, picked up here on focus), or a confirmation that an edited entry
+// moved to another day. Rapid deletions stack into the current 'removed'
+// notice (in deletion order) so a quick clean-up's single Undo restores every
+// row, not just the last one. A 'copied' or 'logged' notice carries exactly
+// the entries one commit created — a newer batch re-arms the slot with its
+// own entries, so Undo always maps to one commit.
 type DiaryNotice =
   | { kind: 'removed'; entries: MealLogEntry[] }
   | { kind: 'copied'; entries: MealLogEntry[]; fromKey: string }
+  | { kind: 'logged'; entries: MealLogEntry[]; meal: MealSlot }
   | { kind: 'moved'; dateKey: string };
 
 export default function DiaryScreen() {
@@ -87,6 +94,20 @@ export default function DiaryScreen() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  // The "Yesterday's [meal]" review (reached through Add Food) commits its
+  // batch in one action, parks it, and dismisses back to the screen it was
+  // opened from; when that's the diary, pick the batch up on focus and arm
+  // the same Undo the copy actions get. One-shot take — whichever patient
+  // screen regains focus first owns the notice.
+  useFocusEffect(
+    useCallback(() => {
+      const pending = takePendingLogNotice();
+      if (pending) {
+        setNotice({ kind: 'logged', entries: pending.entries, meal: pending.meal });
+      }
+    }, []),
+  );
+
   const handleRemove = async (entry: MealLogEntry) => {
     setEditingId(cur => (cur === entry.id ? null : cur));
     // Arm the undo affordance only after the deletion has committed, so a
@@ -117,6 +138,14 @@ export default function DiaryScreen() {
     // totals return to their pre-copy values in a single commit. Clearing the
     // notice first plus removeEntries' id-based no-ops means a double-tapped
     // Undo can never take out more than the copy added.
+    void patient.removeEntries(notice.entries.map(e => e.id));
+  };
+
+  const handleUndoLogged = () => {
+    if (notice?.kind !== 'logged') return;
+    setNotice(null);
+    // Same mechanics as a copy undo: remove exactly the ids the review's one
+    // confirm created (kept yesterday items plus any extras) in one commit.
     void patient.removeEntries(notice.entries.map(e => e.id));
   };
 
@@ -154,15 +183,15 @@ export default function DiaryScreen() {
   const prevCalories = prevEntries.reduce((acc, e) => acc + e.calories, 0);
   const sourceLabel = isToday ? 'yesterday' : formatDateKey(prevKey);
 
-  const handleCopy = async (sources: MealLogEntry[], meal?: MealSlot) => {
+  const handleCopy = async (sources: MealLogEntry[]) => {
     if (copying || sources.length === 0) return;
     setCopying(true);
     try {
-      // Clones keep each source's logged snapshot; only day (and optionally
-      // meal) change. Fresh ids are assigned in the context. Arm the Undo
-      // only after the copy has committed, and with the exact clone batch it
-      // returned — Undo can then remove precisely those ids and nothing else.
-      const clones = await patient.copyEntries(sources, meal ? { dateKey, meal } : { dateKey });
+      // Clones keep each source's logged snapshot; only the day changes.
+      // Fresh ids are assigned in the context. Arm the Undo only after the
+      // copy has committed, and with the exact clone batch it returned —
+      // Undo can then remove precisely those ids and nothing else.
+      const clones = await patient.copyEntries(sources, { dateKey });
       setNotice({ kind: 'copied', entries: clones, fromKey: prevKey });
     } finally {
       setCopying(false);
@@ -275,19 +304,10 @@ export default function DiaryScreen() {
           )}
         </LedgerCard>
 
-        {/* ── Photo meal logging — same shared entry point as the Library ── */}
-        <MealPhotoButton
-          variant="card"
-          testID="diary-meal-photo-btn"
-          style={{ marginBottom: 12 }}
-        />
-
         {/* ── Meals — one paper card per slot with a serif title row ── */}
         {MEAL_SLOTS.map(slot => {
           const slotEntries = entries.filter(e => e.meal === slot);
           const slotCals = slotEntries.reduce((acc, e) => acc + e.calories, 0);
-          const slotSource = prevEntries.filter(e => e.meal === slot);
-          const canCopySlot = slotSource.length > 0 && !copying;
           return (
             <LedgerCard key={slot} style={styles.mealCard}>
               <View style={styles.cardTitleRow}>
@@ -403,27 +423,14 @@ export default function DiaryScreen() {
                   <Feather name="plus" size={13} color={colors.cobalt} />
                   <Text style={[styles.actionChipText, { color: colors.cobalt }]}>Add food</Text>
                 </Pressable>
-                <Pressable
-                  testID={`diary-copy-${slot}`}
-                  disabled={!canCopySlot}
-                  onPress={() => {
-                    void handleCopy(slotSource, slot);
-                  }}
-                  style={({ pressed }) => [
-                    styles.actionChip,
-                    {
-                      borderColor: colors.activeBorder,
-                      borderRadius: colors.radiusSm,
-                      backgroundColor: pressed ? colors.accent : colors.activeBg,
-                    },
-                    !canCopySlot && { opacity: 0.35 },
-                  ]}
-                >
-                  <Feather name="copy" size={12} color={colors.cobalt} />
-                  <Text style={[styles.actionChipText, { color: colors.cobalt }]} numberOfLines={1}>
-                    Copy {sourceLabel}
-                  </Text>
-                </Pressable>
+                {/* Photo-AI logging for THIS meal — the shared capture flow
+                    with this section's slot pinned through the analysis. */}
+                <MealPhotoButton
+                  variant="action"
+                  mealSlot={slot}
+                  testID={`diary-photo-${slot}`}
+                  style={{ flex: 1 }}
+                />
               </View>
             </LedgerCard>
           );
@@ -500,6 +507,15 @@ export default function DiaryScreen() {
           actionLabel="UNDO"
           actionTestID="diary-copied-undo"
           onAction={handleUndoCopy}
+        />
+      )}
+      {notice?.kind === 'logged' && (
+        <Snackbar
+          testID="diary-logged-snackbar"
+          message={`Logged ${notice.entries.length} item${notice.entries.length === 1 ? '' : 's'} to ${MEAL_LABELS[notice.meal]}`}
+          actionLabel="UNDO"
+          actionTestID="diary-logged-undo"
+          onAction={handleUndoLogged}
         />
       )}
       {notice?.kind === 'moved' && (

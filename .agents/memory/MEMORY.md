@@ -24,7 +24,7 @@
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel subagents drift on state semantics AND promise shared-layer behavior that isn't implemented; spec briefs + review the seams.
 - [Custom tab labels drop accessible names](tab-label-a11y.md) — a function tabBarLabel needs tabBarAccessibilityLabel per screen, or every tab silently loses its screen-reader name.
 - [Expo persona gate](expo-persona-gate.md) — patient screens hide behind the persona chooser on Expo web; verify via the testing subagent; compare app vs mockup in one capture pipeline.
-- [Mobile e2e quirks](mobile-e2e-quirks.md) — snackbar Undo isn't automatable (use undo script workflows); delete/copy snackbars carry Undo, add bars don't; Chrome [DOM] warnings may miss console capture.
+- [Mobile e2e quirks](mobile-e2e-quirks.md) — snackbar Undo isn't automatable; Chrome [DOM] warnings may miss capture; desktop contexts lose ~15px to scrollbars — width-exact checks need isMobile.
 - [Completion-diff provenance](completion-diff-provenance.md) — mid-session main-workspace commits can be swept into a task's completion diff; check HEAD before completing and state provenance in drift_reason.
 - [Announced error pattern](a11y-announced-errors.md) — ErrorBox self-announces (alert role + live region + iOS announce; never nest live regions); blocked CTAs intercept taps via aria-disabled instead of swallowing them.
 - [Generated recipe image style](recipe-image-style.md) — coach images must match the seeded illustrated family; "crisp outlines" → ink-lines gotcha; the AI-recipe preview shows zero generation UI by design.

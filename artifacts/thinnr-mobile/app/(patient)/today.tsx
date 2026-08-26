@@ -10,7 +10,15 @@
  * values are never hardcoded.
  */
 import React, { useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -109,12 +117,15 @@ function weekdayLetter(dateKey: string): string {
 }
 
 // One short prompt per day, picked deterministically from the anchored date
-// (never the device clock) so the demo stays reproducible.
+// (never the device clock) so the demo stays reproducible. Phrasings are kept
+// tight enough for the 17px serif line to share the focus bar with its caps
+// label on a 390px screen — the earlier "…today?" variants ran ~190px and
+// chopped mid-word ("How are you feeling to…") beside the ~93px label.
 const CHECKIN_PROMPTS = [
-  'How are you feeling today?',
-  'Any side effects to note?',
+  'How are you feeling?',
+  'Any side effects?',
   'Getting enough sleep?',
-  "How's your energy today?",
+  "How's your energy?",
 ];
 const CHECKIN_PROMPT = CHECKIN_PROMPTS[Number(TODAY_KEY.slice(8, 10)) % CHECKIN_PROMPTS.length];
 
@@ -129,6 +140,17 @@ export default function TodayScreen() {
   const heroTopPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
   const heroHeight = heroTopPad + 313;
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
+
+  // The hero's copy is fixed, so on narrow phones (360dp Androids, 375pt
+  // iPhones, the small web-simulator frame) it must yield space instead of
+  // ellipsizing mid-word. Two local width steps — not a breakpoint system:
+  // below 390 the focus bar hands its caps label's room to the message and
+  // the quick-link chips tighten their gutters; below 350 the chips stack.
+  // At ≥390 both render exactly the approved Heritage layout. The >0 guard
+  // keeps non-DOM test renders on the regular branch.
+  const { width: windowWidth } = useWindowDimensions();
+  const heroNarrow = windowWidth > 0 && windowWidth < 390;
+  const chipsStacked = windowWidth > 0 && windowWidth < 350;
 
   const isToday = dateKey === TODAY_KEY;
   const atMin = dateKey <= MIN_KEY;
@@ -186,6 +208,18 @@ export default function TodayScreen() {
 
   const dayCheckIn = patient.checkInFor(dateKey);
   const todayCheckIn = patient.checkInFor(TODAY_KEY);
+
+  // Focus-bar message, phrased to always read whole. The checked-in state
+  // leans on the check glyph instead of spelling out "Checked in — ", which
+  // never fit beside the caps label at any phone width (chopped to
+  // "Checked in — feeli…" even at 430px). Screen readers still get the full
+  // context via the pill's accessibilityLabel.
+  const focusMessage = todayCheckIn
+    ? `Feeling ${MOOD_LABELS[todayCheckIn.mood].toLowerCase()}`
+    : CHECKIN_PROMPT;
+  const focusA11yLabel = todayCheckIn
+    ? `Today's focus. Checked in, feeling ${MOOD_LABELS[todayCheckIn.mood].toLowerCase()}.`
+    : `Today's focus. ${CHECKIN_PROMPT}`;
   const currentWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
   const lost = PATIENT_PROFILE.startingWeight - currentWeight;
 
@@ -330,12 +364,18 @@ export default function TodayScreen() {
             )}
 
             {/* ── Quick-link chips ── */}
-            <View style={styles.chipRow}>
+            <View
+              style={[
+                styles.chipRow,
+                chipsStacked ? styles.chipRowStacked : heroNarrow && styles.chipRowSnug,
+              ]}
+            >
               <Pressable
                 testID="today-restaurant-guide"
                 onPress={openRestaurantGuide}
                 style={({ pressed }) => [
                   styles.chip,
+                  chipsStacked ? styles.chipStacked : heroNarrow && styles.chipSnug,
                   {
                     backgroundColor: HERO_INK.chipBg,
                     borderColor: HERO_INK.chipBorder,
@@ -359,6 +399,7 @@ export default function TodayScreen() {
                 onPress={openApprovedList}
                 style={({ pressed }) => [
                   styles.chip,
+                  chipsStacked ? styles.chipStacked : heroNarrow && styles.chipSnug,
                   {
                     backgroundColor: HERO_INK.chipBg,
                     borderColor: HERO_INK.chipBorder,
@@ -381,6 +422,7 @@ export default function TodayScreen() {
             <Pressable
               testID="today-checkin-pill"
               accessibilityRole="button"
+              accessibilityLabel={focusA11yLabel}
               onPress={openCheckIn}
               style={({ pressed }) => [
                 styles.focusBar,
@@ -395,11 +437,13 @@ export default function TodayScreen() {
               ) : (
                 <MaterialCommunityIcons name="creation" size={15} color={colors.cobalt} />
               )}
-              <Text style={[styles.focusLabel, { color: colors.bodyText }]}>TODAY'S FOCUS</Text>
+              {/* Narrow phones cede the caps label's room to the message so it
+                  never chops mid-word; the a11y label above keeps the context. */}
+              {!heroNarrow && (
+                <Text style={[styles.focusLabel, { color: colors.bodyText }]}>TODAY'S FOCUS</Text>
+              )}
               <Text numberOfLines={1} style={[styles.focusValue, { color: colors.navy }]}>
-                {todayCheckIn
-                  ? `Checked in — feeling ${MOOD_LABELS[todayCheckIn.mood].toLowerCase()}`
-                  : CHECKIN_PROMPT}
+                {focusMessage}
               </Text>
               <Feather name="chevron-right" size={17} color={colors.cobalt} />
             </Pressable>
@@ -889,6 +933,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     fontFamily: fonts.sansSemiBold,
+  },
+  // Narrow-width variants: "Restaurant guide" needs ~96px of text run, which
+  // a 358px screen only affords once the gutters tighten; below 350 even that
+  // fails, so the chips stack full-width instead of ellipsizing. Neither
+  // variant renders at ≥390.
+  chipRowSnug: {
+    gap: 6,
+  },
+  chipRowStacked: {
+    flexDirection: 'column',
+  },
+  chipSnug: {
+    paddingHorizontal: 8,
+    gap: 6,
+  },
+  chipStacked: {
+    flex: 0,
   },
   // ── Floating focus bar ──
   focusWrap: {

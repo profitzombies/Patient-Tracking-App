@@ -12,9 +12,9 @@
  * knowledge. Failures stay loud — a failed chip with the parser's plain
  * words and a retry — never a silently empty document.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, FileText, FileUp, Pencil, RotateCw, Trash2 } from 'lucide-react';
+import { CheckCircle2, Eye, FileText, FileUp, Pencil, RotateCw, Trash2, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPage, PageHeader, MetricTile } from '@/components/admin/primitives';
 import {
@@ -46,6 +46,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
+  MAX_DOCUMENT_BYTES,
   UPLOAD_ACCEPT,
   describeDocumentProblem,
   deleteKnowledgeDocument,
@@ -63,11 +64,17 @@ import {
 
 const DOCS_KEY = ['knowledge-docs'];
 
-type UploadPhase = 'waiting' | 'uploading' | 'finalizing' | 'done' | 'failed';
+/** Stated in the modal so the limit admins read is the limit the code enforces. */
+const MAX_UPLOAD_LABEL = `${Math.round(MAX_DOCUMENT_BYTES / (1024 * 1024))} MB`;
+
+/** `rejected` = failed client-side validation — no retry, the reason is permanent. */
+type UploadPhase = 'waiting' | 'uploading' | 'finalizing' | 'done' | 'failed' | 'rejected';
 
 interface UploadItem {
   key: string;
   name: string;
+  /** Kept so a failed row can retry the same bytes in place. */
+  file: File;
   pct: number;
   phase: UploadPhase;
   error: string | null;
@@ -103,8 +110,14 @@ export default function KnowledgeBase() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const uploadBusyRef = useRef(false);
+  /** Valid files waiting for the sequential uploader, in drop order. */
+  const queueRef = useRef<Array<{ key: string; file: File; contentType: string }>>([]);
+  /** Monotonic row keys — two drops can land in the same millisecond. */
+  const uploadSeqRef = useRef(0);
 
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<KnowledgeDocument | null>(null);
   const [renameDoc, setRenameDoc] = useState<KnowledgeDocument | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
@@ -143,43 +156,77 @@ export default function KnowledgeBase() {
     setUploads((prev) => prev.map((item) => (item.key === key ? { ...item, ...patch } : item)));
   };
 
-  const handleFiles = async (list: FileList | null) => {
-    if (!list || list.length === 0 || uploadBusyRef.current) return;
+  /**
+   * Drain the pending-file queue one upload at a time. Re-entrant kicks are
+   * no-ops (`uploadBusyRef`), and everything between the final shift and the
+   * busy-flag reset is synchronous, so a file enqueued at any moment is picked
+   * up either by the running loop or by its own kick — never dropped.
+   */
+  const processQueue = async () => {
+    if (uploadBusyRef.current) return;
     uploadBusyRef.current = true;
-    const files = Array.from(list);
-    const stamp = Date.now();
-    const items: UploadItem[] = files.map((file, index) => ({
-      key: `${stamp}-${index}`,
-      name: file.name,
-      pct: 0,
-      phase: 'waiting',
-      error: null,
-    }));
-    setUploads((prev) => [...prev.filter((item) => item.phase !== 'done'), ...items]);
     try {
-      for (let index = 0; index < files.length; index += 1) {
-        const file = files[index];
-        const key = items[index].key;
-        const problem = describeDocumentProblem(file);
-        if (problem) {
-          updateUpload(key, { phase: 'failed', error: problem });
-          continue;
-        }
-        const contentType = resolveDocumentType(file)!;
+      for (;;) {
+        const next = queueRef.current.shift();
+        if (!next) break;
         try {
-          updateUpload(key, { phase: 'uploading' });
-          await uploadKnowledgeDocument(file, contentType, (pct) => updateUpload(key, { pct }));
-          updateUpload(key, { phase: 'finalizing', pct: 100 });
+          updateUpload(next.key, { phase: 'uploading', pct: 0, error: null });
+          await uploadKnowledgeDocument(next.file, next.contentType, (pct) =>
+            // At 100% the bytes are all out the door — what remains is the
+            // finalize call (server-side verification + extraction kickoff).
+            updateUpload(next.key, pct >= 100 ? { pct: 100, phase: 'finalizing' } : { pct }),
+          );
+          updateUpload(next.key, { phase: 'finalizing', pct: 100 });
           await refresh();
-          updateUpload(key, { phase: 'done' });
+          updateUpload(next.key, { phase: 'done' });
         } catch (error) {
-          updateUpload(key, { phase: 'failed', error: problemText(error) });
+          updateUpload(next.key, { phase: 'failed', error: problemText(error) });
         }
       }
     } finally {
       uploadBusyRef.current = false;
     }
   };
+
+  /** Validate picked or dropped files, list them in the modal, queue the good ones. */
+  const enqueueFiles = (list: FileList | File[] | null) => {
+    const files = list ? Array.from(list) : [];
+    if (files.length === 0) return;
+    const items: UploadItem[] = files.map((file) => {
+      uploadSeqRef.current += 1;
+      const key = `u${uploadSeqRef.current}`;
+      const problem = describeDocumentProblem(file);
+      if (problem) {
+        return { key, name: file.name, file, pct: 0, phase: 'rejected' as const, error: problem };
+      }
+      queueRef.current.push({ key, file, contentType: resolveDocumentType(file)! });
+      return { key, name: file.name, file, pct: 0, phase: 'waiting' as const, error: null };
+    });
+    setUploads((prev) => [...prev.filter((item) => item.phase !== 'done'), ...items]);
+    void processQueue();
+  };
+
+  const retryUpload = (item: UploadItem) => {
+    if (item.phase !== 'failed') return;
+    const contentType = resolveDocumentType(item.file);
+    if (!contentType) return;
+    queueRef.current.push({ key: item.key, file: item.file, contentType });
+    updateUpload(item.key, { phase: 'waiting', pct: 0, error: null });
+    void processQueue();
+  };
+
+  // While the upload modal is open, a drop that misses the zone must never
+  // make the browser navigate into the file (which would discard the page).
+  useEffect(() => {
+    if (!uploadOpen) return;
+    const swallow = (event: DragEvent) => event.preventDefault();
+    window.addEventListener('dragover', swallow);
+    window.addEventListener('drop', swallow);
+    return () => {
+      window.removeEventListener('dragover', swallow);
+      window.removeEventListener('drop', swallow);
+    };
+  }, [uploadOpen]);
 
   const handleReplaceFile = async (list: FileList | null) => {
     const doc = replaceTargetRef.current;
@@ -261,12 +308,11 @@ export default function KnowledgeBase() {
           <button
             type="button"
             className={`${BTN_PRIMARY} px-4 py-2`}
-            onClick={() => uploadInputRef.current?.click()}
-            disabled={activeUploads}
+            onClick={() => setUploadOpen(true)}
             data-testid="button-upload-documents"
           >
             <FileUp className="h-3.5 w-3.5" aria-hidden />
-            Upload documents
+            {activeUploads ? 'Uploading…' : 'Upload documents'}
           </button>
         }
       />
@@ -279,7 +325,7 @@ export default function KnowledgeBase() {
         className="hidden"
         data-testid="input-upload-documents"
         onChange={(event) => {
-          void handleFiles(event.target.files);
+          enqueueFiles(event.target.files);
           event.target.value = '';
         }}
       />
@@ -307,53 +353,6 @@ export default function KnowledgeBase() {
         <MetricTile label="Library size" value={formatBytes(totalBytes)} testId="text-metric-size" />
       </div>
 
-      {uploads.length > 0 && (
-        <SectionCard
-          title="Uploads"
-          sub="Files go straight to storage, then text extraction starts server-side."
-          action={
-            !activeUploads ? (
-              <button
-                type="button"
-                className={`${BTN_SECONDARY} px-3 py-1.5`}
-                onClick={() => setUploads([])}
-                data-testid="button-clear-uploads"
-              >
-                Clear
-              </button>
-            ) : undefined
-          }
-        >
-          <ul className="space-y-2">
-            {uploads.map((item) => (
-              <li key={item.key} className={`${INSET} px-3 py-2`} data-testid={`upload-item-${item.key}`}>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 truncate text-xs font-semibold text-foreground">{item.name}</span>
-                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-[.06em] text-muted-foreground">
-                    {item.phase === 'waiting' && 'Waiting'}
-                    {item.phase === 'uploading' && `Uploading ${item.pct}%`}
-                    {item.phase === 'finalizing' && 'Finalizing…'}
-                    {item.phase === 'done' && 'Done — extracting text'}
-                    {item.phase === 'failed' && 'Failed'}
-                  </span>
-                </div>
-                {(item.phase === 'uploading' || item.phase === 'finalizing') && (
-                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-border">
-                    <div
-                      className="h-full rounded-full bg-primary transition-[width]"
-                      style={{ width: `${item.pct}%` }}
-                    />
-                  </div>
-                )}
-                {item.phase === 'failed' && item.error && (
-                  <p className="mt-1 text-[11px] leading-snug text-destructive">{item.error}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
-      )}
-
       <SectionCard
         title="Document library"
         sub={
@@ -378,15 +377,15 @@ export default function KnowledgeBase() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[760px] text-left text-xs">
               <thead>
-                <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.08em] text-muted-foreground">
-                  <th scope="col" className="py-2 pr-3 font-bold">Document</th>
-                  <th scope="col" className="py-2 pr-3 font-bold">Type</th>
-                  <th scope="col" className="py-2 pr-3 font-bold">Size</th>
-                  <th scope="col" className="py-2 pr-3 font-bold">Uploaded</th>
-                  <th scope="col" className="py-2 pr-3 font-bold">Status</th>
-                  <th scope="col" className="py-2 text-right font-bold">Actions</th>
+                <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                  <th scope="col" className="px-5 py-3 font-bold">Document</th>
+                  <th scope="col" className="px-3 py-3 font-bold">Type</th>
+                  <th scope="col" className="px-3 py-3 font-bold">Size</th>
+                  <th scope="col" className="px-3 py-3 font-bold">Uploaded</th>
+                  <th scope="col" className="px-3 py-3 font-bold">Status</th>
+                  <th scope="col" className="px-5 py-3 text-right font-bold">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -394,8 +393,8 @@ export default function KnowledgeBase() {
                   const chip = statusChip(doc);
                   const isReplacing = replacing?.id === doc.id;
                   return (
-                    <tr key={doc.id} className="border-b border-border/60 align-top" data-testid={`row-doc-${doc.id}`}>
-                      <td className="max-w-[280px] py-2.5 pr-3">
+                    <tr key={doc.id} className="border-b border-border/60 align-middle last:border-b-0" data-testid={`row-doc-${doc.id}`}>
+                      <td className="max-w-[280px] px-5 py-3">
                         <p className="truncate font-semibold text-foreground" title={doc.title} data-testid={`text-doc-title-${doc.id}`}>
                           {doc.title}
                         </p>
@@ -408,15 +407,15 @@ export default function KnowledgeBase() {
                           </p>
                         )}
                       </td>
-                      <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{documentTypeLabel(doc.contentType)}</td>
-                      <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{formatBytes(doc.sizeBytes)}</td>
-                      <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{formatDate(doc.createdAt)}</td>
-                      <td className="py-2.5 pr-3 whitespace-nowrap">
+                      <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">{documentTypeLabel(doc.contentType)}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">{formatBytes(doc.sizeBytes)}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">{formatDate(doc.createdAt)}</td>
+                      <td className="px-3 py-3 whitespace-nowrap">
                         <span className={chip.className} data-testid={`chip-doc-status-${doc.id}`}>
                           {isReplacing ? `Uploading ${replacing.pct}%` : chip.label}
                         </span>
                       </td>
-                      <td className="py-2 text-right whitespace-nowrap">
+                      <td className="px-5 py-3 text-right whitespace-nowrap">
                         <div className="inline-flex items-center gap-0.5">
                           {doc.status === 'failed' && (
                             <button
@@ -484,6 +483,168 @@ export default function KnowledgeBase() {
           </div>
         )}
       </SectionCard>
+
+      {/* Upload modal — drag and drop or browse; per-file progress lives here.
+          Closing it never cancels anything: the queue keeps draining and the
+          header button reads "Uploading…" until the last file settles. */}
+      <Dialog
+        open={uploadOpen}
+        onOpenChange={(open) => {
+          setUploadOpen(open);
+          if (!open) setDragOver(false);
+        }}
+      >
+        <DialogContent className="max-w-lg" data-testid="dialog-upload-documents">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-xl">Upload documents</DialogTitle>
+            <DialogDescription>
+              Files go straight to storage, then text extraction starts server-side. PDF, Word
+              (.docx), plain text, and Markdown files up to {MAX_UPLOAD_LABEL} each.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div
+            className={`flex cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed px-4 py-7 text-center transition-colors ${
+              dragOver ? 'border-primary bg-accent/40' : 'border-border bg-secondary/50'
+            }`}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              setDragOver(true);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={(event) => {
+              // Moving between children fires leave/enter pairs — only clear
+              // the highlight when the pointer truly left the zone.
+              if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget as Node)) return;
+              setDragOver(false);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragOver(false);
+              enqueueFiles(event.dataTransfer.files);
+            }}
+            // Pointer-only convenience — the Browse button below is the real
+            // keyboard/screen-reader control, so the zone itself stays inert.
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest('button')) return;
+              uploadInputRef.current?.click();
+            }}
+            data-testid="dropzone-upload-documents"
+          >
+            <Upload className="h-4 w-4 text-muted-foreground" aria-hidden />
+            <p className="text-xs font-medium text-foreground">
+              {dragOver ? 'Drop to add the files' : 'Drag and drop files here'}
+            </p>
+            <button
+              type="button"
+              className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`}
+              onClick={() => uploadInputRef.current?.click()}
+              data-testid="button-browse-files"
+            >
+              Browse files
+            </button>
+            <p className="text-[10px] text-muted-foreground">
+              .pdf · .docx · .txt · .md — up to {MAX_UPLOAD_LABEL} each
+            </p>
+          </div>
+
+          {uploads.length > 0 && (
+            <ul className="max-h-[38vh] space-y-2 overflow-y-auto" data-testid="list-upload-items">
+              {uploads.map((item) => {
+                const statusTone =
+                  item.phase === 'failed' || item.phase === 'rejected'
+                    ? 'text-destructive'
+                    : item.phase === 'done'
+                      ? 'text-primary'
+                      : 'text-muted-foreground';
+                return (
+                  <li key={item.key} className={`${INSET} px-3 py-2.5`} data-testid={`upload-item-${item.key}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate text-xs font-semibold text-foreground" title={item.name}>
+                        {item.name}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        {item.phase === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-primary" aria-hidden />}
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-[.06em] ${statusTone}`}
+                          data-testid={`text-upload-status-${item.key}`}
+                        >
+                          {item.phase === 'waiting' && 'Waiting'}
+                          {item.phase === 'uploading' && `Uploading ${item.pct}%`}
+                          {item.phase === 'finalizing' && 'Finalizing…'}
+                          {item.phase === 'done' && 'Done — extracting text'}
+                          {item.phase === 'failed' && 'Failed'}
+                          {item.phase === 'rejected' && 'Not accepted'}
+                        </span>
+                        {item.phase === 'failed' && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[.06em] text-primary transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => retryUpload(item)}
+                            aria-label={`Retry uploading ${item.name}`}
+                            data-testid={`button-upload-retry-${item.key}`}
+                          >
+                            <RotateCw className="h-3 w-3" aria-hidden />
+                            Retry
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                    {(item.phase === 'uploading' || item.phase === 'finalizing') && (
+                      <div
+                        className="mt-2 h-1.5 overflow-hidden rounded-full bg-border"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={item.pct}
+                        aria-label={`Upload progress for ${item.name}`}
+                      >
+                        <div
+                          className={`h-full rounded-full bg-primary transition-[width] ${item.phase === 'finalizing' ? 'animate-pulse' : ''}`}
+                          style={{ width: `${item.pct}%` }}
+                        />
+                      </div>
+                    )}
+                    {(item.phase === 'failed' || item.phase === 'rejected') && item.error && (
+                      <p
+                        className="mt-1.5 text-[11px] leading-snug text-destructive"
+                        role="alert"
+                        data-testid={`text-upload-error-${item.key}`}
+                      >
+                        {item.error}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <DialogFooter>
+            {uploads.length > 0 && !activeUploads && (
+              <button
+                type="button"
+                className={`${BTN_SECONDARY} px-3 py-2`}
+                onClick={() => setUploads([])}
+                data-testid="button-clear-uploads"
+              >
+                Clear list
+              </button>
+            )}
+            <button
+              type="button"
+              className={`${BTN_SECONDARY} px-3 py-2`}
+              onClick={() => setUploadOpen(false)}
+              data-testid="button-close-upload"
+            >
+              {activeUploads ? 'Close — uploads keep running' : 'Close'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Extracted-text preview — how admins trust what the AI knows. */}
       <Dialog open={previewDoc !== null} onOpenChange={(open) => !open && setPreviewDoc(null)}>

@@ -21,7 +21,6 @@ export const coachChatBodyMessagesMax = 30;
 export const coachChatBodyLocalTimeMax = 5;
 
 
-
 export const CoachChatBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant']),
@@ -46,7 +45,6 @@ export const coachRecipeImageBodyNameMax = 80;
 export const coachRecipeImageBodyDescriptionMax = 200;
 
 
-
 export const CoachRecipeImageBody = zod.object({
   "name": zod.string().min(1).max(coachRecipeImageBodyNameMax),
   "description": zod.string().max(coachRecipeImageBodyDescriptionMax).optional()
@@ -62,7 +60,6 @@ export const CoachRecipeImageResponse = zod.object({
  * @summary Scan a restaurant menu photo for THINNR-compatible orders
  */
 export const coachMenuScanBodyImageMax = 8000000;
-
 
 
 export const CoachMenuScanBody = zod.object({
@@ -84,7 +81,11 @@ export const CoachMenuScanResponse = zod.object({
 }))
 }).describe('AI guidance derived from the photo — not official program copy. \"ok\" carries the dish lists; \"not_menu\" and \"unreadable\" explain the problem in message and carry empty lists.')
 
-
+/**
+ * Runs the same nutrition-label reader as the coach chat's label photo turns — transcription only, never estimates — and returns the validated per-serving read directly, for non-chat surfaces like the create-food screen. "ok" carries the label values; "not_label" and "unreadable" explain the problem in message (coach-voiced, warm, ending with the same retake nudge the chat uses) and carry no label, because nothing is ever guessed. The photo is analyzed in memory only and never stored server-side. This route accepts a larger JSON body than the rest of the API (photo payload) and shares the photo-scan rate budget with menu scans and chat photo turns.
+ * @summary Read a Nutrition Facts photo into per-serving values
+ */
+export const coachLabelScanBodyImageMax = 8000000;
 /**
  * HQ admins only. Returns a short-lived presigned PUT URL so the browser uploads the file straight to App Storage (the API never proxies the body), plus the canonical object path to send back to finalize. Nothing is written to the video row until finalize verifies the bytes.
  * @summary Mint a presigned upload URL for a training video file
@@ -98,7 +99,6 @@ export const trainingVideoUploadUrlBodyFileNameMax = 300;
 export const trainingVideoUploadUrlBodyContentTypeMax = 100;
 
 export const trainingVideoUploadUrlBodySizeBytesMax = 524288000;
-
 
 
 export const TrainingVideoUploadUrlBody = zod.object({
@@ -122,7 +122,6 @@ export const TrainingVideoFinalizeParams = zod.object({
 })
 
 export const trainingVideoFinalizeBodyObjectPathMax = 500;
-
 
 
 export const TrainingVideoFinalizeBody = zod.object({
@@ -162,7 +161,6 @@ export const trainingThumbnailUploadUrlBodyFileNameMax = 300;
 export const trainingThumbnailUploadUrlBodySizeBytesMax = 10485760;
 
 
-
 export const TrainingThumbnailUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingThumbnailUploadUrlBodyFileNameMax).describe('Original file name, for browser metadata only'),
   "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp']).describe('MIME type sent on the presigned PUT'),
@@ -187,7 +185,6 @@ export const TrainingThumbnailUploadParams = zod.object({
 export const trainingThumbnailUploadBodyObjectPathMax = 500;
 
 export const trainingThumbnailUploadBodyVideoSourceMax = 500;
-
 
 
 export const TrainingThumbnailUploadBody = zod.object({
@@ -246,7 +243,6 @@ export const trainingVideoThumbnailBodyAtSecondsMin = 0;
 export const trainingVideoThumbnailBodyAtSecondsMax = 86400;
 
 
-
 export const TrainingVideoThumbnailBody = zod.object({
   "atSeconds": zod.number().min(trainingVideoThumbnailBodyAtSecondsMin).max(trainingVideoThumbnailBodyAtSecondsMax).describe('Video time of the frame to capture, clamped to the duration')
 })
@@ -268,7 +264,6 @@ export const TrainingVideoProcessParams = zod.object({
 export const trainingVideoProcessBodyStepsMax = 4;
 
 
-
 export const TrainingVideoProcessBody = zod.object({
   "steps": zod.array(zod.enum(['transcribe', 'describe', 'chapters', 'thumbnail'])).max(trainingVideoProcessBodyStepsMax).optional().describe('Subset of steps to run, in pipeline order; omit for the full pass. Used by retries to resume from a failed step without re-spending the ones that succeeded.')
 })
@@ -283,7 +278,6 @@ export const TrainingVideoProcessResponse = zod.unknown()
 export const knowledgeUploadUrlBodyFileNameMax = 300;
 
 export const knowledgeUploadUrlBodySizeBytesMax = 26214400;
-
 
 
 export const KnowledgeUploadUrlBody = zod.object({
@@ -330,7 +324,6 @@ export const knowledgeCreateDocumentBodyDocumentIdMax = 60;
 export const knowledgeCreateDocumentBodyObjectPathMax = 500;
 
 export const knowledgeCreateDocumentBodyFileNameMax = 300;
-
 
 
 export const KnowledgeCreateDocumentBody = zod.object({
@@ -390,7 +383,6 @@ export const KnowledgeRenameDocumentParams = zod.object({
 export const knowledgeRenameDocumentBodyTitleMax = 200;
 
 
-
 export const KnowledgeRenameDocumentBody = zod.object({
   "title": zod.string().min(1).max(knowledgeRenameDocumentBodyTitleMax)
 })
@@ -436,7 +428,6 @@ export const knowledgeReplaceUploadUrlBodyFileNameMax = 300;
 export const knowledgeReplaceUploadUrlBodySizeBytesMax = 26214400;
 
 
-
 export const KnowledgeReplaceUploadUrlBody = zod.object({
   "fileName": zod.string().min(1).max(knowledgeReplaceUploadUrlBodyFileNameMax).describe('Original file name; becomes the document title (sans extension)'),
   "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown']).describe('Canonical MIME type the browser will send on the PUT'),
@@ -461,7 +452,6 @@ export const KnowledgeReplaceFileParams = zod.object({
 export const knowledgeReplaceFileBodyObjectPathMax = 500;
 
 export const knowledgeReplaceFileBodyFileNameMax = 300;
-
 
 
 export const KnowledgeReplaceFileBody = zod.object({
@@ -508,3 +498,25 @@ export const HealthCheckResponse = zod.object({
 })
 
 
+export const CoachLabelScanBody = zod.object({
+  "image": zod.string().max(coachLabelScanBodyImageMax).describe('Nutrition Facts photo as a base64 data URI (image\/jpeg, image\/png, or image\/webp), downscaled and compressed client-side before upload.')
+})
+
+export const CoachLabelScanResponse = zod.object({
+  "result": zod.enum(['ok', 'not_label', 'unreadable']),
+  "message": zod.string().describe('Coach-voice reaction (ok) or warm retake nudge (not_label \/ unreadable); may contain blank-line paragraph breaks'),
+  "label": zod.object({
+  "id": zod.string().describe('Server-issued draft id (\"label_...\")'),
+  "servingSize": zod.string().describe('Printed serving size line, e.g. \"2\/3 cup (55g)\"'),
+  "servingsPerContainer": zod.number().optional().describe('Printed container count; omitted when not printed'),
+  "calories": zod.number().describe('Calories per serving as printed'),
+  "protein": zod.number().describe('Grams per serving'),
+  "carbs": zod.number().describe('Grams per serving'),
+  "fat": zod.number().describe('Grams per serving'),
+  "fiber": zod.number().optional().describe('Grams per serving; omitted when not printed legibly'),
+  "sugar": zod.number().optional().describe('Grams per serving; omitted when not printed legibly'),
+  "sodium": zod.number().optional().describe('Milligrams per serving; omitted when not printed legibly'),
+  "suggestedSlot": zod.enum(['breakfast', 'lunch', 'dinner', 'snacks']).describe('Diary slot a chat food card would preselect; advisory here'),
+  "flagged": zod.boolean().optional().describe('Printed calories disagree wildly with the 4\/4\/9 macro math (misprint or misread) — worth a double check of the package')
+}).optional().describe('Validated per-serving transcription of one Nutrition Facts panel — the same read the coach chat\'s labelDraft SSE event carries. Printed values only; optional fields are omitted when the panel does not print them legibly.')
+}).describe('\"ok\" carries the transcribed label; \"not_label\" and \"unreadable\" explain the problem in message and carry no label. An illegible required value makes the whole shot \"unreadable\" — values are never estimated.')

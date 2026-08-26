@@ -1,4 +1,3 @@
-// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -55,3 +54,4 @@
 - [Web fit-to-iPhone shell](web-fit-shell.md) — Expo web lays out on a fixed 393pt canvas transform-scaled to the frame; use the app width hook, ?layoutWidth= to pin/disable; gBCR consumers see real px.
 - [Knowledge doc library](knowledge-doc-library.md) — AI Support grounding docs: extract-on-finalize with object-path-conditional persists, routing aids total at ingest, seed only via the real HTTP path.
 - [Unicode in authored TSX](tsx-unicode-escapes.md) — \uXXXX in JSX text renders literally (green builds, broken UI); write real characters when generating files.
+- [Synthetic image fixtures](synthetic-image-fixtures.md) — no sharp/PIL/chromium here: a no-deps Node PNG encoder + 5x7 pixel font makes vision-readable fixtures; certify via curl before e2e.

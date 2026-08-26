@@ -28,6 +28,7 @@
 import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 import type { MealSlot } from '@/data/patient-data';
+import { parseLabelDraft, type LabelDraft } from '@/lib/label-food';
 
 export interface CoachRequestMessage {
   role: 'user' | 'assistant';
@@ -468,4 +469,110 @@ export async function scanMenuPhoto(
     order: outcome === 'ok' ? parseOrderItems(record.order) : [],
     avoid: outcome === 'ok' ? parseAvoidItems(record.avoid) : [],
   };
+}
+
+// ─── Label scan (POST /api/coach/label-scan) ─────────────────────────────────
+
+export type LabelScanOutcome = 'ok' | 'not_label' | 'unreadable';
+
+/** Structured result of one Nutrition Facts photo scan. */
+export interface LabelScanResult {
+  result: LabelScanOutcome;
+  /**
+   * Coach-voice reaction ("ok") or warm retake nudge (other outcomes; may
+   * contain blank-line paragraph breaks — render with line breaks intact).
+   */
+  message: string;
+  /** Validated per-serving read — present only when result is "ok". */
+  label: LabelDraft | null;
+}
+
+/** Label scan failure whose message is safe to show the patient. */
+export class LabelScanError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LabelScanError';
+  }
+}
+
+const LABEL_SCAN_FALLBACK_ERROR = 'The label scan is unavailable right now. Please try again.';
+
+/**
+ * Sends one Nutrition Facts photo (JPEG/PNG data URI, already downscaled
+ * client-side) to the label reader and returns the transcribed per-serving
+ * values. Same server pipeline as the chat's label photo turns: printed
+ * values only, nothing estimated — an unreadable panel comes back as a
+ * structured outcome with a warm retake message, never guessed numbers.
+ * The server analyzes the photo in memory only; it is never stored.
+ *
+ * Throws LabelScanError with a user-facing message on any failure, except a
+ * caller-initiated abort, which rethrows the AbortError untouched so cancel
+ * paths can stay silent.
+ */
+export async function scanLabelPhoto(
+  image: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<LabelScanResult> {
+  const doFetch =
+    Platform.OS === 'web'
+      ? globalThis.fetch.bind(globalThis)
+      : (expoFetch as unknown as typeof globalThis.fetch);
+
+  let response: Response;
+  try {
+    response = await doFetch(`${apiBase()}/coach/label-scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image }),
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    console.error('Label scan request failed', error);
+    throw new LabelScanError(
+      'Could not reach the label scanner. Check your connection and try again.',
+    );
+  }
+
+  if (!response.ok) {
+    // The API answers failures with { error: <user-facing message> }; the
+    // proxy can also answer 413 with a non-JSON body for oversized uploads.
+    let message =
+      response.status === 413
+        ? 'That photo is too large to upload. Please try a different one.'
+        : LABEL_SCAN_FALLBACK_ERROR;
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
+    } catch {
+      // keep the status-derived message
+    }
+    throw new LabelScanError(message);
+  }
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new LabelScanError(LABEL_SCAN_FALLBACK_ERROR);
+  }
+  const record = (typeof json === 'object' && json !== null ? json : {}) as {
+    result?: unknown;
+    message?: unknown;
+    label?: unknown;
+  };
+  const outcome = record.result;
+  if (outcome !== 'ok' && outcome !== 'not_label' && outcome !== 'unreadable') {
+    throw new LabelScanError(LABEL_SCAN_FALLBACK_ERROR);
+  }
+  // 800, not 600: the non-ok message carries the model's nudge PLUS the
+  // canned retake ask, which together can pass 600 characters.
+  const message = scanText(record.message, 800);
+  if (!message) throw new LabelScanError(LABEL_SCAN_FALLBACK_ERROR);
+  if (outcome !== 'ok') return { result: outcome, message, label: null };
+  const label = parseLabelDraft(record.label);
+  // "ok" without a usable read is a malformed response, not a prefill.
+  if (!label) throw new LabelScanError(LABEL_SCAN_FALLBACK_ERROR);
+  return { result: 'ok', message, label };
 }

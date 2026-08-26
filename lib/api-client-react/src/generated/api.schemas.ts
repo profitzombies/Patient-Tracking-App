@@ -133,6 +133,13 @@ export interface CoachMenuScanResult {
   avoid: CoachMenuScanAvoidItem[];
 }
 
+export interface CoachLabelScanInput {
+  /**
+     * Nutrition Facts photo as a base64 data URI (image/jpeg, image/png, or image/webp), downscaled and compressed client-side before upload.
+     * @maxLength 8000000
+     */
+  image: string;
+}
 export interface TrainingUploadUrlInput {
   /**
      * Original file name, for logs and error copy only
@@ -493,3 +500,63 @@ export interface KnowledgeExtractResult {
   status: KnowledgeExtractResultStatus;
 }
 
+
+/**
+ * Diary slot a chat food card would preselect; advisory here
+ */
+export type CoachLabelScanLabelSuggestedSlot = typeof CoachLabelScanLabelSuggestedSlot[keyof typeof CoachLabelScanLabelSuggestedSlot];
+
+export const CoachLabelScanResultResult = {
+  ok: 'ok',
+  not_label: 'not_label',
+  unreadable: 'unreadable',
+} as const;
+
+/**
+ * "ok" carries the transcribed label; "not_label" and "unreadable" explain the problem in message and carry no label. An illegible required value makes the whole shot "unreadable" — values are never estimated.
+ */
+export interface CoachLabelScanResult {
+  result: CoachLabelScanResultResult;
+  /** Coach-voice reaction (ok) or warm retake nudge (not_label / unreadable); may contain blank-line paragraph breaks */
+  message: string;
+  label?: CoachLabelScanLabel;
+}
+
+export type CoachLabelScanResultResult = typeof CoachLabelScanResultResult[keyof typeof CoachLabelScanResultResult];
+
+/**
+ * Validated per-serving transcription of one Nutrition Facts panel — the same read the coach chat's labelDraft SSE event carries. Printed values only; optional fields are omitted when the panel does not print them legibly.
+ */
+export interface CoachLabelScanLabel {
+  /** Server-issued draft id ("label_...") */
+  id: string;
+  /** Printed serving size line, e.g. "2/3 cup (55g)" */
+  servingSize: string;
+  /** Printed container count; omitted when not printed */
+  servingsPerContainer?: number;
+  /** Calories per serving as printed */
+  calories: number;
+  /** Grams per serving */
+  protein: number;
+  /** Grams per serving */
+  carbs: number;
+  /** Grams per serving */
+  fat: number;
+  /** Grams per serving; omitted when not printed legibly */
+  fiber?: number;
+  /** Grams per serving; omitted when not printed legibly */
+  sugar?: number;
+  /** Milligrams per serving; omitted when not printed legibly */
+  sodium?: number;
+  /** Diary slot a chat food card would preselect; advisory here */
+  suggestedSlot: CoachLabelScanLabelSuggestedSlot;
+  /** Printed calories disagree wildly with the 4/4/9 macro math (misprint or misread) — worth a double check of the package */
+  flagged?: boolean;
+}
+
+export const CoachLabelScanLabelSuggestedSlot = {
+  breakfast: 'breakfast',
+  lunch: 'lunch',
+  dinner: 'dinner',
+  snacks: 'snacks',
+} as const;

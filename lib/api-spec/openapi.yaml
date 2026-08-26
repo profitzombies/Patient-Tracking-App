@@ -130,6 +130,43 @@ paths:
           description: Rate limited
         "502":
           description: Menu scan failed
+  /coach/label-scan:
+    post:
+      operationId: coachLabelScan
+      tags: [coach]
+      summary: Read a Nutrition Facts photo into per-serving values
+      description: >-
+        Runs the same nutrition-label reader as the coach chat's label photo
+        turns — transcription only, never estimates — and returns the
+        validated per-serving read directly, for non-chat surfaces like the
+        create-food screen. "ok" carries the label values; "not_label" and
+        "unreadable" explain the problem in message (coach-voiced, warm,
+        ending with the same retake nudge the chat uses) and carry no label,
+        because nothing is ever guessed. The photo is analyzed in memory only
+        and never stored server-side. This route accepts a larger JSON body
+        than the rest of the API (photo payload) and shares the photo-scan
+        rate budget with menu scans and chat photo turns.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachLabelScanInput"
+      responses:
+        "200":
+          description: Structured label read (transcribed values, no estimates)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachLabelScanResult"
+        "400":
+          description: Invalid request body or unsupported photo format
+        "413":
+          description: Photo payload too large
+        "429":
+          description: Rate limited
+        "502":
+          description: Label scan failed
   /training/videos/{videoId}/upload-url:
     post:
       operationId: trainingVideoUploadUrl
@@ -878,6 +915,94 @@ components:
         - message
         - order
         - avoid
+    CoachLabelScanInput:
+      type: object
+      properties:
+        image:
+          type: string
+          description: >-
+            Nutrition Facts photo as a base64 data URI (image/jpeg, image/png,
+            or image/webp), downscaled and compressed client-side before
+            upload.
+          maxLength: 8000000
+      required:
+        - image
+    CoachLabelScanLabel:
+      type: object
+      description: >-
+        Validated per-serving transcription of one Nutrition Facts panel —
+        the same read the coach chat's labelDraft SSE event carries. Printed
+        values only; optional fields are omitted when the panel does not
+        print them legibly.
+      properties:
+        id:
+          type: string
+          description: Server-issued draft id ("label_...")
+        servingSize:
+          type: string
+          description: Printed serving size line, e.g. "2/3 cup (55g)"
+        servingsPerContainer:
+          type: number
+          description: Printed container count; omitted when not printed
+        calories:
+          type: number
+          description: Calories per serving as printed
+        protein:
+          type: number
+          description: Grams per serving
+        carbs:
+          type: number
+          description: Grams per serving
+        fat:
+          type: number
+          description: Grams per serving
+        fiber:
+          type: number
+          description: Grams per serving; omitted when not printed legibly
+        sugar:
+          type: number
+          description: Grams per serving; omitted when not printed legibly
+        sodium:
+          type: number
+          description: Milligrams per serving; omitted when not printed legibly
+        suggestedSlot:
+          type: string
+          enum: [breakfast, lunch, dinner, snacks]
+          description: Diary slot a chat food card would preselect; advisory here
+        flagged:
+          type: boolean
+          description: >-
+            Printed calories disagree wildly with the 4/4/9 macro math
+            (misprint or misread) — worth a double check of the package
+      required:
+        - id
+        - servingSize
+        - calories
+        - protein
+        - carbs
+        - fat
+        - suggestedSlot
+    CoachLabelScanResult:
+      type: object
+      description: >-
+        "ok" carries the transcribed label; "not_label" and "unreadable"
+        explain the problem in message and carry no label. An illegible
+        required value makes the whole shot "unreadable" — values are never
+        estimated.
+      properties:
+        result:
+          type: string
+          enum: [ok, not_label, unreadable]
+        message:
+          type: string
+          description: >-
+            Coach-voice reaction (ok) or warm retake nudge (not_label /
+            unreadable); may contain blank-line paragraph breaks
+        label:
+          $ref: "#/components/schemas/CoachLabelScanLabel"
+      required:
+        - result
+        - message
     TrainingUploadUrlInput:
       type: object
       properties:

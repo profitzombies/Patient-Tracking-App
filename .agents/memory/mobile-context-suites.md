@@ -25,3 +25,10 @@ Rule: To regression-test THINNR mobile logic that lives in React contexts or nat
 - Wrap `TestRenderer.create` itself in `act(async ...)` — a probe read before the first act flush sees an unset context variable (the root does not render synchronously), and un-wrapped creates also spam act warnings.
 - Suites that poll with act-wrapped sleeps around a REAL-timer typed-reveal will still see occasional benign "not wrapped in act" warnings (a tick lands between act slices; the next slice flushes it) — filter that exact message instead of switching to fake timers.
 - With the `Platform.OS = 'web'` stub, PatientContext persists via `globalThis.localStorage`, not AsyncStorage — the suite needs a Map-backed localStorage shim or hydration never completes.
+
+## Silent exit 0 with zero output = dangling await, not a pass
+
+If a suite prints NOTHING and exits 0, an `await` never settled (e.g. a scripted never-resolving fetch used for cancel-path checks): Node drains its event loop and exits cleanly without running `finish()`. Two required guards:
+
+- `tap()` must NOT await the handler's promise. Fire it with `void onPress()` inside `act`, then flush a bounded number of microtasks (`for (i<25) await Promise.resolve()`) so settled chains propagate but a hung one can't deadlock the suite.
+- Register a `process.on('beforeExit')` hook that fails loudly; only `finish()`'s explicit `process.exit` may end the run.

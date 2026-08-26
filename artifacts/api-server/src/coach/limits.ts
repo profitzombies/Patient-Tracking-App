@@ -125,15 +125,20 @@ export const acquireImageSlot = createLimiter({
   rapidMessage: "You are requesting photos too quickly. Please wait a moment.",
 });
 
-/** Menu scans: vision calls that carry a photo payload; priced like images. */
+/**
+ * Photo scans: vision calls that carry a photo payload; priced like images.
+ * One shared budget across every photo surface — the standalone menu scan,
+ * chat photo turns (menu/meal/label), and the create-food label scan — so
+ * the messages stay photo-generic rather than naming menus.
+ */
 export const acquireMenuScanSlot = createLimiter({
   burst: 6,
   refillPerMinute: 4,
   maxConcurrent: 2,
   dailyBudget: 150,
-  dailyMessage: "Menu scanning has reached its daily limit. Please try again tomorrow.",
-  busyMessage: "The menu scanner is busy right now. Please try again in a moment.",
-  rapidMessage: "You are scanning menus too quickly. Please wait a moment.",
+  dailyMessage: "Photo scanning has reached its daily limit. Please try again tomorrow.",
+  busyMessage: "The photo scanner is busy right now. Please try again in a moment.",
+  rapidMessage: "You are scanning photos too quickly. Please wait a moment.",
 });
 
 /**

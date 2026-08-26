@@ -15,6 +15,7 @@
     "test:diary-copy": "tsx scripts/verify-diary-copy.ts",
     "test:diary-edit": "tsx scripts/verify-diary-edit.ts",
     "test:diary-undo": "tsx scripts/verify-diary-undo.ts",
+    "test:label-scan": "tsx --tsconfig tsconfig.label-scan.json scripts/verify-label-scan.ts",
     "test:meal-photo": "tsx --tsconfig tsconfig.meal-photo.json scripts/verify-meal-photo.ts",
     "test:onboarding-gate": "tsx --tsconfig tsconfig.onboarding-gate.json scripts/verify-onboarding-gate.ts",
     "test:onboarding-hints": "tsx --tsconfig tsconfig.onboarding-hints.json scripts/verify-onboarding-hints.ts",

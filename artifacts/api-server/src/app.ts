@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { COACH_CHAT_PATH } from "./routes/coach";
 import { MENU_SCAN_PATH } from "./routes/menu-scan";
+import { LABEL_SCAN_PATH } from "./routes/label-scan";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -60,7 +61,7 @@ app.use(
 // The photo-carrying routes (menu scan, coach chat with an attached menu
 // photo) accept a photo-sized JSON body and mount their own parsers with a
 // larger limit; every other route keeps the default 100kb guard.
-const LARGE_BODY_PATHS = new Set([MENU_SCAN_PATH, COACH_CHAT_PATH]);
+const LARGE_BODY_PATHS = new Set([MENU_SCAN_PATH, LABEL_SCAN_PATH, COACH_CHAT_PATH]);
 const jsonParser = express.json();
 app.use((req, res, next) => {
   if (LARGE_BODY_PATHS.has(req.path)) {

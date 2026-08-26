@@ -6,6 +6,7 @@ import menuScanRouter from "./menu-scan";
 import trainingMediaRouter from "./training-media";
 import knowledgeDocsRouter from "./knowledge-docs";
 import staffLoginsRouter from "./staff-logins";
+import labelScanRouter from "./label-scan";
 
 const router: IRouter = Router();
 
@@ -13,6 +14,7 @@ router.use(healthRouter);
 router.use(coachRouter);
 router.use(recipeImageRouter);
 router.use(menuScanRouter);
+router.use(labelScanRouter);
 router.use(trainingMediaRouter);
 router.use(knowledgeDocsRouter);
 router.use(staffLoginsRouter);

@@ -344,8 +344,11 @@ export default function VideoEditor() {
   });
 
   const handleSave = () => {
-    void updateVideo(course.id, video.id, draft);
-    if (canEdit) toast({ title: 'Video saved', description: 'Changes have been saved successfully.' });
+    void (async () => {
+      if (await updateVideo(course.id, video.id, draft)) {
+        toast({ variant: 'success', title: 'Video saved', description: 'Changes have been saved successfully.' });
+      }
+    })();
   };
 
   const handleDiscard = () => {
@@ -475,6 +478,7 @@ export default function VideoEditor() {
     const problem = describeFileProblem(file);
     if (problem) {
       setUploadError(problem);
+      toast({ variant: 'destructive', title: "Can't use that video file", description: problem });
       return;
     }
     const contentType = resolveVideoType(file);
@@ -502,6 +506,7 @@ export default function VideoEditor() {
             reloadMedia();
           }
           toast({
+            variant: 'success',
             title: 'Video uploaded',
             description: result.thumbnailSource
               ? `Runtime ${formatClock(result.durationSeconds)} — thumbnail set, starting the AI pass.`
@@ -516,10 +521,12 @@ export default function VideoEditor() {
           result.thumbnailSource ? ['transcribe', 'describe', 'chapters'] : undefined,
         );
       } catch (error) {
+        const message = error instanceof Error ? error.message : 'Upload failed — try again.';
+        toast({ variant: 'destructive', title: 'Upload failed', description: message });
         if (currentVideoIdRef.current === runVideoId) {
           setUploadPhase('idle');
           setUploadPct(0);
-          setUploadError(error instanceof Error ? error.message : 'Upload failed — try again.');
+          setUploadError(message);
         }
       }
     })();
@@ -567,6 +574,7 @@ export default function VideoEditor() {
           setAiNote(null);
           setTranscriptState({ status: 'idle', segments: [] });
           toast({
+            variant: 'success',
             title: 'Video file removed',
             description: 'The lesson is back to the simulated slide experience.',
           });
@@ -574,6 +582,7 @@ export default function VideoEditor() {
       } catch (error) {
         if (currentVideoIdRef.current === runVideoId) {
           toast({
+            variant: 'destructive',
             title: 'Could not remove the file',
             description: error instanceof Error ? error.message : 'Try again.',
           });
@@ -661,10 +670,13 @@ export default function VideoEditor() {
 
   const saveThumbnail = () => {
     const newIndex = chapterIndexAt({ chapters: draft.chapters ?? [] }, thumbnailScrub);
-    void updateVideo(course.id, video.id, { thumbnailChapter: newIndex });
     setDraftField('thumbnailChapter', newIndex);
-    if (canEdit) toast({ title: 'Thumbnail updated everywhere it appears.' });
     setThumbnailDialogOpen(false);
+    void (async () => {
+      if (await updateVideo(course.id, video.id, { thumbnailChapter: newIndex })) {
+        toast({ variant: 'success', title: 'Thumbnail updated everywhere it appears.' });
+      }
+    })();
   };
 
   /** Hosted variant: the server captures the chosen frame with ffmpeg. */
@@ -679,12 +691,13 @@ export default function VideoEditor() {
         if (currentVideoIdRef.current === runVideoId) {
           reloadMedia();
           setStepStates((prev) => ({ ...prev, thumbnail: 'done' }));
-          toast({ title: 'Thumbnail updated everywhere it appears.' });
+          toast({ variant: 'success', title: 'Thumbnail updated everywhere it appears.' });
           setThumbnailDialogOpen(false);
         }
       } catch (error) {
         if (currentVideoIdRef.current === runVideoId) {
           toast({
+            variant: 'destructive',
             title: 'Could not capture that frame',
             description: error instanceof Error ? error.message : 'Try again.',
           });
@@ -700,6 +713,7 @@ export default function VideoEditor() {
     const problem = describeThumbnailFileProblem(file);
     if (problem) {
       setThumbnailUploadError(problem);
+      toast({ variant: 'destructive', title: "Can't use that image", description: problem });
       return;
     }
     const contentType = resolveThumbnailType(file);
@@ -722,13 +736,15 @@ export default function VideoEditor() {
           setStepStates((prev) => ({ ...prev, thumbnail: 'done' }));
           setThumbnailUploadPhase('idle');
           setThumbnailUploadPct(0);
-          toast({ title: 'Custom thumbnail uploaded', description: 'The new cover is now shown everywhere.' });
+          toast({ variant: 'success', title: 'Custom thumbnail uploaded', description: 'The new cover is now shown everywhere.' });
         }
       } catch (error) {
+        const message = error instanceof Error ? error.message : 'Thumbnail upload failed — try again.';
+        toast({ variant: 'destructive', title: 'Thumbnail upload failed', description: message });
         if (currentVideoIdRef.current === runVideoId) {
           setThumbnailUploadPhase('idle');
           setThumbnailUploadPct(0);
-          setThumbnailUploadError(error instanceof Error ? error.message : 'Thumbnail upload failed — try again.');
+          setThumbnailUploadError(message);
         }
       }
     })();
@@ -748,14 +764,17 @@ export default function VideoEditor() {
           await removeVideoFile(video.id);
         } catch (error) {
           toast({
+            variant: 'destructive',
             title: 'Could not remove the hosted file',
             description: `${error instanceof Error ? error.message : 'Try again.'} The video entry was not deleted.`,
           });
           return;
         }
       }
-      await removeVideo(course.id, video.id);
-      setLocation(`/admin/training/courses/${course.id}`);
+      if (await removeVideo(course.id, video.id)) {
+        toast({ variant: 'success', title: 'Video deleted', description: 'The lesson and its viewer progress are gone.' });
+        setLocation(`/admin/training/courses/${course.id}`);
+      }
     })();
   };
   
@@ -935,8 +954,9 @@ export default function VideoEditor() {
                       moveVideoToContainer(course.id, video.id, { 
                         moduleId: module.id, 
                         subgroupId: val || null 
+                      }).then((landed) => {
+                        if (landed) toast({ title: 'Video moved.' });
                       });
-                      toast({ title: 'Video moved.' });
                     }}
                   >
                     <option value="">None (no section)</option>

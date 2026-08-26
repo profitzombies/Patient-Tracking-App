@@ -6,9 +6,10 @@
  * returns the drafts to the shipped defaults. Nothing configures any real
  * system — the page demos the workflow, and the copy says so.
  */
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isToastSoundEnabled, setToastSoundEnabled, subscribeToastSound } from '@/lib/toast-sound';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { BTN_PRIMARY, INPUT_CLASS, LINK_ACTION, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
@@ -40,13 +41,14 @@ function GroupCard({ group }: { group: HqSettingsGroup }) {
 
   const save = () => {
     saveSettings(drafts);
-    toast({ title: `${group.title} saved`, description: 'Applied to this demo session — nothing real is configured.' });
+    toast({ variant: 'success', title: `${group.title} saved`, description: 'Applied to this demo session — nothing real is configured.' });
   };
 
   const reset = () => {
     const defaults: Record<string, HqSettingValue> = {};
     for (const field of group.fields) defaults[`${group.id}.${field.id}`] = field.defaultValue;
     setDrafts(defaults);
+    toast({ variant: 'success', title: 'Defaults restored', description: 'Nothing changes until you press Save.' });
   };
 
   return (
@@ -121,6 +123,51 @@ function GroupCard({ group }: { group: HqSettingsGroup }) {
   );
 }
 
+/**
+ * Sound preference for HQ confirmation toasts. Unlike the mock groups above,
+ * this is a real setting: it persists in this browser and gates the soft ding
+ * on success toasts and the lower tone on failure toasts.
+ */
+function NotificationSoundCard() {
+  const { toast } = useToast();
+  const soundOn = useSyncExternalStore(subscribeToastSound, isToastSoundEnabled, () => true);
+
+  const handleToggle = (checked: boolean) => {
+    setToastSoundEnabled(checked);
+    if (checked) {
+      toast({
+        variant: 'success',
+        title: 'Notification sound on',
+        description: 'Success confirmations ring softly, like this one.',
+      });
+    } else {
+      toast({ title: 'Notification sound off', description: 'Toasts stay visual only on this browser.' });
+    }
+  };
+
+  return (
+    <SectionCard
+      title="Notification sound"
+      sub="A real preference, saved to this browser — it controls the chime on HQ confirmation toasts."
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-4">
+        <div className="min-w-0 max-w-[46ch]">
+          <p className={PANEL_LABEL}>Play a soft ding with toasts</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Saves and confirmations ring a soft bell; failures use a lower tone. Turning this off silences both.
+          </p>
+        </div>
+        <Switch
+          checked={soundOn}
+          onCheckedChange={handleToggle}
+          aria-label="Play a soft ding with toasts"
+          data-testid="switch-toast-sound"
+        />
+      </div>
+    </SectionCard>
+  );
+}
+
 export default function OrgSettings() {
   return (
     <AdminPage>
@@ -133,6 +180,7 @@ export default function OrgSettings() {
         {HQ_SETTINGS_GROUPS.map((group) => (
           <GroupCard key={group.id} group={group} />
         ))}
+        <NotificationSoundCard />
       </div>
     </AdminPage>
   );

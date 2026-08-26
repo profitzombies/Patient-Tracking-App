@@ -37,7 +37,7 @@ import {
   INSET,
   LINK_ACTION,
 } from '@/components/patient/heritage';
-import { useToast } from '@/hooks/use-toast';
+import { toast, useToast } from '@/hooks/use-toast';
 import {
   Select,
   SelectContent,
@@ -56,6 +56,25 @@ const ADD_STAFF_LABELS = {
   show: 'Add Staff: Show',
   hidden: 'Add Staff: Hidden',
 };
+
+// ---------------------------------------------------------------------------
+// Save confirmations
+// ---------------------------------------------------------------------------
+
+/**
+ * Training edits persist through the training-data context, which resolves
+ * true only when the write actually landed — demo-persona gates and database
+ * failures resolve false and toast their own explanation there. These
+ * wrappers turn the landed signal into this page's confirmation toast.
+ */
+async function confirmSave(landed: Promise<boolean>, title: string, description?: string) {
+  if (await landed) toast({ variant: 'success', title, description });
+}
+
+/** Reorders confirm quietly: the row visibly moves, so no success chime. */
+async function confirmMove(landed: Promise<boolean>) {
+  if (await landed) toast({ title: 'Video moved.' });
+}
 
 // ---------------------------------------------------------------------------
 // Helper Components
@@ -131,15 +150,17 @@ function VideoRow({
   const { updateVideo, removeVideo, moveVideo, moveVideoToContainer } = useTrainingData();
 
   const handleMove = (direction: 'up' | 'down') => {
-    moveVideo(course.id, video.id, direction);
+    void confirmMove(moveVideo(course.id, video.id, direction));
   };
 
   const handleContainerChange = (val: string) => {
     const [moduleId, subgroupId] = val.split('::');
-    moveVideoToContainer(course.id, video.id, {
-      moduleId: moduleId!,
-      subgroupId: subgroupId || null,
-    });
+    void confirmMove(
+      moveVideoToContainer(course.id, video.id, {
+        moduleId: moduleId!,
+        subgroupId: subgroupId || null,
+      }),
+    );
   };
 
   return (
@@ -172,7 +193,12 @@ function VideoRow({
       <div className="flex shrink-0 items-center gap-2">
         <Select
           value={video.unlock}
-          onValueChange={(val: any) => updateVideo(course.id, video.id, { unlock: val })}
+          onValueChange={(val: any) =>
+            void confirmSave(
+              updateVideo(course.id, video.id, { unlock: val }),
+              val === 'sequential' ? 'Video set to sequential unlock' : 'Video set to video-by-video unlock',
+            )
+          }
         >
           <SelectTrigger className="h-7 w-[110px] border-none bg-transparent px-2 py-0 text-[11px] shadow-none hover:bg-secondary focus:ring-0">
             <div className="flex items-center gap-1.5">
@@ -188,7 +214,12 @@ function VideoRow({
 
         <Select
           value={video.published}
-          onValueChange={(val: any) => updateVideo(course.id, video.id, { published: val })}
+          onValueChange={(val: any) =>
+            void confirmSave(
+              updateVideo(course.id, video.id, { published: val }),
+              val === 'published' ? 'Video published' : 'Video moved to draft',
+            )
+          }
         >
           <SelectTrigger
             className={`h-7 w-[100px] border-none bg-transparent px-2 py-0 text-[11px] shadow-none hover:bg-secondary focus:ring-0 ${
@@ -209,7 +240,9 @@ function VideoRow({
 
         <Select
           value={video.addStaff}
-          onValueChange={(val: any) => updateVideo(course.id, video.id, { addStaff: val })}
+          onValueChange={(val: any) =>
+            void confirmSave(updateVideo(course.id, video.id, { addStaff: val }), 'Add-staff button setting saved')
+          }
         >
           <SelectTrigger
             className="h-7 w-[130px] border-none bg-transparent px-2 py-0 text-[11px] shadow-none hover:bg-secondary focus:ring-0"
@@ -282,7 +315,7 @@ function VideoRow({
           className="ml-2 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={() => {
             if (window.confirm('Remove this video?')) {
-              removeVideo(course.id, video.id);
+              void confirmSave(removeVideo(course.id, video.id), 'Video removed', 'Its viewer progress went with it.');
             }
           }}
           aria-label="Remove video"
@@ -353,23 +386,21 @@ export default function CourseEditor() {
     const landed = await copyText(url);
     toast(
       landed
-        ? { title: 'Link copied', description: 'Anyone with this link gets the learner view while the course is live.' }
-        : { title: 'Copy unavailable', description: 'Select the link text and copy it manually.' },
+        ? { variant: 'success', title: 'Link copied', description: 'Anyone with this link gets the learner view while the course is live.' }
+        : { variant: 'destructive', title: 'Copy unavailable', description: 'Select the link text and copy it manually.' },
     );
   };
 
   const handleAddModule = () => {
-    if (newModuleName.trim()) {
-      void addModule(course.id, newModuleName.trim());
-    }
+    const title = newModuleName.trim();
+    if (title) void confirmSave(addModule(course.id, title), 'Module added', 'New modules start published with sequential unlock.');
     setAddingModule(false);
     setNewModuleName('');
   };
 
   const handleAddSubgroup = (moduleId: string) => {
-    if (newSubgroupName.trim()) {
-      void addSubgroup(course.id, moduleId, newSubgroupName.trim());
-    }
+    const title = newSubgroupName.trim();
+    if (title) void confirmSave(addSubgroup(course.id, moduleId, title), 'Sub-group added');
     setAddingSubgroupTo(null);
     setNewSubgroupName('');
   };
@@ -382,6 +413,7 @@ export default function CourseEditor() {
     const vid = await addVideo(course.id, target, title);
     if (vid) {
       toast({
+        variant: 'success',
         title: 'Video entry added',
         description: `"${vid.title}" is a draft entry (${formatClock(vid.duration)}) — open it to upload the video file.`,
       });
@@ -406,7 +438,7 @@ export default function CourseEditor() {
             <div className="flex items-center gap-3">
               <InlineRename
                 value={course.title}
-                onSave={(v) => updateCourse(course.id, { title: v })}
+                onSave={(v) => void confirmSave(updateCourse(course.id, { title: v }), 'Course renamed')}
                 className="font-serif text-2xl font-bold tracking-tight text-navy"
               />
               <CourseLiveChip status={course.status} />
@@ -444,14 +476,19 @@ export default function CourseEditor() {
                 <span className="font-serif text-lg font-bold text-navy opacity-50">{mIndex + 1}.</span>
                 <InlineRename
                   value={module.title}
-                  onSave={(v) => updateModule(course.id, module.id, { title: v })}
+                  onSave={(v) => void confirmSave(updateModule(course.id, module.id, { title: v }), 'Module renamed')}
                   className="font-serif text-lg font-bold text-navy"
                 />
               </div>
               <div className="flex items-center gap-2">
                 <Select
                   value={module.unlock}
-                  onValueChange={(val: any) => updateModule(course.id, module.id, { unlock: val })}
+                  onValueChange={(val: any) =>
+                    void confirmSave(
+                      updateModule(course.id, module.id, { unlock: val }),
+                      val === 'sequential' ? 'Module set to sequential unlock' : 'Module set to video-by-video unlock',
+                    )
+                  }
                 >
                   <SelectTrigger className="h-8 w-[120px] bg-card text-xs">
                     <div className="flex items-center gap-1.5">
@@ -467,7 +504,12 @@ export default function CourseEditor() {
 
                 <Select
                   value={module.published}
-                  onValueChange={(val: any) => updateModule(course.id, module.id, { published: val })}
+                  onValueChange={(val: any) =>
+                    void confirmSave(
+                      updateModule(course.id, module.id, { published: val }),
+                      val === 'published' ? 'Module published' : 'Module moved to draft',
+                    )
+                  }
                 >
                   <SelectTrigger
                     className={`h-8 w-[110px] bg-card text-xs ${
@@ -490,7 +532,8 @@ export default function CourseEditor() {
                   type="button"
                   className="ml-2 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   onClick={() => {
-                    if (window.confirm('Delete this entire module?')) removeModule(course.id, module.id);
+                    if (window.confirm('Delete this entire module?'))
+                      void confirmSave(removeModule(course.id, module.id), 'Module deleted');
                   }}
                   aria-label="Remove module"
                 >
@@ -528,13 +571,18 @@ export default function CourseEditor() {
                         <div className="mb-2 flex items-center justify-between rounded-md bg-secondary/80 px-3 py-1.5">
                           <InlineRename
                             value={sg.title}
-                            onSave={(v) => updateSubgroup(course.id, sg.id, { title: v })}
+                            onSave={(v) => void confirmSave(updateSubgroup(course.id, sg.id, { title: v }), 'Sub-group renamed')}
                             className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground"
                           />
                           <div className="flex items-center gap-2">
                             <Select
                               value={sg.published}
-                              onValueChange={(val: any) => updateSubgroup(course.id, sg.id, { published: val })}
+                              onValueChange={(val: any) =>
+                                void confirmSave(
+                                  updateSubgroup(course.id, sg.id, { published: val }),
+                                  val === 'published' ? 'Sub-group published' : 'Sub-group moved to draft',
+                                )
+                              }
                             >
                               <SelectTrigger
                                 className={`h-6 border-none bg-transparent px-2 py-0 text-[10px] uppercase tracking-wide shadow-none hover:bg-black/5 focus:ring-0 ${
@@ -554,7 +602,12 @@ export default function CourseEditor() {
 
                             <Select
                               value={sg.unlock}
-                              onValueChange={(val: any) => updateSubgroup(course.id, sg.id, { unlock: val })}
+                              onValueChange={(val: any) =>
+                                void confirmSave(
+                                  updateSubgroup(course.id, sg.id, { unlock: val }),
+                                  val === 'sequential' ? 'Sub-group set to sequential unlock' : 'Sub-group set to video-by-video unlock',
+                                )
+                              }
                             >
                               <SelectTrigger className="h-6 border-none bg-transparent px-2 py-0 text-[10px] uppercase tracking-wide shadow-none hover:bg-black/5 focus:ring-0 text-muted-foreground">
                                 <div className="flex items-center gap-1.5">
@@ -579,7 +632,11 @@ export default function CourseEditor() {
                                       : 'Delete this sub-group?',
                                   )
                                 ) {
-                                  removeSubgroup(course.id, sg.id);
+                                  void confirmSave(
+                                    removeSubgroup(course.id, sg.id),
+                                    'Sub-group deleted',
+                                    sg.videos.length > 0 ? 'Its videos moved back to the module level.' : undefined,
+                                  );
                                 }
                               }}
                               aria-label="Remove sub-group"

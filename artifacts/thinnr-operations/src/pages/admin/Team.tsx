@@ -64,11 +64,11 @@ export default function Team() {
     const name = inviteName.trim();
     const email = inviteEmail.trim();
     if (!name || !email.includes('@')) {
-      toast({ title: 'Name and a valid email are required', description: 'Both fields are needed to send the (simulated) invite.' });
+      toast({ variant: 'destructive', title: 'Name and a valid email are required', description: 'Both fields are needed to send the (simulated) invite.' });
       return;
     }
     inviteTeamMember({ name, email, role: inviteRole, title: inviteTitle.trim() || inviteRole });
-    toast({ title: `Invite sent to ${name}`, description: `Simulated — they join as ${inviteRole} for this demo session.` });
+    toast({ variant: 'success', title: `Invite sent to ${name}`, description: `Simulated — they join as ${inviteRole} for this demo session.` });
     setInviteOpen(false);
     setInviteName('');
     setInviteEmail('');
@@ -85,14 +85,14 @@ export default function Team() {
   const submitEdit = () => {
     if (!editing) return;
     updateTeamMember(editing.id, { role: editRole, title: editTitle.trim() || editing.title });
-    toast({ title: `${editing.name} updated`, description: 'Changes apply to this demo session.' });
+    toast({ variant: 'success', title: `${editing.name} updated`, description: 'Changes apply to this demo session.' });
     setEditing(null);
   };
 
   const confirmRemove = () => {
     if (!removing) return;
     removeTeamMember(removing.id);
-    toast({ title: `${removing.name} removed`, description: 'Simulated — the seat frees up for this demo session.' });
+    toast({ variant: 'success', title: `${removing.name} removed`, description: 'Simulated — the seat frees up for this demo session.' });
     setRemoving(null);
   };
 

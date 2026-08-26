@@ -106,7 +106,7 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
     const completion = await markMyVideoComplete(videoId);
     setMarkingId(null);
     if (completion) {
-      toast({ title: 'Marked complete', description: title });
+      toast({ variant: 'success', title: 'Marked complete', description: title });
     }
   };
 

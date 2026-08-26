@@ -66,8 +66,8 @@ export default function Files() {
     const landed = await copyText(shareUrl);
     toast(
       landed
-        ? { title: 'Share link copied', description: 'Simulated URL — it goes nowhere outside this demo.' }
-        : { title: 'Copy unavailable', description: 'Select the link text and copy it manually.' },
+        ? { variant: 'success', title: 'Share link copied', description: 'Simulated URL — it goes nowhere outside this demo.' }
+        : { variant: 'destructive', title: 'Copy unavailable', description: 'Select the link text and copy it manually.' },
     );
   };
 

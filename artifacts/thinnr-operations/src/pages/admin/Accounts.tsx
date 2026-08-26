@@ -66,7 +66,7 @@ export default function Accounts() {
     const officeName = form.officeName.trim();
     const providerName = form.providerName.trim();
     if (!officeName || !providerName) {
-      toast({ title: 'Office and provider names are required', description: 'The rest can be filled in later.' });
+      toast({ variant: 'destructive', title: 'Office and provider names are required', description: 'The rest can be filled in later.' });
       return;
     }
     const account = addAccount({
@@ -80,6 +80,7 @@ export default function Accounts() {
       phone: form.phone.trim() || '—',
     });
     toast({
+      variant: 'success',
       title: `${account.officeName} created`,
       description: `Pending activation · provider code ${account.providerCode}. Lives for this demo session.`,
     });

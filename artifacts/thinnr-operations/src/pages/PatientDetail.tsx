@@ -116,13 +116,13 @@ export default function PatientDetail() {
     event.preventDefault();
     const nextWeight = Number(weightDraft);
     if (!Number.isFinite(nextWeight) || nextWeight <= 0) {
-      toast({ title: "Enter a valid weight", description: "Use a positive number in pounds." });
+      toast({ variant: "destructive", title: "Enter a valid weight", description: "Use a positive number in pounds." });
       return;
     }
     addWeightEntry(patient, { date: ANCHOR_ISO, weight: nextWeight });
     setWeightDraft(nextWeight.toString());
     setWeightEntryOpen(false);
-    toast({ title: "Weight entry logged", description: `${nextWeight.toFixed(1)} lbs is now reflected across this session’s record.` });
+    toast({ variant: "success", title: "Weight entry logged", description: `${nextWeight.toFixed(1)} lbs is now reflected across this session’s record.` });
   };
 
   const addNote = (event: React.FormEvent<HTMLFormElement>) => {
@@ -135,7 +135,7 @@ export default function PatientDetail() {
     ]);
     setNoteDraft("");
     setNoteOpen(false);
-    toast({ title: "Clinical note added", description: "Saved to this synthetic session." });
+    toast({ variant: "success", title: "Clinical note added", description: "Saved to this synthetic session." });
   };
 
   return (
@@ -157,7 +157,7 @@ export default function PatientDetail() {
           </div>
           <button onClick={() => setIsEditing((open) => !open)} className={`${BTN_SECONDARY} h-9 px-4`}><Edit2 size={14} className="text-primary" />{isEditing ? "Close editor" : "Edit patient"}</button>
         </div>
-        {isEditing && <form className="mt-5 grid gap-3 rounded-lg border border-border bg-secondary p-4 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); setIsEditing(false); toast({ title: "Patient profile updated", description: "The synthetic record was updated for this session." }); }}>
+        {isEditing && <form className="mt-5 grid gap-3 rounded-lg border border-border bg-secondary p-4 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); setIsEditing(false); toast({ variant: "success", title: "Patient profile updated", description: "The synthetic record was updated for this session." }); }}>
           <label className={PANEL_LABEL}>Email<input type="email" required value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} className={`${INPUT_CLASS} mt-1 block h-9 w-full`} /></label>
           <label className={PANEL_LABEL}>Phone<input type="tel" required value={profile.phone} onChange={(event) => setProfile((current) => ({ ...current, phone: event.target.value }))} className={`${INPUT_CLASS} mt-1 block h-9 w-full`} /></label>
           <button className={`${BTN_PRIMARY} h-9 self-end px-4`}>Save changes</button>
@@ -233,7 +233,7 @@ export default function PatientDetail() {
             <div className="p-5">
               <div className="flex items-start justify-between gap-3"><div><p className="font-mono text-xl text-navy">${subscription?.monthlyValue ?? 0}<span className="ml-1 font-sans text-xs text-muted-foreground">/mo</span></p><p className="mt-1 text-xs capitalize text-muted-foreground">{subscription?.cadence ?? "Monthly"} fulfillment · next shipment {subscription?.nextShipment ? formatDate(subscription.nextShipment) : "N/A"}</p></div><StatusBadge status={subscriptionStatus} /></div>
               {manageOpen && <label className={`mt-4 block border-t border-border pt-3 ${PANEL_LABEL}`}>Delivery status<select value={subscriptionStatus} onChange={(event) => setSubscriptionStatus(event.target.value as typeof subscriptionStatus)} className={`${INPUT_CLASS} mt-1 block h-9 w-full px-2`}><option value="active">Active</option><option value="paused">Paused</option><option value="overdue">Overdue</option><option value="cancelled">Cancelled</option></select></label>}
-              <button onClick={() => { if (manageOpen) toast({ title: "Fulfillment updated", description: `Status set to ${subscriptionStatus} for this session.` }); setManageOpen((open) => !open); }} className={`${BTN_SECONDARY} mt-4 h-9 w-full`}>{manageOpen ? "Save fulfillment" : "Manage fulfillment"}</button>
+              <button onClick={() => { if (manageOpen) toast({ variant: "success", title: "Fulfillment updated", description: `Status set to ${subscriptionStatus} for this session.` }); setManageOpen((open) => !open); }} className={`${BTN_SECONDARY} mt-4 h-9 w-full`}>{manageOpen ? "Save fulfillment" : "Manage fulfillment"}</button>
             </div>
           </SectionCard>
         </aside>

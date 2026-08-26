@@ -132,6 +132,7 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
         password: form.password,
       });
       toast({
+        variant: 'success',
         title: `${created.name} can now sign in`,
         description: 'Their email and the password you set work on the office sign-in right away.',
       });

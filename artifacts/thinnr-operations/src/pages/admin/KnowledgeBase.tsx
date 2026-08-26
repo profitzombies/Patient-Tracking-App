@@ -165,6 +165,7 @@ export default function KnowledgeBase() {
   const processQueue = async () => {
     if (uploadBusyRef.current) return;
     uploadBusyRef.current = true;
+    let landedCount = 0;
     try {
       for (;;) {
         const next = queueRef.current.shift();
@@ -179,12 +180,25 @@ export default function KnowledgeBase() {
           updateUpload(next.key, { phase: 'finalizing', pct: 100 });
           await refresh();
           updateUpload(next.key, { phase: 'done' });
+          landedCount += 1;
         } catch (error) {
           updateUpload(next.key, { phase: 'failed', error: problemText(error) });
+          toast({
+            variant: 'destructive',
+            title: `“${next.file.name}” didn’t upload`,
+            description: `${problemText(error)} Retry it from the upload list.`,
+          });
         }
       }
     } finally {
       uploadBusyRef.current = false;
+    }
+    if (landedCount > 0) {
+      toast({
+        variant: 'success',
+        title: landedCount === 1 ? 'Document added to the library' : `${landedCount} documents added to the library`,
+        description: 'Extraction is underway — each becomes available to the AI once its text is ready.',
+      });
     }
   };
 
@@ -203,6 +217,14 @@ export default function KnowledgeBase() {
       return { key, name: file.name, file, pct: 0, phase: 'waiting' as const, error: null };
     });
     setUploads((prev) => [...prev.filter((item) => item.phase !== 'done'), ...items]);
+    const rejected = items.filter((item) => item.phase === 'rejected');
+    if (rejected.length > 0) {
+      toast({
+        variant: 'destructive',
+        title: rejected.length === 1 ? `“${rejected[0]!.name}” won’t work` : `${rejected.length} files won’t work`,
+        description: rejected[0]!.error ?? 'Only PDF and Word documents upload here.',
+      });
+    }
     void processQueue();
   };
 
@@ -246,6 +268,7 @@ export default function KnowledgeBase() {
       );
       await refresh();
       toast({
+        variant: 'success',
         title: 'File replaced',
         description: 'The old text is cleared — extraction from the new file is underway.',
       });
@@ -264,6 +287,7 @@ export default function KnowledgeBase() {
     try {
       await renameKnowledgeDocument(renameDoc.id, title);
       await refresh();
+      toast({ variant: 'success', title: 'Document renamed', description: 'The library and the AI now use the new name.' });
       setRenameDoc(null);
     } catch (error) {
       toast({ title: 'Rename failed', description: problemText(error), variant: 'destructive' });
@@ -278,7 +302,7 @@ export default function KnowledgeBase() {
     try {
       await deleteKnowledgeDocument(deleteDoc.id);
       await refresh();
-      toast({ title: 'Document deleted', description: `“${deleteDoc.title}” is out of the library.` });
+      toast({ variant: 'success', title: 'Document deleted', description: `“${deleteDoc.title}” is out of the library.` });
       setDeleteDoc(null);
     } catch (error) {
       toast({ title: 'Delete failed', description: problemText(error), variant: 'destructive' });
@@ -291,6 +315,7 @@ export default function KnowledgeBase() {
     try {
       await retryExtraction(doc.id);
       await refresh();
+      toast({ variant: 'success', title: 'Extraction restarted', description: 'Watch the status chip — the text lands when it finishes.' });
     } catch (error) {
       toast({ title: 'Retry failed', description: problemText(error), variant: 'destructive' });
     }

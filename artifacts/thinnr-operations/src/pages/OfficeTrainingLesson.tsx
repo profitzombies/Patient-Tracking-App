@@ -201,12 +201,14 @@ function LessonView({
     if (!completion) return; // Failure already toasted — stay on the lesson.
     if (state.next) {
       toast({
+        variant: 'success',
         title: `Marked "${video.title}" complete`,
         description: `Continuing to ${state.next.numbering} — ${state.next.video.title}.`,
       });
       navigate(`/training/${course.id}/videos/${state.next.video.id}`);
     } else {
       toast({
+        variant: 'success',
         title: `Marked "${video.title}" complete`,
         description: 'That was the last lesson — course complete.',
       });

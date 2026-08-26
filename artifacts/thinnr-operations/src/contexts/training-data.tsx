@@ -216,26 +216,32 @@ interface TrainingDataValue {
   locateVideo: (courseId: string | undefined, videoId: string | undefined) => VideoLocation | null;
 
   addCourse: (input: { title: string; description: string }) => Promise<TrainingCourse | null>;
+  /**
+   * The mutations below resolve true when the write landed (a no-op edit
+   * counts as landed) and false when it did not: the demo-persona gate and
+   * database failures both toast their own explanation in here, so callers
+   * fire success toasts only on true.
+   */
   updateCourse: (
     courseId: string,
     patch: Partial<Pick<TrainingCourse, 'title' | 'description' | 'status' | 'sequentialUnlock'>>,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 
-  addModule: (courseId: string, title: string) => Promise<void>;
+  addModule: (courseId: string, title: string) => Promise<boolean>;
   updateModule: (
     courseId: string,
     moduleId: string,
     patch: Partial<Pick<TrainingModule, 'title' | 'published' | 'unlock'>>,
-  ) => Promise<void>;
-  removeModule: (courseId: string, moduleId: string) => Promise<void>;
+  ) => Promise<boolean>;
+  removeModule: (courseId: string, moduleId: string) => Promise<boolean>;
 
-  addSubgroup: (courseId: string, moduleId: string, title: string) => Promise<void>;
+  addSubgroup: (courseId: string, moduleId: string, title: string) => Promise<boolean>;
   updateSubgroup: (
     courseId: string,
     subgroupId: string,
     patch: Partial<Pick<TrainingSubgroup, 'title' | 'published' | 'unlock'>>,
-  ) => Promise<void>;
-  removeSubgroup: (courseId: string, subgroupId: string) => Promise<void>;
+  ) => Promise<boolean>;
+  removeSubgroup: (courseId: string, subgroupId: string) => Promise<boolean>;
 
   /** New videos land as drafts with placeholder metadata (no file upload exists). */
   addVideo: (
@@ -243,16 +249,17 @@ interface TrainingDataValue {
     target: { moduleId: string; subgroupId?: string | null },
     title: string,
   ) => Promise<TrainingVideo | null>;
-  updateVideo: (courseId: string, videoId: string, patch: VideoPatch) => Promise<void>;
-  moveVideo: (courseId: string, videoId: string, direction: 'up' | 'down') => Promise<void>;
+  updateVideo: (courseId: string, videoId: string, patch: VideoPatch) => Promise<boolean>;
+  /** Boundary moves (already first/last) resolve false — nothing changed. */
+  moveVideo: (courseId: string, videoId: string, direction: 'up' | 'down') => Promise<boolean>;
   /** Reassign a video's sub-group (or none) within its module — the editor's SUB-GROUP dropdown. */
   moveVideoToContainer: (
     courseId: string,
     videoId: string,
     target: { moduleId: string; subgroupId: string | null },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   /** Danger zone: removes the video, its chapters/attachments, and its completion rows permanently. */
-  removeVideo: (courseId: string, videoId: string) => Promise<void>;
+  removeVideo: (courseId: string, videoId: string) => Promise<boolean>;
 
   assignViewerAccount: (viewerId: string, accountId: string | null) => Promise<void>;
   /** Email gate on the learner view — registers (or resumes) the email and returns a private session. */
@@ -440,10 +447,11 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       if (patch.description !== undefined) row.description = patch.description;
       if (patch.status !== undefined) row.status = patch.status;
       if (patch.sequentialUnlock !== undefined) row.sequential_unlock = patch.sequentialUnlock;
-      if (Object.keys(row).length === 0) return;
-      await authorWrite(async () => {
+      if (Object.keys(row).length === 0) return true;
+      const landed = await authorWrite(async () => {
         assertOk((await requireClient().from('training_courses').update(row).eq('id', courseId)).error);
       });
+      return landed !== null;
     },
     [authorWrite],
   );
@@ -452,7 +460,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
     async (courseId, title) => {
       const course = findCourse(courseId);
       const position = course ? course.modules.length : 0;
-      await authorWrite(async () => {
+      const landed = await authorWrite(async () => {
         assertOk(
           (
             await requireClient()
@@ -461,6 +469,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
           ).error,
         );
       });
+      return landed !== null;
     },
     [authorWrite, findCourse],
   );
@@ -471,10 +480,11 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       if (patch.title !== undefined) row.title = patch.title;
       if (patch.published !== undefined) row.published = patch.published;
       if (patch.unlock !== undefined) row.unlock_mode = patch.unlock;
-      if (Object.keys(row).length === 0) return;
-      await authorWrite(async () => {
+      if (Object.keys(row).length === 0) return true;
+      const landed = await authorWrite(async () => {
         assertOk((await requireClient().from('training_modules').update(row).eq('id', moduleId)).error);
       });
+      return landed !== null;
     },
     [authorWrite],
   );
@@ -482,7 +492,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const removeModule = useCallback<TrainingDataValue['removeModule']>(
     async (courseId, moduleId) => {
       const course = findCourse(courseId);
-      await authorWrite(async () => {
+      const landed = await authorWrite(async () => {
         const client = requireClient();
         // Cascades sub-groups, videos, and their completion rows.
         assertOk((await client.from('training_modules').delete().eq('id', moduleId)).error);
@@ -491,6 +501,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
           await syncPlacements(client, collectPlacements(course), collectPlacements(after));
         }
       });
+      return landed !== null;
     },
     [authorWrite, findCourse],
   );
@@ -500,7 +511,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       const course = findCourse(courseId);
       const module = course?.modules.find((item) => item.id === moduleId);
       const position = module ? module.entries.length : 0;
-      await authorWrite(async () => {
+      const landed = await authorWrite(async () => {
         assertOk(
           (
             await requireClient()
@@ -509,6 +520,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
           ).error,
         );
       });
+      return landed !== null;
     },
     [authorWrite, findCourse],
   );
@@ -519,10 +531,11 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       if (patch.title !== undefined) row.title = patch.title;
       if (patch.published !== undefined) row.published = patch.published;
       if (patch.unlock !== undefined) row.unlock_mode = patch.unlock;
-      if (Object.keys(row).length === 0) return;
-      await authorWrite(async () => {
+      if (Object.keys(row).length === 0) return true;
+      const landed = await authorWrite(async () => {
         assertOk((await requireClient().from('training_subgroups').update(row).eq('id', subgroupId)).error);
       });
+      return landed !== null;
     },
     [authorWrite],
   );
@@ -530,15 +543,16 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const removeSubgroup = useCallback<TrainingDataValue['removeSubgroup']>(
     async (courseId, subgroupId) => {
       const course = findCourse(courseId);
-      if (!course) return;
+      if (!course) return false;
       // The editor promises deleting a sub-group keeps its videos: they slide
       // back to the module level, in place, in their old order.
       const after = removeSubgroupKeepVideos(course, subgroupId);
-      await authorWrite(async () => {
+      const landed = await authorWrite(async () => {
         const client = requireClient();
         await syncPlacements(client, collectPlacements(course), collectPlacements(after));
         assertOk((await client.from('training_subgroups').delete().eq('id', subgroupId)).error);
       });
+      return landed !== null;
     },
     [authorWrite, findCourse],
   );
@@ -595,10 +609,11 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       if (patch.chapters !== undefined) row.chapters = patch.chapters;
       if (patch.thumbnailChapter !== undefined) row.thumbnail_chapter = patch.thumbnailChapter;
       if (patch.attachments !== undefined) row.attachments = patch.attachments;
-      if (Object.keys(row).length === 0) return;
-      await authorWrite(async () => {
+      if (Object.keys(row).length === 0) return true;
+      const landed = await authorWrite(async () => {
         assertOk((await requireClient().from('training_videos').update(row).eq('id', videoId)).error);
       });
+      return landed !== null;
     },
     [authorWrite],
   );
@@ -606,10 +621,11 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const moveVideo = useCallback<TrainingDataValue['moveVideo']>(
     async (courseId, videoId, direction) => {
       const course = findCourse(courseId);
-      if (!course) return;
+      if (!course) return false;
       const after = moveVideoInCourse(course, videoId, direction);
-      if (after === course) return; // Already at the boundary.
-      await authorWrite(() => syncPlacements(requireClient(), collectPlacements(course), collectPlacements(after)));
+      if (after === course) return false; // Already at the boundary.
+      const landed = await authorWrite(() => syncPlacements(requireClient(), collectPlacements(course), collectPlacements(after)));
+      return landed !== null;
     },
     [authorWrite, findCourse],
   );
@@ -617,10 +633,11 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const moveVideoToContainer = useCallback<TrainingDataValue['moveVideoToContainer']>(
     async (courseId, videoId, target) => {
       const course = findCourse(courseId);
-      if (!course) return;
+      if (!course) return false;
       const after = moveVideoToContainerInCourse(course, videoId, target);
-      if (after === course) return;
-      await authorWrite(() => syncPlacements(requireClient(), collectPlacements(course), collectPlacements(after)));
+      if (after === course) return false; // Already in that container.
+      const landed = await authorWrite(() => syncPlacements(requireClient(), collectPlacements(course), collectPlacements(after)));
+      return landed !== null;
     },
     [authorWrite, findCourse],
   );
@@ -628,7 +645,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const removeVideo = useCallback<TrainingDataValue['removeVideo']>(
     async (courseId, videoId) => {
       const course = findCourse(courseId);
-      await authorWrite(async () => {
+      const landed = await authorWrite(async () => {
         const client = requireClient();
         // Cascades the video's completion rows; counts are always re-derived
         // against the current published order, so no reconciliation needed.
@@ -638,6 +655,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
           await syncPlacements(client, collectPlacements(course), collectPlacements(after));
         }
       });
+      return landed !== null;
     },
     [authorWrite, findCourse],
   );

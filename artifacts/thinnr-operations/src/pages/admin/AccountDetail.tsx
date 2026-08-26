@@ -98,8 +98,8 @@ export default function AccountDetail() {
     const landed = await copyText(account.providerCode);
     toast(
       landed
-        ? { title: 'Provider code copied', description: `${account.providerCode} — the code patients type during mobile onboarding.` }
-        : { title: 'Copy unavailable', description: 'Select the code text and copy it manually.' },
+        ? { variant: 'success', title: 'Provider code copied', description: `${account.providerCode} — the code patients type during mobile onboarding.` }
+        : { variant: 'destructive', title: 'Copy unavailable', description: 'Select the code text and copy it manually.' },
     );
   };
 
@@ -110,6 +110,7 @@ export default function AccountDetail() {
     setConfirmOpen(false);
     if (landed) {
       toast({
+        variant: 'success',
         title: `${account.officeName} locked`,
         description: 'Provider and staff access is shut off until THINNR unlocks the account.',
       });
@@ -122,6 +123,7 @@ export default function AccountDetail() {
     setSaving(false);
     if (landed) {
       toast({
+        variant: 'success',
         title: `${account.officeName} unlocked`,
         description: 'Office access is restored exactly as it was — nothing needed re-creating.',
       });

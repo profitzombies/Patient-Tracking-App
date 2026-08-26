@@ -42,6 +42,11 @@ export default function TrainingCourses() {
       setNewCourseOpen(false);
       setNewTitle('');
       setNewDesc('');
+      toast({
+        variant: 'success',
+        title: 'Course created',
+        description: `“${created.title}” starts as a draft with Module 1 ready for videos.`,
+      });
       setLocation(`/admin/training/courses/${created.id}`);
     } finally {
       setCreating(false);
@@ -53,17 +58,19 @@ export default function TrainingCourses() {
     const landed = await copyText(url);
     toast(
       landed
-        ? { title: 'Link copied', description: 'Anyone with this link gets the learner view while the course is live.' }
-        : { title: 'Copy unavailable', description: 'Select the link text and copy it manually.' },
+        ? { variant: 'success', title: 'Link copied', description: 'Anyone with this link gets the learner view while the course is live.' }
+        : { variant: 'destructive', title: 'Copy unavailable', description: 'Select the link text and copy it manually.' },
     );
   };
 
-  const handleToggleLive = (course: TrainingCourse) => {
+  const handleToggleLive = async (course: TrainingCourse) => {
     if (course.status === 'live') {
       if (!window.confirm(`Unpublish "${course.title}"? Learners will immediately lose access.`)) return;
-      void updateCourse(course.id, { status: 'draft' });
-    } else {
-      void updateCourse(course.id, { status: 'live' });
+      if (await updateCourse(course.id, { status: 'draft' })) {
+        toast({ variant: 'success', title: 'Course unpublished', description: 'The share link now tells learners it is unavailable.' });
+      }
+    } else if (await updateCourse(course.id, { status: 'live' })) {
+      toast({ variant: 'success', title: 'Course is live', description: 'Anyone with the course link can start watching.' });
     }
   };
 

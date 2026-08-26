@@ -129,6 +129,7 @@ export default function OfficeTraining() {
       setNewName('');
       setNewEmail('');
       toast({
+        variant: 'success',
         title: `${viewer.name} is on the roster`,
         description:
           'When they sign up with this email, office training access links automatically — no invite email needed.',
@@ -144,6 +145,7 @@ export default function OfficeTraining() {
     if (completion) {
       const remaining = self.total - self.done - 1;
       toast({
+        variant: 'success',
         title: `Marked "${self.next.video.title}" complete`,
         description:
           remaining > 0

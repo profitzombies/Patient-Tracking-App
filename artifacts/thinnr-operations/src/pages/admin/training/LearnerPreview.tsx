@@ -93,7 +93,7 @@ export default function LearnerPreview() {
         // nothing about the invited email's account.
         const invited = await inviteStaff(learner.token, addStaffEmail);
         if (invited) {
-          toast({ title: 'Invite sent', description: 'Your teammate can enter their email at this course link to pick up their own progress.' });
+          toast({ variant: 'success', title: 'Invite sent', description: 'Your teammate can enter their email at this course link to pick up their own progress.' });
           setAddStaffOpen(false);
           setAddStaffEmail('');
         }
@@ -152,6 +152,11 @@ export default function LearnerPreview() {
           const next = new Map(prev);
           next.set(saved.videoId, saved);
           return next;
+        });
+        toast({
+          variant: 'success',
+          title: 'Marked complete',
+          description: publishedVideoList[currentIndex]?.video.title,
         });
 
         // Navigate off a local "after" set — the state update lands next render.

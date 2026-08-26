@@ -11,6 +11,7 @@ import {
   Box,
   GraduationCap,
   LayoutDashboard,
+  Sparkles,
   Trophy,
   Users,
   WalletCards,
@@ -32,8 +33,9 @@ export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/patients', label: 'Patients', mobileLabel: 'Patients', icon: Users },
   { path: '/analytics', label: 'Revenue & Outcomes', mobileLabel: 'Outcomes', icon: WalletCards },
   { path: '/leaderboard', label: 'Leaderboard', mobileLabel: 'Leaderboard', icon: Trophy },
-  { path: '/subscriptions', label: 'Subscriptions', mobileLabel: 'Subscriptions', icon: Box },
+  { path: '/subscriptions', label: 'Subscriptions', mobileLabel: 'Plans', icon: Box },
   { path: '/training', label: 'Training', mobileLabel: 'Training', icon: GraduationCap },
+  { path: '/ai-support', label: 'AI Support', mobileLabel: 'Support', icon: Sparkles },
 ];
 
 /** The Porcelain menu's section grouping, shared by the live Shell and the lab. */
@@ -41,7 +43,7 @@ export const OFFICE_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/'] },
   { label: 'Operations', paths: ['/patients', '/subscriptions'] },
   { label: 'Insights', paths: ['/analytics', '/leaderboard'] },
-  { label: 'Learning', paths: ['/training'] },
+  { label: 'Learning', paths: ['/training', '/ai-support'] },
 ];
 
 /** Overview is an exact match; every other section owns its subtree. */

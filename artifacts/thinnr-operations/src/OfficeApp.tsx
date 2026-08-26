@@ -25,6 +25,7 @@ import OfficeTraining from '@/pages/OfficeTraining';
 import OfficeTrainingCourse from '@/pages/OfficeTrainingCourse';
 import OfficeTrainingLesson from '@/pages/OfficeTrainingLesson';
 import OfficeTeammate from '@/pages/OfficeTeammate';
+import OfficeAiSupport from '@/pages/OfficeAiSupport';
 import MenuLab from '@/pages/MenuLab';
 
 export function OfficeApp() {
@@ -49,6 +50,7 @@ export function OfficeApp() {
               <Route path="/training/team/:viewerId" component={OfficeTeammate} />
               <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />
               <Route path="/training/:courseId" component={OfficeTrainingCourse} />
+              <Route path="/ai-support" component={OfficeAiSupport} />
               <Route component={NotFound} />
             </Switch>
           </Shell>

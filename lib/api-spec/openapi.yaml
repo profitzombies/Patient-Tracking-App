@@ -24,7 +24,43 @@ tags:
       and stores it with a short summary + keywords for answer routing. Same
       auth model as training: the caller's existing Supabase staff session
       rides as a bearer token and is re-verified on every call.
+  - name: support
+    description: >-
+      AI Support chat for provider offices. Answers come only from the
+      HQ-uploaded knowledge documents, in a comprehensive, formatted style.
 paths:
+  /support/chat:
+    post:
+      operationId: supportChat
+      tags: [support]
+      summary: Stream an AI Support reply for a provider office chat turn
+      description: >-
+        Stateless SSE endpoint mirroring the coach chat contract, text only.
+        The client sends its in-session message history and receives a
+        text/event-stream of assistant chunks
+        ("data: {\"content\": \"...\"}" lines followed by
+        "data: {\"done\": true}"); a failed turn ends with one
+        "data: {\"error\": \"...\"}" event instead of done. Replies are
+        grounded exclusively in the ready knowledge documents: the server
+        first sends the best-matching documents, and silently broadens to the
+        whole library when the model signals those cannot answer. Answers are
+        markdown-formatted (headers, bullets, bold, emojis). Rate limits
+        apply, with knobs separate from the patient coach.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportChatInput"
+      responses:
+        "200":
+          description: SSE stream of assistant text chunks
+          content:
+            text/event-stream: {}
+        "400":
+          description: Invalid request body
+        "429":
+          description: Rate limited
   /coach/chat:
     post:
       operationId: coachChat
@@ -824,6 +860,43 @@ components:
             example a per-meal camera on a diary row). Wins over both a meal
             the patient names and the time-of-day default, and flows through
             to the card payload untouched.
+      required:
+        - messages
+    SupportChatMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          maxLength: 8000
+          description: >-
+            Provider questions are capped at 4000 characters by the composer;
+            the higher limit exists because comprehensive assistant answers
+            replay as history on later turns. Clients truncate any longer
+            replayed reply to fit (the model only needs the gist for
+            continuity), keeping request bodies under the JSON size cap.
+        stopped:
+          type: boolean
+          description: >-
+            True when the provider stopped this assistant reply mid-stream,
+            so its text is an incomplete fragment. The server annotates
+            flagged replies before replaying them to the model, keeping the
+            next answer from continuing the cut-off text. Ignored on user
+            messages.
+      required:
+        - role
+        - content
+    SupportChatInput:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupportChatMessage"
+          minItems: 1
+          maxItems: 30
       required:
         - messages
     CoachRecipeImageInput:

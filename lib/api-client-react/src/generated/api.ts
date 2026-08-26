@@ -38,6 +38,7 @@ import type {
   KnowledgeReplaceInput,
   KnowledgeUploadUrlInput,
   KnowledgeUploadUrlResult,
+  SupportChatInput,
   TrainingFinalizeInput,
   TrainingFinalizeResult,
   TrainingMediaResult,
@@ -64,6 +65,7 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
+
 const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKey: K } => {
   const result = { queryKey } as T & { queryKey: K };
   for (const key of Object.keys(query)) {
@@ -79,7 +81,81 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
+export const getSupportChatUrl = () => {
+
+
+
+
+  return `/api/support/chat`
+}
+
+/**
+ * Stateless SSE endpoint mirroring the coach chat contract, text only. The client sends its in-session message history and receives a text/event-stream of assistant chunks ("data: {\"content\": \"...\"}" lines followed by "data: {\"done\": true}"); a failed turn ends with one "data: {\"error\": \"...\"}" event instead of done. Replies are grounded exclusively in the ready knowledge documents: the server first sends the best-matching documents, and silently broadens to the whole library when the model signals those cannot answer. Answers are markdown-formatted (headers, bullets, bold, emojis). Rate limits apply, with knobs separate from the patient coach.
+ * @summary Stream an AI Support reply for a provider office chat turn
+ */
+export const supportChat = async (supportChatInput: SupportChatInput, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getSupportChatUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(supportChatInput)
+  }
+);}
+
+
+
+
+
+export const getSupportChatMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof supportChat>>, TError,{data: BodyType<SupportChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof supportChat>>, TError,{data: BodyType<SupportChatInput>}, TContext> => {
+
+const mutationKey = ['supportChat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof supportChat>>, {data: BodyType<SupportChatInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  supportChat(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SupportChatMutationResult = NonNullable<Awaited<ReturnType<typeof supportChat>>>
+    export type SupportChatMutationBody = BodyType<SupportChatInput>
+    export type SupportChatMutationError = ErrorType<void>
+
+    /**
+ * @summary Stream an AI Support reply for a provider office chat turn
+ */
+export const useSupportChat = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof supportChat>>, TError,{data: BodyType<SupportChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof supportChat>>,
+        TError,
+        {data: BodyType<SupportChatInput>},
+        TContext
+      > => {
+      return useMutation(getSupportChatMutationOptions(options));
+    }
+
 export const getCoachChatUrl = () => {
+
+
 
 
   return `/api/coach/chat`
@@ -101,6 +177,9 @@ export const coachChat = async (coachChatInput: CoachChatInput, options?: Parame
 );}
 
 
+
+
+
 export const getCoachChatMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachChat>>, TError,{data: BodyType<CoachChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof coachChat>>, TError,{data: BodyType<CoachChatInput>}, TContext> => {
@@ -113,11 +192,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachChat>>, {data: BodyType<CoachChatInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  coachChat(data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -143,6 +228,8 @@ export const useCoachChat = <TError = ErrorType<void>,
 export const getCoachRecipeImageUrl = () => {
 
 
+
+
   return `/api/coach/recipe-image`
 }
 
@@ -162,6 +249,9 @@ export const coachRecipeImage = async (coachRecipeImageInput: CoachRecipeImageIn
 );}
 
 
+
+
+
 export const getCoachRecipeImageMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachRecipeImage>>, TError,{data: BodyType<CoachRecipeImageInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof coachRecipeImage>>, TError,{data: BodyType<CoachRecipeImageInput>}, TContext> => {
@@ -174,11 +264,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachRecipeImage>>, {data: BodyType<CoachRecipeImageInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  coachRecipeImage(data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -204,6 +300,8 @@ export const useCoachRecipeImage = <TError = ErrorType<void>,
 export const getCoachMenuScanUrl = () => {
 
 
+
+
   return `/api/coach/menu-scan`
 }
 
@@ -223,6 +321,9 @@ export const coachMenuScan = async (coachMenuScanInput: CoachMenuScanInput, opti
 );}
 
 
+
+
+
 export const getCoachMenuScanMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachMenuScan>>, TError,{data: BodyType<CoachMenuScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof coachMenuScan>>, TError,{data: BodyType<CoachMenuScanInput>}, TContext> => {
@@ -235,11 +336,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachMenuScan>>, {data: BodyType<CoachMenuScanInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  coachMenuScan(data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -265,9 +372,78 @@ export const useCoachMenuScan = <TError = ErrorType<void>,
 export const getCoachLabelScanUrl = () => {
 
 
+
+
   return `/api/coach/label-scan`
 }
+
+/**
+ * Runs the same nutrition-label reader as the coach chat's label photo turns — transcription only, never estimates — and returns the validated per-serving read directly, for non-chat surfaces like the create-food screen. "ok" carries the label values; "not_label" and "unreadable" explain the problem in message (coach-voiced, warm, ending with the same retake nudge the chat uses) and carry no label, because nothing is ever guessed. The photo is analyzed in memory only and never stored server-side. This route accepts a larger JSON body than the rest of the API (photo payload) and shares the photo-scan rate budget with menu scans and chat photo turns.
+ * @summary Read a Nutrition Facts photo into per-serving values
+ */
+export const coachLabelScan = async (coachLabelScanInput: CoachLabelScanInput, options?: Parameters<typeof customFetch>[1]): Promise<CoachLabelScanResult> => {
+
+  return customFetch<CoachLabelScanResult>(getCoachLabelScanUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(coachLabelScanInput)
+  }
+);}
+
+
+
+
+
+export const getCoachLabelScanMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachLabelScan>>, TError,{data: BodyType<CoachLabelScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof coachLabelScan>>, TError,{data: BodyType<CoachLabelScanInput>}, TContext> => {
+
+const mutationKey = ['coachLabelScan'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachLabelScan>>, {data: BodyType<CoachLabelScanInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  coachLabelScan(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CoachLabelScanMutationResult = NonNullable<Awaited<ReturnType<typeof coachLabelScan>>>
+    export type CoachLabelScanMutationBody = BodyType<CoachLabelScanInput>
+    export type CoachLabelScanMutationError = ErrorType<void>
+
+    /**
+ * @summary Read a Nutrition Facts photo into per-serving values
+ */
+export const useCoachLabelScan = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachLabelScan>>, TError,{data: BodyType<CoachLabelScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof coachLabelScan>>,
+        TError,
+        {data: BodyType<CoachLabelScanInput>},
+        TContext
+      > => {
+      return useMutation(getCoachLabelScanMutationOptions(options));
+    }
+
 export const getTrainingVideoUploadUrlUrl = (videoId: string,) => {
+
+
 
 
   return `/api/training/videos/${videoId}/upload-url`
@@ -290,6 +466,9 @@ export const trainingVideoUploadUrl = async (videoId: string,
 );}
 
 
+
+
+
 export const getTrainingVideoUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingUploadUrlInput>}, TContext> => {
@@ -302,11 +481,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, {videoId: string;data: BodyType<TrainingUploadUrlInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingVideoUploadUrl(videoId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -332,6 +517,8 @@ export const useTrainingVideoUploadUrl = <TError = ErrorType<void>,
 export const getTrainingVideoFinalizeUrl = (videoId: string,) => {
 
 
+
+
   return `/api/training/videos/${videoId}/video`
 }
 
@@ -352,6 +539,9 @@ export const trainingVideoFinalize = async (videoId: string,
 );}
 
 
+
+
+
 export const getTrainingVideoFinalizeMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoFinalize>>, TError,{videoId: string;data: BodyType<TrainingFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoFinalize>>, TError,{videoId: string;data: BodyType<TrainingFinalizeInput>}, TContext> => {
@@ -364,11 +554,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoFinalize>>, {videoId: string;data: BodyType<TrainingFinalizeInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingVideoFinalize(videoId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -394,6 +590,8 @@ export const useTrainingVideoFinalize = <TError = ErrorType<void>,
 export const getTrainingVideoRemoveFileUrl = (videoId: string,) => {
 
 
+
+
   return `/api/training/videos/${videoId}/video`
 }
 
@@ -413,6 +611,9 @@ export const trainingVideoRemoveFile = async (videoId: string, options?: Paramet
 );}
 
 
+
+
+
 export const getTrainingVideoRemoveFileMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, TError,{videoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, TError,{videoId: string}, TContext> => {
@@ -425,11 +626,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, {videoId: string}> = (props) => {
           const {videoId} = props ?? {};
 
           return  trainingVideoRemoveFile(videoId,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -455,6 +662,8 @@ export const useTrainingVideoRemoveFile = <TError = ErrorType<void>,
 export const getTrainingThumbnailUploadUrlUrl = (videoId: string,) => {
 
 
+
+
   return `/api/training/videos/${videoId}/thumbnail-upload-url`
 }
 
@@ -475,6 +684,9 @@ export const trainingThumbnailUploadUrl = async (videoId: string,
 );}
 
 
+
+
+
 export const getTrainingThumbnailUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}, TContext> => {
@@ -487,11 +699,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, {videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingThumbnailUploadUrl(videoId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -517,6 +735,8 @@ export const useTrainingThumbnailUploadUrl = <TError = ErrorType<void>,
 export const getTrainingThumbnailUploadUrl = (videoId: string,) => {
 
 
+
+
   return `/api/training/videos/${videoId}/thumbnail-upload`
 }
 
@@ -537,6 +757,9 @@ export const trainingThumbnailUpload = async (videoId: string,
 );}
 
 
+
+
+
 export const getTrainingThumbnailUploadMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUpload>>, TError,{videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUpload>>, TError,{videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}, TContext> => {
@@ -549,11 +772,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingThumbnailUpload>>, {videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingThumbnailUpload(videoId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -579,6 +808,8 @@ export const useTrainingThumbnailUpload = <TError = ErrorType<void>,
 export const getTrainingVideoMediaUrl = (videoId: string,) => {
 
 
+
+
   return `/api/training/videos/${videoId}/media`
 }
 
@@ -598,6 +829,9 @@ export const trainingVideoMedia = async (videoId: string, options?: Parameters<t
 );}
 
 
+
+
+
 export const getTrainingVideoMediaQueryKey = (videoId: string,) => {
     return [
     `/api/training/videos/${videoId}/media`
@@ -613,7 +847,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getTrainingVideoMediaQueryKey(videoId);
 
 
+
     const queryFn: QueryFunction<Awaited<ReturnType<typeof trainingVideoMedia>>> = ({ signal }) => trainingVideoMedia(videoId, { signal, ...requestOptions });
+
+
+
 
 
    return  { queryKey, queryFn, enabled: videoId !== null && videoId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof trainingVideoMedia>>, TError, TData> & { queryKey: QueryKey }
@@ -640,7 +878,14 @@ export function useTrainingVideoMedia<TData = Awaited<ReturnType<typeof training
 }
 
 
+
+
+
+
+
 export const getTrainingVideoTranscriptUrl = (videoId: string,) => {
+
+
 
 
   return `/api/training/videos/${videoId}/transcript`
@@ -662,6 +907,9 @@ export const trainingVideoTranscript = async (videoId: string, options?: Paramet
 );}
 
 
+
+
+
 export const getTrainingVideoTranscriptQueryKey = (videoId: string,) => {
     return [
     `/api/training/videos/${videoId}/transcript`
@@ -677,7 +925,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getTrainingVideoTranscriptQueryKey(videoId);
 
 
+
     const queryFn: QueryFunction<Awaited<ReturnType<typeof trainingVideoTranscript>>> = ({ signal }) => trainingVideoTranscript(videoId, { signal, ...requestOptions });
+
+
+
 
 
    return  { queryKey, queryFn, enabled: videoId !== null && videoId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof trainingVideoTranscript>>, TError, TData> & { queryKey: QueryKey }
@@ -704,7 +956,14 @@ export function useTrainingVideoTranscript<TData = Awaited<ReturnType<typeof tra
 }
 
 
+
+
+
+
+
 export const getTrainingVideoThumbnailUrl = (videoId: string,) => {
+
+
 
 
   return `/api/training/videos/${videoId}/thumbnail`
@@ -727,6 +986,9 @@ export const trainingVideoThumbnail = async (videoId: string,
 );}
 
 
+
+
+
 export const getTrainingVideoThumbnailMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoThumbnail>>, TError,{videoId: string;data: BodyType<TrainingThumbnailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoThumbnail>>, TError,{videoId: string;data: BodyType<TrainingThumbnailInput>}, TContext> => {
@@ -739,11 +1001,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoThumbnail>>, {videoId: string;data: BodyType<TrainingThumbnailInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingVideoThumbnail(videoId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -769,6 +1037,8 @@ export const useTrainingVideoThumbnail = <TError = ErrorType<void>,
 export const getTrainingVideoProcessUrl = (videoId: string,) => {
 
 
+
+
   return `/api/training/videos/${videoId}/process`
 }
 
@@ -789,6 +1059,9 @@ export const trainingVideoProcess = async (videoId: string,
 );}
 
 
+
+
+
 export const getTrainingVideoProcessMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoProcess>>, TError,{videoId: string;data?: BodyType<TrainingProcessInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoProcess>>, TError,{videoId: string;data?: BodyType<TrainingProcessInput>}, TContext> => {
@@ -801,11 +1074,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoProcess>>, {videoId: string;data?: BodyType<TrainingProcessInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingVideoProcess(videoId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -831,6 +1110,8 @@ export const useTrainingVideoProcess = <TError = ErrorType<void>,
 export const getKnowledgeUploadUrlUrl = () => {
 
 
+
+
   return `/api/knowledge/upload-url`
 }
 
@@ -850,6 +1131,9 @@ export const knowledgeUploadUrl = async (knowledgeUploadUrlInput: KnowledgeUploa
 );}
 
 
+
+
+
 export const getKnowledgeUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeUploadUrl>>, TError,{data: BodyType<KnowledgeUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeUploadUrl>>, TError,{data: BodyType<KnowledgeUploadUrlInput>}, TContext> => {
@@ -862,11 +1146,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeUploadUrl>>, {data: BodyType<KnowledgeUploadUrlInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  knowledgeUploadUrl(data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -892,6 +1182,8 @@ export const useKnowledgeUploadUrl = <TError = ErrorType<void>,
 export const getKnowledgeListDocumentsUrl = () => {
 
 
+
+
   return `/api/knowledge/documents`
 }
 
@@ -911,6 +1203,9 @@ export const knowledgeListDocuments = async ( options?: Parameters<typeof custom
 );}
 
 
+
+
+
 export const getKnowledgeListDocumentsQueryKey = () => {
     return [
     `/api/knowledge/documents`
@@ -926,7 +1221,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getKnowledgeListDocumentsQueryKey();
 
 
+
     const queryFn: QueryFunction<Awaited<ReturnType<typeof knowledgeListDocuments>>> = ({ signal }) => knowledgeListDocuments({ signal, ...requestOptions });
+
+
+
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof knowledgeListDocuments>>, TError, TData> & { queryKey: QueryKey }
@@ -953,7 +1252,14 @@ export function useKnowledgeListDocuments<TData = Awaited<ReturnType<typeof know
 }
 
 
+
+
+
+
+
 export const getKnowledgeCreateDocumentUrl = () => {
+
+
 
 
   return `/api/knowledge/documents`
@@ -975,6 +1281,9 @@ export const knowledgeCreateDocument = async (knowledgeCreateInput: KnowledgeCre
 );}
 
 
+
+
+
 export const getKnowledgeCreateDocumentMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeCreateDocument>>, TError,{data: BodyType<KnowledgeCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeCreateDocument>>, TError,{data: BodyType<KnowledgeCreateInput>}, TContext> => {
@@ -987,11 +1296,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeCreateDocument>>, {data: BodyType<KnowledgeCreateInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  knowledgeCreateDocument(data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1017,6 +1332,8 @@ export const useKnowledgeCreateDocument = <TError = ErrorType<void>,
 export const getKnowledgeGetDocumentUrl = (documentId: string,) => {
 
 
+
+
   return `/api/knowledge/documents/${documentId}`
 }
 
@@ -1035,6 +1352,9 @@ export const knowledgeGetDocument = async (documentId: string, options?: Paramet
 );}
 
 
+
+
+
 export const getKnowledgeGetDocumentQueryKey = (documentId: string,) => {
     return [
     `/api/knowledge/documents/${documentId}`
@@ -1050,7 +1370,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getKnowledgeGetDocumentQueryKey(documentId);
 
 
+
     const queryFn: QueryFunction<Awaited<ReturnType<typeof knowledgeGetDocument>>> = ({ signal }) => knowledgeGetDocument(documentId, { signal, ...requestOptions });
+
+
+
 
 
    return  { queryKey, queryFn, enabled: documentId !== null && documentId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof knowledgeGetDocument>>, TError, TData> & { queryKey: QueryKey }
@@ -1077,7 +1401,14 @@ export function useKnowledgeGetDocument<TData = Awaited<ReturnType<typeof knowle
 }
 
 
+
+
+
+
+
 export const getKnowledgeRenameDocumentUrl = (documentId: string,) => {
+
+
 
 
   return `/api/knowledge/documents/${documentId}`
@@ -1099,6 +1430,9 @@ export const knowledgeRenameDocument = async (documentId: string,
 );}
 
 
+
+
+
 export const getKnowledgeRenameDocumentMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeRenameDocument>>, TError,{documentId: string;data: BodyType<KnowledgeRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeRenameDocument>>, TError,{documentId: string;data: BodyType<KnowledgeRenameInput>}, TContext> => {
@@ -1111,11 +1445,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeRenameDocument>>, {documentId: string;data: BodyType<KnowledgeRenameInput>}> = (props) => {
           const {documentId,data} = props ?? {};
 
           return  knowledgeRenameDocument(documentId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1141,6 +1481,8 @@ export const useKnowledgeRenameDocument = <TError = ErrorType<void>,
 export const getKnowledgeDeleteDocumentUrl = (documentId: string,) => {
 
 
+
+
   return `/api/knowledge/documents/${documentId}`
 }
 
@@ -1160,6 +1502,9 @@ export const knowledgeDeleteDocument = async (documentId: string, options?: Para
 );}
 
 
+
+
+
 export const getKnowledgeDeleteDocumentMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, TError,{documentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, TError,{documentId: string}, TContext> => {
@@ -1172,11 +1517,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, {documentId: string}> = (props) => {
           const {documentId} = props ?? {};
 
           return  knowledgeDeleteDocument(documentId,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1202,6 +1553,8 @@ export const useKnowledgeDeleteDocument = <TError = ErrorType<void>,
 export const getKnowledgeReplaceUploadUrlUrl = (documentId: string,) => {
 
 
+
+
   return `/api/knowledge/documents/${documentId}/upload-url`
 }
 
@@ -1221,6 +1574,9 @@ export const knowledgeReplaceUploadUrl = async (documentId: string,
 );}
 
 
+
+
+
 export const getKnowledgeReplaceUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, TError,{documentId: string;data: BodyType<KnowledgeUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, TError,{documentId: string;data: BodyType<KnowledgeUploadUrlInput>}, TContext> => {
@@ -1233,11 +1589,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, {documentId: string;data: BodyType<KnowledgeUploadUrlInput>}> = (props) => {
           const {documentId,data} = props ?? {};
 
           return  knowledgeReplaceUploadUrl(documentId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1263,6 +1625,8 @@ export const useKnowledgeReplaceUploadUrl = <TError = ErrorType<void>,
 export const getKnowledgeReplaceFileUrl = (documentId: string,) => {
 
 
+
+
   return `/api/knowledge/documents/${documentId}/file`
 }
 
@@ -1283,6 +1647,9 @@ export const knowledgeReplaceFile = async (documentId: string,
 );}
 
 
+
+
+
 export const getKnowledgeReplaceFileMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceFile>>, TError,{documentId: string;data: BodyType<KnowledgeReplaceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceFile>>, TError,{documentId: string;data: BodyType<KnowledgeReplaceInput>}, TContext> => {
@@ -1295,11 +1662,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeReplaceFile>>, {documentId: string;data: BodyType<KnowledgeReplaceInput>}> = (props) => {
           const {documentId,data} = props ?? {};
 
           return  knowledgeReplaceFile(documentId,data,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1325,6 +1698,8 @@ export const useKnowledgeReplaceFile = <TError = ErrorType<void>,
 export const getKnowledgeRetryExtractionUrl = (documentId: string,) => {
 
 
+
+
   return `/api/knowledge/documents/${documentId}/extract`
 }
 
@@ -1344,6 +1719,9 @@ export const knowledgeRetryExtraction = async (documentId: string, options?: Par
 );}
 
 
+
+
+
 export const getKnowledgeRetryExtractionMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, TError,{documentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, TError,{documentId: string}, TContext> => {
@@ -1356,11 +1734,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, {documentId: string}> = (props) => {
           const {documentId} = props ?? {};
 
           return  knowledgeRetryExtraction(documentId,requestOptions)
         }
+
+
+
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1386,6 +1770,8 @@ export const useKnowledgeRetryExtraction = <TError = ErrorType<void>,
 export const getHealthCheckUrl = () => {
 
 
+
+
   return `/api/healthz`
 }
 
@@ -1405,6 +1791,9 @@ export const healthCheck = async ( options?: Parameters<typeof customFetch>[1]):
 );}
 
 
+
+
+
 export const getHealthCheckQueryKey = () => {
     return [
     `/api/healthz`
@@ -1420,7 +1809,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getHealthCheckQueryKey();
 
 
+
     const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheck>>> = ({ signal }) => healthCheck({ signal, ...requestOptions });
+
+
+
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData> & { queryKey: QueryKey }
@@ -1447,58 +1840,8 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 }
 
 
-/**
- * Runs the same nutrition-label reader as the coach chat's label photo turns — transcription only, never estimates — and returns the validated per-serving read directly, for non-chat surfaces like the create-food screen. "ok" carries the label values; "not_label" and "unreadable" explain the problem in message (coach-voiced, warm, ending with the same retake nudge the chat uses) and carry no label, because nothing is ever guessed. The photo is analyzed in memory only and never stored server-side. This route accepts a larger JSON body than the rest of the API (photo payload) and shares the photo-scan rate budget with menu scans and chat photo turns.
- * @summary Read a Nutrition Facts photo into per-serving values
- */
-export const coachLabelScan = async (coachLabelScanInput: CoachLabelScanInput, options?: Parameters<typeof customFetch>[1]): Promise<CoachLabelScanResult> => {
-
-  return customFetch<CoachLabelScanResult>(getCoachLabelScanUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(coachLabelScanInput)
-  }
-);}
-
-    export type CoachLabelScanMutationResult = NonNullable<Awaited<ReturnType<typeof coachLabelScan>>>
-
-    export type CoachLabelScanMutationError = ErrorType<void>
-
-export const getCoachLabelScanMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachLabelScan>>, TError,{data: BodyType<CoachLabelScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof coachLabelScan>>, TError,{data: BodyType<CoachLabelScanInput>}, TContext> => {
-
-const mutationKey = ['coachLabelScan'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachLabelScan>>, {data: BodyType<CoachLabelScanInput>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  coachLabelScan(data,requestOptions)
-        }
 
 
-  return  { mutationFn, ...mutationOptions }}
 
-    /**
- * @summary Read a Nutrition Facts photo into per-serving values
- */
-export const useCoachLabelScan = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachLabelScan>>, TError,{data: BodyType<CoachLabelScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof coachLabelScan>>,
-        TError,
-        {data: BodyType<CoachLabelScanInput>},
-        TContext
-      > => {
-      return useMutation(getCoachLabelScanMutationOptions(options));
-    }
-
-    export type CoachLabelScanMutationBody = BodyType<CoachLabelScanInput>

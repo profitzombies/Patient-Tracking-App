@@ -96,6 +96,14 @@ args = "knowledge-live"
 task = "workflow.run"
 args = "label-scan"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "support-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "ai-support-live"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -312,6 +320,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:label-scan"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "support-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/support src/routes/support.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "ai-support-live"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:ai-support"
 
 [workflows.workflow.metadata]
 isValidation = true

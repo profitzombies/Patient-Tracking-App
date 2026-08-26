@@ -72,6 +72,33 @@ export interface CoachChatInput {
   mealSlot?: CoachChatInputMealSlot;
 }
 
+export type SupportChatMessageRole = typeof SupportChatMessageRole[keyof typeof SupportChatMessageRole];
+
+
+export const SupportChatMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface SupportChatMessage {
+  role: SupportChatMessageRole;
+  /**
+     * Provider questions are capped at 4000 characters by the composer; the higher limit exists because comprehensive assistant answers replay as history on later turns. Clients truncate any longer replayed reply to fit (the model only needs the gist for continuity), keeping request bodies under the JSON size cap.
+     * @maxLength 8000
+     */
+  content: string;
+  /** True when the provider stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off text. Ignored on user messages. */
+  stopped?: boolean;
+}
+
+export interface SupportChatInput {
+  /**
+     * @minItems 1
+     * @maxItems 30
+     */
+  messages: SupportChatMessage[];
+}
+
 export interface CoachRecipeImageInput {
   /**
      * @minLength 1
@@ -140,6 +167,69 @@ export interface CoachLabelScanInput {
      */
   image: string;
 }
+
+/**
+ * Diary slot a chat food card would preselect; advisory here
+ */
+export type CoachLabelScanLabelSuggestedSlot = typeof CoachLabelScanLabelSuggestedSlot[keyof typeof CoachLabelScanLabelSuggestedSlot];
+
+
+export const CoachLabelScanLabelSuggestedSlot = {
+  breakfast: 'breakfast',
+  lunch: 'lunch',
+  dinner: 'dinner',
+  snacks: 'snacks',
+} as const;
+
+/**
+ * Validated per-serving transcription of one Nutrition Facts panel — the same read the coach chat's labelDraft SSE event carries. Printed values only; optional fields are omitted when the panel does not print them legibly.
+ */
+export interface CoachLabelScanLabel {
+  /** Server-issued draft id ("label_...") */
+  id: string;
+  /** Printed serving size line, e.g. "2/3 cup (55g)" */
+  servingSize: string;
+  /** Printed container count; omitted when not printed */
+  servingsPerContainer?: number;
+  /** Calories per serving as printed */
+  calories: number;
+  /** Grams per serving */
+  protein: number;
+  /** Grams per serving */
+  carbs: number;
+  /** Grams per serving */
+  fat: number;
+  /** Grams per serving; omitted when not printed legibly */
+  fiber?: number;
+  /** Grams per serving; omitted when not printed legibly */
+  sugar?: number;
+  /** Milligrams per serving; omitted when not printed legibly */
+  sodium?: number;
+  /** Diary slot a chat food card would preselect; advisory here */
+  suggestedSlot: CoachLabelScanLabelSuggestedSlot;
+  /** Printed calories disagree wildly with the 4/4/9 macro math (misprint or misread) — worth a double check of the package */
+  flagged?: boolean;
+}
+
+export type CoachLabelScanResultResult = typeof CoachLabelScanResultResult[keyof typeof CoachLabelScanResultResult];
+
+
+export const CoachLabelScanResultResult = {
+  ok: 'ok',
+  not_label: 'not_label',
+  unreadable: 'unreadable',
+} as const;
+
+/**
+ * "ok" carries the transcribed label; "not_label" and "unreadable" explain the problem in message and carry no label. An illegible required value makes the whole shot "unreadable" — values are never estimated.
+ */
+export interface CoachLabelScanResult {
+  result: CoachLabelScanResultResult;
+  /** Coach-voice reaction (ok) or warm retake nudge (not_label / unreadable); may contain blank-line paragraph breaks */
+  message: string;
+  label?: CoachLabelScanLabel;
+}
+
 export interface TrainingUploadUrlInput {
   /**
      * Original file name, for logs and error copy only
@@ -500,63 +590,3 @@ export interface KnowledgeExtractResult {
   status: KnowledgeExtractResultStatus;
 }
 
-
-/**
- * Diary slot a chat food card would preselect; advisory here
- */
-export type CoachLabelScanLabelSuggestedSlot = typeof CoachLabelScanLabelSuggestedSlot[keyof typeof CoachLabelScanLabelSuggestedSlot];
-
-export const CoachLabelScanResultResult = {
-  ok: 'ok',
-  not_label: 'not_label',
-  unreadable: 'unreadable',
-} as const;
-
-/**
- * "ok" carries the transcribed label; "not_label" and "unreadable" explain the problem in message and carry no label. An illegible required value makes the whole shot "unreadable" — values are never estimated.
- */
-export interface CoachLabelScanResult {
-  result: CoachLabelScanResultResult;
-  /** Coach-voice reaction (ok) or warm retake nudge (not_label / unreadable); may contain blank-line paragraph breaks */
-  message: string;
-  label?: CoachLabelScanLabel;
-}
-
-export type CoachLabelScanResultResult = typeof CoachLabelScanResultResult[keyof typeof CoachLabelScanResultResult];
-
-/**
- * Validated per-serving transcription of one Nutrition Facts panel — the same read the coach chat's labelDraft SSE event carries. Printed values only; optional fields are omitted when the panel does not print them legibly.
- */
-export interface CoachLabelScanLabel {
-  /** Server-issued draft id ("label_...") */
-  id: string;
-  /** Printed serving size line, e.g. "2/3 cup (55g)" */
-  servingSize: string;
-  /** Printed container count; omitted when not printed */
-  servingsPerContainer?: number;
-  /** Calories per serving as printed */
-  calories: number;
-  /** Grams per serving */
-  protein: number;
-  /** Grams per serving */
-  carbs: number;
-  /** Grams per serving */
-  fat: number;
-  /** Grams per serving; omitted when not printed legibly */
-  fiber?: number;
-  /** Grams per serving; omitted when not printed legibly */
-  sugar?: number;
-  /** Milligrams per serving; omitted when not printed legibly */
-  sodium?: number;
-  /** Diary slot a chat food card would preselect; advisory here */
-  suggestedSlot: CoachLabelScanLabelSuggestedSlot;
-  /** Printed calories disagree wildly with the 4/4/9 macro math (misprint or misread) — worth a double check of the package */
-  flagged?: boolean;
-}
-
-export const CoachLabelScanLabelSuggestedSlot = {
-  breakfast: 'breakfast',
-  lunch: 'lunch',
-  dinner: 'dinner',
-  snacks: 'snacks',
-} as const;

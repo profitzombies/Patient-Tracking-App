@@ -146,9 +146,10 @@ export const acquireMenuScanSlot = createLimiter({
  * chat-limiter default, so e2e tests can stage denial states deterministically
  * (COACH_CHAT_DAILY_BUDGET=0 → every send answers with the daily-limit
  * message; COACH_CHAT_BURST=0 → every send answers rapid-fire). Unset in
- * normal runs, leaving the defaults untouched.
+ * normal runs, leaving the defaults untouched. Shared with the AI Support
+ * limiter (SUPPORT_CHAT_*), which rides the same machinery with its own knobs.
  */
-function envLimit(name: string, fallback: number): number {
+export function envLimit(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
   const value = Number.parseInt(raw, 10);

@@ -207,7 +207,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {children}
         </div>
 
-        <nav aria-label="Mobile primary navigation" className="grid shrink-0 grid-cols-6 border-t border-border bg-paper-alt md:hidden">
+        <nav aria-label="Mobile primary navigation" className="grid shrink-0 grid-cols-7 border-t border-border bg-paper-alt md:hidden">
           {navItems.map((item) => {
             const isActive = activeItem.path === item.path;
             const mobileLabel = item.mobileLabel;

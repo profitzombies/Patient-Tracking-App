@@ -380,6 +380,12 @@ function LessonBody({
         </LedgerCard>
       </View>
 
+      {/* Prev / next */}
+      <View style={styles.navRow}>
+        {navCard('prev')}
+        {navCard('next')}
+      </View>
+
       {/* Chapters */}
       {chapters.length > 0 ? (
         <View style={styles.sectionWrap}>
@@ -456,12 +462,6 @@ function LessonBody({
           </LedgerCard>
         </View>
       ) : null}
-
-      {/* Prev / next */}
-      <View style={styles.navRow}>
-        {navCard('prev')}
-        {navCard('next')}
-      </View>
 
       <View style={styles.noteWrap}>
         <Text style={[styles.noteText, { color: colors.subtleText }]}>

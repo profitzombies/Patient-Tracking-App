@@ -35,7 +35,15 @@ import {
 import { MEAL_SLOTS, type MealSlotContext } from "./meal-slot";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 
-export const MEAL_PHOTO_MODEL = "gpt-5-nano";
+/**
+ * Mid-tier by the user's explicit cost decision: the nano tier misread real
+ * plates (merged dishes, split one roast into two meats, invented sides),
+ * while the affordable tier of the newest fleet read the same probe photos
+ * with everyday names in a fraction of the time (~3-8s vs 16-30s) at well
+ * under half a cent per photo. Do NOT move this to a top-tier model
+ * (gpt-5.6-terra / gpt-5.6-sol) without the user's sign-off.
+ */
+export const MEAL_PHOTO_MODEL = "gpt-5.6-luna";
 
 /** One corrective retry when the model's JSON fails validation. */
 const RETRY_LIMIT = 1;
@@ -99,7 +107,23 @@ interface MinimalLog {
 
 // ─── Prompt ──────────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(patient: PatientContext, slot: MealSlotContext): string {
+/**
+ * Appended to the system prompt on a typed-correction turn: the patient
+ * already saw a misread of this same photo and typed what the plate really
+ * is. Their words decide WHAT the foods are; the photo still sizes them.
+ */
+function correctionRule(correction: string | undefined): string {
+  if (!correction) return "";
+  return `
+
+The patient already sent this same photo once and the earlier read named the foods wrong. Their latest message tells you what the food really is. Treat their naming as ground truth for WHAT the foods are, even when the photo alone would read differently, and use their everyday words. Anything clearly visible that they did not rename still gets listed as you see it. Portions and nutrition still come from the photo, unless their message states an amount. In "message", own the fix in one short natural clause, no over-apologizing, then react to the real meal.`;
+}
+
+function buildSystemPrompt(
+  patient: PatientContext,
+  slot: MealSlotContext,
+  correction?: string,
+): string {
   return `You are the THINNR meal logger, an AI helper inside the THINNR patient app. The patient photographed food they are about to eat — a plate, bowl, container, or packaged item — so the app can log it to their food diary. Identify what is visible and commit to portion estimates.
 
 ${patientContextLine(patient)}
@@ -123,6 +147,10 @@ Listing items (when "result" is "ok"):
 - List ONLY food and drink you can actually SEE in the photo — at most 12 items.
 - Never add ingredients you cannot see. No assumed butter, cooking oil, marinade, dressing, sugar, or seasoning — include one only when it is visibly present in the photo (a pat of butter, a pool of dressing, a sauce cup).
 - Keep each item at the level a person would say it: "grilled chicken breast", "roasted sweet potatoes", "side salad". Never split a visible dish into its parts — a turkey sandwich is one item, not bread plus turkey plus lettuce.
+- Default to everyday home-cooked names, the way a home cook would say them: "sliced steak", "roasted sweet potato wedges", "green beans". Never name a specialty restaurant dish unless packaging or an unmistakable presentation proves it.
+- Separate the plate the way the patient would log it: the protein is one item and each vegetable or side is its own item. Never fold a side into the protein's name and never merge distinct foods into one dish.
+- One visible protein is ONE item — never list the same piece of meat as two different meats. Torn between two reads of the same meat, pick the more common home-cooked one and keep it as a single item.
+- When you are genuinely unsure what a food is, use the plain generic name, like "steak" or "roast beef", and let "message" admit the uncertainty in one short natural clause. Never dress uncertainty up as a specialty dish.
 - ALWAYS commit to one specific portion per item. "amount" must be a positive number — never zero, never a range, never a guess refusal. Size it from the photo's cues (plate diameter, cutlery, hands, packaging). A committed estimate the patient can nudge up or down beats no estimate every single time.
 - "unit": a familiar kitchen measure — "oz" for proteins and cheese, "cup", "tbsp", or "tsp" for sides, grains, and sauces, or "" (empty string) with a count for whole pieces (2 eggs → amount 2, unit ""). Prefer exactly these units.
 - "nutrition": your calorie/protein/carbs/fat estimate for THAT item at YOUR estimated amount. The app sums the items into the meal's totals and labels everything as an estimate.
@@ -130,7 +158,7 @@ Listing items (when "result" is "ok"):
 - "description": one plain sentence describing what is on the plate.
 ${mealSlotRule(slot)}
 
-"message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked at their plate, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never say you cannot determine the portions and never ask the patient to weigh or measure anything — your best estimates are already in "items" and the patient can adjust them.`;
+"message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked at their plate, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never say you cannot determine the portions and never ask the patient to weigh or measure anything — your best estimates are already in "items" and the patient can adjust them.${correctionRule(correction)}`;
 }
 
 /**
@@ -165,9 +193,14 @@ function buildMessages(
   systemPrompt: string,
   image: string,
   previous: { raw: string; problems: string } | null,
+  correction?: string,
 ): AnalysisMessage[] {
-  const intro =
-    "Here is the photo of my meal. Identify the visible foods, commit to portion estimates, and reply with the single JSON object.";
+  // On a correction turn the patient's own words ride inside the user text —
+  // the model reads them as the truth about what the foods are, while the
+  // photo (the same one, re-attached by the client) still sizes the portions.
+  const intro = correction
+    ? `I sent this same photo before and the foods were identified wrong. What the plate really is, in my words: "${correction}". Redo the read with my words as the truth about what the foods are, keep estimating the portions from the photo, and reply with the single JSON object.`
+    : "Here is the photo of my meal. Identify the visible foods, commit to portion estimates, and reply with the single JSON object.";
   const text = previous
     ? `${intro}
 
@@ -418,15 +451,22 @@ export async function generateMealPhotoAnalysis(args: {
    * "meal" line and the fallbacks; absent on old clients — legacy behavior.
    */
   slot?: MealSlotContext;
+  /**
+   * The patient's typed fix for a misread plate ("no, that's steak and sweet
+   * potatoes"), sent with the SAME re-attached photo. Their naming is ground
+   * truth for what the foods are; portions are still estimated from the
+   * photo (unless their words state an amount).
+   */
+  correction?: string;
   signal: AbortSignal;
   log: MinimalLog;
 }): Promise<MealPhotoAnalysis> {
   const slot = args.slot ?? {};
-  const systemPrompt = buildSystemPrompt(args.patient, slot);
+  const systemPrompt = buildSystemPrompt(args.patient, slot, args.correction);
 
   let previous: { raw: string; problems: string } | null = null;
   for (let attempt = 0; attempt <= RETRY_LIMIT; attempt++) {
-    const messages = buildMessages(systemPrompt, args.image, previous);
+    const messages = buildMessages(systemPrompt, args.image, previous, args.correction);
     const raw = await callModel(messages, args.signal, args.log);
     const outcome = interpret(raw, slot);
     if (outcome.ok) {

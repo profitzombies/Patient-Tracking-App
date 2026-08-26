@@ -38,6 +38,7 @@ import {
 } from '@/lib/coach-api';
 import { parseRecipeCardPayload, type AiRecipeSuggestion } from '@/lib/ai-recipe';
 import { parseLabelDraft, type LabelDraft, type LabelFoodCardPayload } from '@/lib/label-food';
+import { isMealCorrectionText } from '@/lib/meal-correction';
 import { localTimeForDate } from '@/lib/meal-slot';
 import { toTitleCase } from '@/lib/title-case';
 
@@ -110,8 +111,22 @@ export interface CoachMessage {
    * drives the chat screen's "Retake photo" chip (meal turns only).
    * `mealSlot` is the diary slot the capture flow pinned; retries re-send
    * it so the card still preselects that slot.
+   *
+   * `reused` marks a typed-correction turn: the photo here is the SAME held
+   * photo from an earlier meal turn, re-attached so the server can re-read
+   * it under the patient's words. The bubble renders the typed text (the
+   * photo already appears upthread); the field exists so a failed
+   * correction can retry with the photo and the retake chip keeps working
+   * under the corrected reply.
    */
-  photo?: { uri: string; width: number; height: number; kind?: PhotoKind; mealSlot?: MealSlot };
+  photo?: {
+    uri: string;
+    width: number;
+    height: number;
+    kind?: PhotoKind;
+    mealSlot?: MealSlot;
+    reused?: boolean;
+  };
 
   /**
    * Error messages only: false when the server declared the failure final —
@@ -337,6 +352,30 @@ export function offersMealPhotoRetake(messages: CoachMessage[], isStreaming: boo
   if (origin.photo.kind !== undefined) return false;
   const payload = latest.card?.payload as { mode?: unknown } | null | undefined;
   return latest.card?.kind === 'recipe' && payload?.mode === 'meal';
+}
+
+/**
+ * The user photo turn a typed correction would re-read, or null when the
+ * conversation is not in that spot. Mirrors offersMealPhotoRetake's
+ * adjacency (latest-only, for the same reason) but demands a finished reply
+ * WITH a meal card — a correction rebuilds the card from the same photo, so
+ * without a card (not-food, unreadable, error) the retake chip is the only
+ * fix. The origin must still hold its photo, sent as a meal turn or routed
+ * to one by the server. Corrections chain: a correction turn carries the
+ * re-used photo itself (kind "meal"), so a second fix finds it here too.
+ * Lives here (not in the screen) so the no-credit suites can drive it.
+ */
+export function findMealCorrectionOrigin(messages: CoachMessage[]): CoachMessage | null {
+  const latest = messages[messages.length - 1];
+  if (!latest || latest.role !== 'assistant' || latest.status !== 'done' || !latest.replyToId) {
+    return null;
+  }
+  const payload = latest.card?.payload as { mode?: unknown } | null | undefined;
+  if (latest.card?.kind !== 'recipe' || payload?.mode !== 'meal') return null;
+  const origin = messages.find(m => m.id === latest.replyToId);
+  if (!origin?.photo) return null;
+  if (origin.photo.kind !== undefined && origin.photo.kind !== 'meal') return null;
+  return origin;
 }
 
 /**
@@ -736,6 +775,73 @@ export function CoachChatProvider({
         resolveLabelFlowText(flow, text);
         return;
       }
+
+      // A typed fix right under a meal-card reply re-runs the SAME held
+      // photo with the patient's words as ground truth — no retake. Both
+      // gates must agree: the adjacency (a finished meal-card reply whose
+      // photo is still in state) and the text reading as a correction.
+      // Anything else falls through to the normal chat turn below, so an
+      // unrelated question after a meal card still gets a normal answer.
+      const correctionPhoto = findMealCorrectionOrigin(messagesRef.current)?.photo;
+      if (correctionPhoto && isMealCorrectionText(text)) {
+        inFlightRef.current = true;
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        // The bubble shows the typed words; the re-used photo rides along
+        // invisibly (reused) so retries re-attach it and the retake chip
+        // still works under the corrected reply. The pinned slot carries
+        // over — the fix renames the foods, not the diary slot.
+        const userMessage: CoachMessage = {
+          id: nextId(),
+          role: 'user',
+          text,
+          status: 'done',
+          photo: { ...correctionPhoto, kind: 'meal', reused: true },
+        };
+        const assistantId = nextId();
+
+        const request: CoachRequestMessage[] = [...messagesRef.current, userMessage]
+          .filter(m => m.status === 'done' && m.text.length > 0)
+          .slice(-MAX_REQUEST_MESSAGES)
+          .map(toRequestMessage);
+        // The correction is the request tail: the typed text stays the
+        // content (the server's detector reads it there) and the held photo
+        // is re-attached with its kind, so the meal pipeline answers without
+        // re-triaging.
+        request[request.length - 1] = {
+          ...request[request.length - 1],
+          image: correctionPhoto.uri,
+          photoKind: 'meal',
+        };
+
+        setIsStreaming(true);
+        setMessages(prev => [
+          ...prev,
+          userMessage,
+          {
+            id: assistantId,
+            role: 'assistant',
+            text: '',
+            status: 'streaming',
+            replyToId: userMessage.id,
+          },
+        ]);
+
+        streamInto(
+          {
+            messages: request,
+            localTime: localTimeForDate(clock()),
+            ...(correctionPhoto.mealSlot ? { mealSlot: correctionPhoto.mealSlot } : {}),
+          },
+          assistantId,
+          controller,
+          // The rebuilt card keeps the patient's own plate as its picture.
+          correctionPhoto.uri,
+        );
+        return;
+      }
+
       inFlightRef.current = true;
 
       const controller = new AbortController();

@@ -10,6 +10,7 @@ import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
 import { generateLabelChatTurn } from "../coach/label-chat";
 import { generateMealChatTurn } from "../coach/meal-chat";
+import { isMealCorrectionText } from "../coach/meal-correction";
 import { buildMealSlotContext } from "../coach/meal-slot";
 import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
 import { resolvePhotoKind } from "../coach/photo-kind";
@@ -193,10 +194,18 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // conversational outcomes, never errors.
       if (image !== undefined && resolvedPhotoKind === "meal") {
         pipeline = "meal";
+        // A typed fix for a misread plate: the client re-attached the SAME
+        // held photo and the patient's words ride as the message text. Their
+        // naming becomes ground truth for what the foods are (portions still
+        // come from the photo). The fixed photo replay lines never read as
+        // corrections, so plain sends, retakes, and retries stay fresh,
+        // uncorrected reads.
+        const correction = isMealCorrectionText(latest.content) ? latest.content : undefined;
         const mealTurn = await generateMealChatTurn({
           image,
           patient: patientContext,
           slot: slotContext,
+          correction,
           signal: abort.signal,
           log: req.log,
         });
@@ -212,6 +221,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               elapsedMs: Date.now() - startedAt,
               outcome: mealTurn.outcome,
               items: mealTurn.itemCount,
+              corrected: mealTurn.corrected,
             },
             "coach meal photo turn completed",
           );

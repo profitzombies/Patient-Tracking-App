@@ -28,7 +28,7 @@
 - [Completion-diff provenance](completion-diff-provenance.md) — mid-session main-workspace commits can be swept into a task's completion diff; check HEAD before completing and state provenance in drift_reason.
 - [Announced error pattern](a11y-announced-errors.md) — ErrorBox self-announces (alert role + live region + iOS announce; never nest live regions); blocked CTAs intercept taps via aria-disabled instead of swallowing them.
 - [Generated recipe image style](recipe-image-style.md) — coach images must match the seeded illustrated family; "crisp outlines" → ink-lines gotcha; the AI-recipe preview shows zero generation UI by design.
-- [Menu & meal photo scans](menu-photo-scan.md) — vision via data-URI parts; image rides only the request tail; kindless photos: server triage announces photoKind, client stamps it so retries never re-triage.
+- [Menu & meal photo scans](menu-photo-scan.md) — image rides only the request tail; server triage announces photoKind; meal reads need mid-tier (detail:"high" ignored); typed corrections re-attach the held photo.
 - [Coach client-held flows](coach-client-flows.md) — sub-conversations that bind a reply to held data (label naming) resolve client-side; finished bubbles ride the bounded request history window.
 - [Coach no-dash voice](coach-no-dash.md) — dashes stripped structurally: whole strings + a chunk-bridging stream smoother that must flush on every writable end, error paths included; catalog names de-dash at display only.
 - [Range picker restart](range-picker-restart.md) — a pre-filled complete range must restart on the next day-click; react-day-picker's default stretches the old range instead.

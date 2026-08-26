@@ -12,3 +12,5 @@ description: Mid-session commits from the main workspace can get swept into a ta
 **How to apply:** do not try to revert or fetch around upstream commits (manual fetch of the main-repl remote needs interactive auth and syncing is platform-managed). Instead: state the provenance of any swept-in upstream content explicitly in the completion drift_reason, do only the cleanups the reviewer sanctioned as yours, and re-run completion.
 
 Also: auto-generated files (e.g. mockup-sandbox src/.generated/mockup-components.ts) reorder themselves whenever their dev server rescans. Diff working-tree noise before completing and git-checkout unrelated generated churn so it stays out of the task diff.
+
+Swept-in commits also bring their VALIDATION COMMANDS, dependency additions, and stale dev servers: completion validation runs the upstream feature's live checks against YOUR environment. Repair before re-completing — `pnpm install` (new package.json deps), restart the dev-server workflows the checks probe (a server started before the sweep lacks the new routes), then re-run the failing command locally to confirm green.

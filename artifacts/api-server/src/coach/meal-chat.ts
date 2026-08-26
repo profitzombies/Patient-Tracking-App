@@ -24,11 +24,13 @@ import type { RecipeCardPayload } from "./recipe";
 /**
  * Closer under the item list. Must not end with a question mark — the chat
  * client shows its fallback yes/no chips under any finished reply that ends
- * with one, and they fit nothing here. Mentions the retake path in words;
- * the actual control is the client's "Retake photo" chip.
+ * with one, and they fit nothing here. Invites BOTH fixes in words: typing
+ * what the plate really is (the correction turn below) or retaking the
+ * photo (the client's "Retake photo" chip). The typed example primes the
+ * phrasing isMealCorrectionText detects.
  */
 export const MEAL_CARD_CLOSER =
-  "These amounts are my best read of the photo. Open the meal card below to fine-tune them, then log the meal or save it for next time. And if I misread your plate, just retake the photo.";
+  "These amounts are my best read of the photo. Open the meal card below to fine-tune them, then log the meal or save it for next time. And if I misread your plate, type what it really is, something like no, that's steak and sweet potatoes, or just retake the photo.";
 
 /** Closer for photos that couldn't be read as a meal. No "?" ending either. */
 export const MEAL_TRY_ANOTHER_PHOTO =
@@ -73,6 +75,8 @@ export interface MealChatTurn {
   card: { kind: "recipe"; payload: RecipeCardPayload } | null;
   outcome: MealPhotoOutcome;
   itemCount: number;
+  /** True when this turn re-ran the analysis under a typed correction. */
+  corrected: boolean;
 }
 
 /** Runs the analysis and shapes the whole chat turn for the route. */
@@ -85,6 +89,12 @@ export async function generateMealChatTurn(args: {
    * analysis so the card preselects the right diary slot.
    */
   slot?: MealSlotContext;
+  /**
+   * The patient's typed fix for a misread plate, when the route detected
+   * one (isMealCorrectionText on the latest message). Passed through to the
+   * analysis as ground truth for what the foods are.
+   */
+  correction?: string;
   signal: AbortSignal;
   log: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<MealChatTurn> {
@@ -94,5 +104,6 @@ export async function generateMealChatTurn(args: {
     card: analysis.payload ? { kind: "recipe", payload: analysis.payload } : null,
     outcome: analysis.outcome,
     itemCount: analysis.payload?.ingredients.length ?? 0,
+    corrected: args.correction !== undefined,
   };
 }

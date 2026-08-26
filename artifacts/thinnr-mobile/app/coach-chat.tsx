@@ -641,9 +641,12 @@ function MessageBubble({ message }: { message: CoachMessage }) {
   const isUser = message.role === "user";
 
   if (isUser) {
-    if (message.photo) {
+    if (message.photo && !message.photo.reused) {
       // Photo turns render the picture itself; the message's fixed text is
-      // only what the model reads when the thread is replayed later.
+      // only what the model reads when the thread is replayed later. A
+      // typed-correction turn is the exception: its photo is a re-used copy
+      // of one already on screen upthread, so the bubble shows the typed
+      // words and falls through to the text branch below.
       const aspect = Math.min(
         Math.max(message.photo.width / Math.max(message.photo.height, 1), 0.62),
         1.7,

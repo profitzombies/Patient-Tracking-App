@@ -86,6 +86,28 @@ description: Patterns proven by the menu-scan flow — vision input through the 
 - **Vision e2e fixtures:** the seeded ILLUSTRATED plate images are reliably
   read as food by the vision model — no need to generate photoreal fixtures —
   and any UI screenshot reliably triggers the `not_food` outcome.
+- **Meal identification needs the mid-tier model; print reading doesn't.** The
+  nano tier misreads real plates (merges dishes, splits one roast into two
+  meats, invents proteins) and burns 16–30s on reasoning tokens; the affordable
+  tier of the newest fleet reads the same plates correctly in 3–8s. Triage,
+  menu, and label reads stay nano — they read print or make a trivial call.
+  Also: `detail: "high"` on image parts is NOT honored by the proxy (identical
+  prompt tokens, occasionally worse output) — don't pass it. Escalating the
+  meal read past mid-tier is a user cost decision, never do it unasked.
+- **Typed corrections re-run the held photo with the patient's words as ground
+  truth** (foods from the words, portions from the photo, unmentioned visible
+  foods stay listed). Contract: the client re-attaches the kept photo on the
+  tail (typed words as content, explicit kind) only when BOTH gates pass — a
+  finished meal-CARD reply is latest AND the text reads as a correction; the
+  server re-detects with a rule-identical cue detector (dual copies, behavior
+  parity pinned on a phrase table in the verify suite; claim rule-identity,
+  not byte-identity — lint style differs per package) and swaps the prompt
+  intro + appends a
+  ground-truth rule. Detector is conservative: "?"-endings and the fixed
+  replay lines are never corrections; false positives (forced re-analysis of
+  an unrelated message) are the failure mode, misses just fall to normal chat.
+  The re-used photo is flagged on the message so the bubble renders the words,
+  not a second picture, and correction chains keep working.
 
 
 ## Kindless photos: server triage + route announcement

@@ -276,6 +276,21 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(visionCalls[0].system).toContain("Never split a visible dish into its parts");
     expect(visionCalls[0].system).toContain("ALWAYS commit to one specific portion");
     expect(visionCalls[0].system).toContain("Never say you cannot determine the portions");
+    // The everyday-food rules that keep home plates from coming back as
+    // specialty restaurant dishes (steak + sweet potatoes, not "smoked
+    // brisket with burnt ends"), sides separate from proteins, one visible
+    // protein as ONE item, and honest uncertainty over dressed-up guesses.
+    expect(visionCalls[0].system).toContain("Default to everyday home-cooked names");
+    expect(visionCalls[0].system).toContain("Never name a specialty restaurant dish");
+    expect(visionCalls[0].system).toContain(
+      "the protein is one item and each vegetable or side is its own item",
+    );
+    expect(visionCalls[0].system).toContain("One visible protein is ONE item");
+    expect(visionCalls[0].system).toContain("never list the same piece of meat as two different meats");
+    expect(visionCalls[0].system).toContain("use the plain generic name");
+    // A plain meal turn runs UNCORRECTED — no ground-truth override rule.
+    expect(visionCalls[0].system).not.toContain("ground truth");
+    expect(visionCalls[0].userText).toContain("Here is the photo of my meal.");
   });
 
   it("retries correctively when the model refuses to commit to an amount", async () => {

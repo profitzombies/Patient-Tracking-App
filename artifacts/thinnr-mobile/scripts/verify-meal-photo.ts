@@ -57,6 +57,14 @@
  *      (quantity × per-serving macros, Add Food's detail shape and
  *      rounding) while the saved food stays per-serving, and
  *      markLabelFoodAdded freezes the card payload with slot + quantity.
+ *  10. Typed corrections (section 2i): the client and server copies of
+ *      isMealCorrectionText agree on a shared phrase table; a correction
+ *      typed under a meal-card reply re-attaches the SAME held photo (tail
+ *      image + photoKind "meal", typed words as content, pinned slot and
+ *      local time intact) while the bubble renders the words (photo marked
+ *      reused); the rebuilt card keeps the patient's photo and the retake
+ *      chip; corrections chain; an unrelated follow-up and correction
+ *      words without the meal-card adjacency both stay plain text turns.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:meal-photo
  */
@@ -75,10 +83,15 @@ import {
   PHOTO_MESSAGE_TEXT,
   labelConfirmText,
   labelRenamedAck,
+  findMealCorrectionOrigin,
   offersMealPhotoRetake,
   useCoachChat,
   type CoachMessage,
 } from '../context/CoachChatContext';
+import { isMealCorrectionText } from '../lib/meal-correction';
+// The server's copy of the SAME rules — a pure, dependency-free module, so
+// this suite can pin the two implementations against one phrase table.
+import { isMealCorrectionText as serverIsMealCorrectionText } from '../../api-server/src/coach/meal-correction';
 import { PatientProvider, usePatient } from '../context/PatientContext';
 import { parseRecipeCardPayload } from '../lib/ai-recipe';
 import {
@@ -285,10 +298,46 @@ const MEAL_CARD_PAYLOAD = {
   steps: [] as string[],
 };
 
+/** The server's MEAL_CARD_CLOSER copy — invites the typed fix AND the retake. */
+const MEAL_CLOSER_TEXT =
+  "These amounts are my best read of the photo. Open the meal card below to fine-tune them, then log the meal or save it for next time. And if I misread your plate, type what it really is, something like no, that's steak and sweet potatoes, or just retake the photo.";
+
 const MEAL_REPLY_TEXT = [
   "That's a solid plate, lean protein and a real vegetable side.",
   'Grilled chicken breast: about 6 oz · est. 280 cal\nRoasted sweet potatoes: about 1 cup · est. 180 cal',
-  'These amounts are my best read of the photo. Open the meal card below to fine-tune them, then log the meal or save it for next time. And if I misread your plate, just retake the photo.',
+  MEAL_CLOSER_TEXT,
+].join('\n\n');
+
+/** The corrected read after "No, that's steak and sweet potato wedges". */
+const CORRECTED_CARD_PAYLOAD = {
+  ...MEAL_CARD_PAYLOAD,
+  id: 'meal_test_corrected',
+  name: 'Steak with Sweet Potato Wedges',
+  description: 'Sliced steak with roasted sweet potato wedges.',
+  calories: 670,
+  protein: 51,
+  carbs: 41,
+  fat: 32,
+  ingredients: [
+    {
+      amount: 7,
+      unit: 'oz',
+      name: 'sliced steak',
+      nutrition: { calories: 490, protein: 49, carbs: 0, fat: 31 },
+    },
+    {
+      amount: 1,
+      unit: 'cup',
+      name: 'sweet potato wedges',
+      nutrition: { calories: 180, protein: 2, carbs: 41, fat: 1 },
+    },
+  ],
+};
+
+const CORRECTED_REPLY_TEXT = [
+  'Got the fix, steak and sweet potato wedges it is.',
+  'Sliced steak: about 7 oz · est. 490 cal\nSweet potato wedges: about 1 cup · est. 180 cal',
+  MEAL_CLOSER_TEXT,
 ].join('\n\n');
 
 const MEAL_PHOTO = { uri: 'file:///meal-photo.jpg', width: 800, height: 600 };
@@ -744,6 +793,174 @@ async function main() {
     s9.close();
   });
   await waitUntil('the pinned retry completes', () => tailMessage().status === 'done');
+
+  // ── 2i. Typed corrections: fix a misread plate by typing what it is ───────
+  // Both detector copies must agree — the client decides whether to
+  // re-attach the held photo, the server decides with the SAME rules
+  // whether the analysis honors the words as ground truth.
+  {
+    const phrases: Array<[string, boolean]> = [
+      ["No, that's steak and sweet potato wedges", true],
+      ['you missed the sweet potatoes', true],
+      ["that's not brisket", true],
+      ['it was grilled chicken, one cut of meat', true],
+      ['more like 6 oz of chicken', true],
+      ['actually those are sweet potato wedges', true],
+      ['you got the meat wrong', true],
+      ['you mixed the meats up', true],
+      [MEAL_PHOTO_MESSAGE_TEXT, false],
+      [PHOTO_MESSAGE_TEXT, false],
+      ['Is that not brisket?', false],
+      ["That's right", false],
+      ['thanks, that looks right', false],
+      ['What should I eat tomorrow', false],
+      ['nothing wrong with that read', false],
+      ['Log it for dinner please', false],
+    ];
+    for (const [text, expected] of phrases) {
+      assert(
+        `client detector reads ${JSON.stringify(text)} as ${expected ? 'a correction' : 'not a correction'}`,
+        isMealCorrectionText(text) === expected,
+      );
+      assert(
+        `server detector copy agrees on ${JSON.stringify(text)}`,
+        serverIsMealCorrectionText(text) === expected,
+      );
+    }
+  }
+
+  // A pinned meal turn whose reply carries the card sets the stage.
+  const CORRECTION_PHOTO = { uri: 'file:///correction-plate.jpg', width: 800, height: 600 };
+  await actSettle(() => {
+    chat.sendPhoto(CORRECTION_PHOTO, 'meal', { mealSlot: 'dinner' });
+  });
+  const c1 = takeStream('correction setup turn');
+  await actSettle(() => {
+    c1.emit({ content: MEAL_REPLY_TEXT });
+    c1.emit({ card: { kind: 'recipe', payload: { ...MEAL_CARD_PAYLOAD, id: 'meal_test_corr' } } });
+    c1.emit({ done: true });
+    c1.close();
+  });
+  await waitUntil(
+    'the correction setup reply finalizes with its card',
+    () => tailMessage().status === 'done' && tailMessage().card !== undefined,
+  );
+  assert(
+    'findMealCorrectionOrigin points at the held photo turn',
+    findMealCorrectionOrigin(chat.messages)?.photo?.uri === CORRECTION_PHOTO.uri,
+  );
+
+  const CORRECTION_TEXT = "No, that's steak and sweet potato wedges";
+  await actSettle(() => {
+    chat.send(CORRECTION_TEXT);
+  });
+  const correctionBubble = chat.messages[chat.messages.length - 2];
+  assertEqual('the correction bubble shows the typed words', correctionBubble.text, CORRECTION_TEXT);
+  assertEqual(
+    'the correction bubble carries the re-used photo',
+    correctionBubble.photo?.uri ?? '',
+    CORRECTION_PHOTO.uri,
+  );
+  assert(
+    'the re-used photo is marked reused so the bubble renders as text',
+    correctionBubble.photo?.reused === true,
+  );
+  assertEqual('the re-used photo keeps kind "meal"', correctionBubble.photo?.kind ?? '', 'meal');
+  assertEqual(
+    'the re-used photo keeps the pinned slot',
+    correctionBubble.photo?.mealSlot ?? '',
+    'dinner',
+  );
+
+  const c2 = takeStream('correction turn');
+  {
+    const msgs = c2.requestBody.messages ?? [];
+    const tail = msgs[msgs.length - 1];
+    assertEqual('the correction tail keeps the TYPED words as content', tail?.content ?? '', CORRECTION_TEXT);
+    assertEqual('the correction tail re-attaches the held photo', tail?.image ?? '', CORRECTION_PHOTO.uri);
+    assertEqual('the correction tail names photoKind "meal"', tail?.photoKind ?? '', 'meal');
+    assert(
+      'no earlier message in the correction request carries an image or photoKind',
+      msgs.slice(0, -1).every(m => m.image === undefined && m.photoKind === undefined),
+    );
+    assert(
+      'the original photo turn replays as its fixed text',
+      msgs.some(m => m.role === 'user' && m.content === MEAL_PHOTO_MESSAGE_TEXT),
+    );
+    assertEqual('the correction re-sends the pinned slot', c2.requestBody.mealSlot ?? '', 'dinner');
+    assertEqual('the correction carries the local time', c2.requestBody.localTime ?? '', '14:05');
+  }
+  await actSettle(() => {
+    c2.emit({ content: CORRECTED_REPLY_TEXT });
+    c2.emit({
+      card: { kind: 'recipe', payload: { ...CORRECTED_CARD_PAYLOAD, id: 'meal_test_corr2' } },
+    });
+    c2.emit({ done: true });
+    c2.close();
+  });
+  await waitUntil(
+    'the corrected reply finalizes with its rebuilt card',
+    () => tailMessage().status === 'done' && tailMessage().card !== undefined,
+  );
+  assertEqual(
+    "the rebuilt card keeps the patient's own photo",
+    chat.getRecipeSuggestion('meal_test_corr2')?.photoUri ?? '',
+    CORRECTION_PHOTO.uri,
+  );
+  assert(
+    'the corrected reply still offers the retake chip',
+    offersMealPhotoRetake(chat.messages, chat.isStreaming) === true,
+  );
+  assert(
+    'a second correction would re-use the same photo (chaining)',
+    findMealCorrectionOrigin(chat.messages)?.id === correctionBubble.id,
+  );
+
+  // An unrelated message right under the meal card is a NORMAL chat turn:
+  // no image, no photoKind, the coach answers it as plain conversation.
+  await actSettle(() => {
+    chat.send('What should I eat tomorrow');
+  });
+  const c3 = takeStream('unrelated follow-up after meal card');
+  {
+    const msgs = c3.requestBody.messages ?? [];
+    assertEqual(
+      'the unrelated follow-up keeps its own text',
+      msgs[msgs.length - 1]?.content ?? '',
+      'What should I eat tomorrow',
+    );
+    assert(
+      'the unrelated follow-up carries NO image and NO photoKind',
+      msgs.every(m => m.image === undefined && m.photoKind === undefined),
+    );
+  }
+  await actSettle(() => {
+    c3.emit({ content: 'Plenty of protein and greens, plan coming tomorrow.' });
+    c3.emit({ done: true });
+    c3.close();
+  });
+  await waitUntil('the unrelated follow-up finalizes', () => tailMessage().status === 'done');
+
+  // Correction-shaped words WITHOUT the adjacency (latest reply is plain
+  // text, no meal card) also stay a normal turn — the held photo is never
+  // re-attached blindly.
+  await actSettle(() => {
+    chat.send("no, that's steak and sweet potatoes");
+  });
+  const c4 = takeStream('correction words without adjacency');
+  {
+    const msgs = c4.requestBody.messages ?? [];
+    assert(
+      'without a meal-card reply as latest, correction words send NO image',
+      msgs.every(m => m.image === undefined && m.photoKind === undefined),
+    );
+  }
+  await actSettle(() => {
+    c4.emit({ content: 'Steak and sweet potatoes sounds like a solid dinner.' });
+    c4.emit({ done: true });
+    c4.close();
+  });
+  await waitUntil('the no-adjacency turn finalizes', () => tailMessage().status === 'done');
 
   assertEqual('every coach stream was accounted for', opened.length, 0);
   coachTree.unmount();

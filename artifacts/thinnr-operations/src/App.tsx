@@ -42,6 +42,7 @@ import TrainingViewers from '@/pages/admin/training/TrainingViewers';
 import ViewerProfile from '@/pages/admin/training/ViewerProfile';
 import TrainingAnalytics from '@/pages/admin/training/TrainingAnalytics';
 import LearnerPreview from '@/pages/admin/training/LearnerPreview';
+import KnowledgeBase from '@/pages/admin/KnowledgeBase';
 import Files from '@/pages/admin/Files';
 import { PatientSessionProvider } from '@/contexts/patient-session';
 import { DateRangeProvider } from '@/contexts/date-range';
@@ -82,6 +83,7 @@ function AdminArea() {
               <Route path="/admin/training/viewers" component={TrainingViewers} />
               <Route path="/admin/training/viewers/:viewerId" component={ViewerProfile} />
               <Route path="/admin/training/analytics" component={TrainingAnalytics} />
+              <Route path="/admin/knowledge" component={KnowledgeBase} />
               <Route path="/admin/files" component={Files} />
               {/* Admin persona anywhere else (including office URLs) → HQ. */}
               <Route>

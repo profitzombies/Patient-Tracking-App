@@ -26,6 +26,16 @@ import type {
   CoachRecipeImageInput,
   CoachRecipeImageResult,
   HealthStatus,
+  KnowledgeCreateInput,
+  KnowledgeDeleteResult,
+  KnowledgeDocument,
+  KnowledgeDocumentDetail,
+  KnowledgeDocumentList,
+  KnowledgeExtractResult,
+  KnowledgeRenameInput,
+  KnowledgeReplaceInput,
+  KnowledgeUploadUrlInput,
+  KnowledgeUploadUrlResult,
   TrainingFinalizeInput,
   TrainingFinalizeResult,
   TrainingMediaResult,
@@ -948,6 +958,666 @@ export const useTrainingVideoProcess = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getTrainingVideoProcessMutationOptions(options));
+    }
+
+export const getKnowledgeUploadUrlUrl = () => {
+
+
+
+
+  return `/api/knowledge/upload-url`
+}
+
+/**
+ * HQ admins only. Validates the declared type and size, mints a fresh document id, and returns a short-lived presigned PUT URL plus the canonical object path bound to that id (/objects/knowledge-docs/<documentId>/…). Nothing is written to the database until the create call verifies the uploaded bytes.
+ * @summary Mint a presigned upload URL for a new knowledge document
+ */
+export const knowledgeUploadUrl = async (knowledgeUploadUrlInput: KnowledgeUploadUrlInput, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeUploadUrlResult> => {
+
+  return customFetch<KnowledgeUploadUrlResult>(getKnowledgeUploadUrlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(knowledgeUploadUrlInput)
+  }
+);}
+
+
+
+
+
+export const getKnowledgeUploadUrlMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeUploadUrl>>, TError,{data: BodyType<KnowledgeUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof knowledgeUploadUrl>>, TError,{data: BodyType<KnowledgeUploadUrlInput>}, TContext> => {
+
+const mutationKey = ['knowledgeUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeUploadUrl>>, {data: BodyType<KnowledgeUploadUrlInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  knowledgeUploadUrl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type KnowledgeUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof knowledgeUploadUrl>>>
+    export type KnowledgeUploadUrlMutationBody = BodyType<KnowledgeUploadUrlInput>
+    export type KnowledgeUploadUrlMutationError = ErrorType<void>
+
+    /**
+ * @summary Mint a presigned upload URL for a new knowledge document
+ */
+export const useKnowledgeUploadUrl = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeUploadUrl>>, TError,{data: BodyType<KnowledgeUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof knowledgeUploadUrl>>,
+        TError,
+        {data: BodyType<KnowledgeUploadUrlInput>},
+        TContext
+      > => {
+      return useMutation(getKnowledgeUploadUrlMutationOptions(options));
+    }
+
+export const getKnowledgeListDocumentsUrl = () => {
+
+
+
+
+  return `/api/knowledge/documents`
+}
+
+/**
+ * HQ admins only. Returns all documents newest-first with status, summary, and keyword metadata — extracted text stays out of the list payload and is fetched per document.
+ * @summary List every knowledge document (without extracted text)
+ */
+export const knowledgeListDocuments = async ( options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocumentList> => {
+
+  return customFetch<KnowledgeDocumentList>(getKnowledgeListDocumentsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getKnowledgeListDocumentsQueryKey = () => {
+    return [
+    `/api/knowledge/documents`
+    ] as const;
+    }
+
+
+export const getKnowledgeListDocumentsQueryOptions = <TData = Awaited<ReturnType<typeof knowledgeListDocuments>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof knowledgeListDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getKnowledgeListDocumentsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof knowledgeListDocuments>>> = ({ signal }) => knowledgeListDocuments({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof knowledgeListDocuments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type KnowledgeListDocumentsQueryResult = NonNullable<Awaited<ReturnType<typeof knowledgeListDocuments>>>
+export type KnowledgeListDocumentsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List every knowledge document (without extracted text)
+ */
+
+export function useKnowledgeListDocuments<TData = Awaited<ReturnType<typeof knowledgeListDocuments>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof knowledgeListDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getKnowledgeListDocumentsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getKnowledgeCreateDocumentUrl = () => {
+
+
+
+
+  return `/api/knowledge/documents`
+}
+
+/**
+ * HQ admins only. Verifies the uploaded object exists under the minted document id's prefix and respects the size cap, inserts the document row, and starts text extraction in the background. The response returns immediately; clients poll the list or detail endpoint while status moves uploaded → extracting → ready or failed.
+ * @summary Create the document after verifying the uploaded bytes
+ */
+export const knowledgeCreateDocument = async (knowledgeCreateInput: KnowledgeCreateInput, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocument> => {
+
+  return customFetch<KnowledgeDocument>(getKnowledgeCreateDocumentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(knowledgeCreateInput)
+  }
+);}
+
+
+
+
+
+export const getKnowledgeCreateDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeCreateDocument>>, TError,{data: BodyType<KnowledgeCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof knowledgeCreateDocument>>, TError,{data: BodyType<KnowledgeCreateInput>}, TContext> => {
+
+const mutationKey = ['knowledgeCreateDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeCreateDocument>>, {data: BodyType<KnowledgeCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  knowledgeCreateDocument(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type KnowledgeCreateDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof knowledgeCreateDocument>>>
+    export type KnowledgeCreateDocumentMutationBody = BodyType<KnowledgeCreateInput>
+    export type KnowledgeCreateDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Create the document after verifying the uploaded bytes
+ */
+export const useKnowledgeCreateDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeCreateDocument>>, TError,{data: BodyType<KnowledgeCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof knowledgeCreateDocument>>,
+        TError,
+        {data: BodyType<KnowledgeCreateInput>},
+        TContext
+      > => {
+      return useMutation(getKnowledgeCreateDocumentMutationOptions(options));
+    }
+
+export const getKnowledgeGetDocumentUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge/documents/${documentId}`
+}
+
+/**
+ * @summary Fetch one document including its extracted text
+ */
+export const knowledgeGetDocument = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocumentDetail> => {
+
+  return customFetch<KnowledgeDocumentDetail>(getKnowledgeGetDocumentUrl(documentId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getKnowledgeGetDocumentQueryKey = (documentId: string,) => {
+    return [
+    `/api/knowledge/documents/${documentId}`
+    ] as const;
+    }
+
+
+export const getKnowledgeGetDocumentQueryOptions = <TData = Awaited<ReturnType<typeof knowledgeGetDocument>>, TError = ErrorType<void>>(documentId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof knowledgeGetDocument>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getKnowledgeGetDocumentQueryKey(documentId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof knowledgeGetDocument>>> = ({ signal }) => knowledgeGetDocument(documentId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: documentId !== null && documentId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof knowledgeGetDocument>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type KnowledgeGetDocumentQueryResult = NonNullable<Awaited<ReturnType<typeof knowledgeGetDocument>>>
+export type KnowledgeGetDocumentQueryError = ErrorType<void>
+
+
+/**
+ * @summary Fetch one document including its extracted text
+ */
+
+export function useKnowledgeGetDocument<TData = Awaited<ReturnType<typeof knowledgeGetDocument>>, TError = ErrorType<void>>(
+ documentId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof knowledgeGetDocument>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getKnowledgeGetDocumentQueryOptions(documentId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getKnowledgeRenameDocumentUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge/documents/${documentId}`
+}
+
+/**
+ * @summary Rename a document (its stored file is untouched)
+ */
+export const knowledgeRenameDocument = async (documentId: string,
+    knowledgeRenameInput: KnowledgeRenameInput, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocument> => {
+
+  return customFetch<KnowledgeDocument>(getKnowledgeRenameDocumentUrl(documentId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(knowledgeRenameInput)
+  }
+);}
+
+
+
+
+
+export const getKnowledgeRenameDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeRenameDocument>>, TError,{documentId: string;data: BodyType<KnowledgeRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof knowledgeRenameDocument>>, TError,{documentId: string;data: BodyType<KnowledgeRenameInput>}, TContext> => {
+
+const mutationKey = ['knowledgeRenameDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeRenameDocument>>, {documentId: string;data: BodyType<KnowledgeRenameInput>}> = (props) => {
+          const {documentId,data} = props ?? {};
+
+          return  knowledgeRenameDocument(documentId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type KnowledgeRenameDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof knowledgeRenameDocument>>>
+    export type KnowledgeRenameDocumentMutationBody = BodyType<KnowledgeRenameInput>
+    export type KnowledgeRenameDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Rename a document (its stored file is untouched)
+ */
+export const useKnowledgeRenameDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeRenameDocument>>, TError,{documentId: string;data: BodyType<KnowledgeRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof knowledgeRenameDocument>>,
+        TError,
+        {documentId: string;data: BodyType<KnowledgeRenameInput>},
+        TContext
+      > => {
+      return useMutation(getKnowledgeRenameDocumentMutationOptions(options));
+    }
+
+export const getKnowledgeDeleteDocumentUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge/documents/${documentId}`
+}
+
+/**
+ * HQ admins only. Deletes the stored object from App Storage and then removes the row — extracted text, summary, and keywords go with it.
+ * @summary Delete a document and its stored file
+ */
+export const knowledgeDeleteDocument = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDeleteResult> => {
+
+  return customFetch<KnowledgeDeleteResult>(getKnowledgeDeleteDocumentUrl(documentId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getKnowledgeDeleteDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, TError,{documentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, TError,{documentId: string}, TContext> => {
+
+const mutationKey = ['knowledgeDeleteDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, {documentId: string}> = (props) => {
+          const {documentId} = props ?? {};
+
+          return  knowledgeDeleteDocument(documentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type KnowledgeDeleteDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof knowledgeDeleteDocument>>>
+
+    export type KnowledgeDeleteDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a document and its stored file
+ */
+export const useKnowledgeDeleteDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, TError,{documentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof knowledgeDeleteDocument>>,
+        TError,
+        {documentId: string},
+        TContext
+      > => {
+      return useMutation(getKnowledgeDeleteDocumentMutationOptions(options));
+    }
+
+export const getKnowledgeReplaceUploadUrlUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge/documents/${documentId}/upload-url`
+}
+
+/**
+ * @summary Mint a presigned upload URL to replace a document's file
+ */
+export const knowledgeReplaceUploadUrl = async (documentId: string,
+    knowledgeUploadUrlInput: KnowledgeUploadUrlInput, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeUploadUrlResult> => {
+
+  return customFetch<KnowledgeUploadUrlResult>(getKnowledgeReplaceUploadUrlUrl(documentId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(knowledgeUploadUrlInput)
+  }
+);}
+
+
+
+
+
+export const getKnowledgeReplaceUploadUrlMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, TError,{documentId: string;data: BodyType<KnowledgeUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, TError,{documentId: string;data: BodyType<KnowledgeUploadUrlInput>}, TContext> => {
+
+const mutationKey = ['knowledgeReplaceUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, {documentId: string;data: BodyType<KnowledgeUploadUrlInput>}> = (props) => {
+          const {documentId,data} = props ?? {};
+
+          return  knowledgeReplaceUploadUrl(documentId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type KnowledgeReplaceUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>>
+    export type KnowledgeReplaceUploadUrlMutationBody = BodyType<KnowledgeUploadUrlInput>
+    export type KnowledgeReplaceUploadUrlMutationError = ErrorType<void>
+
+    /**
+ * @summary Mint a presigned upload URL to replace a document's file
+ */
+export const useKnowledgeReplaceUploadUrl = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, TError,{documentId: string;data: BodyType<KnowledgeUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>,
+        TError,
+        {documentId: string;data: BodyType<KnowledgeUploadUrlInput>},
+        TContext
+      > => {
+      return useMutation(getKnowledgeReplaceUploadUrlMutationOptions(options));
+    }
+
+export const getKnowledgeReplaceFileUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge/documents/${documentId}/file`
+}
+
+/**
+ * HQ admins only. Verifies the uploaded object under this document's prefix, clears the old extracted text / summary / keywords (they described the OLD file), swaps the stored object path in one conditional write, deletes the replaced object, and re-runs extraction on the new bytes.
+ * @summary Swap in a replacement file after verifying it
+ */
+export const knowledgeReplaceFile = async (documentId: string,
+    knowledgeReplaceInput: KnowledgeReplaceInput, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeDocument> => {
+
+  return customFetch<KnowledgeDocument>(getKnowledgeReplaceFileUrl(documentId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(knowledgeReplaceInput)
+  }
+);}
+
+
+
+
+
+export const getKnowledgeReplaceFileMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceFile>>, TError,{documentId: string;data: BodyType<KnowledgeReplaceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceFile>>, TError,{documentId: string;data: BodyType<KnowledgeReplaceInput>}, TContext> => {
+
+const mutationKey = ['knowledgeReplaceFile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeReplaceFile>>, {documentId: string;data: BodyType<KnowledgeReplaceInput>}> = (props) => {
+          const {documentId,data} = props ?? {};
+
+          return  knowledgeReplaceFile(documentId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type KnowledgeReplaceFileMutationResult = NonNullable<Awaited<ReturnType<typeof knowledgeReplaceFile>>>
+    export type KnowledgeReplaceFileMutationBody = BodyType<KnowledgeReplaceInput>
+    export type KnowledgeReplaceFileMutationError = ErrorType<void>
+
+    /**
+ * @summary Swap in a replacement file after verifying it
+ */
+export const useKnowledgeReplaceFile = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceFile>>, TError,{documentId: string;data: BodyType<KnowledgeReplaceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof knowledgeReplaceFile>>,
+        TError,
+        {documentId: string;data: BodyType<KnowledgeReplaceInput>},
+        TContext
+      > => {
+      return useMutation(getKnowledgeReplaceFileMutationOptions(options));
+    }
+
+export const getKnowledgeRetryExtractionUrl = (documentId: string,) => {
+
+
+
+
+  return `/api/knowledge/documents/${documentId}/extract`
+}
+
+/**
+ * HQ admins only. Re-reads the stored object and runs extraction again — the retry for failed documents (also unsticks a document left in "extracting" by a server restart). One run per document at a time.
+ * @summary Re-run text extraction on the stored file
+ */
+export const knowledgeRetryExtraction = async (documentId: string, options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeExtractResult> => {
+
+  return customFetch<KnowledgeExtractResult>(getKnowledgeRetryExtractionUrl(documentId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getKnowledgeRetryExtractionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, TError,{documentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, TError,{documentId: string}, TContext> => {
+
+const mutationKey = ['knowledgeRetryExtraction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, {documentId: string}> = (props) => {
+          const {documentId} = props ?? {};
+
+          return  knowledgeRetryExtraction(documentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type KnowledgeRetryExtractionMutationResult = NonNullable<Awaited<ReturnType<typeof knowledgeRetryExtraction>>>
+
+    export type KnowledgeRetryExtractionMutationError = ErrorType<void>
+
+    /**
+ * @summary Re-run text extraction on the stored file
+ */
+export const useKnowledgeRetryExtraction = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, TError,{documentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof knowledgeRetryExtraction>>,
+        TError,
+        {documentId: string},
+        TContext
+      > => {
+      return useMutation(getKnowledgeRetryExtractionMutationOptions(options));
     }
 
 export const getHealthCheckUrl = () => {

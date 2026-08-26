@@ -15,6 +15,8 @@ Investor-demo platform for the THINNR weight-loss program: a staff/HQ operations
 - Automated demo gate: the `demo-parity` and `approved-foods` validation checks run together on every validation run — web↔mobile demo-data parity plus verbatim Approved Foods wording — and either one failing fails the run
 - `pnpm --filter @workspace/thinnr-operations run seed:training` — idempotent sample data for the live training portal (re-run any time; add `--reset` to wipe all training rows first and reseed)
 - `pnpm --filter @workspace/thinnr-operations run test:training` — training-portal invariants (pure logic, offline)
+- `pnpm --filter @workspace/thinnr-operations run seed:knowledge` — ingest the five THINNR program PDFs from `attached_assets/` into the AI Support knowledge base through the real upload + extraction path (idempotent; retries failed docs, re-applies curated titles)
+- `pnpm --filter @workspace/thinnr-operations run test:knowledge` — live AI Support knowledge-base checks: RLS invisibility, HQ-admin-only API, seeded documents ready with real extracted text (needs the api-server workflow)
 - `pnpm --filter @workspace/thinnr-operations run test:training-access` — live anon access-boundary checks against the real Supabase project (network; run after training schema/RLS changes — deliberately not a hermetic validation command)
 - `pnpm --filter @workspace/thinnr-operations run test:account-lock` — live account-lock enforcement checks (lock acct-p1 → staff reads/writes collapse while HQ keeps visibility → unlock restores the same rows; transient lock + throwaway admin, fully cleaned up — also not a hermetic validation command)
 - Required env: `DATABASE_URL` — Postgres connection string

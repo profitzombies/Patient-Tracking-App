@@ -218,6 +218,25 @@ export class ObjectStorageService {
     return { uploadUrl, objectPath };
   }
 
+  /**
+   * Same contract for AI Support knowledge documents: a presigned PUT bound
+   * to the document's prefix (`/objects/knowledge-docs/<documentId>/…`), so
+   * finalize can verify the uploaded object belongs to that document.
+   */
+  async knowledgeUploadURL(documentId: string): Promise<{ uploadUrl: string; objectPath: string }> {
+    const objectId = `doc-${randomUUID()}`;
+    const objectPath = `/objects/knowledge-docs/${documentId}/${objectId}`;
+    const fullPath = `${getTrainingObjectDir()}/knowledge-docs/${documentId}/${objectId}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const uploadUrl = await signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: UPLOAD_URL_TTL_SEC,
+    });
+    return { uploadUrl, objectPath };
+  }
+
   /** Resolve `/objects/...` to the underlying file; throws when absent. */
   async entityFile(objectPath: string): Promise<File> {
     const file = this.fileFor(objectPath);

@@ -305,3 +305,191 @@ export interface TrainingProcessInput {
   steps?: TrainingProcessInputStepsItem[];
 }
 
+/**
+ * Canonical MIME type the browser will send on the PUT
+ */
+export type KnowledgeUploadUrlInputContentType = typeof KnowledgeUploadUrlInputContentType[keyof typeof KnowledgeUploadUrlInputContentType];
+
+
+export const KnowledgeUploadUrlInputContentType = {
+  'application/pdf': 'application/pdf',
+  'application/vndopenxmlformats-officedocumentwordprocessingmldocument': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain': 'text/plain',
+  'text/markdown': 'text/markdown',
+} as const;
+
+export interface KnowledgeUploadUrlInput {
+  /**
+     * Original file name; becomes the document title (sans extension)
+     * @minLength 1
+     * @maxLength 300
+     */
+  fileName: string;
+  /** Canonical MIME type the browser will send on the PUT */
+  contentType: KnowledgeUploadUrlInputContentType;
+  /**
+     * File size in bytes; the hard cap is 25 MB
+     * @minimum 1
+     * @maximum 26214400
+     */
+  sizeBytes: number;
+}
+
+export interface KnowledgeUploadUrlResult {
+  /** Id the object path is bound to; send back to the create call */
+  documentId: string;
+  /** Presigned PUT URL, valid for ~15 minutes */
+  uploadUrl: string;
+  /** Canonical object path to send back after the PUT; never a URL */
+  objectPath: string;
+}
+
+export type KnowledgeCreateInputContentType = typeof KnowledgeCreateInputContentType[keyof typeof KnowledgeCreateInputContentType];
+
+
+export const KnowledgeCreateInputContentType = {
+  'application/pdf': 'application/pdf',
+  'application/vndopenxmlformats-officedocumentwordprocessingmldocument': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain': 'text/plain',
+  'text/markdown': 'text/markdown',
+} as const;
+
+export interface KnowledgeCreateInput {
+  /**
+     * The id returned by upload-url
+     * @maxLength 60
+     */
+  documentId: string;
+  /**
+     * The object path returned by upload-url after the PUT succeeded
+     * @maxLength 500
+     */
+  objectPath: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  fileName: string;
+  contentType: KnowledgeCreateInputContentType;
+}
+
+export type KnowledgeReplaceInputContentType = typeof KnowledgeReplaceInputContentType[keyof typeof KnowledgeReplaceInputContentType];
+
+
+export const KnowledgeReplaceInputContentType = {
+  'application/pdf': 'application/pdf',
+  'application/vndopenxmlformats-officedocumentwordprocessingmldocument': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain': 'text/plain',
+  'text/markdown': 'text/markdown',
+} as const;
+
+export interface KnowledgeReplaceInput {
+  /**
+     * The object path returned by the replace upload-url
+     * @maxLength 500
+     */
+  objectPath: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  fileName: string;
+  contentType: KnowledgeReplaceInputContentType;
+}
+
+export interface KnowledgeRenameInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+}
+
+export type KnowledgeDocumentStatus = typeof KnowledgeDocumentStatus[keyof typeof KnowledgeDocumentStatus];
+
+
+export const KnowledgeDocumentStatus = {
+  uploaded: 'uploaded',
+  extracting: 'extracting',
+  ready: 'ready',
+  failed: 'failed',
+} as const;
+
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: number;
+  status: KnowledgeDocumentStatus;
+  /**
+     * Plain-words reason when status is failed
+     * @nullable
+     */
+  errorMessage: string | null;
+  /**
+     * Short routing summary written at extraction time
+     * @nullable
+     */
+  summary: string | null;
+  /** Routing keywords written at extraction time */
+  keywords: string[];
+  /** Length of the extracted text; 0 until status is ready */
+  extractedChars: number;
+  /** ISO timestamp */
+  createdAt: string;
+  /** ISO timestamp */
+  updatedAt: string;
+}
+
+export type KnowledgeDocumentDetailStatus = typeof KnowledgeDocumentDetailStatus[keyof typeof KnowledgeDocumentDetailStatus];
+
+
+export const KnowledgeDocumentDetailStatus = {
+  uploaded: 'uploaded',
+  extracting: 'extracting',
+  ready: 'ready',
+  failed: 'failed',
+} as const;
+
+export interface KnowledgeDocumentDetail {
+  id: string;
+  title: string;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: number;
+  status: KnowledgeDocumentDetailStatus;
+  /** @nullable */
+  errorMessage: string | null;
+  /** @nullable */
+  summary: string | null;
+  keywords: string[];
+  extractedChars: number;
+  /**
+     * Full extracted text; null until status is ready
+     * @nullable
+     */
+  extractedText: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeDocumentList {
+  documents: KnowledgeDocument[];
+}
+
+export interface KnowledgeDeleteResult {
+  deleted: boolean;
+}
+
+export type KnowledgeExtractResultStatus = typeof KnowledgeExtractResultStatus[keyof typeof KnowledgeExtractResultStatus];
+
+
+export const KnowledgeExtractResultStatus = {
+  extracting: 'extracting',
+} as const;
+
+export interface KnowledgeExtractResult {
+  status: KnowledgeExtractResultStatus;
+}
+

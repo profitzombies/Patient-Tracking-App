@@ -277,6 +277,229 @@ export const TrainingVideoProcessResponse = zod.unknown()
 
 
 /**
+ * HQ admins only. Validates the declared type and size, mints a fresh document id, and returns a short-lived presigned PUT URL plus the canonical object path bound to that id (/objects/knowledge-docs/<documentId>/…). Nothing is written to the database until the create call verifies the uploaded bytes.
+ * @summary Mint a presigned upload URL for a new knowledge document
+ */
+export const knowledgeUploadUrlBodyFileNameMax = 300;
+
+export const knowledgeUploadUrlBodySizeBytesMax = 26214400;
+
+
+
+export const KnowledgeUploadUrlBody = zod.object({
+  "fileName": zod.string().min(1).max(knowledgeUploadUrlBodyFileNameMax).describe('Original file name; becomes the document title (sans extension)'),
+  "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown']).describe('Canonical MIME type the browser will send on the PUT'),
+  "sizeBytes": zod.number().min(1).max(knowledgeUploadUrlBodySizeBytesMax).describe('File size in bytes; the hard cap is 25 MB')
+})
+
+export const KnowledgeUploadUrlResponse = zod.object({
+  "documentId": zod.string().describe('Id the object path is bound to; send back to the create call'),
+  "uploadUrl": zod.string().describe('Presigned PUT URL, valid for ~15 minutes'),
+  "objectPath": zod.string().describe('Canonical object path to send back after the PUT; never a URL')
+})
+
+
+/**
+ * HQ admins only. Returns all documents newest-first with status, summary, and keyword metadata — extracted text stays out of the list payload and is fetched per document.
+ * @summary List every knowledge document (without extracted text)
+ */
+export const KnowledgeListDocumentsResponse = zod.object({
+  "documents": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "originalFilename": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number(),
+  "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
+  "errorMessage": zod.string().nullable().describe('Plain-words reason when status is failed'),
+  "summary": zod.string().nullable().describe('Short routing summary written at extraction time'),
+  "keywords": zod.array(zod.string()).describe('Routing keywords written at extraction time'),
+  "extractedChars": zod.number().describe('Length of the extracted text; 0 until status is ready'),
+  "createdAt": zod.string().describe('ISO timestamp'),
+  "updatedAt": zod.string().describe('ISO timestamp')
+}))
+})
+
+
+/**
+ * HQ admins only. Verifies the uploaded object exists under the minted document id's prefix and respects the size cap, inserts the document row, and starts text extraction in the background. The response returns immediately; clients poll the list or detail endpoint while status moves uploaded → extracting → ready or failed.
+ * @summary Create the document after verifying the uploaded bytes
+ */
+export const knowledgeCreateDocumentBodyDocumentIdMax = 60;
+
+export const knowledgeCreateDocumentBodyObjectPathMax = 500;
+
+export const knowledgeCreateDocumentBodyFileNameMax = 300;
+
+
+
+export const KnowledgeCreateDocumentBody = zod.object({
+  "documentId": zod.string().max(knowledgeCreateDocumentBodyDocumentIdMax).describe('The id returned by upload-url'),
+  "objectPath": zod.string().max(knowledgeCreateDocumentBodyObjectPathMax).describe('The object path returned by upload-url after the PUT succeeded'),
+  "fileName": zod.string().min(1).max(knowledgeCreateDocumentBodyFileNameMax),
+  "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown'])
+})
+
+export const KnowledgeCreateDocumentResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "originalFilename": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number(),
+  "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
+  "errorMessage": zod.string().nullable().describe('Plain-words reason when status is failed'),
+  "summary": zod.string().nullable().describe('Short routing summary written at extraction time'),
+  "keywords": zod.array(zod.string()).describe('Routing keywords written at extraction time'),
+  "extractedChars": zod.number().describe('Length of the extracted text; 0 until status is ready'),
+  "createdAt": zod.string().describe('ISO timestamp'),
+  "updatedAt": zod.string().describe('ISO timestamp')
+})
+
+
+/**
+ * @summary Fetch one document including its extracted text
+ */
+export const KnowledgeGetDocumentParams = zod.object({
+  "documentId": zod.coerce.string().describe('UUID of the knowledge document row')
+})
+
+export const KnowledgeGetDocumentResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "originalFilename": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number(),
+  "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
+  "errorMessage": zod.string().nullable(),
+  "summary": zod.string().nullable(),
+  "keywords": zod.array(zod.string()),
+  "extractedChars": zod.number(),
+  "extractedText": zod.string().nullable().describe('Full extracted text; null until status is ready'),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Rename a document (its stored file is untouched)
+ */
+export const KnowledgeRenameDocumentParams = zod.object({
+  "documentId": zod.coerce.string().describe('UUID of the knowledge document row')
+})
+
+export const knowledgeRenameDocumentBodyTitleMax = 200;
+
+
+
+export const KnowledgeRenameDocumentBody = zod.object({
+  "title": zod.string().min(1).max(knowledgeRenameDocumentBodyTitleMax)
+})
+
+export const KnowledgeRenameDocumentResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "originalFilename": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number(),
+  "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
+  "errorMessage": zod.string().nullable().describe('Plain-words reason when status is failed'),
+  "summary": zod.string().nullable().describe('Short routing summary written at extraction time'),
+  "keywords": zod.array(zod.string()).describe('Routing keywords written at extraction time'),
+  "extractedChars": zod.number().describe('Length of the extracted text; 0 until status is ready'),
+  "createdAt": zod.string().describe('ISO timestamp'),
+  "updatedAt": zod.string().describe('ISO timestamp')
+})
+
+
+/**
+ * HQ admins only. Deletes the stored object from App Storage and then removes the row — extracted text, summary, and keywords go with it.
+ * @summary Delete a document and its stored file
+ */
+export const KnowledgeDeleteDocumentParams = zod.object({
+  "documentId": zod.coerce.string().describe('UUID of the knowledge document row')
+})
+
+export const KnowledgeDeleteDocumentResponse = zod.object({
+  "deleted": zod.boolean()
+})
+
+
+/**
+ * @summary Mint a presigned upload URL to replace a document's file
+ */
+export const KnowledgeReplaceUploadUrlParams = zod.object({
+  "documentId": zod.coerce.string().describe('UUID of the knowledge document row')
+})
+
+export const knowledgeReplaceUploadUrlBodyFileNameMax = 300;
+
+export const knowledgeReplaceUploadUrlBodySizeBytesMax = 26214400;
+
+
+
+export const KnowledgeReplaceUploadUrlBody = zod.object({
+  "fileName": zod.string().min(1).max(knowledgeReplaceUploadUrlBodyFileNameMax).describe('Original file name; becomes the document title (sans extension)'),
+  "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown']).describe('Canonical MIME type the browser will send on the PUT'),
+  "sizeBytes": zod.number().min(1).max(knowledgeReplaceUploadUrlBodySizeBytesMax).describe('File size in bytes; the hard cap is 25 MB')
+})
+
+export const KnowledgeReplaceUploadUrlResponse = zod.object({
+  "documentId": zod.string().describe('Id the object path is bound to; send back to the create call'),
+  "uploadUrl": zod.string().describe('Presigned PUT URL, valid for ~15 minutes'),
+  "objectPath": zod.string().describe('Canonical object path to send back after the PUT; never a URL')
+})
+
+
+/**
+ * HQ admins only. Verifies the uploaded object under this document's prefix, clears the old extracted text / summary / keywords (they described the OLD file), swaps the stored object path in one conditional write, deletes the replaced object, and re-runs extraction on the new bytes.
+ * @summary Swap in a replacement file after verifying it
+ */
+export const KnowledgeReplaceFileParams = zod.object({
+  "documentId": zod.coerce.string().describe('UUID of the knowledge document row')
+})
+
+export const knowledgeReplaceFileBodyObjectPathMax = 500;
+
+export const knowledgeReplaceFileBodyFileNameMax = 300;
+
+
+
+export const KnowledgeReplaceFileBody = zod.object({
+  "objectPath": zod.string().max(knowledgeReplaceFileBodyObjectPathMax).describe('The object path returned by the replace upload-url'),
+  "fileName": zod.string().min(1).max(knowledgeReplaceFileBodyFileNameMax),
+  "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown'])
+})
+
+export const KnowledgeReplaceFileResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "originalFilename": zod.string(),
+  "contentType": zod.string(),
+  "sizeBytes": zod.number(),
+  "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
+  "errorMessage": zod.string().nullable().describe('Plain-words reason when status is failed'),
+  "summary": zod.string().nullable().describe('Short routing summary written at extraction time'),
+  "keywords": zod.array(zod.string()).describe('Routing keywords written at extraction time'),
+  "extractedChars": zod.number().describe('Length of the extracted text; 0 until status is ready'),
+  "createdAt": zod.string().describe('ISO timestamp'),
+  "updatedAt": zod.string().describe('ISO timestamp')
+})
+
+
+/**
+ * HQ admins only. Re-reads the stored object and runs extraction again — the retry for failed documents (also unsticks a document left in "extracting" by a server restart). One run per document at a time.
+ * @summary Re-run text extraction on the stored file
+ */
+export const KnowledgeRetryExtractionParams = zod.object({
+  "documentId": zod.coerce.string().describe('UUID of the knowledge document row')
+})
+
+export const KnowledgeRetryExtractionResponse = zod.object({
+  "status": zod.enum(['extracting'])
+})
+
+
+/**
  * Returns server health status
  * @summary Health check
  */

@@ -12,6 +12,7 @@
 import { ReactNode, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
+  BookOpenText,
   Building2,
   FolderOpen,
   GraduationCap,
@@ -42,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: MessagesSquare },
   { path: '/admin/team', label: 'Team', icon: Users },
   { path: '/admin/training', label: 'Training', icon: GraduationCap },
+  { path: '/admin/knowledge', label: 'AI Support', mobileLabel: 'Support', icon: BookOpenText },
   { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
   { path: '/admin/settings', label: 'Settings', icon: Settings2 },
 ];
@@ -49,7 +51,7 @@ const NAV_ITEMS: NavItem[] = [
 const ADMIN_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/admin'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/team'] },
-  { label: 'Learning', paths: ['/admin/training'] },
+  { label: 'Learning', paths: ['/admin/training', '/admin/knowledge'] },
   { label: 'Manage', paths: ['/admin/files', '/admin/settings'] },
 ];
 

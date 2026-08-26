@@ -84,6 +84,14 @@ args = "meal-photo"
 task = "workflow.run"
 args = "api-tests"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "knowledge-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "knowledge-live"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -270,6 +278,28 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run"
+
+[[workflows.workflow]]
+name = "knowledge-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/knowledge src/routes/knowledge-docs.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "knowledge-live"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:knowledge"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 stack = "PNPM_WORKSPACE"

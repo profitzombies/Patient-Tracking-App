@@ -17,6 +17,13 @@ tags:
       Hosted training-video media. Callers authenticate with their existing
       Supabase staff session (Authorization: Bearer <access token>); HQ admins
       manage files and run AI processing, provider staff fetch playback URLs.
+  - name: knowledge
+    description: >-
+      AI Support knowledge base. HQ admins upload PDF / Word / text documents;
+      the server verifies each upload in App Storage, extracts the full text,
+      and stores it with a short summary + keywords for answer routing. Same
+      auth model as training: the caller's existing Supabase staff session
+      rides as a bearer token and is re-verified on every call.
 paths:
   /coach/chat:
     post:
@@ -426,6 +433,268 @@ paths:
           description: No such training video
         "409":
           description: No hosted video, or a run is already in progress
+  /knowledge/upload-url:
+    post:
+      operationId: knowledgeUploadUrl
+      tags: [knowledge]
+      summary: Mint a presigned upload URL for a new knowledge document
+      description: >-
+        HQ admins only. Validates the declared type and size, mints a fresh
+        document id, and returns a short-lived presigned PUT URL plus the
+        canonical object path bound to that id
+        (/objects/knowledge-docs/<documentId>/…). Nothing is written to the
+        database until the create call verifies the uploaded bytes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeUploadUrlInput"
+      responses:
+        "200":
+          description: Presigned PUT URL, the new document id, and its object path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeUploadUrlResult"
+        "400":
+          description: Invalid request body
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "413":
+          description: File exceeds the 25 MB limit
+        "415":
+          description: Not an accepted document type (PDF, Word .docx, text, Markdown)
+  /knowledge/documents:
+    get:
+      operationId: knowledgeListDocuments
+      tags: [knowledge]
+      summary: List every knowledge document (without extracted text)
+      description: >-
+        HQ admins only. Returns all documents newest-first with status,
+        summary, and keyword metadata — extracted text stays out of the list
+        payload and is fetched per document.
+      responses:
+        "200":
+          description: All knowledge documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentList"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+    post:
+      operationId: knowledgeCreateDocument
+      tags: [knowledge]
+      summary: Create the document after verifying the uploaded bytes
+      description: >-
+        HQ admins only. Verifies the uploaded object exists under the minted
+        document id's prefix and respects the size cap, inserts the document
+        row, and starts text extraction in the background. The response
+        returns immediately; clients poll the list or detail endpoint while
+        status moves uploaded → extracting → ready or failed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeCreateInput"
+      responses:
+        "200":
+          description: The created document, extraction underway
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+        "400":
+          description: Invalid body or object path outside the document's prefix
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: The uploaded object never arrived
+        "409":
+          description: That document id already exists
+        "413":
+          description: File exceeds the 25 MB limit
+        "415":
+          description: Not an accepted document type
+        "422":
+          description: The uploaded file is empty
+  /knowledge/documents/{documentId}:
+    get:
+      operationId: knowledgeGetDocument
+      tags: [knowledge]
+      summary: Fetch one document including its extracted text
+      parameters:
+        - $ref: "#/components/parameters/KnowledgeDocumentId"
+      responses:
+        "200":
+          description: The document with extracted text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentDetail"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such knowledge document
+    patch:
+      operationId: knowledgeRenameDocument
+      tags: [knowledge]
+      summary: Rename a document (its stored file is untouched)
+      parameters:
+        - $ref: "#/components/parameters/KnowledgeDocumentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeRenameInput"
+      responses:
+        "200":
+          description: The renamed document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+        "400":
+          description: Invalid title
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such knowledge document
+    delete:
+      operationId: knowledgeDeleteDocument
+      tags: [knowledge]
+      summary: Delete a document and its stored file
+      description: >-
+        HQ admins only. Deletes the stored object from App Storage and then
+        removes the row — extracted text, summary, and keywords go with it.
+      parameters:
+        - $ref: "#/components/parameters/KnowledgeDocumentId"
+      responses:
+        "200":
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDeleteResult"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such knowledge document
+  /knowledge/documents/{documentId}/upload-url:
+    post:
+      operationId: knowledgeReplaceUploadUrl
+      tags: [knowledge]
+      summary: Mint a presigned upload URL to replace a document's file
+      parameters:
+        - $ref: "#/components/parameters/KnowledgeDocumentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeUploadUrlInput"
+      responses:
+        "200":
+          description: Presigned PUT URL and object path under this document's prefix
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeUploadUrlResult"
+        "400":
+          description: Invalid request body
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such knowledge document
+        "413":
+          description: File exceeds the 25 MB limit
+        "415":
+          description: Not an accepted document type
+  /knowledge/documents/{documentId}/file:
+    post:
+      operationId: knowledgeReplaceFile
+      tags: [knowledge]
+      summary: Swap in a replacement file after verifying it
+      description: >-
+        HQ admins only. Verifies the uploaded object under this document's
+        prefix, clears the old extracted text / summary / keywords (they
+        described the OLD file), swaps the stored object path in one
+        conditional write, deletes the replaced object, and re-runs
+        extraction on the new bytes.
+      parameters:
+        - $ref: "#/components/parameters/KnowledgeDocumentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeReplaceInput"
+      responses:
+        "200":
+          description: The document with the replacement file, extraction underway
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+        "400":
+          description: Invalid body or object path outside this document's prefix
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: Document row or uploaded object not found
+        "409":
+          description: The document changed while finalizing — upload again
+        "413":
+          description: File exceeds the 25 MB limit
+        "415":
+          description: Not an accepted document type
+        "422":
+          description: The uploaded file is empty
+  /knowledge/documents/{documentId}/extract:
+    post:
+      operationId: knowledgeRetryExtraction
+      tags: [knowledge]
+      summary: Re-run text extraction on the stored file
+      description: >-
+        HQ admins only. Re-reads the stored object and runs extraction again —
+        the retry for failed documents (also unsticks a document left in
+        "extracting" by a server restart). One run per document at a time.
+      parameters:
+        - $ref: "#/components/parameters/KnowledgeDocumentId"
+      responses:
+        "202":
+          description: Extraction restarted; poll the document for the outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeExtractResult"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such knowledge document
+        "409":
+          description: An extraction run is already in progress
   /healthz:
     get:
       operationId: healthCheck
@@ -805,11 +1074,237 @@ components:
           items:
             type: string
             enum: [transcribe, describe, chapters, thumbnail]
+    KnowledgeUploadUrlInput:
+      type: object
+      properties:
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: Original file name; becomes the document title (sans extension)
+        contentType:
+          type: string
+          enum:
+            - application/pdf
+            - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+            - text/plain
+            - text/markdown
+          description: Canonical MIME type the browser will send on the PUT
+        sizeBytes:
+          type: number
+          minimum: 1
+          maximum: 26214400
+          description: File size in bytes; the hard cap is 25 MB
+      required:
+        - fileName
+        - contentType
+        - sizeBytes
+    KnowledgeUploadUrlResult:
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Id the object path is bound to; send back to the create call
+        uploadUrl:
+          type: string
+          description: Presigned PUT URL, valid for ~15 minutes
+        objectPath:
+          type: string
+          description: Canonical object path to send back after the PUT; never a URL
+      required:
+        - documentId
+        - uploadUrl
+        - objectPath
+    KnowledgeCreateInput:
+      type: object
+      properties:
+        documentId:
+          type: string
+          maxLength: 60
+          description: The id returned by upload-url
+        objectPath:
+          type: string
+          maxLength: 500
+          description: The object path returned by upload-url after the PUT succeeded
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 300
+        contentType:
+          type: string
+          enum:
+            - application/pdf
+            - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+            - text/plain
+            - text/markdown
+      required:
+        - documentId
+        - objectPath
+        - fileName
+        - contentType
+    KnowledgeReplaceInput:
+      type: object
+      properties:
+        objectPath:
+          type: string
+          maxLength: 500
+          description: The object path returned by the replace upload-url
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 300
+        contentType:
+          type: string
+          enum:
+            - application/pdf
+            - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+            - text/plain
+            - text/markdown
+      required:
+        - objectPath
+        - fileName
+        - contentType
+    KnowledgeRenameInput:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required:
+        - title
+    KnowledgeDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        originalFilename:
+          type: string
+        contentType:
+          type: string
+        sizeBytes:
+          type: number
+        status:
+          type: string
+          enum: [uploaded, extracting, ready, failed]
+        errorMessage:
+          type: ["string", "null"]
+          description: Plain-words reason when status is failed
+        summary:
+          type: ["string", "null"]
+          description: Short routing summary written at extraction time
+        keywords:
+          type: array
+          items:
+            type: string
+          description: Routing keywords written at extraction time
+        extractedChars:
+          type: number
+          description: Length of the extracted text; 0 until status is ready
+        createdAt:
+          type: string
+          description: ISO timestamp
+        updatedAt:
+          type: string
+          description: ISO timestamp
+      required:
+        - id
+        - title
+        - originalFilename
+        - contentType
+        - sizeBytes
+        - status
+        - errorMessage
+        - summary
+        - keywords
+        - extractedChars
+        - createdAt
+        - updatedAt
+    KnowledgeDocumentDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        originalFilename:
+          type: string
+        contentType:
+          type: string
+        sizeBytes:
+          type: number
+        status:
+          type: string
+          enum: [uploaded, extracting, ready, failed]
+        errorMessage:
+          type: ["string", "null"]
+        summary:
+          type: ["string", "null"]
+        keywords:
+          type: array
+          items:
+            type: string
+        extractedChars:
+          type: number
+        extractedText:
+          type: ["string", "null"]
+          description: Full extracted text; null until status is ready
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - title
+        - originalFilename
+        - contentType
+        - sizeBytes
+        - status
+        - errorMessage
+        - summary
+        - keywords
+        - extractedChars
+        - extractedText
+        - createdAt
+        - updatedAt
+    KnowledgeDocumentList:
+      type: object
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeDocument"
+      required:
+        - documents
+    KnowledgeDeleteResult:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+      required:
+        - deleted
+    KnowledgeExtractResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [extracting]
+      required:
+        - status
   parameters:
     TrainingVideoId:
       name: videoId
       in: path
       required: true
       description: UUID of the training video row
+      schema:
+        type: string
+    KnowledgeDocumentId:
+      name: documentId
+      in: path
+      required: true
+      description: UUID of the knowledge document row
       schema:
         type: string

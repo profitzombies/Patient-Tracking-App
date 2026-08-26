@@ -53,7 +53,10 @@
  *   9. Add-from-card integration: buildCustomFoodFromLabel +
  *      buildLabelDiaryEntry run the SAME paths as Add Food (custom food in
  *      "My Foods", editable like any other, diary entry for the chosen
- *      slot), and markLabelFoodAdded freezes the card payload.
+ *      slot); the card's serving stepper multiplies the LOGGED ENTRY only
+ *      (quantity × per-serving macros, Add Food's detail shape and
+ *      rounding) while the saved food stays per-serving, and
+ *      markLabelFoodAdded freezes the card payload with slot + quantity.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:meal-photo
  */
@@ -1231,16 +1234,73 @@ async function main() {
     assertEqual('the entry carries the label calories', entry?.calories ?? -1, 230);
     assertEqual('the entry kind is "food"', entry?.kind ?? '', 'food');
 
-    // The card freezes once added: payload flips, and beginLabelRename
-    // refuses (renames now belong to the custom-food edit screen).
+    // The card's serving stepper multiplies the LOGGED ENTRY only: quantity
+    // × the per-serving macros with Add Food's detail shape and rounding.
+    await act(async () => {
+      await patient.addEntry(buildLabelDiaryEntry(food, 'snacks', TODAY_KEY, 2));
+    });
+    {
+      const doubled = patient
+        .entriesForDate(TODAY_KEY)
+        .find(e => e.refId === food.id && e.meal === 'snacks');
+      assert('a 2-serving add lands its own diary entry', doubled !== undefined);
+      assertEqual('the 2-serving entry stores quantity 2', doubled?.quantity ?? -1, 2);
+      assertEqual('the 2-serving detail multiplies the serving', doubled?.detail ?? '', '2 × 2/3 cup (55g)');
+      assertEqual('the 2-serving entry doubles calories', doubled?.calories ?? -1, 460);
+      assertEqual('the 2-serving entry doubles protein', doubled?.protein ?? -1, 16);
+      assertEqual('the 2-serving entry doubles carbs', doubled?.carbs ?? -1, 74);
+      assertEqual('the 2-serving entry doubles fat', doubled?.fat ?? -1, 16);
+    }
+    {
+      // Half steps behave like every other logged food: fraction kept in
+      // the detail, macros multiplied then rounded.
+      const half = buildLabelDiaryEntry(food, 'lunch', TODAY_KEY, 1.5);
+      assertEqual('a half-step keeps the fraction in the detail', half.detail, '1.5 × 2/3 cup (55g)');
+      assertEqual('a half-step stores its quantity', half.quantity, 1.5);
+      assertEqual('a half-step multiplies calories', half.calories, 345);
+      assertEqual('a half-step rounds protein like Add Food', half.protein, 12);
+    }
+    assertEqual(
+      'multi-serving logs never touch the saved per-serving food',
+      patient.customFoods.find(f => f.id === food.id)?.calories ?? -1,
+      230,
+    );
+
+    // The card freezes once added: payload flips (slot + logged quantity for
+    // the confirmation line), and beginLabelRename refuses (renames now
+    // belong to the custom-food edit screen).
     await actSettle(() => {
-      chat.markLabelFoodAdded(cardMessage.id, 'lunch');
+      chat.markLabelFoodAdded(cardMessage.id, 'lunch', 2);
     });
     const frozen = parseLabelFoodCardPayload(
       chat.messages.find(m => m.id === cardMessage.id)?.card?.payload,
     );
     assert('markLabelFoodAdded flips the payload', frozen?.added === true);
     assertEqual('the frozen payload remembers the slot', frozen?.addedSlot ?? '', 'lunch');
+    assertEqual('the frozen payload remembers the quantity', frozen?.addedQuantity ?? -1, 2);
+
+    // The confirmation quantity survives the defensive parse; junk drops
+    // the field so the card falls back to single-serving wording.
+    {
+      const frozenRaw = { ...LABEL_DRAFT, name: 'Muesli', added: true, addedSlot: 'lunch' };
+      assertEqual(
+        'a fractional addedQuantity parses through',
+        parseLabelFoodCardPayload({ ...frozenRaw, addedQuantity: 2.5 })?.addedQuantity ?? -1,
+        2.5,
+      );
+      assert(
+        'a zero addedQuantity is dropped by the parse',
+        parseLabelFoodCardPayload({ ...frozenRaw, addedQuantity: 0 })?.addedQuantity === undefined,
+      );
+      assert(
+        'a non-numeric addedQuantity is dropped by the parse',
+        parseLabelFoodCardPayload({ ...frozenRaw, addedQuantity: '2' })?.addedQuantity === undefined,
+      );
+      assert(
+        'an absent addedQuantity stays absent',
+        parseLabelFoodCardPayload(frozenRaw)?.addedQuantity === undefined,
+      );
+    }
     await actSettle(() => {
       chat.beginLabelRename(cardMessage.id);
     });

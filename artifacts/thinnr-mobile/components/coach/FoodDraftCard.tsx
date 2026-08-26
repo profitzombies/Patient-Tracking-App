@@ -7,19 +7,24 @@
  * payload is the server's label transcription plus the patient's confirmed
  * Title Case name, and the two actions run the real flows — Add saves the
  * custom food through the same path as the create-food screen ("My Foods",
- * editable, undoable) and logs one serving to the chosen diary slot; Rename
- * hands the next typed message to the chat context's label flow. Once added
- * the card freezes into a confirmation so a double tap cannot save twice.
- * Heritage styling: soft-radius inset card on the paper bubble, serif name,
- * Inter uppercase micro-labels.
+ * editable, undoable) and logs the stepped serving count to the chosen
+ * diary slot. The serving stepper (same 0.5–10 half steps as Add Food)
+ * multiplies the LOGGED ENTRY only — the saved food stays per-serving.
+ * Rename hands the next typed message to the chat context's label flow.
+ * Once added the card freezes into a confirmation echoing the logged
+ * quantity, so a double tap cannot save twice. Heritage styling:
+ * soft-radius inset card on the paper bubble, serif name, Inter uppercase
+ * micro-labels.
  */
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { registerCoachCard } from '@/components/coach/CoachCardSlot';
 import { useCoachChat } from '@/context/CoachChatContext';
 import { usePatient } from '@/context/PatientContext';
 import { MEAL_LABELS, MEAL_SLOTS, TODAY_KEY, type MealSlot } from '@/data/patient-data';
+import { formatQty } from '@/data/diary-entries';
 import { useColors } from '@/hooks/useColors';
 import {
   buildCustomFoodFromLabel,
@@ -27,6 +32,10 @@ import {
   parseLabelFoodCardPayload,
   type LabelFoodCardPayload,
 } from '@/lib/label-food';
+
+/** Same stepper bounds as Add Food and the library's add panel. */
+const QTY_MIN = 0.5;
+const QTY_MAX = 10;
 
 /** "4g fiber · 12g sugar · 160mg sodium" for whichever extras were legible. */
 function extrasLine(payload: LabelFoodCardPayload): string | null {
@@ -48,6 +57,7 @@ export function FoodDraftCard({
   const patient = usePatient();
   const { labelFlow, beginLabelRename, markLabelFoodAdded } = useCoachChat();
   const [slot, setSlot] = useState<MealSlot>(payload.suggestedSlot);
+  const [qty, setQty] = useState(1);
   const [saving, setSaving] = useState(false);
 
   const renaming = labelFlow?.phase === 'renaming' && labelFlow.cardMessageId === messageId;
@@ -57,15 +67,26 @@ export function FoodDraftCard({
       ? `${payload.servingSize} · ${payload.servingsPerContainer} per container`
       : payload.servingSize;
 
+  // The frozen confirmation reads the quantity from the payload so it
+  // survives remounts; older frozen payloads without one read as 1 serving.
+  const loggedQty = payload.addedQuantity ?? 1;
+  const addedLead = loggedQty === 1 ? 'Added' : `${formatQty(loggedQty)} servings added`;
+
+  const stepQty = (delta: number) => {
+    Haptics.selectionAsync();
+    setQty(q => Math.min(QTY_MAX, Math.max(QTY_MIN, Math.round((q + delta) * 2) / 2)));
+  };
+
   const add = async () => {
     if (saving || payload.added) return;
     setSaving(true);
     try {
-      // The same two steps Add Food runs: create the reusable custom food,
-      // then log one serving of it to the chosen slot for today.
+      // The same two steps Add Food runs: create the reusable custom food
+      // (always per-serving), then log the stepped number of servings of it
+      // to the chosen slot for today.
       const food = await patient.addCustomFood(buildCustomFoodFromLabel(payload));
-      await patient.addEntry(buildLabelDiaryEntry(food, slot, TODAY_KEY));
-      markLabelFoodAdded(messageId, slot);
+      await patient.addEntry(buildLabelDiaryEntry(food, slot, TODAY_KEY, qty));
+      markLabelFoodAdded(messageId, slot, qty);
     } finally {
       setSaving(false);
     }
@@ -106,7 +127,7 @@ export function FoodDraftCard({
       {payload.added ? (
         <View style={styles.addedBlock}>
           <Text style={[styles.addedLine, { color: colors.cobalt }]}>
-            {`Added to ${MEAL_LABELS[payload.addedSlot ?? slot]} · saved to My Foods`}
+            {`${addedLead} to ${MEAL_LABELS[payload.addedSlot ?? slot]} · saved to My Foods`}
           </Text>
           <Text style={[styles.addedHint, { color: colors.subtleText }]}>
             Find it in Add Food anytime, and edit it like any of your foods.
@@ -149,11 +170,57 @@ export function FoodDraftCard({
               );
             })}
           </View>
+          <View style={styles.qtyRow}>
+            <Pressable
+              testID={`food-card-qty-minus-${payload.id}`}
+              accessibilityRole="button"
+              accessibilityLabel="Fewer servings"
+              disabled={qty <= QTY_MIN}
+              onPress={() => stepQty(-0.5)}
+              style={[
+                styles.qtyButton,
+                {
+                  borderColor: colors.border,
+                  borderRadius: colors.radiusSm,
+                  opacity: qty <= QTY_MIN ? 0.35 : 1,
+                },
+              ]}
+            >
+              <Feather name="minus" size={13} color={colors.bodyText} />
+            </Pressable>
+            <Text
+              testID={`food-card-qty-${payload.id}`}
+              accessibilityLabel={`${formatQty(qty)} ${qty === 1 ? 'serving' : 'servings'}`}
+              style={[styles.qtyValue, { color: colors.navy }]}
+            >
+              {formatQty(qty)}
+            </Text>
+            <Pressable
+              testID={`food-card-qty-plus-${payload.id}`}
+              accessibilityRole="button"
+              accessibilityLabel="More servings"
+              disabled={qty >= QTY_MAX}
+              onPress={() => stepQty(0.5)}
+              style={[
+                styles.qtyButton,
+                {
+                  borderColor: colors.border,
+                  borderRadius: colors.radiusSm,
+                  opacity: qty >= QTY_MAX ? 0.35 : 1,
+                },
+              ]}
+            >
+              <Feather name="plus" size={13} color={colors.bodyText} />
+            </Pressable>
+            <Text style={[styles.qtyHint, { color: colors.subtleText }]}>
+              {`${qty === 1 ? 'serving' : 'servings'} · ${Math.round(payload.calories * qty)} cal`}
+            </Text>
+          </View>
           <View style={styles.buttonRow}>
             <Pressable
               testID={`food-card-add-${payload.id}`}
               accessibilityRole="button"
-              accessibilityLabel={`Add ${payload.name} to ${MEAL_LABELS[slot]}`}
+              accessibilityLabel={`Add ${formatQty(qty)} ${qty === 1 ? 'serving' : 'servings'} of ${payload.name} to ${MEAL_LABELS[slot]}`}
               disabled={saving}
               onPress={add}
               style={({ pressed }) => [
@@ -257,6 +324,30 @@ const styles = StyleSheet.create({
   slotChipText: {
     fontSize: 11.5,
     fontFamily: 'Inter_500Medium',
+  },
+  qtyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  qtyButton: {
+    borderWidth: 1,
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyValue: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    minWidth: 26,
+    textAlign: 'center',
+  },
+  qtyHint: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    flexShrink: 1,
   },
   buttonRow: {
     flexDirection: 'row',

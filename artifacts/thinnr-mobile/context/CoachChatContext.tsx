@@ -183,11 +183,11 @@ interface CoachChatContextValue {
    */
   beginLabelRename: (cardMessageId: string) => void;
   /**
-   * Marks a food card's payload as added (and to which slot) after Add
-   * saved the custom food and logged the entry — the card then freezes so a
-   * double tap cannot save twice.
+   * Marks a food card's payload as added (to which slot, and how many
+   * servings the entry logged) after Add saved the custom food and logged
+   * the entry — the card then freezes so a double tap cannot save twice.
    */
-  markLabelFoodAdded: (cardMessageId: string, slot: MealSlot) => void;
+  markLabelFoodAdded: (cardMessageId: string, slot: MealSlot, quantity?: number) => void;
 }
 
 const CoachChatContext = createContext<CoachChatContextValue | null>(null);
@@ -1028,7 +1028,7 @@ export function CoachChatProvider({
   );
 
   const markLabelFoodAdded = useCallback(
-    (cardMessageId: string, slot: MealSlot) => {
+    (cardMessageId: string, slot: MealSlot, quantity: number = 1) => {
       // Adding while a rename waits on this card ends the rename: the food
       // is saved now, so later text must reach the coach, not the card.
       if (labelFlowRef.current?.cardMessageId === cardMessageId) updateLabelFlow(null);
@@ -1043,6 +1043,9 @@ export function CoachChatProvider({
                     ...(m.card.payload as LabelFoodCardPayload),
                     added: true,
                     addedSlot: slot,
+                    // Entry-only multiplier, echoed by the frozen
+                    // confirmation. The saved food stays per-serving.
+                    addedQuantity: quantity,
                   },
                 },
               }

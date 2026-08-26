@@ -13,7 +13,10 @@
  * create-food screen (`addCustomFood`, category "My Foods"), then logs a
  * diary entry to the chosen slot exactly like Add Food would — so undo,
  * editing, and the library all treat the result as an ordinary custom food.
+ * The card's serving stepper multiplies the LOGGED ENTRY only (quantity ×
+ * per-serving macros); the reusable custom food always stays per-serving.
  */
+import { formatQty } from '@/data/diary-entries';
 import { MEAL_SLOTS, type FoodItem, type MealLogEntry, type MealSlot } from '@/data/patient-data';
 
 /** Server-transcribed Nutrition Facts read (one label photo). */
@@ -45,6 +48,11 @@ export interface LabelFoodCardPayload extends LabelDraft {
   added?: boolean;
   /** Slot the entry was logged to (for the card's confirmation line). */
   addedSlot?: MealSlot;
+  /**
+   * Servings Add logged (for the card's confirmation line). Multiplied the
+   * diary entry only — the saved custom food stays per-serving.
+   */
+  addedQuantity?: number;
 }
 
 function isMealSlot(value: unknown): value is MealSlot {
@@ -94,6 +102,11 @@ export function parseLabelFoodCardPayload(value: unknown): LabelFoodCardPayload 
   const payload: LabelFoodCardPayload = { ...draft, name: r.name.trim() };
   if (r.added === true) payload.added = true;
   if (isMealSlot(r.addedSlot)) payload.addedSlot = r.addedSlot;
+  // Quantity must be a finite positive number; junk drops the field so the
+  // confirmation falls back to its single-serving wording.
+  if (typeof r.addedQuantity === 'number' && Number.isFinite(r.addedQuantity) && r.addedQuantity > 0) {
+    payload.addedQuantity = r.addedQuantity;
+  }
   return payload;
 }
 
@@ -101,6 +114,7 @@ export function parseLabelFoodCardPayload(value: unknown): LabelFoodCardPayload 
  * The custom food Add saves — the same shape the create-food screen builds,
  * so the result is an ordinary "My Foods" entry (editable, undoable).
  * Values round to whole numbers to match every other food in the library.
+ * Always per-serving: the card's serving stepper never touches this shape.
  */
 export function buildCustomFoodFromLabel(
   payload: LabelFoodCardPayload,
@@ -116,13 +130,16 @@ export function buildCustomFoodFromLabel(
 }
 
 /**
- * The diary entry Add logs alongside the save — one serving of the freshly
- * created food, mirroring log-food's quick-add entry shape exactly.
+ * The diary entry Add logs alongside the save — `quantity` servings of the
+ * freshly created food, mirroring log-food's entry shape exactly (same
+ * detail format, same macros-×-quantity-then-round math). The multiplication
+ * lives HERE, on the entry, so the reusable food stays per-serving.
  */
 export function buildLabelDiaryEntry(
   food: FoodItem,
   slot: MealSlot,
   dateKey: string,
+  quantity: number = 1,
 ): Omit<MealLogEntry, 'id'> {
   return {
     dateKey,
@@ -130,11 +147,11 @@ export function buildLabelDiaryEntry(
     kind: 'food',
     refId: food.id,
     name: food.name,
-    detail: `1 × ${food.serving}`,
-    quantity: 1,
-    calories: food.calories,
-    protein: food.protein,
-    carbs: food.carbs,
-    fat: food.fat,
+    detail: `${formatQty(quantity)} × ${food.serving}`,
+    quantity,
+    calories: Math.round(food.calories * quantity),
+    protein: Math.round(food.protein * quantity),
+    carbs: Math.round(food.carbs * quantity),
+    fat: Math.round(food.fat * quantity),
   };
 }

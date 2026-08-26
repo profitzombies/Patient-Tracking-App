@@ -14,3 +14,14 @@ export function KeyboardStickyView(props: { children?: React.ReactNode }): React
 export function KeyboardAwareScrollView(props: { children?: React.ReactNode }): React.ReactElement {
   return React.createElement('KeyboardAwareScrollView', null, props.children);
 }
+
+/** Platform.OS is 'web' in suites, so listeners are never attached; the
+ * export only has to exist so destructured imports resolve. */
+export const KeyboardEvents = {
+  addListener(
+    _event: string,
+    _handler: (payload: { height: number; duration: number }) => void,
+  ) {
+    return { remove() {} };
+  },
+};

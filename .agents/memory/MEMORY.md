@@ -14,7 +14,7 @@
 - [Coach stopped replies](coach-stopped-replies.md) — stopped replies carry a `stopped` flag end-to-end; the server appends a model-only interruption note so the next answer never continues cut-off text.
 - [Coach paced reveal](coach-paced-reveal.md) — typed-out reveal lives in the chat context so message.text is always exactly what's on screen; stop/cards/chips contracts follow for free.
 - [Staging coach failures](coach-failure-staging.md) — env-override restarts stage failures: break the model upstream, or zero the limiter knobs to stage denials; the tester heals it in-session.
-- [Coach upstream reliability](coach-upstream-reliability.md) — SSE keepalives while silent + idle deadlines on every model call (timeout skips transient retry); client end-without-done = error, never silent success.
+- [Coach upstream reliability](coach-upstream-reliability.md) — SSE keepalives + idle deadlines; client end-without-done = error, never silent success; abort-guard every stream callback (drain + screen controller check).
 - [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
 - [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).
 - [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.

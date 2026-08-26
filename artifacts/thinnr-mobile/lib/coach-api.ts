@@ -133,7 +133,8 @@ function isCardEvent(card: unknown): card is CoachCardEvent {
 
 /** Chips are tiny buttons; anything longer than this cannot be a real label. */
 const MAX_QUICK_REPLY_LENGTH = 40;
-function apiBase(): string {
+/** Shared by every mobile API client (see lib/support-api.ts). */
+export function apiBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (!domain) {
     throw new Error('EXPO_PUBLIC_DOMAIN is not set; cannot reach the API server');
@@ -146,7 +147,11 @@ function drainSseBuffer(
   buffer: string,
   callbacks: CoachStreamCallbacks,
   state: { finished: boolean },
+  signal?: AbortSignal,
 ): string {
+  // An abort can land between a read resolving and its buffer draining;
+  // finishing here guarantees no callback ever fires after a stop.
+  if (signal?.aborted) state.finished = true;
   const events = buffer.split('\n\n');
   const tail = events.pop() ?? '';
   for (const event of events) {
@@ -243,15 +248,15 @@ export async function streamCoachChat(
       let buffer = '';
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done || signal?.aborted) break;
         buffer += decoder.decode(value, { stream: true });
-        buffer = drainSseBuffer(buffer, callbacks, state);
+        buffer = drainSseBuffer(buffer, callbacks, state, signal);
       }
       buffer += decoder.decode();
-      drainSseBuffer(`${buffer}\n\n`, callbacks, state);
+      drainSseBuffer(`${buffer}\n\n`, callbacks, state, signal);
     } else {
       // No streaming support: parse the whole SSE payload in one pass.
-      drainSseBuffer(`${await response.text()}\n\n`, callbacks, state);
+      drainSseBuffer(`${await response.text()}\n\n`, callbacks, state, signal);
     }
 
     if (!state.finished) {

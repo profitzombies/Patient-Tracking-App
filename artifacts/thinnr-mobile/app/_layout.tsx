@@ -233,6 +233,7 @@ function RootLayoutNav() {
       <Stack.Screen name="yesterday-review" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="coach-chat" options={{ headerShown: false }} />
+      <Stack.Screen name="support-chat" options={{ headerShown: false }} />
       <Stack.Screen
         name="food-camera"
         options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}

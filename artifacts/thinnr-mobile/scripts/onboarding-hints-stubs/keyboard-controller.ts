@@ -18,3 +18,14 @@ export function KeyboardAwareScrollView({
 }) {
   return React.createElement('KeyboardAwareScrollView', props, children);
 }
+
+/** Platform.OS is 'web' in suites, so listeners are never attached; the
+ * export only has to exist so destructured imports resolve. */
+export const KeyboardEvents = {
+  addListener(
+    _event: string,
+    _handler: (payload: { height: number; duration: number }) => void,
+  ) {
+    return { remove() {} };
+  },
+};

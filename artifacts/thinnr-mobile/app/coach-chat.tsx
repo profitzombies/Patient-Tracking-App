@@ -42,7 +42,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { KeyboardStickyView } from "react-native-keyboard-controller";
+import {
+  KeyboardEvents,
+  KeyboardStickyView,
+} from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -166,6 +169,40 @@ export default function CoachChatScreen() {
     );
     return () => clearTimeout(timer);
   }, [messages]);
+
+  // The sticky composer rides up OVER the thread when the keyboard opens; the
+  // scroll area itself never shrinks. Track the keyboard so the thread can
+  // reserve the covered strip, otherwise the newest messages hide behind the
+  // keyboard with no way to scroll down to them.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const setFrom = (event: { height: number }) =>
+      setKeyboardHeight(event.height);
+    const clear = () => setKeyboardHeight(0);
+    const subs = [
+      KeyboardEvents.addListener("keyboardWillShow", setFrom),
+      KeyboardEvents.addListener("keyboardDidShow", setFrom),
+      KeyboardEvents.addListener("keyboardWillHide", clear),
+      KeyboardEvents.addListener("keyboardDidHide", clear),
+    ];
+    return () => subs.forEach((sub) => sub.remove());
+  }, []);
+
+  useEffect(() => {
+    // Opening the keyboard from the bottom of the thread keeps the newest
+    // message pinned just above the composer (readers who scrolled up are
+    // left alone). Immediate jump, then an animated settle once the newly
+    // reserved space has laid out.
+    if (keyboardHeight <= 0 || !nearBottomRef.current) return;
+    scrollRef.current?.scrollToEnd({ animated: false });
+    const timer = setTimeout(
+      () => scrollRef.current?.scrollToEnd({ animated: true }),
+      90,
+    );
+    return () => clearTimeout(timer);
+  }, [keyboardHeight]);
 
   // Android/web hear pick errors via the box's live region; iOS has no live
   // regions, so the message is announced explicitly there.
@@ -484,6 +521,14 @@ export default function CoachChatScreen() {
               ),
             )}
           </View>
+        ) : null}
+
+        {keyboardHeight > 0 ? (
+          <View
+            // Reserve exactly the strip the risen composer + keyboard cover
+            // (the composer already spans the home-indicator inset).
+            style={{ height: Math.max(keyboardHeight - insets.bottom, 0) }}
+          />
         ) : null}
       </ScrollView>
 

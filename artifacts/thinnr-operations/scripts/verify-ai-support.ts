@@ -13,10 +13,11 @@
  *      exact primary-care-physician closer line the persona requires.
  *   3. A question the library cannot answer gets an honest "I don't know"
  *      that offers Support@Thinnrweightloss.com — not an invention.
- *   4. The staff auth gate holds on the wire: a tokenless call is rejected
- *      with 401, and the probes authenticate as a THROWAWAY provider-staff
- *      account minted with the service role and deleted afterwards — the
- *      same real gate signed-in staff pass, with no shared credential.
+ *   4. The open demo posture holds on the wire: the persona probes all run
+ *      TOKENLESS (reaching the page is enough — the old 401 gate is
+ *      retired), and a bearer-carrying call behaves identically, so
+ *      signed-in staff clients keep working unchanged. Abuse is bounded by
+ *      the chat's per-IP rate limits, not by auth.
  *
  * Live suite — needs the API server running (`artifacts/api-server`
  * workflow) with OpenAI credentials and the seeded knowledge library.
@@ -27,12 +28,6 @@
  */
 
 const API_BASE = (process.env.STAFF_API_BASE ?? 'http://localhost:80').replace(/\/$/, '');
-const SUPABASE_URL = (process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
-const ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-/** Bearer used by every probe; a throwaway staff session resolved in main(). */
-let staffToken: string | null = null;
 
 const PCP_CLOSER =
   'If you have additional concerns, please have the patient check with their primary care physician.';
@@ -54,8 +49,11 @@ interface StreamResult {
   errorEvent: string | null;
 }
 
-/** Runs one chat turn and collects the streamed reply. */
-async function ask(question: string): Promise<StreamResult> {
+/**
+ * Runs one chat turn and collects the streamed reply. Tokenless by default,
+ * exactly like the open page; the bearer probe passes a synthetic token.
+ */
+async function ask(question: string, token: string | null = null): Promise<StreamResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120_000);
   try {
@@ -63,7 +61,7 @@ async function ask(question: string): Promise<StreamResult> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(staffToken ? { Authorization: `Bearer ${staffToken}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ messages: [{ role: 'user', content: question }] }),
       signal: controller.signal,
@@ -127,7 +125,11 @@ const BANNED_REFERRAL = /consult (a|an|your|their) (healthcare|health care|medic
 async function probeInScope(): Promise<void> {
   console.log('probe: in-scope program question');
   const result = await ask('What foods are approved during the thinning phase?');
-  check('responds 200', result.status === 200, `status ${result.status}`);
+  check(
+    'tokenless call responds 200 (the old 401 gate is retired)',
+    result.status === 200,
+    `status ${result.status}`,
+  );
   check('stream finished with done', result.sawDone, result.errorEvent ?? 'no done event');
   check('no error event', result.errorEvent === null, result.errorEvent ?? '');
   const text = result.text;
@@ -197,99 +199,25 @@ async function probeHonestUnknown(): Promise<void> {
   }
 }
 
-async function svc(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
-  const response = await fetch(`${SUPABASE_URL}${path}`, {
-    method,
-    headers: {
-      apikey: SERVICE_KEY!,
-      Authorization: `Bearer ${SERVICE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json: any = await response.json().catch(() => null);
-  return { status: response.status, json };
-}
-
-async function signIn(email: string, password: string): Promise<string | null> {
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: { apikey: ANON_KEY!, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  const json: any = await response.json().catch(() => null);
-  return response.status === 200 && typeof json?.access_token === 'string' ? json.access_token : null;
-}
-
 /**
- * The probes pass the real staff gate as a throwaway provider-staff account
- * (service-role mint, deleted in cleanup) — never a credential that also
- * exists in shipped code.
+ * Signed-in staff clients still attach their session bearer; the open route
+ * must treat that call exactly like a tokenless one — the header is simply
+ * ignored, so a synthetic token proves the contract without any account.
  */
-async function createThrowawayStaff(): Promise<{ id: string; email: string; password: string }> {
-  const ts = Date.now();
-  const email = `qa-support-${ts}@thinnr-staff-check.com`;
-  const password = `Qa!${ts}sup`;
-  const assignment = await svc('POST', '/rest/v1/staff_role_assignments', {
-    email,
-    role: 'provider_staff',
-    provider_account_code: 'acct-p1',
-  });
-  if (assignment.status !== 201) throw new Error(`assignment insert failed (${assignment.status})`);
-  const created = await svc('POST', '/auth/v1/admin/users', {
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { display_name: 'QA Support Check' },
-  });
-  const id = created.json?.id ?? created.json?.user?.id;
-  if (!id) throw new Error(`admin create failed (${created.status})`);
-  return { id, email, password };
-}
-
-async function cleanupThrowawayStaff(account: { id: string; email: string } | null): Promise<void> {
-  if (!account) return;
-  await svc('DELETE', `/auth/v1/admin/users/${account.id}`).catch(() => null);
-  await svc(
-    'DELETE',
-    `/rest/v1/staff_role_assignments?email=eq.${encodeURIComponent(account.email)}`,
-  ).catch(() => null);
-}
-
-async function probeAuthGate(): Promise<void> {
-  console.log('probe: staff auth gate');
-  const anon = await fetch(`${API_BASE}/api/support/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
-  });
-  await anon.text().catch(() => '');
-  check('tokenless call is rejected with 401', anon.status === 401, `status ${anon.status}`);
+async function probeSignedInUnchanged(): Promise<void> {
+  console.log('probe: bearer-carrying call (signed-in staff) behaves identically');
+  const result = await ask('How should a patient take Boost, and when?', 'synthetic-staff-bearer');
+  check('responds 200 with a bearer attached', result.status === 200, `status ${result.status}`);
+  check('stream finished with done', result.sawDone, result.errorEvent ?? 'no done event');
+  check('answer has substance', result.text.length > 100, `${result.text.length} chars`);
 }
 
 async function main(): Promise<void> {
   console.log(`AI Support live verification against ${API_BASE}\n`);
-  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) {
-    console.error(
-      'Missing SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY in the environment.',
-    );
-    process.exit(1);
-  }
-  let account: { id: string; email: string; password: string } | null = null;
-  try {
-    await probeAuthGate();
-    account = await createThrowawayStaff();
-    staffToken = await signIn(account.email, account.password);
-    check('throwaway staff sign-in works', staffToken !== null);
-    if (staffToken) {
-      await probeInScope();
-      await probePcpCloser();
-      await probeHonestUnknown();
-    }
-  } finally {
-    await cleanupThrowawayStaff(account);
-  }
+  await probeInScope();
+  await probePcpCloser();
+  await probeHonestUnknown();
+  await probeSignedInUnchanged();
   if (failures > 0) {
     console.error(`\n${failures} check(s) failed`);
     process.exit(1);

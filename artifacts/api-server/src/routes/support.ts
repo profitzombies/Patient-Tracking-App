@@ -14,13 +14,14 @@
  * stream re-runs the turn with the whole library before the assistant may
  * say it doesn't know. The client just sees a longer first-token wait.
  *
- * Unlike the coach, this endpoint exposes the INTERNAL knowledge library
- * (loaded with the service role), so it requires a verified staff session:
- * any signed-in provider or HQ account. Signed-out visitors — the guided
- * demo persona included — get a sign-in gate on the page instead; no demo
- * credential ships client-side. On top of auth it keeps its OWN limiter
- * knobs, per-IP burst, concurrency, and daily budget, plus the app-level
- * CORS allowlist.
+ * Demo posture: reaching the page is enough — there is NO staff-session
+ * gate. The staff identity was only ever a gate here (answers come from one
+ * global library read with the service role; no office scoping, no
+ * attribution), so demo personas chat exactly like signed-in staff, whose
+ * bearer, when attached, is simply ignored. Spend stays bounded by the
+ * endpoint's OWN limiter knobs — per-IP burst, concurrency, and daily
+ * budget — plus the app-level CORS allowlist. Re-tightening later is one
+ * middleware away.
  */
 import { Router, type IRouter } from "express";
 import type { Response } from "express";
@@ -43,7 +44,6 @@ import {
 } from "../support/prompt";
 import { acquireSupportSlot } from "../support/limits";
 import { BrandSpellingSmoother } from "../support/text-guards";
-import { requireStaff } from "../lib/staff-auth";
 
 const router: IRouter = Router();
 
@@ -133,7 +133,7 @@ async function streamSupportTurn(options: {
   };
 }
 
-router.post("/support/chat", requireStaff(["hq_admin", "provider_staff"]), async (req, res) => {
+router.post("/support/chat", async (req, res) => {
   const startedAt = Date.now();
   // Limit first: this endpoint spends paid model credits, so even invalid
   // spam should burn the caller's budget, not the server's CPU.

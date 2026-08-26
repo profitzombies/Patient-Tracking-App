@@ -53,6 +53,6 @@
 - [Provider account lock](account-lock-pattern.md) — presence-keyed row + lock-aware caller_* helpers collapse office RLS at one choke point; keep locked staff's own-profile read for the notice.
 - [Web fit-to-iPhone shell](web-fit-shell.md) — Expo web lays out on a fixed 393pt canvas transform-scaled to the frame; use the app width hook, ?layoutWidth= to pin/disable; gBCR consumers see real px.
 - [Knowledge doc library](knowledge-doc-library.md) — AI Support grounding docs: extract-on-finalize with object-path-conditional persists, routing aids total at ingest, seed only via the real HTTP path.
-- [Support chat grounding](support-chat-grounding.md) — broaden-marker routing; brand fixes via stream rewrite; history caps fit replayed replies (turn TWO); internal data needs real sessions, never bundled demo creds.
+- [Support chat grounding](support-chat-grounding.md) — broaden-marker routing; brand fixes via stream rewrite; history caps fit replayed replies (turn TWO); AI Support + knowledge routes deliberately open, per-IP-limited; never bundle creds.
 - [Unicode in authored TSX](tsx-unicode-escapes.md) — \uXXXX in JSX text renders literally (green builds, broken UI); write real characters when generating files.
 - [Synthetic image fixtures](synthetic-image-fixtures.md) — no sharp/PIL/chromium here: a no-deps Node PNG encoder + 5x7 pixel font makes vision-readable fixtures; certify via curl before e2e.

@@ -24,15 +24,19 @@ never fully fix output that quotes sources verbatim. Enforce such invariants
 as streaming rewrites chained into the response (like the dash smoother),
 holding back only the smallest window needed across chunk boundaries.
 
-## Internal data demands real auth — and no bundled credentials
-A route that reads internal content with the service role must verify a real
-session; per-IP limits and CORS are not authorization. Equally rejected: the
-client auto-signing into a documented demo account — ANY credential shipped
-in browser code is an authorization bypass, however "demo" it looks.
-**How to apply:** open-demo personas get a sign-in-required card on live
-internal-data features (the house lockout pattern); verify scripts mint
-throwaway staff accounts with the service role instead of reusing documented
-logins.
+## Auth posture is a product decision — never bundle credentials
+One rule is permanent: ANY credential shipped in browser code is an
+authorization bypass, however "demo" it looks — rejected even for demos.
+**Superseded (Aug 2026, explicit user decision):** the support-chat route and
+the knowledge-document routes are deliberately OPEN — reaching the page is
+enough for every demo persona. Clients attach a session bearer only when one
+exists; the server ignores it on these routes. Abuse is bounded by per-IP
+limiters instead (chat knobs + a modest knowledge write limiter).
+**How to apply:** verify scripts run tokenless plus one synthetic-bearer
+parity probe — no throwaway staff accounts for these two surfaces. Every
+other staff area (training media, staff logins, role management) keeps its
+real gate; re-tightening later = re-adding requireStaff + flipping the
+tokenless probes back to 401.
 
 ## Replayed-history caps
 A comprehensive reply exceeded the request schema's per-message cap the

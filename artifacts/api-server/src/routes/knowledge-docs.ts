@@ -1,10 +1,14 @@
 /**
  * AI Support knowledge base routes.
  *
- * Auth model: same as training media — every route verifies the caller's
- * EXISTING Supabase session (Authorization: Bearer <access token>) and their
- * profile role; only HQ admins manage the library. There is no separate
- * login and no anonymous surface at all.
+ * Access model (demo posture): reaching the admin portal is enough — these
+ * routes have NO sign-in gate, unlike training media. The staff identity was
+ * only ever a gate here: there is one global library, read and written with
+ * the service role, with no office scoping or attribution. A signed-in
+ * caller's bearer, when attached, is simply ignored. In its place every
+ * WRITE rides a modest per-IP limiter (reads stay open for the page's
+ * status polling), so the endpoints cannot be hammered; re-tightening later
+ * is one middleware away.
  *
  * Storage model: browsers upload straight to App Storage via a presigned PUT
  * bound to the document's prefix, then hit a finalize call that verifies the
@@ -16,14 +20,14 @@
  * never describes new bytes — then deletes the replaced object.
  */
 import { randomUUID } from "crypto";
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import {
   KnowledgeCreateDocumentBody,
   KnowledgeRenameDocumentBody,
   KnowledgeReplaceFileBody,
   KnowledgeUploadUrlBody,
 } from "@workspace/api-zod";
-import { requireStaff } from "../lib/staff-auth";
+import { acquireKnowledgeWriteSlot } from "../support/limits";
 import { ObjectNotFoundError, objectStorage } from "../lib/objectStorage";
 import {
   deleteDocumentRecord,
@@ -46,6 +50,23 @@ export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 
 const TYPE_ERROR = "Upload a PDF, Word (.docx), text, or Markdown file.";
 const SIZE_ERROR = "That file is over the 25 MB limit.";
+
+/**
+ * Per-IP limit on every document WRITE — the stand-in for the retired
+ * sign-in gate. Limit first, like the chat route: denials are cheap JSON
+ * answers before any storage or database work.
+ */
+function limitWrites(req: Request, res: Response, next: NextFunction): void {
+  const slot = acquireKnowledgeWriteSlot(req.ip ?? "unknown");
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
+    return;
+  }
+  // "close" fires whether the response finished or the connection died
+  // mid-request, and release is idempotent — concurrency can never leak.
+  res.on("close", slot.release);
+  next();
+}
 
 /** The object-path prefix every file of this document must live under. */
 function documentPrefix(documentId: string): string {
@@ -161,7 +182,7 @@ async function verifyUploadedObject(objectPath: string, res: Response): Promise<
 
 router.post(
   "/knowledge/upload-url",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const policyError = uploadPolicyError(req.body);
@@ -190,7 +211,7 @@ router.post(
 
 router.post(
   "/knowledge/documents",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const policyError = uploadPolicyError(req.body);
@@ -245,7 +266,7 @@ router.post(
 // List / detail
 // ---------------------------------------------------------------------------
 
-router.get("/knowledge/documents", requireStaff(["hq_admin"]), async (req: Request, res: Response) => {
+router.get("/knowledge/documents", async (req: Request, res: Response) => {
   try {
     const rows = await listDocumentRecords();
     res.json({ documents: rows.map(toDocumentDto) });
@@ -257,7 +278,6 @@ router.get("/knowledge/documents", requireStaff(["hq_admin"]), async (req: Reque
 
 router.get(
   "/knowledge/documents/:documentId",
-  requireStaff(["hq_admin"]),
   async (req: Request, res: Response) => {
     try {
       const documentId = String(req.params.documentId);
@@ -284,7 +304,7 @@ router.get(
 
 router.patch(
   "/knowledge/documents/:documentId",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const parsed = KnowledgeRenameDocumentBody.safeParse(req.body);
@@ -317,7 +337,7 @@ router.patch(
 
 router.delete(
   "/knowledge/documents/:documentId",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const record = await loadDocumentOr404(String(req.params.documentId), res);
@@ -338,7 +358,7 @@ router.delete(
 
 router.post(
   "/knowledge/documents/:documentId/upload-url",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const policyError = uploadPolicyError(req.body);
@@ -364,7 +384,7 @@ router.post(
 
 router.post(
   "/knowledge/documents/:documentId/file",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const policyError = uploadPolicyError(req.body);
@@ -423,7 +443,7 @@ router.post(
 
 router.post(
   "/knowledge/documents/:documentId/extract",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const record = await loadDocumentOr404(String(req.params.documentId), res);

@@ -17,3 +17,23 @@ export const acquireSupportSlot = createLimiter({
   busyMessage: "AI Support is busy right now. Please try again in a moment.",
   rapidMessage: "You are sending messages too quickly. Please wait a moment.",
 });
+
+/**
+ * Knowledge-library writes (upload, finalize, rename, replace, delete,
+ * retry): the library manager is open in the demo posture — no staff
+ * sign-in — so a modest per-IP budget stands in for the retired gate.
+ * Reads are NOT limited; the admin page polls the list while extractions
+ * run. The burst absorbs a legitimate multi-file upload batch (two write
+ * calls per file). KNOWLEDGE_WRITE_BURST / KNOWLEDGE_WRITE_DAILY_BUDGET
+ * stage denials for tests, exactly like the chat knobs.
+ */
+export const acquireKnowledgeWriteSlot = createLimiter({
+  burst: envLimit("KNOWLEDGE_WRITE_BURST", 20),
+  refillPerMinute: 10,
+  maxConcurrent: 8,
+  dailyBudget: envLimit("KNOWLEDGE_WRITE_DAILY_BUDGET", 400),
+  dailyMessage:
+    "The knowledge library has reached its daily change limit. Please try again tomorrow.",
+  busyMessage: "The knowledge library is busy right now. Please try again in a moment.",
+  rapidMessage: "You are making changes too quickly. Please wait a moment.",
+});

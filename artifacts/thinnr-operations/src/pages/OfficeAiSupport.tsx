@@ -13,13 +13,16 @@
  * replace partial replies with a retryable notice, and a dropped stream never
  * finalizes as a complete answer. Chats are not persisted — each visit starts
  * fresh by design.
+ *
+ * Open in the demo posture: reaching this page is enough — no staff sign-in,
+ * no gate copy. Every visitor (demo personas included) gets the composer;
+ * the server bounds spend with per-IP rate limits instead.
  */
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, BookOpenText, Lock, RotateCcw, Sparkles, Square } from 'lucide-react';
+import { ArrowUp, BookOpenText, RotateCcw, Sparkles, Square } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MICRO_LABEL } from '@/components/patient/heritage';
-import { useSession } from '@/contexts/session';
 import {
   streamSupportChat,
   toHistoryContent,
@@ -119,14 +122,6 @@ function nextId(): string {
 }
 
 export default function OfficeAiSupport() {
-  // Live chat calls a staff-authenticated endpoint, so it needs the real
-  // signed-in session. The demo persona (signed out by design) browses the
-  // page but gets a sign-in notice instead of the composer — the same
-  // pattern as the HQ knowledge library's demo lockout.
-  const { authStatus, authRole } = useSession();
-  const canChat =
-    authStatus === 'signed-in' && (authRole === 'hq_admin' || authRole === 'provider_staff');
-
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -154,7 +149,7 @@ export default function OfficeAiSupport() {
 
   const send = (question: string) => {
     const trimmed = question.trim().slice(0, MAX_QUESTION_LENGTH);
-    if (!trimmed || streaming || !canChat) return;
+    if (!trimmed || streaming) return;
     setError(null);
     setDraft('');
 
@@ -269,38 +264,21 @@ export default function OfficeAiSupport() {
                 Comprehensive answers, grounded in the THINNR documents. If the documents do not
                 cover it, you will hear that honestly instead of a guess.
               </p>
-              {canChat ? (
-                <div className="mt-4 space-y-2">
-                  <p className={MICRO_LABEL}>Try asking</p>
-                  {SUGGESTED_QUESTIONS.map((question, index) => (
-                    <button
-                      key={question}
-                      type="button"
-                      onClick={() => send(question)}
-                      data-testid={`button-suggested-${index}`}
-                      className="block w-full rounded-md border border-border bg-paper-alt px-3.5 py-2.5 text-left text-xs leading-snug text-foreground transition hover:border-accent-border hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <BookOpenText size={12} aria-hidden="true" className="mr-2 inline-block text-primary" />
-                      {question}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div
-                  className="mt-4 rounded-md border border-border bg-paper-alt px-4 py-3.5 text-left"
-                  data-testid="notice-support-signin"
-                >
-                  <p className="flex items-center gap-1.5 text-xs font-semibold text-navy">
-                    <Lock size={12} aria-hidden="true" className="text-primary" />
-                    Sign in to chat live
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Answers stream from the real knowledge library, so AI Support needs a
-                    signed-in staff account. Exploring the demo? Sign out of the persona and use
-                    the demo staff login from the demo guide, then come back here.
-                  </p>
-                </div>
-              )}
+              <div className="mt-4 space-y-2">
+                <p className={MICRO_LABEL}>Try asking</p>
+                {SUGGESTED_QUESTIONS.map((question, index) => (
+                  <button
+                    key={question}
+                    type="button"
+                    onClick={() => send(question)}
+                    data-testid={`button-suggested-${index}`}
+                    className="block w-full rounded-md border border-border bg-paper-alt px-3.5 py-2.5 text-left text-xs leading-snug text-foreground transition hover:border-accent-border hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <BookOpenText size={12} aria-hidden="true" className="mr-2 inline-block text-primary" />
+                    {question}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -377,7 +355,6 @@ export default function OfficeAiSupport() {
         </p>
 
         {/* Composer — sticks to the bottom of the scroll area */}
-        {canChat && (
         <div className="sticky bottom-0 mt-auto shrink-0 bg-gradient-to-t from-background via-background to-transparent pb-4 pt-2 sm:pb-5">
           <form
             onSubmit={(event) => {
@@ -434,7 +411,6 @@ export default function OfficeAiSupport() {
             .
           </p>
         </div>
-        )}
       </div>
     </div>
   );

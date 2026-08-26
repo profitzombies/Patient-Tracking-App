@@ -1,9 +1,11 @@
 /**
  * The knowledge routes' upload contract over real HTTP: finalize verifies
  * the object landed under the minted prefix and fits the cap BEFORE a row
- * exists, replacement clears everything the old file produced in one
- * conditional swap and deletes the replaced object, and every route demands
- * an HQ-admin session.
+ * exists, and replacement clears everything the old file produced in one
+ * conditional swap and deletes the replaced object. The routes are OPEN in
+ * the demo posture — no staff session anywhere — so every WRITE rides a
+ * per-IP limiter while reads stay unlimited; the limiter test runs last
+ * because it drains one IP's bucket.
  */
 import express from "express";
 import type { Server } from "node:http";
@@ -32,7 +34,6 @@ interface StoredRow {
 
 const state = vi.hoisted(() => ({
   rows: new Map<string, StoredRow>(),
-  rolesDemanded: [] as string[][],
   deleted: [] as string[],
   minted: [] as string[],
   objectExists: true,
@@ -62,13 +63,6 @@ function makeRow(overrides: Partial<StoredRow> = {}): StoredRow {
     ...overrides,
   };
 }
-
-vi.mock("../lib/staff-auth", () => ({
-  requireStaff: (roles: string[]) => {
-    state.rolesDemanded.push(roles);
-    return (_req: unknown, _res: unknown, next: () => void) => next();
-  },
-}));
 
 vi.mock("../lib/objectStorage", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/objectStorage")>();
@@ -160,6 +154,9 @@ let baseUrl: string;
 
 beforeAll(async () => {
   const app = express();
+  // Same as the real app: X-Forwarded-For controls req.ip, so every call
+  // can ride its own client IP and the write limiter never interferes.
+  app.set("trust proxy", true);
   app.use(express.json());
   app.use(knowledgeDocsRouter);
   await new Promise<void>((resolve) => {
@@ -184,10 +181,21 @@ beforeEach(() => {
   state.startResult = true;
 });
 
-async function call(method: string, path: string, body?: unknown) {
+let ipCounter = 0;
+
+/** Distinct client IP per call; the limiter test pins one IP explicitly. */
+function nextIp(): string {
+  ipCounter += 1;
+  return `10.9.${Math.floor(ipCounter / 200)}.${(ipCounter % 200) + 1}`;
+}
+
+async function call(method: string, path: string, body?: unknown, ip = nextIp()) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: {
+      "X-Forwarded-For": ip,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
@@ -196,12 +204,19 @@ async function call(method: string, path: string, body?: unknown) {
 
 const GOOD_UPLOAD = { fileName: "handbook.pdf", contentType: "application/pdf", sizeBytes: 2048 };
 
-describe("auth", () => {
-  it("every knowledge route demands an HQ admin session", () => {
-    expect(state.rolesDemanded.length).toBeGreaterThanOrEqual(9);
-    for (const roles of state.rolesDemanded) {
-      expect(roles).toEqual(["hq_admin"]);
-    }
+describe("open access (demo posture)", () => {
+  it("serves tokenless callers — there is no staff gate on any route", async () => {
+    state.rows.set(DOC_ID, makeRow());
+    const { status } = await call("GET", "/knowledge/documents");
+    expect(status).toBe(200);
+  });
+
+  it("treats a bearer-carrying caller (signed-in staff) exactly the same", async () => {
+    state.rows.set(DOC_ID, makeRow());
+    const response = await fetch(`${baseUrl}/knowledge/documents`, {
+      headers: { Authorization: "Bearer real-staff-session", "X-Forwarded-For": nextIp() },
+    });
+    expect(response.status).toBe(200);
   });
 });
 
@@ -459,5 +474,32 @@ describe("POST /knowledge/documents/:id/extract (retry)", () => {
     state.startResult = false;
     const { status } = await call("POST", `/knowledge/documents/${DOC_ID}/extract`);
     expect(status).toBe(409);
+  });
+});
+
+describe("per-IP write limiter (runs last — drains one IP's bucket)", () => {
+  it("429s rapid-fire writes from one IP; reads and other IPs stay open", async () => {
+    const ip = "10.9.250.1";
+    const denials: Array<Record<string, unknown> | null> = [];
+    // KNOWLEDGE_WRITE_BURST defaults to 20; 30 attempts must trip it.
+    for (let i = 0; i < 30; i++) {
+      const { status, json } = await call("POST", "/knowledge/upload-url", GOOD_UPLOAD, ip);
+      if (status === 429) denials.push(json);
+    }
+    expect(denials.length).toBeGreaterThan(0);
+    for (const denial of denials) {
+      expect(String(denial?.error)).toContain("too quickly");
+      expect(denial?.retryable).toBe(true);
+    }
+
+    // Reads from the SAME drained IP still pass — only writes are limited.
+    for (let i = 0; i < 5; i++) {
+      const { status } = await call("GET", "/knowledge/documents", undefined, ip);
+      expect(status).toBe(200);
+    }
+
+    // A fresh visitor's bucket is untouched.
+    const { status } = await call("POST", "/knowledge/upload-url", GOOD_UPLOAD);
+    expect(status).toBe(200);
   });
 });

@@ -1,13 +1,13 @@
 /**
  * Client for the API server's AI Support knowledge-base routes.
  *
- * Same transport contract as the training-media client: every call rides
- * the caller's EXISTING Supabase staff session as a bearer token (the
- * server re-verifies the HQ-admin role on every request), paths are
- * root-relative `/api/...`, and files go STRAIGHT to App Storage via a
- * presigned PUT — the JSON API only mints upload URLs and finalizes them.
- * Demo personas have no session, so these helpers throw before any network
- * call and the page shows its sign-in notice instead.
+ * Transport: paths are root-relative `/api/...`, and files go STRAIGHT to
+ * App Storage via a presigned PUT — the JSON API only mints upload URLs and
+ * finalizes them. The routes have no sign-in gate (demo posture): anyone in
+ * the admin portal manages the library, and the server bounds writes with a
+ * per-IP limiter instead. When a real Supabase session exists its bearer is
+ * still attached (signed-in staff send exactly what they always sent); a
+ * missing session simply means an anonymous call, never a refusal.
  */
 import { supabase } from '@/lib/supabase';
 import { uploadToStorage } from '@/lib/training-media';
@@ -98,16 +98,15 @@ export function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-async function staffToken(): Promise<string> {
-  if (!supabase) {
-    throw new KnowledgeError('Sign in with the HQ admin account to manage the knowledge base.', 401);
+/** The real app session's bearer when one exists; null means anonymous. */
+async function sessionToken(): Promise<string | null> {
+  if (!supabase) return null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
   }
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) {
-    throw new KnowledgeError('Sign in with the HQ admin account to manage the knowledge base.', 401);
-  }
-  return token;
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -121,13 +120,13 @@ async function errorMessage(response: Response): Promise<string> {
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = await staffToken();
+  const token = await sessionToken();
   const response = await fetch(`/api${path}`, {
     ...init,
     headers: {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(init.headers ?? {}),
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
   if (!response.ok) {

@@ -2,9 +2,9 @@
  * AI Support knowledge base — the library behind the provider AI Support
  * chat. Unlike most HQ pages this is LIVE data: uploads go straight to App
  * Storage, the api-server extracts full text server-side, and provider
- * chats will answer from exactly what's stored here. That's also why the
- * page insists on a real signed-in HQ admin — demo personas get a notice,
- * not doomed requests.
+ * chats will answer from exactly what's stored here. Open in the demo
+ * posture: anyone who reaches the admin portal manages the library — no
+ * separate sign-in — and the server bounds writes with a per-IP limiter.
  *
  * Trust surface: the extracted-text preview IS the product. Admins check
  * what the AI can actually read (extraction status, character counts, the
@@ -15,7 +15,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Eye, FileText, FileUp, Pencil, RotateCw, Trash2 } from 'lucide-react';
-import { useSession } from '@/contexts/session';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPage, PageHeader, MetricTile } from '@/components/admin/primitives';
 import {
@@ -98,8 +97,6 @@ function problemText(error: unknown): string {
 }
 
 export default function KnowledgeBase() {
-  const { authStatus } = useSession();
-  const signedIn = authStatus === 'signed-in';
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -121,7 +118,6 @@ export default function KnowledgeBase() {
   const docsQuery = useQuery({
     queryKey: DOCS_KEY,
     queryFn: listKnowledgeDocuments,
-    enabled: signedIn,
     // Poll while any document is mid-pipeline so status chips move on
     // their own; go quiet the moment everything is settled.
     refetchInterval: (query) =>
@@ -134,7 +130,7 @@ export default function KnowledgeBase() {
   const detailQuery = useQuery({
     queryKey: ['knowledge-doc', previewDoc?.id],
     queryFn: () => fetchKnowledgeDocument(previewDoc!.id),
-    enabled: signedIn && previewDoc !== null,
+    enabled: previewDoc !== null,
   });
 
   const readyCount = docs.filter((doc) => doc.status === 'ready').length;
@@ -262,18 +258,16 @@ export default function KnowledgeBase() {
         title="AI Support"
         sub="The library behind the provider AI Support chat — upload program PDFs and Word documents, then check exactly what the AI can read."
         action={
-          signedIn ? (
-            <button
-              type="button"
-              className={`${BTN_PRIMARY} px-4 py-2`}
-              onClick={() => uploadInputRef.current?.click()}
-              disabled={activeUploads}
-              data-testid="button-upload-documents"
-            >
-              <FileUp className="h-3.5 w-3.5" aria-hidden />
-              Upload documents
-            </button>
-          ) : undefined
+          <button
+            type="button"
+            className={`${BTN_PRIMARY} px-4 py-2`}
+            onClick={() => uploadInputRef.current?.click()}
+            disabled={activeUploads}
+            data-testid="button-upload-documents"
+          >
+            <FileUp className="h-3.5 w-3.5" aria-hidden />
+            Upload documents
+          </button>
         }
       />
 
@@ -301,207 +295,195 @@ export default function KnowledgeBase() {
         }}
       />
 
-      {!signedIn ? (
-        <SectionCard title="Sign in required" sub="Live data — demo personas browse everything else, but not this.">
-          <p className="max-w-xl text-xs leading-relaxed text-muted-foreground" data-testid="text-knowledge-signin">
-            These documents feed real provider AI Support chats, so only the signed-in THINNR HQ
-            admin account can see or change them. Sign out of the demo persona and sign in with the
-            HQ admin account to manage the library.
-          </p>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricTile label="Documents" value={String(docs.length)} testId="text-metric-docs" />
+        <MetricTile label="Ready" value={String(readyCount)} testId="text-metric-ready" />
+        <MetricTile
+          label="Needs attention"
+          value={String(failedCount)}
+          detail={failedCount > 0 ? 'Extraction failed — retry or replace' : undefined}
+          testId="text-metric-attention"
+        />
+        <MetricTile label="Library size" value={formatBytes(totalBytes)} testId="text-metric-size" />
+      </div>
+
+      {uploads.length > 0 && (
+        <SectionCard
+          title="Uploads"
+          sub="Files go straight to storage, then text extraction starts server-side."
+          action={
+            !activeUploads ? (
+              <button
+                type="button"
+                className={`${BTN_SECONDARY} px-3 py-1.5`}
+                onClick={() => setUploads([])}
+                data-testid="button-clear-uploads"
+              >
+                Clear
+              </button>
+            ) : undefined
+          }
+        >
+          <ul className="space-y-2">
+            {uploads.map((item) => (
+              <li key={item.key} className={`${INSET} px-3 py-2`} data-testid={`upload-item-${item.key}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 truncate text-xs font-semibold text-foreground">{item.name}</span>
+                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-[.06em] text-muted-foreground">
+                    {item.phase === 'waiting' && 'Waiting'}
+                    {item.phase === 'uploading' && `Uploading ${item.pct}%`}
+                    {item.phase === 'finalizing' && 'Finalizing…'}
+                    {item.phase === 'done' && 'Done — extracting text'}
+                    {item.phase === 'failed' && 'Failed'}
+                  </span>
+                </div>
+                {(item.phase === 'uploading' || item.phase === 'finalizing') && (
+                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width]"
+                      style={{ width: `${item.pct}%` }}
+                    />
+                  </div>
+                )}
+                {item.phase === 'failed' && item.error && (
+                  <p className="mt-1 text-[11px] leading-snug text-destructive">{item.error}</p>
+                )}
+              </li>
+            ))}
+          </ul>
         </SectionCard>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <MetricTile label="Documents" value={String(docs.length)} testId="text-metric-docs" />
-            <MetricTile label="Ready" value={String(readyCount)} testId="text-metric-ready" />
-            <MetricTile
-              label="Needs attention"
-              value={String(failedCount)}
-              detail={failedCount > 0 ? 'Extraction failed — retry or replace' : undefined}
-              testId="text-metric-attention"
-            />
-            <MetricTile label="Library size" value={formatBytes(totalBytes)} testId="text-metric-size" />
-          </div>
-
-          {uploads.length > 0 && (
-            <SectionCard
-              title="Uploads"
-              sub="Files go straight to storage, then text extraction starts server-side."
-              action={
-                !activeUploads ? (
-                  <button
-                    type="button"
-                    className={`${BTN_SECONDARY} px-3 py-1.5`}
-                    onClick={() => setUploads([])}
-                    data-testid="button-clear-uploads"
-                  >
-                    Clear
-                  </button>
-                ) : undefined
-              }
-            >
-              <ul className="space-y-2">
-                {uploads.map((item) => (
-                  <li key={item.key} className={`${INSET} px-3 py-2`} data-testid={`upload-item-${item.key}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="min-w-0 truncate text-xs font-semibold text-foreground">{item.name}</span>
-                      <span className="shrink-0 text-[10px] font-bold uppercase tracking-[.06em] text-muted-foreground">
-                        {item.phase === 'waiting' && 'Waiting'}
-                        {item.phase === 'uploading' && `Uploading ${item.pct}%`}
-                        {item.phase === 'finalizing' && 'Finalizing…'}
-                        {item.phase === 'done' && 'Done — extracting text'}
-                        {item.phase === 'failed' && 'Failed'}
-                      </span>
-                    </div>
-                    {(item.phase === 'uploading' || item.phase === 'finalizing') && (
-                      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-border">
-                        <div
-                          className="h-full rounded-full bg-primary transition-[width]"
-                          style={{ width: `${item.pct}%` }}
-                        />
-                      </div>
-                    )}
-                    {item.phase === 'failed' && item.error && (
-                      <p className="mt-1 text-[11px] leading-snug text-destructive">{item.error}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </SectionCard>
-          )}
-
-          <SectionCard
-            title="Document library"
-            sub={
-              docs.length === 0
-                ? 'Nothing uploaded yet.'
-                : `${docs.length} ${docs.length === 1 ? 'document' : 'documents'} · ${readyCount} ready for the AI`
-            }
-          >
-            {docsQuery.isLoading ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">Loading the library…</p>
-            ) : docsQuery.isError ? (
-              <p className="py-6 text-center text-xs text-destructive" data-testid="text-knowledge-error">
-                {problemText(docsQuery.error)}
-              </p>
-            ) : docs.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-8 text-center" data-testid="text-knowledge-empty">
-                <FileText className="h-6 w-6 text-muted-foreground" aria-hidden />
-                <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
-                  No documents yet — upload the program PDFs and Word files the AI Support chat
-                  should answer from.
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.08em] text-muted-foreground">
-                      <th scope="col" className="py-2 pr-3 font-bold">Document</th>
-                      <th scope="col" className="py-2 pr-3 font-bold">Type</th>
-                      <th scope="col" className="py-2 pr-3 font-bold">Size</th>
-                      <th scope="col" className="py-2 pr-3 font-bold">Uploaded</th>
-                      <th scope="col" className="py-2 pr-3 font-bold">Status</th>
-                      <th scope="col" className="py-2 text-right font-bold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {docs.map((doc) => {
-                      const chip = statusChip(doc);
-                      const isReplacing = replacing?.id === doc.id;
-                      return (
-                        <tr key={doc.id} className="border-b border-border/60 align-top" data-testid={`row-doc-${doc.id}`}>
-                          <td className="max-w-[280px] py-2.5 pr-3">
-                            <p className="truncate font-semibold text-foreground" title={doc.title} data-testid={`text-doc-title-${doc.id}`}>
-                              {doc.title}
-                            </p>
-                            <p className="truncate text-[11px] text-muted-foreground" title={doc.originalFilename}>
-                              {doc.originalFilename}
-                            </p>
-                            {doc.status === 'failed' && doc.errorMessage && (
-                              <p className="mt-1 max-w-[280px] text-[11px] leading-snug text-destructive" data-testid={`text-doc-error-${doc.id}`}>
-                                {doc.errorMessage}
-                              </p>
-                            )}
-                          </td>
-                          <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{documentTypeLabel(doc.contentType)}</td>
-                          <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{formatBytes(doc.sizeBytes)}</td>
-                          <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{formatDate(doc.createdAt)}</td>
-                          <td className="py-2.5 pr-3 whitespace-nowrap">
-                            <span className={chip.className} data-testid={`chip-doc-status-${doc.id}`}>
-                              {isReplacing ? `Uploading ${replacing.pct}%` : chip.label}
-                            </span>
-                          </td>
-                          <td className="py-2 text-right whitespace-nowrap">
-                            <div className="inline-flex items-center gap-0.5">
-                              {doc.status === 'failed' && (
-                                <button
-                                  type="button"
-                                  className="rounded-sm p-1.5 text-primary transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                  onClick={() => void handleRetry(doc)}
-                                  aria-label={`Retry extraction for ${doc.title}`}
-                                  title="Retry extraction"
-                                  data-testid={`button-doc-retry-${doc.id}`}
-                                >
-                                  <RotateCw className="h-3.5 w-3.5" aria-hidden />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="rounded-sm p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                onClick={() => setPreviewDoc(doc)}
-                                aria-label={`Preview extracted text of ${doc.title}`}
-                                title="Preview extracted text"
-                                data-testid={`button-doc-preview-${doc.id}`}
-                              >
-                                <Eye className="h-3.5 w-3.5" aria-hidden />
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-sm p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                onClick={() => {
-                                  setRenameDoc(doc);
-                                  setRenameTitle(doc.title);
-                                }}
-                                aria-label={`Rename ${doc.title}`}
-                                title="Rename"
-                                data-testid={`button-doc-rename-${doc.id}`}
-                              >
-                                <Pencil className="h-3.5 w-3.5" aria-hidden />
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-sm p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                onClick={() => setReplaceConfirmDoc(doc)}
-                                disabled={isReplacing}
-                                aria-label={`Replace the file behind ${doc.title}`}
-                                title="Replace file"
-                                data-testid={`button-doc-replace-${doc.id}`}
-                              >
-                                <FileUp className="h-3.5 w-3.5" aria-hidden />
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-sm p-1.5 text-muted-foreground transition hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                onClick={() => setDeleteDoc(doc)}
-                                aria-label={`Delete ${doc.title}`}
-                                title="Delete"
-                                data-testid={`button-doc-delete-${doc.id}`}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </SectionCard>
-        </>
       )}
+
+      <SectionCard
+        title="Document library"
+        sub={
+          docs.length === 0
+            ? 'Nothing uploaded yet.'
+            : `${docs.length} ${docs.length === 1 ? 'document' : 'documents'} · ${readyCount} ready for the AI`
+        }
+      >
+        {docsQuery.isLoading ? (
+          <p className="py-6 text-center text-xs text-muted-foreground">Loading the library…</p>
+        ) : docsQuery.isError ? (
+          <p className="py-6 text-center text-xs text-destructive" data-testid="text-knowledge-error">
+            {problemText(docsQuery.error)}
+          </p>
+        ) : docs.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center" data-testid="text-knowledge-empty">
+            <FileText className="h-6 w-6 text-muted-foreground" aria-hidden />
+            <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+              No documents yet — upload the program PDFs and Word files the AI Support chat
+              should answer from.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.08em] text-muted-foreground">
+                  <th scope="col" className="py-2 pr-3 font-bold">Document</th>
+                  <th scope="col" className="py-2 pr-3 font-bold">Type</th>
+                  <th scope="col" className="py-2 pr-3 font-bold">Size</th>
+                  <th scope="col" className="py-2 pr-3 font-bold">Uploaded</th>
+                  <th scope="col" className="py-2 pr-3 font-bold">Status</th>
+                  <th scope="col" className="py-2 text-right font-bold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docs.map((doc) => {
+                  const chip = statusChip(doc);
+                  const isReplacing = replacing?.id === doc.id;
+                  return (
+                    <tr key={doc.id} className="border-b border-border/60 align-top" data-testid={`row-doc-${doc.id}`}>
+                      <td className="max-w-[280px] py-2.5 pr-3">
+                        <p className="truncate font-semibold text-foreground" title={doc.title} data-testid={`text-doc-title-${doc.id}`}>
+                          {doc.title}
+                        </p>
+                        <p className="truncate text-[11px] text-muted-foreground" title={doc.originalFilename}>
+                          {doc.originalFilename}
+                        </p>
+                        {doc.status === 'failed' && doc.errorMessage && (
+                          <p className="mt-1 max-w-[280px] text-[11px] leading-snug text-destructive" data-testid={`text-doc-error-${doc.id}`}>
+                            {doc.errorMessage}
+                          </p>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{documentTypeLabel(doc.contentType)}</td>
+                      <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{formatBytes(doc.sizeBytes)}</td>
+                      <td className="py-2.5 pr-3 whitespace-nowrap text-muted-foreground">{formatDate(doc.createdAt)}</td>
+                      <td className="py-2.5 pr-3 whitespace-nowrap">
+                        <span className={chip.className} data-testid={`chip-doc-status-${doc.id}`}>
+                          {isReplacing ? `Uploading ${replacing.pct}%` : chip.label}
+                        </span>
+                      </td>
+                      <td className="py-2 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-0.5">
+                          {doc.status === 'failed' && (
+                            <button
+                              type="button"
+                              className="rounded-sm p-1.5 text-primary transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={() => void handleRetry(doc)}
+                              aria-label={`Retry extraction for ${doc.title}`}
+                              title="Retry extraction"
+                              data-testid={`button-doc-retry-${doc.id}`}
+                            >
+                              <RotateCw className="h-3.5 w-3.5" aria-hidden />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="rounded-sm p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => setPreviewDoc(doc)}
+                            aria-label={`Preview extracted text of ${doc.title}`}
+                            title="Preview extracted text"
+                            data-testid={`button-doc-preview-${doc.id}`}
+                          >
+                            <Eye className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-sm p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => {
+                              setRenameDoc(doc);
+                              setRenameTitle(doc.title);
+                            }}
+                            aria-label={`Rename ${doc.title}`}
+                            title="Rename"
+                            data-testid={`button-doc-rename-${doc.id}`}
+                          >
+                            <Pencil className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-sm p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => setReplaceConfirmDoc(doc)}
+                            disabled={isReplacing}
+                            aria-label={`Replace the file behind ${doc.title}`}
+                            title="Replace file"
+                            data-testid={`button-doc-replace-${doc.id}`}
+                          >
+                            <FileUp className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-sm p-1.5 text-muted-foreground transition hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => setDeleteDoc(doc)}
+                            aria-label={`Delete ${doc.title}`}
+                            title="Delete"
+                            data-testid={`button-doc-delete-${doc.id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
 
       {/* Extracted-text preview — how admins trust what the AI knows. */}
       <Dialog open={previewDoc !== null} onOpenChange={(open) => !open && setPreviewDoc(null)}>

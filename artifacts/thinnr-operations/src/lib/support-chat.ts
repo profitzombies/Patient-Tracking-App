@@ -8,16 +8,15 @@
  * the caller's abort signal fires, no further callbacks are invoked; the
  * caller owns the UI transition for a user-initiated stop.
  *
- * The route requires a verified staff session (it serves the internal
- * knowledge library). The bearer comes from the app's real Supabase session
- * ONLY — no credential ever ships in this bundle. Signed-out visitors (the
- * guided demo persona included) are gated by the page before this module is
- * asked to stream; if a call slips through anyway it fails with a clear
- * sign-in message rather than a fabricated session.
+ * The route has no sign-in gate (demo posture): anyone who can open the
+ * page can chat, demo personas included. When the app holds a real Supabase
+ * session its bearer is still attached — signed-in staff send exactly what
+ * they always sent — but a missing session simply means an anonymous call,
+ * never a refusal. No credential ever ships in this bundle.
  */
 import { supabase } from './supabase';
 
-/** Bearer for the staff-authenticated route: the real app session or null. */
+/** The real app session's bearer when one exists; null means anonymous. */
 async function getSupportAccessToken(): Promise<string | null> {
   if (!supabase) return null;
   try {
@@ -105,15 +104,13 @@ export async function streamSupportChat(
   try {
     const token = await getSupportAccessToken();
     if (signal?.aborted) return;
-    if (!token) {
-      state.finished = true;
-      callbacks.onError('Sign in with your staff account to use AI Support.', false);
-      return;
-    }
     // The operations web is the root artifact, so API paths are root-relative.
     const response = await fetch('/api/support/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ messages }),
       signal,
     });

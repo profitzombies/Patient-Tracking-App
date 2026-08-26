@@ -2,11 +2,13 @@
  * Route tests for POST /api/support/chat (the provider AI Support chat).
  *
  * The OpenAI client and the knowledge-library loader are mocked (no credits,
- * no database). Covers: invalid bodies, the grounded happy path, two-stage
- * broadening mechanics, the deterministic output guards (brand spelling,
- * dashes), stopped-history annotation, the empty-library and library-outage
- * paths, upstream reliability (idle deadline, keepalives), and rate
- * limiting. The rate-limit test runs last because it drains one IP's bucket.
+ * no database). Covers: open access (the demo posture has no staff gate, so
+ * tokenless and bearer-carrying calls behave identically), invalid bodies,
+ * the grounded happy path, two-stage broadening mechanics, the deterministic
+ * output guards (brand spelling, dashes), stopped-history annotation, the
+ * empty-library and library-outage paths, upstream reliability (idle
+ * deadline, keepalives), and rate limiting. The rate-limit test runs last
+ * because it drains one IP's bucket.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
@@ -16,29 +18,6 @@ import type { AddressInfo } from "node:net";
 const streamState = vi.hoisted(() => ({
   queue: [] as string[][],
   fallback: ["Grounded ", "answer."],
-}));
-
-/**
- * The route requires a verified staff bearer. The real verifier is covered
- * by lib/staff-auth's other consumers and by the live suite (which signs in
- * as the demo staff login); this stand-in keeps the suite hermetic while
- * still proving the route rejects tokenless calls before spending anything.
- */
-vi.mock("../lib/staff-auth", () => ({
-  requireStaff:
-    () =>
-    (
-      req: { headers: Record<string, string | string[] | undefined> },
-      res: { status(code: number): { json(body: unknown): void } },
-      next: () => void,
-    ) => {
-      const header = String(req.headers?.authorization ?? "");
-      if (!header.startsWith("Bearer ")) {
-        res.status(401).json({ error: "Sign in with a staff account to continue." });
-        return;
-      }
-      next();
-    },
 }));
 
 vi.mock("@workspace/integrations-openai-ai-server", () => ({
@@ -140,7 +119,8 @@ function nextIp(): string {
   return `10.7.${Math.floor(ipCounter / 200)}.${(ipCounter % 200) + 1}`;
 }
 
-function postChat(body: unknown, ip = nextIp(), token: string | null = "test-staff-token") {
+/** Calls are anonymous by default — the demo posture sends no bearer. */
+function postChat(body: unknown, ip = nextIp(), token: string | null = null) {
   return fetch(`${baseUrl}/api/support/chat`, {
     method: "POST",
     headers: {
@@ -174,9 +154,19 @@ function modelMessagesOfCall(index: number): { role: string; content: string }[]
 const ERROR_EVENT = 'data: {"error":"AI Support is unavailable right now. Please try again."}';
 
 describe("POST /api/support/chat", () => {
-  it("rejects calls without a staff bearer with 401", async () => {
+  it("streams for tokenless callers — the demo posture has no staff gate", async () => {
     const res = await postChat(userTurn("Hello"), nextIp(), null);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('data: {"content":"Grounded"}');
+    expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
+  });
+
+  it("treats a bearer-carrying call (signed-in staff) exactly the same", async () => {
+    const res = await postChat(userTurn("Hello"), nextIp(), "real-staff-session-token");
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
   });
 
   it("rejects an invalid body with 400", async () => {

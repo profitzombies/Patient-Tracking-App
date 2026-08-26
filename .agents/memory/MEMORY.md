@@ -4,7 +4,7 @@
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
 - [expo-router guarded redirects](expo-router-guard-redirects.md) — gate screen-level Redirects on usePathname; ungated guards hijack in-flight navigation during teardown.
 - [THINNR verbatim sources](thinnr-verbatim-sources.md) — quote program wording from the docs archive, never paraphrase; structured copies need an automated verbatim check against the source.
-- [RN web deprecated style props](rn-web-shadow-props.md) — no shadow*/textShadow*/pointerEvents props on Expo web; use boxShadow/textShadow strings + style.pointerEvents; one bottom-tabs-internal warning is accepted.
+- [RN web deprecated/unmapped props](rn-web-shadow-props.md) — shadow*/textShadow*/pointerEvents props and accessibilityState objects do nothing on Expo web; use boxShadow/textShadow strings, style.pointerEvents, flat aria-*.
 - [Approved-foods entry points](approved-foods-entry-points.md) — every "Approved list" shortcut routes through one shared constant in the mobile app; retarget there, not per-callsite.
 - [Coach chat grounding](coach-grounding.md) — coach answers come from runtime-sliced verbatim doc compartments (1-3 per turn); structured sources contribute only verbatim fields; extend via card slot, not inlined text.
 - [OpenAPI codegen zod quirk](openapi-codegen-zod.md) — never use type: integer in openapi.yaml (orval emits zod-4 zod.int(), workspace is zod 3); use type: number + server-side clamp.

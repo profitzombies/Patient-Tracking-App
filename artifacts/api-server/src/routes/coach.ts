@@ -9,6 +9,7 @@ import { findProduct, matchProducts, productCardPayload } from "../coach/product
 import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
 import { generateMealChatTurn } from "../coach/meal-chat";
+import { buildMealSlotContext } from "../coach/meal-slot";
 import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
 import { resolvePhotoKind } from "../coach/photo-kind";
 import { DashSmoother } from "../coach/text-style";
@@ -103,8 +104,19 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     // their intent topics; ordinary program questions get no product
     // instructions at all.
     const offeredProducts = matchProducts(latest.content);
+
+    // Meal-slot context for card-producing pipelines: an explicit slot pinned
+    // by the client wins outright; otherwise the patient's device clock
+    // (localTime, sent by the app on every call) yields the default the model
+    // falls back to when the patient names no meal. Old clients send neither,
+    // and the pipelines keep their legacy defaults.
+    const slotContext = buildMealSlotContext(parsed.data);
     req.log.info(
-      { compartments: selection.ids, offeredProducts: offeredProducts.map((p) => p.id) },
+      {
+        compartments: selection.ids,
+        offeredProducts: offeredProducts.map((p) => p.id),
+        slot: slotContext,
+      },
       "coach chat compartments selected",
     );
 
@@ -181,6 +193,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         const mealTurn = await generateMealChatTurn({
           image,
           patient: patientContext,
+          slot: slotContext,
           signal: abort.signal,
           log: req.log,
         });
@@ -255,6 +268,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
+          slot: slotContext,
           signal: abort.signal,
           log: req.log,
         });
@@ -285,6 +299,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
+          slot: slotContext,
           signal: abort.signal,
           log: req.log,
         });

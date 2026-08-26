@@ -28,6 +28,10 @@
  *      meal pipeline).
  *   4. retry() on a failed meal turn re-attaches the SAME image and
  *      photoKind "meal" so the retry reaches the meal pipeline again.
+ *      Meal-slot context rides every body: the provider's injected clock
+ *      stamps localTime "14:05" on each request, an entry point that pins a
+ *      slot sends mealSlot (kept in client state), and a retry re-sends the
+ *      SAME pin.
  *   5. The breakdown-editor math works on the meal shape (all rows editable):
  *      stepping an item re-scales from the ORIGINAL baseline (two
  *      adjustments never compound) and totals recompute as base + delta.
@@ -98,7 +102,7 @@ interface RequestMessage {
 }
 
 interface ScriptedSse {
-  requestBody: { messages?: RequestMessage[] };
+  requestBody: { messages?: RequestMessage[]; localTime?: string; mealSlot?: string };
   emit(payload: Record<string, unknown>): void;
   close(): void;
 }
@@ -332,10 +336,18 @@ async function main() {
   }
 
   // ── 2. Coach chat: the meal photo turn ─────────────────────────────────────
+  // Fixed wall clock injected into the provider: 14:05 is lunch territory,
+  // so every request body must carry localTime "14:05". Never the real
+  // clock — that would make these checks drift by time of day.
+  const FIXED_NOW = new Date(2026, 7, 26, 14, 5, 0);
   let coachTree!: { unmount(): void };
   await act(async () => {
     coachTree = TestRenderer.create!(
-      React.createElement(CoachChatProvider, null, React.createElement(ChatProbe)),
+      React.createElement(
+        CoachChatProvider,
+        { now: () => FIXED_NOW },
+        React.createElement(ChatProbe),
+      ),
     );
     await settle();
   });
@@ -380,6 +392,12 @@ async function main() {
       'the hidden greeting still opens the request history',
       msgs[0]?.role === 'assistant' && (msgs[0]?.content ?? '').length > 0,
     );
+    assertEqual(
+      'the meal request carries the injected local time',
+      s1.requestBody.localTime ?? '',
+      '14:05',
+    );
+    assert('an unpinned meal turn sends no mealSlot', s1.requestBody.mealSlot === undefined);
   }
 
   await actSettle(() => {
@@ -426,6 +444,11 @@ async function main() {
       'no message in the follow-up request carries an image or photoKind',
       msgs.every(m => m.image === undefined && m.photoKind === undefined),
     );
+    assertEqual(
+      'a plain text send also carries the injected local time',
+      s2.requestBody.localTime ?? '',
+      '14:05',
+    );
   }
   await actSettle(() => {
     s2.emit({ content: 'Anytime — logged and noted.' });
@@ -465,6 +488,8 @@ async function main() {
     assertEqual('retry re-sends the same meal photo on the tail', retryTail?.image ?? '', RETRY_PHOTO.uri);
     assertEqual('retry re-attaches photoKind "meal"', retryTail?.photoKind ?? '', 'meal');
     assertEqual('retry keeps the meal replay text', retryTail?.content ?? '', MEAL_PHOTO_MESSAGE_TEXT);
+    assertEqual('retry stamps a fresh local time', s4.requestBody.localTime ?? '', '14:05');
+    assert('an unpinned retry sends no mealSlot', s4.requestBody.mealSlot === undefined);
   }
   await actSettle(() => {
     s4.emit({ content: 'Take two — same plate, fresh eyes.' });
@@ -612,6 +637,52 @@ async function main() {
     s7.close();
   });
   await waitUntil('the explicit menu reply finalizes', () => tailMessage().status === 'done');
+
+  // 2h. A capture flow that already knows its diary slot (groundwork for the
+  // diary's per-meal camera) pins it: the pin rides the request body, is
+  // kept in client state, and a retry re-sends the SAME pin.
+  const PINNED_PHOTO = { uri: 'file:///pinned-dinner.jpg', width: 800, height: 600 };
+  await actSettle(() => {
+    chat.sendPhoto(PINNED_PHOTO, 'meal', { mealSlot: 'dinner' });
+  });
+  const pinnedTurn = chat.messages[chat.messages.length - 2];
+  assertEqual(
+    'the pinned turn keeps the slot in client state',
+    pinnedTurn.photo?.mealSlot ?? '',
+    'dinner',
+  );
+  const s8 = takeStream('pinned meal turn');
+  assertEqual('the pinned turn sends mealSlot "dinner"', s8.requestBody.mealSlot ?? '', 'dinner');
+  assertEqual(
+    'the pinned turn still carries the local time',
+    s8.requestBody.localTime ?? '',
+    '14:05',
+  );
+  await actSettle(() => {
+    s8.emit({ error: 'The coach hit a snag reading that photo.' });
+    s8.close();
+  });
+  await waitUntil('the pinned turn shows the error bubble', () => tailMessage().status === 'error');
+  const pinnedErrorId = tailMessage().id;
+  await actSettle(() => {
+    chat.retry(pinnedErrorId);
+  });
+  const s9 = takeStream('pinned meal retry');
+  assertEqual('the retry re-sends the SAME pinned slot', s9.requestBody.mealSlot ?? '', 'dinner');
+  {
+    const msgs = s9.requestBody.messages ?? [];
+    assertEqual(
+      'the pinned retry re-sends the same photo',
+      msgs[msgs.length - 1]?.image ?? '',
+      PINNED_PHOTO.uri,
+    );
+  }
+  await actSettle(() => {
+    s9.emit({ content: 'Logged for dinner, nice plate.' });
+    s9.emit({ done: true });
+    s9.close();
+  });
+  await waitUntil('the pinned retry completes', () => tailMessage().status === 'done');
 
   assertEqual('every coach stream was accounted for', opened.length, 0);
   coachTree.unmount();

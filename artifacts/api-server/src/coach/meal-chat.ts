@@ -17,6 +17,7 @@
  * the closer only mentions it in words.
  */
 import { generateMealPhotoAnalysis, type MealPhotoAnalysis, type MealPhotoOutcome } from "./meal-photo";
+import type { MealSlotContext } from "./meal-slot";
 import type { PatientContext } from "./prompt";
 import type { RecipeCardPayload } from "./recipe";
 
@@ -78,6 +79,12 @@ export interface MealChatTurn {
 export async function generateMealChatTurn(args: {
   image: string;
   patient: PatientContext;
+  /**
+   * Meal-slot context from the request (explicit client pin and/or the
+   * default derived from the patient's local time), passed through to the
+   * analysis so the card preselects the right diary slot.
+   */
+  slot?: MealSlotContext;
   signal: AbortSignal;
   log: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<MealChatTurn> {

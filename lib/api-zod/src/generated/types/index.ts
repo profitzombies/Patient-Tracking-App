@@ -7,6 +7,7 @@
  */
 
 export * from './coachChatInput';
+export * from './coachChatInputMealSlot';
 export * from './coachChatMessage';
 export * from './coachChatMessagePhotoKind';
 export * from './coachChatMessageRole';

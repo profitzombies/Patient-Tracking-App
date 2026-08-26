@@ -27,6 +27,7 @@ import { useCoachChat } from '@/context/CoachChatContext';
 import { usePatient } from '@/context/PatientContext';
 import { fetchRecipeImage } from '@/lib/coach-api';
 import type { AiRecipeSuggestion } from '@/lib/ai-recipe';
+import { previewMealSlot } from '@/lib/meal-slot';
 import { createPhotoBackfill, type PhotoBackfill } from '@/lib/photo-backfill';
 import {
   MEAL_LABELS,
@@ -56,7 +57,11 @@ export default function AiRecipePreviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const suggestion = getRecipeSuggestion(id ?? '');
 
-  const [meal, setMeal] = useState<MealSlot>(suggestion?.meal ?? 'snacks');
+  // Preselected slot: the card's own meal — the server already resolved an
+  // explicit pin, a meal the patient named, or their local time into it —
+  // otherwise the device clock decides (replacing the old hardcoded Snacks
+  // fallback). The patient can still switch it by hand below.
+  const [meal, setMeal] = useState<MealSlot>(() => previewMealSlot(suggestion?.meal, new Date()));
   const [servings, setServings] = useState(1);
   const [logging, setLogging] = useState(false);
   const [savedRecipeId, setSavedRecipeId] = useState<string | null>(null);

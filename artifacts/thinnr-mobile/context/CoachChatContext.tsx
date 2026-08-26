@@ -30,9 +30,14 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { ENROLLMENT_DAYS, PATIENT_PROFILE } from '@/data/patient-data';
-import { streamCoachChat, type CoachRequestMessage } from '@/lib/coach-api';
+import { ENROLLMENT_DAYS, PATIENT_PROFILE, type MealSlot } from '@/data/patient-data';
+import {
+  streamCoachChat,
+  type CoachChatRequestBody,
+  type CoachRequestMessage,
+} from '@/lib/coach-api';
 import { parseRecipeCardPayload, type AiRecipeSuggestion } from '@/lib/ai-recipe';
+import { localTimeForDate } from '@/lib/meal-slot';
 
 /** Rich-card slot rendered under an assistant message (see CoachCardSlot). */
 export interface CoachCard {
@@ -47,6 +52,17 @@ export interface CoachCard {
  * (the chat composer's camera) let the server look at the photo and decide.
  */
 export type PhotoKind = 'menu' | 'meal';
+
+/** Options for sendPhoto beyond the pipeline kind. */
+export interface SendPhotoOptions {
+  /**
+   * Diary slot the capture flow already knows it is filling (groundwork for
+   * the diary's per-meal camera). Rides the request so the server pins the
+   * card's slot — overriding both a named meal and the clock — and is kept
+   * on the photo message so retries re-send it.
+   */
+  mealSlot?: MealSlot;
+}
 
 export interface CoachMessage {
   id: string;
@@ -88,8 +104,10 @@ export interface CoachMessage {
    * fixed replay line the model reads — the bubble renders the photo
    * instead of it. `kind` routes the retry to the same server pipeline and
    * drives the chat screen's "Retake photo" chip (meal turns only).
+   * `mealSlot` is the diary slot the capture flow pinned; retries re-send
+   * it so the card still preselects that slot.
    */
-  photo?: { uri: string; width: number; height: number; kind?: PhotoKind };
+  photo?: { uri: string; width: number; height: number; kind?: PhotoKind; mealSlot?: MealSlot };
 
   /**
    * Error messages only: false when the server declared the failure final —
@@ -119,9 +137,14 @@ interface CoachChatContextValue {
    * `kind` picks the server pipeline: "meal" turns come back with an
    * editable meal card and keep the patient's own photo as the card's
    * picture. Omit it (the chat camera) and the server looks at the photo
-   * and routes it itself. No-op while a reply is in flight.
+   * and routes it itself. `options.mealSlot` pins the card's diary slot for
+   * entry points that already know it. No-op while a reply is in flight.
    */
-  sendPhoto: (photo: { uri: string; width: number; height: number }, kind?: PhotoKind) => void;
+  sendPhoto: (
+    photo: { uri: string; width: number; height: number },
+    kind?: PhotoKind,
+    options?: SendPhotoOptions,
+  ) => void;
   /**
    * Resends the question behind a failed reply: the error bubble is swapped
    * in place for a fresh streaming bubble and the same request is made again
@@ -275,7 +298,23 @@ const toRequestMessage = (m: CoachMessage): CoachRequestMessage =>
     ? { role: m.role, content: m.text, stopped: true }
     : { role: m.role, content: m.text };
 
-export function CoachChatProvider({ children }: { children: React.ReactNode }) {
+/** Real clock for the app; suites inject a fixed one via the `now` prop. */
+const systemNow = () => new Date();
+
+export function CoachChatProvider({
+  children,
+  now,
+}: {
+  children: React.ReactNode;
+  /**
+   * Injectable wall clock (returns the current Date). Every request body
+   * stamps `localTime` from it at send time so the server can derive
+   * time-of-day meal-slot defaults; the no-credit suites pass a fixed clock
+   * to keep assertions deterministic. Defaults to the real clock.
+   */
+  now?: () => Date;
+}) {
+  const clock = now ?? systemNow;
   // Lazy initializer: the greeting is built once per provider mount — i.e.
   // once per app session, matching the session-only history design.
   const [messages, setMessages] = useState<CoachMessage[]>(() => [buildGreetingMessage()]);
@@ -388,7 +427,7 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
    */
   const streamInto = useCallback(
     (
-      request: CoachRequestMessage[],
+      body: CoachChatRequestBody,
       assistantId: string,
       controller: AbortController,
       /**
@@ -423,7 +462,7 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
       revealRef.current = reveal;
 
       void streamCoachChat(
-        { messages: request },
+        body,
         {
           onDelta: delta => {
             if (isStale()) return;
@@ -537,13 +576,22 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
         },
       ]);
 
-      streamInto(request, assistantId, controller);
+      // The clock is read at send time so every turn carries a fresh reading.
+      streamInto(
+        { messages: request, localTime: localTimeForDate(clock()) },
+        assistantId,
+        controller,
+      );
     },
-    [streamInto],
+    [streamInto, clock],
   );
 
   const sendPhoto = useCallback(
-    (photo: { uri: string; width: number; height: number }, kind?: PhotoKind) => {
+    (
+      photo: { uri: string; width: number; height: number },
+      kind?: PhotoKind,
+      options?: SendPhotoOptions,
+    ) => {
       if (!photo.uri || inFlightRef.current) return;
       inFlightRef.current = true;
 
@@ -562,7 +610,12 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
               ? MENU_PHOTO_MESSAGE_TEXT
               : PHOTO_MESSAGE_TEXT,
         status: 'done',
-        photo: { ...photo, ...(kind ? { kind } : {}) },
+        photo: {
+          ...photo,
+          ...(kind ? { kind } : {}),
+          // Kept on the message so a retry re-sends the same pinned slot.
+          ...(options?.mealSlot ? { mealSlot: options.mealSlot } : {}),
+        },
       };
       const assistantId = nextId();
 
@@ -609,7 +662,13 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
       // to the meal pipeline then keeps the patient's own plate as the
       // card's picture.
       streamInto(
-        request,
+        {
+          messages: request,
+          localTime: localTimeForDate(clock()),
+          // An entry point that already knows its diary slot pins it here;
+          // the server then overrides both a named meal and the clock.
+          ...(options?.mealSlot ? { mealSlot: options.mealSlot } : {}),
+        },
         assistantId,
         controller,
         kind === 'menu' ? undefined : photo.uri,
@@ -617,7 +676,7 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
         userMessage.id,
       );
     },
-    [streamInto],
+    [streamInto, clock],
   );
 
   const retry = useCallback(
@@ -684,7 +743,13 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
       );
 
       streamInto(
-        request,
+        {
+          messages: request,
+          // A fresh clock reading, not the original send's: the retry is
+          // happening NOW, and that is the time a logged meal belongs to.
+          localTime: localTimeForDate(clock()),
+          ...(origin.photo?.mealSlot ? { mealSlot: origin.photo.mealSlot } : {}),
+        },
         assistantId,
         controller,
         origin.photo && origin.photo.kind !== 'menu' ? origin.photo.uri : undefined,
@@ -692,7 +757,7 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
         origin.photo ? origin.id : undefined,
       );
     },
-    [streamInto],
+    [streamInto, clock],
   );
 
   const stop = useCallback(() => {

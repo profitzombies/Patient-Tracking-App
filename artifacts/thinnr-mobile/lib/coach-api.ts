@@ -24,6 +24,7 @@
  */
 import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
+import type { MealSlot } from '@/data/patient-data';
 
 export interface CoachRequestMessage {
   role: 'user' | 'assistant';
@@ -49,6 +50,25 @@ export interface CoachRequestMessage {
    * message; meaningless without one.
    */
   photoKind?: 'menu' | 'meal';
+}
+
+export interface CoachChatRequestBody {
+  messages: CoachRequestMessage[];
+  /**
+   * The patient's device-local wall clock at send time, 24-hour "HH:MM".
+   * Sent on every app call: when a turn produces a recipe or meal card and
+   * the patient named no meal, the server preselects the card's diary slot
+   * from this reading (a 2 pm photo files under lunch). Optional so older
+   * payloads stay valid — the server then keeps its legacy defaults.
+   */
+  localTime?: string;
+  /**
+   * Explicit diary slot for any card this turn produces, sent by entry
+   * points that already know which meal they are logging (groundwork for
+   * the diary's per-meal camera). Wins over both a meal the patient names
+   * and the clock, and lands on the card payload untouched.
+   */
+  mealSlot?: MealSlot;
 }
 
 export interface CoachCardEvent {
@@ -161,7 +181,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 export async function streamCoachChat(
-  body: { messages: CoachRequestMessage[] },
+  body: CoachChatRequestBody,
   callbacks: CoachStreamCallbacks,
   options: CoachStreamOptions = {},
 ): Promise<void> {

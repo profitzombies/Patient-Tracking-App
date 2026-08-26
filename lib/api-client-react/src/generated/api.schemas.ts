@@ -43,12 +43,32 @@ export interface CoachChatMessage {
   photoKind?: CoachChatMessagePhotoKind;
 }
 
+/**
+ * Explicit diary slot for any card generated on this turn, sent by entry points that already know which meal is being logged (for example a per-meal camera on a diary row). Wins over both a meal the patient names and the time-of-day default, and flows through to the card payload untouched.
+ */
+export type CoachChatInputMealSlot = typeof CoachChatInputMealSlot[keyof typeof CoachChatInputMealSlot];
+
+
+export const CoachChatInputMealSlot = {
+  breakfast: 'breakfast',
+  lunch: 'lunch',
+  dinner: 'dinner',
+  snacks: 'snacks',
+} as const;
+
 export interface CoachChatInput {
   /**
      * @minItems 1
      * @maxItems 30
      */
   messages: CoachChatMessage[];
+  /**
+     * The patient's device-local wall clock when this turn was sent, as 24-hour "HH:MM" (for example "14:05"). Used only to preselect the diary slot on a recipe or meal card generated this turn when the patient names no meal: the server derives a time-of-day default (around 2 pm that is lunch) for the prompts and the missing-slot fallbacks. Unparseable values are ignored, and when the field is absent (older clients) the server keeps its legacy defaults.
+     * @maxLength 5
+     */
+  localTime?: string;
+  /** Explicit diary slot for any card generated on this turn, sent by entry points that already know which meal is being logged (for example a per-meal camera on a diary row). Wins over both a meal the patient names and the time-of-day default, and flows through to the card payload untouched. */
+  mealSlot?: CoachChatInputMealSlot;
 }
 
 export interface CoachRecipeImageInput {

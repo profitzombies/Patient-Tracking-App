@@ -34,10 +34,12 @@ import {
   ingredientNameMatchesItem,
   isApprovedItemId,
 } from "./approved-catalog";
+import { MEAL_SLOTS, type MealSlotContext } from "./meal-slot";
 
 export type RecipeMode = "recipe" | "cravings";
 
-const MEALS = ["breakfast", "lunch", "dinner", "snacks"] as const;
+/** Canonical slot list — shared with the meal-slot module that owns it. */
+const MEALS = MEAL_SLOTS;
 
 const IngredientNutritionSchema = z.object({
   calories: z.number().min(0).max(4000),
@@ -136,6 +138,15 @@ export interface RecipeTurnArgs {
   history: { role: "user" | "assistant"; content: string }[];
   compartments: Compartment[];
   patient: PatientContext;
+  /**
+   * Meal-slot context for the card. An explicit client pin wins outright
+   * (overriding even the model's answer); otherwise the prompt tells the
+   * model to honor a meal the patient names, with the time-derived default
+   * as the fallback when the client sent its local time. Cravings keep
+   * their snacks default regardless of the clock. Absent on old clients —
+   * legacy behavior.
+   */
+  slot?: MealSlotContext;
   signal: AbortSignal;
   log: MinimalLog;
 }
@@ -182,7 +193,8 @@ function buildRecipeSystemPrompt(
   mode: RecipeMode,
   compartments: Compartment[],
   patient: PatientContext,
-  inspiration?: "menu",
+  inspiration: "menu" | undefined,
+  slot: MealSlotContext,
 ): string {
   const shared = `${COACH_PERSONA_LINE}
 
@@ -205,6 +217,7 @@ Grounding rules:
     return `${shared}
 
 ${task}
+${recipeMealRule(slot)}
 
 THINNR program materials for this question:
 
@@ -219,7 +232,7 @@ STRICT CRAVINGS RULES:
 - Every ingredient must be an item from the APPROVED FOODS CATALOG below. Each ingredient object MUST also include "approvedItemId" copied exactly from the catalog.
 - Do not use any food that is not in the catalog — no exceptions, not even pantry basics. If it is not in the catalog, leave it out.
 - Each ingredient's "name" may add simple preparation words to its catalog item (for example an id whose catalog name is "Skinless White Meat Chicken Breast" may be written "grilled chicken breast"), but every food word in the name must come from the cited catalog item's own name. The server rejects any name containing a food word that is not part of that catalog entry — never name a different food, and never a food the patient craved that is off the list.
-- "meal" should normally be "snacks".
+${cravingsMealRule(slot)}
 - "reply" meets the craving like a person first — acknowledge it specifically and warmly in your own words — then point at the approved swap. If no approved combination genuinely answers the craving, set "recipe" to null and say so straight and kindly, without inventing anything.
 
 APPROVED FOODS CATALOG (id — official name):
@@ -228,6 +241,34 @@ ${catalogPromptLines()}
 THINNR program materials for this question:
 
 ${sourcesBlock(compartments)}`;
+}
+
+/**
+ * Meal-slot instruction for recipe mode. Resolution order: an explicit
+ * client pin decides outright; otherwise a meal the patient NAMES wins,
+ * falling back to the clock-derived default when the client sent its local
+ * time. Old clients (no time) leave the choice to the model.
+ */
+function recipeMealRule(slot: MealSlotContext): string {
+  if (slot.explicit) {
+    return `Meal slot: set "meal" to "${slot.explicit}" — the patient is filling that diary slot, so ignore other hints.`;
+  }
+  if (slot.timeDefault) {
+    return `Meal slot: when the patient names a meal for this dish ("for dinner", "a breakfast idea"), set "meal" to that meal. Otherwise set "meal" to "${slot.timeDefault}" — the patient's clock reads ${slot.localTime}, and that is where a dish suggested now gets logged.`;
+  }
+  return `Meal slot: when the patient names a meal for this dish ("for dinner", "a breakfast idea"), set "meal" to that meal. Otherwise pick the slot the dish naturally fits.`;
+}
+
+/**
+ * Cravings keep their snacks default on purpose — a craving fix is a snack
+ * whatever the clock says — so the time default never applies here. Only an
+ * explicit pin (or the patient naming a meal) moves it.
+ */
+function cravingsMealRule(slot: MealSlotContext): string {
+  if (slot.explicit) {
+    return `- "meal" must be "${slot.explicit}" — the patient is filling that diary slot.`;
+  }
+  return `- "meal" is "snacks" unless the patient named a different meal for this fix — a craving is a snack whatever the clock says.`;
 }
 
 type Interpretation =
@@ -518,10 +559,11 @@ export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTu
     args.mode === "cravings" || args.inspiration === "menu"
       ? ensureApprovedFoodsCompartment(args.compartments)
       : args.compartments;
+  const slot = args.slot ?? {};
   const baseMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
     {
       role: "system",
-      content: buildRecipeSystemPrompt(args.mode, compartments, args.patient, args.inspiration),
+      content: buildRecipeSystemPrompt(args.mode, compartments, args.patient, args.inspiration, slot),
     },
     ...args.history,
   ];
@@ -532,9 +574,14 @@ export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTu
     const outcome = interpret(raw, args.mode);
     if (outcome.ok) {
       if (!outcome.recipe) return { reply: outcome.reply, card: null };
+      // An explicit client pin wins over whatever the model chose — the
+      // entry point already knew which diary slot it was filling.
+      const recipe = slot.explicit
+        ? { ...outcome.recipe, meal: slot.explicit }
+        : outcome.recipe;
       return {
         reply: outcome.reply,
-        card: { kind: "recipe", payload: toPayload(outcome.recipe, args.mode) },
+        card: { kind: "recipe", payload: toPayload(recipe, args.mode) },
       };
     }
     args.log.warn(

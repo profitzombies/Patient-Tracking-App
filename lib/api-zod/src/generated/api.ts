@@ -18,6 +18,8 @@ export const coachChatBodyMessagesItemImageMax = 8000000;
 
 export const coachChatBodyMessagesMax = 30;
 
+export const coachChatBodyLocalTimeMax = 5;
+
 
 
 export const CoachChatBody = zod.object({
@@ -27,7 +29,9 @@ export const CoachChatBody = zod.object({
   "stopped": zod.boolean().optional().describe('True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages.'),
   "image": zod.string().max(coachChatBodyMessagesItemImageMax).optional().describe('Optional photo attached to this user message, as a base64 data URI (JPEG, PNG, or WebP). Honored only on the final message of the request — history replays carry text only, so a photo is never re-sent on later turns. Analyzed in memory and never stored. Ignored on assistant messages.'),
   "photoKind": zod.enum(['menu', 'meal']).optional().describe('What the attached photo shows, chosen by the client flow that captured it: \"menu\" runs the restaurant menu scan; \"meal\" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card. When absent, the server inspects the photo and routes it to the fitting pipeline itself. Ignored without an image.')
-})).min(1).max(coachChatBodyMessagesMax)
+})).min(1).max(coachChatBodyMessagesMax),
+  "localTime": zod.string().max(coachChatBodyLocalTimeMax).optional().describe('The patient\'s device-local wall clock when this turn was sent, as 24-hour \"HH:MM\" (for example \"14:05\"). Used only to preselect the diary slot on a recipe or meal card generated this turn when the patient names no meal: the server derives a time-of-day default (around 2 pm that is lunch) for the prompts and the missing-slot fallbacks. Unparseable values are ignored, and when the field is absent (older clients) the server keeps its legacy defaults.'),
+  "mealSlot": zod.enum(['breakfast', 'lunch', 'dinner', 'snacks']).optional().describe('Explicit diary slot for any card generated on this turn, sent by entry points that already know which meal is being logged (for example a per-meal camera on a diary row). Wins over both a meal the patient names and the time-of-day default, and flows through to the card payload untouched.')
 })
 
 export const CoachChatResponse = zod.unknown()

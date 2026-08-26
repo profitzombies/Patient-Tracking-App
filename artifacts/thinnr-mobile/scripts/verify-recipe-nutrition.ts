@@ -17,6 +17,10 @@
  *      formed and is dropped (without killing the card) when malformed.
  *   6. Diary detail tag — the " · adjusted" suffix is idempotent, strippable,
  *      and survives quantity rescales for both detail formats.
+ *   7. Meal-slot preselection — the clock→slot band table (shared with the
+ *      server's meal-slot module), "HH:MM" formatting, and the preview
+ *      default: the card's slot first, the device clock only when the card
+ *      has none.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:recipe-nutrition
  */
@@ -37,6 +41,7 @@ import {
 } from '../data/ingredient-nutrition';
 import { RECIPES, type IngredientAdjustment, type RecipeIngredient } from '../data/patient-data';
 import { parseRecipeCardPayload } from '../lib/ai-recipe';
+import { localTimeForDate, mealSlotForDate, previewMealSlot } from '../lib/meal-slot';
 import {
   ADJUSTED_TAG_SUFFIX,
   rescaleEntrySnapshot,
@@ -309,6 +314,37 @@ assertEqual('three-quarter glyph', formatIngredientAmount(0.75), '¾');
 assertEqual('one-decimal', formatIngredientAmount(1.5), '1.5');
 assertEqual('lb conversion result', formatIngredientAmount(0.375), '0.375');
 assertEqual('trims long decimals', formatIngredientAmount(1 / 3), '0.333');
+
+// ── 9. Meal-slot preselection (fixed dates — never the real clock) ───────────
+{
+  const at = (hours: number, minutes: number) => new Date(2026, 7, 26, hours, minutes, 0);
+
+  // Band table, boundaries included; mirrors the server's meal-slot module
+  // (artifacts/api-server/src/coach/meal-slot.ts) — keep the two in step.
+  const bands: Array<[number, number, string]> = [
+    [4, 0, 'breakfast'], [8, 0, 'breakfast'], [10, 59, 'breakfast'],
+    [11, 0, 'lunch'], [14, 0, 'lunch'], [14, 59, 'lunch'],
+    [15, 0, 'snacks'], [16, 59, 'snacks'],
+    [17, 0, 'dinner'], [19, 0, 'dinner'], [21, 59, 'dinner'],
+    [22, 0, 'snacks'], [23, 30, 'snacks'], [0, 0, 'snacks'], [3, 59, 'snacks'],
+  ];
+  for (const [h, m, slot] of bands) {
+    assertEqual(`clock ${h}:${m} maps to ${slot}`, mealSlotForDate(at(h, m)), slot);
+  }
+
+  assertEqual('localTime zero-pads hours and minutes', localTimeForDate(at(9, 5)), '09:05');
+  assertEqual('localTime keeps 24-hour form', localTimeForDate(at(14, 5)), '14:05');
+  assertEqual('midnight reads 00:00', localTimeForDate(at(0, 0)), '00:00');
+
+  // Preview preselection: the card's own slot wins (the server already
+  // resolved an explicit pin, the patient's words, or their local time into
+  // it); only a slotless card falls back to the device clock — replacing
+  // the old hardcoded Snacks default.
+  assertEqual('a card slot beats the clock ("for dinner" at 2 pm)', previewMealSlot('dinner', at(14, 0)), 'dinner');
+  assertEqual('a slotless card at 2 pm preselects lunch', previewMealSlot(undefined, at(14, 0)), 'lunch');
+  assertEqual('a slotless card at 8 am preselects breakfast', previewMealSlot(undefined, at(8, 0)), 'breakfast');
+  assertEqual('a slotless card late evening preselects snacks', previewMealSlot(undefined, at(22, 30)), 'snacks');
+}
 
 // ── Result ───────────────────────────────────────────────────────────────────
 if (failures > 0) {

@@ -32,6 +32,7 @@ import {
   type GeneratedRecipe,
   type RecipeCardPayload,
 } from "./recipe";
+import { MEAL_SLOTS, type MealSlotContext } from "./meal-slot";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 
 export const MEAL_PHOTO_MODEL = "gpt-5-nano";
@@ -45,7 +46,8 @@ const TRANSIENT_RETRY_DELAY_MS = 400;
 
 // ─── Output contract ─────────────────────────────────────────────────────────
 
-const MEALS = ["breakfast", "lunch", "dinner", "snacks"] as const;
+/** Canonical slot list — shared with the meal-slot module that owns it. */
+const MEALS = MEAL_SLOTS;
 
 const ItemNutritionSchema = z.object({
   calories: z.number().min(0).max(4000),
@@ -97,7 +99,7 @@ interface MinimalLog {
 
 // ─── Prompt ──────────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(patient: PatientContext): string {
+function buildSystemPrompt(patient: PatientContext, slot: MealSlotContext): string {
   return `You are the THINNR meal logger, an AI helper inside the THINNR patient app. The patient photographed food they are about to eat — a plate, bowl, container, or packaged item — so the app can log it to their food diary. Identify what is visible and commit to portion estimates.
 
 ${patientContextLine(patient)}
@@ -126,9 +128,27 @@ Listing items (when "result" is "ok"):
 - "nutrition": your calorie/protein/carbs/fat estimate for THAT item at YOUR estimated amount. The app sums the items into the meal's totals and labels everything as an estimate.
 - "mealName": a short natural name for the whole meal, like "Grilled chicken with sweet potato" — at most 60 characters.
 - "description": one plain sentence describing what is on the plate.
-- "meal": the diary slot this most looks like.
+${mealSlotRule(slot)}
 
 "message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked at their plate, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never say you cannot determine the portions and never ask the patient to weigh or measure anything — your best estimates are already in "items" and the patient can adjust them.`;
+}
+
+/**
+ * The "meal" line of the JSON contract. An explicit client pin or the
+ * patient's clock decides the slot ahead of the model — a photo turn is an
+ * image-only call, so the patient cannot name a meal here and the model's
+ * answer is only a visual guess (interpret() enforces the same order, so a
+ * disobedient model cannot leak through). Only old clients, which send no
+ * local time, leave the slot to that guess.
+ */
+function mealSlotRule(slot: MealSlotContext): string {
+  if (slot.explicit) {
+    return `- "meal": answer exactly "${slot.explicit}" — the patient opened this log from their ${slot.explicit} slot, so that choice is already made.`;
+  }
+  if (slot.timeDefault) {
+    return `- "meal": answer exactly "${slot.timeDefault}" — the patient's clock reads ${slot.localTime}, so a plate photographed now files under ${slot.timeDefault}. They can switch the slot by hand before logging.`;
+  }
+  return `- "meal": the diary slot this most looks like.`;
 }
 
 // ─── Model call ──────────────────────────────────────────────────────────────
@@ -233,7 +253,7 @@ function cleanCoachText(text: string): string {
   return stripDashes(cleanModelText(text)).trim();
 }
 
-function interpret(raw: string): Interpretation {
+function interpret(raw: string, slot: MealSlotContext): Interpretation {
   const json = extractModelJson(raw);
   if (json === null) {
     return { ok: false, problems: ["the response was not a valid JSON object"] };
@@ -254,8 +274,17 @@ function interpret(raw: string): Interpretation {
 
   if (data.result !== "ok") {
     // Non-food / unreadable photos never carry items; coercing (rather than
-    // retrying) is the correct reading of that answer.
-    return { ok: true, outcome: data.result, message, items: [], mealName: "", description: "", meal: "lunch" };
+    // retrying) is the correct reading of that answer. No card is built from
+    // this shape, so the meal field just takes the resolved default.
+    return {
+      ok: true,
+      outcome: data.result,
+      message,
+      items: [],
+      mealName: "",
+      description: "",
+      meal: slot.explicit ?? slot.timeDefault ?? "lunch",
+    };
   }
 
   const problems: string[] = [];
@@ -305,7 +334,13 @@ function interpret(raw: string): Interpretation {
     items,
     mealName: mealName.slice(0, 80),
     description: description.slice(0, 240),
-    meal: data.meal ?? "lunch",
+    // Slot resolution: an explicit client pin wins (the entry point already
+    // knew which meal it was logging). Next the clock: this is an image-only
+    // model call — the patient has no way to name a meal on a photo turn —
+    // so the model's slot answer is only a visual guess, and a known local
+    // time deterministically outranks it (a steak plate at 14:05 still
+    // files under lunch). Old clients fall back to that guess, then lunch.
+    meal: slot.explicit ?? slot.timeDefault ?? data.meal ?? "lunch",
   };
 }
 
@@ -375,16 +410,23 @@ export async function generateMealPhotoAnalysis(args: {
   /** Validated image data URI (jpeg/png/webp). Kept in memory only. */
   image: string;
   patient: PatientContext;
+  /**
+   * Meal-slot context from the request (explicit client pin and/or the
+   * default derived from the patient's local time). Shapes the prompt's
+   * "meal" line and the fallbacks; absent on old clients — legacy behavior.
+   */
+  slot?: MealSlotContext;
   signal: AbortSignal;
   log: MinimalLog;
 }): Promise<MealPhotoAnalysis> {
-  const systemPrompt = buildSystemPrompt(args.patient);
+  const slot = args.slot ?? {};
+  const systemPrompt = buildSystemPrompt(args.patient, slot);
 
   let previous: { raw: string; problems: string } | null = null;
   for (let attempt = 0; attempt <= RETRY_LIMIT; attempt++) {
     const messages = buildMessages(systemPrompt, args.image, previous);
     const raw = await callModel(messages, args.signal, args.log);
-    const outcome = interpret(raw);
+    const outcome = interpret(raw, slot);
     if (outcome.ok) {
       return {
         outcome: outcome.outcome,

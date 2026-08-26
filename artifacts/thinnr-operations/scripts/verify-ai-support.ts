@@ -7,13 +7,18 @@
  * can prove — that the assembled persona actually behaves:
  *
  *   1. An in-scope program question gets a comprehensive, markdown-formatted
- *      answer (headers/bullets/bold + emojis) with the deterministic output
- *      guards holding on real traffic: no em/en dashes, never "Thinner".
- *   2. A question about a non-THINNR medication (metformin) ENDS with the
+ *      answer (headers/bullets/bold, strictly NO emojis) with the
+ *      deterministic output guards holding on real traffic: no em/en
+ *      dashes, never "Thinner", never an emoji.
+ *   2. Stage narration rides the same stream in real work order — searching,
+ *      then thinking, then formulating — and every stage event lands before
+ *      the first visible content chunk (broadened turns may repeat the
+ *      searching/thinking pair, never out of order).
+ *   3. A question about a non-THINNR medication (metformin) ENDS with the
  *      exact primary-care-physician closer line the persona requires.
- *   3. A question the library cannot answer gets an honest "I don't know"
+ *   4. A question the library cannot answer gets an honest "I don't know"
  *      that offers Support@Thinnrweightloss.com — not an invention.
- *   4. The open demo posture holds on the wire: the persona probes all run
+ *   5. The open demo posture holds on the wire: the persona probes all run
  *      TOKENLESS (reaching the page is enough — the old 401 gate is
  *      retired), and a bearer-carrying call behaves identically, so
  *      signed-in staff clients keep working unchanged. Abuse is bounded by
@@ -47,6 +52,10 @@ interface StreamResult {
   text: string;
   sawDone: boolean;
   errorEvent: string | null;
+  /** Stage narration events, in wire order. */
+  stages: string[];
+  /** The subset of `stages` that arrived before the first content chunk. */
+  stagesBeforeContent: string[];
 }
 
 /**
@@ -72,6 +81,8 @@ async function ask(question: string, token: string | null = null): Promise<Strea
         text: await response.text().catch(() => ''),
         sawDone: false,
         errorEvent: null,
+        stages: [],
+        stagesBeforeContent: [],
       };
     }
     const reader = response.body.getReader();
@@ -80,6 +91,8 @@ async function ask(question: string, token: string | null = null): Promise<Strea
     let text = '';
     let sawDone = false;
     let errorEvent: string | null = null;
+    const stages: string[] = [];
+    const stagesBeforeContent: string[] = [];
     const drain = (chunk: string) => {
       buffer += chunk;
       const events = buffer.split('\n\n');
@@ -92,7 +105,12 @@ async function ask(question: string, token: string | null = null): Promise<Strea
               content?: string;
               done?: boolean;
               error?: string;
+              stage?: string;
             };
+            if (typeof payload.stage === 'string') {
+              stages.push(payload.stage);
+              if (text.length === 0) stagesBeforeContent.push(payload.stage);
+            }
             if (typeof payload.content === 'string') text += payload.content;
             if (payload.error) errorEvent = payload.error;
             if (payload.done) sawDone = true;
@@ -108,19 +126,29 @@ async function ask(question: string, token: string | null = null): Promise<Strea
       drain(decoder.decode(value, { stream: true }));
     }
     drain(`${decoder.decode()}\n\n`);
-    return { status: response.status, text, sawDone, errorEvent };
+    return { status: response.status, text, sawDone, errorEvent, stages, stagesBeforeContent };
   } finally {
     clearTimeout(timer);
   }
 }
 
-/** Strips trailing whitespace/emoji so "ends with the closer" is testable. */
+/** Strips trailing whitespace/markdown so "ends with the closer" is testable. */
 function trimDecorations(text: string): string {
   return text.replace(/[\s*_\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]+$/u, '');
 }
 
-const EMOJI_PATTERN = /\p{Extended_Pictographic}/u;
+/** Emoji detector for the no-emoji contract; ™/©/® are legitimate text. */
+const EMOJI_PATTERN = /(?![\u00A9\u00AE\u2122])\p{Extended_Pictographic}/u;
 const BANNED_REFERRAL = /consult (a|an|your|their) (healthcare|health care|medical) (provider|professional)/i;
+
+/**
+ * The only narration the server may stream: one searching/thinking pair per
+ * grounding pass (a broadened turn repeats the pair), then exactly one
+ * formulating right before the first visible content.
+ */
+function isCanonicalStageFlow(stages: string[]): boolean {
+  return /^(?:searching,thinking,)*searching,thinking,formulating$/.test(stages.join(','));
+}
 
 async function probeInScope(): Promise<void> {
   console.log('probe: in-scope program question');
@@ -139,12 +167,20 @@ async function probeInScope(): Promise<void> {
     /(^|\n)#{1,4} /.test(text) || /(^|\n)- /.test(text) || /(^|\n)\d+\. /.test(text),
   );
   check('uses bolding', text.includes('**'));
-  check('uses emojis', EMOJI_PATTERN.test(text));
+  check('never uses emojis', !EMOJI_PATTERN.test(text));
   check('no em/en dashes', !/[\u2014\u2013]/.test(text));
   check('never "Thinner"', !/\bTHINNER\b|\bThinner\b/.test(text));
   check('no broaden marker leak', !text.includes('[[broaden'));
   check('no banned referral phrasing', !BANNED_REFERRAL.test(text));
   check('grounded in the approved-foods material', /protein|vegetable|meal/i.test(text));
+  const flow = result.stages.join(' > ') || '(none)';
+  check('stage narration arrived', result.stages.length >= 3, flow);
+  check('stages run searching > thinking > formulating', isCanonicalStageFlow(result.stages), flow);
+  check(
+    'every stage precedes the first content chunk',
+    result.stages.length === result.stagesBeforeContent.length,
+    flow,
+  );
 }
 
 async function probePcpCloser(): Promise<void> {
@@ -159,6 +195,7 @@ async function probePcpCloser(): Promise<void> {
       check('reply ends with the exact PCP closer', true);
       check('no em/en dashes', !/[\u2014\u2013]/.test(result.text));
       check('never "Thinner"', !/\bTHINNER\b|\bThinner\b/.test(result.text));
+      check('never uses emojis', !EMOJI_PATTERN.test(result.text));
       return;
     }
     if (attempt === 1) {
@@ -188,6 +225,12 @@ async function probeHonestUnknown(): Promise<void> {
       if (attempt > 1) console.log('  (passed on retry)');
       check('admits the library does not cover it', true);
       check('offers the support email', true);
+      check('never uses emojis', !EMOJI_PATTERN.test(text));
+      check(
+        'stage narration stays canonical on the honest-unknown path',
+        isCanonicalStageFlow(result.stages),
+        result.stages.join(' > ') || '(none)',
+      );
       return;
     }
     if (attempt === 1) {
@@ -210,6 +253,7 @@ async function probeSignedInUnchanged(): Promise<void> {
   check('responds 200 with a bearer attached', result.status === 200, `status ${result.status}`);
   check('stream finished with done', result.sawDone, result.errorEvent ?? 'no done event');
   check('answer has substance', result.text.length > 100, `${result.text.length} chars`);
+  check('never uses emojis', !EMOJI_PATTERN.test(result.text));
 }
 
 async function main(): Promise<void> {

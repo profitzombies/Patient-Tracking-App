@@ -2,7 +2,9 @@
  * SSE client for the office AI Support chat (POST /api/support/chat).
  *
  * Mirrors the mobile coach stream contract: events arrive as `data: ` lines
- * separated by blank lines, and are one of {content}, {error} or {done}.
+ * separated by blank lines, and are one of {content}, {error}, {done} or
+ * {stage} — the last narrating real server progress (searching the knowledge
+ * documents, thinking, formulating a response) for the thinking indicator.
  * A connection that ends without a done or error event is a dropped stream —
  * surfaced as a retryable error, never as a silently truncated answer. Once
  * the caller's abort signal fires, no further callbacks are invoked; the
@@ -48,11 +50,18 @@ export function toHistoryContent(text: string): string {
   return text.slice(0, MAX_HISTORY_CONTENT) + TRUNCATION_NOTE;
 }
 
+/** Server progress narration, in the order the work actually happens. */
+export type SupportChatStage = 'searching' | 'thinking' | 'formulating';
+
+const SUPPORT_STAGES: readonly SupportChatStage[] = ['searching', 'thinking', 'formulating'];
+
 export interface SupportStreamCallbacks {
   onDelta: (text: string) => void;
   /** retryable=false only when the server says so (daily budget spent). */
   onError: (message: string, retryable: boolean) => void;
   onDone: () => void;
+  /** Optional: stage narration events (older servers simply never send any). */
+  onStage?: (stage: SupportChatStage) => void;
 }
 
 const FRIENDLY_ERROR = 'AI Support is unavailable right now. Please try again.';
@@ -68,7 +77,7 @@ function drainSseBuffer(
   for (const event of events) {
     for (const line of event.split('\n')) {
       if (!line.startsWith('data: ')) continue;
-      let payload: { content?: string; done?: boolean; error?: string };
+      let payload: { content?: string; done?: boolean; error?: string; stage?: string };
       try {
         payload = JSON.parse(line.slice(6));
       } catch {
@@ -84,6 +93,8 @@ function drainSseBuffer(
       } else if (payload.done) {
         state.finished = true;
         callbacks.onDone();
+      } else if ((SUPPORT_STAGES as readonly string[]).includes(payload.stage ?? '')) {
+        callbacks.onStage?.(payload.stage as SupportChatStage);
       }
     }
   }

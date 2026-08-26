@@ -4,8 +4,10 @@
  * The OpenAI client and the knowledge-library loader are mocked (no credits,
  * no database). Covers: open access (the demo posture has no staff gate, so
  * tokenless and bearer-carrying calls behave identically), invalid bodies,
- * the grounded happy path, two-stage broadening mechanics, the deterministic
- * output guards (brand spelling, dashes), stopped-history annotation, the
+ * the grounded happy path, two-stage broadening mechanics, stage narration
+ * (searching/thinking/formulating events in real work order), the
+ * deterministic output guards (brand spelling, dashes, emojis — including
+ * emojis split across chunks), stopped-history annotation, the
  * empty-library and library-outage paths, upstream reliability (idle
  * deadline, keepalives), and rate limiting. The rate-limit test runs last
  * because it drains one IP's bucket.
@@ -153,6 +155,22 @@ function modelMessagesOfCall(index: number): { role: string; content: string }[]
 
 const ERROR_EVENT = 'data: {"error":"AI Support is unavailable right now. Please try again."}';
 
+/** All parsed SSE data events, in wire order (keepalive comments excluded). */
+function dataEvents(text: string): Array<Record<string, unknown>> {
+  return text
+    .split("\n")
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+}
+
+/** Joined visible reply text across all content events. */
+function joinedContent(text: string): string {
+  return dataEvents(text)
+    .filter((event) => typeof event.content === "string")
+    .map((event) => event.content as string)
+    .join("");
+}
+
 describe("POST /api/support/chat", () => {
   it("streams for tokenless callers — the demo posture has no staff gate", async () => {
     const res = await postChat(userTurn("Hello"), nextIp(), null);
@@ -225,6 +243,62 @@ describe("POST /api/support/chat", () => {
     expect(prompt).toContain("Support@Thinnrweightloss.com");
     // The template slot is filled, never sent raw.
     expect(prompt).not.toContain("[Company Info");
+    // The one approved deviation from the verbatim source: emojis are banned,
+    // never requested.
+    expect(prompt).toContain("Never use emojis");
+    expect(prompt).not.toContain("Add emojis");
+  });
+
+  it("narrates stages in real work order: searching, thinking, formulating, content", async () => {
+    const res = await postChat(userTurn("Is grapefruit approved?"));
+    const events = dataEvents(await res.text());
+    const stages = events.filter((event) => "stage" in event).map((event) => event.stage);
+    expect(stages).toEqual(["searching", "thinking", "formulating"]);
+    const lastStageIndex = events.reduce(
+      (last, event, index) => ("stage" in event ? index : last),
+      -1,
+    );
+    const firstContentIndex = events.findIndex((event) => "content" in event);
+    expect(firstContentIndex).toBeGreaterThan(lastStageIndex);
+    expect(events.at(-1)).toEqual({ done: true });
+  });
+
+  it("restarts the stage narration when broadening to the full library", async () => {
+    streamState.queue = [["[[broa", "den:all]]"], ["Answer from the clinical document."]];
+    const res = await postChat(userTurn("Is grapefruit approved?"));
+    const events = dataEvents(await res.text());
+    const stages = events.filter((event) => "stage" in event).map((event) => event.stage);
+    // Stage 1 produced no visible output, so formulating first fires in
+    // stage 2 — the client's status line honestly starts over.
+    expect(stages).toEqual(["searching", "thinking", "searching", "thinking", "formulating"]);
+    const firstContentIndex = events.findIndex((event) => "content" in event);
+    const lastStageIndex = events.reduce(
+      (last, event, index) => ("stage" in event ? index : last),
+      -1,
+    );
+    expect(firstContentIndex).toBeGreaterThan(lastStageIndex);
+  });
+
+  it("strips emojis from the stream, including ones split across chunks", async () => {
+    const thumb = "👍";
+    streamState.queue = [
+      [
+        "Great news! 🎉 ",
+        `Boost helps${thumb.charAt(0)}`,
+        `${thumb.charAt(1)} daily. `,
+        "Rated 5 ⭐ by teams 👩\u200D",
+        "👦 everywhere. Boost™ 1\uFE0F\u20E3",
+      ],
+    ];
+    const res = await postChat(userTurn("Boost dosing?"));
+    const text = await res.text();
+    const contents = joinedContent(text);
+    // Purely subtractive: emojis vanish, spacing and ™ survive.
+    expect(contents).toBe(
+      "Great news!  Boost helps daily. Rated 5  by teams  everywhere. Boost™ 1",
+    );
+    expect(/[\u{1F000}-\u{1FAFF}\u200D\uFE0F\u20E3]/u.test(text)).toBe(false);
+    expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
   });
 
   it("broadens to the full library when stage 1 signals it cannot answer", async () => {

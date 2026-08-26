@@ -12,7 +12,12 @@
  * stage 1 attaches the best-matching documents; if the model signals (via a
  * stripped control marker) that those cannot answer, the SAME response
  * stream re-runs the turn with the whole library before the assistant may
- * say it doesn't know. The client just sees a longer first-token wait.
+ * say it doesn't know. The client just sees a longer first-token wait —
+ * narrated by stage events ({stage: searching|thinking|formulating}) that
+ * ride the stream as the server actually moves through document search,
+ * model start, and first visible output, so the UI's status line reflects
+ * real work, never a timer. Unknown-field events are ignored by older
+ * clients, so the addition is wire-compatible.
  *
  * Demo posture: reaching the page is enough — there is NO staff-session
  * gate. The staff identity was only ever a gate here (answers come from one
@@ -22,6 +27,10 @@
  * endpoint's OWN limiter knobs — per-IP burst, concurrency, and daily
  * budget — plus the app-level CORS allowlist. Re-tightening later is one
  * middleware away.
+ *
+ * Voice: comprehensive markdown, strictly emoji-free — the prompt bans
+ * emojis and the EmojiSmoother strips any that slip through, chunk-split
+ * ones included, flushing on every stream end (error paths too).
  */
 import { Router, type IRouter } from "express";
 import type { Response } from "express";
@@ -43,9 +52,24 @@ import {
   type SupportPromptMode,
 } from "../support/prompt";
 import { acquireSupportSlot } from "../support/limits";
-import { BrandSpellingSmoother } from "../support/text-guards";
+import { BrandSpellingSmoother, EmojiSmoother } from "../support/text-guards";
 
 const router: IRouter = Router();
+
+/**
+ * Progress narration for the client's thinking indicator, emitted at the
+ * moment the work actually happens: `searching` when the stream opens on a
+ * freshly selected document set (again on a stage-2 broaden, which re-grounds
+ * against the full library), `thinking` when a model call starts, and
+ * `formulating` just before the first visible character of the reply.
+ */
+type SupportStage = "searching" | "thinking" | "formulating";
+
+function writeStage(res: Response, stage: SupportStage): void {
+  if (!res.writableEnded) {
+    res.write(`data: ${JSON.stringify({ stage })}\n\n`);
+  }
+}
 
 /** Most recent messages kept per request; the client sends session history. */
 const MAX_HISTORY = 12;
@@ -74,21 +98,32 @@ async function streamSupportTurn(options: {
   const markerFilter = new MarkerFilter(["broaden"]);
   const brandSmoother = new BrandSpellingSmoother();
   const dashSmoother = new DashSmoother();
+  // Last in the chain so nothing downstream can reintroduce an emoji; its
+  // flush rides drainHeld, which runs on error paths too.
+  const emojiSmoother = new EmojiSmoother();
 
   let visible = "";
   const write = (text: string) => {
     if (!text) return;
+    // First visible character of this turn: the model is done reasoning and
+    // its answer is about to land.
+    if (visible.length === 0) writeStage(res, "formulating");
     visible += text;
     res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
   };
   const drainHeld = () =>
-    dashSmoother.push(brandSmoother.push(markerFilter.flush()) + brandSmoother.flush()) +
-    dashSmoother.flush();
+    emojiSmoother.push(
+      dashSmoother.push(brandSmoother.push(markerFilter.flush()) + brandSmoother.flush()) +
+        dashSmoother.flush(),
+    ) + emojiSmoother.flush();
 
   // Idle deadline, restarted on every chunk: bounds SILENCE (reasoning
   // preamble or a wedged upstream), not total reply length.
   const deadline = createUpstreamDeadline(abortSignal);
   try {
+    // The request is on its way to the model: narrate before the call so the
+    // whole silent reasoning stretch sits under "thinking", not "searching".
+    writeStage(res, "thinking");
     const stream = await openai.chat.completions.create(
       {
         model: "gpt-5.6-terra",
@@ -109,7 +144,7 @@ async function streamSupportTurn(options: {
       deadline.touch();
       const delta = chunk.choices[0]?.delta?.content;
       if (delta) {
-        write(dashSmoother.push(brandSmoother.push(markerFilter.push(delta))));
+        write(emojiSmoother.push(dashSmoother.push(brandSmoother.push(markerFilter.push(delta)))));
       }
     }
   } catch (error) {
@@ -195,6 +230,10 @@ router.post("/support/chat", async (req, res) => {
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
+    // The turn opens on freshly selected documents (selection ran just
+    // above); narrate it so the client's status line starts truthfully.
+    writeStage(res, "searching");
+
     const abort = new AbortController();
     res.on("close", () => abort.abort());
 
@@ -247,6 +286,9 @@ router.post("/support/chat", async (req, res) => {
           { stage1: selection.primaryIds, documents: documents.length },
           "support chat broadened to full library",
         );
+        // Stage 2 re-grounds against the complete library — that IS another
+        // document search, so the narration honestly starts over.
+        writeStage(res, "searching");
         const second = await streamSupportTurn({
           res,
           abortSignal: abort.signal,

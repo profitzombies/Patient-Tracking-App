@@ -14,6 +14,7 @@ import { Link, useLocation } from 'wouter';
 import {
   BookOpenText,
   Building2,
+  FlaskConical,
   FolderOpen,
   GraduationCap,
   LayoutDashboard,
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/team', label: 'Team', icon: Users },
   { path: '/admin/training', label: 'Training', icon: GraduationCap },
   { path: '/admin/knowledge', label: 'AI Support', mobileLabel: 'Support', icon: BookOpenText },
+  { path: '/admin/support-test', label: 'Test AI Support', mobileLabel: 'Test chat', icon: FlaskConical },
   { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
   { path: '/admin/settings', label: 'Settings', icon: Settings2 },
 ];
@@ -51,7 +53,7 @@ const NAV_ITEMS: NavItem[] = [
 const ADMIN_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/admin'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/team'] },
-  { label: 'Learning', paths: ['/admin/training', '/admin/knowledge'] },
+  { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
   { label: 'Manage', paths: ['/admin/files', '/admin/settings'] },
 ];
 

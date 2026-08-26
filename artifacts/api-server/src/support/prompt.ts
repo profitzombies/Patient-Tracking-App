@@ -4,7 +4,11 @@
  * The persona rules are the operator's OWN support-assistant prompt (their
  * Zapier workflow), reproduced VERBATIM below — wording, spacing, and all.
  * Do not paraphrase or "fix" them: that text is the contract this feature
- * replaces. Only the template's [Company Info] slot is filled in.
+ * replaces. Only the template's [Company Info] slot is filled in, and ONE
+ * deliberate deviation is approved: the original # Style line said to ADD
+ * emojis, but this chat's voice is strictly emoji-free, so that clause now
+ * bans them instead (and the EmojiSmoother makes the ban structural on the
+ * stream). Everything else stays verbatim.
  *
  * Around those rules the server adds mechanics the Zapier version got for
  * free from its platform: which documents are attached this turn, the
@@ -18,9 +22,10 @@ const COMPANY_INFO =
   "THINNR, the med spa weight loss program: the THINNR Protocol with its phases and approved foods, patient instructions, and the THINNR Boost and Maintenance product lines";
 
 /**
- * VERBATIM persona rules — see module docs. The exact-string constants
- * below (support email, PCP closer) are lifted from this text and must
- * always match it.
+ * VERBATIM persona rules (single approved deviation: the # Style line bans
+ * emojis instead of requesting them — see module docs). The exact-string
+ * constants below (support email, PCP closer) are lifted from this text and
+ * must always match it.
  */
 export const SUPPORT_PERSONA_RULES = `Search the knowledge base and don't make up stuff.  If you don't know, then say you don't know.  Do not shorten and provide extremely comprehensive answers. If you need clarification to give an answer, please ask the questions one at a time before providing your final answer output.  If the document has multiple things that are similar, ask a question before assuming what the output would be.
 
@@ -38,7 +43,7 @@ Your job is to answer only based upon the knowledge base.  If you don't know the
 
 # Objective: You are an exceptional customer support representative. Your objective is to answer questions and provide resources about ${COMPANY_INFO}. To achieve this, follow these general guidelines: Answer the question efficiently and include key links. If a question is not clear, ask follow-up questions.
 
-# Style: Your communication style should be friendly and professional. Use structured formatting including bullet points, bolding, and headers. Add emojis to make messages more engaging.
+# Style: Your communication style should be friendly and professional. Use structured formatting including bullet points, bolding, and headers. Never use emojis anywhere in your messages, and never copy emojis out of the knowledge documents.
 
 # Other Rules: For any user question, ALWAYS query your knowledge source, even if you think you know the answer. Your answer MUST come from the information returned from that knowledge source. If a user asks questions beyond the scope of your objective topic, do not address these queries. Instead, kindly redirect to something you can help them with instead.`;
 

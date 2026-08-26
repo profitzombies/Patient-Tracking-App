@@ -16,6 +16,7 @@
     "test:staff-logins": "tsx scripts/verify-staff-logins.ts",
     "test:knowledge": "tsx scripts/verify-knowledge.ts",
     "test:ai-support": "tsx scripts/verify-ai-support.ts",
+    "test:stage-pacer": "tsx scripts/verify-stage-pacer.ts",
     "test:toasts": "tsx scripts/verify-toasts.ts",
     "seed:knowledge": "tsx scripts/seed-knowledge.ts",
     "create:demo-staff": "tsx scripts/create-demo-staff.ts",

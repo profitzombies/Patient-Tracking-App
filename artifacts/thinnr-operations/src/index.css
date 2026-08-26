@@ -286,3 +286,29 @@
     background-color: hsl(var(--navy) / 0.12);
   }
 }
+
+/* AI Support thinking indicator — the web twin of the mobile coach's
+   three-square wave: 260ms rise to full, 340ms recover to dim, 220ms rest
+   (820ms cycle), each dot 170ms behind the last. */
+@keyframes support-thinking-pulse {
+  0%,
+  73%,
+  100% {
+    opacity: 0.25;
+  }
+  32% {
+    opacity: 1;
+  }
+}
+
+.support-thinking-dot {
+  opacity: 0.25;
+  animation: support-thinking-pulse 820ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .support-thinking-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}

@@ -254,10 +254,14 @@ export default function RecipeDetailScreen() {
           <Text style={[styles.description, { color: colors.bodyText }]}>{recipe.description}</Text>
 
           <View style={styles.chipRow}>
-            <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              <Feather name="clock" size={11} color={colors.orange} />
-              <Text style={[styles.chipText, { color: colors.bodyText }]}>{recipe.minutes} MIN</Text>
-            </View>
+            {/* Meals saved from a photo have no cook time (minutes 0) — the
+                chip only makes sense for actual recipes. */}
+            {recipe.minutes > 0 && (
+              <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Feather name="clock" size={11} color={colors.orange} />
+                <Text style={[styles.chipText, { color: colors.bodyText }]}>{recipe.minutes} MIN</Text>
+              </View>
+            )}
             <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
               <Feather name="users" size={11} color={colors.orange} />
               <Text style={[styles.chipText, { color: colors.bodyText }]}>MAKES {recipe.servings}</Text>
@@ -318,21 +322,25 @@ export default function RecipeDetailScreen() {
             />
           </LedgerCard>
 
-          {/* ── Steps ── */}
-          <SectionHeader label="Directions" style={{ marginTop: 18, marginBottom: 8 }} />
-          <LedgerCard style={{ paddingVertical: 4 }}>
-            {recipe.steps.map((step, index) => (
-              <View key={index}>
-                {index > 0 && <Divider />}
-                <View style={styles.stepRow}>
-                  <View style={[styles.stepNum, { backgroundColor: colors.sidebarBg }]}>
-                    <Text style={[styles.stepNumText, { color: colors.cobalt }]}>{index + 1}</Text>
+          {/* ── Steps (meals saved from a photo have nothing to cook) ── */}
+          {recipe.steps.length > 0 && (
+            <>
+              <SectionHeader label="Directions" style={{ marginTop: 18, marginBottom: 8 }} />
+              <LedgerCard style={{ paddingVertical: 4 }}>
+                {recipe.steps.map((step, index) => (
+                  <View key={index}>
+                    {index > 0 && <Divider />}
+                    <View style={styles.stepRow}>
+                      <View style={[styles.stepNum, { backgroundColor: colors.sidebarBg }]}>
+                        <Text style={[styles.stepNumText, { color: colors.cobalt }]}>{index + 1}</Text>
+                      </View>
+                      <Text style={[styles.stepText, { color: colors.bodyText }]}>{step}</Text>
+                    </View>
                   </View>
-                  <Text style={[styles.stepText, { color: colors.bodyText }]}>{step}</Text>
-                </View>
-              </View>
-            ))}
-          </LedgerCard>
+                ))}
+              </LedgerCard>
+            </>
+          )}
 
           {/* ── Grocery list (saved cravings fixes) ── */}
           {savedRecipe?.groceryList && savedRecipe.groceryList.length > 0 && (

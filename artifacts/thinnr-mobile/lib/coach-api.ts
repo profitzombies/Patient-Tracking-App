@@ -32,13 +32,20 @@ export interface CoachRequestMessage {
    */
   stopped?: boolean;
   /**
-   * Menu photo attached to this message as a JPEG data URI. Sent only on the
+   * Photo attached to this message as a JPEG data URI. Sent only on the
    * final message of a request — the turn being answered. History replays
    * stay text-only (the server ignores images anywhere else), so a photo is
    * never uploaded twice. The server analyzes it in memory and never stores
    * it.
    */
   image?: string;
+  /**
+   * What the attached photo shows: "menu" (default when absent) runs the
+   * restaurant menu scan, "meal" the plate-logging analysis that answers
+   * with an editable meal card. Sent only alongside `image` on the final
+   * message; meaningless without one.
+   */
+  photoKind?: 'menu' | 'meal';
 }
 
 export interface CoachCardEvent {

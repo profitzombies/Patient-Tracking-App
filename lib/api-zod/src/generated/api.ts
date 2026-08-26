@@ -25,7 +25,8 @@ export const CoachChatBody = zod.object({
   "role": zod.enum(['user', 'assistant']),
   "content": zod.string().max(coachChatBodyMessagesItemContentMax),
   "stopped": zod.boolean().optional().describe('True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages.'),
-  "image": zod.string().max(coachChatBodyMessagesItemImageMax).optional().describe('Optional menu photo attached to this user message, as a base64 data URI (JPEG, PNG, or WebP). Honored only on the final message of the request — history replays carry text only, so a photo is never re-sent on later turns. Analyzed in memory and never stored. Ignored on assistant messages.')
+  "image": zod.string().max(coachChatBodyMessagesItemImageMax).optional().describe('Optional photo attached to this user message, as a base64 data URI (JPEG, PNG, or WebP). Honored only on the final message of the request — history replays carry text only, so a photo is never re-sent on later turns. Analyzed in memory and never stored. Ignored on assistant messages.'),
+  "photoKind": zod.enum(['menu', 'meal']).optional().describe('What the attached photo shows, chosen by the client flow that captured it: \"menu\" (default when absent) runs the restaurant menu scan; \"meal\" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card. Ignored without an image.')
 })).min(1).max(coachChatBodyMessagesMax)
 })
 

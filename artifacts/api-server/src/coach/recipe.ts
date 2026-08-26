@@ -74,12 +74,24 @@ const ModelOutputSchema = z.object({
   recipe: GeneratedRecipeSchema.nullable(),
 });
 
-type GeneratedRecipe = z.infer<typeof GeneratedRecipeSchema>;
+/**
+ * Exported for the meal-photo pipeline, which builds a recipe-shaped result
+ * (one serving, per-ingredient nutrition) so normalizeIngredientNutrition and
+ * the whole downstream card/editor path can be reused unchanged.
+ */
+export type GeneratedRecipe = z.infer<typeof GeneratedRecipeSchema>;
+
+/**
+ * Card modes: model-generated "recipe"/"cravings", plus "meal" for the
+ * photo-logging pipeline (a photographed plate rendered as an editable
+ * one-serving meal — steps are empty and minutes meaningless there).
+ */
+export type RecipeCardMode = RecipeMode | "meal";
 
 /** Payload shape the mobile app renders as a chat card and preview screen. */
 export interface RecipeCardPayload {
   id: string;
-  mode: RecipeMode;
+  mode: RecipeCardMode;
   name: string;
   description: string;
   meal: (typeof MEALS)[number];

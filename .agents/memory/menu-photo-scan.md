@@ -66,3 +66,23 @@ description: Patterns proven by the menu-scan flow — vision input through the 
 - **E2E note:** automation misattributes chips easily — chips render under the
   NEWEST reply only, so a normal turn's chips can look like they belong to an
   earlier photo notice in a final screenshot. Judge the pre-follow-up state.
+
+## Meal photo turns (plate → editable meal)
+
+- **One optional `photoKind` field on the tail message switches pipelines**
+  (`meal` vs default `menu`); absent = menu so older clients never break, and
+  the meal branch must be checked BEFORE the menu branch in the route.
+- **Shape the analysis like the existing AI recipe** (1 serving, per-ingredient
+  nutrition, `steps: []`, `minutes: 0`, card mode `meal`): the breakdown editor,
+  adjustment math, diary logging, and save-as-recipe all come free. Setting the
+  patient's OWN photo as the suggestion's `photoUri` suppresses AI image
+  generation on the detail screen with zero extra code.
+- **"Always estimate" needs schema teeth, not just prompt words:** the model
+  occasionally emits amount 0 when unsure — pair the prompt rule with a
+  zero/absent-amount corrective retry (limit 1) naming the offending item.
+- **Retake is a client-side predicate,** keyed off the latest finished reply's
+  ORIGIN message `photo.kind` (works for error replies too, dies when a newer
+  turn lands). Meal closers must never end "?" or fallback yes/no chips join it.
+- **Vision e2e fixtures:** the seeded ILLUSTRATED plate images are reliably
+  read as food by the vision model — no need to generate photoreal fixtures —
+  and any UI screenshot reliably triggers the `not_food` outcome.

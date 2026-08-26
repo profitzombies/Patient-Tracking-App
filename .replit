@@ -76,6 +76,14 @@ args = "hq-conversations"
 task = "workflow.run"
 args = "provider-training"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "meal-photo"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "api-tests"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -237,6 +245,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:provider-training"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "meal-photo"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:meal-photo"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "api-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run"
 
 [workflows.workflow.metadata]
 isValidation = true

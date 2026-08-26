@@ -17,6 +17,12 @@
  * helper), rendered as a photo bubble. The coach replies with ordering
  * suggestions and offers a custom recipe via the usual one-tap chips. The
  * photo stays in client state, so a failed turn retries in one tap.
+ *
+ * Meal photo turns arrive via the shared MealPhotoButton (Library/Diary
+ * entry points) with kind "meal": the coach answers with what it sees on
+ * the plate plus an editable meal card, and a "Retake photo" chip rides
+ * under the newest finished meal reply so a bad guess is one tap from a
+ * new shot.
  */
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -43,8 +49,13 @@ import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
 // into the card slot.
 import "@/components/coach/ProductSuggestionCard";
 import "@/components/coach/RecipeSuggestionCard";
+import { MealPhotoButton } from "@/components/patient/MealPhotoButton";
 import { useColors } from "@/hooks/useColors";
-import { useCoachChat, type CoachMessage } from "@/context/CoachChatContext";
+import {
+  offersMealPhotoRetake,
+  useCoachChat,
+  type CoachMessage,
+} from "@/context/CoachChatContext";
 import { preparePhotoForUpload } from "@/lib/photo-prep";
 
 /** Heritage soft shadows as boxShadow strings (shadow* props warn on web). */
@@ -349,6 +360,15 @@ export default function CoachChatScreen() {
             ))}
           </View>
         )}
+        {/* A finished meal-photo reply grows a retake chip: quick replies
+            only send text, so the "new shot" affordance is client-side.
+            Meal replies never end with "?" (server contract), which keeps
+            this chip and the quick-reply row mutually exclusive. */}
+        {offersMealPhotoRetake(messages, isStreaming) ? (
+          <View style={styles.quickReplyRow}>
+            <MealPhotoButton variant="chip" testID="coach-meal-retake" />
+          </View>
+        ) : null}
         {offersQuickReplies(messages[messages.length - 1], isStreaming) ? (
           <View style={styles.quickReplyRow}>
             {quickRepliesFor(messages[messages.length - 1]).map(
@@ -646,7 +666,9 @@ function MessageBubble({ message }: { message: CoachMessage }) {
               },
             ]}
             contentFit="cover"
-            accessibilityLabel="Your menu photo"
+            accessibilityLabel={
+              message.photo.kind === "meal" ? "Your meal photo" : "Your menu photo"
+            }
           />
         </View>
       );

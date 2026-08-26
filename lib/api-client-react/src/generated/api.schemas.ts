@@ -17,6 +17,17 @@ export const CoachChatMessageRole = {
   assistant: 'assistant',
 } as const;
 
+/**
+ * What the attached photo shows, chosen by the client flow that captured it: "menu" (default when absent) runs the restaurant menu scan; "meal" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card. Ignored without an image.
+ */
+export type CoachChatMessagePhotoKind = typeof CoachChatMessagePhotoKind[keyof typeof CoachChatMessagePhotoKind];
+
+
+export const CoachChatMessagePhotoKind = {
+  menu: 'menu',
+  meal: 'meal',
+} as const;
+
 export interface CoachChatMessage {
   role: CoachChatMessageRole;
   /** @maxLength 4000 */
@@ -24,10 +35,12 @@ export interface CoachChatMessage {
   /** True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages. */
   stopped?: boolean;
   /**
-     * Optional menu photo attached to this user message, as a base64 data URI (JPEG, PNG, or WebP). Honored only on the final message of the request — history replays carry text only, so a photo is never re-sent on later turns. Analyzed in memory and never stored. Ignored on assistant messages.
+     * Optional photo attached to this user message, as a base64 data URI (JPEG, PNG, or WebP). Honored only on the final message of the request — history replays carry text only, so a photo is never re-sent on later turns. Analyzed in memory and never stored. Ignored on assistant messages.
      * @maxLength 8000000
      */
   image?: string;
+  /** What the attached photo shows, chosen by the client flow that captured it: "menu" (default when absent) runs the restaurant menu scan; "meal" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card. Ignored without an image. */
+  photoKind?: CoachChatMessagePhotoKind;
 }
 
 export interface CoachChatInput {

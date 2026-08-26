@@ -459,11 +459,20 @@ components:
           type: string
           maxLength: 8000000
           description: >-
-            Optional menu photo attached to this user message, as a base64
+            Optional photo attached to this user message, as a base64
             data URI (JPEG, PNG, or WebP). Honored only on the final message
             of the request — history replays carry text only, so a photo is
             never re-sent on later turns. Analyzed in memory and never
             stored. Ignored on assistant messages.
+        photoKind:
+          type: string
+          enum: [menu, meal]
+          description: >-
+            What the attached photo shows, chosen by the client flow that
+            captured it: "menu" (default when absent) runs the restaurant
+            menu scan; "meal" runs the meal analysis that identifies visible
+            foods with estimated portions and returns an editable meal card.
+            Ignored without an image.
       required:
         - role
         - content

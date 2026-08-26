@@ -8,6 +8,7 @@
 
 export * from './coachChatInput';
 export * from './coachChatMessage';
+export * from './coachChatMessagePhotoKind';
 export * from './coachChatMessageRole';
 export * from './coachMenuScanAvoidItem';
 export * from './coachMenuScanInput';

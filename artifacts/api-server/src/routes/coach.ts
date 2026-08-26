@@ -8,6 +8,7 @@ import { acquireChatSlot, acquireMenuScanSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
 import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
+import { generateMealChatTurn } from "../coach/meal-chat";
 import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
 import { MarkerFilter } from "../coach/markers";
 import { firstQuickReplySet } from "../coach/quick-replies";
@@ -118,7 +119,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     // Which model pipeline answers this turn — failure/completion logs carry
     // it (plus elapsed time) so a mystery error bubble can be traced to the
     // pipeline and duration that produced it.
-    let pipeline: "plain" | "menu" | "menu-recipe" | "recipe" | "cravings" = "plain";
+    let pipeline: "plain" | "menu" | "meal" | "menu-recipe" | "recipe" | "cravings" = "plain";
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -141,6 +142,40 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     }, keepaliveIntervalMs());
 
     try {
+      // ── Meal photo turn ─────────────────────────────────────────────────
+      // A photo flagged `photoKind: "meal"` is a plate to log, not a menu to
+      // scan: the vision analysis identifies the VISIBLE foods with committed
+      // portion estimates and the reply carries an editable one-serving meal
+      // card (recipe payload, mode "meal"). No quick replies ride this turn —
+      // the client shows its own "Retake photo" chip instead. Non-food and
+      // unreadable photos are warm conversational outcomes, never errors.
+      if (image !== undefined && latest.photoKind === "meal") {
+        pipeline = "meal";
+        const mealTurn = await generateMealChatTurn({
+          image,
+          patient: patientContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: mealTurn.reply })}\n\n`);
+          if (mealTurn.card) {
+            res.write(`data: ${JSON.stringify({ card: mealTurn.card })}\n\n`);
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            {
+              pipeline,
+              elapsedMs: Date.now() - startedAt,
+              outcome: mealTurn.outcome,
+              items: mealTurn.itemCount,
+            },
+            "coach meal photo turn completed",
+          );
+        }
+        return;
+      }
+
       // ── Menu photo turn ─────────────────────────────────────────────────
       // The photo goes through the same grounded vision scan as the
       // standalone menu-scan screen, and the structured result is formatted

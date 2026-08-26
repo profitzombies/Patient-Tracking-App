@@ -40,6 +40,13 @@ export interface CoachCard {
   payload: unknown;
 }
 
+/**
+ * What a photo turn's picture shows — decides which server pipeline answers
+ * it: "menu" runs the restaurant menu scan, "meal" the plate-logging
+ * analysis that returns an editable meal card.
+ */
+export type PhotoKind = 'menu' | 'meal';
+
 export interface CoachMessage {
   id: string;
 
@@ -74,12 +81,14 @@ export interface CoachMessage {
   quickReplies?: string[];
 
   /**
-   * User messages only: the menu photo this turn sent, kept in client state
-   * so the bubble can render it and a failed turn can retry with the same
-   * photo in one tap (no re-take). `text` still carries the fixed replay
-   * line the model reads — the bubble renders the photo instead of it.
+   * User messages only: the photo this turn sent (menu or meal), kept in
+   * client state so the bubble can render it and a failed turn can retry
+   * with the same photo in one tap (no re-take). `text` still carries the
+   * fixed replay line the model reads — the bubble renders the photo
+   * instead of it. `kind` routes the retry to the same server pipeline and
+   * drives the chat screen's "Retake photo" chip (meal turns only).
    */
-  photo?: { uri: string; width: number; height: number };
+  photo?: { uri: string; width: number; height: number; kind?: PhotoKind };
 
   /**
    * Error messages only: false when the server declared the failure final —
@@ -95,12 +104,14 @@ interface CoachChatContextValue {
   isStreaming: boolean;
   send: (text: string) => void;
   /**
-   * Sends a menu photo as its own user turn: the bubble shows the photo and
-   * the request carries it (as a data URI) on the final message ONLY — older
+   * Sends a photo as its own user turn: the bubble shows the photo and the
+   * request carries it (as a data URI) on the final message ONLY — older
    * photo turns replay as fixed text, so a photo is never uploaded twice.
-   * No-op while a reply is in flight.
+   * `kind` (default "menu") picks the server pipeline: "meal" turns come
+   * back with an editable meal card and keep the patient's own photo as the
+   * card's picture. No-op while a reply is in flight.
    */
-  sendPhoto: (photo: { uri: string; width: number; height: number }) => void;
+  sendPhoto: (photo: { uri: string; width: number; height: number }, kind?: PhotoKind) => void;
   /**
    * Resends the question behind a failed reply: the error bubble is swapped
    * in place for a fresh streaming bubble and the same request is made again
@@ -186,6 +197,27 @@ function takeRevealChunk(reveal: RevealState): string {
  * conversation.
  */
 export const MENU_PHOTO_MESSAGE_TEXT = 'I sent a photo of a restaurant menu.';
+
+/** Replay text for meal photo turns (see MENU_PHOTO_MESSAGE_TEXT). */
+export const MEAL_PHOTO_MESSAGE_TEXT = 'I sent a photo of my meal.';
+
+/**
+ * True when the chat should offer its "Retake photo" chip: the latest
+ * message is a finished (done or error) assistant reply to a MEAL photo
+ * turn, and nothing is currently streaming. Deliberately latest-only — a
+ * retake always starts a fresh capture, so offering it under stale replies
+ * higher up the thread would only clutter the conversation. Lives here (not
+ * in the screen) so the no-credit suites can drive it against real context
+ * state.
+ */
+export function offersMealPhotoRetake(messages: CoachMessage[], isStreaming: boolean): boolean {
+  if (isStreaming) return false;
+  const latest = messages[messages.length - 1];
+  if (!latest || latest.role !== 'assistant' || !latest.replyToId) return false;
+  if (latest.status !== 'done' && latest.status !== 'error') return false;
+  const origin = messages.find(m => m.id === latest.replyToId);
+  return origin?.photo?.kind === 'meal';
+}
 
 /**
  * Fixed id for the seeded greeting — outside the `coach-${n}` space nextId()
@@ -336,7 +368,18 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
    * abortRef, and putting the streaming bubble into state first.
    */
   const streamInto = useCallback(
-    (request: CoachRequestMessage[], assistantId: string, controller: AbortController) => {
+    (
+      request: CoachRequestMessage[],
+      assistantId: string,
+      controller: AbortController,
+      /**
+       * Set on meal photo turns: the patient's own photo, attached to the
+       * arriving meal suggestion so the preview screen shows THEIR plate
+       * instead of generating an AI image. Menu turns never produce meal
+       * cards, so passing it on every photo turn is safe.
+       */
+      mealPhotoUri?: string,
+    ) => {
       // Callbacks from a stream the user already stopped must not run: stop()
       // finalized the UI and may even have let a new exchange begin.
       const isStale = () => abortRef.current !== controller;
@@ -368,7 +411,13 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
               // than crashing the preview screen later.
               const suggestion = parseRecipeCardPayload(card.payload);
               if (!suggestion) return;
-              suggestionsRef.current.set(suggestion.id, suggestion);
+              // A meal-from-photo card keeps the patient's own photo as its
+              // picture — the preview screen then skips AI image generation.
+              const registered =
+                suggestion.mode === 'meal' && mealPhotoUri
+                  ? { ...suggestion, photoUri: mealPhotoUri }
+                  : suggestion;
+              suggestionsRef.current.set(registered.id, registered);
             }
             // Held until the reveal finishes (first card wins; the server
             // sends at most one per reply anyway).
@@ -453,7 +502,7 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendPhoto = useCallback(
-    (photo: { uri: string; width: number; height: number }) => {
+    (photo: { uri: string; width: number; height: number }, kind: PhotoKind = 'menu') => {
       if (!photo.uri || inFlightRef.current) return;
       inFlightRef.current = true;
 
@@ -465,20 +514,24 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
       const userMessage: CoachMessage = {
         id: nextId(),
         role: 'user',
-        text: MENU_PHOTO_MESSAGE_TEXT,
+        text: kind === 'meal' ? MEAL_PHOTO_MESSAGE_TEXT : MENU_PHOTO_MESSAGE_TEXT,
         status: 'done',
-        photo,
+        photo: { ...photo, kind },
       };
       const assistantId = nextId();
 
-      // Same snapshot rule as send(). The photo rides ONLY the request tail:
-      // toRequestMessage keeps every replayed message text-only, so a photo
-      // is never uploaded twice.
+      // Same snapshot rule as send(). The photo (and its pipeline flag) ride
+      // ONLY the request tail: toRequestMessage keeps every replayed message
+      // text-only, so a photo is never uploaded twice.
       const request: CoachRequestMessage[] = [...messagesRef.current, userMessage]
         .filter(m => m.status === 'done' && m.text.length > 0)
         .slice(-MAX_REQUEST_MESSAGES)
         .map(toRequestMessage);
-      request[request.length - 1] = { ...request[request.length - 1], image: photo.uri };
+      request[request.length - 1] = {
+        ...request[request.length - 1],
+        image: photo.uri,
+        photoKind: kind,
+      };
 
       setIsStreaming(true);
       setMessages(prev => [
@@ -493,7 +546,7 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
         },
       ]);
 
-      streamInto(request, assistantId, controller);
+      streamInto(request, assistantId, controller, kind === 'meal' ? photo.uri : undefined);
     },
     [streamInto],
   );
@@ -527,10 +580,16 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
       if (request.length === 0 || request[request.length - 1].role !== 'user') return;
       // A failed photo turn retries with its photo: the origin user message
       // is the request tail (checked above), so re-attach the image there —
-      // the photo stayed in client state, no re-take needed.
+      // the photo stayed in client state, no re-take needed. The kind rides
+      // along so the retry reaches the same pipeline (meal analysis vs menu
+      // scan) as the original send.
       const origin = history[originIndex];
       if (origin.photo) {
-        request[request.length - 1] = { ...request[request.length - 1], image: origin.photo.uri };
+        request[request.length - 1] = {
+          ...request[request.length - 1],
+          image: origin.photo.uri,
+          ...(origin.photo.kind ? { photoKind: origin.photo.kind } : {}),
+        };
       }
 
       inFlightRef.current = true;
@@ -555,7 +614,12 @@ export function CoachChatProvider({ children }: { children: React.ReactNode }) {
         ),
       );
 
-      streamInto(request, assistantId, controller);
+      streamInto(
+        request,
+        assistantId,
+        controller,
+        origin.photo?.kind === 'meal' ? origin.photo.uri : undefined,
+      );
     },
     [streamInto],
   );

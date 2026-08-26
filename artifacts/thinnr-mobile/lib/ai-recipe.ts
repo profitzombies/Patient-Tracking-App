@@ -25,7 +25,12 @@ export interface AiRecipeIngredient {
 
 export interface AiRecipeSuggestion {
   id: string;
-  mode: 'recipe' | 'cravings';
+  /**
+   * "recipe" / "cravings" are model-generated dishes; "meal" is a
+   * photographed plate shaped like a one-serving recipe (steps empty,
+   * minutes 0) so the same breakdown editor, logging, and save paths apply.
+   */
+  mode: 'recipe' | 'cravings' | 'meal';
   name: string;
   description: string;
   meal: MealSlot;
@@ -100,7 +105,7 @@ export function parseRecipeCardPayload(payload: unknown): AiRecipeSuggestion | n
   if (!isNonEmptyString(p.id) || !isNonEmptyString(p.name) || !isNonEmptyString(p.description)) {
     return null;
   }
-  if (p.mode !== 'recipe' && p.mode !== 'cravings') return null;
+  if (p.mode !== 'recipe' && p.mode !== 'cravings' && p.mode !== 'meal') return null;
   if (!MEALS.includes(p.meal as MealSlot)) return null;
   if (
     !isFiniteNumber(p.minutes) ||
@@ -121,8 +126,10 @@ export function parseRecipeCardPayload(payload: unknown): AiRecipeSuggestion | n
     ingredients.push(ingredient);
   }
 
-  const steps = parseStringArray(p.steps);
-  if (!steps || steps.length === 0) return null;
+  // Meal-from-photo cards have nothing to cook — steps may be absent or
+  // empty there (and only there); recipe/cravings cards still require them.
+  const steps = p.steps === undefined && p.mode === 'meal' ? [] : parseStringArray(p.steps);
+  if (!steps || (steps.length === 0 && p.mode !== 'meal')) return null;
 
   let groceryList: string[] | undefined;
   if (p.groceryList !== undefined) {

@@ -15,6 +15,7 @@ import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { FavoriteStar } from '@/components/patient/FavoriteStar';
 import { FoodAddPanel } from '@/components/patient/FoodAddPanel';
+import { MealPhotoButton } from '@/components/patient/MealPhotoButton';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { Divider, EmptyState, LedgerCard, PillSelector, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
@@ -221,7 +222,8 @@ export default function LibraryScreen() {
             {recipe.name}
           </Text>
           <Text style={[styles.cardMeta, { color: colors.subtleText }]}>
-            {recipe.calories} cal · {recipe.minutes} min
+            {/* Meals saved from a photo have no cook time (minutes 0). */}
+            {recipe.minutes > 0 ? `${recipe.calories} cal · ${recipe.minutes} min` : `${recipe.calories} cal`}
           </Text>
           <View style={styles.cardTagRow}>
             <View style={[styles.proteinTag, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder }]}>
@@ -240,6 +242,12 @@ export default function LibraryScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PatientHeader title="Library" subtitle="FOODS & RECIPES FOR YOUR PLAN" />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
+        {/* ── Photo meal logging — one tap from the Library ── */}
+        <MealPhotoButton
+          variant="card"
+          testID="library-meal-photo-btn"
+          style={{ marginBottom: 10 }}
+        />
         {/* ── Approved Foods entry point ── */}
         <LedgerCard
           testID="library-approved-foods-btn"

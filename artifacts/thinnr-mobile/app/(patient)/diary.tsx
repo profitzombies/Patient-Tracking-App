@@ -18,6 +18,7 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { EntryEditPanel } from '@/components/patient/EntryEditPanel';
+import { MealPhotoButton } from '@/components/patient/MealPhotoButton';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { WaterTracker } from '@/components/patient/WaterTracker';
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
@@ -273,6 +274,13 @@ export default function DiaryScreen() {
             </>
           )}
         </LedgerCard>
+
+        {/* ── Photo meal logging — same shared entry point as the Library ── */}
+        <MealPhotoButton
+          variant="card"
+          testID="diary-meal-photo-btn"
+          style={{ marginBottom: 12 }}
+        />
 
         {/* ── Meals — one paper card per slot with a serif title row ── */}
         {MEAL_SLOTS.map(slot => {

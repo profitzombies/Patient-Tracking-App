@@ -143,6 +143,11 @@ export default function AiRecipePreviewScreen() {
   }
 
   const isCravings = suggestion.mode === 'cravings';
+  // Meal-from-photo suggestions reuse this whole screen with a few facts
+  // changed: nothing to cook (no minutes, no directions), the photo is the
+  // patient's own shot (generation is skipped — photoUri arrives set), and
+  // saves are tagged as photo logs.
+  const isMeal = suggestion.mode === 'meal';
   const sanitized = sanitizeAdjustments(suggestion.ingredients, adjustments);
   const isAdjusted = sanitized.length > 0;
   const perServing = adjustedPerServing(
@@ -202,7 +207,7 @@ export default function AiRecipePreviewScreen() {
       const saved = await patient.addSavedRecipe({
         name: suggestion.name,
         meal: suggestion.meal,
-        tags: isCravings ? ['coach', 'cravings fix'] : ['coach'],
+        tags: isMeal ? ['coach', 'meal photo'] : isCravings ? ['coach', 'cravings fix'] : ['coach'],
         minutes: Math.round(suggestion.minutes),
         servings: Math.round(suggestion.servings),
         calories: Math.round(suggestion.calories),
@@ -269,7 +274,7 @@ export default function AiRecipePreviewScreen() {
           <Feather name="chevron-left" size={17} color={colors.bodyText} />
         </Pressable>
         <Text style={[styles.topTitle, { color: colors.labelText }]}>
-          {isCravings ? 'CRAVINGS FIX' : 'AI SUGGESTION'}
+          {isMeal ? 'MEAL FROM YOUR PHOTO' : isCravings ? 'CRAVINGS FIX' : 'AI SUGGESTION'}
         </Text>
         <View style={[styles.aiBadge, { borderColor: colors.cobalt }]}>
           <Text style={[styles.aiBadgeText, { color: colors.cobalt }]}>AI</Text>
@@ -282,14 +287,26 @@ export default function AiRecipePreviewScreen() {
           <Text style={[styles.description, { color: colors.bodyText }]}>{suggestion.description}</Text>
 
           <View style={styles.chipRow}>
-            <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              <Feather name="clock" size={11} color={colors.orange} />
-              <Text style={[styles.chipText, { color: colors.bodyText }]}>{Math.round(suggestion.minutes)} MIN</Text>
-            </View>
-            <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              <Feather name="users" size={11} color={colors.orange} />
-              <Text style={[styles.chipText, { color: colors.bodyText }]}>MAKES {Math.round(suggestion.servings)}</Text>
-            </View>
+            {/* A photographed plate has no cook time or yield — those chips
+                only describe generated recipes. */}
+            {!isMeal && (
+              <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Feather name="clock" size={11} color={colors.orange} />
+                <Text style={[styles.chipText, { color: colors.bodyText }]}>{Math.round(suggestion.minutes)} MIN</Text>
+              </View>
+            )}
+            {!isMeal && (
+              <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Feather name="users" size={11} color={colors.orange} />
+                <Text style={[styles.chipText, { color: colors.bodyText }]}>MAKES {Math.round(suggestion.servings)}</Text>
+              </View>
+            )}
+            {isMeal && (
+              <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Feather name="camera" size={11} color={colors.orange} />
+                <Text style={[styles.chipText, { color: colors.bodyText }]}>FROM YOUR PHOTO</Text>
+              </View>
+            )}
             <View style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.card }]}>
               <Text style={[styles.chipText, { color: colors.bodyText }]}>{MEAL_LABELS[suggestion.meal].toUpperCase()}</Text>
             </View>
@@ -334,7 +351,7 @@ export default function AiRecipePreviewScreen() {
 
           {/* ── Ingredients ── */}
           <SectionHeader
-            label="Ingredients"
+            label={isMeal ? 'On Your Plate' : 'Ingredients'}
             value={isCravings ? 'Approved Foods list' : undefined}
             action={isAdjusted ? { label: 'Reset amounts', onPress: () => setAdjustments([]) } : undefined}
             style={{ marginTop: 18, marginBottom: 8 }}
@@ -348,21 +365,25 @@ export default function AiRecipePreviewScreen() {
             />
           </LedgerCard>
 
-          {/* ── Steps ── */}
-          <SectionHeader label="Directions" style={{ marginTop: 18, marginBottom: 8 }} />
-          <LedgerCard style={{ paddingVertical: 4 }}>
-            {suggestion.steps.map((step, index) => (
-              <View key={index}>
-                {index > 0 && <Divider />}
-                <View style={styles.stepRow}>
-                  <View style={[styles.stepNum, { backgroundColor: colors.sidebarBg }]}>
-                    <Text style={[styles.stepNumText, { color: colors.cobalt }]}>{index + 1}</Text>
+          {/* ── Steps (meals from a photo have nothing to cook) ── */}
+          {suggestion.steps.length > 0 && (
+            <>
+              <SectionHeader label="Directions" style={{ marginTop: 18, marginBottom: 8 }} />
+              <LedgerCard style={{ paddingVertical: 4 }}>
+                {suggestion.steps.map((step, index) => (
+                  <View key={index}>
+                    {index > 0 && <Divider />}
+                    <View style={styles.stepRow}>
+                      <View style={[styles.stepNum, { backgroundColor: colors.sidebarBg }]}>
+                        <Text style={[styles.stepNumText, { color: colors.cobalt }]}>{index + 1}</Text>
+                      </View>
+                      <Text style={[styles.stepText, { color: colors.bodyText }]}>{step}</Text>
+                    </View>
                   </View>
-                  <Text style={[styles.stepText, { color: colors.bodyText }]}>{step}</Text>
-                </View>
-              </View>
-            ))}
-          </LedgerCard>
+                ))}
+              </LedgerCard>
+            </>
+          )}
 
           {/* ── Grocery list (cravings) ── */}
           {isCravings && suggestion.groceryList && suggestion.groceryList.length > 0 && (
@@ -407,7 +428,7 @@ export default function AiRecipePreviewScreen() {
                 color={savedRecipeId ? colors.activeGreen : colors.cobalt}
               />
               <Text style={[styles.saveBtnText, { color: savedRecipeId ? colors.bodyText : colors.cobalt }]}>
-                {savedRecipeId ? 'Saved to your recipes' : 'Save recipe'}
+                {savedRecipeId ? 'Saved to your recipes' : isMeal ? 'Save as recipe' : 'Save recipe'}
               </Text>
             </Pressable>
             {isCravings && (

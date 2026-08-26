@@ -1,0 +1,21 @@
+{
+  // tsx config for scripts/verify-meal-photo.ts ONLY (not part of typecheck).
+  //
+  // The suite runs the real CoachChatContext + PatientContext + lib code
+  // under Node, so native-only imports are remapped to Node stubs and JSX is
+  // compiled with the automatic runtime (the inherited "react-native" jsx
+  // setting would leave JSX untransformed). react-native and expo/fetch
+  // reuse the coach-stop stubs; async-storage and expo-haptics get
+  // meal-photo-local stand-ins so PatientProvider can hydrate and commit.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/coach-stop-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/meal-photo-stubs/async-storage.ts"],
+      "expo-haptics": ["./scripts/meal-photo-stubs/expo-haptics.ts"]
+    }
+  }
+}

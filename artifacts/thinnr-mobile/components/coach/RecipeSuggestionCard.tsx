@@ -22,12 +22,17 @@ export function RecipeSuggestionCard({ suggestion }: { suggestion: AiRecipeSugge
   const colors = useColors();
   const router = useRouter();
   const isCravings = suggestion.mode === 'cravings';
+  const isMeal = suggestion.mode === 'meal';
 
   return (
     <Pressable
       testID={`coach-recipe-card-${suggestion.id}`}
       accessibilityRole="button"
-      accessibilityLabel={`Open recipe suggestion ${suggestion.name}`}
+      accessibilityLabel={
+        isMeal
+          ? `Open your meal breakdown ${suggestion.name}`
+          : `Open recipe suggestion ${suggestion.name}`
+      }
       onPress={() => {
         Haptics.selectionAsync();
         router.push(`/ai-recipe/${suggestion.id}`);
@@ -44,7 +49,11 @@ export function RecipeSuggestionCard({ suggestion }: { suggestion: AiRecipeSugge
     >
       <View style={styles.tagRow}>
         <Text style={[styles.tag, { color: isCravings ? colors.orangeText : colors.cobalt }]}>
-          {isCravings ? 'CRAVINGS FIX · APPROVED FOODS ONLY' : 'RECIPE IDEA'}
+          {isMeal
+            ? 'MEAL FROM YOUR PHOTO'
+            : isCravings
+              ? 'CRAVINGS FIX · APPROVED FOODS ONLY'
+              : 'RECIPE IDEA'}
         </Text>
         <Feather name="chevron-right" size={15} color={colors.subtleText} />
       </View>

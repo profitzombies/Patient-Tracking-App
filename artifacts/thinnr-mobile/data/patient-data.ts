@@ -156,7 +156,8 @@ export interface Recipe {
  */
 export interface SavedRecipe extends Recipe {
   source: 'coach';
-  mode: 'recipe' | 'cravings';
+  /** "meal" = logged from a meal photo: steps empty, minutes 0, photo is the patient's own shot. */
+  mode: 'recipe' | 'cravings' | 'meal';
   savedAt: string; // ISO timestamp
   photoUri?: string;
   groceryList?: string[];

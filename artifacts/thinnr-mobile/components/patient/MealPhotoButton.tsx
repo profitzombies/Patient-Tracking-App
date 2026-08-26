@@ -29,7 +29,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -41,6 +40,7 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, usePathname } from 'expo-router';
+import { AppModal } from '@/components/ui/AppModal';
 import { useColors } from '@/hooks/useColors';
 import { useCoachChat } from '@/context/CoachChatContext';
 import { MEAL_LABELS, type MealSlot } from '@/data/patient-data';
@@ -310,7 +310,7 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
       )}
 
       {/* ── Fallback sheet: camera declined/failed → library option ── */}
-      <Modal
+      <AppModal
         visible={fallbackOpen && photo === null}
         transparent
         animationType="fade"
@@ -373,10 +373,10 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
             </Pressable>
           </View>
         </View>
-      </Modal>
+      </AppModal>
 
       {/* ── Use-photo / retake preview — the send gate ── */}
-      <Modal visible={photo !== null} transparent animationType="fade" onRequestClose={cancel}>
+      <AppModal visible={photo !== null} transparent animationType="fade" onRequestClose={cancel}>
         <View style={styles.backdrop}>
           <View
             testID="meal-photo-preview"
@@ -469,7 +469,7 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
             </Pressable>
           </View>
         </View>
-      </Modal>
+      </AppModal>
     </>
   );
 }

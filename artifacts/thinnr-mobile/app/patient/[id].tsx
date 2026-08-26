@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -17,6 +16,7 @@ import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { AppModal } from '@/components/ui/AppModal';
 import { useColors } from '@/hooks/useColors';
 import theme, { fonts } from '@/constants/colors';
 import { Divider, LedgerCard, ProgressBar, SectionHeader, StatusBadge } from '@/components/ui/LedgerPrimitives';
@@ -667,7 +667,7 @@ export default function PatientDetailScreen() {
       </KeyboardAwareScrollViewCompat>
 
       {/* ── Edit Contact Modal ── */}
-      <Modal visible={editOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setEditOpen(false)}>
+      <AppModal visible={editOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setEditOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
             <Pressable
@@ -708,10 +708,10 @@ export default function PatientDetailScreen() {
             />
           </KeyboardAwareScrollViewCompat>
         </View>
-      </Modal>
+      </AppModal>
 
       {/* ── Log Weight Modal ── */}
-      <Modal visible={weightModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setWeightModalOpen(false)}>
+      <AppModal visible={weightModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setWeightModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
             <Pressable
@@ -744,10 +744,10 @@ export default function PatientDetailScreen() {
             {weightSaved && <Text style={[styles.fieldSuccess, { color: colors.cobalt }]}>Weight entry saved successfully.</Text>}
           </View>
         </View>
-      </Modal>
+      </AppModal>
 
       {/* ── Add Note Modal ── */}
-      <Modal visible={noteModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setNoteModalOpen(false)}>
+      <AppModal visible={noteModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setNoteModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
             <Pressable
@@ -782,10 +782,10 @@ export default function PatientDetailScreen() {
             {noteSaved && <Text style={[styles.fieldSuccess, { color: colors.cobalt }]}>Note saved successfully.</Text>}
           </KeyboardAwareScrollViewCompat>
         </View>
-      </Modal>
+      </AppModal>
 
       {/* ── Subscription Status Modal ── */}
-      <Modal visible={subModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setSubModalOpen(false)}>
+      <AppModal visible={subModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setSubModalOpen(false)}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: insets.top + 16 }]}>
             <Pressable
@@ -832,7 +832,7 @@ export default function PatientDetailScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </AppModal>
     </View>
   );
 }

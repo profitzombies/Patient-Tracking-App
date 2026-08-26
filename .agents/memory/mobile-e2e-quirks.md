@@ -33,3 +33,5 @@ A default (desktop) Playwright context renders a ~15px layout scrollbar, so a no
 **Why:** A viewport-width truncation check at 320–430px produced chops at widths that render clean on real phones; real devices and the preview simulator use overlay scrollbars.
 
 **How to apply:** For any width-exact visual check, tell the tester to create the context with `isMobile: true, hasTouch: true` (scrollbars overlay; CSS width equals nominal width) and to judge truncation from pixels, never DOM textContent (CSS ellipsis leaves the full string in the DOM). Also: text-fit verdicts from tester prose tables are unreliable — narrower widths "showing more text" than wider ones is the tell; view the cited screenshots directly before acting.
+
+**Photo-flow e2e needs a real repo image:** expo-image-manipulator's web decode rejects testers' synthetic/generated PNG buffers — 'preparation failed' with no dialog is the app's designed reaction, not a modal bug. Point the tester's filechooser at a real asset, e.g. artifacts/thinnr-mobile/assets/images/recipes/tuna-wrap.jpg.

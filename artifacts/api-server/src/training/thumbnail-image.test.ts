@@ -37,7 +37,7 @@ const FFMPEG_TEST_TIMEOUT_MS = 30_000;
 
 describe("thumbnail image decoding", () => {
   it("decodes JPG, PNG, and WebP and rejects malformed image data", { timeout: FFMPEG_TEST_TIMEOUT_MS }, async () => {
-    const dir = await mkdtemp(join(tmpdir(), "thumbnail-decode-"));
+    const dir = await mkdtemp(join(tmpdir(), "thumbnail-capture-"));
     dirs.push(dir);
     const valid = join(dir, "valid.png");
     const jpeg = join(dir, "valid.jpg");
@@ -59,7 +59,9 @@ describe("thumbnail image decoding", () => {
     await expect(validateThumbnailImage(jpeg)).resolves.toBeUndefined();
     await expect(validateThumbnailImage(webp)).resolves.toBeUndefined();
     await expect(validateThumbnailImage(malformed)).rejects.toThrow();
-  });
+    // 30s: the ffmpeg conversions above run ~1s alone but blow the 5s default
+    // when the full validation battery executes suites in parallel.
+  }, 30_000);
 
   it("captures a real video frame without touching OpenAI", { timeout: FFMPEG_TEST_TIMEOUT_MS }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "thumbnail-capture-"));

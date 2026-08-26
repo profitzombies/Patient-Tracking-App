@@ -101,6 +101,11 @@ function ClassicTabLayout() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.mutedForeground,
         headerShown: false,
+        // The web canvas is always phone-width (WebFitShell), but react-
+        // navigation's beside-icon switch reads the real browser frame via
+        // getBoundingClientRect, which the shell's transform inflates on wide
+        // panes — pin the iPhone label layout explicitly.
+        ...(isWeb ? { tabBarLabelPosition: 'below-icon' as const } : {}),
         tabBarStyle: {
           position: 'absolute',
           backgroundColor: isIOS ? 'transparent' : colors.card,

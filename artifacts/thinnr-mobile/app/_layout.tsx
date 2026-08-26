@@ -12,6 +12,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { WebFitShell } from '@/components/WebFitShell';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   Inter_400Regular,
@@ -251,32 +252,39 @@ export default function RootLayout() {
 
   if (status !== 'ready') {
     return (
-      <FontLoadFailureScreen retrying={status === 'retrying'} onRetry={retry} />
+      <WebFitShell>
+        <FontLoadFailureScreen retrying={status === 'retrying'} onRetry={retry} />
+      </WebFitShell>
     );
   }
 
+  // WebFitShell sits outside SafeAreaProvider so the provider (and every
+  // frame consumer below it, e.g. the tab bar's compact math) measures the
+  // fixed iPhone-width canvas, not the real browser frame. Native: no-op.
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
-              <AppModeProvider>
-                <OperationsProvider>
-                  <PatientProvider>
-                    <OnboardingProvider>
-                      <CoachChatProvider>
-                        <RootLayoutNav />
-                      </CoachChatProvider>
-                    </OnboardingProvider>
-                  </PatientProvider>
-                </OperationsProvider>
-              </AppModeProvider>
-            </KeyboardProvider>
-          </GestureHandlerRootView>
-        </QueryClientProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <WebFitShell>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <QueryClientProvider client={queryClient}>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <KeyboardProvider>
+                <AppModeProvider>
+                  <OperationsProvider>
+                    <PatientProvider>
+                      <OnboardingProvider>
+                        <CoachChatProvider>
+                          <RootLayoutNav />
+                        </CoachChatProvider>
+                      </OnboardingProvider>
+                    </PatientProvider>
+                  </OperationsProvider>
+                </AppModeProvider>
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </QueryClientProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </WebFitShell>
   );
 }
 

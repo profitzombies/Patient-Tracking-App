@@ -51,3 +51,4 @@
 - [Clickable cards/rows](clickable-surfaces.md) — review rejects focusable div/tr click targets; use stretched-link cards or one announced row link + pointer-only tr onClick; RTR a11y suite enforces it.
 - [Web admin persona gate](web-admin-persona-gate.md) — operations /admin screenshots need the tester through the guided-demo persona (sessionStorage); static Screenshot only sees the sign-in card.
 - [Provider account lock](account-lock-pattern.md) — presence-keyed row + lock-aware caller_* helpers collapse office RLS at one choke point; keep locked staff's own-profile read for the notice.
+- [Web fit-to-iPhone shell](web-fit-shell.md) — Expo web lays out on a fixed 393pt canvas transform-scaled to the frame; use the app width hook, ?layoutWidth= to pin/disable; gBCR consumers see real px.

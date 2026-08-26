@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -9,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppModal } from '@/components/ui/AppModal';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { reloadAppAsync } from 'expo';
@@ -99,7 +99,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
       </View>
 
       {__DEV__ ? (
-        <Modal
+        <AppModal
           visible={isModalVisible}
           animationType="slide"
           transparent={true}
@@ -164,7 +164,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
               </ScrollView>
             </View>
           </View>
-        </Modal>
+        </AppModal>
       ) : null}
     </View>
   );

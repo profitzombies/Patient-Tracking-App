@@ -16,7 +16,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +25,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
+import { useAppWindowDimensions } from '@/hooks/useAppWindowDimensions';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import { APPROVED_FOODS_HREF } from '@/constants/links';
@@ -169,13 +169,16 @@ export default function TodayScreen() {
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
 
   // The hero's copy is fixed, so on narrow phones (360dp Androids, 375pt
-  // iPhones, the small web-simulator frame) it must yield space instead of
-  // ellipsizing mid-word. Two local width steps — not a breakpoint system:
-  // below 390 the focus bar hands its caps label's room to the message and
-  // the quick-link chips tighten their gutters; below 350 the chips stack.
-  // At ≥390 both render exactly the approved Heritage layout. The >0 guard
-  // keeps non-DOM test renders on the regular branch.
-  const { width: windowWidth } = useWindowDimensions();
+  // iPhones) it must yield space instead of ellipsizing mid-word. Two local
+  // width steps — not a breakpoint system: below 390 the focus bar hands its
+  // caps label's room to the message and the quick-link chips tighten their
+  // gutters; below 350 the chips stack. At ≥390 both render exactly the
+  // approved Heritage layout. On web the fit-to-reference shell pins the
+  // layout canvas at the 393pt iPhone width (useAppWindowDimensions reports
+  // canvas space), so these steps engage exactly as on a real iPhone — never
+  // from a narrow preview pane, only under a ?layoutWidth= override. The >0
+  // guard keeps non-DOM test renders on the regular branch.
+  const { width: windowWidth } = useAppWindowDimensions();
   const heroNarrow = windowWidth > 0 && windowWidth < 390;
   const chipsStacked = windowWidth > 0 && windowWidth < 350;
 

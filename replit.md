@@ -63,7 +63,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- **Mobile web preview must mimic native iOS sizing and styling (permanent rule).** The Expo app on web always lays out at the iPhone reference width (393pt) on a fixed canvas that the root `WebFitShell` (`artifacts/thinnr-mobile/components/WebFitShell.tsx`, wired in `app/_layout.tsx`) scales to fill the preview frame — proportions match a real iPhone at every pane width. All future mobile UI work follows this: never hand-tune per-platform font/spacing values to "fix" web, and never call `useWindowDimensions` from `react-native` directly in mobile app code — use `hooks/useAppWindowDimensions`, which reports the canvas size (RNW `onLayout` already measures in canvas px). Likewise never import `Modal` from `react-native` in app code: RNW portals it to `document.body`, outside the canvas — use `components/ui/AppModal`, which re-applies the fit canvas inside the modal (native behavior identical). Width-pinned tests and debugging can force another canvas width with `?layoutWidth=<px>` (e.g. `360` to reach the Today hero's narrow steps) or disable the shell with `?layoutWidth=off`. Native iOS/Android rendering is untouched.
 
 ## Pointers
 

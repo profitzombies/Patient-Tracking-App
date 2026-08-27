@@ -78,7 +78,10 @@
  *      stages the SAME single blue confirmation for captures and corner
  *      picks (Retake vs Choose a different photo); the confirmed send
  *      carries the prepared data URI, photoKind "meal", and the pinned
- *      slot, and the web picker path is untouched.
+ *      slot, and the web picker path is untouched. The flash button drives
+ *      the camera's CONTINUOUS torch — native back camera only, lit the
+ *      moment it's pressed, its state announced, surviving a flip-and-back,
+ *      and always unlit again when a fresh surface opens.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:meal-photo
  */
@@ -145,7 +148,7 @@ import {
   routerCalls,
   routerState,
 } from './meal-photo-stubs/expo-router';
-import { openSettingsCalls } from './meal-photo-stubs/react-native';
+import { announcements, openSettingsCalls } from './meal-photo-stubs/react-native';
 
 let checks = 0;
 let failures = 0;
@@ -1870,6 +1873,80 @@ async function main() {
     assertEqual('close settles exactly once', results.length, 1);
     assert('close hands back no capture', results[0] === null);
     surface.unmount();
+  }
+
+  // 10j. The flash button: continuous torch, native back camera only, lit
+  // the moment it's pressed, announced, persistent across flips, and unlit
+  // again whenever a fresh surface opens. Sections 10a–10i run as 'web', so
+  // this block flips to 'ios' and restores 'web' before the web-reality check.
+  {
+    const torchProp = (tree: Rendered): string => {
+      const camera = tree.root.findAll(node => node.type === 'CameraView')[0];
+      return String(camera?.props.enableTorch);
+    };
+    Platform.OS = 'ios';
+    try {
+      resetCameraStub();
+      const results: Array<FoodCameraCapture | null> = [];
+      const surface = await renderSurface(results);
+      assert(
+        'the torch button rides the live surface on native',
+        present(surface, 'food-camera-torch'),
+      );
+      assertEqual('the torch starts off', torchProp(surface), 'false');
+      assertEqual(
+        'the unlit torch offers the ON action',
+        String(byTestID(surface, 'food-camera-torch')?.props.accessibilityLabel),
+        'Turn on the flash',
+      );
+
+      announcements.length = 0;
+      await tap(surface, 'food-camera-torch');
+      assertEqual('pressing lights the torch immediately', torchProp(surface), 'true');
+      assert('the flip to ON is announced', announcements.includes('Flash on'));
+      assertEqual(
+        'the lit torch offers the OFF action',
+        String(byTestID(surface, 'food-camera-torch')?.props.accessibilityLabel),
+        'Turn off the flash',
+      );
+
+      await tap(surface, 'food-camera-flip');
+      assert(
+        'the front camera hides the torch button (no torch hardware)',
+        !present(surface, 'food-camera-torch'),
+      );
+      assertEqual('facing front forces the hardware torch off', torchProp(surface), 'false');
+      await tap(surface, 'food-camera-flip');
+      assertEqual('flipping back relights the still-on torch', torchProp(surface), 'true');
+
+      announcements.length = 0;
+      await tap(surface, 'food-camera-torch');
+      assertEqual('a second press turns the torch off', torchProp(surface), 'false');
+      assert('the flip to OFF is announced', announcements.includes('Flash off'));
+      surface.unmount();
+
+      // Closing resets the flash: a reopened surface always starts unlit.
+      const reopened = await renderSurface(results);
+      assertEqual('a reopened surface starts with the torch off', torchProp(reopened), 'false');
+      assertEqual(
+        'the reopened torch label starts from OFF',
+        String(byTestID(reopened, 'food-camera-torch')?.props.accessibilityLabel),
+        'Turn on the flash',
+      );
+      reopened.unmount();
+    } finally {
+      Platform.OS = 'web';
+    }
+
+    // Web keeps the browser reality: a live surface, but no torch button.
+    resetCameraStub();
+    const webResults: Array<FoodCameraCapture | null> = [];
+    const webSurface = await renderSurface(webResults);
+    assert(
+      'web hides the torch button entirely',
+      present(webSurface, 'food-camera-flip') && !present(webSurface, 'food-camera-torch'),
+    );
+    webSurface.unmount();
   }
 
   // ── 11. MealPhotoButton drives the in-app camera on device ────────────────

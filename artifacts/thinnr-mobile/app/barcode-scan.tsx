@@ -1,26 +1,40 @@
 /**
- * Barcode Scan — log a packaged food to ONE diary meal by scanning (or
- * typing) the number under its barcode. Opened from the diary meal card's
- * barcode chip with `{ date, meal }`, so everything found here logs to that
- * slot on that day.
+ * Barcode Scan — log packaged foods to ONE diary meal by scanning (or
+ * typing) the numbers under their barcodes. Opened from the diary meal
+ * card's barcode chip with `{ date, meal }`, so everything found here logs
+ * to that slot on that day.
+ *
+ * Multi-scan session: each successful lookup drops the product onto a
+ * running on-screen list and scanning stays live, so a packaged meal's
+ * items can be scanned back to back. The list dedupes on the CANONICAL
+ * code the lookup returns — never the raw scanned or typed digits — so the
+ * same product arriving as a UPC on one scan and an EAN on the next still
+ * counts as one product: it never lands twice, and a brief announced
+ * "already on your list" notice shows instead. (Codes the client itself
+ * canonicalizes to a listed row skip the network round trip; the
+ * post-lookup check covers variants only the server unifies.) Each row
+ * keeps the half-step serving stepper, and ONE primary action logs the
+ * whole list, running the exact label-flow path per item — save a
+ * per-serving custom food to "My Foods", then log quantity × per-serving
+ * to the bound meal — so editing, undo, and the library treat every row
+ * like any other custom food. Nothing is logged before that confirm.
  *
  * Two capture paths, one lookup:
  * - Native with camera permission: live EAN-13/EAN-8/UPC-A/UPC-E detection
  *   in an embedded viewfinder, debounced so one steady frame can't fire a
- *   burst of duplicate lookups.
+ *   burst of duplicate lookups. A flash button drives the camera's
+ *   continuous torch — lit the moment it's pressed, announced to screen
+ *   readers, and off again once the list is logged or the screen closes.
+ *   Hidden on web, where browsers cannot drive a torch.
  * - Everywhere (and the ONLY path on web or when permission is denied):
- *   type the number printed under the bars. Same normalizer, same lookup.
+ *   type the number printed under the bars. Same normalizer, same lookup,
+ *   same list, same duplicate handling.
  *
  * The lookup itself goes through the API server (lib/barcode-food.ts):
  * shared nutrition-facts table first, Open Food Facts only on a miss —
- * published per-serving values only, never estimates. A found product shows
- * a confirm card (name, brand, serving, calories, macros) with the same
- * half-step serving stepper as the chat's label card; Add runs the exact
- * label-flow path — save a per-serving custom food to "My Foods", then log
- * quantity × per-serving to the bound meal — so editing, undo, and the
- * library treat it like any other custom food. Unknown codes and products
- * without a usable panel get an honest message that points to the label
- * scanner instead; nutrition numbers are never invented.
+ * published per-serving values only, never estimates. Unknown codes and
+ * products without a usable panel get an honest message that points to
+ * the label scanner instead; nutrition numbers are never invented.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -34,7 +48,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { Redirect, router, useLocalSearchParams, usePathname } from 'expo-router';
@@ -62,25 +76,47 @@ const QTY_MAX = 10;
 /** Ignore repeat camera detections of the same code inside this window. */
 const SCAN_REPEAT_MS = 2500;
 
+/** How long the transient added/duplicate notice stays on screen. */
+const NOTICE_MS = 4000;
+
 const LOOKUP_FALLBACK_ERROR = 'The barcode lookup is unavailable right now. Please try again.';
 const INPUT_ERROR = 'Enter the 8, 12, or 13 digit number printed under the bars.';
 
 type Phase =
   | { kind: 'scan' }
   | { kind: 'looking'; code: string }
-  | { kind: 'found'; food: BarcodeFood }
-  /** Add ran: food saved to My Foods and the entry logged. Card freezes. */
-  | { kind: 'added'; food: BarcodeFood; quantity: number }
   | { kind: 'not_found'; message: string; code: string }
-  | { kind: 'error'; message: string; code: string };
+  | { kind: 'error'; message: string; code: string }
+  /** Add ran: every listed food saved to My Foods and logged. List freezes. */
+  | { kind: 'logged'; count: number };
+
+/** One product on the running session list, with its serving stepper value. */
+interface SessionItem {
+  food: BarcodeFood;
+  qty: number;
+}
+
+/** Transient feedback after a scan/typed code resolved: appended, or a dupe. */
+interface Notice {
+  tone: 'added' | 'duplicate';
+  message: string;
+  /** Timestamp key — remounts the box so repeats re-announce. */
+  at: number;
+}
+
+function countText(n: number): string {
+  return n === 1 ? '1 food' : `${n} foods`;
+}
 
 function AnnouncedBox({
   tone,
   message,
+  icon,
   testID,
 }: {
-  tone: 'risk' | 'warn';
+  tone: 'risk' | 'warn' | 'ok';
   message: string;
+  icon?: React.ComponentProps<typeof Feather>['name'];
   testID?: string;
 }) {
   const colors = useColors();
@@ -94,7 +130,9 @@ function AnnouncedBox({
   const palette =
     tone === 'risk'
       ? { bg: colors.riskBg, border: colors.riskBorder, text: colors.riskText }
-      : { bg: colors.warnBg, border: colors.warnBorder, text: colors.warnText };
+      : tone === 'warn'
+        ? { bg: colors.warnBg, border: colors.warnBorder, text: colors.warnText }
+        : { bg: colors.activeBg, border: colors.activeBorder, text: colors.cobalt };
 
   return (
     <View
@@ -107,7 +145,7 @@ function AnnouncedBox({
       ]}
     >
       <Feather
-        name={tone === 'risk' ? 'alert-triangle' : 'search'}
+        name={icon ?? (tone === 'risk' ? 'alert-triangle' : tone === 'warn' ? 'search' : 'check-circle')}
         size={14}
         color={palette.text}
         style={styles.announceIcon}
@@ -182,17 +220,24 @@ export default function BarcodeScanScreen() {
     : 'snacks';
 
   const [phase, setPhase] = useState<Phase>({ kind: 'scan' });
+  const [items, setItems] = useState<SessionItem[]>([]);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [input, setInput] = useState('');
   const [inputError, setInputError] = useState<string | null>(null);
-  const [qty, setQty] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const scanGateRef = useRef<{ code: string; at: number } | null>(null);
-  // The camera callback fires outside React's render cycle — read the
-  // current phase through a ref so a stale closure can't double-fire.
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The camera callback fires outside React's render cycle — read current
+  // state through refs so a stale closure can't double-fire or double-add.
   const phaseRef = useRef<Phase>(phase);
   phaseRef.current = phase;
+  const itemsRef = useRef<SessionItem[]>(items);
+  itemsRef.current = items;
+  const savingRef = useRef(saving);
+  savingRef.current = saving;
 
   const [permission, requestPermission] = useCameraPermissions();
   const askedPermissionRef = useRef(false);
@@ -204,66 +249,107 @@ export default function BarcodeScanScreen() {
     }
   }, [permission, requestPermission]);
 
-  // Abandon any in-flight lookup when the screen unmounts.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Abandon any in-flight lookup (and the notice timer) when the screen
+  // unmounts. The torch needs no teardown of its own: enableTorch dies with
+  // the camera view, so leaving the screen always resets the flash to off.
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    },
+    [],
+  );
 
   // Android/web hear status changes via live regions; iOS has none, so the
-  // wait and the found result are announced explicitly. Misses and errors
-  // announce through their boxes.
+  // wait is announced explicitly. Appends, duplicates, misses, and errors
+  // all announce through their boxes.
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
     if (phase.kind === 'looking') {
       AccessibilityInfo.announceForAccessibility('Looking up that barcode.');
-    } else if (phase.kind === 'found') {
-      AccessibilityInfo.announceForAccessibility(
-        `Found ${phase.food.name}. Review the nutrition facts, then add it to ${MEAL_LABELS[meal]}.`,
-      );
     }
-  }, [phase, meal]);
+  }, [phase]);
 
-  const startLookup = useCallback(async (code: string) => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setInputError(null);
-    setPhase({ kind: 'looking', code });
-    try {
-      const outcome = await lookupBarcode(code, { signal: controller.signal });
-      if (controller.signal.aborted) return;
-      if (outcome.result === 'found') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setQty(1);
-        setPhase({ kind: 'found', food: outcome.food });
-      } else {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        setPhase({ kind: 'not_found', message: outcome.message, code });
-      }
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      if (error instanceof Error && error.name === 'AbortError') return;
-      const message =
-        error instanceof BarcodeLookupError ? error.message : LOOKUP_FALLBACK_ERROR;
-      setPhase({ kind: 'error', message, code });
-    }
+  /** Shows the transient appended/duplicate notice (auto-clears). */
+  const showNotice = useCallback((tone: Notice['tone'], message: string) => {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    setNotice({ tone, message, at: Date.now() });
+    noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_MS);
   }, []);
 
+  const startLookup = useCallback(
+    async (code: string) => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setInputError(null);
+      setPhase({ kind: 'looking', code });
+      try {
+        const outcome = await lookupBarcode(code, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (outcome.result === 'found') {
+          // Dedupe on the CANONICAL code the server answered with — a UPC
+          // and its EAN form resolve to the same row and count as one
+          // product, no matter which form was scanned or typed.
+          const existing = itemsRef.current.find(item => item.food.code === outcome.food.code);
+          if (existing) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            showNotice('duplicate', `${existing.food.name} is already on your list.`);
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setItems(prev => [...prev, { food: outcome.food, qty: 1 }]);
+            showNotice('added', `${outcome.food.name} is on your list.`);
+          }
+          setInput('');
+          setPhase({ kind: 'scan' });
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          setPhase({ kind: 'not_found', message: outcome.message, code });
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (error instanceof Error && error.name === 'AbortError') return;
+        const message =
+          error instanceof BarcodeLookupError ? error.message : LOOKUP_FALLBACK_ERROR;
+        setPhase({ kind: 'error', message, code });
+      }
+    },
+    [showNotice],
+  );
+
   const handleBarcodeScanned = ({ data, type }: { data: string; type: string }) => {
-    if (phaseRef.current.kind !== 'scan') return;
+    if (phaseRef.current.kind !== 'scan' || savingRef.current) return;
     const code = normalizeScannedBarcode(String(data ?? ''), type);
     if (!code) return;
     const now = Date.now();
     const gate = scanGateRef.current;
     if (gate && gate.code === code && now - gate.at < SCAN_REPEAT_MS) return;
     scanGateRef.current = { code, at: now };
+    // Fast path: this scan canonicalizes straight to a listed row, so the
+    // duplicate is known without a network round trip. The post-lookup
+    // check above still covers variants only the server unifies.
+    const existing = itemsRef.current.find(item => item.food.code === code);
+    if (existing) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showNotice('duplicate', `${existing.food.name} is already on your list.`);
+      return;
+    }
     Haptics.selectionAsync();
     void startLookup(code);
   };
 
   const submitManual = () => {
-    if (phase.kind === 'looking' || saving) return;
+    if (phase.kind === 'looking' || phase.kind === 'logged' || saving) return;
     const code = normalizeTypedBarcode(input);
     if (!code) {
       setInputError(INPUT_ERROR);
+      return;
+    }
+    const existing = items.find(item => item.food.code === code);
+    if (existing) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showNotice('duplicate', `${existing.food.name} is already on your list.`);
+      setInput('');
       return;
     }
     Haptics.selectionAsync();
@@ -276,40 +362,74 @@ export default function BarcodeScanScreen() {
     setPhase({ kind: 'scan' });
   };
 
-  /** Back to a clean scanner: keep the meal binding, drop the last result. */
-  const scanAnother = () => {
+  /** Dismisses a miss/error card back to live scanning. The list stays. */
+  const dismissResult = () => {
     Haptics.selectionAsync();
     abortRef.current?.abort();
     scanGateRef.current = null;
     setInput('');
     setInputError(null);
-    setQty(1);
     setPhase({ kind: 'scan' });
   };
 
-  const stepQty = (delta: number) => {
+  /** After logging: clear the just-logged list and scan a fresh one. */
+  const startNewList = () => {
     Haptics.selectionAsync();
-    setQty(q => Math.min(QTY_MAX, Math.max(QTY_MIN, Math.round((q + delta) * 2) / 2)));
+    scanGateRef.current = null;
+    setItems([]);
+    setNotice(null);
+    setInput('');
+    setInputError(null);
+    setPhase({ kind: 'scan' });
   };
 
-  const add = async () => {
-    if (saving || phase.kind !== 'found') return;
+  const stepItemQty = (code: string, delta: number) => {
+    Haptics.selectionAsync();
+    setItems(prev =>
+      prev.map(item =>
+        item.food.code === code
+          ? {
+              ...item,
+              qty: Math.min(QTY_MAX, Math.max(QTY_MIN, Math.round((item.qty + delta) * 2) / 2)),
+            }
+          : item,
+      ),
+    );
+  };
+
+  /** ONE confirm: logs every listed item to the bound meal, in list order. */
+  const addAll = async () => {
+    if (saving || items.length === 0) return;
+    if (phase.kind === 'looking' || phase.kind === 'logged') return;
     setSaving(true);
     try {
-      // The same two steps the label flow runs: create the reusable custom
-      // food (always per-serving), then log the stepped number of servings
-      // to THIS screen's bound meal and day.
-      const food = await patient.addCustomFood(buildCustomFoodFromBarcode(phase.food));
-      await patient.addEntry(buildBarcodeDiaryEntry(food, meal, dateKey, qty));
+      // The same two steps the label flow runs, once per listed item:
+      // create the reusable custom food (always per-serving), then log the
+      // stepped number of servings to THIS screen's bound meal and day.
+      for (const item of items) {
+        const food = await patient.addCustomFood(buildCustomFoodFromBarcode(item.food));
+        await patient.addEntry(buildBarcodeDiaryEntry(food, meal, dateKey, item.qty));
+      }
+      // Adding the foods ends the flash session.
+      setTorchOn(false);
+      setNotice(null);
       if (Platform.OS === 'ios') {
         AccessibilityInfo.announceForAccessibility(
-          `Added to ${MEAL_LABELS[meal]} and saved to My Foods.`,
+          `Added ${countText(items.length)} to ${MEAL_LABELS[meal]} and saved to My Foods.`,
         );
       }
-      setPhase({ kind: 'added', food: phase.food, quantity: qty });
+      setPhase({ kind: 'logged', count: items.length });
     } finally {
       setSaving(false);
     }
+  };
+
+  /** Immediate, persistent torch: on the moment it's pressed, announced. */
+  const toggleTorch = () => {
+    Haptics.selectionAsync();
+    const next = !torchOn;
+    setTorchOn(next);
+    AccessibilityInfo.announceForAccessibility(next ? 'Flash on' : 'Flash off');
   };
 
   const goBack = () => {
@@ -339,7 +459,17 @@ export default function BarcodeScanScreen() {
   const cameraLive = Platform.OS !== 'web' && permission?.granted === true;
   const cameraDenied =
     Platform.OS !== 'web' && permission != null && !permission.granted && !permission.canAskAgain;
-  const resultFood = phase.kind === 'found' || phase.kind === 'added' ? phase.food : null;
+  const listLocked = saving || phase.kind === 'logged';
+  const cameraHint =
+    phase.kind === 'scan'
+      ? saving
+        ? 'Adding your list…'
+        : items.length === 0
+          ? 'Center the barcode in the frame'
+          : 'Keep scanning — each item lands on your list'
+      : phase.kind === 'logged'
+        ? 'All set — your list is logged'
+        : 'Scanning paused while this result is open';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -360,7 +490,7 @@ export default function BarcodeScanScreen() {
           <Text style={[styles.headerAction, { color: colors.cobalt }]}>Cancel</Text>
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: colors.navy }]}>Scan a Barcode</Text>
+          <Text style={[styles.headerTitle, { color: colors.navy }]}>Scan Barcodes</Text>
           <Text style={[styles.headerSub, { color: colors.subtleText }]}>
             {`LOGS TO ${MEAL_LABELS[meal].toUpperCase()}`}
           </Text>
@@ -380,17 +510,32 @@ export default function BarcodeScanScreen() {
             <CameraView
               style={styles.camera}
               facing="back"
+              enableTorch={torchOn}
               barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }}
-              onBarcodeScanned={phase.kind === 'scan' ? handleBarcodeScanned : undefined}
+              onBarcodeScanned={phase.kind === 'scan' && !saving ? handleBarcodeScanned : undefined}
             />
             <View style={[styles.reticleWrap, { pointerEvents: 'none' }]}>
               <View style={styles.reticle} />
-              <Text style={styles.cameraHint}>
-                {phase.kind === 'scan'
-                  ? 'Center the barcode in the frame'
-                  : 'Scanning paused while this result is open'}
-              </Text>
+              <Text style={styles.cameraHint}>{cameraHint}</Text>
             </View>
+            {/* Continuous torch, not capture-time flash: lit from the press
+                until the foods are added or the screen closes. Native only —
+                web never renders the camera shell at all. */}
+            <Pressable
+              testID="barcode-torch"
+              accessibilityRole="button"
+              accessibilityLabel={torchOn ? 'Turn off the flash' : 'Turn on the flash'}
+              accessibilityState={{ selected: torchOn }}
+              hitSlop={6}
+              onPress={toggleTorch}
+              style={({ pressed }) => [
+                styles.torchButton,
+                { backgroundColor: torchOn ? colors.cobalt : 'rgba(0, 0, 0, 0.45)' },
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              <Feather name={torchOn ? 'zap' : 'zap-off'} size={16} color="#ffffff" />
+            </Pressable>
           </View>
         )}
 
@@ -408,6 +553,17 @@ export default function BarcodeScanScreen() {
           </LedgerCard>
         )}
 
+        {/* ── Transient feedback: appended to the list, or already on it ── */}
+        {notice && (
+          <AnnouncedBox
+            key={notice.at}
+            tone={notice.tone === 'added' ? 'ok' : 'warn'}
+            icon={notice.tone === 'added' ? 'check-circle' : 'copy'}
+            message={notice.message}
+            testID={`barcode-notice-${notice.tone}`}
+          />
+        )}
+
         {/* ── Manual entry — the path that always works ── */}
         <LedgerCard accentTop style={styles.sectionCard}>
           <Text style={[styles.sectionLabel, { color: colors.labelText }]}>
@@ -415,7 +571,7 @@ export default function BarcodeScanScreen() {
           </Text>
           <Text style={[styles.sectionSub, { color: colors.subtleText }]}>
             {Platform.OS === 'web'
-              ? 'Live camera scanning runs on your phone. Here, enter the number printed under the bars.'
+              ? 'Live camera scanning runs on your phone. Here, enter the number printed under the bars — each food joins the list below.'
               : 'Enter the number printed under the bars.'}
           </Text>
           <View style={styles.inputRow}>
@@ -433,7 +589,7 @@ export default function BarcodeScanScreen() {
               placeholder="e.g. 3017624010701"
               placeholderTextColor={colors.subtleText}
               accessibilityLabel="Barcode number"
-              editable={phase.kind !== 'looking' && !saving}
+              editable={phase.kind !== 'looking' && phase.kind !== 'logged' && !saving}
               style={[
                 styles.input,
                 {
@@ -448,13 +604,15 @@ export default function BarcodeScanScreen() {
               testID="barcode-submit"
               accessibilityRole="button"
               accessibilityLabel="Look up this barcode"
-              disabled={phase.kind === 'looking' || saving}
+              disabled={phase.kind === 'looking' || phase.kind === 'logged' || saving}
               onPress={submitManual}
               style={({ pressed }) => [
                 styles.lookupButton,
                 {
                   backgroundColor:
-                    phase.kind === 'looking' || saving ? colors.cobaltMuted : colors.cobalt,
+                    phase.kind === 'looking' || phase.kind === 'logged' || saving
+                      ? colors.cobaltMuted
+                      : colors.cobalt,
                   borderRadius: colors.radiusSm,
                   opacity: pressed ? 0.85 : 1,
                 },
@@ -488,117 +646,6 @@ export default function BarcodeScanScreen() {
           </LedgerCard>
         )}
 
-        {/* ── Found: confirm card ── */}
-        {resultFood && (
-          <LedgerCard accentTop style={styles.sectionCard} testID="barcode-result">
-            <Text style={[styles.resultTag, { color: colors.cobalt }]}>PACKAGED FOOD</Text>
-            <Text style={[styles.foodName, { color: colors.navy }]} numberOfLines={2}>
-              {resultFood.name}
-            </Text>
-            {!!resultFood.brand && (
-              <Text style={[styles.foodBrand, { color: colors.subtleText }]}>{resultFood.brand}</Text>
-            )}
-            <Text style={[styles.foodFacts, { color: colors.bodyText }]}>
-              {`Per ${resultFood.serving} · ${Math.round(resultFood.calories)} cal · P ${resultFood.protein}g · C ${resultFood.carbs}g · F ${resultFood.fat}g`}
-            </Text>
-            <Divider />
-            {phase.kind === 'found' && (
-              <>
-                <View style={styles.qtyRow}>
-                  <Pressable
-                    testID="barcode-qty-minus"
-                    accessibilityRole="button"
-                    accessibilityLabel="Fewer servings"
-                    disabled={qty <= QTY_MIN}
-                    onPress={() => stepQty(-0.5)}
-                    style={[
-                      styles.qtyButton,
-                      {
-                        borderColor: colors.border,
-                        borderRadius: colors.radiusSm,
-                        opacity: qty <= QTY_MIN ? 0.35 : 1,
-                      },
-                    ]}
-                  >
-                    <Feather name="minus" size={13} color={colors.bodyText} />
-                  </Pressable>
-                  <Text
-                    testID="barcode-qty"
-                    accessibilityLabel={`${formatQty(qty)} ${qty === 1 ? 'serving' : 'servings'}`}
-                    style={[styles.qtyValue, { color: colors.navy }]}
-                  >
-                    {formatQty(qty)}
-                  </Text>
-                  <Pressable
-                    testID="barcode-qty-plus"
-                    accessibilityRole="button"
-                    accessibilityLabel="More servings"
-                    disabled={qty >= QTY_MAX}
-                    onPress={() => stepQty(0.5)}
-                    style={[
-                      styles.qtyButton,
-                      {
-                        borderColor: colors.border,
-                        borderRadius: colors.radiusSm,
-                        opacity: qty >= QTY_MAX ? 0.35 : 1,
-                      },
-                    ]}
-                  >
-                    <Feather name="plus" size={13} color={colors.bodyText} />
-                  </Pressable>
-                  <Text style={[styles.qtyHint, { color: colors.subtleText }]}>
-                    {`${qty === 1 ? 'serving' : 'servings'} · ${Math.round(resultFood.calories * qty)} cal`}
-                  </Text>
-                </View>
-                <View style={styles.buttonStack}>
-                  <ActionButton
-                    testID="barcode-add"
-                    label={saving ? 'Adding…' : `Add to ${MEAL_LABELS[meal]}`}
-                    icon={saving ? undefined : 'plus'}
-                    primary
-                    disabled={saving}
-                    onPress={() => void add()}
-                  />
-                  <ActionButton
-                    testID="barcode-rescan"
-                    label="Scan a different item"
-                    disabled={saving}
-                    onPress={scanAnother}
-                  />
-                </View>
-                <Text style={[styles.savedHint, { color: colors.subtleText }]}>
-                  Adding also saves it to My Foods, so next time it is one tap from Add food.
-                </Text>
-              </>
-            )}
-            {phase.kind === 'added' && (
-              <>
-                <View style={styles.addedRow} testID="barcode-added">
-                  <Feather name="check-circle" size={13} color={colors.cobalt} />
-                  <Text
-                    accessibilityLiveRegion="polite"
-                    style={[styles.addedText, { color: colors.cobalt }]}
-                  >
-                    {`${
-                      phase.quantity === 1
-                        ? 'Added'
-                        : `${formatQty(phase.quantity)} servings added`
-                    } to ${MEAL_LABELS[meal]} · saved to My Foods`}
-                  </Text>
-                </View>
-                <View style={styles.buttonStack}>
-                  <ActionButton testID="barcode-done" label="Done" primary onPress={goBack} />
-                  <ActionButton
-                    testID="barcode-scan-another"
-                    label="Scan another item"
-                    onPress={scanAnother}
-                  />
-                </View>
-              </>
-            )}
-          </LedgerCard>
-        )}
-
         {/* ── Honest miss: point to the label scanner ── */}
         {phase.kind === 'not_found' && (
           <LedgerCard style={styles.sectionCard} testID="barcode-miss">
@@ -614,7 +661,7 @@ export default function BarcodeScanScreen() {
               <ActionButton
                 testID="barcode-try-again"
                 label="Try another number"
-                onPress={scanAnother}
+                onPress={dismissResult}
               />
             </View>
           </LedgerCard>
@@ -635,9 +682,123 @@ export default function BarcodeScanScreen() {
               <ActionButton
                 testID="barcode-change"
                 label="Enter a different number"
-                onPress={scanAnother}
+                onPress={dismissResult}
               />
             </View>
+          </LedgerCard>
+        )}
+
+        {/* ── The running session list — nothing logs until ONE confirm ── */}
+        {items.length > 0 && (
+          <LedgerCard accentTop style={styles.sectionCard} testID="barcode-list">
+            <Text style={[styles.sectionLabel, { color: colors.labelText }]}>
+              {`YOUR LIST · ${items.length} ${items.length === 1 ? 'ITEM' : 'ITEMS'}`}
+            </Text>
+            {items.map((item, index) => (
+              <React.Fragment key={item.food.code}>
+                {index > 0 && <Divider />}
+                <View style={styles.itemBlock} testID={`barcode-item-${item.food.code}`}>
+                  <Text style={[styles.foodName, { color: colors.navy }]} numberOfLines={2}>
+                    {item.food.name}
+                  </Text>
+                  {!!item.food.brand && (
+                    <Text style={[styles.foodBrand, { color: colors.subtleText }]}>
+                      {item.food.brand}
+                    </Text>
+                  )}
+                  <Text style={[styles.foodFacts, { color: colors.bodyText }]}>
+                    {`Per ${item.food.serving} · ${Math.round(item.food.calories)} cal · P ${item.food.protein}g · C ${item.food.carbs}g · F ${item.food.fat}g`}
+                  </Text>
+                  <View style={styles.qtyRow}>
+                    <Pressable
+                      testID={`barcode-item-minus-${item.food.code}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Fewer servings of ${item.food.name}`}
+                      disabled={listLocked || item.qty <= QTY_MIN}
+                      onPress={() => stepItemQty(item.food.code, -0.5)}
+                      style={[
+                        styles.qtyButton,
+                        {
+                          borderColor: colors.border,
+                          borderRadius: colors.radiusSm,
+                          opacity: listLocked || item.qty <= QTY_MIN ? 0.35 : 1,
+                        },
+                      ]}
+                    >
+                      <Feather name="minus" size={13} color={colors.bodyText} />
+                    </Pressable>
+                    <Text
+                      testID={`barcode-item-qty-${item.food.code}`}
+                      accessibilityLabel={`${formatQty(item.qty)} ${item.qty === 1 ? 'serving' : 'servings'} of ${item.food.name}`}
+                      style={[styles.qtyValue, { color: colors.navy }]}
+                    >
+                      {formatQty(item.qty)}
+                    </Text>
+                    <Pressable
+                      testID={`barcode-item-plus-${item.food.code}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`More servings of ${item.food.name}`}
+                      disabled={listLocked || item.qty >= QTY_MAX}
+                      onPress={() => stepItemQty(item.food.code, 0.5)}
+                      style={[
+                        styles.qtyButton,
+                        {
+                          borderColor: colors.border,
+                          borderRadius: colors.radiusSm,
+                          opacity: listLocked || item.qty >= QTY_MAX ? 0.35 : 1,
+                        },
+                      ]}
+                    >
+                      <Feather name="plus" size={13} color={colors.bodyText} />
+                    </Pressable>
+                    <Text style={[styles.qtyHint, { color: colors.subtleText }]}>
+                      {`${item.qty === 1 ? 'serving' : 'servings'} · ${Math.round(item.food.calories * item.qty)} cal`}
+                    </Text>
+                  </View>
+                </View>
+              </React.Fragment>
+            ))}
+            <Divider />
+            {phase.kind === 'logged' ? (
+              <>
+                <View style={styles.addedRow} testID="barcode-added">
+                  <Feather name="check-circle" size={13} color={colors.cobalt} />
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    style={[styles.addedText, { color: colors.cobalt }]}
+                  >
+                    {`Added ${countText(phase.count)} to ${MEAL_LABELS[meal]} · saved to My Foods`}
+                  </Text>
+                </View>
+                <View style={styles.buttonStack}>
+                  <ActionButton testID="barcode-done" label="Done" primary onPress={goBack} />
+                  <ActionButton
+                    testID="barcode-scan-more"
+                    label="Scan more items"
+                    onPress={startNewList}
+                  />
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.buttonStack}>
+                  <ActionButton
+                    testID="barcode-add-all"
+                    label={
+                      saving ? 'Adding…' : `Add ${countText(items.length)} to ${MEAL_LABELS[meal]}`
+                    }
+                    icon={saving ? undefined : 'plus'}
+                    primary
+                    disabled={saving || phase.kind === 'looking'}
+                    onPress={() => void addAll()}
+                  />
+                </View>
+                <Text style={[styles.savedHint, { color: colors.subtleText }]}>
+                  Nothing is logged until you add your list. Adding also saves each food to My
+                  Foods, so next time it is one tap from Add food.
+                </Text>
+              </>
+            )}
           </LedgerCard>
         )}
       </KeyboardAwareScrollViewCompat>
@@ -714,6 +875,16 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     overflow: 'hidden',
   },
+  torchButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sectionCard: {
     padding: 14,
     gap: 8,
@@ -771,14 +942,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: 'Inter_600SemiBold',
   },
-  resultTag: {
-    fontSize: 9,
-    letterSpacing: 1.2,
-    fontFamily: 'Inter_700Bold',
+  itemBlock: {
+    gap: 4,
   },
   foodName: {
-    fontSize: 17,
-    lineHeight: 22,
+    fontSize: 15.5,
+    lineHeight: 20,
     fontFamily: 'PlayfairDisplay_700Bold',
   },
   foodBrand: {
@@ -794,6 +963,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    marginTop: 2,
   },
   qtyButton: {
     width: 30,

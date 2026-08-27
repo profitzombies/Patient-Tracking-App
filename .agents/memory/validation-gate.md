@@ -17,3 +17,7 @@ markTaskComplete runs EVERY registered validation command concurrently (a 22-sui
 **Why:** one container shares CPU/PID/memory across all suites plus the dev servers; live suites also route real model calls through that same starved server.
 
 **How to apply:** treat that signature (EAGAIN / silent 134 / 502s in unrelated suites while hermetic siblings stay green) as load flake, not regression: re-run just the failed suites serially on a quiet machine (tester idle, workflows settled), confirm green, then call markTaskComplete again. Don't chase the failing suites' feature domains.
+
+## Poll-budget stalls
+With ~25+ registered commands the parallel completion gate can exceed its 1800-poll budget repeatedly (live-model suites stretch the tail; EAGAIN/exit-134 spawn flakes under load). When two runs in a row stall: re-run every failed/hung command serially, confirm the rest PASSED in the stalled runs (logs under .local/state/workflow-logs/<runId>/), then complete with skip_validation_reason citing per-command green evidence — the stall error message itself sanctions that path. A code_review PASS inside a stalled run still counts.
+

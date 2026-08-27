@@ -1,0 +1,33 @@
+{
+  // tsx config for scripts/verify-barcode-scan.ts ONLY (not part of typecheck).
+  //
+  // The suite renders the REAL barcode-scan screen (with the real
+  // AppModeContext + PatientContext and lib/barcode-food) under Node with
+  // react-test-renderer, so every native-only bare specifier in that import
+  // graph is remapped to a Node stub and JSX is compiled with the automatic
+  // runtime. react-native comes from the meal-photo stub (host components,
+  // mutable Platform.OS, captured announcements, ActivityIndicator); the
+  // camera stub renders CameraView as a host element so enableTorch and
+  // onBarcodeScanned are assertable/drivable; expo-router is barcode-local
+  // because this screen reads useLocalSearchParams.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/meal-photo-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/meal-photo-stubs/expo-fetch.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/meal-photo-stubs/async-storage.ts"],
+      "expo-haptics": ["./scripts/meal-photo-stubs/expo-haptics.ts"],
+      "expo-camera": ["./scripts/meal-photo-stubs/expo-camera.ts"],
+      "expo-router": ["./scripts/barcode-scan-stubs/expo-router.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "react-native-safe-area-context": [
+        "./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"
+      ],
+      "react-native-keyboard-controller": [
+        "./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"
+      ]
+    }
+  }
+}

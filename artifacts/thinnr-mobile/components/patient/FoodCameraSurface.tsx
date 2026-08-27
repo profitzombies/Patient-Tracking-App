@@ -2,7 +2,12 @@
  * Full-screen in-app camera for food photos — the Instagram-story-style
  * capture surface behind every "Take a photo" control in the coach flows.
  *
- * Live preview with a shutter, camera flip, and close; the bottom corner
+ * Live preview with a shutter, camera flip, a flash button, and close; the
+ * flash drives the camera's continuous torch (not capture-time flash): lit
+ * the moment it's pressed, its on/off state announced to screen readers,
+ * and reset the moment the surface closes — unmounting kills enableTorch.
+ * Native back camera only: the front camera has no torch hardware and web
+ * browsers cannot drive one. The bottom corner
  * holds the library shortcut, showing the most recent photo as a thumbnail
  * when photo access is already granted (a plain icon otherwise) so an
  * existing shot is one tap away. Capture and library pick both hand ONE raw
@@ -59,6 +64,7 @@ export function FoodCameraSurface({ onSettle }: FoodCameraSurfaceProps) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
+  const [torchOn, setTorchOn] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,6 +139,19 @@ export function FoodCameraSurface({ onSettle }: FoodCameraSurfaceProps) {
   const flip = () => {
     Haptics.selectionAsync();
     setFacing(current => (current === 'back' ? 'front' : 'back'));
+  };
+
+  /**
+   * Immediate, persistent torch: lights the moment it's pressed and stays
+   * lit until the capture is used or the surface closes. The toggle stays
+   * on through a flip — the front camera has no torch hardware, so
+   * enableTorch goes false while facing front and relights on flip-back.
+   */
+  const toggleTorch = () => {
+    Haptics.selectionAsync();
+    const next = !torchOn;
+    setTorchOn(next);
+    AccessibilityInfo.announceForAccessibility(next ? 'Flash on' : 'Flash off');
   };
 
   const capture = async () => {
@@ -211,6 +230,7 @@ export function FoodCameraSurface({ onSettle }: FoodCameraSurfaceProps) {
           ref={cameraRef}
           style={styles.cameraFill}
           facing={facing}
+          enableTorch={torchOn && facing === 'back'}
           onMountError={event => {
             console.error('Camera failed to start', event);
             setMountError(true);
@@ -235,24 +255,43 @@ export function FoodCameraSurface({ onSettle }: FoodCameraSurfaceProps) {
             <Feather name="x" size={20} color="#ffffff" />
           </Pressable>
           <Text style={styles.topTitle}>FOOD PHOTO</Text>
-          {cameraMode ? (
-            <Pressable
-              testID="food-camera-flip"
-              accessibilityRole="button"
-              accessibilityLabel="Switch camera"
-              hitSlop={8}
-              onPress={flip}
-              style={({ pressed }) => [
-                styles.controlCircle,
-                { backgroundColor: CONTROL_SCRIM },
-                pressed && { opacity: 0.75 },
-              ]}
-            >
-              <Feather name="refresh-ccw" size={18} color="#ffffff" />
-            </Pressable>
-          ) : (
-            <View style={styles.controlSpacer} />
-          )}
+          <View style={styles.topActions}>
+            {cameraMode && Platform.OS !== 'web' && facing === 'back' ? (
+              <Pressable
+                testID="food-camera-torch"
+                accessibilityRole="button"
+                accessibilityLabel={torchOn ? 'Turn off the flash' : 'Turn on the flash'}
+                accessibilityState={{ selected: torchOn }}
+                hitSlop={8}
+                onPress={toggleTorch}
+                style={({ pressed }) => [
+                  styles.controlCircle,
+                  { backgroundColor: torchOn ? colors.cobalt : CONTROL_SCRIM },
+                  pressed && { opacity: 0.75 },
+                ]}
+              >
+                <Feather name={torchOn ? 'zap' : 'zap-off'} size={17} color="#ffffff" />
+              </Pressable>
+            ) : null}
+            {cameraMode ? (
+              <Pressable
+                testID="food-camera-flip"
+                accessibilityRole="button"
+                accessibilityLabel="Switch camera"
+                hitSlop={8}
+                onPress={flip}
+                style={({ pressed }) => [
+                  styles.controlCircle,
+                  { backgroundColor: CONTROL_SCRIM },
+                  pressed && { opacity: 0.75 },
+                ]}
+              >
+                <Feather name="refresh-ccw" size={18} color="#ffffff" />
+              </Pressable>
+            ) : (
+              <View style={styles.controlSpacer} />
+            )}
+          </View>
         </View>
 
         {cameraMode ? (
@@ -418,6 +457,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  topActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   topTitle: {
     fontSize: 9,

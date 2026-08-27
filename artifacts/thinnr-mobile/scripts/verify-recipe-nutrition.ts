@@ -21,6 +21,11 @@
  *      server's meal-slot module), "HH:MM" formatting, and the preview
  *      default: the card's slot first, the device clock only when the card
  *      has none.
+ *   8. Ounce options everywhere — fl oz joins the volume family; measure
+ *      data (data/ingredient-measures.ts) gives solids a weight-oz bridge
+ *      (ozPerCup / ozPerPiece) and liquids fl oz; unit round-trips snap back
+ *      to the exact original; ounce adjustments survive sanitize → JSON →
+ *      reopen; and EVERY editable curated row offers exactly one ounce unit.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:recipe-nutrition
  */
@@ -30,15 +35,19 @@ import {
   applyAdjustments,
   clampAmount,
   conversionFactor,
+  conversionFactorFor,
+  convertAmountToUnit,
   formatIngredientAmount,
   roundNutrition,
   sameAdjustments,
+  sameUnit,
   sanitizeAdjustments,
   scaleFactorFromOriginal,
   stepForUnit,
   totalsForQuantity,
   unitOptions,
 } from '../data/ingredient-nutrition';
+import { measureForIngredient } from '../data/ingredient-measures';
 import { RECIPES, type IngredientAdjustment, type RecipeIngredient } from '../data/patient-data';
 import { parseRecipeCardPayload } from '../lib/ai-recipe';
 import { localTimeForDate, mealSlotForDate, previewMealSlot } from '../lib/meal-slot';
@@ -344,6 +353,262 @@ assertEqual('trims long decimals', formatIngredientAmount(1 / 3), '0.333');
   assertEqual('a slotless card at 2 pm preselects lunch', previewMealSlot(undefined, at(14, 0)), 'lunch');
   assertEqual('a slotless card at 8 am preselects breakfast', previewMealSlot(undefined, at(8, 0)), 'breakfast');
   assertEqual('a slotless card late evening preselects snacks', previewMealSlot(undefined, at(22, 30)), 'snacks');
+}
+
+// ── 10. fl oz: a real volume unit with exact factors and aliases ────────────
+assertClose('cup→fl oz', conversionFactor('cup', 'fl oz')!, 8);
+assertClose('fl oz→tbsp', conversionFactor('fl oz', 'tbsp')!, 2);
+assertClose('tsp→fl oz', conversionFactor('tsp', 'fl oz')!, 1 / 6);
+assertClose('floz alias', conversionFactor('floz', 'fl oz')!, 1);
+assertClose('Fluid Ounces alias', conversionFactor('Fluid Ounces', 'tbsp')!, 2);
+assertEqual('fl oz never crosses to weight without measure data', conversionFactor('fl oz', 'oz'), null);
+assertEqual('step fl oz', stepForUnit('fl oz'), 0.5);
+assertEqual('fl oz rows offer the volume family', unitOptions('fl oz'), ['tsp', 'tbsp', 'fl oz', 'cup']);
+assert('sameUnit collapses spellings', sameUnit('floz', 'FL OZ') && sameUnit('cups', 'cup') && !sameUnit('oz', 'fl oz'));
+
+// ── 11. Measure matching: liquids, solids, head nouns, exact rows ───────────
+{
+  assert('almond milk is liquid', measureForIngredient('unsweetened almond milk')?.liquid === true);
+  assert('olive oil is liquid', measureForIngredient('olive oil')?.liquid === true);
+  assert('soy sauce is liquid', measureForIngredient('low-sodium soy sauce')?.liquid === true);
+  assert('lemon juice is liquid (head noun)', measureForIngredient('lemon juice')?.liquid === true);
+  assert('chocolate milk is liquid (head noun)', measureForIngredient('chocolate milk')?.liquid === true);
+  const milkChocolate = measureForIngredient('milk chocolate chips');
+  assert('milk chocolate is a solid (head noun)', !!milkChocolate && !milkChocolate.liquid && milkChocolate.ozPerCup === 6.0);
+  assert('rice vinegar is liquid (head noun)', measureForIngredient('rice vinegar')?.liquid === true);
+  const sourCream = measureForIngredient('sour cream');
+  assert('sour cream overrides liquid cream', !!sourCream && !sourCream.liquid && sourCream.ozPerCup === 8.5);
+  assert('heavy cream stays liquid', measureForIngredient('heavy cream')?.liquid === true);
+  const bakingSoda = measureForIngredient('baking soda');
+  assert('baking soda is not the drink', !!bakingSoda && !bakingSoda.liquid && bakingSoda.ozPerCup === 9.7);
+
+  assertEqual('yogurt density', measureForIngredient('nonfat Greek yogurt')?.ozPerCup, 8.6);
+  assertEqual('plural/singular stemming meets', measureForIngredient('blueberry')?.ozPerCup, measureForIngredient('blueberries')?.ozPerCup);
+  assertEqual('chia seeds match chia, not a generic "seeds"', measureForIngredient('chia seeds')?.ozPerCup, 6.8);
+  assertEqual('sliced almonds beat almonds', measureForIngredient('sliced almonds')?.ozPerCup, 3.2);
+  assertEqual('egg whites beat egg', measureForIngredient('egg whites')?.ozPerPiece, 1.2);
+  assertEqual('bagel seasoning is the seasoning, not the bagel', measureForIngredient('everything bagel seasoning')?.ozPerCup, 5.1);
+  assertEqual('lemon, juiced is the fruit, not the juice', measureForIngredient('lemon, juiced')?.ozPerPiece, 2.1);
+
+  assertEqual('exact row: canned diced tomatoes weigh the can', measureForIngredient('diced tomatoes (14 oz)')?.ozPerPiece, 14);
+  const tuna = measureForIngredient('tuna in water (5 oz), drained');
+  assert('exact row: tuna can is 5 oz and not "water"-liquid', !!tuna && !tuna.liquid && tuna.ozPerPiece === 5);
+  const cannedTuna = measureForIngredient('canned tuna in oil');
+  assert('packing medium is stripped ("in oil" is not the food)', !!cannedTuna && !cannedTuna.liquid);
+  assertEqual('exact row: rinsed quinoa is DRY weight', measureForIngredient('quinoa, rinsed')?.ozPerCup, 6.0);
+  assertEqual('cooked quinoa keyword stays cooked weight', measureForIngredient('cooked quinoa')?.ozPerCup, 6.5);
+
+  assertEqual('unrecognized names have no measure', measureForIngredient('starfruit compote'), null);
+}
+
+// ── 12. Ounce options and conversions per ingredient kind ───────────────────
+{
+  // Liquids: fl oz slots in before cup; no weight bridge exists.
+  assertEqual('liquid cup row options', unitOptions('cup', 'unsweetened almond milk'), ['tsp', 'tbsp', 'fl oz', 'cup']);
+  assertEqual('liquid tsp row options', unitOptions('tsp', 'honey'), ['tsp', 'tbsp', 'fl oz', 'cup']);
+  assertEqual('liquid tbsp row options', unitOptions('tbsp', 'olive oil'), ['tsp', 'tbsp', 'fl oz', 'cup']);
+  assertEqual('liquids never bridge to weight oz', conversionFactorFor('unsweetened almond milk', 'cup', 'oz'), null);
+  assertClose('liquid pure volume conversion still applies', conversionFactorFor('unsweetened almond milk', 'cup', 'fl oz')!, 8);
+
+  // Solids by volume: weight oz appends via ozPerCup.
+  assertEqual('solid cup row options', unitOptions('cup', 'nonfat Greek yogurt'), ['tsp', 'tbsp', 'cup', 'oz']);
+  assertEqual('solid row keeps original spelling', unitOptions('cups', 'baby spinach'), ['tsp', 'tbsp', 'cups', 'oz']);
+  assertClose('yogurt cup→oz', conversionFactorFor('nonfat Greek yogurt', 'cup', 'oz')!, 8.6);
+  assertClose('yogurt oz→cup', conversionFactorFor('nonfat Greek yogurt', 'oz', 'cup')!, 1 / 8.6);
+  assertClose('yogurt tbsp→oz', conversionFactorFor('nonfat Greek yogurt', 'tbsp', 'oz')!, 8.6 * 3 / 48);
+  assertClose('yogurt lb→cup crosses through oz', conversionFactorFor('nonfat Greek yogurt', 'lb', 'cup')!, 16 / 8.6);
+
+  // Count rows: oz via ozPerPiece.
+  assertEqual('egg count row options', unitOptions('', 'large egg'), ['', 'oz']);
+  assertEqual('scoop row options', unitOptions('scoop', 'chocolate whey protein'), ['scoop', 'oz']);
+  assertEqual('clove row options', unitOptions('cloves', 'garlic, minced'), ['cloves', 'oz']);
+  assertEqual('slice row options', unitOptions('slice', 'whole grain bread'), ['slice', 'oz']);
+  assertEqual('can row options', unitOptions('can', 'tuna in water (5 oz), drained'), ['can', 'oz']);
+  assertClose('eggs→oz', conversionFactorFor('large egg', '', 'oz')!, 1.8);
+  assertClose('oz→eggs', conversionFactorFor('large egg', 'oz', '')!, 1 / 1.8);
+  assertEqual('count↔volume never bridges', conversionFactorFor('garlic, minced', 'cloves', 'cup'), null);
+
+  // Weight rows and unrecognized rows: exactly the old behavior.
+  assertEqual('weight rows are untouched by measure data', unitOptions('oz', 'salmon fillet'), ['oz', 'lb']);
+  assertEqual('unrecognized volume row unchanged', unitOptions('cup', 'starfruit compote'), ['tsp', 'tbsp', 'cup']);
+  assertEqual('unrecognized count row unchanged', unitOptions('', 'mystery bits'), ['']);
+  assertEqual('unrecognized names never convert to oz', conversionFactorFor('starfruit compote', 'cup', 'oz'), null);
+  assertEqual('nameless calls behave like before', conversionFactorFor(undefined, 'cup', 'oz'), null);
+}
+
+// ── 13. Ounce edits: snap round-trips, no drift, persistence ────────────────
+{
+  const bowl = RECIPES.find(r => r.name === 'Greek Yogurt Protein Bowl')!;
+  assert('Greek Yogurt Protein Bowl exists', !!bowl);
+  const yogurtIndex = bowl.ingredients.findIndex(i => /yogurt/i.test(i.name));
+  const yogurt = bowl.ingredients[yogurtIndex];
+  assert('bowl leads with a cup of yogurt', yogurtIndex >= 0 && sameUnit(yogurt.unit, 'cup') && yogurt.amount === 1);
+
+  // Switch to oz: realistic weight, then switch back: EXACTLY the original.
+  const inOz = convertAmountToUnit(yogurt.name, yogurt, yogurt, 'oz')!;
+  assertClose('1 cup yogurt weighs 8.6 oz', inOz, 8.6);
+  const backToCup = convertAmountToUnit(yogurt.name, yogurt, { amount: inOz, unit: 'oz' }, yogurt.unit);
+  assertEqual('oz→cup round-trip snaps to the exact original', backToCup, yogurt.amount);
+  assertEqual(
+    'unit round-trip sanitizes to no adjustments',
+    sanitizeAdjustments(bowl.ingredients, [
+      { index: yogurtIndex, amount: inOz, unit: 'oz' },
+      { index: yogurtIndex, amount: backToCup!, unit: yogurt.unit },
+    ]),
+    [],
+  );
+
+  // Ounce amounts drive nutrition from the ORIGINAL cup baseline — no drift.
+  const halfInOz = convertAmountToUnit(
+    yogurt.name, yogurt, { amount: yogurt.amount / 2, unit: yogurt.unit }, 'oz',
+  )!;
+  assertClose('half a cup of yogurt in oz', halfInOz, 4.3);
+  const halved = applyAdjustments(bowl.ingredients, [{ index: yogurtIndex, amount: halfInOz, unit: 'oz' }])[yogurtIndex];
+  assert('oz adjustment marks the row adjusted', halved.adjusted);
+  assertClose('4.3 oz halves the calories', halved.nutrition!.calories, yogurt.nutrition!.calories / 2, 1e-6);
+  assertClose('…and the protein', halved.nutrition!.protein, yogurt.nutrition!.protein / 2, 1e-6);
+  const bowlBase = { calories: bowl.calories, protein: bowl.protein, carbs: bowl.carbs, fat: bowl.fat };
+  assertClose(
+    'recipe totals shift by exactly the yogurt delta',
+    adjustedPerServing(bowlBase, bowl.ingredients, [{ index: yogurtIndex, amount: halfInOz, unit: 'oz' }]).calories,
+    bowl.calories - yogurt.nutrition!.calories / 2,
+    1e-6,
+  );
+
+  // Stepping in oz and settling equals a direct set — bit-identical nutrition.
+  const stepped = sanitizeAdjustments(bowl.ingredients, [
+    { index: yogurtIndex, amount: inOz, unit: 'oz' },
+    { index: yogurtIndex, amount: 6.5, unit: 'oz' },
+    { index: yogurtIndex, amount: halfInOz, unit: 'oz' },
+  ]);
+  const direct = sanitizeAdjustments(bowl.ingredients, [{ index: yogurtIndex, amount: halfInOz, unit: 'oz' }]);
+  assert('editing through oz equals a direct oz set', sameAdjustments(stepped, direct));
+  assertEqual(
+    'stepped and direct nutrition are bit-identical',
+    applyAdjustments(bowl.ingredients, stepped)[yogurtIndex].nutrition,
+    applyAdjustments(bowl.ingredients, direct)[yogurtIndex].nutrition,
+  );
+
+  // Ounce bounds derive from the converted original (8× ceiling, 0.5 steps).
+  assertEqual('yogurt row bounds in oz', amountBounds(yogurt, 'oz', yogurt.name), { min: 0, max: 69, step: 0.5 });
+  assertEqual('clamp in oz', clampAmount(500, yogurt, 'oz', yogurt.name), 69);
+
+  // Persistence: sanitize → JSON (log/save) → reopen → identical everywhere.
+  const reopened = sanitizeAdjustments(bowl.ingredients, JSON.parse(JSON.stringify(stepped)));
+  assert('oz adjustments survive log → reopen', sameAdjustments(reopened, stepped));
+  assertEqual(
+    'reopened nutrition identical',
+    applyAdjustments(bowl.ingredients, reopened)[yogurtIndex].nutrition,
+    applyAdjustments(bowl.ingredients, stepped)[yogurtIndex].nutrition,
+  );
+
+  // Liquid rows: fl oz round-trips and persists the same way.
+  const milkRecipe = RECIPES.find(r => r.ingredients.some(i => i.amount > 0 && !!i.nutrition && /milk/i.test(i.name)))!;
+  assert('a curated milk row exists', !!milkRecipe);
+  const milkIndex = milkRecipe.ingredients.findIndex(i => i.amount > 0 && !!i.nutrition && /milk/i.test(i.name));
+  const milk = milkRecipe.ingredients[milkIndex];
+  assert('curated milk is liquid', measureForIngredient(milk.name)?.liquid === true);
+  const milkFlOz = convertAmountToUnit(milk.name, milk, milk, 'fl oz')!;
+  assertEqual('milk cup→fl oz is exact volume', milkFlOz, milk.amount * conversionFactor(milk.unit, 'fl oz')!);
+  assertEqual(
+    'fl oz→cup round-trip snaps to the exact original',
+    convertAmountToUnit(milk.name, milk, { amount: milkFlOz, unit: 'fl oz' }, milk.unit),
+    milk.amount,
+  );
+  const halfMilk = milkFlOz / 2;
+  const savedMilk = sanitizeAdjustments(milkRecipe.ingredients, [{ index: milkIndex, amount: halfMilk, unit: 'fl oz' }]);
+  assertEqual('fl oz adjustment survives sanitize', savedMilk, [{ index: milkIndex, amount: halfMilk, unit: 'fl oz' }]);
+  const reopenedMilk = sanitizeAdjustments(milkRecipe.ingredients, JSON.parse(JSON.stringify(savedMilk)));
+  assert('fl oz adjustment survives log → reopen', sameAdjustments(reopenedMilk, savedMilk));
+  const milkBase = { calories: milkRecipe.calories, protein: milkRecipe.protein, carbs: milkRecipe.carbs, fat: milkRecipe.fat };
+  assertClose(
+    'halved milk shifts totals by half its calories',
+    adjustedPerServing(milkBase, milkRecipe.ingredients, reopenedMilk).calories,
+    milkRecipe.calories - milk.nutrition!.calories / 2,
+    1e-6,
+  );
+
+  // Count rows: eggs by weight, and back.
+  const eggRecipe = RECIPES.find(r =>
+    r.ingredients.some(i => i.amount > 0 && !!i.nutrition && /egg/i.test(i.name) && !/white|yolk/i.test(i.name)),
+  )!;
+  assert('a curated whole-egg row exists', !!eggRecipe);
+  const eggIndex = eggRecipe.ingredients.findIndex(
+    i => i.amount > 0 && !!i.nutrition && /egg/i.test(i.name) && !/white|yolk/i.test(i.name),
+  );
+  const egg = eggRecipe.ingredients[eggIndex];
+  const eggsInOz = convertAmountToUnit(egg.name, egg, egg, 'oz')!;
+  assertClose('eggs convert at 1.8 oz per egg', eggsInOz, egg.amount * 1.8);
+  assertEqual(
+    'oz→count round-trip snaps to the exact original',
+    convertAmountToUnit(egg.name, egg, { amount: eggsInOz, unit: 'oz' }, egg.unit),
+    egg.amount,
+  );
+  const eggView = applyAdjustments(eggRecipe.ingredients, [{ index: eggIndex, amount: eggsInOz, unit: 'oz' }])[eggIndex];
+  assertClose('weighing the eggs leaves calories put', eggView.nutrition!.calories, egg.nutrition!.calories, 1e-6);
+
+  // Unrecognized AI-only ingredients degrade exactly like before.
+  const aiRows = [
+    { amount: 1, unit: 'cup', name: 'starfruit compote', nutrition: { calories: 90, protein: 1, carbs: 22, fat: 0 } },
+  ] as RecipeIngredient[];
+  assertEqual('unknown ingredient: oz adjustment refused by sanitize', sanitizeAdjustments(aiRows, [{ index: 0, amount: 3, unit: 'oz' }]), []);
+  const aiView = applyAdjustments(aiRows, [{ index: 0, amount: 3, unit: 'oz' }])[0];
+  assert('unknown ingredient: raw oz adjustment degrades to unchanged', !aiView.adjusted);
+  assertEqual('unknown ingredient keeps original nutrition', aiView.nutrition, aiRows[0].nutrition);
+
+  // Recognized AI liquids get fl oz with exact volume math.
+  assertEqual('AI broth row offers fl oz', unitOptions('cups', 'reduced-sodium chicken broth'), ['tsp', 'tbsp', 'fl oz', 'cups']);
+  const broth = [
+    { amount: 2, unit: 'cups', name: 'reduced-sodium chicken broth', nutrition: { calories: 30, protein: 4, carbs: 2, fat: 0 } },
+  ] as RecipeIngredient[];
+  const brothView = applyAdjustments(broth, [{ index: 0, amount: 8, unit: 'fl oz' }])[0];
+  assertClose('8 fl oz of 2 cups halves the calories', brothView.nutrition!.calories, 15);
+
+  // fl-oz display amounts format cleanly.
+  assertEqual('fl oz amounts format cleanly', formatIngredientAmount(1 / 6), '0.167');
+  assertEqual('oz amounts format cleanly', formatIngredientAmount(8.6), '8.6');
+}
+
+// ── 14. Coverage: every editable curated row offers exactly one ounce unit ──
+{
+  const missing: string[] = [];
+  const dual: string[] = [];
+  const broken: string[] = [];
+  for (const recipe of RECIPES) {
+    recipe.ingredients.forEach((ingredient, index) => {
+      if (!(ingredient.amount > 0) || !ingredient.nutrition) return;
+      const options = unitOptions(ingredient.unit, ingredient.name);
+      const hasOz = options.some(o => sameUnit(o, 'oz'));
+      const hasFlOz = options.some(o => sameUnit(o, 'fl oz'));
+      const tag = `${recipe.id}[${index}] ${ingredient.name} (${ingredient.unit || 'count'})`;
+      if (!hasOz && !hasFlOz) {
+        missing.push(tag);
+        return;
+      }
+      if (hasOz && hasFlOz) dual.push(tag);
+      const target = hasFlOz ? 'fl oz' : 'oz';
+      if (sameUnit(ingredient.unit, target)) return; // already measured in ounces
+      const factor = conversionFactorFor(ingredient.name, ingredient.unit, target);
+      if (factor === null || !Number.isFinite(factor) || factor <= 0) {
+        broken.push(tag);
+        return;
+      }
+      const ounces = ingredient.amount * factor;
+      if (!(ounces > 0.005 && ounces < 160)) broken.push(`${tag} → ${ounces} ${target}`);
+    });
+  }
+  assert(
+    `every editable curated row offers an ounce option${missing.length > 0 ? ` — missing: ${missing.slice(0, 4).join('; ')}` : ''}`,
+    missing.length === 0,
+  );
+  assert(
+    `no row offers both oz and fl oz${dual.length > 0 ? ` — ${dual.slice(0, 4).join('; ')}` : ''}`,
+    dual.length === 0,
+  );
+  assert(
+    `every ounce option converts to a realistic amount${broken.length > 0 ? ` — ${broken.slice(0, 4).join('; ')}` : ''}`,
+    broken.length === 0,
+  );
 }
 
 // ── Result ───────────────────────────────────────────────────────────────────

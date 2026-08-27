@@ -7,12 +7,18 @@
  *    baseline, so re-editing a row never compounds rounding from earlier
  *    edits — setting 2.5 oz directly and reaching it through five taps
  *    produce identical numbers.
- *  - Conversions are linear within a unit family (oz↔lb, tsp↔tbsp↔cup);
- *    there are no volume↔weight density conversions. Units outside a family
- *    (pieces, cloves, cans, …) are amount-only.
+ *  - Conversions are linear within a unit family (oz↔lb, tsp↔tbsp↔fl oz↔cup),
+ *    plus at most one measured bridge per ingredient from
+ *    data/ingredient-measures.ts: solid volume rows ↔ weight oz via a curated
+ *    ozPerCup, count rows (eggs, slices, cloves, …) ↔ weight oz via
+ *    ozPerPiece. Liquids never bridge to weight — they offer fl oz, an exact
+ *    volume unit. Without measure data behavior is unchanged: familyless
+ *    units are amount-only and incompatible conversions degrade to
+ *    "unchanged", never a guessed density.
  *  - Unrounded values flow through the math; rounding happens once at the
  *    display/log boundary (roundNutrition / totalsForQuantity).
  */
+import { measureForIngredient } from './ingredient-measures';
 import type {
   IngredientAdjustment,
   IngredientNutrition,
@@ -22,12 +28,25 @@ import type {
 // ── Unit families ──────────────────────────────────────────────────────────
 // Factors are "how many base units is 1 of this unit" (base: oz / tsp).
 const WEIGHT_FACTORS: Record<string, number> = { oz: 1, lb: 16 };
-const VOLUME_FACTORS: Record<string, number> = { tsp: 1, tbsp: 3, cup: 48 };
+const VOLUME_FACTORS: Record<string, number> = { tsp: 1, tbsp: 3, 'fl oz': 6, cup: 48 };
 
-/** 'cups' is a display spelling of 'cup'; factors are shared. */
+/** Spellings that all mean fluid ounces ('fl oz' is canonical). */
+const FL_OZ_ALIASES = new Set([
+  'fl oz', 'fl. oz', 'fl. oz.', 'fl.oz', 'fl-oz', 'floz',
+  'fluid oz', 'fluid ounce', 'fluid ounces',
+]);
+
+/** 'cups' is a display spelling of 'cup'; fl-oz spellings collapse too. */
 function canonicalUnit(unit: string): string {
-  const lc = unit.trim().toLowerCase();
-  return lc === 'cups' ? 'cup' : lc;
+  const lc = unit.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (lc === 'cups') return 'cup';
+  if (FL_OZ_ALIASES.has(lc)) return 'fl oz';
+  return lc;
+}
+
+/** True when two unit spellings mean the same unit ('cups'/'cup', 'floz'/'fl oz'). */
+export function sameUnit(a: string, b: string): boolean {
+  return canonicalUnit(a) === canonicalUnit(b);
 }
 
 function familyOf(unit: string): Record<string, number> | null {
@@ -38,16 +57,34 @@ function familyOf(unit: string): Record<string, number> | null {
 }
 
 /**
- * Units the picker offers for an ingredient, keyed off its original unit.
+ * Units the picker offers for an ingredient, keyed off its original unit and
+ * (when a name is provided) the ingredient's measure data:
+ *  - weight rows are always exactly oz/lb — measure data never changes them;
+ *  - volume rows offer tsp/tbsp/cup, inserting 'fl oz' before cup for
+ *    liquids (or when the row is already in fl oz) and appending weight 'oz'
+ *    for solids with a known cup weight;
+ *  - familyless count rows (pieces, cloves, scoops, …) add 'oz' when a
+ *    per-piece weight is known.
  * The slot matching the original keeps the original spelling ('cups' stays
  * 'cups'); everything else uses canonical labels. Single-entry result means
  * the unit is fixed and the picker is hidden.
  */
-export function unitOptions(originalUnit: string): string[] {
+export function unitOptions(originalUnit: string, ingredientName?: string): string[] {
   const family = familyOf(originalUnit);
-  if (!family) return [originalUnit];
   const original = canonicalUnit(originalUnit);
-  return Object.keys(family).map(u => (u === original ? originalUnit : u));
+  const measure = ingredientName ? measureForIngredient(ingredientName) : null;
+  let units: string[];
+  if (family === WEIGHT_FACTORS) {
+    units = ['oz', 'lb'];
+  } else if (family === VOLUME_FACTORS) {
+    units = ['tsp', 'tbsp', 'cup'];
+    if (original === 'fl oz' || measure?.liquid) units.splice(2, 0, 'fl oz');
+    else if (measure?.ozPerCup) units.push('oz');
+  } else {
+    units = [original];
+    if (measure && !measure.liquid && measure.ozPerPiece) units.push('oz');
+  }
+  return units.map(u => (u === original ? originalUnit : u));
 }
 
 /**
@@ -65,6 +102,67 @@ export function conversionFactor(fromUnit: string, toUnit: string): number | nul
 }
 
 /**
+ * Ingredient-aware conversion multiplier: pure family conversion first, then
+ * the ingredient's measured bridge — weight oz on one side, the ingredient's
+ * volume (via ozPerCup) or count (via ozPerPiece) unit on the other. Liquids
+ * never bridge to weight; fl oz already covers them exactly. Null means
+ * "conversion impossible" and callers degrade exactly like conversionFactor.
+ */
+export function conversionFactorFor(
+  ingredientName: string | undefined,
+  fromUnit: string,
+  toUnit: string,
+): number | null {
+  const pure = conversionFactor(fromUnit, toUnit);
+  if (pure !== null) return pure;
+  if (!ingredientName) return null;
+  const measure = measureForIngredient(ingredientName);
+  if (!measure || measure.liquid) return null;
+  const from = canonicalUnit(fromUnit);
+  const to = canonicalUnit(toUnit);
+  const fromWeight = from in WEIGHT_FACTORS;
+  const toWeight = to in WEIGHT_FACTORS;
+  if (fromWeight === toWeight) return null; // the bridge links weight ↔ (volume|count) only
+  const ozOf = (unit: string): number | null => {
+    if (unit in WEIGHT_FACTORS) return WEIGHT_FACTORS[unit];
+    const volume = VOLUME_FACTORS[unit];
+    if (volume !== undefined) {
+      return measure.ozPerCup ? (volume / VOLUME_FACTORS.cup) * measure.ozPerCup : null;
+    }
+    return measure.ozPerPiece ?? null;
+  };
+  const fromOz = ozOf(from);
+  const toOz = ozOf(to);
+  if (fromOz === null || toOz === null || !(fromOz > 0) || !(toOz > 0)) return null;
+  return fromOz / toOz;
+}
+
+/**
+ * The amount a row shows after switching to `toUnit`: the current amount
+ * converted, snapped to the original-in-target when they agree within
+ * floating-point noise (1e-6 relative) so unedited values survive unit
+ * round-trips exactly (and sanitize still recognizes "return to original"),
+ * otherwise trimmed to 4 decimals. Null when conversion is impossible.
+ */
+export function convertAmountToUnit(
+  ingredientName: string | undefined,
+  original: { amount: number; unit: string },
+  current: { amount: number; unit: string },
+  toUnit: string,
+): number | null {
+  const factor = conversionFactorFor(ingredientName, current.unit, toUnit);
+  if (factor === null) return null;
+  const converted = current.amount * factor;
+  const originalFactor = conversionFactorFor(ingredientName, original.unit, toUnit);
+  if (originalFactor !== null) {
+    const originalInTarget = original.amount * originalFactor;
+    const tolerance = 1e-6 * Math.max(1, Math.abs(originalInTarget));
+    if (Math.abs(converted - originalInTarget) <= tolerance) return originalInTarget;
+  }
+  return Math.round(converted * 10000) / 10000;
+}
+
+/**
  * How much of the original portion the current amount represents
  * (1 = unchanged). Null when the units are incompatible or the original
  * amount is 0 ("to taste" rows have no meaningful baseline).
@@ -72,11 +170,12 @@ export function conversionFactor(fromUnit: string, toUnit: string): number | nul
 export function scaleFactorFromOriginal(
   original: { amount: number; unit: string },
   current: { amount: number; unit: string },
+  ingredientName?: string,
 ): number | null {
   if (!(original.amount > 0) || !Number.isFinite(current.amount) || current.amount < 0) {
     return null;
   }
-  const toOriginalUnits = conversionFactor(current.unit, original.unit);
+  const toOriginalUnits = conversionFactorFor(ingredientName, current.unit, original.unit);
   if (toOriginalUnits === null) return null;
   return (current.amount * toOriginalUnits) / original.amount;
 }
@@ -105,7 +204,7 @@ export function roundNutrition(nutrition: IngredientNutrition): IngredientNutrit
 export function stepForUnit(unit: string): number {
   const cu = canonicalUnit(unit);
   if (cu === 'tsp' || cu === 'cup' || cu === 'lb') return 0.25;
-  return 0.5; // oz, tbsp, counts, cloves, spears, cans, scoops, …
+  return 0.5; // oz, fl oz, tbsp, counts, cloves, spears, cans, scoops, …
 }
 
 /**
@@ -115,9 +214,10 @@ export function stepForUnit(unit: string): number {
 export function amountBounds(
   original: { amount: number; unit: string },
   currentUnit: string,
+  ingredientName?: string,
 ): { min: number; max: number; step: number } {
   const step = stepForUnit(currentUnit);
-  const toCurrent = conversionFactor(original.unit, currentUnit) ?? 1;
+  const toCurrent = conversionFactorFor(ingredientName, original.unit, currentUnit) ?? 1;
   const originalInCurrent = original.amount * toCurrent;
   const max = Math.max(step, Math.ceil((originalInCurrent * 8) / step) * step);
   return { min: 0, max, step };
@@ -127,8 +227,9 @@ export function clampAmount(
   amount: number,
   original: { amount: number; unit: string },
   currentUnit: string,
+  ingredientName?: string,
 ): number {
-  const { min, max } = amountBounds(original, currentUnit);
+  const { min, max } = amountBounds(original, currentUnit, ingredientName);
   if (!Number.isFinite(amount)) return min;
   return Math.min(max, Math.max(min, amount));
 }
@@ -208,6 +309,7 @@ export function applyAdjustments(
     const factor = scaleFactorFromOriginal(
       { amount: ingredient.amount, unit: ingredient.unit },
       { amount: adjustment.amount, unit: adjustment.unit },
+      ingredient.name,
     );
     if (factor === null || adjustment.amount < 0) return base;
     return {
@@ -283,8 +385,8 @@ export function sanitizeAdjustments(
     if (!Number.isFinite(raw.amount) || raw.amount < 0) continue;
     if (typeof raw.unit !== 'string') continue;
     const original = { amount: ingredient.amount, unit: ingredient.unit };
-    if (conversionFactor(raw.unit, ingredient.unit) === null) continue;
-    const amount = clampAmount(raw.amount, original, raw.unit);
+    if (conversionFactorFor(ingredient.name, raw.unit, ingredient.unit) === null) continue;
+    const amount = clampAmount(raw.amount, original, raw.unit, ingredient.name);
     if (
       amount === ingredient.amount &&
       canonicalUnit(raw.unit) === canonicalUnit(ingredient.unit)

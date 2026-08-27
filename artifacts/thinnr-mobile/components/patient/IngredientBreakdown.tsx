@@ -2,9 +2,11 @@
  * IngredientBreakdown — the recipe screens' ingredient list, upgraded: rows
  * with per-ingredient nutrition expand (one at a time) into a small editor
  * showing that ingredient's contribution per serving plus an amount stepper
- * and, for weight/volume units, a unit switch. All math lives in
- * data/ingredient-nutrition (scaling is always from the ORIGINAL baseline);
- * this component only renders views and reports a new adjustment list up.
+ * and a unit switch. Ounce choices ride the ingredient's measure data: fl oz
+ * for liquids, weight oz for solids with a known cup or piece weight. All
+ * math lives in data/ingredient-nutrition (scaling is always from the
+ * ORIGINAL baseline); this component only renders views and reports a new
+ * adjustment list up.
  *
  * Rows without nutrition data (older saves) or "to taste" rows render exactly
  * like the pre-breakdown list — totals-only recipes stay fully usable.
@@ -17,9 +19,10 @@ import { Divider } from '@/components/ui/LedgerPrimitives';
 import {
   amountBounds,
   applyAdjustments,
-  conversionFactor,
+  convertAmountToUnit,
   formatIngredientAmount,
   roundNutrition,
+  sameUnit,
   sanitizeAdjustments,
   stepForUnit,
   unitOptions,
@@ -66,6 +69,7 @@ export function IngredientBreakdown({
     const { min, max } = amountBounds(
       { amount: view.originalAmount, unit: view.originalUnit },
       view.unit,
+      view.name,
     );
     const raw =
       direction > 0
@@ -76,9 +80,15 @@ export function IngredientBreakdown({
   };
 
   const switchUnit = (view: IngredientView, unit: string) => {
-    const factor = conversionFactor(view.unit, unit);
-    if (factor === null || factor === 1) return;
-    commit(view.index, Math.round(view.amount * factor * 10000) / 10000, unit);
+    if (sameUnit(view.unit, unit)) return;
+    const amount = convertAmountToUnit(
+      view.name,
+      { amount: view.originalAmount, unit: view.originalUnit },
+      { amount: view.amount, unit: view.unit },
+      unit,
+    );
+    if (amount === null) return;
+    commit(view.index, amount, unit);
   };
 
   const resetRow = (view: IngredientView) => {
@@ -93,9 +103,13 @@ export function IngredientBreakdown({
       {views.map(view => {
         const expanded = expandedIndex === view.index;
         const facts = view.nutrition ? roundNutrition(view.nutrition) : undefined;
-        const options = unitOptions(view.originalUnit);
+        const options = unitOptions(view.originalUnit, view.name);
         const bounds = view.editable
-          ? amountBounds({ amount: view.originalAmount, unit: view.originalUnit }, view.unit)
+          ? amountBounds(
+              { amount: view.originalAmount, unit: view.originalUnit },
+              view.unit,
+              view.name,
+            )
           : null;
         const canMinus = bounds ? view.amount > bounds.min + 1e-9 : false;
         const canPlus = bounds ? view.amount < bounds.max - 1e-9 : false;
@@ -253,15 +267,20 @@ export function IngredientBreakdown({
                 {options.length > 1 && (
                   <View style={styles.unitRow}>
                     {options.map(option => {
-                      const selected = conversionFactor(option, view.unit) === 1;
+                      const selected = sameUnit(option, view.unit);
+                      const label = option || 'count';
                       return (
                         <Pressable
-                          key={option}
-                          testID={`${testIDPrefix}-unit-${view.index}-${option}`}
+                          key={label}
+                          testID={`${testIDPrefix}-unit-${view.index}-${label}`}
                           onPress={() => switchUnit(view, option)}
                           accessibilityRole="button"
                           accessibilityState={{ selected }}
-                          accessibilityLabel={`Measure ${view.name} in ${option}`}
+                          accessibilityLabel={
+                            option
+                              ? `Measure ${view.name} in ${option}`
+                              : `Measure ${view.name} by count`
+                          }
                           style={({ pressed }) => [
                             styles.unitPill,
                             {
@@ -277,7 +296,7 @@ export function IngredientBreakdown({
                               { color: selected ? colors.primaryForeground : colors.bodyText },
                             ]}
                           >
-                            {option}
+                            {label}
                           </Text>
                         </Pressable>
                       );
@@ -395,6 +414,7 @@ const styles = StyleSheet.create({
   },
   unitRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 6,
     marginTop: 10,
   },

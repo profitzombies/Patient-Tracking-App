@@ -34,7 +34,7 @@
 - [Range picker restart](range-picker-restart.md) — a pre-filled complete range must restart on the next day-click; react-day-picker's default stretches the old range instead.
 - [Tailwind v4 color-token mapping](tailwind-theme-color-mapping.md) — a css var only becomes a utility class once mapped --color-* in @theme inline; unmapped bg-chart-*/text-warn silently render nothing.
 - [Range-calibrated analytics](range-calibrated-analytics.md) — seeded series calibrated so the default range reproduces approved headline figures; comparisons predating the dataset go honestly null.
-- [Ingredient decomposition](ingredient-decomposition.md) — per-ingredient nutrition: exact curated sums, scale from ORIGINAL baseline, delta totals, server largest-remainder normalization; adjustments persist only recipe-linked.
+- [Ingredient decomposition](ingredient-decomposition.md) — exact curated sums, ORIGINAL-baseline scaling, delta totals, server normalization; oz/fl-oz via name-keyed measure bridge (head-noun matcher); adjustments persist recipe-linked only.
 - [Expo multi-artifact preview routing](expo-multi-artifact-preview.md) — multiple Expo apps can share a direct domain; verify the intended artifact by local port and served title.
 - [Provider-scope pattern](provider-scope-pattern.md) — office screens read via useScoped* hooks (unscoped = exact singletons, byte-identical demo); HQ accounts must partition program totals exactly.
 - [URL-persisted admin filters](url-state-admin-filters.md) — query string as single source of truth; per-keystroke replace-navigation verified safe (no focus loss, no scroll reset) on HQ pages.

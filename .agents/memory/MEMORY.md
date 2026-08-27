@@ -59,3 +59,4 @@
 - [In-app food camera handoff](food-camera-handoff.md) — camera route settles a module promise with the RAW asset; prep + single blue confirm live at entry points; denied fallbacks live inside the surface.
 - [HQ toast layer](hq-toast-layer.md) — sound rides the variant; Radix won't announce in-place morphs (ANNOUNCE live region); progress toasts pin vs eviction; gated writes return landed booleans.
 - [Composite typecheck staleness](composite-typecheck-staleness.md) — phantom "no exported member" typecheck errors = stale referenced-lib dist d.ts; tsc -b the lib first; ts lib predates es2023 (no findLastIndex).
+- [Barcode lookup pattern](barcode-lookup.md) — open route fills a shared Supabase facts table from Open Food Facts; canonical-code keying, found-only caching; fake-looking codes can be REAL — verify miss fixtures live.

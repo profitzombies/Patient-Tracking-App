@@ -230,6 +230,60 @@ export interface CoachLabelScanResult {
   label?: CoachLabelScanLabel;
 }
 
+/**
+ * Per-serving nutrition facts for one packaged product, keyed by its canonical barcode (EAN-8 kept as 8 digits, UPC-A zero-padded to its GTIN-13 form). Published values only, never estimates.
+ */
+export interface BarcodeFood {
+  /** Canonical barcode the facts are stored under */
+  code: string;
+  /** Product name as published */
+  name: string;
+  /** Label brand; omitted when the source lists none */
+  brand?: string;
+  /** Serving the values describe, e.g. "30 g" ("100 g" when the source only published per-100g values) */
+  serving: string;
+  /** Calories per serving */
+  calories: number;
+  /** Grams per serving */
+  protein: number;
+  /** Grams per serving */
+  carbs: number;
+  /** Grams per serving */
+  fat: number;
+}
+
+export type BarcodeLookupResultResult = typeof BarcodeLookupResultResult[keyof typeof BarcodeLookupResultResult];
+
+
+export const BarcodeLookupResultResult = {
+  found: 'found',
+  not_found: 'not_found',
+} as const;
+
+/**
+ * Where the facts came from; present only when found
+ */
+export type BarcodeLookupResultSource = typeof BarcodeLookupResultSource[keyof typeof BarcodeLookupResultSource];
+
+
+export const BarcodeLookupResultSource = {
+  cache: 'cache',
+  table: 'table',
+  openfoodfacts: 'openfoodfacts',
+} as const;
+
+/**
+ * "found" carries the product facts plus where they were served from (cache, table, or openfoodfacts; the first two mean no third-party call was made). "not_found" carries an honest message pointing to the label scanner instead - nutrition numbers are never invented.
+ */
+export interface BarcodeLookupResult {
+  result: BarcodeLookupResultResult;
+  /** Where the facts came from; present only when found */
+  source?: BarcodeLookupResultSource;
+  food?: BarcodeFood;
+  /** Present only for not_found */
+  message?: string;
+}
+
 export interface TrainingUploadUrlInput {
   /**
      * Original file name, for logs and error copy only

@@ -139,6 +139,36 @@ export const CoachLabelScanResponse = zod.object({
 
 
 /**
+ * Validates the code (UPC/EAN digit variants; UPC-A is normalized to its 13-digit form), answers from the shared nutrition-facts table when any earlier scan saved the product, and only on a miss queries Open Food Facts, saving the normalized result for every later scan. Per-IP rate limited like the other open demo routes.
+ * @summary Look up a packaged food's per-serving nutrition by barcode
+ */
+export const barcodeLookupPathCodeMin = 8;
+export const barcodeLookupPathCodeMax = 24;
+
+
+
+export const BarcodeLookupParams = zod.object({
+  "code": zod.coerce.string().min(barcodeLookupPathCodeMin).max(barcodeLookupPathCodeMax).describe('Barcode as typed or scanned - 8, 12, 13, or zero-led 14 digits; spaces and hyphens are tolerated')
+})
+
+export const BarcodeLookupResponse = zod.object({
+  "result": zod.enum(['found', 'not_found']),
+  "source": zod.enum(['cache', 'table', 'openfoodfacts']).optional().describe('Where the facts came from; present only when found'),
+  "food": zod.object({
+  "code": zod.string().describe('Canonical barcode the facts are stored under'),
+  "name": zod.string().describe('Product name as published'),
+  "brand": zod.string().optional().describe('Label brand; omitted when the source lists none'),
+  "serving": zod.string().describe('Serving the values describe, e.g. \"30 g\" (\"100 g\" when the source only published per-100g values)'),
+  "calories": zod.number().describe('Calories per serving'),
+  "protein": zod.number().describe('Grams per serving'),
+  "carbs": zod.number().describe('Grams per serving'),
+  "fat": zod.number().describe('Grams per serving')
+}).optional().describe('Per-serving nutrition facts for one packaged product, keyed by its canonical barcode (EAN-8 kept as 8 digits, UPC-A zero-padded to its GTIN-13 form). Published values only, never estimates.'),
+  "message": zod.string().optional().describe('Present only for not_found')
+}).describe('\"found\" carries the product facts plus where they were served from (cache, table, or openfoodfacts; the first two mean no third-party call was made). \"not_found\" carries an honest message pointing to the label scanner instead - nutrition numbers are never invented.')
+
+
+/**
  * HQ admins only. Returns a short-lived presigned PUT URL so the browser uploads the file straight to App Storage (the API never proxies the body), plus the canonical object path to send back to finalize. Nothing is written to the video row until finalize verifies the bytes.
  * @summary Mint a presigned upload URL for a training video file
  */

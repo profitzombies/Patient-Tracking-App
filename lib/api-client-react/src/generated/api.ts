@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  BarcodeLookupResult,
   CoachChatInput,
   CoachLabelScanInput,
   CoachLabelScanResult,
@@ -440,6 +441,84 @@ export const useCoachLabelScan = <TError = ErrorType<void>,
       > => {
       return useMutation(getCoachLabelScanMutationOptions(options));
     }
+
+export const getBarcodeLookupUrl = (code: string,) => {
+
+
+
+
+  return `/api/barcode/${code}`
+}
+
+/**
+ * Validates the code (UPC/EAN digit variants; UPC-A is normalized to its 13-digit form), answers from the shared nutrition-facts table when any earlier scan saved the product, and only on a miss queries Open Food Facts, saving the normalized result for every later scan. Per-IP rate limited like the other open demo routes.
+ * @summary Look up a packaged food's per-serving nutrition by barcode
+ */
+export const barcodeLookup = async (code: string, options?: Parameters<typeof customFetch>[1]): Promise<BarcodeLookupResult> => {
+
+  return customFetch<BarcodeLookupResult>(getBarcodeLookupUrl(code),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getBarcodeLookupQueryKey = (code: string,) => {
+    return [
+    `/api/barcode/${code}`
+    ] as const;
+    }
+
+
+export const getBarcodeLookupQueryOptions = <TData = Awaited<ReturnType<typeof barcodeLookup>>, TError = ErrorType<void>>(code: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof barcodeLookup>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getBarcodeLookupQueryKey(code);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof barcodeLookup>>> = ({ signal }) => barcodeLookup(code, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: code !== null && code !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof barcodeLookup>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type BarcodeLookupQueryResult = NonNullable<Awaited<ReturnType<typeof barcodeLookup>>>
+export type BarcodeLookupQueryError = ErrorType<void>
+
+
+/**
+ * @summary Look up a packaged food's per-serving nutrition by barcode
+ */
+
+export function useBarcodeLookup<TData = Awaited<ReturnType<typeof barcodeLookup>>, TError = ErrorType<void>>(
+ code: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof barcodeLookup>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getBarcodeLookupQueryOptions(code,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getTrainingVideoUploadUrlUrl = (videoId: string,) => {
 

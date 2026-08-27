@@ -16,7 +16,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
@@ -423,6 +423,28 @@ export default function DiaryScreen() {
                   <Feather name="plus" size={13} color={colors.cobalt} />
                   <Text style={[styles.actionChipText, { color: colors.cobalt }]}>Add food</Text>
                 </Pressable>
+                {/* Barcode logging for THIS meal — scan or type the number
+                    on a packaged food; the scanner stays bound to this slot
+                    and day through lookup, confirm, and add. */}
+                <Pressable
+                  testID={`diary-barcode-${slot}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Scan a barcode for your ${MEAL_LABELS[slot].toLowerCase()}`}
+                  accessibilityHint="Scan or type a packaged food's barcode to log it to this meal."
+                  onPress={() =>
+                    router.push({ pathname: '/barcode-scan', params: { date: dateKey, meal: slot } })
+                  }
+                  style={({ pressed }) => [
+                    styles.barcodeChip,
+                    {
+                      borderColor: colors.activeBorder,
+                      borderRadius: colors.radiusSm,
+                      backgroundColor: pressed ? colors.accent : colors.activeBg,
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons name="barcode-scan" size={15} color={colors.cobalt} />
+                </Pressable>
                 {/* Photo-AI logging for THIS meal — the shared capture flow
                     with this section's slot pinned through the analysis. */}
                 <MealPhotoButton
@@ -667,6 +689,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     fontFamily: fonts.sansBold,
+  },
+  /** Icon-only square sibling of actionChip (same border/padding rhythm). */
+  barcodeChip: {
+    borderWidth: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   copyDayRow: {
     flexDirection: 'row',

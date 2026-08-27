@@ -9,6 +9,7 @@ Rule: In the Expo mobile app, never use `shadowColor/shadowOpacity/shadowRadius/
 
 **How to apply:**
 - Shadows: `Platform.select` — web gets CSS shorthand strings (`boxShadow: '0 6px 14px rgba(...)'`, `textShadow: '0 0 10px rgba(...)'`, cast via `as unknown as TextStyle` for textShadow); native keeps the classic shadow*/elevation props.
+- TS gotcha: this project's RN 0.81 type defs accept the `boxShadow` string key but NOT `textShadow` — an uncast `textShadow` in `StyleSheet.create` fails typecheck even though RNW renders it. Either cast as above or skip the shadow (a translucent pill background behind light-on-camera text reads fine and is fully cross-platform).
 - pointerEvents: put it in the style object (`pointerEvents: 'none' | 'box-none'` is a valid ViewStyle key since RN 0.71) instead of a prop.
 - Accepted residual: `@react-navigation/bottom-tabs` internally passes pointerEvents props (BottomTabBar/BottomTabView), emitting one warnOnce notice on web when the tab navigator first mounts. Library-internal, not fixable in app code — tell testers to exclude it (and Metro HMR disconnect notices) from zero-warning checks. All app-level instances have been fixed; keep it that way.
 

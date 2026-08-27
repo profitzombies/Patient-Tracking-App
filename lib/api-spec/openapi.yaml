@@ -12,6 +12,12 @@ tags:
     description: Health operations
   - name: coach
     description: AI coach chat for patients
+  - name: barcode
+    description: >-
+      Packaged-food lookup by barcode. The server answers from the shared
+      nutrition-facts table when any earlier scan already saved the product
+      and only queries Open Food Facts on a miss, so the provider can be
+      swapped without touching the app.
   - name: training
     description: >-
       Hosted training-video media. Callers authenticate with their existing
@@ -203,6 +209,43 @@ paths:
           description: Rate limited
         "502":
           description: Label scan failed
+  /barcode/{code}:
+    get:
+      operationId: barcodeLookup
+      tags: [barcode]
+      summary: Look up a packaged food's per-serving nutrition by barcode
+      description: >-
+        Validates the code (UPC/EAN digit variants; UPC-A is normalized to
+        its 13-digit form), answers from the shared nutrition-facts table
+        when any earlier scan saved the product, and only on a miss queries
+        Open Food Facts, saving the normalized result for every later scan.
+        Per-IP rate limited like the other open demo routes.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: >-
+            Barcode as typed or scanned - 8, 12, 13, or zero-led 14 digits;
+            spaces and hyphens are tolerated
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 24
+      responses:
+        "200":
+          description: >-
+            Lookup outcome: found with facts, or not_found with an honest
+            message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarcodeLookupResult"
+        "400":
+          description: Not a UPC/EAN style barcode
+        "429":
+          description: Rate limited
+        "502":
+          description: The nutrition database is unreachable right now
   /training/videos/{videoId}/upload-url:
     post:
       operationId: trainingVideoUploadUrl
@@ -1076,6 +1119,69 @@ components:
       required:
         - result
         - message
+    BarcodeFood:
+      type: object
+      description: >-
+        Per-serving nutrition facts for one packaged product, keyed by its
+        canonical barcode (EAN-8 kept as 8 digits, UPC-A zero-padded to its
+        GTIN-13 form). Published values only, never estimates.
+      properties:
+        code:
+          type: string
+          description: Canonical barcode the facts are stored under
+        name:
+          type: string
+          description: Product name as published
+        brand:
+          type: string
+          description: Label brand; omitted when the source lists none
+        serving:
+          type: string
+          description: >-
+            Serving the values describe, e.g. "30 g" ("100 g" when the
+            source only published per-100g values)
+        calories:
+          type: number
+          description: Calories per serving
+        protein:
+          type: number
+          description: Grams per serving
+        carbs:
+          type: number
+          description: Grams per serving
+        fat:
+          type: number
+          description: Grams per serving
+      required:
+        - code
+        - name
+        - serving
+        - calories
+        - protein
+        - carbs
+        - fat
+    BarcodeLookupResult:
+      type: object
+      description: >-
+        "found" carries the product facts plus where they were served from
+        (cache, table, or openfoodfacts; the first two mean no third-party
+        call was made). "not_found" carries an honest message pointing to
+        the label scanner instead - nutrition numbers are never invented.
+      properties:
+        result:
+          type: string
+          enum: [found, not_found]
+        source:
+          type: string
+          enum: [cache, table, openfoodfacts]
+          description: Where the facts came from; present only when found
+        food:
+          $ref: "#/components/schemas/BarcodeFood"
+        message:
+          type: string
+          description: Present only for not_found
+      required:
+        - result
     TrainingUploadUrlInput:
       type: object
       properties:

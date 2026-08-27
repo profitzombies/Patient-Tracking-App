@@ -112,6 +112,10 @@ args = "toasts"
 task = "workflow.run"
 args = "support-stage-pacer"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "barcode-lookup"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -372,6 +376,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:stage-pacer"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "barcode-lookup"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/barcode src/routes/barcode"
 
 [workflows.workflow.metadata]
 isValidation = true

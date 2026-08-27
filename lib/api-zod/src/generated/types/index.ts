@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './barcodeFood';
+export * from './barcodeLookupResult';
+export * from './barcodeLookupResultResult';
+export * from './barcodeLookupResultSource';
 export * from './coachChatInput';
 export * from './coachChatInputMealSlot';
 export * from './coachChatMessage';

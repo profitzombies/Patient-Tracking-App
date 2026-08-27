@@ -54,6 +54,34 @@ describe("writeRoutingAids", () => {
     const aids = await writeRoutingAids("Boost product info", TEXT);
     expect(aids).toEqual(heuristicRoutingAids("Boost product info", TEXT));
   });
+
+  it("normalizes brand misspellings in the model summary but leaves keywords as routing vocabulary", async () => {
+    aiState.create.mockResolvedValue(
+      aiReply(
+        JSON.stringify({
+          summary: "Covers the THINNER program rules for the Thinner Metabolic Thinning Phase.",
+          keywords: ["thinner program", "phases", "exercise", "portions", "dosing"],
+        }),
+      ),
+    );
+    const aids = await writeRoutingAids("Program guide", TEXT);
+    expect(aids.summary).toBe(
+      "Covers the THINNR program rules for the THINNR Metabolic Thinning Phase.",
+    );
+    // Keywords stay exactly as extracted: lowercase routing terms matched
+    // against what staff type — the misspelling is genuine signal for
+    // documents that use it, never brand display copy.
+    expect(aids.keywords).toContain("thinner program");
+  });
+
+  it("asks the model for the THINNR spelling", async () => {
+    aiState.create.mockResolvedValue(aiReply(JSON.stringify({ summary: "s", keywords: ["a"] })));
+    await writeRoutingAids("Doc", TEXT);
+    const [request] = aiState.create.mock.calls[0] as [
+      { messages: Array<{ role: string; content: string }> },
+    ];
+    expect(request.messages[0].content).toContain("never \"Thinner\" or \"THINNER\"");
+  });
 });
 
 describe("heuristicRoutingAids", () => {
@@ -73,5 +101,14 @@ describe("heuristicRoutingAids", () => {
   it("survives text with no sentence punctuation", () => {
     const aids = heuristicRoutingAids("Notes", "just words without punctuation everywhere");
     expect(aids.summary).toContain("just words");
+  });
+
+  it("normalizes brand misspellings lifted from a document that keeps them", () => {
+    const aids = heuristicRoutingAids(
+      "Program guide",
+      "The THINNER program uses fixed portions. Exercise rules change in the Thinner Metabolic Normalization phase.",
+    );
+    expect(aids.summary).toContain("THINNR program");
+    expect(aids.summary).not.toMatch(/THINNER|Thinner\b/);
   });
 });

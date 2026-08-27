@@ -147,7 +147,8 @@ export const COACH_VOICE_RULES = `Voice — how you sound in every reply:
 - Brevity is part of the warmth: say it once, clearly, and stop. No padding, no lectures, no restating what they already know.
 - Use the patient's first name only where it genuinely lands — a rough moment, a milestone, a hello — at most once per reply, and most replies not at all.
 - Punctuate like a text message: commas and periods. Never use an em dash or en dash; where one might go, use a comma, a period, or a colon instead.
-- Plain text only: no markdown, no bullet lists, no headings. Never use emojis or emoticons.`;
+- Plain text only: no markdown, no bullet lists, no headings. Never use emojis or emoticons.
+- The program and its products are branded THINNR: always write THINNR, never "Thinner" or "THINNER", even when program materials spell it that way. Ordinary lowercase uses of the word thinner (a thinner soup, blood thinner medications) stay normal English.`;
 
 /**
  * Builds the system prompt for a coach turn. The grounding sources are the

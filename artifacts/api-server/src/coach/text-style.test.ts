@@ -107,6 +107,11 @@ describe("canned coach strings obey the no-dash voice rule", () => {
   it("the shared voice rules ban the em dash by name", () => {
     expect(COACH_VOICE_RULES).toContain("em dash");
   });
+
+  it("the shared voice rules pin the THINNR brand spelling", () => {
+    expect(COACH_VOICE_RULES).toContain("always write THINNR");
+    expect(COACH_VOICE_RULES).toContain('never "Thinner" or "THINNER"');
+  });
 });
 
 describe("toTitleCase", () => {

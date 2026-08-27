@@ -310,24 +310,27 @@ function interpret(raw: string, mode: RecipeMode): Interpretation {
   return {
     ok: true,
     reply: stripDashes(cleanModelText(reply)).trim(),
-    recipe: recipe ? normalizeIngredientNutrition(dedashRecipeText(recipe)) : null,
+    recipe: recipe ? normalizeIngredientNutrition(cleanRecipeText(recipe)) : null,
   };
 }
 
 /**
- * The card's user-facing strings follow the same no-dash voice rule as the
- * reply. Applied after validation (names were already matched against the
- * catalog) and before normalization; numbers are untouched.
+ * The card's user-facing strings follow the same output rules as the reply:
+ * the shared model-text cleaning (THINNR brand spelling, no pictographs)
+ * plus the no-dash voice rule. Applied after validation (names were already
+ * matched against the catalog) and before normalization; numbers are
+ * untouched.
  */
-function dedashRecipeText(recipe: GeneratedRecipe): GeneratedRecipe {
+function cleanRecipeText(recipe: GeneratedRecipe): GeneratedRecipe {
+  const clean = (text: string): string => stripDashes(cleanModelText(text)).trim();
   return {
     ...recipe,
-    name: stripDashes(recipe.name),
-    description: stripDashes(recipe.description),
-    steps: recipe.steps.map((step) => stripDashes(step)),
+    name: clean(recipe.name),
+    description: clean(recipe.description),
+    steps: recipe.steps.map(clean),
     ingredients: recipe.ingredients.map((ingredient) => ({
       ...ingredient,
-      name: stripDashes(ingredient.name),
+      name: clean(ingredient.name),
     })),
   };
 }

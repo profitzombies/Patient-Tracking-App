@@ -109,6 +109,31 @@ describe("POST /api/coach/chat", () => {
     expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
   });
 
+  it("spells the brand THINNR on the wire even when the misspelling arrives split across chunks", async () => {
+    streamState.chunks = [
+      "The THIN",
+      "NER program fits here. Blood thin",
+      "ner medications are a care team topic.",
+    ];
+    try {
+      // Own per-IP bucket (trust proxy is on): the file's request budget is
+      // sized to the shared bucket's burst, and the rate-limit test must
+      // stay the one that drains it.
+      const res = await postChat(validBody, { "X-Forwarded-For": "10.99.0.15" });
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      const joined = [...text.matchAll(/^data: (\{.*\})$/gm)]
+        .map((match) => JSON.parse(match[1]) as { content?: string })
+        .map((event) => event.content ?? "")
+        .join("");
+      expect(joined).toBe(
+        "The THINNR program fits here. Blood thinner medications are a care team topic.",
+      );
+    } finally {
+      streamState.chunks = [...DEFAULT_CHUNKS];
+    }
+  });
+
   describe("product cards", () => {
     afterEach(() => {
       streamState.chunks = [...DEFAULT_CHUNKS];

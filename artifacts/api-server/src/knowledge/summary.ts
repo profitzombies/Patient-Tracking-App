@@ -5,8 +5,18 @@
  * The model writes them when it can; a deterministic heuristic takes over on
  * any model problem, so extraction NEVER fails because the AI was down —
  * the extracted text is the product, the aids are conveniences.
+ *
+ * Brand spelling: summaries are app-authored display text, so the shared
+ * guard rewrites capitalized THINNER/Thinner to THINNR even when the
+ * sentences are lifted from a document that deliberately keeps the
+ * misspelling (the document text itself is never touched). Keywords are
+ * deliberately left as extracted: they are lowercase routing vocabulary
+ * matched against what staff type — "thinner" is genuine routing signal for
+ * documents that use it — never brand display copy; the normalized summary
+ * now carries the correct spelling for staff who type THINNR.
  */
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { normalizeBrandSpelling } from "../lib/brand-spelling";
 import { extractModelJson } from "../coach/model-json";
 import { upstreamTimeoutMs } from "../coach/upstream";
 import { logger } from "../lib/logger";
@@ -65,6 +75,7 @@ async function aiRoutingAids(title: string, text: string): Promise<RoutingAids> 
             "You index documents for the THINNR med-spa program's AI support assistant. " +
             'Reply with JSON only: {"summary": string, "keywords": string[]}. ' +
             "The summary is two or three plain sentences describing what questions this document answers. " +
+            "The brand name is THINNR — always spell it THINNR, never \"Thinner\" or \"THINNER\", even where the document misspells it. " +
             "Keywords are 5 to 12 short lowercase search terms office staff might type; no duplicates.",
         },
         {
@@ -80,7 +91,10 @@ async function aiRoutingAids(title: string, text: string): Promise<RoutingAids> 
   if (parsed === null || typeof parsed !== "object") {
     throw new Error("The AI reply wasn't readable JSON");
   }
-  const summary = typeof parsed.summary === "string" ? parsed.summary.trim().slice(0, MAX_SUMMARY_CHARS) : "";
+  const summary =
+    typeof parsed.summary === "string"
+      ? normalizeBrandSpelling(parsed.summary.trim().slice(0, MAX_SUMMARY_CHARS))
+      : "";
   if (!summary) throw new Error("The AI reply had no summary");
   return { summary, keywords: cleanKeywords(parsed.keywords) };
 }
@@ -125,7 +139,10 @@ export function heuristicRoutingAids(title: string, text: string): RoutingAids {
     .toLowerCase()
     .split(/[^a-z0-9'-]+/)
     .filter((word) => word.length >= 4 && !STOPWORDS.has(word));
-  return { summary, keywords: cleanKeywords([...fromTitle, ...frequent]) };
+  // The summary is app-authored even here — its sentences are lifted from a
+  // document that may keep the THINNER misspelling on purpose, so the brand
+  // guard applies on the way out (keywords stay raw; see module docs).
+  return { summary: normalizeBrandSpelling(summary), keywords: cleanKeywords([...fromTitle, ...frequent]) };
 }
 
 /** Total by construction: the model's aids when possible, heuristic otherwise. */

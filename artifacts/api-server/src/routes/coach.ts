@@ -17,6 +17,7 @@ import { resolvePhotoKind } from "../coach/photo-kind";
 import { createPhotoUsageLog } from "../coach/usage";
 import { DashSmoother } from "../coach/text-style";
 import { MarkerFilter } from "../coach/markers";
+import { BrandSpellingSmoother } from "../lib/brand-spelling";
 import { firstQuickReplySet } from "../coach/quick-replies";
 import {
   UpstreamTimeoutError,
@@ -499,6 +500,12 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // (even split across chunks) and records the ids for validation below.
       const markerFilter = new MarkerFilter(["product", "replies"]);
 
+      // The brand comes out THINNR no matter what the model echoes from the
+      // program materials (some of which misspell it "THINNER"): the shared
+      // smoother rewrites capitalized misspellings even when they arrive
+      // split across chunks; lowercase English "thinner" passes through.
+      const brandSmoother = new BrandSpellingSmoother();
+
       // The no-dash voice rule is enforced structurally on the way out (the
       // prompt alone is not a guarantee), with chunk-spanning bridges like
       // "word " + "— word" handled by the smoother's held-back tail.
@@ -539,7 +546,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           deadline.touch();
           const delta = chunk.choices[0]?.delta?.content;
           if (delta) {
-            const visible = dashSmoother.push(markerFilter.push(delta));
+            const visible = dashSmoother.push(brandSmoother.push(markerFilter.push(delta)));
             if (visible) {
               res.write(`data: ${JSON.stringify({ content: visible })}\n\n`);
             }
@@ -547,12 +554,14 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         }
       } catch (error) {
         // The stream died mid-reply: drain what the marker filter and the
-        // dash smoother were still holding back, so every character cleared
-        // for display reaches the wire before the error event. (The client
-        // may replace the partial text with the error bubble, but the wire
-        // contract stays no-drop for any consumer that keeps partials.)
+        // brand/dash smoothers were still holding back, so every character
+        // cleared for display reaches the wire before the error event. (The
+        // client may replace the partial text with the error bubble, but the
+        // wire contract stays no-drop for any consumer that keeps partials.)
         if (!abort.signal.aborted) {
-          const held = dashSmoother.push(markerFilter.flush()) + dashSmoother.flush();
+          const held =
+            dashSmoother.push(brandSmoother.push(markerFilter.flush()) + brandSmoother.flush()) +
+            dashSmoother.flush();
           if (held) {
             res.write(`data: ${JSON.stringify({ content: held })}\n\n`);
           }
@@ -565,7 +574,9 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       } finally {
         deadline.finish();
       }
-      const tail = dashSmoother.push(markerFilter.flush()) + dashSmoother.flush();
+      const tail =
+        dashSmoother.push(brandSmoother.push(markerFilter.flush()) + brandSmoother.flush()) +
+        dashSmoother.flush();
       if (tail) {
         res.write(`data: ${JSON.stringify({ content: tail })}\n\n`);
       }

@@ -21,12 +21,25 @@ import { join } from "path";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { upstreamTimeoutMs, UpstreamTimeoutError } from "../coach/upstream";
 import { cleanModelText, extractModelJson } from "../coach/model-json";
+import { normalizeSpokenBrandMentions } from "../lib/brand-spelling";
 import type { TranscriptSegment } from "./videos-store";
 
 /** Transcription slice length; also the chapter timestamp grid. */
 export const SEGMENT_SECONDS = 60;
 
 export const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+
+/**
+ * Spelling bias for transcription: the brand is pronounced exactly like the
+ * English word "thinner", so without a hint every spoken mention transcribes
+ * as the misspelling. The AI gateway passes the transcription `prompt`
+ * through (probed 2026-08-27: accepted, and usage counted its text tokens,
+ * so it reaches the model). Bias only — the deterministic rewrites on the
+ * transcript text are the guarantee.
+ */
+export const TRANSCRIBE_PROMPT =
+  "Internal staff training video for the THINNR med-spa weight-loss program. " +
+  "THINNR, THINNR Boost, and the THINNR Metabolic Thinning Phase are brand names.";
 export const TEXT_MODEL = "gpt-5-nano";
 
 /** How many audio segments are in flight at once against the AI proxy. */
@@ -180,10 +193,15 @@ export async function transcribeSegments(
           file: createReadStream(files[index]),
           model: TRANSCRIBE_MODEL,
           response_format: "json",
+          prompt: TRANSCRIBE_PROMPT,
         },
         { signal: withClientAbort(options.signal, upstreamTimeoutMs()) },
       );
-      return cleanModelText(response.text ?? "");
+      // cleanModelText fixes capitalized brand misspellings; the spoken-
+      // mention rewrite catches the lowercase form transcription actually
+      // produces ("the thinner program") while genuine phrases like "blood
+      // thinner" pass through untouched.
+      return normalizeSpokenBrandMentions(cleanModelText(response.text ?? ""));
     };
     try {
       return await attempt();
@@ -280,7 +298,9 @@ export async function writeDescription(
   const system =
     "You write catalog descriptions for an internal med-spa staff training library. " +
     "Plain, specific, factual tone; address the staff member as \u201cyou\u201d where natural. " +
-    "No hype, no emojis, no exclamation marks, and never mention the transcript, AI, or timestamps.";
+    "No hype, no emojis, no exclamation marks, and never mention the transcript, AI, or timestamps. " +
+    "The brand name is THINNR — always spell it THINNR, never \"Thinner\" or \"THINNER\", " +
+    "even where the transcript spells it otherwise.";
   const user =
     `Video title: ${title}\n\nTimed transcript:\n${transcriptForPrompt(segments)}\n\n` +
     'Reply with JSON exactly like {"paragraphs": ["...", "..."]} — two short paragraphs of 2\u20133 sentences. ' +
@@ -321,7 +341,9 @@ export async function writeChapters(
   ).sort((a, b) => a - b);
   const system =
     "You outline internal staff training videos into chapters. Titles are short, concrete, and scannable " +
-    "(3\u20136 words, sentence case, no numbering, no emojis).";
+    "(3\u20136 words, sentence case, no numbering, no emojis). " +
+    "The brand name is THINNR — always spell it THINNR, never \"Thinner\" or \"THINNER\", " +
+    "even where the transcript spells it otherwise.";
   const user =
     `Video title: ${title}\nVideo length: ${formatClock(durationSeconds)}\n\n` +
     `Timed transcript:\n${transcriptForPrompt(segments)}\n\n` +

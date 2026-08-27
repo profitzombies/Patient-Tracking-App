@@ -2,6 +2,7 @@
  * Shared helpers for the coach's structured-JSON model turns (recipe
  * generation, menu scanning).
  */
+import { normalizeBrandSpelling } from "../lib/brand-spelling";
 
 /**
  * Tolerant JSON extraction from a raw model reply: strips code fences, then
@@ -28,7 +29,16 @@ export function extractModelJson(raw: string): unknown {
   }
 }
 
-/** Style insurance: the prompts forbid emojis, this makes it structural. */
+/**
+ * Style and brand insurance: the prompts forbid emojis and require the
+ * THINNR spelling; this makes both structural. Every structured coach
+ * pipeline (recipe, meal/label/menu scans) and the training pipeline
+ * (transcripts, descriptions, chapter titles) cleans its user-facing model
+ * text here, so the brand guarantee is inherited at ONE choke point.
+ * Capitalized-only contract: lowercase "thinner" is ordinary English and
+ * passes through (spoken transcripts get their own contextual rewrite in
+ * the training pipeline).
+ */
 export function cleanModelText(text: string): string {
-  return text.replace(/\p{Extended_Pictographic}/gu, "").trim();
+  return normalizeBrandSpelling(text.replace(/\p{Extended_Pictographic}/gu, "")).trim();
 }

@@ -52,7 +52,8 @@ import {
   type SupportPromptMode,
 } from "../support/prompt";
 import { acquireSupportSlot } from "../support/limits";
-import { BrandSpellingSmoother, EmojiSmoother } from "../support/text-guards";
+import { BrandSpellingSmoother } from "../lib/brand-spelling";
+import { EmojiSmoother } from "../support/text-guards";
 
 const router: IRouter = Router();
 

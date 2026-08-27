@@ -3,20 +3,26 @@
  * bottom-right launcher that replaced the full-width tab bar.
  *
  * A round navy button floats in the bottom-right corner of every staff
- * screen. Tapping it hides the circle and pops out a Heritage menu card
- * floating horizontally centered near the bottom at 90% of the app canvas
- * width — Slack's popup pattern. One row per destination (the same six the
- * old tab bar held, same icons), the active screen marked with the small
- * orange tick the tabs used, and a prominent cobalt "AI Support" action
- * pinned full-width beneath a divider — the staff-side AI chat lives outside
- * the six rows the way Slack's primary action does. Closing the menu
- * (backdrop tap, Escape, hardware back, or picking a destination) brings the
- * circle back.
+ * screen and never leaves it. Tapping it pops out a Heritage menu card
+ * floating horizontally centered at 90% of the app canvas width, raised so
+ * its bottom edge clears the circle with a small gap — and the circle flips
+ * to an X that closes the menu again (tap to reopen). One row per
+ * destination (the same six the old tab bar held, same icons), the active
+ * screen marked with the small orange tick the tabs used, and a prominent
+ * cobalt "AI Support" action pinned full-width beneath a divider — the
+ * staff-side AI chat lives outside the six rows the way Slack's primary
+ * action does. Backdrop tap, Escape, hardware back, or picking a
+ * destination also close the menu, returning the circle to its grid icon.
  *
  * The popout rides AppModal so web keeps iPhone-canvas parity (the 90%
  * width sizes against the fixed iPhone canvas, not the browser window), the
  * backdrop dims the screen, and hardware back / Escape / a backdrop tap all
- * close it.
+ * close it. Because a Modal is its own window on native (and a body portal
+ * on web), nothing rendered outside it can draw above the backdrop — so the
+ * open-state X is a twin circle rendered INSIDE the modal at the same
+ * canvas coordinates. The always-mounted launcher underneath mirrors the X
+ * icon, keeps `provider-fab` queryable in both states, and gives the
+ * modal's focus-restore a target after close.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -30,6 +36,11 @@ import { useColors } from '@/hooks/useColors';
 /** Soft Heritage shadows as boxShadow strings (shadow* props warn on web). */
 const FAB_SHADOW = '0 10px 26px rgba(23, 32, 46, 0.32)';
 const MENU_SHADOW = '0 18px 44px rgba(23, 32, 46, 0.24)';
+
+/** Circle diameter; the open menu card is raised to clear it. */
+const FAB_SIZE = 56;
+/** Gap between the open menu card's bottom edge and the circle's top. */
+const MENU_GAP = 12;
 
 const DESTINATIONS: {
   key: string;
@@ -66,6 +77,15 @@ export function ProviderFabMenu() {
   }, [open, reveal]);
 
   const fabBottom = Math.max(insets.bottom, 14) + 14;
+  // Shared placement so the in-modal X twin lands exactly on the launcher:
+  // AppModal re-applies the same iPhone canvas on web and the modal fills
+  // the screen on native, so identical right/bottom means the same spot.
+  const fabPlacement = {
+    right: 18,
+    bottom: fabBottom,
+    backgroundColor: colors.navy,
+    boxShadow: FAB_SHADOW,
+  };
 
   const toggle = () => {
     Haptics.selectionAsync();
@@ -89,6 +109,12 @@ export function ProviderFabMenu() {
 
   return (
     <>
+      {/* The circle never leaves the screen. While the menu is open this
+          node sits under the modal (the tappable X is the twin inside it,
+          below) but mirrors the X icon and close label, so open/close reads
+          as one circle swapping icons through the modal's fade. Staying
+          mounted and visible keeps `provider-fab` queryable in both states
+          and gives RNW's modal focus-restore its target after close. */}
       <Pressable
         testID="provider-fab"
         accessibilityRole="button"
@@ -98,21 +124,11 @@ export function ProviderFabMenu() {
         onPress={toggle}
         style={({ pressed }) => [
           styles.fab,
-          {
-            right: 18,
-            bottom: fabBottom,
-            backgroundColor: colors.navy,
-            boxShadow: FAB_SHADOW,
-          },
+          fabPlacement,
           pressed && { opacity: 0.88 },
-          // Slack parity: the circle leaves the screen while the menu is
-          // open. display:none (not unmount) keeps the same node around, so
-          // RNW's modal focus-restore lands back on it after close and the
-          // testID stays queryable in both states.
-          open && styles.fabHidden,
         ]}
       >
-        <Feather name="grid" size={21} color={colors.primaryForeground} />
+        <Feather name={open ? 'x' : 'grid'} size={21} color={colors.primaryForeground} />
       </Pressable>
 
       <AppModal
@@ -134,7 +150,9 @@ export function ProviderFabMenu() {
             style={[
               styles.menuCard,
               {
-                marginBottom: fabBottom,
+                // Raised above the circle: clear the launcher plus a small
+                // gap instead of docking at the very bottom.
+                marginBottom: fabBottom + FAB_SIZE + MENU_GAP,
                 backgroundColor: colors.card,
                 borderColor: colors.border,
                 borderRadius: colors.radius,
@@ -233,6 +251,26 @@ export function ProviderFabMenu() {
               </Text>
             </Pressable>
           </Animated.View>
+          {/* Twin of the launcher circle, rendered inside the modal so it
+              sits above the dimmed backdrop and stays tappable while the
+              menu is open (nothing outside a Modal can draw over it). Same
+              canvas coordinates as the launcher, so visually it IS the same
+              circle — now an X that closes the menu. */}
+          <Pressable
+            testID="provider-fab-close"
+            accessibilityRole="button"
+            accessibilityLabel="Close navigation menu"
+            accessibilityState={{ expanded: true }}
+            aria-expanded={true}
+            onPress={toggle}
+            style={({ pressed }) => [
+              styles.fab,
+              fabPlacement,
+              pressed && { opacity: 0.88 },
+            ]}
+          >
+            <Feather name="x" size={21} color={colors.primaryForeground} />
+          </Pressable>
         </View>
       </AppModal>
     </>
@@ -242,18 +280,16 @@ export function ProviderFabMenu() {
 const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fabHidden: {
-    display: 'none',
-  },
   overlay: {
     // Slack-style placement: the card sits centered near the bottom of the
-    // canvas; the absolute-fill backdrop ignores the flex alignment.
+    // canvas (raised above the circle); the absolute-fill backdrop ignores
+    // the flex alignment.
     flex: 1,
     justifyContent: 'flex-end',
     alignItems: 'center',

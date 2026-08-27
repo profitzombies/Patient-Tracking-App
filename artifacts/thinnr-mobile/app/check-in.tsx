@@ -157,6 +157,64 @@ export default function CheckInScreen() {
           </Text>
         </LedgerCard>
 
+        {/* ── Coach awareness (stall nudge) ──
+            Mirrors the coach's proactive outreach while the trigger is
+            active: a supportive note beside the weigh-in with a door into
+            the same conversation, never a separate nagging channel.
+            Stop-on-engagement outranks everything: once the patient has
+            answered this episode, the check-in stays silent — even the
+            paused/resume row waits until the episode is over. */}
+        {patient.nudgeAssessment.active && patient.nudgeEngaged ? null : patient.nudgeOptOut ? (
+          <View style={styles.nudgePausedRow}>
+            <Text style={[styles.nudgePausedText, { color: colors.subtleText }]}>
+              Coach check-ins are paused.
+            </Text>
+            <Pressable
+              testID="checkin-nudge-resume"
+              accessibilityRole="button"
+              onPress={() => void patient.setNudgeOptOut(false)}
+              hitSlop={8}
+            >
+              <Text style={[styles.nudgeAction, { color: colors.cobalt }]}>Resume</Text>
+            </Pressable>
+          </View>
+        ) : patient.nudgeAssessment.active && !patient.nudgeEngaged ? (
+          <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
+            <Text style={[styles.fieldLabel, { color: colors.labelText }]}>FROM YOUR COACH</Text>
+            <Text style={[styles.nudgeNoteText, { color: colors.bodyText }]}>
+              Your weight has been holding steady for about three weeks while a few off-plan
+              items found their way into the diary. That happens, and it turns around fast.
+              Your coach has a back-on-track plan ready when you are.
+            </Text>
+            <View style={styles.nudgeActionsRow}>
+              <Pressable
+                testID="checkin-nudge-open-chat"
+                accessibilityRole="button"
+                onPress={() => router.push('/coach-chat')}
+                style={({ pressed }) => [
+                  styles.nudgeChatBtn,
+                  { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Text style={[styles.nudgeChatBtnText, { color: colors.primaryForeground }]}>
+                  Open Coach Chat
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="checkin-nudge-off"
+                accessibilityRole="button"
+                onPress={() => void patient.setNudgeOptOut(true)}
+                hitSlop={8}
+              >
+                <Text style={[styles.nudgeAction, { color: colors.subtleText }]}>
+                  Turn these off
+                </Text>
+              </Pressable>
+            </View>
+          </LedgerCard>
+        ) : null}
+
         {/* ── Mood ── */}
         <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
           <Text style={[styles.fieldLabel, { color: colors.labelText }]}>HOW ARE YOU FEELING?</Text>
@@ -349,6 +407,43 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     marginTop: 8,
     fontFamily: 'Inter_400Regular',
+  },
+  nudgePausedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginTop: -4,
+    marginBottom: 14,
+  },
+  nudgePausedText: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+  },
+  nudgeAction: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  nudgeNoteText: {
+    fontSize: 12.5,
+    lineHeight: 19,
+    marginTop: 10,
+    fontFamily: 'Inter_400Regular',
+  },
+  nudgeActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  nudgeChatBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  nudgeChatBtnText: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.2,
   },
   moodRow: {
     flexDirection: 'row',

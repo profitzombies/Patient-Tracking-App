@@ -4,6 +4,7 @@ import { CoachChatBody } from "@workspace/api-zod";
 import { selectCompartments } from "../coach/select";
 import { buildSystemPrompt, toModelMessages } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
+import { detectBackOnTrackFollowUp, generateBackOnTrackTurn } from "../coach/back-on-track";
 import { acquireChatSlot, acquireMenuScanSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
 import { detectRecipeIntent } from "../coach/intent";
@@ -24,6 +25,7 @@ import { createPhotoUsageLog } from "../coach/usage";
 import { DashSmoother } from "../coach/text-style";
 import { MarkerFilter } from "../coach/markers";
 import { BrandSpellingSmoother } from "../lib/brand-spelling";
+import { MEAL_VERSION_REPLY_SET, firstQuickReplySet } from "../coach/quick-replies";
 import {
   UpstreamTimeoutError,
   createUpstreamDeadline,
@@ -37,7 +39,6 @@ import {
   PHOTO_TOO_LARGE_MESSAGE,
   decodedPhotoBytes,
 } from "../lib/photo-guards";
-import { MEAL_VERSION_REPLY_SET, firstQuickReplySet } from "../coach/quick-replies";
 
 const router: IRouter = Router();
 
@@ -152,6 +153,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       | "meal-makeover"
       | "meal-approved-recipe"
       | "meal-keep"
+      | "back-on-track"
       | "recipe"
       | "cravings" = "plain";
 
@@ -332,6 +334,9 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           if (mealTurn.card) {
             res.write(`data: ${JSON.stringify({ card: mealTurn.card })}\n\n`);
           }
+          // Off-list items spotted: the reply just closed with the makeover
+          // offer, so the curated yes/no chips ride this turn (the verdict
+          // itself never rides any payload — chat wording only).
           if (mealTurn.offerMakeover) {
             const yesNo = firstQuickReplySet(["yes_no"]);
             if (yesNo) {
@@ -489,67 +494,22 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         return;
       }
 
-      // ── Meal makeover follow-up ─────────────────────────────────────────
-      // A one-tap yes sitting directly under the callout's makeover offer:
-      // one grounded text turn describes the concrete approved swaps for
-      // that exact plate (the callout exchange rides as replayed history, so
-      // the photo is never re-sent), then the server-authored version
-      // question closes the reply and the dedicated two-label chip set rides
-      // along. An empty model answer degrades to the canned decline with NO
-      // version chips, so the choice detector can never fire against it.
-      // Anything richer than a bare yes falls through to plain chat, which
-      // reads the same history anyway.
-      if (detectMealMakeoverFollowUp(history)) {
-        pipeline = "meal-makeover";
-        req.log.info({}, "coach meal makeover follow-up turn");
-        const makeover = await generateMealMakeoverTurn({
-          history: modelHistory,
-          compartments: selection.compartments,
-          patient: patientContext,
-          signal: abort.signal,
-          log: req.log,
-        });
-        if (!abort.signal.aborted) {
-          res.write(`data: ${JSON.stringify({ content: makeover.reply })}\n\n`);
-          if (makeover.askVersion) {
-            res.write(
-              `data: ${JSON.stringify({ quickReplies: MEAL_VERSION_REPLY_SET.labels })}\n\n`,
-            );
-          }
-          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-          req.log.info(
-            { pipeline, elapsedMs: Date.now() - startedAt, askVersion: makeover.askVersion },
-            "coach meal makeover turn completed",
-          );
-        }
-        return;
-      }
+      // ── Meal makeover follow-ups ────────────────────────────────────────
+      // The off-plan callout's closing offer and the swaps reply's version
+      // question are server-authored constants, so replayed history contains
+      // them verbatim and strict adjacency detectors can route the one-tap
+      // answers. Anything richer than a one-tap falls through to plain chat,
+      // which reads the same context anyway.
 
-      // ── Meal version choice ─────────────────────────────────────────────
-      // One-tap answer at the version question. "The approved version"
-      // routes into the recipe pipeline with the meal-makeover inspiration
-      // (cravings-strength approved-only enforcement with the corrective
-      // retry) and delivers a saveable, loggable recipe card. "Keep it as
-      // is" is a canned acknowledgment pointing back at the meal card that
-      // is already on screen — zero model calls. Anything richer falls
-      // through to plain chat.
+      // Version question answered. "The approved version" builds the real
+      // recipe through the recipe pipeline under the cravings-strength
+      // approved-only contract (every ingredient must cite a verified
+      // catalog id, corrective retry on bad citations); "Keep it as is" is
+      // canned with zero model calls, pointing back at the meal card.
       const versionChoice = detectMealVersionChoice(history);
-      if (versionChoice === "keep") {
-        pipeline = "meal-keep";
-        req.log.info({}, "coach meal version keep turn");
-        if (!abort.signal.aborted) {
-          res.write(`data: ${JSON.stringify({ content: MEAL_KEEP_REPLY })}\n\n`);
-          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-          req.log.info(
-            { pipeline, elapsedMs: Date.now() - startedAt },
-            "coach chat turn completed",
-          );
-        }
-        return;
-      }
       if (versionChoice === "approved") {
         pipeline = "meal-approved-recipe";
-        req.log.info({}, "coach meal approved version turn");
+        req.log.info({}, "coach meal approved-version turn");
         const result = await generateRecipeTurn({
           mode: "recipe",
           inspiration: "meal-makeover",
@@ -568,6 +528,81 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
           req.log.info(
             { pipeline, elapsedMs: Date.now() - startedAt, card: result.card !== null },
+            "coach chat turn completed",
+          );
+        }
+        return;
+      }
+      if (versionChoice === "keep") {
+        pipeline = "meal-keep";
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: MEAL_KEEP_REPLY })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { pipeline, elapsedMs: Date.now() - startedAt },
+            "coach chat turn completed",
+          );
+        }
+        return;
+      }
+
+      // A one-tap yes right under the makeover offer: ONE grounded
+      // non-streaming turn describing the approved swaps for that exact
+      // plate (read from the replayed callout — the photo is never re-sent),
+      // closing with the server-authored version question and its dedicated
+      // chip pair. When the model gives nothing usable the canned decline
+      // goes out with NO version chips: there is no suggestion to choose
+      // from, and the choice detector must never fire against that reply.
+      if (detectMealMakeoverFollowUp(history)) {
+        pipeline = "meal-makeover";
+        req.log.info({}, "coach meal makeover turn");
+        const makeover = await generateMealMakeoverTurn({
+          history: modelHistory,
+          compartments: selection.compartments,
+          patient: patientContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: makeover.reply })}\n\n`);
+          if (makeover.askVersion) {
+            res.write(
+              `data: ${JSON.stringify({ quickReplies: MEAL_VERSION_REPLY_SET.labels })}\n\n`,
+            );
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { pipeline, elapsedMs: Date.now() - startedAt, askVersion: makeover.askVersion },
+            "coach chat turn completed",
+          );
+        }
+        return;
+      }
+
+      // ── Back-on-track follow-up ─────────────────────────────────────────
+      // A one-tap yes right under the coach's proactive stall outreach. The
+      // outreach bubble is a fixed client-side string (the mobile app seeds
+      // it when the shared stall trigger fires) whose closing offer is
+      // duplicated verbatim in back-on-track.ts, so the same strict-adjacency
+      // contract routes it: ONE grounded non-streaming turn laying out the
+      // reset plan (their own trend, a few days of approved-foods meals,
+      // daily logging, the provider check-in as an option). Plain text, no
+      // card, no chips — the reply ends on a statement so the thread rests.
+      if (detectBackOnTrackFollowUp(history)) {
+        pipeline = "back-on-track";
+        req.log.info({}, "coach back-on-track turn");
+        const turn = await generateBackOnTrackTurn({
+          history: modelHistory,
+          compartments: selection.compartments,
+          patient: patientContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: turn.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { pipeline, elapsedMs: Date.now() - startedAt },
             "coach chat turn completed",
           );
         }

@@ -30,7 +30,9 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { usePatient } from '@/context/PatientContext';
 import { ENROLLMENT_DAYS, PATIENT_PROFILE, type MealSlot } from '@/data/patient-data';
+import { BACK_ON_TRACK_OFFER, type NudgeAssessment } from '@/data/stall-nudge';
 import {
   streamCoachChat,
   type CoachChatRequestBody,
@@ -414,6 +416,63 @@ function buildGreetingMessage(): CoachMessage {
 }
 
 /**
+ * Fixed id for the coach-initiated stall outreach, seeded by the provider
+ * effect below when the patient context says the trigger is live. Outside
+ * the `coach-${n}` space like the greeting id.
+ */
+export const OUTREACH_MESSAGE_ID = 'coach-outreach';
+
+/** One-tap answers under the outreach offer. Accept goes to the server. */
+export const OUTREACH_ACCEPT = 'Yes, set me up';
+export const OUTREACH_DECLINE = 'Not right now';
+
+/** One-tap answers under the decline follow-up; send() matches exactly. */
+export const NUDGE_KEEP_WATCH = 'Keep them coming';
+export const NUDGE_PAUSE = 'Pause these nudges';
+
+/**
+ * Reply to the Not-right-now chip. Ends "?" deliberately: like the label
+ * confirm bubble it carries its own quick replies (the two labels above),
+ * so the fallback yes/no pair never appears under it.
+ */
+export const NUDGE_DECLINE_ASK =
+  "That's fine, we can pick this up whenever you're ready. Want me to keep checking in like this when your numbers drift, or pause these check-ins for now?";
+
+/** Reply to the Keep-them-coming chip. Never ends "?". */
+export const NUDGE_KEEP_ACK =
+  "Good. I'll keep watching quietly and only reach out when it matters. The plan is here whenever you want it.";
+
+/** Reply to the Pause chip. Never ends "?". */
+export const NUDGE_PAUSE_ACK =
+  "Done, these check-ins are paused. You can turn them back on any time from your Daily Check-In screen. Everything else about the program stays exactly the same.";
+
+/**
+ * The coach-initiated outreach: the patient's own numbers, invitation
+ * framing, then the fixed offer the server's back-on-track branch keys on.
+ * A fixed client-side string like the greeting — the model never writes it —
+ * so the trend wording is always accurate to the seeded records. The one
+ * proactive bubble that ends "?": it carries its own quick replies, and the
+ * chat screen lets it offer them despite having no replyToId.
+ */
+function buildOutreachMessage(assessment: NudgeAssessment): CoachMessage {
+  const firstName = PATIENT_PROFILE.name.split(' ')[0] || 'there';
+  const lost =
+    Math.round((PATIENT_PROFILE.startingWeight - PATIENT_PROFILE.currentWeight) * 10) / 10;
+  const level = Math.round(PATIENT_PROFILE.currentWeight);
+  const offPlan = assessment.adherence.offPlan;
+  return {
+    id: OUTREACH_MESSAGE_ID,
+    role: 'assistant',
+    status: 'done',
+    text:
+      `${firstName}, I was looking at your numbers today and wanted to reach out myself.\n\n` +
+      `You've put in real work. ${lost} pounds down since you started, and that stands. The last three weeks the scale has been holding right around ${level}, and the diary shows off-plan items sneaking in, ${offPlan} of them in the last two weeks. That's not failure, that's a pattern, and patterns can be changed.\n\n` +
+      BACK_ON_TRACK_OFFER,
+    quickReplies: [OUTREACH_ACCEPT, OUTREACH_DECLINE],
+  };
+}
+
+/**
  * Serializes a thread message for the chat request. Stopped replies stay in
  * the history (the patient saw their text) but carry the flag through, so the
  * server marks them as interrupted instead of letting the model continue a
@@ -442,6 +501,16 @@ export function CoachChatProvider({
   now?: () => Date;
 }) {
   const clock = now ?? systemNow;
+  // Stall-nudge wiring: the patient context owns the trigger math and the
+  // persisted guardrails (opt-out, engagement, cooldown); this provider only
+  // seeds the outreach bubble and reports engagement back.
+  const {
+    nudgeAssessment,
+    shouldSeedNudgeOutreach,
+    recordNudgeSent,
+    markNudgeEngaged,
+    setNudgeOptOut,
+  } = usePatient();
   // Lazy initializer: the greeting is built once per provider mount — i.e.
   // once per app session, matching the session-only history design.
   const [messages, setMessages] = useState<CoachMessage[]>(() => [buildGreetingMessage()]);
@@ -483,6 +552,27 @@ export function CoachChatProvider({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // Coach-initiated outreach. When the patient context says the stall
+  // trigger is live (active signals, no opt-out, no engagement for this
+  // episode, cooldown respected), the coach opens the conversation — but
+  // only while the session's thread is still just the greeting, so it never
+  // interrupts an exchange already underway. Seeded as a normal done
+  // message: it rides the request history like the greeting, so the model
+  // knows exactly what the coach already said. recordNudgeSent anchors the
+  // cooldown window on first seed.
+  const outreachSeededRef = useRef(false);
+  useEffect(() => {
+    if (outreachSeededRef.current || !shouldSeedNudgeOutreach) return;
+    if (inFlightRef.current) return;
+    if (!messagesRef.current.every(m => m.id === GREETING_MESSAGE_ID)) return;
+    outreachSeededRef.current = true;
+    const outreach = buildOutreachMessage(nudgeAssessment);
+    setMessages(prev =>
+      prev.every(m => m.id === GREETING_MESSAGE_ID) ? [...prev, outreach] : prev,
+    );
+    void recordNudgeSent();
+  }, [shouldSeedNudgeOutreach, nudgeAssessment, recordNudgeSent]);
 
   // A provider unmount mid-reveal must not leave a timer mutating state.
   useEffect(() => {
@@ -799,6 +889,54 @@ export function CoachChatProvider({
         return;
       }
 
+      // Any reply while the outreach is in the thread counts as engagement:
+      // the proactive conversation stops re-opening once the patient has
+      // answered in any form (fire-and-forget; the guard is idempotent).
+      if (messagesRef.current.some(m => m.id === OUTREACH_MESSAGE_ID)) {
+        void markNudgeEngaged();
+      }
+
+      // The outreach's decline chip and its follow-up resolve client-side,
+      // like the label flow: fixed coach strings, no model call. Anything
+      // typed instead of the exact chip labels falls through to the coach.
+      const latestMessage = messagesRef.current[messagesRef.current.length - 1];
+      if (latestMessage?.id === OUTREACH_MESSAGE_ID && text === OUTREACH_DECLINE) {
+        const userMessage: CoachMessage = { id: nextId(), role: 'user', text, status: 'done' };
+        setMessages(prev => [
+          ...prev,
+          userMessage,
+          {
+            id: nextId(),
+            role: 'assistant',
+            text: NUDGE_DECLINE_ASK,
+            status: 'done',
+            replyToId: userMessage.id,
+            quickReplies: [NUDGE_KEEP_WATCH, NUDGE_PAUSE],
+          },
+        ]);
+        return;
+      }
+      if (
+        latestMessage?.role === 'assistant' &&
+        latestMessage.text === NUDGE_DECLINE_ASK &&
+        (text === NUDGE_KEEP_WATCH || text === NUDGE_PAUSE)
+      ) {
+        if (text === NUDGE_PAUSE) void setNudgeOptOut(true);
+        const userMessage: CoachMessage = { id: nextId(), role: 'user', text, status: 'done' };
+        setMessages(prev => [
+          ...prev,
+          userMessage,
+          {
+            id: nextId(),
+            role: 'assistant',
+            text: text === NUDGE_PAUSE ? NUDGE_PAUSE_ACK : NUDGE_KEEP_ACK,
+            status: 'done',
+            replyToId: userMessage.id,
+          },
+        ]);
+        return;
+      }
+
       // A typed fix right under a meal-card reply re-runs the SAME held
       // photo with the patient's words as ground truth — no retake. Both
       // gates must agree: the adjacency (a finished meal-card reply whose
@@ -906,7 +1044,7 @@ export function CoachChatProvider({
         controller,
       );
     },
-    [streamInto, clock, resolveLabelFlowText],
+    [streamInto, clock, resolveLabelFlowText, markNudgeEngaged, setNudgeOptOut],
   );
 
   const sendPhoto = useCallback(
@@ -916,6 +1054,10 @@ export function CoachChatProvider({
       options?: SendPhotoOptions,
     ) => {
       if (!photo.uri || inFlightRef.current) return;
+      // A photo reply counts as engagement exactly like a text reply.
+      if (messagesRef.current.some(m => m.id === OUTREACH_MESSAGE_ID)) {
+        void markNudgeEngaged();
+      }
       inFlightRef.current = true;
       // A fresh photo abandons any pending label conversation: the held
       // draft belongs to the previous photo, not this one.
@@ -1008,7 +1150,7 @@ export function CoachChatProvider({
         userMessage.id,
       );
     },
-    [streamInto, clock, updateLabelFlow],
+    [streamInto, clock, updateLabelFlow, markNudgeEngaged],
   );
 
   const retry = useCallback(

@@ -15,6 +15,7 @@ import {
 import { MOCK_PRODUCTS, type ActivityItem } from "@/data/mock-data";
 import { useScopedPatients, useScopedProviders, useScopedSubscriptions } from "@/data/scoped-data";
 import { TODAY_KEY } from "@/data/nutrition-data";
+import { ADHERENCE_WINDOW_DAYS, NUDGE_COOLDOWN_DAYS, getNudgeAssessment } from "@/data/stall-nudge";
 import { WeightTrend } from "@/components/patient/WeightTrend";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
 import {
@@ -102,6 +103,11 @@ export default function PatientDetail() {
   if (!patient) {
     return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center"><h2 className="mb-4 font-serif text-xl font-bold text-navy">Patient Not Found</h2><Link href="/patients" className={LINK_ACTION}>Return to roster</Link></div>;
   }
+
+  // Companion-app coach outreach (stalled weight + repeated off-plan
+  // logging). Computed from the same seeded record the app uses, so the
+  // roster chip, this card, and the patient's own chat all agree.
+  const nudge = getNudgeAssessment(patient);
 
   const currentWeight = sortedWeights.at(-1)?.weight ?? patient.currentWeight;
   const weightLoss = patient.startingWeight - currentWeight;
@@ -208,6 +214,34 @@ export default function PatientDetail() {
         </div>
 
         <aside className="space-y-5">
+          {nudge.active && nudge.crossedOnKey && (
+            <SectionCard title="Coach outreach" sub="Triggers automatically in the companion app — informational, no approval step.">
+              <div className="p-5">
+                <p className="text-xs leading-5 text-foreground">
+                  {patient.name.split(" ")[0]}'s signals crossed the program's outreach threshold on <b className="text-navy">{formatDate(`${nudge.crossedOnKey}T12:00:00.000Z`, true)}</b>. From there the app coach opens a back-on-track conversation: their own trend, an invitation to reset, and a plan drawn from the approved list. A personal follow-up from the care team lands well right now.
+                </p>
+                <dl className="mt-4 space-y-3 border-t border-border pt-3 text-xs">
+                  <div>
+                    <dt className={MICRO_LABEL}>Weight signal</dt>
+                    <dd className="mt-1 leading-5 text-muted-foreground">
+                      Weigh-ins over the past three weeks are holding near {currentWeight.toFixed(1)} lbs
+                      {nudge.stall.dropLb !== null && <> (net {nudge.stall.dropLb >= 0 ? "down" : "up"} {Math.abs(nudge.stall.dropLb).toFixed(1)} lbs)</>}, inside the program's stall threshold.
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className={MICRO_LABEL}>Diary signal</dt>
+                    <dd className="mt-1 leading-5 text-muted-foreground">
+                      {nudge.adherence.offPlan} of {nudge.adherence.classified} recognized diary items in the last {ADHERENCE_WINDOW_DAYS} days were off the approved list
+                      {nudge.adherence.offPlanShare !== null && <> ({Math.round(nudge.adherence.offPlanShare * 100)}%)</>}.
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-3 border-t border-border pt-3 text-[10px] leading-4 text-muted-foreground">
+                  The app sends at most one of these per patient every {NUDGE_COOLDOWN_DAYS} days, stops as soon as the patient engages, and patients can turn the nudges off — delivery, engagement, and opt-out live in the patient's app.
+                </p>
+              </div>
+            </SectionCard>
+          )}
           <SectionCard title="Care plan">
             <div className="p-5">
               <div className="space-y-4 text-xs"><div><p className="font-serif text-sm font-bold text-navy">{patient.carePlan.name}</p><p className="mt-1 leading-5 text-muted-foreground">{patient.carePlan.focus}</p></div><dl className="space-y-3 border-t border-border pt-3"><div><dt className={MICRO_LABEL}>Plan status</dt><dd className="mt-1 font-semibold text-foreground">{patient.carePlan.protocolStatus}</dd></div><div><dt className={MICRO_LABEL}>Care cadence</dt><dd className="mt-1 text-muted-foreground">{patient.carePlan.cadence}</dd></div><div><dt className={MICRO_LABEL}>Upcoming action</dt><dd className="mt-1 text-muted-foreground">{patient.carePlan.nextMilestone}</dd></div></dl></div>

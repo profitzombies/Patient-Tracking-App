@@ -309,12 +309,19 @@ function mealsForDay(dateKey: string, offset: number, salt: number, params: Arch
 
 function weightOnProgramDay(patient: Patient, salt: number, elapsed: number, enrollmentDays: number): number {
   const start = patient.startingWeight;
-  const current = patient.currentWeight;
-  const progress = Math.min(1, Math.max(0, elapsed / enrollmentDays));
-  const taper = Math.pow(progress, patient.status === 'graduated' ? 0.78 : 0.91);
   const variation = elapsed === 0 || elapsed >= enrollmentDays
     ? 0
     : (seededFraction(salt + elapsed * 41 + 7) - 0.5) * 1.1;
+  // Inside a seeded plateau (see Patient.stall in mock-data) the reading
+  // bounces tightly around the frozen current weight instead of tapering.
+  if (patient.stall && elapsed >= patient.stall.plateauStartElapsed) {
+    return parseFloat((patient.currentWeight + variation).toFixed(1));
+  }
+  // Pre-plateau days (and every day for non-stalled patients) follow the
+  // original taper toward the weight the protocol was projecting.
+  const current = patient.stall ? patient.stall.preStallTargetWeight : patient.currentWeight;
+  const progress = Math.min(1, Math.max(0, elapsed / enrollmentDays));
+  const taper = Math.pow(progress, patient.status === 'graduated' ? 0.78 : 0.91);
   const weight = start - (start - current) * taper + variation;
   return parseFloat(Math.max(current - 0.4, weight).toFixed(1));
 }

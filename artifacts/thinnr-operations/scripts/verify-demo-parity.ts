@@ -20,6 +20,12 @@ import {
   getNutritionProfile,
   summarizeMeals,
 } from '../src/data/nutrition-data';
+import { classifyMealName, getNudgeAssessment } from '../src/data/stall-nudge';
+// The mobile app's own seed + classifier, imported directly (tsx compiles
+// across the package boundary) so the parity below compares the REAL
+// deciders, not copies of them.
+import { buildSeedEntries as buildMobileSeedEntries } from '../../thinnr-mobile/data/patient-data';
+import { classifyEntry as classifyMobileEntry } from '../../thinnr-mobile/data/stall-nudge';
 
 let failures = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -113,6 +119,50 @@ for (const product of catalog.products) {
     staff ? { name: staff.name, price: staff.price } : '(missing)',
   );
 }
+
+// ─── Stall-nudge trigger parity (staff roster vs companion app) ─────────────
+// The ops app flags nudged patients from its own seeded records; the mobile
+// app decides the actual outreach from ITS seeded records. Both must agree,
+// or a provider would see a nudge the patient never got (or vice versa).
+check(
+  'nudged patient set (staff view)',
+  MOCK_PATIENTS.filter((p) => getNudgeAssessment(p).active).map((p) => p.id),
+  ['pat_100', 'pat_108'],
+);
+
+const emmaNudge = getNudgeAssessment(emma);
+check('pat_100 nudge crossing day', emmaNudge.crossedOnKey, '2026-08-13');
+check(
+  'pat_100 adherence counts (loggedDays/classified/offPlan)',
+  [emmaNudge.adherence.loggedDays, emmaNudge.adherence.classified, emmaNudge.adherence.offPlan],
+  [14, 55, 30],
+);
+check(
+  'pat_100 weigh-in window (count/span)',
+  [emmaNudge.stall.weighIns, emmaNudge.stall.spanDays],
+  [10, 18],
+);
+check(
+  'pat_100 drop inside stall threshold',
+  emmaNudge.stall.dropLb !== null && Math.abs(emmaNudge.stall.dropLb) <= 0.5,
+  true,
+);
+
+// Every diary item the mobile app seeds must classify identically on the web
+// side, which keys by display name instead of id. A drifting verdict map
+// would let the two apps disagree about what counts as off-plan.
+const mobileSeedEntries = buildMobileSeedEntries();
+const mobileVsWeb = mobileSeedEntries.map((entry) => ({
+  name: entry.name,
+  mobile: classifyMobileEntry(entry),
+  web: classifyMealName(entry.name),
+}));
+const verdictMismatches = mobileVsWeb.filter((row) => row.mobile !== row.web);
+check(
+  'mobile and web classify every seeded diary item identically',
+  verdictMismatches.slice(0, 5),
+  [],
+);
 
 if (failures > 0) {
   console.error(`\n${failures} parity check(s) failed.`);

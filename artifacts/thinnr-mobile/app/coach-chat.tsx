@@ -65,6 +65,7 @@ import { AppModal } from "@/components/ui/AppModal";
 import { useColors } from "@/hooks/useColors";
 import {
   offersMealPhotoRetake,
+  OUTREACH_MESSAGE_ID,
   useCoachChat,
   type CoachMessage,
 } from "@/context/CoachChatContext";
@@ -97,7 +98,10 @@ const FALLBACK_QUICK_REPLIES = ["Yes, please", "No thanks"];
  * a chip sends it as the patient's message, which appends to the thread and
  * therefore hides the chips automatically. Only actual replies qualify
  * (`replyToId` set): the seeded greeting invites conversation through the
- * starter prompts instead, so it never grows chips.
+ * starter prompts instead, so it never grows chips. The one exception is
+ * the coach-initiated stall outreach — it replies to nothing but ends on
+ * its offer question and carries its own answer labels, so it qualifies by
+ * id.
  */
 function offersQuickReplies(
   latest: CoachMessage | undefined,
@@ -108,7 +112,7 @@ function offersQuickReplies(
     latest !== undefined &&
     latest.role === "assistant" &&
     latest.status === "done" &&
-    latest.replyToId !== undefined &&
+    (latest.replyToId !== undefined || latest.id === OUTREACH_MESSAGE_ID) &&
     latest.text.trimEnd().endsWith("?")
   );
 }

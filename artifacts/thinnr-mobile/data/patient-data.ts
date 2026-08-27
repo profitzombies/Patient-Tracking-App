@@ -930,12 +930,20 @@ export function buildSeedWater(): Record<string, number> {
 /** Emma's weight on a given program day, matching the staff-side taper curve. */
 function weightOnProgramDay(elapsed: number): number {
   const start = PATIENT_PROFILE.startingWeight;
-  const current = PATIENT_PROFILE.currentWeight;
-  const progress = Math.min(1, Math.max(0, elapsed / ENROLLMENT_DAYS));
-  const taper = Math.pow(progress, 0.78);
+  const stall = PATIENT_PROFILE.stall;
   const variation = elapsed === 0 || elapsed >= ENROLLMENT_DAYS
     ? 0
     : (seededFraction(elapsed * 41 + 7) - 0.5) * 1.1;
+  // Inside the seeded plateau (see Patient.stall in mock-data) the reading
+  // bounces tightly around the frozen current weight instead of tapering.
+  if (stall && elapsed >= stall.plateauStartElapsed) {
+    return parseFloat((PATIENT_PROFILE.currentWeight + variation).toFixed(1));
+  }
+  // Pre-plateau days (and every day for non-stalled patients) follow the
+  // original taper toward the weight the protocol was projecting.
+  const current = stall ? stall.preStallTargetWeight : PATIENT_PROFILE.currentWeight;
+  const progress = Math.min(1, Math.max(0, elapsed / ENROLLMENT_DAYS));
+  const taper = Math.pow(progress, 0.78);
   const weight = start - (start - current) * taper + variation;
   return parseFloat(Math.max(current - 0.4, weight).toFixed(1));
 }

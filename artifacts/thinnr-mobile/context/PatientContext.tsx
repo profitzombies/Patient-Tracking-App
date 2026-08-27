@@ -46,6 +46,7 @@ import {
   PATIENT_PROFILE,
   SEED_PHOTOS,
   toDateKey,
+  TODAY_KEY,
   type CheckIn,
   type DailyTargets,
   type FoodItem,
@@ -54,6 +55,12 @@ import {
   type ProgressPhoto,
   type SavedRecipe,
 } from '@/data/patient-data';
+import {
+  assessNudge,
+  classifyEntries,
+  shouldSeedOutreach,
+  type NudgeAssessment,
+} from '@/data/stall-nudge';
 
 const STORAGE_KEY = 'thinnr_patient_state_v1';
 
@@ -97,6 +104,14 @@ interface PersistedState {
   savedRecipes: SavedRecipe[];
   recents: string[];
   targetOverrides: Partial<DailyTargets>;
+  /** Patient paused coach stall nudges (re-enabled from the check-in). */
+  nudgeOptOut: boolean;
+  /** Patient replied after the current episode's outreach appeared. */
+  nudgeEngaged: boolean;
+  /** Date key the last outreach seeded on — anchors the cooldown window. */
+  nudgeLastSentKey: string | null;
+  /** crossedOnKey of the episode that outreach belonged to. */
+  nudgeLastCrossingKey: string | null;
 }
 
 const EMPTY_STATE: PersistedState = {
@@ -110,6 +125,10 @@ const EMPTY_STATE: PersistedState = {
   savedRecipes: [],
   recents: [],
   targetOverrides: {},
+  nudgeOptOut: false,
+  nudgeEngaged: false,
+  nudgeLastSentKey: null,
+  nudgeLastCrossingKey: null,
 };
 
 let idSeq = 0;
@@ -164,6 +183,24 @@ interface PatientContextValue {
   setTargets: (partial: Partial<DailyTargets>) => Promise<void>;
   restoreEntry: (entry: MealLogEntry) => Promise<void>;
   restoreEntries: (entries: MealLogEntry[]) => Promise<void>;
+  /** Stall-nudge trigger, read from the merged diary + weigh-in series. */
+  nudgeAssessment: NudgeAssessment;
+  /** Patient paused coach stall nudges (re-enabled from the check-in). */
+  nudgeOptOut: boolean;
+  /** Patient replied after the current episode's outreach appeared. */
+  nudgeEngaged: boolean;
+  /**
+   * True when the coach should open the outreach conversation this session:
+   * trigger active, not opted out, not engaged for this episode, and outside
+   * the cooldown window unless it is the same episode re-showing to a
+   * patient who has not answered yet.
+   */
+  shouldSeedNudgeOutreach: boolean;
+  /** Any patient reply to the outreach: stops proactive re-opens. */
+  markNudgeEngaged: () => Promise<void>;
+  setNudgeOptOut: (optOut: boolean) => Promise<void>;
+  /** Stamps the outreach as sent for the current episode (cooldown anchor). */
+  recordNudgeSent: () => Promise<void>;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -561,6 +598,31 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [commit, runSerialized]);
 
+  // ─── Stall-nudge state ─────────────────────────────────────────────────────
+  // (The assessment memo and recordNudgeSent live under Merged projections —
+  // recordNudgeSent reads the computed crossing day.)
+
+  // Any patient reply to the outreach — programmatic, so no haptics, and
+  // idempotent so a burst of sends commits once.
+  const markNudgeEngaged = useCallback(async (): Promise<void> => {
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      if (prev.nudgeEngaged) return;
+      await commit({ ...prev, nudgeEngaged: true });
+    });
+  }, [commit, runSerialized]);
+
+  const setNudgeOptOut = useCallback(async (optOut: boolean): Promise<void> => {
+    await Haptics.selectionAsync();
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      if (prev.nudgeOptOut === optOut) return;
+      await commit({ ...prev, nudgeOptOut: optOut });
+    });
+  }, [commit, runSerialized]);
+
   // ─── Merged projections ────────────────────────────────────────────────────
 
   const targets = useMemo<DailyTargets>(
@@ -606,6 +668,55 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       .map(([dateKey, weight]) => ({ dateKey, weight }))
       .sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1));
   }, [checkIns]);
+
+  // Stall-nudge trigger: classified diary entries plus the weigh-in series,
+  // assessed as of the demo anchor day. Recomputes as the patient logs, so
+  // every surface (chat seeding, check-in note) reads one decision.
+  const nudgeAssessment = useMemo<NudgeAssessment>(
+    () => assessNudge(classifyEntries(allEntries), weightSeries, TODAY_KEY),
+    [allEntries, weightSeries],
+  );
+
+  const shouldSeedNudgeOutreach = useMemo<boolean>(() => {
+    if (!hydrated) return false;
+    return shouldSeedOutreach(
+      nudgeAssessment,
+      {
+        optOut: state.nudgeOptOut,
+        engaged: state.nudgeEngaged,
+        lastSentKey: state.nudgeLastSentKey,
+        lastCrossingKey: state.nudgeLastCrossingKey,
+      },
+      TODAY_KEY,
+    );
+  }, [
+    hydrated,
+    nudgeAssessment,
+    state.nudgeOptOut,
+    state.nudgeEngaged,
+    state.nudgeLastCrossingKey,
+    state.nudgeLastSentKey,
+  ]);
+
+  // Below the assessment memo it reads. Fires when the chat seeds the
+  // outreach — programmatic, so no haptics.
+  const recordNudgeSent = useCallback(async (): Promise<void> => {
+    const crossing = nudgeAssessment.crossedOnKey;
+    if (crossing === null) return;
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      // Idempotent per episode: only the first stamp anchors the cooldown.
+      if (prev.nudgeLastCrossingKey === crossing && prev.nudgeLastSentKey !== null) return;
+      await commit({
+        ...prev,
+        nudgeLastSentKey: TODAY_KEY,
+        nudgeLastCrossingKey: crossing,
+        // A fresh episode starts unengaged even if an older one was answered.
+        nudgeEngaged: false,
+      });
+    });
+  }, [commit, runSerialized, nudgeAssessment]);
 
   // Stable ascending sort: equal dateKeys keep concatenation order (seeds
   // first, then user photos in add order), so two photos added the same day
@@ -662,6 +773,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setCustomFoodPhoto,
       setSavedRecipePhoto,
       setTargets,
+      nudgeAssessment,
+      nudgeOptOut: state.nudgeOptOut,
+      nudgeEngaged: state.nudgeEngaged,
+      shouldSeedNudgeOutreach,
+      markNudgeEngaged,
+      setNudgeOptOut,
+      recordNudgeSent,
     }),
     [
       hydrated,
@@ -700,6 +818,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setCustomFoodPhoto,
       setSavedRecipePhoto,
       setTargets,
+      nudgeAssessment,
+      state.nudgeOptOut,
+      state.nudgeEngaged,
+      shouldSeedNudgeOutreach,
+      markNudgeEngaged,
+      setNudgeOptOut,
+      recordNudgeSent,
     ],
   );
 

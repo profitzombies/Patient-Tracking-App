@@ -43,6 +43,7 @@
  */
 import React, { act } from 'react';
 
+import { PatientProvider } from '@/context/PatientContext';
 import { streamCoachChat } from '../lib/coach-api';
 import {
   CoachChatProvider,
@@ -462,10 +463,27 @@ async function main() {
   //       late event genuinely reaches the client callbacks and only the
   //       context's own staleness guards stand between it and the UI) ───────
   abortBehavior = 'leaky';
+  // The stub reports Platform.OS 'web' (so streamCoachChat binds
+  // globalThis.fetch), which sends PatientProvider's persistence through
+  // window.localStorage — give Node a map-backed stand-in. Pre-seed the
+  // stall-nudge opt-out: the seeded demo patient's trigger is ACTIVE by
+  // design, and a seeded outreach bubble would shift every message this
+  // section asserts on (the stall-nudge suite owns outreach behavior).
+  const localStore = new Map<string, string>();
+  (globalThis as Record<string, unknown>).localStorage = {
+    getItem: (key: string) => (localStore.has(key) ? (localStore.get(key) as string) : null),
+    setItem: (key: string, value: string) => void localStore.set(key, String(value)),
+    removeItem: (key: string) => void localStore.delete(key),
+  };
+  localStore.set('thinnr_patient_state_v1', JSON.stringify({ nudgeOptOut: true }));
   let renderer: { unmount(): void } | undefined;
   await act(() => {
     renderer = TestRenderer.create!(
-      React.createElement(CoachChatProvider, null, React.createElement(Probe)),
+      React.createElement(
+        PatientProvider,
+        null,
+        React.createElement(CoachChatProvider, null, React.createElement(Probe)),
+      ),
     );
   });
 

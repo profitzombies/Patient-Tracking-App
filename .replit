@@ -120,6 +120,10 @@ args = "barcode-lookup"
 task = "workflow.run"
 args = "barcode-scan"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "stall-nudge"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -402,6 +406,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:barcode-scan"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "stall-nudge"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:stall-nudge"
 
 [workflows.workflow.metadata]
 isValidation = true

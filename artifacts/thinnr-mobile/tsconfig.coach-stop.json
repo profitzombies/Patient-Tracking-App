@@ -11,7 +11,12 @@
     "paths": {
       "@/*": ["./*"],
       "react-native": ["./scripts/coach-stop-stubs/react-native.ts"],
-      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"]
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      // CoachChatContext reads the stall-nudge gate from PatientContext,
+      // which persists via AsyncStorage and fires haptics — reuse the
+      // meal-photo suite's Node stubs for both.
+      "@react-native-async-storage/async-storage": ["./scripts/meal-photo-stubs/async-storage.ts"],
+      "expo-haptics": ["./scripts/meal-photo-stubs/expo-haptics.ts"]
     }
   }
 }

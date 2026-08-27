@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { Search, Filter, ArrowUpDown, ChevronRight } from "lucide-react";
+import { Search, Filter, ArrowUpDown, ChevronRight, MessageCircleHeart } from "lucide-react";
 import { type Status } from "@/data/mock-data";
 import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
 import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
+import { getNudgeAssessment } from "@/data/stall-nudge";
 import { usePatientSession } from "@/contexts/patient-session";
 
 type SortField = 'name' | 'startDate' | 'status' | 'weightLoss' | 'logging';
@@ -41,6 +42,23 @@ function LoggingSignal({ stats, align = 'left' }: { stats: LoggingStats; align?:
       </div>
       <span className={`mt-1 block text-[10px] ${lapsed ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}>{lastLogLabel(stats)}</span>
     </div>
+  );
+}
+
+/**
+ * Flags patients whose signals crossed the coach-outreach threshold (weight
+ * stalled while the diary kept showing off-list items — the shared trigger
+ * in data/stall-nudge.ts). Deliberately an ELIGIBILITY signal: the outreach
+ * itself sends automatically in the patient's app with no approval step,
+ * and delivery/engagement/opt-out state lives there — this surface never
+ * claims a conversation was sent. The detail page carries the signals.
+ */
+function NudgeChip() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-[#e8b47c] bg-[#fff4e6] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-[#b65c22]">
+      <MessageCircleHeart size={10} aria-hidden="true" />
+      Outreach due
+    </span>
   );
 }
 
@@ -206,7 +224,10 @@ export default function Patients() {
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-accent text-[10px] font-bold text-primary">{patient.initials}</span>
                     <div className="min-w-0">
-                      <b className="block truncate font-serif text-[15px] font-semibold leading-tight text-navy">{patient.name}</b>
+                      <span className="flex items-center gap-2">
+                        <b className="block truncate font-serif text-[15px] font-semibold leading-tight text-navy">{patient.name}</b>
+                        {getNudgeAssessment(patient).active && <NudgeChip />}
+                      </span>
                       <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{provider?.name}</span>
                     </div>
                   </div>
@@ -308,7 +329,10 @@ export default function Patients() {
                           {patient.initials}
                         </span>
                         <div>
-                          <b className="block font-serif text-sm font-semibold leading-tight text-navy">{patient.name}</b>
+                          <span className="flex items-center gap-2">
+                            <b className="block font-serif text-sm font-semibold leading-tight text-navy">{patient.name}</b>
+                            {getNudgeAssessment(patient).active && <NudgeChip />}
+                          </span>
                           <span className="text-[10px] text-muted-foreground">{patient.email}</span>
                         </div>
                       </div>

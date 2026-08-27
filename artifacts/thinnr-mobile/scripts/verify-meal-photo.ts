@@ -134,6 +134,7 @@ import {
   MEAL_VERSION_REPLY_SET,
   firstQuickReplySet,
 } from '../../api-server/src/coach/quick-replies';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PatientProvider, usePatient } from '../context/PatientContext';
 import { parseRecipeCardPayload } from '../lib/ai-recipe';
 import {
@@ -517,13 +518,26 @@ async function main() {
   // so every request body must carry localTime "14:05". Never the real
   // clock — that would make these checks drift by time of day.
   const FIXED_NOW = new Date(2026, 7, 26, 14, 5, 0);
+  // CoachChatProvider reads the stall-nudge gate from PatientProvider, and
+  // the seeded demo patient's trigger is ACTIVE by design — a hydrated
+  // provider pair would seed the coach outreach into the thread and shift
+  // every message these sections assert on. Pre-seed the persisted opt-out
+  // so the tree stays outreach-free (the stall-nudge suite owns outreach).
+  // Both stores: Platform.OS flips between sections, and PatientProvider
+  // persists via localStorage on 'web' and AsyncStorage everywhere else.
+  await AsyncStorage.setItem('thinnr_patient_state_v1', JSON.stringify({ nudgeOptOut: true }));
+  globalThis.localStorage?.setItem('thinnr_patient_state_v1', JSON.stringify({ nudgeOptOut: true }));
   let coachTree!: { unmount(): void };
   await act(async () => {
     coachTree = TestRenderer.create!(
       React.createElement(
-        CoachChatProvider,
-        { now: () => FIXED_NOW },
-        React.createElement(ChatProbe),
+        PatientProvider,
+        null,
+        React.createElement(
+          CoachChatProvider,
+          { now: () => FIXED_NOW },
+          React.createElement(ChatProbe),
+        ),
       ),
     );
     await settle();
@@ -2315,14 +2329,18 @@ async function main() {
     await act(async () => {
       tree = TestRenderer.create!(
         React.createElement(
-          CoachChatProvider,
-          { now: () => FIXED_NOW },
-          React.createElement(ChatProbe),
-          React.createElement(MealPhotoButton, {
-            variant: 'action',
-            testID: 'diary-dinner-photo',
-            mealSlot: 'dinner',
-          }),
+          PatientProvider,
+          null,
+          React.createElement(
+            CoachChatProvider,
+            { now: () => FIXED_NOW },
+            React.createElement(ChatProbe),
+            React.createElement(MealPhotoButton, {
+              variant: 'action',
+              testID: 'diary-dinner-photo',
+              mealSlot: 'dinner',
+            }),
+          ),
         ),
       ) as unknown as Rendered;
       await settle();

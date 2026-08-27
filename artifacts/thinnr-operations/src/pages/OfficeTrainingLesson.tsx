@@ -14,9 +14,10 @@
  */
 import { useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
-import { ArrowLeft, ArrowRight, CheckCircle2, FileText, Lock } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Download, FileText, Lock } from 'lucide-react';
 import { useTrainingData } from '@/contexts/training-data';
 import { useToast } from '@/hooks/use-toast';
+import { fetchAttachmentDownloadUrl, openDownload } from '@/lib/training-media';
 import { completionsFor, formatClock, type OrderedVideo, type TrainingCourse } from '@/data/hq/training';
 import { lessonState, type LessonState, type VideoAvailability } from '@/data/office-training';
 import { chapterIndexAt, SlideFrame, TrainingLoading, TrainingLoadError } from '@/components/admin/training/shared';
@@ -177,6 +178,7 @@ function LessonView({
   const [chapterIndex, setChapterIndex] = useState(0);
   const [playerTime, setPlayerTime] = useState(0);
   const [marking, setMarking] = useState(false);
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
   const playerRef = useRef<HostedVideoPlayerHandle | null>(null);
 
   // Real playback for every visitor — the media read is open in the demo
@@ -212,6 +214,27 @@ function LessonView({
         description: 'That was the last lesson — course complete.',
       });
     }
+  };
+
+  /** Signed URL minted fresh per click (short TTL) — nothing is cached, so
+   * downloads keep working after reloads and in other browsers. */
+  const downloadAttachment = (attachmentId: string) => {
+    if (downloadingAttachmentId) return;
+    setDownloadingAttachmentId(attachmentId);
+    void (async () => {
+      try {
+        const { downloadUrl } = await fetchAttachmentDownloadUrl(video.id, attachmentId);
+        openDownload(downloadUrl);
+      } catch (error) {
+        toast({
+          variant: 'destructive',
+          title: 'Could not prepare the download',
+          description: error instanceof Error ? error.message : 'Try again.',
+        });
+      } finally {
+        setDownloadingAttachmentId(null);
+      }
+    })();
   };
 
   return (
@@ -350,7 +373,7 @@ function LessonView({
           {video.attachments.length > 0 && (
             <SectionCard
               title="Resources"
-              sub="Included with this lesson — file hosting isn't connected in this demo, so these are listed for reference only."
+              sub="Included with this lesson — download a copy to use alongside the video."
             >
               <ul className="divide-y divide-border">
                 {video.attachments.map((attachment) => (
@@ -368,7 +391,25 @@ function LessonView({
                         <p className="text-[11px] text-muted-foreground tabular-nums">{attachment.sizeLabel}</p>
                       </div>
                     </div>
-                    <span className={`${CHIP_WARM} shrink-0`}>No file yet</span>
+                    {attachment.source ? (
+                      <button
+                        type="button"
+                        className={`${BTN_SECONDARY} h-8 shrink-0 px-3 text-[11px] disabled:cursor-not-allowed disabled:opacity-50`}
+                        onClick={() => downloadAttachment(attachment.id)}
+                        disabled={downloadingAttachmentId !== null}
+                        data-testid={`button-download-attachment-${attachment.id}`}
+                      >
+                        <Download size={12} aria-hidden="true" />
+                        {downloadingAttachmentId === attachment.id ? 'Preparing…' : 'Download'}
+                      </button>
+                    ) : (
+                      <span
+                        className={`${CHIP_WARM} shrink-0`}
+                        title="A name-only entry from before attachments were hosted — no stored file."
+                      >
+                        No file yet
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

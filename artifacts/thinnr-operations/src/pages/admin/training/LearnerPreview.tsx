@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'wouter';
-import { Check, Play, Lock, ArrowLeft, Download, LogOut, CheckCircle2, Users, Loader2 } from 'lucide-react';
+import { Check, Play, Lock, ArrowLeft, Download, FileText, LogOut, CheckCircle2, Users, Loader2 } from 'lucide-react';
 import { useTrainingData, type LearnerSession } from '@/contexts/training-data';
 import { getOrderedVideos, courseDuration, completedCount, effectiveUnlock, frontierIndex, isVideoCompleted, formatClock, formatHours, type TrainingVideo, type TrainingCompletion, type OrderedVideo } from '@/data/hq/training';
 import { CourseLiveChip, SlideFrame } from '@/components/admin/training/shared';
-import { INPUT_CLASS, BTN_PRIMARY, BTN_SECONDARY } from '@/components/patient/heritage';
+import { INPUT_CLASS, BTN_PRIMARY, BTN_SECONDARY, CHIP_WARM } from '@/components/patient/heritage';
 import { useToast } from '@/hooks/use-toast';
+import { fetchAttachmentDownloadUrl, openDownload } from '@/lib/training-media';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 /** sessionStorage key for the learner capability token minted by the email gate. */
@@ -43,6 +44,7 @@ export default function LearnerPreview() {
   const [gateBusy, setGateBusy] = useState(false);
   const [staffBusy, setStaffBusy] = useState(false);
   const [completeBusy, setCompleteBusy] = useState(false);
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
 
   useEffect(() => {
     const token = sessionStorage.getItem(GATE_TOKEN_KEY);
@@ -529,24 +531,70 @@ export default function LearnerPreview() {
                           Resources
                         </h3>
                         <div className="space-y-2">
-                          {selectedVideo.attachments.map((att) => (
-                            <button
-                              key={att.id}
-                              onClick={() => toast({ description: "No file to download — attachments are metadata only until file hosting is set up." })}
-                              className="w-full flex items-center justify-between p-3 rounded-md border border-border bg-card hover:bg-secondary/50 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              data-testid={`button-download-${att.id}`}
-                            >
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div className="grid w-8 h-8 place-items-center rounded bg-[#fff4e6] text-[#b65c22] shrink-0 border border-[#e8b47c]">
-                                  <Download size={14} aria-hidden="true" />
+                          {selectedVideo.attachments.map((att) =>
+                            att.source ? (
+                              <button
+                                key={att.id}
+                                onClick={() => {
+                                  if (downloadingAttachmentId) return;
+                                  setDownloadingAttachmentId(att.id);
+                                  void (async () => {
+                                    try {
+                                      const { downloadUrl } = await fetchAttachmentDownloadUrl(selectedVideo.id, att.id);
+                                      openDownload(downloadUrl);
+                                    } catch (error) {
+                                      toast({
+                                        variant: 'destructive',
+                                        title: 'Could not prepare the download',
+                                        description: error instanceof Error ? error.message : 'Try again.',
+                                      });
+                                    } finally {
+                                      setDownloadingAttachmentId(null);
+                                    }
+                                  })();
+                                }}
+                                disabled={downloadingAttachmentId !== null && downloadingAttachmentId !== att.id}
+                                className="w-full flex items-center justify-between p-3 rounded-md border border-border bg-card hover:bg-secondary/50 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                data-testid={`button-download-${att.id}`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="grid w-8 h-8 place-items-center rounded bg-[#fff4e6] text-[#b65c22] shrink-0 border border-[#e8b47c]">
+                                    {downloadingAttachmentId === att.id ? (
+                                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                                    ) : (
+                                      <Download size={14} aria-hidden="true" />
+                                    )}
+                                  </div>
+                                  <span className="text-sm font-semibold text-navy truncate">{att.name}</span>
                                 </div>
-                                <span className="text-sm font-semibold text-navy truncate">{att.name}</span>
+                                <span className="text-xs text-muted-foreground tabular-nums shrink-0 ml-4">
+                                  {downloadingAttachmentId === att.id ? 'Preparing…' : att.sizeLabel}
+                                </span>
+                              </button>
+                            ) : (
+                              // Legacy name-only entry: no stored file, so no
+                              // download affordance — an honest chip instead,
+                              // matching the office lesson page and editor.
+                              <div
+                                key={att.id}
+                                className="w-full flex items-center justify-between p-3 rounded-md border border-border bg-card"
+                                data-testid={`row-attachment-${att.id}`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="grid w-8 h-8 place-items-center rounded bg-muted text-muted-foreground shrink-0 border border-border">
+                                    <FileText size={14} aria-hidden="true" />
+                                  </div>
+                                  <span className="text-sm font-semibold text-navy truncate">{att.name}</span>
+                                </div>
+                                <span
+                                  className={`${CHIP_WARM} shrink-0 ml-4`}
+                                  title="A name-only entry from before attachments were hosted — no stored file."
+                                >
+                                  No file yet
+                                </span>
                               </div>
-                              <span className="text-xs text-muted-foreground tabular-nums shrink-0 ml-4">
-                                {att.sizeLabel}
-                              </span>
-                            </button>
-                          ))}
+                            ),
+                          )}
                         </div>
                       </div>
                     )}

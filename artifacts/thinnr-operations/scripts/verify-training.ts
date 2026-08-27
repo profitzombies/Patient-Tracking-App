@@ -31,6 +31,7 @@ import {
   completedCount,
   completionsFor,
   effectiveUnlock,
+  formatSizeLabel,
   frontierIndex,
   getCourseAnalytics,
   getMostWatched,
@@ -61,6 +62,7 @@ import {
   type TrainingVideoRow,
   type TrainingViewerRow,
 } from '../src/data/hq/training';
+import { purgeVideosMedia } from '../src/lib/training-purge';
 import {
   lessonState,
   officeCourseStats,
@@ -247,6 +249,56 @@ console.log('1. Row → course assembly is deterministic and defensive');
     JSON.stringify(dirty.chapters),
   );
   check('jsonb sanitized: attachments + numbers clamped', dirty.attachments.length === 0 && dirty.duration === 0 && dirty.thumbnailChapter === 0);
+
+  // Attachment entries: hosted uploads carry their storage facts through the
+  // sanitizer verbatim; legacy name-only rows stay harmless; junk fields fall
+  // back to safe defaults instead of leaking into the UI.
+  const attRow = mapVideoRow(
+    videoRow({
+      id: 'va',
+      module_id: 'm1',
+      position: 10,
+      attachments: [
+        {
+          id: 'hosted',
+          name: 'Guide.pdf',
+          sizeLabel: '421 KB',
+          source: '/objects/training-attachments/va/file-1',
+          contentType: 'application/pdf',
+          sizeBytes: 431104,
+        },
+        { id: 'derived', name: 'Sheet.pdf', source: '/objects/training-attachments/va/file-2', contentType: 'application/pdf', sizeBytes: 431104 },
+        { id: 'legacy', name: 'Old worksheet', sizeLabel: '1.2 MB' },
+        { id: 'junk', name: 42, sizeLabel: null, source: 7, contentType: false, sizeBytes: 'big' },
+      ] as unknown,
+    }),
+  );
+  const [hostedAtt, derivedAtt, legacyAtt, junkAtt] = attRow.attachments;
+  check(
+    'attachments: hosted entries keep storage facts verbatim',
+    attRow.attachments.length === 4 &&
+      hostedAtt!.source === '/objects/training-attachments/va/file-1' &&
+      hostedAtt!.contentType === 'application/pdf' &&
+      hostedAtt!.sizeBytes === 431104 &&
+      hostedAtt!.sizeLabel === '421 KB',
+    JSON.stringify(hostedAtt),
+  );
+  check('attachments: a missing label derives from true bytes', derivedAtt!.sizeLabel === '421 KB', derivedAtt!.sizeLabel);
+  check(
+    'attachments: legacy name-only entries stay harmless',
+    legacyAtt!.name === 'Old worksheet' && legacyAtt!.sizeLabel === '1.2 MB' && legacyAtt!.source === null && legacyAtt!.sizeBytes === null,
+    JSON.stringify(legacyAtt),
+  );
+  check(
+    'attachments: junk fields fall back to safe defaults',
+    junkAtt!.name === 'Attachment' && junkAtt!.sizeLabel === '—' && junkAtt!.source === null && junkAtt!.contentType === null && junkAtt!.sizeBytes === null,
+    JSON.stringify(junkAtt),
+  );
+  check(
+    'formatSizeLabel bands: bytes, whole KB, one-decimal MB',
+    formatSizeLabel(512) === '512 B' && formatSizeLabel(431104) === '421 KB' && formatSizeLabel(26214400) === '25.0 MB',
+    `${formatSizeLabel(512)} / ${formatSizeLabel(431104)} / ${formatSizeLabel(26214400)}`,
+  );
 }
 
 console.log('2. Placements invert assembly; transforms keep positions contiguous');
@@ -784,6 +836,84 @@ console.log('14. Retention survival curve is pure, clamped, and timezone-free');
   const untouched = getVideoRetention({ id: 'rv', duration: 100 }, []);
   check('no watchers → honest empty curve', untouched.viewers === 0 && untouched.points.length === 0);
   check('zero runtime → no curve', getVideoRetention({ id: 'rv', duration: 0 }, rows).points.length === 0);
+}
+
+console.log('15. Deleting content purges hosted media object-first — refusals keep the rows');
+{
+  const hostedVideo = mapVideoRow(
+    videoRow({
+      id: 'pv1',
+      module_id: 'm1',
+      position: 0,
+      video_source: '/objects/training-videos/pv1/file.mp4',
+      attachments: [
+        {
+          id: 'pa1',
+          name: 'Guide.pdf',
+          sizeLabel: '421 KB',
+          source: '/objects/training-attachments/pv1/a.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 431104,
+        },
+        { id: 'pa2', name: 'Old sheet' },
+      ],
+    }),
+  );
+  const legacyOnly = mapVideoRow(
+    videoRow({ id: 'pv2', module_id: 'm1', position: 1, attachments: [{ id: 'pa3', name: 'Name only' }] }),
+  );
+  const bare = mapVideoRow(videoRow({ id: 'pv3', module_id: 'm1', position: 2 }));
+
+  // Every row-delete entry point (video quick-remove, module cascade, editor
+  // danger zone) funnels through purgeVideosMedia before touching rows.
+  const calls: string[] = [];
+  await purgeVideosMedia([hostedVideo, legacyOnly, bare], {
+    clearAttachments: async (videoId) => {
+      calls.push(`attachments:${videoId}`);
+    },
+    removeHostedFile: async (videoId) => {
+      calls.push(`file:${videoId}`);
+    },
+  });
+  check(
+    'only hosted media triggers storage calls — legacy name-only entries never do',
+    calls.join(' ') === 'attachments:pv1 file:pv1',
+  );
+
+  // A refused storage delete must abort the whole deletion: the caller's row
+  // delete runs only after a clean purge, so the kept row stays the retry
+  // handle and no object is ever stranded without a reference.
+  let rowDeleteReached = false;
+  const beforeRefusal: string[] = [];
+  try {
+    await purgeVideosMedia([hostedVideo, legacyOnly], {
+      clearAttachments: async (videoId) => {
+        beforeRefusal.push(`attachments:${videoId}`);
+      },
+      removeHostedFile: async () => {
+        throw new Error('storage refused the delete');
+      },
+    });
+    rowDeleteReached = true;
+  } catch {
+    // The deletion flow stops here — rows survive.
+  }
+  check('a refused storage delete aborts before any row delete', !rowDeleteReached && beforeRefusal.length === 1);
+
+  const laterFiles: string[] = [];
+  try {
+    await purgeVideosMedia([hostedVideo, legacyOnly, bare], {
+      clearAttachments: async () => {
+        throw new Error('storage refused the delete');
+      },
+      removeHostedFile: async (videoId) => {
+        laterFiles.push(videoId);
+      },
+    });
+  } catch {
+    // First refusal stops the sweep.
+  }
+  check('the first refusal stops the sweep — later files stay referenced by their rows', laterFiles.length === 0);
 }
 
 if (failures > 0) {

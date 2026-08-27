@@ -8,17 +8,10 @@ Rule: The project's CI-style checks (demo-parity, approved-foods, and similar) a
 
 **How to apply:** Add a new automatic check with `setValidationCommand` (short lowercase name; one check per command so a failure names the culprit) and verify it with `startValidationRun`. Always check `result.success` on workflow/validation callbacks — they can fail without throwing. Convention for mobile pure-logic checks: `scripts/verify-<topic>.ts` + a `test:<topic>` package script + a `<topic>` validation command, all with matching names (e.g. diary-undo, diary-edit, photo-backfill, photo-remove, recipe-nutrition).
 
-Don't try `configureWorkflow` first for these checks: the workspace workflow cap (10) already blocks new plain workflows here ("Workflow limit exceeded (12/10)"), while `setValidationCommand` is exempt from the cap and still surfaces the check in the workflow list.
+Don't try `configureWorkflow` first for these checks: plain workflows are capped per workspace, while `setValidationCommand` is exempt from the cap and still surfaces the check in the workflow list.
 
-## Completion-time parallel burst flakes
+## Completion-gate flakes are load, not regressions
 
-markTaskComplete runs EVERY registered validation command concurrently (a 22-suite battery finishes in ~50s wall). On a busy container (e2e tester browser open, Metro bundling) the burst starves itself: tsx suites die spawning esbuild (EAGAIN), others are killed with no output at all (exit 134), and live suites see the co-hosted api-server answer 502 with cut streams — i.e. failures in suites the task's diff never imports.
+The completion gate runs every registered validation command concurrently in one shared container, so the burst can starve itself. **Signature:** EAGAIN spawning esbuild, silent exit-134 kills with zero output, or 502s in live suites whose domain the diff never touched, while hermetic siblings stay green. **How to apply:** re-run just the failed suites serially on a quiet machine (tester idle, workflows settled) and trust the serial result. If the gate stalls past its poll budget repeatedly, re-run failures serially, confirm the rest passed in the stalled run's logs, then complete with skip_validation_reason citing that per-command green evidence. A code_review PASS inside a stalled run still counts.
 
-**Why:** one container shares CPU/PID/memory across all suites plus the dev servers; live suites also route real model calls through that same starved server.
-
-**How to apply:** treat that signature (EAGAIN / silent 134 / 502s in unrelated suites while hermetic siblings stay green) as load flake, not regression: re-run just the failed suites serially on a quiet machine (tester idle, workflows settled), confirm green, then call markTaskComplete again. Don't chase the failing suites' feature domains.
-
-## Poll-budget stalls
-With ~25+ registered commands the parallel completion gate can exceed its 1800-poll budget repeatedly (live-model suites stretch the tail; EAGAIN/exit-134 spawn flakes under load). When two runs in a row stall: re-run every failed/hung command serially, confirm the rest PASSED in the stalled runs (logs under .local/state/workflow-logs/<runId>/), then complete with skip_validation_reason citing per-command green evidence — the stall error message itself sanctions that path. A code_review PASS inside a stalled run still counts.
-
-**Live-suite prerequisite:** knowledge-live and ai-support-live hit the dev api-server via localhost:80 — after any merge the api-server workflow is STOPPED (merges never restart workflows), so they fail REAL (unreachable / all-502) until you start artifacts/api-server. Start it before the gate. Under the parallel gate these two live suites are also the most load-fragile: they can 134-abort with ZERO output (process killed at startup) while passing serially — distinguish by whether the log contains any suite output at all.
+**Live-suite prerequisite:** the live suites hit the dev api-server through the local proxy, and merges never restart workflows — start the api-server workflow before the gate or they fail real (unreachable/502). They are also the most load-fragile under the parallel burst: a 134-abort with zero suite output is a startup kill, not a test failure.

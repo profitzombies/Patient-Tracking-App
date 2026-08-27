@@ -219,6 +219,26 @@ export class ObjectStorageService {
   }
 
   /**
+   * Same contract for lesson attachments (worksheets, PDFs, docs, images):
+   * a presigned PUT bound to the video's attachment prefix
+   * (`/objects/training-attachments/<videoId>/…`) — a folder of its own, so
+   * attachment files never mix into the hosted-video folder.
+   */
+  async trainingAttachmentUploadURL(videoId: string): Promise<{ uploadUrl: string; objectPath: string }> {
+    const objectId = `file-${randomUUID()}`;
+    const objectPath = `/objects/training-attachments/${videoId}/${objectId}`;
+    const fullPath = `${getTrainingObjectDir()}/training-attachments/${videoId}/${objectId}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const uploadUrl = await signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: UPLOAD_URL_TTL_SEC,
+    });
+    return { uploadUrl, objectPath };
+  }
+
+  /**
    * Same contract for AI Support knowledge documents: a presigned PUT bound
    * to the document's prefix (`/objects/knowledge-docs/<documentId>/…`), so
    * finalize can verify the uploaded object belongs to that document.
@@ -264,10 +284,20 @@ export class ObjectStorageService {
   /** Best-effort delete for replaced files; missing objects are not errors. */
   async deleteObject(objectPath: string): Promise<void> {
     try {
-      await this.fileFor(objectPath).delete({ ignoreNotFound: true });
+      await this.deleteObjectStrict(objectPath);
     } catch {
       // Orphaned objects cost pennies; never fail a request over cleanup.
     }
+  }
+
+  /**
+   * Strict delete for lifecycle paths that must never orphan silently: a
+   * missing object still counts as deleted (so retries stay idempotent),
+   * but a real storage failure throws — the caller keeps its DB reference
+   * to the object and the whole operation can simply be retried.
+   */
+  async deleteObjectStrict(objectPath: string): Promise<void> {
+    await this.fileFor(objectPath).delete({ ignoreNotFound: true });
   }
 
   private fileFor(objectPath: string): File {

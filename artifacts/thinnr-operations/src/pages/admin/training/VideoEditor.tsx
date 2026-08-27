@@ -45,7 +45,7 @@ import {
   formatHours,
   getVideoEngagement,
   getVideoRetention,
-  hashId,
+  type TrainingAttachment,
   type TrainingChapter,
   type TrainingVideo,
   type VideoRetention
@@ -53,18 +53,27 @@ import {
 import { useTrainingData, type VideoPatch } from '@/contexts/training-data';
 import {
   captureThumbnail,
+  describeAttachmentProblem,
   describeFileProblem,
   describeThumbnailFileProblem,
+  fetchAttachmentDownloadUrl,
   fetchTranscript,
+  finalizeAttachment,
   finalizeThumbnailUpload,
   finalizeUpload,
+  openDownload,
   processVideo,
+  removeAllAttachments,
+  removeAttachment,
   removeVideoFile,
+  requestAttachmentUploadUrl,
   requestUploadUrl,
   requestThumbnailUploadUrl,
+  resolveAttachmentType,
   resolveVideoType,
   resolveThumbnailType,
   uploadToStorage,
+  ATTACHMENT_ACCEPT,
   PROCESS_STEPS,
   type ProcessEvent,
   type ProcessStep,
@@ -176,7 +185,13 @@ export default function VideoEditor() {
   const [draftVideoId, setDraftVideoId] = useState<string | null>(null);
   const [thumbnailDialogOpen, setThumbnailDialogOpen] = useState(false);
   const [thumbnailScrub, setThumbnailScrub] = useState(0);
-  const [newAttachmentName, setNewAttachmentName] = useState('');
+
+  // --- File attachments: real uploads, server-written entries ---
+  const [attachmentPhase, setAttachmentPhase] = useState<'idle' | 'uploading' | 'finalizing'>('idle');
+  const [attachmentPct, setAttachmentPct] = useState(0);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [removingAttachmentId, setRemovingAttachmentId] = useState<string | null>(null);
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
 
   // --- Hosted file: upload, AI pass, transcript, thumbnail capture ---
   const [uploadPhase, setUploadPhase] = useState<'idle' | 'uploading' | 'verifying'>('idle');
@@ -202,6 +217,7 @@ export default function VideoEditor() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const thumbnailFileInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const thumbVideoRef = useRef<HTMLVideoElement | null>(null);
   /** Which video the mounted editor is showing — a still-running upload or AI
    * stream from a previous video must not touch the current one's UI. */
@@ -264,7 +280,6 @@ export default function VideoEditor() {
         addStaff: locationResult.video.addStaff,
         chapters: locationResult.video.chapters,
         thumbnailChapter: locationResult.video.thumbnailChapter,
-        attachments: locationResult.video.attachments,
       });
       setDraftVideoId(locationResult.video.id);
       setScrub(0);
@@ -293,6 +308,11 @@ export default function VideoEditor() {
       setThumbnailUploadPct(0);
       setThumbnailUploadError(null);
       setRemovingFile(false);
+      setAttachmentPhase('idle');
+      setAttachmentPct(0);
+      setAttachmentError(null);
+      setRemovingAttachmentId(null);
+      setDownloadingAttachmentId(null);
     }
   }, [locationResult, draft, draftVideoId]);
 
@@ -329,6 +349,9 @@ export default function VideoEditor() {
 
   const { video, course, module, subgroup } = locationResult;
   const hosted = Boolean(video.videoSource);
+  const hasHostedAttachments = video.attachments.some((att) => att.source !== null);
+  /** Honest danger-zone wording: legacy entries are names, uploads are files. */
+  const attachmentNoun = hasHostedAttachments ? 'attachment files' : 'attachment names';
   const durationSecs = draft.duration ?? video.duration;
   const isDirty = JSON.stringify(draft) !== JSON.stringify({
     title: video.title,
@@ -339,7 +362,6 @@ export default function VideoEditor() {
     addStaff: video.addStaff,
     chapters: video.chapters,
     thumbnailChapter: video.thumbnailChapter,
-    attachments: video.attachments,
   });
 
   const handleSave = () => {
@@ -360,7 +382,6 @@ export default function VideoEditor() {
       addStaff: video.addStaff,
       chapters: video.chapters,
       thumbnailChapter: video.thumbnailChapter,
-      attachments: video.attachments,
     });
     setPlaying(false);
     setScrub(0);
@@ -757,41 +778,114 @@ export default function VideoEditor() {
   
   const handleRemoveVideo = () => {
     const warning = hosted
-      ? 'Deletes this video entry — its hosted file, transcript, chapters, attachment names and all viewer progress. This cannot be undone.'
-      : 'Deletes this video entry — its chapters, attachment names and all viewer progress. This cannot be undone.';
+      ? `Deletes this video entry — its hosted file, transcript, chapters, ${attachmentNoun} and all viewer progress. This cannot be undone.`
+      : `Deletes this video entry — its chapters, ${attachmentNoun} and all viewer progress. This cannot be undone.`;
     if (!window.confirm(warning)) return;
     void (async () => {
-      if (hosted) {
-        // Take the file, transcript and thumbnail out of storage first so
-        // deleting the row can't orphan them. If that fails, stop — the
-        // entry stays, and the user hears why.
-        try {
-          await removeVideoFile(video.id);
-        } catch (error) {
-          toast({
-            variant: 'destructive',
-            title: 'Could not remove the hosted file',
-            description: `${error instanceof Error ? error.message : 'Try again.'} The video entry was not deleted.`,
-          });
-          return;
-        }
-      }
+      // removeVideo purges the hosted file and attachment files from storage
+      // BEFORE deleting the row (shared with the course editor's quick-remove
+      // and module deletion). Failures toast inside the context and resolve
+      // false with the entry intact.
       if (await removeVideo(course.id, video.id)) {
         toast({ variant: 'success', title: 'Video deleted', description: 'The lesson and its viewer progress are gone.' });
         setLocation(`/admin/training/courses/${course.id}`);
       }
     })();
   };
-  
-  const addAttachment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAttachmentName.trim()) return;
-    const sizeKb = (hashId(newAttachmentName) % 800) + 50;
-    const sizeLabel = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
-    const current = draft.attachments ?? [];
-    const newAtt = { id: nextId('att', current), name: newAttachmentName.trim(), sizeLabel };
-    setDraftField('attachments', [...current, newAtt]);
-    setNewAttachmentName('');
+
+  /** Real file upload: presigned PUT into the attachments folder, then a
+   * server-verified finalize that writes the entry onto the row itself. */
+  const beginAttachmentUpload = (file: File) => {
+    if (attachmentPhase !== 'idle') return;
+    const problem = describeAttachmentProblem(file);
+    if (problem) {
+      setAttachmentError(problem);
+      toast({ variant: 'destructive', title: "Can't attach that file", description: problem });
+      return;
+    }
+    const contentType = resolveAttachmentType(file);
+    if (!contentType) return;
+    const runVideoId = video.id;
+    setAttachmentError(null);
+    setAttachmentPct(0);
+    setAttachmentPhase('uploading');
+    void (async () => {
+      try {
+        const upload = await requestAttachmentUploadUrl(runVideoId, file, contentType);
+        await uploadToStorage(upload.uploadUrl, file, contentType, (pct) => {
+          if (currentVideoIdRef.current === runVideoId) setAttachmentPct(pct);
+        });
+        if (currentVideoIdRef.current === runVideoId) setAttachmentPhase('finalizing');
+        await finalizeAttachment(runVideoId, upload.objectPath, file.name, contentType);
+        refresh();
+        if (currentVideoIdRef.current === runVideoId) {
+          setAttachmentPhase('idle');
+          setAttachmentPct(0);
+          toast({
+            variant: 'success',
+            title: 'Attachment uploaded',
+            description: `${file.name} is ready to download from the lesson page.`,
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Attachment upload failed — try again.';
+        toast({ variant: 'destructive', title: 'Attachment upload failed', description: message });
+        if (currentVideoIdRef.current === runVideoId) {
+          setAttachmentPhase('idle');
+          setAttachmentPct(0);
+          setAttachmentError(message);
+        }
+      }
+    })();
+  };
+
+  /** Signed URL minted fresh per click — nothing cached, so it works after
+   * reloads and in other browsers too. */
+  const handleAttachmentDownload = (attachmentId: string) => {
+    if (downloadingAttachmentId) return;
+    const runVideoId = video.id;
+    setDownloadingAttachmentId(attachmentId);
+    void (async () => {
+      try {
+        const { downloadUrl } = await fetchAttachmentDownloadUrl(runVideoId, attachmentId);
+        openDownload(downloadUrl);
+      } catch (error) {
+        toast({
+          variant: 'destructive',
+          title: 'Could not prepare the download',
+          description: error instanceof Error ? error.message : 'Try again.',
+        });
+      } finally {
+        if (currentVideoIdRef.current === runVideoId) setDownloadingAttachmentId(null);
+      }
+    })();
+  };
+
+  const handleRemoveAttachment = (att: TrainingAttachment) => {
+    if (removingAttachmentId) return;
+    const warning = att.source
+      ? `Removes "${att.name}" from this lesson and deletes its file from storage. This cannot be undone.`
+      : `Removes the name-only entry "${att.name}" from this lesson. This cannot be undone.`;
+    if (!window.confirm(warning)) return;
+    const runVideoId = video.id;
+    setRemovingAttachmentId(att.id);
+    void (async () => {
+      try {
+        await removeAttachment(runVideoId, att.id);
+        refresh();
+        if (currentVideoIdRef.current === runVideoId) {
+          toast({ variant: 'success', title: 'Attachment removed' });
+        }
+      } catch (error) {
+        toast({
+          variant: 'destructive',
+          title: 'Could not remove the attachment',
+          description: error instanceof Error ? error.message : 'Try again.',
+        });
+      } finally {
+        if (currentVideoIdRef.current === runVideoId) setRemovingAttachmentId(null);
+      }
+    })();
   };
 
   return (
@@ -1459,58 +1553,108 @@ export default function VideoEditor() {
              </div>
           </SectionCard>
 
-          {/* File Attachments Card */}
+          {/* File Attachments Card — real hosted files, server-written rows.
+              Entries render from `video.attachments` (server truth), never the
+              draft: uploads and removals land immediately, not on Save. */}
           <SectionCard 
             title="File attachments"
-            sub="Name-only metadata — the files themselves aren't hosted yet."
+            sub="Worksheets and resources staff download from the lesson page."
           >
             <div className="divide-y divide-border">
-              {(draft.attachments ?? []).length === 0 && (
+              {video.attachments.length === 0 && (
                 <div className="p-4 text-center text-xs text-muted-foreground">
-                  No attachments yet. Add worksheets, PDFs, or other resources.
+                  No attachments yet. Upload worksheets, PDFs, or other resources.
                 </div>
               )}
-              {(draft.attachments ?? []).map((att) => (
-                <div key={att.id} className="flex items-center gap-3 p-3 bg-card group">
+              {video.attachments.map((att) => (
+                <div key={att.id} className="flex items-center gap-3 p-3 bg-card" data-testid={`row-attachment-${att.id}`}>
                   <Paperclip size={14} className="text-muted-foreground shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-foreground truncate">{att.name}</p>
                     <p className="text-[10px] text-muted-foreground">{att.sizeLabel}</p>
                   </div>
-                  <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-1">
+                     {att.source ? (
+                       <button
+                         type="button"
+                         className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:underline px-2 disabled:cursor-not-allowed disabled:opacity-50"
+                         onClick={() => handleAttachmentDownload(att.id)}
+                         disabled={downloadingAttachmentId !== null}
+                         data-testid={`button-download-attachment-${att.id}`}
+                       >
+                         {downloadingAttachmentId === att.id ? 'Preparing…' : 'Download'}
+                       </button>
+                     ) : (
+                       <span className={`${CHIP_WARM} shrink-0`} title="A name-only entry from before attachments were hosted — no stored file.">
+                         No file
+                       </span>
+                     )}
                      <button 
                        type="button" 
-                       className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:underline px-2"
-                       onClick={() => toast({ title: 'No file to download', description: 'Attachments are name-only metadata — only the lesson video itself is hosted.' })}
+                       className="text-muted-foreground hover:text-destructive p-1 disabled:cursor-not-allowed disabled:opacity-50"
+                       onClick={() => handleRemoveAttachment(att)}
+                       disabled={removingAttachmentId !== null}
+                       aria-label={`Remove ${att.name}`}
+                       data-testid={`button-remove-attachment-${att.id}`}
                      >
-                       Download
-                     </button>
-                     <button 
-                       type="button" 
-                       className="text-muted-foreground hover:text-destructive p-1"
-                       onClick={() => {
-                         const current = draft.attachments ?? [];
-                         setDraftField('attachments', current.filter(a => a.id !== att.id));
-                       }}
-                     >
-                       <X size={14} />
+                       <X size={14} aria-hidden="true" />
                      </button>
                   </div>
                 </div>
               ))}
               <div className="p-3 bg-secondary/30">
-                <form onSubmit={addAttachment} className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Add file name..."
-                    className={`${INPUT_CLASS} flex-1 h-8`}
-                    value={newAttachmentName}
-                    onChange={(e) => setNewAttachmentName(e.target.value)}
-                  />
-                  <button type="submit" className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`}>
-                    Add
-                  </button>
-                </form>
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  accept={ATTACHMENT_ACCEPT}
+                  className="hidden"
+                  aria-label="Upload a lesson attachment"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) beginAttachmentUpload(file);
+                    event.target.value = '';
+                  }}
+                  data-testid="input-attachment-file"
+                />
+                <button
+                  type="button"
+                  className={`${BTN_SECONDARY} h-8 px-3 text-[11px] disabled:cursor-not-allowed disabled:opacity-50`}
+                  onClick={() => attachmentInputRef.current?.click()}
+                  disabled={attachmentPhase !== 'idle'}
+                  data-testid="button-upload-attachment"
+                >
+                  {attachmentPhase === 'idle' ? (
+                    <Upload size={12} aria-hidden="true" />
+                  ) : (
+                    <RefreshCw size={12} className="animate-spin" aria-hidden="true" />
+                  )}
+                  {attachmentPhase === 'uploading'
+                    ? `Uploading… ${attachmentPct}%`
+                    : attachmentPhase === 'finalizing'
+                      ? 'Checking file…'
+                      : 'Upload a file'}
+                </button>
+                {attachmentPhase === 'uploading' && (
+                  <div
+                    className="mt-2 h-1.5 w-full max-w-48 overflow-hidden rounded-full bg-border"
+                    role="progressbar"
+                    aria-label="Attachment upload progress"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={attachmentPct}
+                    data-testid="progress-attachment-upload"
+                  >
+                    <div className="h-full bg-primary transition-[width]" style={{ width: `${attachmentPct}%` }} />
+                  </div>
+                )}
+                {attachmentError && attachmentPhase === 'idle' && (
+                  <p className="mt-2 text-[11px] font-medium text-destructive" role="alert" data-testid="text-attachment-error">
+                    {attachmentError}
+                  </p>
+                )}
+                <p className="mt-2 text-[10px] text-muted-foreground">
+                  PDF, Word, Excel, PowerPoint, text, CSV, or image — up to 25 MB each.
+                </p>
               </div>
             </div>
           </SectionCard>
@@ -1601,8 +1745,8 @@ export default function VideoEditor() {
         )}
         <p className="text-xs text-muted-foreground mb-4 leading-relaxed max-w-[68ch]">
           {hosted
-            ? 'Deletes this video entry — its hosted file, transcript, chapters, attachment names and all viewer progress. This cannot be undone.'
-            : 'Deletes this video entry — its chapters, attachment names and all viewer progress. There is no hosted file to remove. This cannot be undone.'}
+            ? `Deletes this video entry — its hosted file, transcript, chapters, ${attachmentNoun} and all viewer progress. This cannot be undone.`
+            : `Deletes this video entry — its chapters, ${attachmentNoun} and all viewer progress. There is no hosted file to remove. This cannot be undone.`}
         </p>
         <button
           type="button"

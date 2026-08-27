@@ -427,6 +427,170 @@ paths:
           description: File is empty or exceeds the 10 MB limit
         "422":
           description: Uploaded bytes are not a valid JPG, PNG, or WebP
+  /training/videos/{videoId}/attachment-upload-url:
+    post:
+      operationId: trainingAttachmentUploadUrl
+      tags: [training]
+      summary: Mint a presigned upload URL for a lesson attachment file
+      description: >-
+        HQ admins only. Returns a short-lived presigned PUT URL for a
+        worksheet, document, spreadsheet, presentation, text, or image
+        attachment, plus the canonical object path to send back to the
+        attachment finalize call. Attachment objects live under a dedicated
+        training-attachments prefix — never mixed into the hosted-video
+        folder. Nothing is written to the video row until finalize verifies
+        the uploaded bytes.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingAttachmentUploadUrlInput"
+      responses:
+        "200":
+          description: Presigned PUT URL and the object path it creates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingUploadUrlResult"
+        "400":
+          description: Invalid request body
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such training video
+        "409":
+          description: The lesson already has the maximum number of attachments
+        "413":
+          description: File exceeds the 25 MB limit
+        "415":
+          description: Not an accepted attachment type (PDF, Word, Excel, PowerPoint, text, CSV, or image)
+  /training/videos/{videoId}/attachments:
+    post:
+      operationId: trainingAttachmentFinalize
+      tags: [training]
+      summary: Attach an uploaded file to the lesson after verifying it
+      description: >-
+        HQ admins only. Verifies the uploaded object exists under this
+        video's attachments prefix, re-checks the size cap and allow-listed
+        content type against the stored bytes (a failed check deletes the
+        stray object), stamps a download disposition so the file always
+        saves under its real name, then appends the attachment entry — name,
+        content type, true byte size, object path — to the video row's
+        attachment list. Stores only object paths; download URLs are minted
+        per request.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainingAttachmentFinalizeInput"
+      responses:
+        "200":
+          description: The attachment is now stored on the lesson row
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingAttachmentFinalizeResult"
+        "400":
+          description: Invalid body or object path outside this video's attachments prefix
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: Video row or uploaded object not found
+        "409":
+          description: Attachment limit reached, or the lesson changed while attaching
+        "413":
+          description: Stored file is empty or exceeds the 25 MB limit
+        "415":
+          description: Declared content type is not accepted
+        "422":
+          description: Stored bytes don't match the declared content type
+    delete:
+      operationId: trainingAttachmentsClear
+      tags: [training]
+      summary: Remove every attachment and its stored file
+      description: >-
+        HQ admins only. Deletes each hosted attachment object and empties
+        the lesson's attachment list in one pass — the video-deletion flow
+        calls this first so removing the row never orphans stored files.
+        Legacy name-only entries are cleared with no storage work.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+      responses:
+        "200":
+          description: All attachments removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingAttachmentsClearResult"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such training video
+        "409":
+          description: The lesson changed while clearing attachments
+  /training/videos/{videoId}/attachments/{attachmentId}:
+    delete:
+      operationId: trainingAttachmentRemove
+      tags: [training]
+      summary: Remove one attachment (and its stored file)
+      description: >-
+        HQ admins only. Drops the entry from the video row's attachment
+        list, then deletes the hosted object when the entry has one. Legacy
+        name-only entries are removed without any storage work.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+        - $ref: "#/components/parameters/TrainingAttachmentId"
+      responses:
+        "200":
+          description: Attachment removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingAttachmentRemoveResult"
+        "401":
+          description: Missing or invalid staff session
+        "403":
+          description: Caller is not an HQ admin
+        "404":
+          description: No such training video or attachment
+        "409":
+          description: The lesson changed while removing the attachment
+  /training/videos/{videoId}/attachments/{attachmentId}/download-url:
+    get:
+      operationId: trainingAttachmentDownloadUrl
+      tags: [training]
+      summary: Short-lived signed download URL for a lesson attachment
+      description: >-
+        HQ admins, provider staff, and the learner preview. Mints a fresh
+        signed GET URL for the attachment's stored file — links are
+        short-lived, so clients request one per download click instead of
+        persisting URLs; that is what keeps downloads working after reloads
+        and in other browsers. Legacy name-only entries have no file and
+        answer 404.
+      parameters:
+        - $ref: "#/components/parameters/TrainingVideoId"
+        - $ref: "#/components/parameters/TrainingAttachmentId"
+      responses:
+        "200":
+          description: Signed download URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingAttachmentDownloadResult"
+        "404":
+          description: Video, attachment, or hosted file not found
   /training/videos/{videoId}/media:
     get:
       operationId: trainingVideoMedia
@@ -1303,6 +1467,123 @@ components:
           type: boolean
       required:
         - removed
+    TrainingAttachmentUploadUrlInput:
+      type: object
+      properties:
+        fileName:
+          type: string
+          maxLength: 300
+          description: Original file name, for logs and error copy only
+        contentType:
+          type: string
+          maxLength: 100
+          description: >-
+            MIME type the browser will send on the PUT (PDF, Word, Excel,
+            PowerPoint, text, CSV, or common image types)
+        sizeBytes:
+          type: number
+          minimum: 1
+          maximum: 26214400
+          description: File size in bytes; the hard cap is 25 MB
+      required:
+        - fileName
+        - contentType
+        - sizeBytes
+    TrainingAttachmentFinalizeInput:
+      type: object
+      properties:
+        objectPath:
+          type: string
+          maxLength: 500
+          description: The object path returned by attachment-upload-url after the PUT succeeded
+        name:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: Display name for the attachment — normally the original file name
+        contentType:
+          type: string
+          maxLength: 100
+          description: MIME type declared on the upload; re-verified against the stored object
+      required:
+        - objectPath
+        - name
+        - contentType
+    TrainingAttachment:
+      type: object
+      description: >-
+        One lesson attachment as stored on the video row. Entries created by
+        the upload flow carry the storage fields; legacy name-only entries
+        (source null) render as metadata with nothing to download.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sizeLabel:
+          type: string
+          description: >-
+            Human-readable size ("412 KB", "1.4 MB") derived from the true
+            byte count
+        source:
+          type: ["string", "null"]
+          description: >-
+            App Storage object path under the training-attachments prefix;
+            null for legacy name-only entries
+        contentType:
+          type: ["string", "null"]
+        sizeBytes:
+          type: ["number", "null"]
+          description: True size of the stored object in bytes
+      required:
+        - id
+        - name
+        - sizeLabel
+        - source
+        - contentType
+        - sizeBytes
+    TrainingAttachmentFinalizeResult:
+      type: object
+      properties:
+        attachment:
+          $ref: "#/components/schemas/TrainingAttachment"
+      required:
+        - attachment
+    TrainingAttachmentRemoveResult:
+      type: object
+      properties:
+        removed:
+          type: boolean
+      required:
+        - removed
+    TrainingAttachmentsClearResult:
+      type: object
+      properties:
+        removed:
+          type: number
+          description: How many attachment entries were cleared from the row
+        deletedObjects:
+          type: number
+          description: How many stored files were deleted (legacy entries have none)
+      required:
+        - removed
+        - deletedObjects
+    TrainingAttachmentDownloadResult:
+      type: object
+      properties:
+        downloadUrl:
+          type: string
+          description: Signed GET URL, valid for about 5 minutes
+        name:
+          type: string
+          description: Display name; the file saves under this name via its stored disposition
+        expiresAtMs:
+          type: number
+          description: Epoch milliseconds after which the URL stops working
+      required:
+        - downloadUrl
+        - name
+        - expiresAtMs
     TrainingMediaResult:
       type: object
       properties:
@@ -1603,6 +1884,13 @@ components:
       in: path
       required: true
       description: UUID of the training video row
+      schema:
+        type: string
+    TrainingAttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      description: Attachment entry id on the video row
       schema:
         type: string
     KnowledgeDocumentId:

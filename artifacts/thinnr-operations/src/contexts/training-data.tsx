@@ -61,9 +61,18 @@ import {
   type UnlockMode,
   type VideoLocation,
 } from '@/data/hq/training';
+import { getOrderedVideos } from '@/data/hq/training';
+import { removeAllAttachments, removeVideoFile } from '@/lib/training-media';
+import { purgeVideosMedia, type VideoMediaPurgeDeps } from '@/lib/training-purge';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/contexts/session';
 import { toast } from '@/hooks/use-toast';
+
+/** The real storage deletions behind the purge sequencer (training-purge). */
+const hostedMediaPurge: VideoMediaPurgeDeps = {
+  clearAttachments: removeAllAttachments,
+  removeHostedFile: removeVideoFile,
+};
 
 const TRAINING_QUERY_KEY = ['training-data'] as const;
 
@@ -176,7 +185,9 @@ export interface VideoPatch {
   addStaff?: AddStaffMode;
   chapters?: TrainingChapter[];
   thumbnailChapter?: number;
-  attachments?: TrainingVideo['attachments'];
+  // Attachments are deliberately NOT patchable here: entries are written by
+  // the media API's finalize/remove routes (the single writer that also owns
+  // the stored files), so a draft save can never clobber an upload.
 }
 
 export type TrainingStatus = 'loading' | 'error' | 'ready';
@@ -492,7 +503,17 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const removeModule = useCallback<TrainingDataValue['removeModule']>(
     async (courseId, moduleId) => {
       const course = findCourse(courseId);
+      const doomed = course
+        ? getOrderedVideos(course, false)
+            .filter((item) => item.module.id === moduleId)
+            .map((item) => item.video)
+        : [];
       const landed = await authorWrite(async () => {
+        // The row delete below cascades every video row in the module, so
+        // their hosted files and attachments must come out of storage FIRST —
+        // a refused storage delete throws here and keeps all rows as the
+        // retry handle instead of stranding unreferenced objects.
+        await purgeVideosMedia(doomed, hostedMediaPurge);
         const client = requireClient();
         // Cascades sub-groups, videos, and their completion rows.
         assertOk((await client.from('training_modules').delete().eq('id', moduleId)).error);
@@ -608,7 +629,6 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
       if (patch.addStaff !== undefined) row.add_staff = patch.addStaff;
       if (patch.chapters !== undefined) row.chapters = patch.chapters;
       if (patch.thumbnailChapter !== undefined) row.thumbnail_chapter = patch.thumbnailChapter;
-      if (patch.attachments !== undefined) row.attachments = patch.attachments;
       if (Object.keys(row).length === 0) return true;
       const landed = await authorWrite(async () => {
         assertOk((await requireClient().from('training_videos').update(row).eq('id', videoId)).error);
@@ -645,7 +665,17 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const removeVideo = useCallback<TrainingDataValue['removeVideo']>(
     async (courseId, videoId) => {
       const course = findCourse(courseId);
+      const doomed = course
+        ? getOrderedVideos(course, false)
+            .filter((item) => item.video.id === videoId)
+            .map((item) => item.video)
+        : [];
       const landed = await authorWrite(async () => {
+        // Hosted file and attachments come out of storage BEFORE the row —
+        // every delete entry point (editor danger zone, course quick-remove)
+        // rides this one path. A refused storage delete throws, keeping the
+        // row as the retry handle so no object is ever orphaned.
+        await purgeVideosMedia(doomed, hostedMediaPurge);
         const client = requireClient();
         // Cascades the video's completion rows; counts are always re-derived
         // against the current published order, so no reconciliation needed.

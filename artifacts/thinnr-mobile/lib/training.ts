@@ -49,6 +49,11 @@ export interface TrainingAttachment {
   id: string;
   name: string;
   sizeLabel: string;
+  /** App Storage object path when a real file is hosted (null = legacy name-only entry). */
+  source: string | null;
+  contentType: string | null;
+  /** True stored size in bytes; null for legacy entries. */
+  sizeBytes: number | null;
 }
 
 export interface TrainingVideo {
@@ -230,16 +235,44 @@ function sanitizeChapters(value: unknown): TrainingChapter[] {
   return chapters;
 }
 
+/** Human size for a stored byte count — matches the server's label format. */
+export function formatSizeLabel(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  const kb = sizeBytes / 1024;
+  if (kb < 1024) return `${Math.max(1, Math.round(kb))} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
 function sanitizeAttachments(value: unknown): TrainingAttachment[] {
   if (!Array.isArray(value)) return [];
   const attachments: TrainingAttachment[] = [];
   for (const item of value) {
     if (item && typeof item === 'object' && typeof (item as TrainingAttachment).id === 'string') {
-      const attachment = item as { id: string; name?: unknown; sizeLabel?: unknown };
+      const attachment = item as {
+        id: string;
+        name?: unknown;
+        sizeLabel?: unknown;
+        source?: unknown;
+        contentType?: unknown;
+        sizeBytes?: unknown;
+      };
+      const sizeBytes =
+        typeof attachment.sizeBytes === 'number' && Number.isFinite(attachment.sizeBytes) && attachment.sizeBytes > 0
+          ? Math.round(attachment.sizeBytes)
+          : null;
       attachments.push({
         id: attachment.id,
         name: typeof attachment.name === 'string' ? attachment.name : 'Attachment',
-        sizeLabel: typeof attachment.sizeLabel === 'string' ? attachment.sizeLabel : '—',
+        sizeLabel:
+          typeof attachment.sizeLabel === 'string'
+            ? attachment.sizeLabel
+            : sizeBytes !== null
+              ? formatSizeLabel(sizeBytes)
+              : '—',
+        source: typeof attachment.source === 'string' && attachment.source ? attachment.source : null,
+        contentType:
+          typeof attachment.contentType === 'string' && attachment.contentType ? attachment.contentType : null,
+        sizeBytes,
       });
     }
   }

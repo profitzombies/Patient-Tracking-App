@@ -314,8 +314,8 @@ function VideoRow({
           type="button"
           className="ml-2 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={() => {
-            if (window.confirm('Remove this video?')) {
-              void confirmSave(removeVideo(course.id, video.id), 'Video removed', 'Its viewer progress went with it.');
+            if (window.confirm('Remove this video? Its hosted file, attachment files, and viewer progress go with it.')) {
+              void confirmSave(removeVideo(course.id, video.id), 'Video removed', 'Its files and viewer progress went with it.');
             }
           }}
           aria-label="Remove video"
@@ -532,8 +532,8 @@ export default function CourseEditor() {
                   type="button"
                   className="ml-2 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   onClick={() => {
-                    if (window.confirm('Delete this entire module?'))
-                      void confirmSave(removeModule(course.id, module.id), 'Module deleted');
+                    if (window.confirm('Delete this entire module? Every lesson in it goes too — hosted files, attachment files, and viewer progress included.'))
+                      void confirmSave(removeModule(course.id, module.id), 'Module deleted', 'Its lessons, their files, and viewer progress went with it.');
                   }}
                   aria-label="Remove module"
                 >

@@ -24,6 +24,8 @@ export interface TrainingVideoRecord {
   thumbnail_chapter: number;
   video_source: string | null;
   thumbnail_source: string | null;
+  /** Raw jsonb attachment list — the routes sanitize; junk entries ride along untouched. */
+  attachments: unknown;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -74,7 +76,7 @@ export async function getVideoRecord(videoId: string): Promise<TrainingVideoReco
   if (!isVideoId(videoId)) return null;
   const rows = (await rest(
     "GET",
-    `/training_videos?id=eq.${videoId}&select=id,title,duration_seconds,description,chapters,thumbnail_chapter,video_source,thumbnail_source`,
+    `/training_videos?id=eq.${videoId}&select=id,title,duration_seconds,description,chapters,thumbnail_chapter,video_source,thumbnail_source,attachments`,
   )) as TrainingVideoRecord[];
   return rows[0] ?? null;
 }
@@ -143,6 +145,29 @@ export async function updateHostedMediaIfCurrent(
   return Array.isArray(rows) && rows.length === 1;
 }
 
+/**
+ * Atomically replace the attachments list only while it still matches the
+ * state the caller read. jsonb equality is structural, so the expected raw
+ * value round-trips safely through the filter; a mismatch means another
+ * append or removal landed first and the caller re-reads and retries.
+ */
+export async function updateAttachmentsIfCurrent(
+  videoId: string,
+  expectedAttachments: unknown,
+  attachments: unknown[],
+): Promise<boolean> {
+  if (!isVideoId(videoId)) throw new Error("Invalid video id");
+  const filter = expectedAttachments === null || expectedAttachments === undefined
+    ? "attachments=is.null"
+    : `attachments=eq.${encodeURIComponent(JSON.stringify(expectedAttachments))}`;
+  const rows = (await rest(
+    "PATCH",
+    `/training_videos?id=eq.${videoId}&${filter}&select=id`,
+    { attachments },
+  )) as Array<{ id: string }> | null;
+  return Array.isArray(rows) && rows.length === 1;
+}
+
 export async function getTranscript(videoId: string): Promise<TranscriptSegment[] | null> {
   if (!isVideoId(videoId)) return null;
   const rows = (await rest(
@@ -175,4 +200,50 @@ export async function upsertTranscript(videoId: string, segments: TranscriptSegm
 export async function deleteTranscript(videoId: string): Promise<void> {
   if (!isVideoId(videoId)) return;
   await rest("DELETE", `/training_video_transcripts?video_id=eq.${videoId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Storage-cleanup ledger — durable retry handles for refused object deletes.
+//
+// Replace/displace flows must not fail the caller when storage refuses to
+// delete an object the row no longer references (the new file is already
+// live). The refused path lands here instead, and later training-media
+// writes drain the table: a row leaves only after storage confirms.
+// ---------------------------------------------------------------------------
+
+export interface MediaCleanupRow {
+  id: string;
+  object_path: string;
+  video_id: string | null;
+}
+
+export async function queueMediaCleanup(
+  objectPath: string,
+  videoId: string | null,
+  reason: "displaced" | "stray",
+): Promise<void> {
+  // rest() sends Prefer: resolution=merge-duplicates, so re-queuing the same
+  // path is an idempotent upsert on the object_path unique key.
+  await rest("POST", `/training_media_cleanup?on_conflict=object_path`, {
+    object_path: objectPath,
+    video_id: videoId && isVideoId(videoId) ? videoId : null,
+    reason,
+  });
+}
+
+export async function listMediaCleanup(limit: number): Promise<MediaCleanupRow[]> {
+  const rows = (await rest(
+    "GET",
+    `/training_media_cleanup?select=id,object_path,video_id&order=created_at.asc&limit=${Math.max(1, Math.min(50, limit))}`,
+  )) as MediaCleanupRow[] | null;
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function deleteMediaCleanup(id: string): Promise<void> {
+  await rest("DELETE", `/training_media_cleanup?id=eq.${encodeURIComponent(id)}`);
+}
+
+/** Remove a ledger row by object path — used to settle a pre-registration. */
+export async function dequeueMediaCleanup(objectPath: string): Promise<void> {
+  await rest("DELETE", `/training_media_cleanup?object_path=eq.${encodeURIComponent(objectPath)}`);
 }

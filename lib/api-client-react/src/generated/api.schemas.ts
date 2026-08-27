@@ -398,6 +398,90 @@ export interface TrainingRemoveFileResult {
   removed: boolean;
 }
 
+export interface TrainingAttachmentUploadUrlInput {
+  /**
+     * Original file name, for logs and error copy only
+     * @maxLength 300
+     */
+  fileName: string;
+  /**
+     * MIME type the browser will send on the PUT (PDF, Word, Excel, PowerPoint, text, CSV, or common image types)
+     * @maxLength 100
+     */
+  contentType: string;
+  /**
+     * File size in bytes; the hard cap is 25 MB
+     * @minimum 1
+     * @maximum 26214400
+     */
+  sizeBytes: number;
+}
+
+export interface TrainingAttachmentFinalizeInput {
+  /**
+     * The object path returned by attachment-upload-url after the PUT succeeded
+     * @maxLength 500
+     */
+  objectPath: string;
+  /**
+     * Display name for the attachment — normally the original file name
+     * @minLength 1
+     * @maxLength 300
+     */
+  name: string;
+  /**
+     * MIME type declared on the upload; re-verified against the stored object
+     * @maxLength 100
+     */
+  contentType: string;
+}
+
+/**
+ * One lesson attachment as stored on the video row. Entries created by the upload flow carry the storage fields; legacy name-only entries (source null) render as metadata with nothing to download.
+ */
+export interface TrainingAttachment {
+  id: string;
+  name: string;
+  /** Human-readable size ("412 KB", "1.4 MB") derived from the true byte count */
+  sizeLabel: string;
+  /**
+     * App Storage object path under the training-attachments prefix; null for legacy name-only entries
+     * @nullable
+     */
+  source: string | null;
+  /** @nullable */
+  contentType: string | null;
+  /**
+     * True size of the stored object in bytes
+     * @nullable
+     */
+  sizeBytes: number | null;
+}
+
+export interface TrainingAttachmentFinalizeResult {
+  attachment: TrainingAttachment;
+}
+
+export interface TrainingAttachmentRemoveResult {
+  removed: boolean;
+}
+
+export interface TrainingAttachmentsClearResult {
+  /** How many attachment entries were cleared from the row */
+  removed: number;
+  /** How many stored files were deleted (legacy entries have none) */
+  deletedObjects: number;
+}
+
+export interface TrainingAttachmentDownloadResult {
+  /** Signed GET URL, valid for about 5 minutes */
+  downloadUrl: string;
+  /** Display name; the file saves under this name via its stored disposition */
+  name: string;
+  /** Epoch milliseconds after which the URL stops working */
+  expiresAtMs: number;
+}
+
 export interface TrainingMediaResult {
   /** Signed GET URL for the video file; supports range requests */
   videoUrl: string;

@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase';
 
 export const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
 export const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 /** Container types the upload flow accepts, plus extension fallbacks for
  * browsers that report an empty MIME type (common for .mov on Windows). */
@@ -34,6 +35,32 @@ const THUMBNAIL_EXTENSION_TYPES: Record<string, string> = {
   png: 'image/png',
   webp: 'image/webp',
 };
+
+/** Attachment types the server allow-lists, keyed by extension fallback for
+ * browsers that report an empty MIME type (common for Office files). */
+const ATTACHMENT_EXTENSION_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  txt: 'text/plain',
+  csv: 'text/csv',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+const ALLOWED_ATTACHMENT_TYPES = new Set(Object.values(ATTACHMENT_EXTENSION_TYPES));
+
+/** For the file picker's accept attribute — extensions plus exact MIME types. */
+export const ATTACHMENT_ACCEPT = [
+  ...Object.keys(ATTACHMENT_EXTENSION_TYPES).map((ext) => `.${ext}`),
+  ...ALLOWED_ATTACHMENT_TYPES,
+].join(',');
 
 export type ProcessStep = 'transcribe' | 'describe' | 'chapters' | 'thumbnail';
 export const PROCESS_STEPS: readonly ProcessStep[] = ['transcribe', 'describe', 'chapters', 'thumbnail'];
@@ -110,6 +137,21 @@ export function describeThumbnailFileProblem(file: File): string | null {
   }
   if (file.size === 0) return 'That thumbnail is empty.';
   if (file.size > MAX_THUMBNAIL_BYTES) return 'That thumbnail is over the 10 MB limit.';
+  return null;
+}
+
+export function resolveAttachmentType(file: File): string | null {
+  if (ALLOWED_ATTACHMENT_TYPES.has(file.type)) return file.type;
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return ATTACHMENT_EXTENSION_TYPES[ext] ?? null;
+}
+
+export function describeAttachmentProblem(file: File): string | null {
+  if (!resolveAttachmentType(file)) {
+    return 'That file type isn’t supported — upload a PDF, Word, Excel, PowerPoint, text, CSV, or image file.';
+  }
+  if (file.size === 0) return 'That file is empty.';
+  if (file.size > MAX_ATTACHMENT_BYTES) return 'That file is over the 25 MB limit.';
   return null;
 }
 
@@ -244,6 +286,80 @@ export async function finalizeThumbnailUpload(
     method: 'POST',
     body: JSON.stringify({ objectPath, contentType, videoSource }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Lesson attachments — presigned PUT + verified finalize, like the video, in
+// a storage folder of their own. Entries are server-written; the editor never
+// saves attachment rows through the draft path.
+// ---------------------------------------------------------------------------
+
+/** One attachment entry exactly as the server stored it on the row. */
+export interface AttachmentPayload {
+  id: string;
+  name: string;
+  sizeLabel: string;
+  source: string | null;
+  contentType: string | null;
+  sizeBytes: number | null;
+}
+
+export async function requestAttachmentUploadUrl(
+  videoId: string,
+  file: File,
+  contentType: string,
+): Promise<{ uploadUrl: string; objectPath: string }> {
+  return apiFetch(`/training/videos/${videoId}/attachment-upload-url`, {
+    method: 'POST',
+    body: JSON.stringify({ fileName: file.name, contentType, sizeBytes: file.size }),
+  });
+}
+
+export async function finalizeAttachment(
+  videoId: string,
+  objectPath: string,
+  name: string,
+  contentType: string,
+): Promise<{ attachment: AttachmentPayload }> {
+  return apiFetch(`/training/videos/${videoId}/attachments`, {
+    method: 'POST',
+    body: JSON.stringify({ objectPath, name, contentType }),
+  });
+}
+
+export async function removeAttachment(videoId: string, attachmentId: string): Promise<void> {
+  await apiFetch(`/training/videos/${videoId}/attachments/${attachmentId}`, { method: 'DELETE' });
+}
+
+/** Deletes every attachment entry AND its stored file — the video-deletion
+ * flow calls this first so dropping the row never orphans objects. */
+export async function removeAllAttachments(
+  videoId: string,
+): Promise<{ removed: number; deletedObjects: number }> {
+  return apiFetch(`/training/videos/${videoId}/attachments`, { method: 'DELETE' });
+}
+
+/** Minted fresh per click with a short TTL — never persisted client-side,
+ * which is exactly why downloads survive reloads and other browsers. */
+export async function fetchAttachmentDownloadUrl(
+  videoId: string,
+  attachmentId: string,
+): Promise<{ downloadUrl: string; name: string; expiresAtMs: number }> {
+  return apiFetch(`/training/videos/${videoId}/attachments/${attachmentId}/download-url`);
+}
+
+/**
+ * Navigate an invisible anchor at the signed URL. The stored object carries
+ * `Content-Disposition: attachment`, so the browser downloads under the real
+ * file name instead of navigating away.
+ */
+export function openDownload(url: string): void {
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 /**

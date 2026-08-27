@@ -286,6 +286,112 @@ export const TrainingThumbnailUploadResponse = zod.object({
 
 
 /**
+ * HQ admins only. Returns a short-lived presigned PUT URL for a worksheet, document, spreadsheet, presentation, text, or image attachment, plus the canonical object path to send back to the attachment finalize call. Attachment objects live under a dedicated training-attachments prefix — never mixed into the hosted-video folder. Nothing is written to the video row until finalize verifies the uploaded bytes.
+ * @summary Mint a presigned upload URL for a lesson attachment file
+ */
+export const TrainingAttachmentUploadUrlParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const trainingAttachmentUploadUrlBodyFileNameMax = 300;
+
+export const trainingAttachmentUploadUrlBodyContentTypeMax = 100;
+
+export const trainingAttachmentUploadUrlBodySizeBytesMax = 26214400;
+
+
+
+export const TrainingAttachmentUploadUrlBody = zod.object({
+  "fileName": zod.string().max(trainingAttachmentUploadUrlBodyFileNameMax).describe('Original file name, for logs and error copy only'),
+  "contentType": zod.string().max(trainingAttachmentUploadUrlBodyContentTypeMax).describe('MIME type the browser will send on the PUT (PDF, Word, Excel, PowerPoint, text, CSV, or common image types)'),
+  "sizeBytes": zod.number().min(1).max(trainingAttachmentUploadUrlBodySizeBytesMax).describe('File size in bytes; the hard cap is 25 MB')
+})
+
+export const TrainingAttachmentUploadUrlResponse = zod.object({
+  "uploadUrl": zod.string().describe('Presigned PUT URL, valid for ~15 minutes'),
+  "objectPath": zod.string().describe('Canonical object path to send to finalize; never a URL')
+})
+
+
+/**
+ * HQ admins only. Verifies the uploaded object exists under this video's attachments prefix, re-checks the size cap and allow-listed content type against the stored bytes (a failed check deletes the stray object), stamps a download disposition so the file always saves under its real name, then appends the attachment entry — name, content type, true byte size, object path — to the video row's attachment list. Stores only object paths; download URLs are minted per request.
+ * @summary Attach an uploaded file to the lesson after verifying it
+ */
+export const TrainingAttachmentFinalizeParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const trainingAttachmentFinalizeBodyObjectPathMax = 500;
+
+export const trainingAttachmentFinalizeBodyNameMax = 300;
+
+export const trainingAttachmentFinalizeBodyContentTypeMax = 100;
+
+
+
+export const TrainingAttachmentFinalizeBody = zod.object({
+  "objectPath": zod.string().max(trainingAttachmentFinalizeBodyObjectPathMax).describe('The object path returned by attachment-upload-url after the PUT succeeded'),
+  "name": zod.string().min(1).max(trainingAttachmentFinalizeBodyNameMax).describe('Display name for the attachment — normally the original file name'),
+  "contentType": zod.string().max(trainingAttachmentFinalizeBodyContentTypeMax).describe('MIME type declared on the upload; re-verified against the stored object')
+})
+
+export const TrainingAttachmentFinalizeResponse = zod.object({
+  "attachment": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "sizeLabel": zod.string().describe('Human-readable size (\"412 KB\", \"1.4 MB\") derived from the true byte count'),
+  "source": zod.string().nullable().describe('App Storage object path under the training-attachments prefix; null for legacy name-only entries'),
+  "contentType": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable().describe('True size of the stored object in bytes')
+}).describe('One lesson attachment as stored on the video row. Entries created by the upload flow carry the storage fields; legacy name-only entries (source null) render as metadata with nothing to download.')
+})
+
+
+/**
+ * HQ admins only. Deletes each hosted attachment object and empties the lesson's attachment list in one pass — the video-deletion flow calls this first so removing the row never orphans stored files. Legacy name-only entries are cleared with no storage work.
+ * @summary Remove every attachment and its stored file
+ */
+export const TrainingAttachmentsClearParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row')
+})
+
+export const TrainingAttachmentsClearResponse = zod.object({
+  "removed": zod.number().describe('How many attachment entries were cleared from the row'),
+  "deletedObjects": zod.number().describe('How many stored files were deleted (legacy entries have none)')
+})
+
+
+/**
+ * HQ admins only. Drops the entry from the video row's attachment list, then deletes the hosted object when the entry has one. Legacy name-only entries are removed without any storage work.
+ * @summary Remove one attachment (and its stored file)
+ */
+export const TrainingAttachmentRemoveParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row'),
+  "attachmentId": zod.coerce.string().describe('Attachment entry id on the video row')
+})
+
+export const TrainingAttachmentRemoveResponse = zod.object({
+  "removed": zod.boolean()
+})
+
+
+/**
+ * HQ admins, provider staff, and the learner preview. Mints a fresh signed GET URL for the attachment's stored file — links are short-lived, so clients request one per download click instead of persisting URLs; that is what keeps downloads working after reloads and in other browsers. Legacy name-only entries have no file and answer 404.
+ * @summary Short-lived signed download URL for a lesson attachment
+ */
+export const TrainingAttachmentDownloadUrlParams = zod.object({
+  "videoId": zod.coerce.string().describe('UUID of the training video row'),
+  "attachmentId": zod.coerce.string().describe('Attachment entry id on the video row')
+})
+
+export const TrainingAttachmentDownloadUrlResponse = zod.object({
+  "downloadUrl": zod.string().describe('Signed GET URL, valid for about 5 minutes'),
+  "name": zod.string().describe('Display name; the file saves under this name via its stored disposition'),
+  "expiresAtMs": zod.number().describe('Epoch milliseconds after which the URL stops working')
+})
+
+
+/**
  * HQ admins and provider staff. Returns signed GET URLs for the video file (and thumbnail when one exists) so the <video> element's range requests hit storage directly — that is what makes seeking work. URLs expire; clients re-request rather than persist them.
  * @summary Short-lived signed playback URLs for a hosted video
  */

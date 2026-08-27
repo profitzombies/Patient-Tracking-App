@@ -40,6 +40,12 @@ import type {
   KnowledgeUploadUrlInput,
   KnowledgeUploadUrlResult,
   SupportChatInput,
+  TrainingAttachmentDownloadResult,
+  TrainingAttachmentFinalizeInput,
+  TrainingAttachmentFinalizeResult,
+  TrainingAttachmentRemoveResult,
+  TrainingAttachmentUploadUrlInput,
+  TrainingAttachmentsClearResult,
   TrainingFinalizeInput,
   TrainingFinalizeResult,
   TrainingMediaResult,
@@ -883,6 +889,381 @@ export const useTrainingThumbnailUpload = <TError = ErrorType<void>,
       > => {
       return useMutation(getTrainingThumbnailUploadMutationOptions(options));
     }
+
+export const getTrainingAttachmentUploadUrlUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/attachment-upload-url`
+}
+
+/**
+ * HQ admins only. Returns a short-lived presigned PUT URL for a worksheet, document, spreadsheet, presentation, text, or image attachment, plus the canonical object path to send back to the attachment finalize call. Attachment objects live under a dedicated training-attachments prefix — never mixed into the hosted-video folder. Nothing is written to the video row until finalize verifies the uploaded bytes.
+ * @summary Mint a presigned upload URL for a lesson attachment file
+ */
+export const trainingAttachmentUploadUrl = async (videoId: string,
+    trainingAttachmentUploadUrlInput: TrainingAttachmentUploadUrlInput, options?: Parameters<typeof customFetch>[1]): Promise<TrainingUploadUrlResult> => {
+
+  return customFetch<TrainingUploadUrlResult>(getTrainingAttachmentUploadUrlUrl(videoId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trainingAttachmentUploadUrlInput)
+  }
+);}
+
+
+
+
+
+export const getTrainingAttachmentUploadUrlMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingAttachmentUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingAttachmentUploadUrlInput>}, TContext> => {
+
+const mutationKey = ['trainingAttachmentUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>, {videoId: string;data: BodyType<TrainingAttachmentUploadUrlInput>}> = (props) => {
+          const {videoId,data} = props ?? {};
+
+          return  trainingAttachmentUploadUrl(videoId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingAttachmentUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>>
+    export type TrainingAttachmentUploadUrlMutationBody = BodyType<TrainingAttachmentUploadUrlInput>
+    export type TrainingAttachmentUploadUrlMutationError = ErrorType<void>
+
+    /**
+ * @summary Mint a presigned upload URL for a lesson attachment file
+ */
+export const useTrainingAttachmentUploadUrl = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingAttachmentUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>,
+        TError,
+        {videoId: string;data: BodyType<TrainingAttachmentUploadUrlInput>},
+        TContext
+      > => {
+      return useMutation(getTrainingAttachmentUploadUrlMutationOptions(options));
+    }
+
+export const getTrainingAttachmentFinalizeUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/attachments`
+}
+
+/**
+ * HQ admins only. Verifies the uploaded object exists under this video's attachments prefix, re-checks the size cap and allow-listed content type against the stored bytes (a failed check deletes the stray object), stamps a download disposition so the file always saves under its real name, then appends the attachment entry — name, content type, true byte size, object path — to the video row's attachment list. Stores only object paths; download URLs are minted per request.
+ * @summary Attach an uploaded file to the lesson after verifying it
+ */
+export const trainingAttachmentFinalize = async (videoId: string,
+    trainingAttachmentFinalizeInput: TrainingAttachmentFinalizeInput, options?: Parameters<typeof customFetch>[1]): Promise<TrainingAttachmentFinalizeResult> => {
+
+  return customFetch<TrainingAttachmentFinalizeResult>(getTrainingAttachmentFinalizeUrl(videoId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trainingAttachmentFinalizeInput)
+  }
+);}
+
+
+
+
+
+export const getTrainingAttachmentFinalizeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentFinalize>>, TError,{videoId: string;data: BodyType<TrainingAttachmentFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentFinalize>>, TError,{videoId: string;data: BodyType<TrainingAttachmentFinalizeInput>}, TContext> => {
+
+const mutationKey = ['trainingAttachmentFinalize'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingAttachmentFinalize>>, {videoId: string;data: BodyType<TrainingAttachmentFinalizeInput>}> = (props) => {
+          const {videoId,data} = props ?? {};
+
+          return  trainingAttachmentFinalize(videoId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingAttachmentFinalizeMutationResult = NonNullable<Awaited<ReturnType<typeof trainingAttachmentFinalize>>>
+    export type TrainingAttachmentFinalizeMutationBody = BodyType<TrainingAttachmentFinalizeInput>
+    export type TrainingAttachmentFinalizeMutationError = ErrorType<void>
+
+    /**
+ * @summary Attach an uploaded file to the lesson after verifying it
+ */
+export const useTrainingAttachmentFinalize = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentFinalize>>, TError,{videoId: string;data: BodyType<TrainingAttachmentFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingAttachmentFinalize>>,
+        TError,
+        {videoId: string;data: BodyType<TrainingAttachmentFinalizeInput>},
+        TContext
+      > => {
+      return useMutation(getTrainingAttachmentFinalizeMutationOptions(options));
+    }
+
+export const getTrainingAttachmentsClearUrl = (videoId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/attachments`
+}
+
+/**
+ * HQ admins only. Deletes each hosted attachment object and empties the lesson's attachment list in one pass — the video-deletion flow calls this first so removing the row never orphans stored files. Legacy name-only entries are cleared with no storage work.
+ * @summary Remove every attachment and its stored file
+ */
+export const trainingAttachmentsClear = async (videoId: string, options?: Parameters<typeof customFetch>[1]): Promise<TrainingAttachmentsClearResult> => {
+
+  return customFetch<TrainingAttachmentsClearResult>(getTrainingAttachmentsClearUrl(videoId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getTrainingAttachmentsClearMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentsClear>>, TError,{videoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentsClear>>, TError,{videoId: string}, TContext> => {
+
+const mutationKey = ['trainingAttachmentsClear'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingAttachmentsClear>>, {videoId: string}> = (props) => {
+          const {videoId} = props ?? {};
+
+          return  trainingAttachmentsClear(videoId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingAttachmentsClearMutationResult = NonNullable<Awaited<ReturnType<typeof trainingAttachmentsClear>>>
+
+    export type TrainingAttachmentsClearMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove every attachment and its stored file
+ */
+export const useTrainingAttachmentsClear = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentsClear>>, TError,{videoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingAttachmentsClear>>,
+        TError,
+        {videoId: string},
+        TContext
+      > => {
+      return useMutation(getTrainingAttachmentsClearMutationOptions(options));
+    }
+
+export const getTrainingAttachmentRemoveUrl = (videoId: string,
+    attachmentId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/attachments/${attachmentId}`
+}
+
+/**
+ * HQ admins only. Drops the entry from the video row's attachment list, then deletes the hosted object when the entry has one. Legacy name-only entries are removed without any storage work.
+ * @summary Remove one attachment (and its stored file)
+ */
+export const trainingAttachmentRemove = async (videoId: string,
+    attachmentId: string, options?: Parameters<typeof customFetch>[1]): Promise<TrainingAttachmentRemoveResult> => {
+
+  return customFetch<TrainingAttachmentRemoveResult>(getTrainingAttachmentRemoveUrl(videoId,attachmentId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getTrainingAttachmentRemoveMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentRemove>>, TError,{videoId: string;attachmentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentRemove>>, TError,{videoId: string;attachmentId: string}, TContext> => {
+
+const mutationKey = ['trainingAttachmentRemove'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingAttachmentRemove>>, {videoId: string;attachmentId: string}> = (props) => {
+          const {videoId,attachmentId} = props ?? {};
+
+          return  trainingAttachmentRemove(videoId,attachmentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TrainingAttachmentRemoveMutationResult = NonNullable<Awaited<ReturnType<typeof trainingAttachmentRemove>>>
+
+    export type TrainingAttachmentRemoveMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove one attachment (and its stored file)
+ */
+export const useTrainingAttachmentRemove = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentRemove>>, TError,{videoId: string;attachmentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof trainingAttachmentRemove>>,
+        TError,
+        {videoId: string;attachmentId: string},
+        TContext
+      > => {
+      return useMutation(getTrainingAttachmentRemoveMutationOptions(options));
+    }
+
+export const getTrainingAttachmentDownloadUrlUrl = (videoId: string,
+    attachmentId: string,) => {
+
+
+
+
+  return `/api/training/videos/${videoId}/attachments/${attachmentId}/download-url`
+}
+
+/**
+ * HQ admins, provider staff, and the learner preview. Mints a fresh signed GET URL for the attachment's stored file — links are short-lived, so clients request one per download click instead of persisting URLs; that is what keeps downloads working after reloads and in other browsers. Legacy name-only entries have no file and answer 404.
+ * @summary Short-lived signed download URL for a lesson attachment
+ */
+export const trainingAttachmentDownloadUrl = async (videoId: string,
+    attachmentId: string, options?: Parameters<typeof customFetch>[1]): Promise<TrainingAttachmentDownloadResult> => {
+
+  return customFetch<TrainingAttachmentDownloadResult>(getTrainingAttachmentDownloadUrlUrl(videoId,attachmentId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getTrainingAttachmentDownloadUrlQueryKey = (videoId: string,
+    attachmentId: string,) => {
+    return [
+    `/api/training/videos/${videoId}/attachments/${attachmentId}/download-url`
+    ] as const;
+    }
+
+
+export const getTrainingAttachmentDownloadUrlQueryOptions = <TData = Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>, TError = ErrorType<void>>(videoId: string,
+    attachmentId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getTrainingAttachmentDownloadUrlQueryKey(videoId,attachmentId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>> = ({ signal }) => trainingAttachmentDownloadUrl(videoId,attachmentId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: videoId !== null && videoId !== undefined && attachmentId !== null && attachmentId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type TrainingAttachmentDownloadUrlQueryResult = NonNullable<Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>>
+export type TrainingAttachmentDownloadUrlQueryError = ErrorType<void>
+
+
+/**
+ * @summary Short-lived signed download URL for a lesson attachment
+ */
+
+export function useTrainingAttachmentDownloadUrl<TData = Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>, TError = ErrorType<void>>(
+ videoId: string,
+    attachmentId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getTrainingAttachmentDownloadUrlQueryOptions(videoId,attachmentId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getTrainingVideoMediaUrl = (videoId: string,) => {
 

@@ -3,14 +3,20 @@
  * bottom-right launcher that replaced the full-width tab bar.
  *
  * A round navy button floats in the bottom-right corner of every staff
- * screen. Tapping it pops out a Heritage menu card anchored above it: one
- * row per destination (the same six the old tab bar held, same icons), the
- * active screen marked with the small orange tick the tabs used, and a
- * prominent cobalt "AI Support" action beneath a divider — the staff-side
- * AI chat lives outside the six rows the way Slack's primary action does.
+ * screen. Tapping it hides the circle and pops out a Heritage menu card
+ * floating horizontally centered near the bottom at 90% of the app canvas
+ * width — Slack's popup pattern. One row per destination (the same six the
+ * old tab bar held, same icons), the active screen marked with the small
+ * orange tick the tabs used, and a prominent cobalt "AI Support" action
+ * pinned full-width beneath a divider — the staff-side AI chat lives outside
+ * the six rows the way Slack's primary action does. Closing the menu
+ * (backdrop tap, Escape, hardware back, or picking a destination) brings the
+ * circle back.
  *
- * The popout rides AppModal so web keeps iPhone-canvas parity, the backdrop
- * dims the screen, and hardware back / Escape / a backdrop tap all close it.
+ * The popout rides AppModal so web keeps iPhone-canvas parity (the 90%
+ * width sizes against the fixed iPhone canvas, not the browser window), the
+ * backdrop dims the screen, and hardware back / Escape / a backdrop tap all
+ * close it.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -99,6 +105,11 @@ export function ProviderFabMenu() {
             boxShadow: FAB_SHADOW,
           },
           pressed && { opacity: 0.88 },
+          // Slack parity: the circle leaves the screen while the menu is
+          // open. display:none (not unmount) keeps the same node around, so
+          // RNW's modal focus-restore lands back on it after close and the
+          // testID stays queryable in both states.
+          open && styles.fabHidden,
         ]}
       >
         <Feather name="grid" size={21} color={colors.primaryForeground} />
@@ -123,8 +134,7 @@ export function ProviderFabMenu() {
             style={[
               styles.menuCard,
               {
-                right: 18,
-                bottom: fabBottom + 56 + 12,
+                marginBottom: fabBottom,
                 backgroundColor: colors.card,
                 borderColor: colors.border,
                 borderRadius: colors.radius,
@@ -238,16 +248,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  fabHidden: {
+    display: 'none',
+  },
   overlay: {
+    // Slack-style placement: the card sits centered near the bottom of the
+    // canvas; the absolute-fill backdrop ignores the flex alignment.
     flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(23, 32, 46, 0.45)',
   },
   menuCard: {
-    position: 'absolute',
-    width: 260,
+    // 90% of the app canvas — AppModal keeps web percentage widths on the
+    // fixed iPhone canvas, so this matches native exactly.
+    width: '90%',
     borderWidth: 1,
     padding: 10,
     gap: 2,

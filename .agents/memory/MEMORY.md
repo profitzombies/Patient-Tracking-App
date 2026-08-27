@@ -7,7 +7,7 @@
 - [Approved-foods entry points](approved-foods-entry-points.md) — every "Approved list" shortcut routes through one shared constant in the mobile app; retarget there, not per-callsite.
 - [Coach chat grounding](coach-grounding.md) — coach answers come from runtime-sliced verbatim doc compartments (1-3 per turn); structured sources contribute only verbatim fields; extend via card slot, not inlined text.
 - [OpenAPI codegen zod quirk](openapi-codegen-zod.md) — never use type: integer in openapi.yaml (orval emits zod-4 zod.int(), workspace is zod 3); use type: number + server-side clamp.
-- [Validation gate](validation-gate.md) — verify suites are validation commands, not workflows: go straight to setValidationCommand (workflow cap blocks configureWorkflow) and check result.success.
+- [Validation gate](validation-gate.md) — register suites via setValidationCommand (not workflows); completion runs ALL commands in parallel — EAGAIN/134/502 load flakes; re-run failures serially.
 - [Coach card attachments](coach-card-attachments.md) — cards and one-tap reply labels ride separate SSE events: model emits only marker ids, server allow-lists them and builds payloads from curated data.
 - [Coach reply shape](coach-reply-shape.md) — replies are blank-line-separated thought blocks + follow-up closer; phrase optional reply behaviors default-on and verify with real model calls.
 - [Coach voice contract](coach-voice.md) — shared persona/voice constants across pipelines; ban stock openers by name; canned coach strings never end "?"; seeded greeting rides request history.

@@ -1,11 +1,12 @@
 /**
  * Client for the API server's hosted training-video routes.
  *
- * Every call rides the caller's EXISTING Supabase staff session — the access
- * token goes up as a bearer header and the server re-verifies it against
- * Supabase plus the profile role on every request. Demo personas have no
- * session, so these helpers throw before any network call; the UI keeps the
- * simulated experience for them instead of firing doomed requests.
+ * The routes are OPEN in the demo posture — reaching the admin portal is
+ * enough, no staff sign-in (the same opening as the AI Support knowledge
+ * library). When the caller DOES have a Supabase session its bearer is
+ * still attached — signed-in staff send exactly what they always sent; the
+ * server simply ignores it. Writes ride a modest per-IP limiter server-side,
+ * so denials surface here as plain-words 429 errors.
  *
  * Paths are root-relative (`/api/...`): the operations app is the ROOT
  * artifact and the API server is mounted at /api on the same domain, in dev
@@ -112,26 +113,21 @@ export function describeThumbnailFileProblem(file: File): string | null {
   return null;
 }
 
-async function staffToken(): Promise<string> {
-  if (!supabase) {
-    throw new TrainingMediaError('Sign in with a staff account to work with video files.', 401);
-  }
+/** The session's bearer when one exists — the server ignores it either way. */
+async function sessionToken(): Promise<string | null> {
+  if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) {
-    throw new TrainingMediaError('Sign in with a staff account to work with video files.', 401);
-  }
-  return token;
+  return data.session?.access_token ?? null;
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = await staffToken();
+  const token = await sessionToken();
   const response = await fetch(`/api${path}`, {
     ...init,
     headers: {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(init.headers ?? {}),
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
   if (!response.ok) {
@@ -260,12 +256,12 @@ export async function processVideo(
   steps: ProcessStep[] | undefined,
   onEvent: (event: ProcessEvent) => void,
 ): Promise<ProcessOutcome> {
-  const token = await staffToken();
+  const token = await sessionToken();
   const response = await fetch(`/api/training/videos/${videoId}/process`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(steps && steps.length > 0 ? { steps } : {}),
   });

@@ -19,6 +19,12 @@
  *   - accessible names identify the destination (course title, "Open
  *     <name>'s training stats");
  *   - the teammate page is read-only: links only, zero buttons.
+ *
+ * Section 4 renders the REAL admin VideoEditor and pins the media card's
+ * click-or-drop contract: click-to-browse and drop live on the same outer
+ * surface (notice box included, both the no-file and video-on-file states),
+ * the inner panel carries no second handler, and clicks bubbling from the
+ * Browse button or the hidden input are skipped (no double chooser).
  */
 // Namespace import: tsx compiles this script's JSX with the classic
 // React.createElement transform, so React must be in scope.
@@ -29,12 +35,13 @@ import { create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
-import { assembleCourses, buildCompletionIndex } from '../src/data/hq/training';
-import type { TrainingCompletion } from '../src/data/hq/training';
+import { assembleCourses, buildCompletionIndex, findVideoInCourse } from '../src/data/hq/training';
+import type { TrainingCompletion, TrainingCourse } from '../src/data/hq/training';
 import { __setTrainingData } from './a11y-stubs/training-data';
 import { __setSession } from './a11y-stubs/session';
 import OfficeTraining from '../src/pages/OfficeTraining';
 import OfficeTeammate from '../src/pages/OfficeTeammate';
+import VideoEditor from '../src/pages/admin/training/VideoEditor';
 
 // Tell React this process intends to use act() (silences the environment warning).
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -70,17 +77,21 @@ const videoRow = (id: string, moduleId: string, position: number): any => ({
   video_source: null,
 });
 
+const courseRows = [
+  { id: 'axa', slug: 'axa', title: 'Anchor Course Alpha', description: 'First live course.', status: 'live', sequential_unlock: true, created_at: '2026-08-01T00:00:00Z' },
+  { id: 'axb', slug: 'axb', title: 'Anchor Course Beta', description: 'Second live course.', status: 'live', sequential_unlock: false, created_at: '2026-08-02T00:00:00Z' },
+] as any;
+const moduleRows = [
+  { id: 'axam', course_id: 'axa', title: 'A M1', published: 'published', unlock_mode: 'sequential', position: 0 },
+  { id: 'axbm', course_id: 'axb', title: 'B M1', published: 'published', unlock_mode: 'sequential', position: 0 },
+] as any;
+const baseVideoRows = [videoRow('ax1', 'axam', 0), videoRow('ax2', 'axam', 1), videoRow('bx1', 'axbm', 0)];
+
 const courses = assembleCourses({
-  courses: [
-    { id: 'axa', slug: 'axa', title: 'Anchor Course Alpha', description: 'First live course.', status: 'live', sequential_unlock: true, created_at: '2026-08-01T00:00:00Z' },
-    { id: 'axb', slug: 'axb', title: 'Anchor Course Beta', description: 'Second live course.', status: 'live', sequential_unlock: false, created_at: '2026-08-02T00:00:00Z' },
-  ] as any,
-  modules: [
-    { id: 'axam', course_id: 'axa', title: 'A M1', published: 'published', unlock_mode: 'sequential', position: 0 },
-    { id: 'axbm', course_id: 'axb', title: 'B M1', published: 'published', unlock_mode: 'sequential', position: 0 },
-  ] as any,
+  courses: courseRows,
+  modules: moduleRows,
   subgroups: [],
-  videos: [videoRow('ax1', 'axam', 0), videoRow('ax2', 'axam', 1), videoRow('bx1', 'axbm', 0)],
+  videos: baseVideoRows,
 });
 
 const viewer = (id: string, name: string): any => ({
@@ -107,7 +118,29 @@ const row = (viewerId: string, videoId: string, completedAt: string | null): Tra
 });
 const completionIndex = buildCompletionIndex([row('tmv', 'ax1', '2026-08-05T00:00:00Z'), row('selfv', 'ax1', null)]);
 
-__setTrainingData({ status: 'ready', courses, viewers, completionIndex, myViewer: viewers[0] });
+/** Full context snapshot for a given course set — the pages of sections 1-3
+ * only read courses/completions, but the admin VideoEditor (section 4) also
+ * calls locateVideo and destructures the write helpers. */
+function trainingSnapshot(courseSet: TrainingCourse[]) {
+  return {
+    status: 'ready',
+    courses: courseSet,
+    viewers,
+    completionIndex,
+    completions: [] as TrainingCompletion[],
+    myViewer: viewers[0],
+    locateVideo: (courseId: string | undefined, videoId: string | undefined) => {
+      const course = courseSet.find((c) => c.id === courseId);
+      if (!course || !videoId) return null;
+      return findVideoInCourse(course, videoId);
+    },
+    updateVideo: async () => false,
+    moveVideoToContainer: async () => false,
+    removeVideo: async () => false,
+  };
+}
+
+__setTrainingData(trainingSnapshot(courses));
 // Signed-in provider staff — exercises the scoped roster including the You row.
 __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', providerAccountCode: 'acct-p1' });
 
@@ -115,11 +148,15 @@ __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', providerAcco
 // Render helpers.
 // ---------------------------------------------------------------------------
 
-async function renderAt(path: string, element: ReactElement): Promise<ReactTestRenderer> {
+async function renderAt(
+  path: string,
+  element: ReactElement,
+  createNodeMock?: (element: any) => any,
+): Promise<ReactTestRenderer> {
   const { hook } = memoryLocation({ path, static: true });
   let renderer: ReactTestRenderer | undefined;
   await act(async () => {
-    renderer = create(<Router hook={hook}>{element}</Router>);
+    renderer = create(<Router hook={hook}>{element}</Router>, createNodeMock ? { createNodeMock } : undefined);
   });
   return renderer!;
 }
@@ -215,6 +252,87 @@ async function main() {
 
   training.unmount();
   teammate.unmount();
+
+  // -------------------------------------------------------------------------
+  console.log('4. Video editor media card is one click-or-drop surface');
+
+  // The editor touches window in mount effects (drag-swallow listeners) and
+  // its media hook fetches signed playback URLs; neither exists under Node.
+  // Give the render a minimal window and a fetch that never settles — these
+  // checks pin wiring, not network behavior.
+  const g = globalThis as any;
+  g.window ??= {};
+  g.window.addEventListener ??= () => {};
+  g.window.removeEventListener ??= () => {};
+  g.window.setInterval ??= (fn: any, ms?: any) => setInterval(fn, ms);
+  g.window.clearInterval ??= (t: any) => clearInterval(t);
+  g.window.setTimeout ??= (fn: any, ms?: any) => setTimeout(fn, ms);
+  g.window.clearTimeout ??= (t: any) => clearTimeout(t);
+  g.window.confirm ??= () => false;
+  const realFetch = g.fetch;
+  g.fetch = () => new Promise(() => {});
+
+  let videoInputClicks = 0;
+  const nodeMock = (element: any) => {
+    if (element?.props?.['data-testid'] === 'input-video-file') {
+      return { click: () => { videoInputClicks += 1; } };
+    }
+    return {
+      click: () => {}, focus: () => {}, blur: () => {},
+      play: () => Promise.resolve(), pause: () => {}, load: () => {},
+      addEventListener: () => {}, removeEventListener: () => {},
+      scrollIntoView: () => {},
+    };
+  };
+
+  // Synthetic click origins: closest() is how the handler tells an inert
+  // portion of the card from the Browse button / hidden input inside it.
+  const clickFromCard = { target: { closest: () => null } } as any;
+  const clickFromControl = { target: { closest: () => ({}) } } as any;
+
+  async function checkMediaCard(label: string, path: string, noticeTestId: string) {
+    const editor = await renderAt(path, <VideoEditor />, nodeMock);
+    const area = byTestId(editor.root, /^area-video-dropzone$/);
+    check(`${label}: media card renders its drop target`, area.length === 1, `got ${area.length}`);
+    if (area.length !== 1) { editor.unmount(); return; }
+    const card = area[0]!;
+    check(`${label}: click-to-browse and drop live on the SAME outer surface`,
+      typeof card.props.onClick === 'function' && typeof card.props.onDrop === 'function');
+    check(`${label}: surface stays semantically inert (Browse button is the keyboard path)`,
+      card.props.tabIndex === undefined && card.props.role === undefined && card.props.onKeyDown === undefined);
+    check(`${label}: the ${noticeTestId} portion sits inside the click-or-drop surface`,
+      byTestId(card, new RegExp(`^${noticeTestId}$`)).length === 1);
+    const inner = byTestId(card, /^dropzone-video-upload$/);
+    check(`${label}: inner upload panel carries no second click handler`,
+      inner.length === 1 && inner[0]!.props.onClick === undefined);
+    check(`${label}: hidden file input lives inside the surface`,
+      byTestId(card, /^input-video-file$/).length === 1);
+    const browse = byTestId(card, /^button-browse-video$/);
+    check(`${label}: Browse button present for keyboard/AT`,
+      browse.length === 1 && browse[0]!.type === 'button' && typeof browse[0]!.props.onClick === 'function');
+    const before = videoInputClicks;
+    await act(async () => { card.props.onClick(clickFromCard); });
+    check(`${label}: clicking the card (notice included) opens the file chooser`,
+      videoInputClicks === before + 1, `clicks ${before} -> ${videoInputClicks}`);
+    await act(async () => { card.props.onClick(clickFromControl); });
+    check(`${label}: clicks bubbling from the Browse button / hidden input are skipped`,
+      videoInputClicks === before + 1, `clicks ended at ${videoInputClicks}`);
+    editor.unmount();
+  }
+
+  await checkMediaCard('no file yet', '/admin/training/courses/axa/videos/ax1', 'notice-no-video-file');
+
+  // Same card with a hosted file: the "Video on file" notice must be just as
+  // clickable — this is the exact surface a replace flow starts from.
+  const hostedVideos = baseVideoRows.map((v: any) =>
+    v.id === 'bx1' ? { ...v, video_source: '/objects/training-videos/bx1/video.webm' } : v,
+  );
+  __setTrainingData(trainingSnapshot(
+    assembleCourses({ courses: courseRows, modules: moduleRows, subgroups: [], videos: hostedVideos }),
+  ));
+  await checkMediaCard('video on file', '/admin/training/courses/axb/videos/bx1', 'notice-video-on-file');
+
+  g.fetch = realFetch;
 
   if (failures > 0) {
     console.error(`\n${failures} check(s) failed`);

@@ -19,7 +19,7 @@ import {
   Plus
 } from 'lucide-react';
 
-import { useToast } from '@/hooks/use-toast';
+import { progressToast, useToast } from '@/hooks/use-toast';
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
@@ -159,7 +159,7 @@ function RetentionChart({ points }: { points: VideoRetention['points'] }) {
 
 export default function VideoEditor() {
   const [, params] = useRoute('/admin/training/courses/:courseId/videos/:videoId');
-  const { locateVideo, updateVideo, moveVideoToContainer, removeVideo, completions, canEdit, status, errorMessage, refresh } =
+  const { locateVideo, updateVideo, moveVideoToContainer, removeVideo, completions, status, errorMessage, refresh } =
     useTrainingData();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -209,12 +209,11 @@ export default function VideoEditor() {
 
   const playbackRef = useRef<number | null>(null);
 
-  // Signed playback URLs — only for a real signed-in HQ admin (demo personas
-  // have no staff session, so the fetch would just 401).
+  // Signed playback URLs — the media read is open in the demo posture, so
+  // the editor streams for every visitor.
   const { media, loading: mediaLoading, error: mediaError, reload: reloadMedia } = useVideoMedia(
     locationResult?.video.id ?? '',
     locationResult?.video.videoSource ?? null,
-    canEdit,
   );
 
   // Keep the thumbnail dialog's real-frame preview parked on the scrub time.
@@ -237,10 +236,10 @@ export default function VideoEditor() {
   }, []);
 
   // A drop that misses the upload box must never make the browser navigate
-  // into the video file (which silently discards the editor). While an admin
-  // can upload, swallow page-level drags so only the drop zone reacts.
+  // into the video file (which silently discards the editor). Anyone can
+  // upload in the demo posture, so swallow page-level drags while the
+  // editor is open — only the drop zone reacts.
   useEffect(() => {
-    if (!canEdit) return;
     const swallow = (event: DragEvent) => {
       event.preventDefault();
     };
@@ -250,7 +249,7 @@ export default function VideoEditor() {
       window.removeEventListener('dragover', swallow);
       window.removeEventListener('drop', swallow);
     };
-  }, [canEdit]);
+  }, []);
 
   useEffect(() => {
     // Re-hydrate whenever the route points at a different video — navigating
@@ -474,7 +473,7 @@ export default function VideoEditor() {
 
   /** Upload (or replace) the hosted file, then kick off the full AI pass. */
   const beginUpload = (file: File) => {
-    if (!canEdit || uploadPhase !== 'idle') return;
+    if (uploadPhase !== 'idle') return;
     const problem = describeFileProblem(file);
     if (problem) {
       setUploadError(problem);
@@ -487,15 +486,28 @@ export default function VideoEditor() {
     setUploadError(null);
     setUploadPct(0);
     setUploadPhase('uploading');
+    // Bottom-right progress toast follows the whole journey: the bar tracks
+    // the bytes (held just short of full while the server verifies the file),
+    // then settles with a success ding or the failure reason. It deliberately
+    // outlives navigating to another video — the inline card indicator is the
+    // per-video view, this toast is the upload's.
+    const progress = progressToast({ title: 'Uploading video', description: file.name });
     void (async () => {
       try {
         const { uploadUrl, objectPath } = await requestUploadUrl(runVideoId, file, contentType);
         await uploadToStorage(uploadUrl, file, contentType, (pct) => {
+          progress.setProgress(Math.min(97, pct));
           if (currentVideoIdRef.current === runVideoId) setUploadPct(pct);
         });
         if (currentVideoIdRef.current === runVideoId) setUploadPhase('verifying');
         const result = await finalizeUpload(runVideoId, objectPath);
         refresh();
+        progress.done({
+          title: 'Video uploaded',
+          description: result.thumbnailSource
+            ? `${file.name} — runtime ${formatClock(result.durationSeconds)}, thumbnail set, starting the AI pass.`
+            : `${file.name} — runtime ${formatClock(result.durationSeconds)}, starting the AI pass.`,
+        });
         if (currentVideoIdRef.current === runVideoId) {
           setDraftField('duration', result.durationSeconds);
           setUploadPhase('idle');
@@ -505,13 +517,6 @@ export default function VideoEditor() {
             setStepStates((prev) => ({ ...prev, thumbnail: 'done' }));
             reloadMedia();
           }
-          toast({
-            variant: 'success',
-            title: 'Video uploaded',
-            description: result.thumbnailSource
-              ? `Runtime ${formatClock(result.durationSeconds)} — thumbnail set, starting the AI pass.`
-              : `Runtime ${formatClock(result.durationSeconds)} — starting the AI pass.`,
-          });
         }
         // The AI thumbnail step would only re-capture the same first frame —
         // skip it when finalize already set one; if the capture failed, the
@@ -522,7 +527,7 @@ export default function VideoEditor() {
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Upload failed — try again.';
-        toast({ variant: 'destructive', title: 'Upload failed', description: message });
+        progress.fail({ title: 'Upload failed', description: `${file.name} — ${message}` });
         if (currentVideoIdRef.current === runVideoId) {
           setUploadPhase('idle');
           setUploadPct(0);
@@ -709,7 +714,7 @@ export default function VideoEditor() {
   };
 
   const beginThumbnailUpload = (file: File) => {
-    if (!canEdit || !hosted || thumbnailUploadPhase !== 'idle') return;
+    if (!hosted || thumbnailUploadPhase !== 'idle') return;
     const problem = describeThumbnailFileProblem(file);
     if (problem) {
       setThumbnailUploadError(problem);
@@ -756,7 +761,7 @@ export default function VideoEditor() {
       : 'Deletes this video entry — its chapters, attachment names and all viewer progress. This cannot be undone.';
     if (!window.confirm(warning)) return;
     void (async () => {
-      if (hosted && canEdit) {
+      if (hosted) {
         // Take the file, transcript and thumbnail out of storage first so
         // deleting the row can't orphan them. If that fails, stop — the
         // entry stays, and the user hears why.
@@ -836,11 +841,10 @@ export default function VideoEditor() {
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 lg:flex-row">
         <div className="flex min-w-0 flex-col gap-6 lg:w-[60%]">
           
-          {/* Player Card — real playback once a file is hosted, else the
-              simulated slide deck (demo personas always get the deck: they
-              have no staff session to stream with). */}
+          {/* Player Card — real playback for every visitor once a file is
+              hosted (the media read is open), else the simulated slide deck. */}
           <SectionCard title={null} className="p-0 overflow-hidden">
-            {hosted && canEdit ? (
+            {hosted ? (
               media ? (
                 <HostedVideoPlayer
                   src={media.videoUrl}
@@ -917,11 +921,6 @@ export default function VideoEditor() {
                 {formatClock(scrub)} / {formatClock(durationSecs)}
               </div>
             </div>
-                {hosted && (
-                  <p className="border-t border-border bg-secondary/50 px-4 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
-                    A video file is hosted for this lesson — sign in as THINNR HQ to play it here.
-                  </p>
-                )}
               </>
             )}
           </SectionCard>
@@ -1104,16 +1103,28 @@ export default function VideoEditor() {
              <div className="p-4 space-y-5">
                <div>
                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground mb-2">Video file</p>
-                 {/* The whole section is one drop target — notice box included —
-                     so a file dropped anywhere here uploads (or replaces). */}
+                 {/* The whole section is one click-or-drop target — notice box
+                     included — so clicking anywhere browses and a file dropped
+                     anywhere here uploads (or replaces). */}
                  <div
+                   onClick={(e) => {
+                     // Click-to-browse is pointer-only convenience across the
+                     // whole card. The Browse button inside is the keyboard/AT
+                     // path — let its own activation through untouched — and
+                     // the hidden file input's programmatic click bubbles back
+                     // up here, so skip it too or the chooser opens twice.
+                     if (uploadPhase !== 'idle') return;
+                     if ((e.target as HTMLElement).closest('button, input, a')) return;
+                     fileInputRef.current?.click();
+                   }}
+                   className={uploadPhase === 'idle' ? 'cursor-pointer' : undefined}
                    onDragEnter={(e) => {
-                     if (!canEdit || uploadPhase !== 'idle') return;
+                     if (uploadPhase !== 'idle') return;
                      e.preventDefault();
                      setDragOver(true);
                    }}
                    onDragOver={(e) => {
-                     if (!canEdit || uploadPhase !== 'idle') return;
+                     if (uploadPhase !== 'idle') return;
                      e.preventDefault();
                      setDragOver(true);
                    }}
@@ -1124,7 +1135,6 @@ export default function VideoEditor() {
                      setDragOver(false);
                    }}
                    onDrop={(e) => {
-                     if (!canEdit) return;
                      e.preventDefault();
                      setDragOver(false);
                      if (uploadPhase !== 'idle') return;
@@ -1141,7 +1151,7 @@ export default function VideoEditor() {
                        <div className="min-w-0 flex-1">
                          <p className="text-xs font-semibold text-foreground">Video on file · {formatClock(video.duration)}</p>
                          <p className="text-[10px] leading-relaxed text-muted-foreground">
-                           Streams from App Storage for signed-in staff{canEdit ? ' — drop a new file anywhere in this section to replace it' : ''}.
+                           Streams from App Storage — drop a new file anywhere in this section to replace it.
                          </p>
                        </div>
                      </div>
@@ -1150,14 +1160,11 @@ export default function VideoEditor() {
                        <Film size={18} className="text-muted-foreground" aria-hidden="true" />
                        <p className="text-xs font-medium text-foreground">No video file yet</p>
                        <p className="text-[10px] leading-relaxed text-muted-foreground">
-                         {canEdit
-                           ? 'Learners see the simulated workbook slides until one is uploaded. Drop a file below — the thumbnail is set automatically, and AI pulls the transcript, writes the description and creates the chapters.'
-                           : 'Learners see the simulated workbook slides. Sign in as THINNR HQ to upload a file.'}
+                         Learners see the simulated workbook slides until one is uploaded. Drop a file below — the thumbnail is set automatically, and AI pulls the transcript, writes the description and creates the chapters.
                        </p>
                      </div>
                    )}
 
-                   {canEdit && (
                      <>
                        <div
                          className={`mt-3 w-full rounded-md border border-dashed p-4 text-center transition-colors ${dragOver ? 'border-primary bg-accent/40' : 'border-border bg-secondary/50'}`}
@@ -1221,10 +1228,9 @@ export default function VideoEditor() {
                          </p>
                        )}
                      </>
-                   )}
                  </div>
 
-                 {hosted && canEdit && (
+                 {hosted && (
                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                      <button
                        type="button"
@@ -1246,7 +1252,7 @@ export default function VideoEditor() {
                    </div>
                  )}
 
-                 {hosted && canEdit && (aiActive || aiNote !== null || PROCESS_STEPS.some((step) => stepStates[step] !== 'idle')) && (
+                 {hosted && (aiActive || aiNote !== null || PROCESS_STEPS.some((step) => stepStates[step] !== 'idle')) && (
                    <div className="mt-3 rounded-md border border-border bg-card" data-testid="panel-ai-steps">
                      <p className="border-b border-border px-3 py-2 text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
                        AI processing
@@ -1377,12 +1383,12 @@ export default function VideoEditor() {
                        type="button" 
                        className="text-xs font-semibold text-foreground flex items-center gap-2 hover:text-primary transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                        onClick={handleThumbnailDialog}
-                       disabled={hosted && canEdit && !media}
+                       disabled={hosted && !media}
                        data-testid="button-pick-thumbnail-frame"
                      >
                        <ImageIcon size={13} aria-hidden="true" /> Choose video frame
                      </button>
-                     {hosted && canEdit && (
+                     {hosted && (
                        <>
                          <button
                            type="button"
@@ -1576,7 +1582,7 @@ export default function VideoEditor() {
       {/* Danger Zone — the page's very last section, below both columns */}
       <div className="mx-auto mt-6 w-full max-w-[1200px] rounded-lg border border-destructive/30 bg-[#fff0f0]/30 p-5 shadow-sm">
         <h3 className="text-sm font-semibold text-destructive mb-1.5">Danger Zone</h3>
-        {hosted && canEdit && (
+        {hosted && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-4 py-3">
             <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
               <span className="font-semibold text-foreground">Remove the video file.</span> Takes the hosted file,

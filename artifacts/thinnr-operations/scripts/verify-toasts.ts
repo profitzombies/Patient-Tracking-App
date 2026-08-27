@@ -394,12 +394,16 @@ async function main() {
     const here = dirname(fileURLToPath(import.meta.url));
     const source = readFileSync(join(here, '../src/pages/admin/training/VideoEditor.tsx'), 'utf8');
     check(
-      'hosted upload success is a success toast (ding)',
-      /variant: 'success',\s*title: 'Video uploaded'/.test(source),
+      'hosted upload rides a bottom-right progress toast',
+      source.includes("progressToast({ title: 'Uploading video'"),
     );
     check(
-      'hosted upload failure raises a destructive toast',
-      source.includes("variant: 'destructive', title: 'Upload failed'"),
+      'upload success settles the progress toast with the ding',
+      /\.done\(\{\s*title: 'Video uploaded'/.test(source),
+    );
+    check(
+      'upload failure settles the progress toast as a failure that stays',
+      /\.fail\(\{ title: 'Upload failed'/.test(source),
     );
     check(
       'rejected video selection raises a destructive toast',

@@ -3,9 +3,9 @@
  * and the staff-facing lesson page.
  *
  * The <video> element streams straight from App Storage via a short-lived
- * signed URL (`useVideoMedia` below fetches it with the caller's staff
- * session and quietly re-mints before expiry), so seeking is the browser's
- * own range requests against storage. The control bar keeps the Heritage
+ * signed URL (`useVideoMedia` below fetches it — the media read is open in
+ * the demo posture — and quietly re-mints before expiry), so seeking is the
+ * browser's own range requests against storage. The control bar keeps the Heritage
  * player language: round play button, slim timeline with chapter ticks, and
  * a tabular clock. The timeline is a real slider — pointer scrubbing plus
  * arrow-key seeking — because a pointer-only click track would lock keyboard
@@ -38,15 +38,14 @@ export interface VideoMediaState {
 }
 
 /**
- * Signed playback URLs for one video. `enabled` gates the fetch — demo
- * personas have no staff session, so callers pass false and no doomed
- * request ever fires. Re-fetches when the hosted file changes (replace) and
- * shortly before the signed URLs expire.
+ * Signed playback URLs for one video — the media read is open (demo
+ * posture), so every visitor streams; no session needed. Re-fetches when
+ * the hosted file changes (replace) and shortly before the signed URLs
+ * expire.
  */
 export function useVideoMedia(
   videoId: string,
   videoSource: string | null,
-  enabled: boolean,
 ): VideoMediaState {
   const [media, setMedia] = useState<TrainingMediaUrls | null>(null);
   const [loading, setLoading] = useState(false);
@@ -54,7 +53,7 @@ export function useVideoMedia(
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
-    if (!videoSource || !enabled) {
+    if (!videoSource) {
       setMedia(null);
       setError(null);
       setLoading(false);
@@ -82,7 +81,7 @@ export function useVideoMedia(
     return () => {
       cancelled = true;
     };
-  }, [videoId, videoSource, enabled, nonce]);
+  }, [videoId, videoSource, nonce]);
 
   // Quietly re-mint before the signed URLs lapse mid-viewing.
   useEffect(() => {

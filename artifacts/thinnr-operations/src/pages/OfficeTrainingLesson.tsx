@@ -179,14 +179,13 @@ function LessonView({
   const [marking, setMarking] = useState(false);
   const playerRef = useRef<HostedVideoPlayerHandle | null>(null);
 
-  // Real playback needs a staff session (the media endpoint verifies it);
-  // demo personas keep the simulated deck, with no doomed fetch attempted.
+  // Real playback for every visitor — the media read is open in the demo
+  // posture, so a hosted file always streams.
   const { media, loading: mediaLoading, error: mediaError, reload: reloadMedia } = useVideoMedia(
     video.id,
     video.videoSource,
-    canAddStaff,
   );
-  const hostedPlayback = Boolean(video.videoSource) && canAddStaff;
+  const hostedPlayback = Boolean(video.videoSource);
   // Sidebar highlight: follows playback time when streaming, clicks otherwise.
   const activeChapterIndex = hostedPlayback ? chapterIndexAt(video, playerTime) : chapterIndex;
 

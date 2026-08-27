@@ -18,7 +18,7 @@
 - [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
 - [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).
 - [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
-- [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — merges don't restart running workflows; restart Metro after a merge batch and grep the served bundle for a new-code marker before trusting device reports.
+- [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — merges don't restart workflows; Metro AND the build-at-startup api-server go stale silently — restart, then grep the served bundle/dist for a new-code marker.
 - [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel subagents drift on state semantics AND promise shared-layer behavior that isn't implemented; spec briefs + review the seams.
 - [Custom tab labels drop accessible names](tab-label-a11y.md) — a function tabBarLabel needs tabBarAccessibilityLabel per screen, or every tab silently loses its screen-reader name.
@@ -41,7 +41,7 @@
 - [Supabase profile migrations](supabase-profile-migrations.md) — profile RLS migrations must carry their own non-recursive admin helper and tolerate the legacy profile shape.
 - [Supabase DDL via management API](supabase-management-api.md) — no direct pg socket: run migrations through the management API, keep the repo migration file canonical, re-check security advisors after DDL.
 - [Training live-data patterns](training-live-data.md) — flat rows + client assembly; edits re-sync contiguous positions; progress = rows ∩ published order; learner writes ride opaque capability tokens, PII out of anon reads.
-- [Training video hosting](training-video-hosting.md) — presigned PUT + finalize probe; paths in DB, per-request signed GETs (range = seeking); replace/delete clears transcript+thumbnail; SSE pipeline persists per step, explicit done event.
+- [Training video hosting](training-video-hosting.md) — presigned PUT + finalize probe; paths in DB, signed GETs; derived artifacts clear in lockstep; SSE explicit done; media routes OPEN (demo posture), writes per-IP limited.
 - [Playwright codec gap](playwright-codec-gap.md) — the tester's Chromium can't decode H.264/AAC: use VP9/Opus WebM fixtures for playback e2e, and players must catch play() rejections with an inline error.
 - [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.
 - [Indefinite-height flex chains](indefinite-height-flex.md) — h-full collapses (to zero for absolute-child wrappers) inside min-h-full columns; omit heights and let flex stretch; screenshots catch it, DOM checks don't.

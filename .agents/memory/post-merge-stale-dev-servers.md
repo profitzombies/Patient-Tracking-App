@@ -25,6 +25,19 @@ use" errors, or Metro falling back to another port while the stale server
 keeps serving the pre-merge bundle). Kill the stale processes first, then
 restart the workflow, and re-verify freshness as below.
 
+**Built-server variant (API server):** the api-server dev workflow is
+`build && start` — it bundles a dist at startup and then serves that frozen
+bundle. A merge that lands while it runs updates src only: the server keeps
+running healthy-looking with pre-merge behavior, and any *live* suite that
+merged alongside the feature (testing what the new code emits) goes red with
+confusing symptoms — e.g. missing SSE stage events and prompt-rule
+violations while hermetic suites for the same code pass. Diagnose by
+grepping the served bundle for a merged-feature string (string literals
+survive minification): `grep -c "<feature-string>" artifacts/api-server/dist/index.mjs`
+— 0 means stale. Fix is simply restarting the workflow (it rebuilds).
+Suspect this whenever a live-vs-hermetic split appears for the same feature,
+or when validation fails a suite your diff never touched.
+
 **How to apply:** after any merge batch touching a running artifact, restart
 its workflow before trusting new device reports. To prove the served app is
 post-merge: fetch the entry bundle from the Expo dev domain (drop

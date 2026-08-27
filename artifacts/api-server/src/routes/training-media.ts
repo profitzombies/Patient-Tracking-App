@@ -1,10 +1,16 @@
 /**
  * Hosted training-video media routes.
  *
- * Auth model: every route verifies the caller's EXISTING Supabase session
- * (Authorization: Bearer <access token>) and their profile role — HQ admins
- * upload, replace, remove, and run AI processing; HQ admins and provider
- * staff fetch playback URLs. There is no separate login and no Replit Auth.
+ * Access model (demo posture): reaching the admin portal is enough — these
+ * routes have NO sign-in gate, the same opening as the AI Support knowledge
+ * library. The staff identity was only ever a gate here: there is one
+ * shared training catalog, read and written with the service role, with no
+ * office scoping or attribution. A signed-in caller's bearer, when
+ * attached, is simply ignored. In its place every WRITE (upload, finalize,
+ * replace, remove, thumbnails, AI processing) rides a modest per-IP
+ * limiter, while reads (playback URLs, transcript) stay open so lesson
+ * pages can stream; re-tightening later is one middleware away. Type and
+ * size rules are enforced exactly as before.
  *
  * Storage model: browsers upload straight to App Storage via a presigned PUT
  * (the API never proxies 500 MB bodies), then hit finalize, which probes the
@@ -21,7 +27,7 @@
 import { randomUUID } from "crypto";
 import { readFile, writeFile } from "fs/promises";
 import { join } from "path";
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import {
   TrainingVideoUploadUrlBody,
   TrainingVideoFinalizeBody,
@@ -30,7 +36,7 @@ import {
   TrainingThumbnailUploadBody,
   TrainingVideoProcessBody,
 } from "@workspace/api-zod";
-import { requireStaff } from "../lib/staff-auth";
+import { acquireTrainingWriteSlot } from "../training/limits";
 import {
   ObjectNotFoundError,
   objectStorage,
@@ -75,6 +81,25 @@ type ProcessStep = (typeof PROCESS_STEPS)[number];
 
 /** One AI run per video at a time — repeats would double-spend credits. */
 const activeRuns = new Set<string>();
+
+/**
+ * Per-IP limit on every media WRITE — the stand-in for the retired sign-in
+ * gate. Limit first, like the chat route: denials are cheap JSON answers
+ * before any storage or database work.
+ */
+function limitWrites(req: Request, res: Response, next: NextFunction): void {
+  const slot = acquireTrainingWriteSlot(req.ip ?? "unknown");
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
+    return;
+  }
+  // "close" fires whether the response finished or the connection died
+  // mid-request, and release is idempotent — concurrency can never leak.
+  // The SSE process route holds its slot for the whole run, which is the
+  // bound on concurrent AI passes.
+  res.on("close", slot.release);
+  next();
+}
 
 function plainError(error: unknown): string {
   if (error instanceof UpstreamTimeoutError) {
@@ -165,7 +190,7 @@ function isThumbnailObjectPath(videoId: string, objectPath: string): boolean {
 
 router.post(
   "/training/videos/:videoId/upload-url",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const parsed = TrainingVideoUploadUrlBody.safeParse(req.body);
@@ -199,7 +224,7 @@ router.post(
 
 router.post(
   "/training/videos/:videoId/video",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const parsed = TrainingVideoFinalizeBody.safeParse(req.body);
@@ -325,7 +350,7 @@ router.post(
 
 router.delete(
   "/training/videos/:videoId/video",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const record = await loadVideoOr404(String(req.params.videoId), res);
@@ -377,7 +402,7 @@ router.delete(
 
 router.post(
   "/training/videos/:videoId/thumbnail-upload-url",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const parsed = TrainingThumbnailUploadUrlBody.safeParse(req.body);
@@ -411,7 +436,7 @@ router.post(
 
 router.post(
   "/training/videos/:videoId/thumbnail-upload",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const parsed = TrainingThumbnailUploadBody.safeParse(req.body);
@@ -511,12 +536,11 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// Playback (staff + HQ): short-lived signed URLs, range requests hit storage
+// Playback (open, unlimited): short-lived signed URLs, range requests hit storage
 // ---------------------------------------------------------------------------
 
 router.get(
   "/training/videos/:videoId/media",
-  requireStaff(["hq_admin", "provider_staff"]),
   async (req: Request, res: Response) => {
     try {
       const record = await loadVideoOr404(String(req.params.videoId), res);
@@ -542,12 +566,11 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
-// Transcript (editor viewer) — HQ admins; provider staff have no surface yet
+// Transcript (editor viewer) — open read, like playback
 // ---------------------------------------------------------------------------
 
 router.get(
   "/training/videos/:videoId/transcript",
-  requireStaff(["hq_admin"]),
   async (req: Request, res: Response) => {
     try {
       const record = await loadVideoOr404(String(req.params.videoId), res);
@@ -571,7 +594,7 @@ router.get(
 
 router.post(
   "/training/videos/:videoId/thumbnail",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     try {
       const parsed = TrainingVideoThumbnailBody.safeParse(req.body);
@@ -604,7 +627,7 @@ router.post(
 
 router.post(
   "/training/videos/:videoId/process",
-  requireStaff(["hq_admin"]),
+  limitWrites,
   async (req: Request, res: Response) => {
     const parsed = TrainingVideoProcessBody.safeParse(req.body ?? {});
     if (!parsed.success) {

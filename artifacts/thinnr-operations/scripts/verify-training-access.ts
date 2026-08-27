@@ -13,6 +13,10 @@
  *      and the old viewer-id RPC signatures no longer exist.
  *   4. Anon direct writes are refused on every table, and the token table
  *      itself is unreadable.
+ *   5. The API server's hosted-media routes are OPEN (demo posture): media
+ *      reads and upload-url mints need no bearer, a synthetic bearer changes
+ *      nothing, and rapid-fire writes from one IP trip the per-IP limiter
+ *      while reads stay open. (Needs the artifacts/api-server workflow.)
  *
  * Test rows use FIXED @example.test addresses so re-runs upsert instead of
  * growing the roster; they stay invisible to anon (visible to real HQ admins
@@ -89,6 +93,92 @@ const EMAIL_B = 'qa-access-b@example.test';
 const EMAIL_STAFF = 'qa-access-staff@example.test';
 const ZERO_TOKEN = '00000000-0000-0000-0000-000000000000';
 
+// --- Hosted-media API routes (open demo posture) ---------------------------
+
+const API_BASE = (process.env.STAFF_API_BASE ?? 'http://localhost:80').replace(/\/$/, '');
+/** One synthetic client IP for the limiter proof (TEST-NET-3, never real). */
+const LIMITER_IP = '203.0.113.88';
+
+async function apiMedia(videoId: string, headers: Record<string, string> = {}): Promise<number> {
+  const response = await fetch(`${API_BASE}/api/training/videos/${videoId}/media`, { headers });
+  return response.status;
+}
+
+async function apiWrite(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; json: any }> {
+  const response = await fetch(`${API_BASE}/api${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let json: any = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* keep null */
+  }
+  return { status: response.status, json };
+}
+
+async function mediaSection(videoId: string) {
+  console.log('6. Hosted-media API routes are open (demo posture)');
+  const health = await fetch(`${API_BASE}/api/healthz`).catch(() => null);
+  if (!health || !health.ok) {
+    check(
+      'API server reachable',
+      false,
+      `unreachable at ${API_BASE} — start the artifacts/api-server workflow first`,
+    );
+    return;
+  }
+
+  // Reads: tokenless, and a synthetic bearer is ignored (the old staff gate
+  // would 401 both). 200 = playback URLs; 404 = no hosted file yet — either
+  // way there is no auth wall.
+  const tokenless = await apiMedia(videoId);
+  check('tokenless media read has no auth wall', tokenless === 200 || tokenless === 404, `status ${tokenless}`);
+  const bearered = await apiMedia(videoId, { Authorization: 'Bearer synthetic-staff-bearer' });
+  check('synthetic bearer is ignored, not verified', bearered === tokenless, `status ${bearered} vs ${tokenless}`);
+
+  // Writes: a tokenless caller can mint an upload URL (nothing is uploaded —
+  // a mint is harmless until a finalize follows it).
+  const mint = await apiWrite(`/training/videos/${videoId}/upload-url`, {
+    fileName: 'probe.mp4',
+    contentType: 'video/mp4',
+    sizeBytes: 1024,
+  });
+  check(
+    'tokenless upload-url mint succeeds',
+    mint.status === 200 && !!mint.json?.uploadUrl && !!mint.json?.objectPath,
+    `status ${mint.status}`,
+  );
+
+  // Limiter: rapid-fire INVALID writes (nothing ever minted) from one
+  // synthetic IP must trip the per-IP limiter; reads from the drained IP
+  // stay open. TRAINING_WRITE_BURST defaults to 20, so 30 attempts suffice.
+  let denial: { status: number; json: any } | null = null;
+  for (let i = 0; i < 30 && !denial; i++) {
+    const attempt = await apiWrite(
+      `/training/videos/${videoId}/upload-url`,
+      {},
+      { 'X-Forwarded-For': LIMITER_IP },
+    );
+    if (attempt.status === 429) denial = attempt;
+  }
+  check('rapid-fire writes from one IP hit the limiter', denial !== null);
+  check(
+    'denial is a friendly, retryable 429',
+    !!denial && denial.json?.retryable === true && String(denial.json?.error ?? '').includes('too quickly'),
+    JSON.stringify(denial?.json ?? null),
+  );
+  const drainedRead = await apiMedia(videoId, { 'X-Forwarded-For': LIMITER_IP });
+  check('drained IP can still read media', drainedRead === 200 || drainedRead === 404, `status ${drainedRead}`);
+}
+
 async function main() {
   console.log('1. Course catalog is world-readable (authored content, no PII)');
   const courses = await select('training_courses?select=id,status&limit=5');
@@ -155,6 +245,8 @@ async function main() {
   check('anon INSERT course refused', (await write('POST', 'training_courses', { slug: 'x', title: 'X' })) >= 400);
   const sessions = await select('training_learner_sessions?select=token&limit=1');
   check('token table is unreadable', sessions.status >= 400, `status ${sessions.status}`);
+
+  await mediaSection(videoId);
 
   if (failures > 0) {
     console.error(`\n${failures} check(s) failed`);

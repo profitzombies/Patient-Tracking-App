@@ -42,10 +42,6 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
   openai: { chat: { completions: { create: aiState.create } } },
 }));
 
-vi.mock("../lib/staff-auth", () => ({
-  requireStaff: () => (_req: unknown, _res: unknown, next: () => void) => next(),
-}));
-
 vi.mock("../training/videos-store", () => ({
   isVideoId: () => true,
   getVideoRecord: vi.fn(async () => ({ ...state.record })),
@@ -164,6 +160,9 @@ let baseUrl = "";
 
 beforeAll(async () => {
   const app = express();
+  // Same as the real app: X-Forwarded-For controls req.ip, so every call
+  // can ride its own client IP and the write limiter never interferes.
+  app.set("trust proxy", true);
   app.use(express.json());
   app.use(trainingMediaRouter);
   server = app.listen(0);
@@ -195,10 +194,18 @@ beforeEach(() => {
   aiState.create.mockClear();
 });
 
-async function post(path: string, body: unknown): Promise<Response> {
+let ipCounter = 0;
+
+/** Distinct client IP per call; the limiter test pins one IP explicitly. */
+function nextIp(): string {
+  ipCounter += 1;
+  return `10.9.${Math.floor(ipCounter / 200)}.${(ipCounter % 200) + 1}`;
+}
+
+async function post(path: string, body: unknown, ip = nextIp()): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
     body: JSON.stringify(body),
   });
 }
@@ -293,5 +300,77 @@ describe("training thumbnail lifecycle", () => {
     expect(state.captureAt).toEqual([37]);
     expect(state.deleted).toContain(prior);
     expect(aiState.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("open access (demo posture)", () => {
+  it("serves tokenless callers and treats a bearer as decoration — ignored, not verified", async () => {
+    const tokenless = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/media`, {
+      headers: { "X-Forwarded-For": nextIp() },
+    });
+    expect(tokenless.status).toBe(200);
+
+    // A synthetic bearer would 401 under the old staff gate; now it changes nothing.
+    const withBearer = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/media`, {
+      headers: { "X-Forwarded-For": nextIp(), Authorization: "Bearer synthetic-staff-bearer" },
+    });
+    expect(withBearer.status).toBe(200);
+    // Compare the stable fields — expiresAtMs is clock-derived per call.
+    const first = (await tokenless.json()) as Record<string, unknown>;
+    const second = (await withBearer.json()) as Record<string, unknown>;
+    expect(second.videoUrl).toBe(first.videoUrl);
+    expect(second.thumbnailUrl).toBe(first.thumbnailUrl);
+  });
+
+  it("mints an upload URL for a tokenless caller — the demo can really upload", async () => {
+    const mint = await post(`/training/videos/${VIDEO_ID}/upload-url`, {
+      fileName: "lesson.mp4",
+      contentType: "video/mp4",
+      sizeBytes: 1024,
+    });
+    expect(mint.status).toBe(200);
+    expect(await mint.json()).toMatchObject({
+      uploadUrl: "https://storage.test/upload",
+      objectPath: `/objects/training-videos/${VIDEO_ID}/video-new`,
+    });
+  });
+});
+
+describe("per-IP write limiter (runs last — drains one IP's bucket)", () => {
+  it("429s rapid-fire writes from one IP; reads and other IPs stay open", async () => {
+    const ip = "10.9.250.1";
+    const denials: Array<Record<string, unknown> | null> = [];
+    // TRAINING_WRITE_BURST defaults to 20; 30 attempts must trip it.
+    for (let i = 0; i < 30; i++) {
+      const response = await post(
+        `/training/videos/${VIDEO_ID}/upload-url`,
+        { fileName: "lesson.mp4", contentType: "video/mp4", sizeBytes: 1024 },
+        ip,
+      );
+      if (response.status === 429) {
+        denials.push((await response.json()) as Record<string, unknown>);
+      }
+    }
+    expect(denials.length).toBeGreaterThan(0);
+    for (const denial of denials) {
+      expect(String(denial?.error)).toContain("too quickly");
+      expect(denial?.retryable).toBe(true);
+    }
+
+    // Reads from the SAME drained IP still pass — only writes are limited.
+    for (let i = 0; i < 5; i++) {
+      const read = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/media`, {
+        headers: { "X-Forwarded-For": ip },
+      });
+      expect(read.status).toBe(200);
+    }
+
+    // A fresh visitor's bucket is untouched.
+    const fresh = await post(`/training/videos/${VIDEO_ID}/upload-url`, {
+      fileName: "lesson.mp4",
+      contentType: "video/mp4",
+      sizeBytes: 1024,
+    });
+    expect(fresh.status).toBe(200);
   });
 });

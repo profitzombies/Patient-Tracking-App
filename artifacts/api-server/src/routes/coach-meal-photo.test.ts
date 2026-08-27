@@ -99,7 +99,14 @@ const modelState = vi.hoisted(() => ({
   triageJson: '{"subject":"food"}',
   chunks: ["Hello ", "Emma."],
   failNext: 0,
-  calls: [] as Array<{ hasImage: boolean; stream: boolean; system: string; userText: string }>,
+  calls: [] as Array<{
+    hasImage: boolean;
+    stream: boolean;
+    system: string;
+    userText: string;
+    /** Captured so tests can prove the plate read carries NO effort knob. */
+    reasoningEffort: string | undefined;
+  }>,
 }));
 
 vi.mock("@workspace/integrations-openai-ai-server", () => ({
@@ -107,7 +114,11 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
     chat: {
       completions: {
         create: vi.fn(
-          async (params: { stream?: boolean; messages: Array<{ role: string; content: unknown }> }) => {
+          async (params: {
+            stream?: boolean;
+            reasoning_effort?: string;
+            messages: Array<{ role: string; content: unknown }>;
+          }) => {
             const userParts = params.messages
               .filter((m) => m.role === "user" && Array.isArray(m.content))
               .flatMap((m) => m.content as Array<{ type?: string; text?: string }>);
@@ -121,6 +132,7 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
               stream: params.stream === true,
               system,
               userText: userParts.find((part) => part?.type === "text")?.text ?? "",
+              reasoningEffort: params.reasoning_effort,
             });
             if (modelState.failNext > 0) {
               modelState.failNext -= 1;
@@ -281,6 +293,12 @@ describe("POST /api/coach/chat with a meal photo", () => {
     const visionCalls = modelState.calls.filter((c) => c.hasImage);
     expect(visionCalls).toHaveLength(1);
     expect(visionCalls[0].stream).toBe(false);
+    // Restored accuracy bar: the plate read rides the model's DEFAULT
+    // reasoning effort — no effort knob on the wire at all. (A 2026-08
+    // latency pass shipped reasoning_effort:"none" off one clean probe
+    // plate and real-world reads degraded; scripts/meal-read-harness is
+    // the multi-plate gate any future effort change must pass.)
+    expect(visionCalls[0].reasoningEffort).toBeUndefined();
     expect(visionCalls[0].system).toContain("Never add ingredients you cannot see");
     expect(visionCalls[0].system).toContain("No assumed butter, cooking oil");
     expect(visionCalls[0].system).toContain("Never split a visible dish into its parts");
@@ -421,6 +439,9 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(vision).toHaveLength(2);
     expect(vision[0].system).toContain("photo triage");
     expect(vision[1].system).toContain("ALWAYS commit to one specific portion");
+    // Neither the triage nor the speculative plate read sends an effort
+    // knob — the read runs at the model's restored DEFAULT effort.
+    expect(vision.every((c) => c.reasoningEffort === undefined)).toBe(true);
     expect(events).toContainEqual({ photoKind: "meal" });
     // Stage narration: received on open, the meal line only after the
     // route announcement settles it.

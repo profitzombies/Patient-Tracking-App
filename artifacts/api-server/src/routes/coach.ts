@@ -14,6 +14,7 @@ import { isMealCorrectionText } from "../coach/meal-correction";
 import { buildMealSlotContext } from "../coach/meal-slot";
 import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
 import { resolvePhotoKind } from "../coach/photo-kind";
+import { createPhotoUsageLog } from "../coach/usage";
 import { DashSmoother } from "../coach/text-style";
 import { MarkerFilter } from "../coach/markers";
 import { firstQuickReplySet } from "../coach/quick-replies";
@@ -138,6 +139,15 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     let pipeline: "plain" | "menu" | "meal" | "label" | "menu-recipe" | "recipe" | "cravings" =
       "plain";
 
+    // Token accounting for photo turns: every vision pipeline reports each
+    // completed model call's usage under a stage name ("classify", "meal",
+    // "menu", "label") and the turn's completion/failure log carries the
+    // totals, so the cost of one photo is computable from a single log line
+    // instead of estimated. Token counts only — never message content, never
+    // the photo. Declared alongside `pipeline` so the catch block can log
+    // whatever usage a failed or aborted turn had already accrued.
+    const photoUsage = createPhotoUsageLog();
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -176,8 +186,10 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // pipeline is known, feeding the app's staged progress lines (old
       // clients skip unknown data events, so the extra events are
       // backward-safe). The completion log gets the per-stage spans
-      // (classifyMs, analysisMs, firstTokenMs) so a slow turn names its slow
-      // stage — durations and outcomes only, never the photo itself.
+      // (classifyMs, analysisMs, firstTokenMs) plus per-stage token usage
+      // (prompt/completion/reasoning per AI call, via photoUsage) so a slow
+      // turn names its slow stage and an expensive one its cost — durations,
+      // outcomes, and token counts only, never the photo itself.
       const photoTimings: {
         classifyMs?: number;
         analysisMs?: number;
@@ -222,13 +234,24 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         // Triage starts first so its model call is provably the first on the
         // wire (logs and route tests key off that order), then the
         // speculative read follows in the same tick.
-        const triage = resolvePhotoKind({ image, signal: abort.signal, log: req.log });
+        const triage = resolvePhotoKind({
+          image,
+          onUsage: photoUsage.recorder("classify"),
+          signal: abort.signal,
+          log: req.log,
+        });
         speculationStartedAt = Date.now();
+        // A discarded speculation that already finished still recorded its
+        // usage under "meal" — the log's speculationDiscarded flag is what
+        // marks those tokens as the speed-up's overhead. One cancelled
+        // before the upstream answered has no usage to report (the gateway
+        // may still bill its prompt, but that number never reaches us).
         speculativeMeal = generateMealChatTurn({
           image,
           patient: patientContext,
           slot: slotContext,
           correction: mealCorrection,
+          onUsage: photoUsage.recorder("meal"),
           signal: AbortSignal.any([abort.signal, speculationCancel.signal]),
           log: req.log,
         });
@@ -279,6 +302,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               patient: patientContext,
               slot: slotContext,
               correction: mealCorrection,
+              onUsage: photoUsage.recorder("meal"),
               signal: abort.signal,
               log: req.log,
             });
@@ -298,6 +322,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               items: mealTurn.itemCount,
               corrected: mealTurn.corrected,
               ...photoTimings,
+              usage: photoUsage.snapshot(),
             },
             "coach meal photo turn completed",
           );
@@ -328,6 +353,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           image,
           patient: patientContext,
           slot: slotContext,
+          onUsage: photoUsage.recorder("label"),
           signal: abort.signal,
           log: req.log,
         });
@@ -346,6 +372,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               outcome: labelTurn.outcome,
               flagged: labelTurn.draft?.flagged === true,
               ...photoTimings,
+              usage: photoUsage.snapshot(),
             },
             "coach label photo turn completed",
           );
@@ -373,6 +400,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         const menuTurn = await generateMenuChatTurn({
           image,
           patient: patientContext,
+          onUsage: photoUsage.recorder("menu"),
           signal: abort.signal,
           log: req.log,
         });
@@ -395,6 +423,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               order: menuTurn.orderCount,
               avoid: menuTurn.avoidCount,
               ...photoTimings,
+              usage: photoUsage.snapshot(),
             },
             "coach menu photo turn completed",
           );
@@ -572,9 +601,15 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         // The client went away mid-turn (stop, app closed, or a proxy cut
         // the connection). Nothing can be written, but the log keeps dropped
         // streams observable instead of vanishing without a trace.
-        req.log.info({ pipeline, elapsedMs }, "coach chat turn aborted by client");
+        req.log.info(
+          { pipeline, elapsedMs, usage: photoUsage.snapshot() },
+          "coach chat turn aborted by client",
+        );
       } else {
-        req.log.error({ err: error, pipeline, elapsedMs }, "coach chat stream failed");
+        req.log.error(
+          { err: error, pipeline, elapsedMs, usage: photoUsage.snapshot() },
+          "coach chat stream failed",
+        );
         res.write(
           `data: ${JSON.stringify({ error: "The coach is unavailable right now. Please try again." })}\n\n`,
         );

@@ -27,6 +27,7 @@ function cleanCoachText(text: string): string {
 }
 import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
+import type { UsageRecorder } from "./usage";
 
 export const MENU_SCAN_MODEL = "gpt-5-nano";
 
@@ -166,6 +167,7 @@ async function callModel(
   messages: ScanMessage[],
   signal: AbortSignal,
   log: MinimalLog,
+  onUsage: UsageRecorder | undefined,
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_LIMIT; attempt++) {
@@ -186,6 +188,7 @@ async function callModel(
         },
         { signal: deadline.signal },
       );
+      onUsage?.(completion.usage);
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {
       // A deadline expiry already consumed the full idle budget; a transient
@@ -275,6 +278,8 @@ export async function generateMenuScan(args: {
   /** Validated image data URI (jpeg/png/webp). Kept in memory only. */
   image: string;
   patient: PatientContext;
+  /** Per-call token usage sink (the route's photo usage log). */
+  onUsage?: UsageRecorder;
   signal: AbortSignal;
   log: MinimalLog;
 }): Promise<MenuScanPayload> {
@@ -283,7 +288,7 @@ export async function generateMenuScan(args: {
   let previous: { raw: string; problems: string } | null = null;
   for (let attempt = 0; attempt <= RETRY_LIMIT; attempt++) {
     const messages = buildMessages(systemPrompt, args.image, previous);
-    const raw = await callModel(messages, args.signal, args.log);
+    const raw = await callModel(messages, args.signal, args.log, args.onUsage);
     const outcome = interpret(raw);
     if (outcome.ok) return outcome.payload;
     args.log.warn(

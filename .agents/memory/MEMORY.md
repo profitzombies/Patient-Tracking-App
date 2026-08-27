@@ -60,4 +60,4 @@
 - [HQ toast layer](hq-toast-layer.md) — sound rides the variant; Radix won't announce in-place morphs (ANNOUNCE live region); progress toasts pin vs eviction; gated writes return landed booleans.
 - [Composite typecheck staleness](composite-typecheck-staleness.md) — phantom "no exported member" typecheck errors = stale referenced-lib dist d.ts; tsc -b the lib first; ts lib predates es2023 (no findLastIndex).
 - [Barcode lookup pattern](barcode-lookup.md) — open route fills a shared Supabase facts table from Open Food Facts; canonical-code keying, found-only caching; fake-looking codes can be REAL — verify miss fixtures live.
-- [Gateway model knobs](gateway-model-knobs.md) — probe knobs against the proxy first: 5.6 fleet rejects reasoning_effort "minimal" (use "none"; ~halves plate reads), image detail is ignored.
+- [Gateway model knobs](gateway-model-knobs.md) — probe knobs for acceptance only (5.6 fleet rejects "minimal"; image detail ignored); quality knobs need the multi-plate harness — "none" degraded real plate reads.

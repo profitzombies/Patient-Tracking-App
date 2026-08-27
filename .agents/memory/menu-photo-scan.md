@@ -93,9 +93,11 @@ description: Patterns proven by the menu-scan flow — vision input through the 
   menu, and label reads stay nano — they read print or make a trivial call.
   Also: image `detail` knobs (`"high"` and `"low"` alike) are NOT honored by
   the proxy (identical prompt tokens) — don't pass them or promise savings
-  from them. The mid-tier plate read spends most of its time on reasoning it
-  doesn't need: `reasoning_effort: "none"` reads the same plates in ~3s vs ~7s
-  (see gateway-model-knobs). Escalating the
+  from them. The plate read runs at the model's DEFAULT reasoning effort — a
+  `reasoning_effort: "none"` speed-up (~3s vs ~7s) shipped off one clean probe
+  plate and degraded real-world reads; it was reverted 2026-08, and any future
+  effort knob must pass the multi-plate harness gate first (see
+  gateway-model-knobs and scripts/meal-read-harness). Escalating the
   meal read past mid-tier is a user cost decision, never do it unasked.
 - **Typed corrections re-run the held photo with the patient's words as ground
   truth** (foods from the words, portions from the photo, unmentioned visible

@@ -34,6 +34,7 @@ import {
 } from "./recipe";
 import { MEAL_SLOTS, type MealSlotContext } from "./meal-slot";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
+import type { UsageRecorder } from "./usage";
 
 /**
  * Mid-tier by the user's explicit cost decision: the nano tier misread real
@@ -44,6 +45,16 @@ import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
  * (gpt-5.6-terra / gpt-5.6-sol) without the user's sign-off.
  */
 export const MEAL_PHOTO_MODEL = "gpt-5.6-luna";
+
+/**
+ * The gpt-5.6 fleet's reasoning-effort vocabulary on this gateway
+ * ("minimal" is rejected as unsupported). Production plate reads never send
+ * any of these — the read runs at the model's DEFAULT effort, which is the
+ * accuracy bar. Only the side-by-side harness (scripts/meal-read-harness)
+ * pins explicit values, to compare candidate latency knobs against that
+ * default on this exact code path.
+ */
+export type MealReadReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 
 /** One corrective retry when the model's JSON fails validation. */
 const RETRY_LIMIT = 1;
@@ -221,10 +232,18 @@ That answer was invalid: ${previous.problems}. Reply again with ONLY the correct
   ];
 }
 
+interface CallOptions {
+  /** Per-call token usage sink (the route's photo usage log). */
+  onUsage?: UsageRecorder;
+  /** Harness-only effort pin — see generateMealPhotoAnalysis. */
+  reasoningEffort?: MealReadReasoningEffort;
+}
+
 async function callModel(
   messages: AnalysisMessage[],
   signal: AbortSignal,
   log: MinimalLog,
+  options: CallOptions,
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_LIMIT; attempt++) {
@@ -240,20 +259,26 @@ async function callModel(
           // Reasoning models spend part of this budget internally before
           // emitting text; smaller caps come back empty.
           max_completion_tokens: 8192,
-          // Latency knob, NOT a model change: a plate read is see-and-
-          // transcribe work, so internal deliberation is pure wait time.
-          // The gpt-5.6 fleet's effort vocabulary on this gateway is
-          // none|low|medium|high|xhigh ("minimal" is rejected as
-          // unsupported); "none" probed ~5s vs ~12s at default on the same
-          // photo with identical foods read and zero reasoning tokens.
-          // Accuracy stays guarded by the validator's corrective retry and
-          // the meal-photo suites.
-          reasoning_effort: "none",
+          // DEFAULT reasoning effort on purpose — the pre-speed-up accuracy
+          // bar. A latency pass (2026-08) set reasoning_effort: "none" here
+          // after one clean single-plate probe, and real-world reads
+          // degraded; restoring the default is the fix. The speed-ups that
+          // survived (speculative parallel start, staged progress, stage
+          // timing + usage logs) never touch this call's quality. Any
+          // future effort experiment must pass the multi-plate side-by-side
+          // gate in scripts/meal-read-harness before it ships — never a
+          // one-photo probe. The spread below is that harness's pin;
+          // nothing request-reachable sets it, so production omits the
+          // knob entirely.
+          ...(options.reasoningEffort !== undefined
+            ? { reasoning_effort: options.reasoningEffort }
+            : {}),
           response_format: { type: "json_object" },
           messages,
         },
         { signal: deadline.signal },
       );
+      options.onUsage?.(completion.usage);
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {
       // A deadline expiry already consumed the full idle budget; a transient
@@ -467,6 +492,22 @@ export async function generateMealPhotoAnalysis(args: {
    * photo (unless their words state an amount).
    */
   correction?: string;
+  /**
+   * Per-call token usage sink. The route binds this to its photo usage log
+   * so the turn's completion line carries prompt/completion/reasoning
+   * counts for every model call this analysis makes (corrective and
+   * transient retries included).
+   */
+  onUsage?: UsageRecorder;
+  /**
+   * HARNESS-ONLY (scripts/meal-read-harness): pins an explicit reasoning
+   * effort so the side-by-side gate can compare candidate latency knobs
+   * against the shipped default on this exact code path. Production plate
+   * reads run at the model's DEFAULT effort — the accuracy bar restored
+   * after the "none" regression — and no request-reachable caller passes
+   * this. Do not wire it to anything a client can influence.
+   */
+  experimentReasoningEffort?: MealReadReasoningEffort;
   signal: AbortSignal;
   log: MinimalLog;
 }): Promise<MealPhotoAnalysis> {
@@ -484,7 +525,10 @@ export async function generateMealPhotoAnalysis(args: {
       throw new Error("meal photo analysis cancelled");
     }
     const messages = buildMessages(systemPrompt, args.image, previous, args.correction);
-    const raw = await callModel(messages, args.signal, args.log);
+    const raw = await callModel(messages, args.signal, args.log, {
+      onUsage: args.onUsage,
+      reasoningEffort: args.experimentReasoningEffort,
+    });
     const outcome = interpret(raw, slot);
     if (outcome.ok) {
       return {

@@ -24,6 +24,7 @@ import {
 } from "./label-photo";
 import type { MealSlotContext } from "./meal-slot";
 import type { PatientContext } from "./prompt";
+import type { UsageRecorder } from "./usage";
 
 /**
  * Closer under the facts read-back. Must not end with a question mark — the
@@ -106,6 +107,8 @@ export async function generateLabelChatTurn(args: {
    * draft preselects the right diary slot.
    */
   slot?: MealSlotContext;
+  /** Per-call token usage sink (the route's photo usage log). */
+  onUsage?: UsageRecorder;
   signal: AbortSignal;
   log: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<LabelChatTurn> {

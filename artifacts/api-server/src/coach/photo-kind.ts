@@ -26,6 +26,7 @@ import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { extractModelJson } from "./model-json";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
+import type { UsageRecorder } from "./usage";
 
 export const PHOTO_TRIAGE_MODEL = "gpt-5-nano";
 
@@ -61,6 +62,8 @@ interface MinimalLog {
 export async function resolvePhotoKind(args: {
   /** Validated image data URI (jpeg/png/webp). Kept in memory only. */
   image: string;
+  /** Per-call token usage sink (the route's photo usage log). */
+  onUsage?: UsageRecorder;
   signal: AbortSignal;
   log: MinimalLog;
 }): Promise<ResolvedPhotoKind> {
@@ -86,6 +89,7 @@ export async function resolvePhotoKind(args: {
       },
       { signal: deadline.signal },
     );
+    args.onUsage?.(completion.usage);
     const raw = completion.choices[0]?.message?.content ?? "";
     const parsed = TriageSchema.safeParse(extractModelJson(raw));
     if (!parsed.success) {

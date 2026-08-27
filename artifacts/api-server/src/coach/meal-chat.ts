@@ -20,6 +20,7 @@ import { generateMealPhotoAnalysis, type MealPhotoAnalysis, type MealPhotoOutcom
 import type { MealSlotContext } from "./meal-slot";
 import type { PatientContext } from "./prompt";
 import type { RecipeCardPayload } from "./recipe";
+import type { UsageRecorder } from "./usage";
 
 /**
  * Closer under the item list. Must not end with a question mark — the chat
@@ -95,6 +96,13 @@ export async function generateMealChatTurn(args: {
    * analysis as ground truth for what the foods are.
    */
   correction?: string;
+  /**
+   * Per-call token usage sink, passed through to the analysis so the
+   * route's photo usage log sees every model call this turn makes. (The
+   * analysis's harness-only effort pin is deliberately NOT exposed here —
+   * nothing request-reachable may set it.)
+   */
+  onUsage?: UsageRecorder;
   signal: AbortSignal;
   log: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<MealChatTurn> {

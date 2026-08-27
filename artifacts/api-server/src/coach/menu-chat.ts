@@ -19,6 +19,7 @@
  */
 import { generateMenuScan, type MenuScanPayload } from "./menu-scan";
 import type { PatientContext } from "./prompt";
+import type { UsageRecorder } from "./usage";
 
 /**
  * Closing offer after menu suggestions. Server-authored (never model text),
@@ -152,6 +153,8 @@ export async function generateMenuChatTurn(args: {
   /** Validated image data URI (jpeg/png/webp). Kept in memory only. */
   image: string;
   patient: PatientContext;
+  /** Per-call token usage sink (the route's photo usage log). */
+  onUsage?: UsageRecorder;
   signal: AbortSignal;
   log: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<MenuChatTurn> {

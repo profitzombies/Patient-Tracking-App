@@ -33,6 +33,7 @@ import { stripDashes } from "./text-style";
 import { patientContextLine, type PatientContext } from "./prompt";
 import { type MealSlotContext, MEAL_SLOTS } from "./meal-slot";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
+import type { UsageRecorder } from "./usage";
 
 export const LABEL_PHOTO_MODEL = "gpt-5-nano";
 
@@ -190,6 +191,7 @@ async function callModel(
   messages: AnalysisMessage[],
   signal: AbortSignal,
   log: MinimalLog,
+  onUsage: UsageRecorder | undefined,
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_LIMIT; attempt++) {
@@ -210,6 +212,7 @@ async function callModel(
         },
         { signal: deadline.signal },
       );
+      onUsage?.(completion.usage);
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {
       // A deadline expiry already consumed the full idle budget; a transient
@@ -371,6 +374,8 @@ export async function generateLabelPhotoAnalysis(args: {
    * suggested diary slot; absent on old clients — snacks then.
    */
   slot?: MealSlotContext;
+  /** Per-call token usage sink (the route's photo usage log). */
+  onUsage?: UsageRecorder;
   signal: AbortSignal;
   log: MinimalLog;
 }): Promise<LabelPhotoAnalysis> {
@@ -380,7 +385,7 @@ export async function generateLabelPhotoAnalysis(args: {
   let previous: { raw: string; problems: string } | null = null;
   for (let attempt = 0; attempt <= RETRY_LIMIT; attempt++) {
     const messages = buildMessages(systemPrompt, args.image, previous);
-    const raw = await callModel(messages, args.signal, args.log);
+    const raw = await callModel(messages, args.signal, args.log, args.onUsage);
     const outcome = interpret(raw);
     if (outcome.ok) {
       return {

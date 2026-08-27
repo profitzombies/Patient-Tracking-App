@@ -448,7 +448,11 @@ function toMealPayload(
     ingredients: items.map((item) => ({
       amount: item.amount,
       unit: item.unit,
-      name: item.name,
+      // Detected food names take the same Title Case as the meal name
+      // below, right where the payload is shaped — the chat's per-food
+      // lines, the card, the breakdown screen, and both save paths all
+      // read from here. Brand-style inner caps ("PB&J") survive untouched.
+      name: toTitleCase(item.name),
       nutrition: item.nutrition,
     })),
     steps: [],

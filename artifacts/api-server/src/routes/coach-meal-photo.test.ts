@@ -6,7 +6,8 @@
  * (a queue, so corrective retries can see a different second answer), and
  * streaming calls yield the scripted chunks. Covers: the friendly breakdown
  * reply with per-item committed portions and the editable meal card (mode
- * "meal", one serving, no steps, exact integer sums), the prompt's
+ * "meal", one serving, no steps, exact integer sums, Title Case food
+ * names), the prompt's
  * visible-only / always-estimate rules, the corrective retry when the model
  * refuses to commit to an amount, non-food photos as warm conversational
  * outcomes (never errors), persistent invalid output as the standard SSE
@@ -73,6 +74,33 @@ const MEAL_NOT_FOOD_JSON = JSON.stringify({
   description: null,
   meal: null,
   items: [],
+});
+
+/**
+ * Second answer for the corrective-retry test. The names pin the Title Case
+ * rules at the payload seam: "PB&J" keeps its brand inner caps, and the
+ * connectors "on" / "of" / "with" stay lowercase mid-name.
+ */
+const MEAL_CASING_JSON = JSON.stringify({
+  result: "ok",
+  message: "A classic PB&J lunch, nice and simple.",
+  mealName: "PB&J with apple slices",
+  description: "A peanut butter and jelly sandwich with a cup of apple slices.",
+  meal: "lunch",
+  items: [
+    {
+      name: "PB&J sandwich on wheat",
+      amount: 1,
+      unit: "sandwich",
+      nutrition: { calories: 380, protein: 12, carbs: 48, fat: 16 },
+    },
+    {
+      name: "slices of red apple",
+      amount: 1,
+      unit: "cup",
+      nutrition: { calories: 60, protein: 0, carbs: 16, fat: 0 },
+    },
+  ],
 });
 
 /** Menu-scan shape, for the back-compat test (image without photoKind). */
@@ -253,9 +281,10 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(reply).toContain("That's a solid plate, lean protein and a real vegetable side.");
     expect(reply).not.toContain("—");
     // One line per VISIBLE item, each with a committed best-guess portion
-    // and the same integer calories the card shows.
-    expect(reply).toContain("Grilled chicken breast: about 6 oz · est. 280 cal");
-    expect(reply).toContain("Roasted sweet potatoes: about 1 cup · est. 180 cal");
+    // and the same integer calories the card shows. Detected names take
+    // the app's Title Case even though the model answered lowercase.
+    expect(reply).toContain("Grilled Chicken Breast: about 6 oz · est. 280 cal");
+    expect(reply).toContain("Roasted Sweet Potatoes: about 1 cup · est. 180 cal");
     expect(reply).toContain(MEAL_CARD_CLOSER);
     // Never ends with a question — the client's fallback yes/no chips must
     // stay hidden (the retake chip rides this turn instead).
@@ -280,6 +309,12 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(card.payload.carbs).toBe(41);
     expect(card.payload.fat).toBe(7);
     expect(card.payload.ingredients).toHaveLength(2);
+    // Ingredient names share the meal name's Title Case, so the chat lines,
+    // the card, and the breakdown screen all agree.
+    expect(card.payload.ingredients.map((i) => i.name)).toEqual([
+      "Grilled Chicken Breast",
+      "Roasted Sweet Potatoes",
+    ]);
     expect(card.payload.ingredients[0].nutrition.calories).toBe(280);
     const itemCals = card.payload.ingredients.reduce((sum, i) => sum + i.nutrition.calories, 0);
     expect(itemCals).toBe(card.payload.calories);
@@ -322,15 +357,26 @@ describe("POST /api/coach/chat with a meal photo", () => {
   });
 
   it("retries correctively when the model refuses to commit to an amount", async () => {
-    modelState.scanQueue = [MEAL_ZERO_AMOUNT_JSON, MEAL_OK_JSON];
+    modelState.scanQueue = [MEAL_ZERO_AMOUNT_JSON, MEAL_CASING_JSON];
     const res = await postChat(mealBody(VALID_IMAGE));
     expect(res.status).toBe(200);
     const events = sseEvents(await res.text());
 
     // The retake answer (amount 0) never reached the patient — the second,
-    // committed answer did.
+    // committed answer did. Its names also pin the Title Case edge rules:
+    // brand inner caps survive, connector words stay lowercase mid-name.
     const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
-    expect(reply).toContain("Grilled chicken breast: about 6 oz · est. 280 cal");
+    expect(reply).toContain("PB&J Sandwich on Wheat: about 1 sandwich · est. 380 cal");
+    expect(reply).toContain("Slices of Red Apple: about 1 cup · est. 60 cal");
+    const card = events.find((e) => e.card !== undefined)?.card as {
+      kind: string;
+      payload: CardPayload;
+    };
+    expect(card.payload.name).toBe("PB&J with Apple Slices");
+    expect(card.payload.ingredients.map((i) => i.name)).toEqual([
+      "PB&J Sandwich on Wheat",
+      "Slices of Red Apple",
+    ]);
     expect(events.at(-1)).toEqual({ done: true });
 
     const visionCalls = modelState.calls.filter((c) => c.hasImage);

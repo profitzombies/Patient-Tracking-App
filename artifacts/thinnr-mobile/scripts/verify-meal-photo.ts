@@ -315,7 +315,8 @@ async function waitUntil(
 const MEAL_CARD_PAYLOAD = {
   id: 'meal_test_1',
   mode: 'meal',
-  // The real server Title Cases created names at payload assembly.
+  // The real server Title Cases created names AND each detected food's
+  // name at payload assembly.
   name: 'Grilled Chicken with Sweet Potatoes',
   description: 'Grilled chicken breast with a side of roasted sweet potatoes.',
   meal: 'dinner',
@@ -329,13 +330,13 @@ const MEAL_CARD_PAYLOAD = {
     {
       amount: 6,
       unit: 'oz',
-      name: 'grilled chicken breast',
+      name: 'Grilled Chicken Breast',
       nutrition: { calories: 280, protein: 50, carbs: 0, fat: 6 },
     },
     {
       amount: 1,
       unit: 'cup',
-      name: 'roasted sweet potatoes',
+      name: 'Roasted Sweet Potatoes',
       nutrition: { calories: 180, protein: 3, carbs: 41, fat: 1 },
     },
   ],
@@ -348,7 +349,7 @@ const MEAL_CLOSER_TEXT =
 
 const MEAL_REPLY_TEXT = [
   "That's a solid plate, lean protein and a real vegetable side.",
-  'Grilled chicken breast: about 6 oz · est. 280 cal\nRoasted sweet potatoes: about 1 cup · est. 180 cal',
+  'Grilled Chicken Breast: about 6 oz · est. 280 cal\nRoasted Sweet Potatoes: about 1 cup · est. 180 cal',
   MEAL_CLOSER_TEXT,
 ].join('\n\n');
 
@@ -366,13 +367,13 @@ const CORRECTED_CARD_PAYLOAD = {
     {
       amount: 7,
       unit: 'oz',
-      name: 'sliced steak',
+      name: 'Sliced Steak',
       nutrition: { calories: 490, protein: 49, carbs: 0, fat: 31 },
     },
     {
       amount: 1,
       unit: 'cup',
-      name: 'sweet potato wedges',
+      name: 'Sweet Potato Wedges',
       nutrition: { calories: 180, protein: 2, carbs: 41, fat: 1 },
     },
   ],
@@ -380,7 +381,7 @@ const CORRECTED_CARD_PAYLOAD = {
 
 const CORRECTED_REPLY_TEXT = [
   'Got the fix, steak and sweet potato wedges it is.',
-  'Sliced steak: about 7 oz · est. 490 cal\nSweet potato wedges: about 1 cup · est. 180 cal',
+  'Sliced Steak: about 7 oz · est. 490 cal\nSweet Potato Wedges: about 1 cup · est. 180 cal',
   MEAL_CLOSER_TEXT,
 ].join('\n\n');
 

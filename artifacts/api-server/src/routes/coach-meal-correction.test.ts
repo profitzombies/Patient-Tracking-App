@@ -172,8 +172,10 @@ describe("POST /api/coach/chat with a typed meal correction", () => {
 
     const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
     expect(reply).toContain("Got the fix, steak and sweet potato wedges it is.");
-    expect(reply).toContain("Sliced steak: about 7 oz · est. 490 cal");
-    expect(reply).toContain("Sweet potato wedges: about 1 cup · est. 180 cal");
+    // Detected names take the app's Title Case even though the model
+    // answered lowercase.
+    expect(reply).toContain("Sliced Steak: about 7 oz · est. 490 cal");
+    expect(reply).toContain("Sweet Potato Wedges: about 1 cup · est. 180 cal");
     expect(reply).toContain(MEAL_CARD_CLOSER);
     // The corrected read never ends with a question mark either.
     expect(reply.trimEnd().endsWith("?")).toBe(false);
@@ -221,7 +223,7 @@ describe("POST /api/coach/chat with a typed meal correction", () => {
 
     // The committed second answer reached the patient.
     const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
-    expect(reply).toContain("Sliced steak: about 7 oz · est. 490 cal");
+    expect(reply).toContain("Sliced Steak: about 7 oz · est. 490 cal");
     expect(events.at(-1)).toEqual({ done: true });
 
     const vision = modelState.calls.filter((c) => c.hasImage);

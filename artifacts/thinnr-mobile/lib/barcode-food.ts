@@ -163,6 +163,14 @@ function finiteNonNegative(value: unknown): value is number {
 /**
  * Defensive parse of the server's food payload. Null on anything malformed
  * so a bad response surfaces as a retryable error, never a broken card.
+ *
+ * The product NAME takes the app-wide Title Case here — the one point a
+ * successful lookup enters the app — so the scan list, the added/duplicate
+ * notices, and the serving-stepper voice-over labels all inherit it and
+ * match what the save path stores. Brand-style inner caps ("PB&J",
+ * "McCann's") pass through untouched. The BRAND line stays exactly as the
+ * source spells it, and the shared facts store is never re-cased — this is
+ * presentation-side normalization only.
  */
 export function parseBarcodeFood(value: unknown): BarcodeFood | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -174,7 +182,7 @@ export function parseBarcodeFood(value: unknown): BarcodeFood | null {
   if (!finiteNonNegative(r.carbs) || !finiteNonNegative(r.fat)) return null;
   const food: BarcodeFood = {
     code: r.code,
-    name: r.name.trim().slice(0, 120),
+    name: toTitleCase(r.name.trim().slice(0, 120)),
     serving: r.serving.trim().slice(0, 80),
     calories: r.calories,
     protein: r.protein,

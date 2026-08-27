@@ -43,18 +43,15 @@ function formatAmount(amount: number): string {
 }
 
 /**
- * One line per visible food: name, committed portion, and the same integer
- * calorie figure the card shows (post-normalization), so the words and the
- * card never disagree.
+ * One line per visible food: the card's name VERBATIM (payload assembly
+ * already Title Cased it — the single casing seam), its committed portion,
+ * and the same integer calorie figure the card shows (post-normalization),
+ * so the words and the card never disagree.
  */
 function itemLine(item: RecipeCardPayload["ingredients"][number]): string {
   const portion = item.unit ? `${formatAmount(item.amount)} ${item.unit}` : formatAmount(item.amount);
   const calories = item.nutrition.calories;
-  return `${capitalize(item.name)}: about ${portion} · est. ${calories} cal`;
-}
-
-function capitalize(text: string): string {
-  return text ? text[0].toUpperCase() + text.slice(1) : text;
+  return `${item.name}: about ${portion} · est. ${calories} cal`;
 }
 
 /**

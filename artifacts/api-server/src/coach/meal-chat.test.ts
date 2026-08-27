@@ -11,9 +11,9 @@
  * asserts they agree on a shared phrase table.
  */
 import { describe, expect, it } from "vitest";
-import { MEAL_CARD_CLOSER, MEAL_TRY_ANOTHER_PHOTO } from "./meal-chat";
+import { formatMealReply, MEAL_CARD_CLOSER, MEAL_TRY_ANOTHER_PHOTO } from "./meal-chat";
 import { isMealCorrectionText } from "./meal-correction";
-import { MEAL_PHOTO_MODEL } from "./meal-photo";
+import { MEAL_PHOTO_MODEL, type MealPhotoAnalysis } from "./meal-photo";
 
 describe("MEAL_PHOTO_MODEL", () => {
   it("is the mid-tier read the user chose — never nano again, never top-tier without sign-off", () => {
@@ -79,6 +79,51 @@ describe("isMealCorrectionText", () => {
   ];
   it.each(notCorrections)("does not read %j as a correction", (text) => {
     expect(isMealCorrectionText(text)).toBe(false);
+  });
+});
+
+describe("formatMealReply", () => {
+  it("prints each card name verbatim — payload assembly is the single casing seam", () => {
+    const analysis: MealPhotoAnalysis = {
+      outcome: "ok",
+      message: "A classic PB&J lunch.",
+      payload: {
+        id: "meal_test_1",
+        mode: "meal",
+        name: "PB&J with Apple Slices",
+        description: "A PB&J with a cup of apple slices.",
+        meal: "lunch",
+        minutes: 0,
+        servings: 1,
+        calories: 440,
+        protein: 12,
+        carbs: 64,
+        fat: 16,
+        ingredients: [
+          {
+            amount: 1,
+            unit: "sandwich",
+            name: "PB&J Sandwich on Wheat",
+            nutrition: { calories: 380, protein: 12, carbs: 48, fat: 16 },
+          },
+          {
+            amount: 1.5,
+            unit: "",
+            name: "Slices of Red Apple",
+            nutrition: { calories: 60, protein: 0, carbs: 16, fat: 0 },
+          },
+        ],
+        steps: [],
+      },
+    };
+    const reply = formatMealReply(analysis);
+    // Already-Title-Cased names come through untouched — no re-casing, no
+    // first-letter mangling of brand spellings like "PB&J", and connector
+    // words ("on", "of", "with") stay exactly as the card carries them.
+    expect(reply).toContain("PB&J Sandwich on Wheat: about 1 sandwich · est. 380 cal");
+    // A unitless amount renders bare, and the name still passes verbatim.
+    expect(reply).toContain("Slices of Red Apple: about 1.5 · est. 60 cal");
+    expect(reply).toContain(MEAL_CARD_CLOSER);
   });
 });
 

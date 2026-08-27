@@ -29,6 +29,11 @@
  *      the no-camera fallback.
  *   6. Gates: the patient-only redirect still guards the route; a denied
  *      camera keeps the typed path (and the list) fully working.
+ *   7. Casing: a found product NAME renders in the app's Title Case
+ *      everywhere the session shows it (row, added/duplicate notices,
+ *      stepper voice-over labels) and in what the confirm saves — with
+ *      brand-style inner caps kept and connector words small — while the
+ *      BRAND line stays exactly as the source spells it.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:barcode-scan
  */
@@ -283,6 +288,28 @@ const TRAIL = {
   carbs: 13,
   fat: 10,
 };
+// Source-cased fixtures: the lookup seam Title Cases the NAME for display
+// and saves, while the BRAND stays exactly as the source spells it.
+const SWEETTARTS = {
+  code: '0079200674033',
+  name: 'mini Chewy mixed fruit',
+  brand: 'SweetTARTS',
+  serving: '32 pieces (33g)',
+  calories: 130,
+  protein: 0,
+  carbs: 30,
+  fat: 1,
+};
+const OATMEAL = {
+  code: '0072463000019',
+  name: "McCann's quick and easy steel cut oatmeal",
+  brand: "McCann's",
+  serving: '40 g',
+  calories: 150,
+  protein: 4,
+  carbs: 27,
+  fat: 2.5,
+};
 const CANCEL_CODE = '5449000000996';
 const MISS_CODE = '9990000000000';
 
@@ -364,6 +391,8 @@ async function main() {
   scriptFound(NUTELLA.code, NUTELLA);
   scriptFound(COLA.code, COLA);
   scriptFound(CHOCO.code, CHOCO);
+  scriptFound(SWEETTARTS.code, SWEETTARTS);
+  scriptFound(OATMEAL.code, OATMEAL);
   responders.set(CHOCO_ALIAS_CODE, () => ({
     status: 200,
     body: { result: 'found', source: 'table', food: CHOCO },
@@ -619,6 +648,87 @@ async function main() {
       'the input reopens for the next session',
       String(byTestID(tree, 'barcode-input')?.props.editable),
       'true',
+    );
+
+    tree.unmount();
+  }
+
+  // ── 2b. Presentation casing: source-cased names render Title Case ────────
+  // The lookup is the ONE normalization seam: the list row, the notices,
+  // the stepper voice-over labels, and the eventual saves all inherit the
+  // Title Case name from it, while the brand line stays source-verbatim.
+  routerState.params = { date: TODAY_KEY, meal: 'breakfast' };
+  {
+    const tree = await renderScreen();
+    await waitUntil('the casing session renders', () => present(tree, 'barcode-input'));
+
+    await typeText(tree, 'barcode-input', SWEETTARTS.code);
+    await tap(tree, 'barcode-submit');
+    await waitUntil(
+      'the source-cased product lands on the list',
+      () => present(tree, `barcode-item-${SWEETTARTS.code}`),
+    );
+    const text = screenText(tree);
+    assert('the scan list shows the Title Case name', text.includes('Mini Chewy Mixed Fruit'));
+    assert('the source casing never renders', !text.includes('mini Chewy mixed fruit'));
+    assert('the brand line stays exactly as the source spells it', text.includes('SweetTARTS'));
+    assert(
+      'the added notice carries the Title Case name',
+      text.includes('Mini Chewy Mixed Fruit is on your list.'),
+    );
+    assertEqual(
+      'the plus stepper voice-over speaks the Title Case name',
+      String(byTestID(tree, `barcode-item-plus-${SWEETTARTS.code}`)?.props.accessibilityLabel),
+      'More servings of Mini Chewy Mixed Fruit',
+    );
+    assertEqual(
+      'the minus stepper voice-over matches',
+      String(byTestID(tree, `barcode-item-minus-${SWEETTARTS.code}`)?.props.accessibilityLabel),
+      'Fewer servings of Mini Chewy Mixed Fruit',
+    );
+    assertEqual(
+      'the quantity voice-over matches',
+      String(byTestID(tree, `barcode-item-qty-${SWEETTARTS.code}`)?.props.accessibilityLabel),
+      '1 serving of Mini Chewy Mixed Fruit',
+    );
+
+    // The duplicate notice inherits the same cased name.
+    await typeText(tree, 'barcode-input', SWEETTARTS.code);
+    await tap(tree, 'barcode-submit');
+    assert(
+      'the duplicate notice carries the Title Case name',
+      screenText(tree).includes('Mini Chewy Mixed Fruit is already on your list.'),
+    );
+
+    // Brand-style inner caps and connector words INSIDE a name survive.
+    await typeText(tree, 'barcode-input', OATMEAL.code);
+    await tap(tree, 'barcode-submit');
+    await waitUntil(
+      'the inner-caps product lands on the list',
+      () => present(tree, `barcode-item-${OATMEAL.code}`),
+    );
+    assert(
+      'inner-cap spellings keep their capitals and connectors stay small',
+      screenText(tree).includes("McCann's Quick and Easy Steel Cut Oatmeal"),
+    );
+
+    // The confirm saves and logs the SAME cased names the list showed.
+    await tap(tree, 'barcode-add-all');
+    await waitUntil('the casing session logs', () => present(tree, 'barcode-added'));
+    const savedSweet = patient().customFoods.find(food => food.name === 'Mini Chewy Mixed Fruit');
+    assert('My Foods keeps the Title Case name', savedSweet !== undefined);
+    assertEqual('the saved brand stays verbatim', savedSweet?.brand ?? '', 'SweetTARTS');
+    assert(
+      'My Foods keeps the inner-cap name too',
+      patient().customFoods.some(food => food.name === "McCann's Quick and Easy Steel Cut Oatmeal"),
+    );
+    const breakfastNames = patient()
+      .entriesForDate(TODAY_KEY)
+      .filter(entry => entry.meal === 'breakfast')
+      .map(entry => entry.name);
+    assert(
+      'the diary entry matches what the scan screen showed',
+      breakfastNames.includes('Mini Chewy Mixed Fruit'),
     );
 
     tree.unmount();

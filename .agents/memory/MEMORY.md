@@ -64,3 +64,4 @@
 - [Off-plan meal makeover](meal-makeover-flow.md) — approval = citation check (bad cite = off-plan, no retry); verdicts chat-only; chip labels are a wire contract shared with correction-guard copies.
 - [Food name casing seams](food-name-casing-seams.md) — inbound food names Title Case at ONE seam per source (client parse / server payload assembly); brands, menu wording, and the facts store stay verbatim.
 - [THINNR brand-spelling guard](brand-spelling-guard.md) — one shared guard (capitalized-only prose + transcript-only spoken rewrite); new AI surfaces inherit via the cleaning choke point; retrofit stored rows when adding output guards.
+- [Merge splice damage](merge-splice-repair.md) — merge storms scramble hot files (dup consts, swapped branch bodies, post-export code); rebuild from the merged tasks' tests + pre-merge rev, never blind-revert.

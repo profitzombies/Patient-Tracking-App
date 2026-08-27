@@ -9,6 +9,13 @@ import { findProduct, matchProducts, productCardPayload } from "../coach/product
 import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
 import { generateLabelChatTurn } from "../coach/label-chat";
+import {
+  MEAL_KEEP_REPLY,
+  detectMealMakeoverFollowUp,
+  detectMealVersionChoice,
+  generateMealChatTurn,
+  generateMealMakeoverTurn,
+} from "../coach/meal-chat";
 import { isMealCorrectionText } from "../coach/meal-correction";
 import { buildMealSlotContext } from "../coach/meal-slot";
 import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
@@ -306,7 +313,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         writeStage("reading_meal");
         // analysisMs is the read's full wall span: from its actual start
         // (which overlaps the classify when the read was speculative).
-        const analysisStartedAt = Date.now();
+        const analysisStartedAt = speculationStartedAt ?? Date.now();
         const mealTurn = speculativeMeal
           ? await speculativeMeal
           : await generateMealChatTurn({
@@ -318,6 +325,55 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               signal: abort.signal,
               log: req.log,
             });
+        photoTimings.analysisMs = Date.now() - analysisStartedAt;
+        if (!abort.signal.aborted) {
+          photoTimings.firstTokenMs = Date.now() - startedAt;
+          res.write(`data: ${JSON.stringify({ content: mealTurn.reply })}\n\n`);
+          if (mealTurn.card) {
+            res.write(`data: ${JSON.stringify({ card: mealTurn.card })}\n\n`);
+          }
+          if (mealTurn.offerMakeover) {
+            const yesNo = firstQuickReplySet(["yes_no"]);
+            if (yesNo) {
+              res.write(`data: ${JSON.stringify({ quickReplies: yesNo.labels })}\n\n`);
+            }
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            {
+              pipeline,
+              elapsedMs: Date.now() - startedAt,
+              outcome: mealTurn.outcome,
+              items: mealTurn.itemCount,
+              corrected: mealTurn.corrected,
+              offPlan: mealTurn.offPlanCount,
+              ...photoTimings,
+              usage: photoUsage.snapshot(),
+            },
+            "coach meal photo turn completed",
+          );
+        }
+        return;
+      }
+
+      // ── Nutrition label turn ────────────────────────────────────────────
+      // A packaged food's Nutrition Facts panel: the label reader transcribes
+      // the printed values (never estimates) and the reply reads them back,
+      // then asks what the product is called. The validated read rides the
+      // dedicated `labelDraft` event — no card here, because the client holds
+      // the draft through the name conversation and builds the food card
+      // locally once the name settles. Old clients ignore the extra event and
+      // simply see the text. Unreadable and not-a-label photos are warm
+      // conversational outcomes, never errors.
+      if (image !== undefined && resolvedPhotoKind === "label") {
+        pipeline = "label";
+        // The speculative plate read guessed wrong; cut it loose before the
+        // label read runs so its upstream slot frees immediately.
+        if (speculativeMeal) {
+          speculationCancel.abort();
+          photoTimings.speculationDiscarded = true;
+        }
+        writeStage("reading_label");
         const analysisStartedAt = Date.now();
         const labelTurn = await generateLabelChatTurn({
           image,
@@ -410,7 +466,8 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         pipeline = "menu-recipe";
         req.log.info({}, "coach menu recipe follow-up turn");
         const result = await generateRecipeTurn({
-          mode: intent,
+          mode: "recipe",
+          inspiration: "menu",
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
@@ -418,11 +475,88 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           signal: abort.signal,
           log: req.log,
         });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: result.reply })}\n\n`);
+          if (result.card) {
+            res.write(`data: ${JSON.stringify({ card: result.card })}\n\n`);
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { pipeline, elapsedMs: Date.now() - startedAt, card: result.card !== null },
+            "coach chat turn completed",
+          );
+        }
+        return;
+      }
 
+      // ── Meal makeover follow-up ─────────────────────────────────────────
+      // A one-tap yes sitting directly under the callout's makeover offer:
+      // one grounded text turn describes the concrete approved swaps for
+      // that exact plate (the callout exchange rides as replayed history, so
+      // the photo is never re-sent), then the server-authored version
+      // question closes the reply and the dedicated two-label chip set rides
+      // along. An empty model answer degrades to the canned decline with NO
+      // version chips, so the choice detector can never fire against it.
+      // Anything richer than a bare yes falls through to plain chat, which
+      // reads the same history anyway.
+      if (detectMealMakeoverFollowUp(history)) {
+        pipeline = "meal-makeover";
+        req.log.info({}, "coach meal makeover follow-up turn");
         const makeover = await generateMealMakeoverTurn({
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: makeover.reply })}\n\n`);
+          if (makeover.askVersion) {
+            res.write(
+              `data: ${JSON.stringify({ quickReplies: MEAL_VERSION_REPLY_SET.labels })}\n\n`,
+            );
+          }
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { pipeline, elapsedMs: Date.now() - startedAt, askVersion: makeover.askVersion },
+            "coach meal makeover turn completed",
+          );
+        }
+        return;
+      }
+
+      // ── Meal version choice ─────────────────────────────────────────────
+      // One-tap answer at the version question. "The approved version"
+      // routes into the recipe pipeline with the meal-makeover inspiration
+      // (cravings-strength approved-only enforcement with the corrective
+      // retry) and delivers a saveable, loggable recipe card. "Keep it as
+      // is" is a canned acknowledgment pointing back at the meal card that
+      // is already on screen — zero model calls. Anything richer falls
+      // through to plain chat.
+      const versionChoice = detectMealVersionChoice(history);
+      if (versionChoice === "keep") {
+        pipeline = "meal-keep";
+        req.log.info({}, "coach meal version keep turn");
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: MEAL_KEEP_REPLY })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info(
+            { pipeline, elapsedMs: Date.now() - startedAt },
+            "coach chat turn completed",
+          );
+        }
+        return;
+      }
+      if (versionChoice === "approved") {
+        pipeline = "meal-approved-recipe";
+        req.log.info({}, "coach meal approved version turn");
+        const result = await generateRecipeTurn({
+          mode: "recipe",
+          inspiration: "meal-makeover",
+          history: modelHistory,
+          compartments: selection.compartments,
+          patient: patientContext,
+          slot: slotContext,
           signal: abort.signal,
           log: req.log,
         });
@@ -454,14 +588,6 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           compartments: selection.compartments,
           patient: patientContext,
           slot: slotContext,
-          signal: abort.signal,
-          log: req.log,
-        });
-
-        const makeover = await generateMealMakeoverTurn({
-          history: modelHistory,
-          compartments: selection.compartments,
-          patient: patientContext,
           signal: abort.signal,
           log: req.log,
         });
@@ -620,5 +746,3 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
 });
 
 export default router;
-
-      const versionChoice = detectMealVersionChoice(history);

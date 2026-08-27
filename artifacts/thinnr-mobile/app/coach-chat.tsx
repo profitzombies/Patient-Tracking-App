@@ -54,6 +54,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { CoachCardSlot } from "@/components/coach/CoachCardSlot";
 import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
+import type { CoachStage } from "@/lib/coach-api";
 // Side-effect imports: register the "product" and "recipe" card renderers
 // into the card slot.
 import "@/components/coach/ProductSuggestionCard";
@@ -880,9 +881,22 @@ function splitIntoBlocks(text: string): string[] {
     .filter((block) => block.length > 0);
 }
 
+/**
+ * Waiting-bubble captions for the photo-turn stage narration. Coach voice:
+ * warm, plain, no dashes, never a question. "received" appears the instant
+ * the photo leaves the device (set locally, before the stream even opens);
+ * the reading lines land once the server names the pipeline.
+ */
+const STAGE_LINES: Record<CoachStage, string> = {
+  received: "Got your photo, taking a look…",
+  reading_meal: "Sizing up your plate…",
+  reading_menu: "Reading the menu…",
+  reading_label: "Reading the label…",
+};
+
 function MessageBubble({ message }: { message: CoachMessage }) {
   const colors = useColors();
-  const { isStreaming, retry } = useCoachChat();
+  const { isStreaming, pendingStage, retry } = useCoachChat();
   const isUser = message.role === "user";
 
   if (isUser) {
@@ -971,7 +985,19 @@ function MessageBubble({ message }: { message: CoachMessage }) {
       ]}
     >
       {isThinking ? (
-        <ThinkingIndicator color={colors.cobalt} />
+        // While the reply is still silent, a photo turn narrates its wait:
+        // the pulsing marks stay, and the current stage captions them. Text
+        // turns keep the bare indicator (pendingStage is null there). No
+        // live region — the stages are glanceable progress, not something
+        // to interrupt a screen reader with mid-wait.
+        <View style={styles.thinkingStack}>
+          <ThinkingIndicator color={colors.cobalt} />
+          {pendingStage ? (
+            <Text style={[styles.stageLabel, { color: colors.subtleText }]}>
+              {STAGE_LINES[pendingStage]}
+            </Text>
+          ) : null}
+        </View>
       ) : (
         <View style={styles.blockStack}>
           {blocks.map((block, index) => (
@@ -1196,6 +1222,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     fontFamily: "Inter_700Bold",
     marginTop: 7,
+  },
+  thinkingStack: {
+    gap: 8,
+  },
+  stageLabel: {
+    fontSize: 12.5,
+    fontFamily: "Inter_500Medium",
+    letterSpacing: 0.1,
   },
   retryBtn: {
     flexDirection: "row",

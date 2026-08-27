@@ -12,8 +12,9 @@
  *
  * Budgets: this file makes 8 chat requests (burst 10) of which 3 reach the
  * vision model (menu-scan burst 6) — no rate-limit interference. Kindless
- * images additionally make one photo-triage model call first (answered by
- * the mock's triageJson); triage rides the same request slot, not a new one.
+ * images additionally make a photo-triage model call plus the speculative
+ * meal read it launches in parallel (cancelled when triage says "menu");
+ * both ride the same request slot, not new ones.
  */
 import { afterEach, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
@@ -185,12 +186,23 @@ describe("POST /api/coach/chat with a menu photo", () => {
     expect(text).toContain('"quickReplies":["Yes, please","No thanks"]');
     expect(text).not.toContain('"card"');
     expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
-    // The kindless photo was triaged first, then reached the scan model —
-    // both as image-carrying vision calls — and the resolved route was
-    // announced so a client retry can name it explicitly.
+    // The kindless photo was triaged first, then reached the scan model,
+    // and the resolved route was announced so a client retry can name it
+    // explicitly. Stage narration brackets the work: received the moment
+    // the stream opens, the menu line only after the route settles.
     expect(text).toContain('data: {"photoKind":"menu"}');
+    expect(text).toContain('data: {"stage":"received"}');
+    expect(text.indexOf('data: {"stage":"received"}')).toBeLessThan(
+      text.indexOf('data: {"photoKind":"menu"}'),
+    );
+    expect(text.indexOf('data: {"photoKind":"menu"}')).toBeLessThan(
+      text.indexOf('data: {"stage":"reading_menu"}'),
+    );
     expect(modelState.calls[0]?.system).toContain("photo triage");
-    expect(modelState.calls.filter((c) => c.hasImage && !c.stream)).toHaveLength(2);
+    // THREE vision calls: triage, the speculative meal read launched
+    // alongside it (cancelled unawaited on the "menu" verdict), and the
+    // menu scan that actually answered.
+    expect(modelState.calls.filter((c) => c.hasImage && !c.stream)).toHaveLength(3);
   });
 
   it("treats not-a-menu as a warm conversational outcome, not an error", async () => {

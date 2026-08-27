@@ -12,7 +12,12 @@
  * stamp the photo turn and a retry names the same route explicitly. A
  * nutrition-label turn additionally carries one `data: {"labelDraft": {...}}`
  * event — the validated transcription the chat context holds through the
- * follow-up name conversation (see lib/label-food.ts).
+ * follow-up name conversation (see lib/label-food.ts). Photo turns also
+ * narrate staged progress before any reply text: `data: {"stage":
+ * "received"}` the moment the stream opens, then one reading stage once the
+ * pipeline is known — so the waiting bubble can say what is happening
+ * instead of sitting silent. Stages are cosmetic; unknown values from newer
+ * servers are dropped here.
  *
  * Web uses the browser's streaming fetch; native uses expo/fetch, which
  * supports ReadableStream bodies on device. If a body stream is unavailable,
@@ -81,6 +86,9 @@ export interface CoachCardEvent {
   payload: unknown;
 }
 
+/** Server-narrated photo-turn progress stages, in arrival order. */
+export type CoachStage = 'received' | 'reading_meal' | 'reading_menu' | 'reading_label';
+
 export interface CoachStreamCallbacks {
   onDelta: (text: string) => void;
   onDone: () => void;
@@ -111,6 +119,12 @@ export interface CoachStreamCallbacks {
    * malformed draft drops the flow there instead of half-opening it.
    */
   onLabelDraft?: (draft: unknown) => void;
+  /**
+   * Staged progress narration for a photo turn, arriving before any reply
+   * text. Purely cosmetic — it relabels the waiting bubble; dropping every
+   * stage event changes nothing but the wording of the wait.
+   */
+  onStage?: (stage: CoachStage) => void;
 }
 
 export interface CoachStreamOptions {
@@ -163,6 +177,7 @@ function drainSseBuffer(
         quickReplies?: unknown;
         photoKind?: unknown;
         labelDraft?: unknown;
+        stage?: unknown;
         done?: boolean;
         error?: string;
       };
@@ -185,6 +200,15 @@ function drainSseBuffer(
         payload.photoKind === 'label'
       ) {
         callbacks.onPhotoKind?.(payload.photoKind);
+      } else if (
+        // Allow-list the known stages so a future server vocabulary can grow
+        // without old clients showing raw identifiers.
+        payload.stage === 'received' ||
+        payload.stage === 'reading_meal' ||
+        payload.stage === 'reading_menu' ||
+        payload.stage === 'reading_label'
+      ) {
+        callbacks.onStage?.(payload.stage);
       } else if (payload.labelDraft !== undefined) {
         callbacks.onLabelDraft?.(payload.labelDraft);
       } else if (payload.error) {

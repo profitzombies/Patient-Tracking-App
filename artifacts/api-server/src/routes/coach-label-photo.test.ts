@@ -17,8 +17,9 @@
  *
  * Budgets: this file makes 6 chat requests (burst 10), all carrying an
  * image (menu-scan/vision burst 6) — no rate-limit interference. The triage
- * answer is a model call inside the same request, not an extra request
- * slot.
+ * answer and the speculative meal read a kindless photo launches alongside
+ * it (cancelled here when triage says "label") are model calls inside the
+ * same request, not extra request slots.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
@@ -210,6 +211,12 @@ describe("POST /api/coach/chat with a nutrition label photo", () => {
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const events = sseEvents(await res.text());
 
+    // Staged progress: the photo is acknowledged the instant the stream
+    // opens; the explicit photoKind names its pipeline before any model
+    // work, so the app can narrate the wait.
+    expect(events[0]).toEqual({ stage: "received" });
+    expect(events[1]).toEqual({ stage: "reading_label" });
+
     const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
     // The fixture's coach message carries an em dash; the pipeline's
     // no-dash cleaning must rewrite it before it reaches the patient.
@@ -354,11 +361,21 @@ describe("POST /api/coach/chat with a nutrition label photo", () => {
     expect(draftOf(events)).toBeDefined();
     expect(events.at(-1)).toEqual({ done: true });
 
-    // Triage first, then the label read.
+    // Stage narration: received on open, the label line only after the
+    // route announcement settles it.
+    expect(events[0]).toEqual({ stage: "received" });
+    const kindIdx = events.findIndex((e) => e.photoKind !== undefined);
+    const stageIdx = events.findIndex((e) => e.stage === "reading_label");
+    expect(stageIdx).toBeGreaterThan(kindIdx);
+
+    // THREE vision calls: the triage, the speculative meal read launched
+    // alongside it (cancelled unawaited on the "label" verdict), then the
+    // label read that actually answered.
     const vision = modelState.calls.filter((c) => c.hasImage);
-    expect(vision).toHaveLength(2);
+    expect(vision).toHaveLength(3);
     expect(vision[0].system).toContain("photo triage");
-    expect(vision[1].system).toContain("label reader");
+    expect(vision[1].system).toContain("ALWAYS commit to one specific portion");
+    expect(vision[2].system).toContain("label reader");
   });
 });
 

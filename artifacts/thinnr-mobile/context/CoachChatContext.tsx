@@ -35,6 +35,7 @@ import {
   streamCoachChat,
   type CoachChatRequestBody,
   type CoachRequestMessage,
+  type CoachStage,
 } from '@/lib/coach-api';
 import { parseRecipeCardPayload, type AiRecipeSuggestion } from '@/lib/ai-recipe';
 import { parseLabelDraft, type LabelDraft, type LabelFoodCardPayload } from '@/lib/label-food';
@@ -148,6 +149,15 @@ export interface CoachMessage {
 interface CoachChatContextValue {
   messages: CoachMessage[];
   isStreaming: boolean;
+  /**
+   * Progress narration for the in-flight photo turn (null on text turns and
+   * between exchanges). Set to "received" the instant a photo send starts —
+   * the acknowledgment must not wait on the network — then upgraded by the
+   * server's stage events once the pipeline is known; cleared on finalize,
+   * error, and stop. The chat screen captions the waiting bubble with it
+   * while no reply text is on screen yet.
+   */
+  pendingStage: CoachStage | null;
   send: (text: string) => void;
   /**
    * Sends a photo as its own user turn: the bubble shows the photo and the
@@ -436,6 +446,10 @@ export function CoachChatProvider({
   // once per app session, matching the session-only history design.
   const [messages, setMessages] = useState<CoachMessage[]>(() => [buildGreetingMessage()]);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Photo-turn narration for the waiting bubble (see the interface note).
+  // Plain state, not part of the reveal bookkeeping: stages only ever
+  // relabel the wait, so losing one is cosmetic by design.
+  const [pendingStage, setPendingStage] = useState<CoachStage | null>(null);
   const idRef = useRef(0);
   // Session registry of AI recipe suggestions keyed by suggestion id — the
   // preview screen reads full details from here (route params carry only the
@@ -505,6 +519,7 @@ export function CoachChatProvider({
     // ask text is fully on screen.
     if (labelDraft) updateLabelFlow({ phase: 'awaiting-name', draft: labelDraft });
     inFlightRef.current = false;
+    setPendingStage(null);
     setIsStreaming(false);
   }, [updateLabelFlow]);
 
@@ -643,6 +658,13 @@ export function CoachChatProvider({
               ),
             );
           },
+          onStage: stage => {
+            if (isStale()) return;
+            // Narration only: relabels the waiting bubble. Once reply text
+            // is on screen the caption is not rendered at all, so a late
+            // stage event cannot disturb the reveal.
+            setPendingStage(stage);
+          },
           onDone: () => {
             if (isStale()) return;
             reveal.networkDone = true;
@@ -669,6 +691,7 @@ export function CoachChatProvider({
               ),
             );
             inFlightRef.current = false;
+            setPendingStage(null);
             setIsStreaming(false);
           },
         },
@@ -816,6 +839,9 @@ export function CoachChatProvider({
         };
 
         setIsStreaming(true);
+        // The re-attached photo makes this a photo turn: acknowledge it
+        // locally before the stream even opens.
+        setPendingStage('received');
         setMessages(prev => [
           ...prev,
           userMessage,
@@ -859,6 +885,8 @@ export function CoachChatProvider({
         .map(toRequestMessage);
 
       setIsStreaming(true);
+      // Text turns carry no narration; clear any leftover from a photo turn.
+      setPendingStage(null);
       setMessages(prev => [
         ...prev,
         userMessage,
@@ -935,6 +963,10 @@ export function CoachChatProvider({
       };
 
       setIsStreaming(true);
+      // Instant acknowledgment: the waiting bubble says the photo arrived
+      // before the request has even left the device. The server repeats the
+      // same stage as its first event, so a slow connection changes nothing.
+      setPendingStage('received');
       setMessages(prev => {
         // A photo-opened session starts with the photo, not the canned
         // hello: when nothing but the seeded greeting is on screen yet, hide
@@ -1026,6 +1058,9 @@ export function CoachChatProvider({
       const assistantId = nextId();
 
       setIsStreaming(true);
+      // A photo retry is a photo turn again: acknowledge immediately. Text
+      // retries clear any stale narration instead.
+      setPendingStage(origin.photo ? 'received' : null);
       // Swap the error bubble for a fresh streaming bubble in place; it keeps
       // pointing at the same user message so a failed retry can retry again.
       setMessages(prev =>
@@ -1106,6 +1141,7 @@ export function CoachChatProvider({
       }),
     );
     inFlightRef.current = false;
+    setPendingStage(null);
     setIsStreaming(false);
   }, [updateLabelFlow]);
 
@@ -1171,6 +1207,7 @@ export function CoachChatProvider({
     () => ({
       messages,
       isStreaming,
+      pendingStage,
       send,
       sendPhoto,
       retry,
@@ -1184,6 +1221,7 @@ export function CoachChatProvider({
     [
       messages,
       isStreaming,
+      pendingStage,
       send,
       sendPhoto,
       retry,

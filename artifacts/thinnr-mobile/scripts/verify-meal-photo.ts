@@ -82,6 +82,12 @@
  *      the camera's CONTINUOUS torch — native back camera only, lit the
  *      moment it's pressed, its state announced, surviving a flip-and-back,
  *      and always unlit again when a fresh surface opens.
+ *  13. Photo-turn stage narration: sendPhoto (and a photo retry, and a
+ *      typed correction that re-attaches the photo) flips pendingStage to
+ *      "received" synchronously — the acknowledgment never waits on the
+ *      network — server stage events relabel it (unknown stage values are
+ *      dropped by the parser), text turns carry none, and finalize, error,
+ *      and stop all clear it.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:meal-photo
  */
@@ -526,6 +532,13 @@ async function main() {
   assertEqual('the meal turn shows the meal replay text', mealTurn.text, MEAL_PHOTO_MESSAGE_TEXT);
   assertEqual('the meal turn keeps the photo in client state', mealTurn.photo?.uri ?? '', MEAL_PHOTO.uri);
   assertEqual('the meal turn keeps the photo kind', mealTurn.photo?.kind ?? '', 'meal');
+  // Staged narration: the acknowledgment is LOCAL — pendingStage flips to
+  // "received" the moment sendPhoto runs, before any server event arrives.
+  assertEqual(
+    'a photo send acknowledges itself instantly',
+    chat.pendingStage ?? '',
+    'received',
+  );
 
   const s1 = takeStream('meal turn');
   {
@@ -552,6 +565,15 @@ async function main() {
   }
 
   await actSettle(() => {
+    s1.emit({ stage: 'received' });
+    s1.emit({ stage: 'reading_meal' });
+  });
+  assertEqual(
+    "the server's reading stage relabels the wait",
+    chat.pendingStage ?? '',
+    'reading_meal',
+  );
+  await actSettle(() => {
     s1.emit({ content: MEAL_REPLY_TEXT });
     s1.emit({ card: { kind: 'recipe', payload: MEAL_CARD_PAYLOAD } });
     s1.emit({ done: true });
@@ -562,6 +584,7 @@ async function main() {
     () => tailMessage().status === 'done' && tailMessage().text === MEAL_REPLY_TEXT,
   );
   assert('the meal reply carries the card', tailMessage().card?.kind === 'recipe');
+  assert('the narration clears when the reply finalizes', chat.pendingStage === null);
 
   {
     const suggestion = chat.getRecipeSuggestion('meal_test_1');
@@ -584,6 +607,7 @@ async function main() {
   await actSettle(() => {
     chat.send('Thanks, that looks right.');
   });
+  assert('a plain text turn carries no stage narration', chat.pendingStage === null);
   const s2 = takeStream('meal follow-up');
   {
     const msgs = s2.requestBody.messages ?? [];
@@ -623,6 +647,7 @@ async function main() {
     s3.close();
   });
   await waitUntil('the failed meal turn shows the error bubble', () => tailMessage().status === 'error');
+  assert('an errored turn clears the stage narration', chat.pendingStage === null);
   assert(
     'a failed meal reply still offers the retake chip',
     offersMealPhotoRetake(chat.messages, chat.isStreaming) === true,
@@ -632,6 +657,11 @@ async function main() {
   await actSettle(() => {
     chat.retry(errorId);
   });
+  assertEqual(
+    'a photo retry acknowledges instantly again',
+    chat.pendingStage ?? '',
+    'received',
+  );
   const s4 = takeStream('meal retry');
   {
     const msgs = s4.requestBody.messages ?? [];
@@ -666,8 +696,24 @@ async function main() {
     assertEqual('the kindless request tail carries the image', kindlessTail?.image ?? '', MENU_PHOTO.uri);
     assert('the kindless request tail carries NO photoKind', kindlessTail?.photoKind === undefined);
   }
+  assertEqual(
+    'a kindless photo send also acknowledges instantly',
+    chat.pendingStage ?? '',
+    'received',
+  );
   await actSettle(() => {
+    s5.emit({ stage: 'received' });
     s5.emit({ photoKind: 'menu' });
+    s5.emit({ stage: 'reading_menu' });
+    // Vocabulary from a NEWER server must fall on the floor, not render.
+    s5.emit({ stage: 'polishing_the_menu' });
+  });
+  assertEqual(
+    "the server's menu stage relabels the wait (unknown stages dropped)",
+    chat.pendingStage ?? '',
+    'reading_menu',
+  );
+  await actSettle(() => {
     s5.emit({ content: 'The grill section is your friend here.' });
     s5.emit({ done: true });
     s5.close();
@@ -911,6 +957,11 @@ async function main() {
     'the re-used photo keeps the pinned slot',
     correctionBubble.photo?.mealSlot ?? '',
     'dinner',
+  );
+  assertEqual(
+    'a typed correction re-attaching the photo acknowledges instantly',
+    chat.pendingStage ?? '',
+    'received',
   );
 
   const c2 = takeStream('correction turn');
@@ -1446,6 +1497,7 @@ async function main() {
     const stoppedTail = tailMessage();
     assert('stop finalizes the partial bubble', stoppedTail.status === 'done' && stoppedTail.stopped === true);
   }
+  assert('stop clears the stage narration', chat.pendingStage === null);
   assertEqual(
     'stop with a kept bubble still opens the name conversation',
     chat.labelFlow?.phase ?? '',

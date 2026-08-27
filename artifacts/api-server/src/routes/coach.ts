@@ -169,18 +169,92 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // (whose not-food outcome reads junk photos warmly). The keepalive
       // above is already running, so the extra call never leaves the stream
       // silent.
-      const resolvedPhotoKind =
-        image === undefined
-          ? undefined
-          : latest.photoKind ??
-            (await resolvePhotoKind({ image, signal: abort.signal, log: req.log }));
+      //
+      // Photo turns are the chat's slowest, so they narrate and measure
+      // themselves. The stream gets {stage:"received"} the moment it opens
+      // and {stage:"reading_meal"|"reading_menu"|"reading_label"} once the
+      // pipeline is known, feeding the app's staged progress lines (old
+      // clients skip unknown data events, so the extra events are
+      // backward-safe). The completion log gets the per-stage spans
+      // (classifyMs, analysisMs, firstTokenMs) so a slow turn names its slow
+      // stage — durations and outcomes only, never the photo itself.
+      const photoTimings: {
+        classifyMs?: number;
+        analysisMs?: number;
+        firstTokenMs?: number;
+        speculated?: boolean;
+        speculationDiscarded?: boolean;
+      } = {};
+      const writeStage = (
+        stage: "received" | "reading_meal" | "reading_menu" | "reading_label",
+      ) => {
+        if (!abort.signal.aborted && !res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ stage })}\n\n`);
+        }
+      };
+      if (image !== undefined) {
+        writeStage("received");
+      }
+
+      // A typed fix for a misread plate: the client re-attached the SAME
+      // held photo and the patient's words ride as the message text. Their
+      // naming becomes ground truth for what the foods are (portions still
+      // come from the photo). The fixed photo replay lines never read as
+      // corrections, so plain sends, retakes, and retries stay fresh,
+      // uncorrected reads. Derived up here because the speculative read
+      // below needs it before the pipeline is even known.
+      const mealCorrection =
+        image !== undefined && isMealCorrectionText(latest.content) ? latest.content : undefined;
+
+      // A kindless chat-camera photo is overwhelmingly a plate, yet the
+      // triage that confirms it used to cost a full serial round trip before
+      // the real read even started. Now the meal analysis launches alongside
+      // the triage and the router merely decides whether to KEEP it: "meal"
+      // awaits the already-running read, "menu"/"label" cancel it and run
+      // their own scan exactly as before. One discarded nano-priced call on
+      // the rare menu/label detour buys the common case its head start.
+      let speculativeMeal: ReturnType<typeof generateMealChatTurn> | undefined;
+      let speculationStartedAt: number | undefined;
+      const speculationCancel = new AbortController();
+      let resolvedPhotoKind = image === undefined ? undefined : latest.photoKind;
       if (image !== undefined && latest.photoKind === undefined) {
-        req.log.info({ resolvedPhotoKind }, "coach chat photo triaged");
+        const classifyStartedAt = Date.now();
+        // Triage starts first so its model call is provably the first on the
+        // wire (logs and route tests key off that order), then the
+        // speculative read follows in the same tick.
+        const triage = resolvePhotoKind({ image, signal: abort.signal, log: req.log });
+        speculationStartedAt = Date.now();
+        speculativeMeal = generateMealChatTurn({
+          image,
+          patient: patientContext,
+          slot: slotContext,
+          correction: mealCorrection,
+          signal: AbortSignal.any([abort.signal, speculationCancel.signal]),
+          log: req.log,
+        });
+        photoTimings.speculated = true;
+        // The discarded path must never surface as an unhandled rejection;
+        // the kept path awaits the SAME promise below and still sees real
+        // errors.
+        speculativeMeal.catch(() => {});
+        try {
+          resolvedPhotoKind = await triage;
+        } catch (error) {
+          // Triage only throws on an upstream timeout — the turn's honest
+          // failure. Reel the speculative read in with it.
+          speculationCancel.abort();
+          throw error;
+        }
+        photoTimings.classifyMs = Date.now() - classifyStartedAt;
+        req.log.info(
+          { resolvedPhotoKind, classifyMs: photoTimings.classifyMs },
+          "coach chat photo triaged",
+        );
         // Name the route on the wire: the client stamps it onto the photo
         // turn so a retry of this exact turn sends photoKind explicitly
         // instead of triaging the same photo again (a second triage is a
         // second model call that could pick the other pipeline).
-        if (!abort.signal.aborted && resolvedPhotoKind !== undefined) {
+        if (!abort.signal.aborted) {
           res.write(`data: ${JSON.stringify({ photoKind: resolvedPhotoKind })}\n\n`);
         }
       }
@@ -194,22 +268,23 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // conversational outcomes, never errors.
       if (image !== undefined && resolvedPhotoKind === "meal") {
         pipeline = "meal";
-        // A typed fix for a misread plate: the client re-attached the SAME
-        // held photo and the patient's words ride as the message text. Their
-        // naming becomes ground truth for what the foods are (portions still
-        // come from the photo). The fixed photo replay lines never read as
-        // corrections, so plain sends, retakes, and retries stay fresh,
-        // uncorrected reads.
-        const correction = isMealCorrectionText(latest.content) ? latest.content : undefined;
-        const mealTurn = await generateMealChatTurn({
-          image,
-          patient: patientContext,
-          slot: slotContext,
-          correction,
-          signal: abort.signal,
-          log: req.log,
-        });
+        writeStage("reading_meal");
+        // analysisMs is the read's full wall span: from its actual start
+        // (which overlaps the classify when the read was speculative).
+        const analysisStartedAt = speculationStartedAt ?? Date.now();
+        const mealTurn = speculativeMeal
+          ? await speculativeMeal
+          : await generateMealChatTurn({
+              image,
+              patient: patientContext,
+              slot: slotContext,
+              correction: mealCorrection,
+              signal: abort.signal,
+              log: req.log,
+            });
+        photoTimings.analysisMs = Date.now() - analysisStartedAt;
         if (!abort.signal.aborted) {
+          photoTimings.firstTokenMs = Date.now() - startedAt;
           res.write(`data: ${JSON.stringify({ content: mealTurn.reply })}\n\n`);
           if (mealTurn.card) {
             res.write(`data: ${JSON.stringify({ card: mealTurn.card })}\n\n`);
@@ -222,6 +297,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               outcome: mealTurn.outcome,
               items: mealTurn.itemCount,
               corrected: mealTurn.corrected,
+              ...photoTimings,
             },
             "coach meal photo turn completed",
           );
@@ -240,6 +316,14 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // conversational outcomes, never errors.
       if (image !== undefined && resolvedPhotoKind === "label") {
         pipeline = "label";
+        // The speculative plate read guessed wrong; cut it loose before the
+        // label read runs so its upstream slot frees immediately.
+        if (speculativeMeal) {
+          speculationCancel.abort();
+          photoTimings.speculationDiscarded = true;
+        }
+        writeStage("reading_label");
+        const analysisStartedAt = Date.now();
         const labelTurn = await generateLabelChatTurn({
           image,
           patient: patientContext,
@@ -247,7 +331,9 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           signal: abort.signal,
           log: req.log,
         });
+        photoTimings.analysisMs = Date.now() - analysisStartedAt;
         if (!abort.signal.aborted) {
+          photoTimings.firstTokenMs = Date.now() - startedAt;
           res.write(`data: ${JSON.stringify({ content: labelTurn.reply })}\n\n`);
           if (labelTurn.draft) {
             res.write(`data: ${JSON.stringify({ labelDraft: labelTurn.draft })}\n\n`);
@@ -259,6 +345,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               elapsedMs: Date.now() - startedAt,
               outcome: labelTurn.outcome,
               flagged: labelTurn.draft?.flagged === true,
+              ...photoTimings,
             },
             "coach label photo turn completed",
           );
@@ -275,13 +362,23 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // never error events. The photo lives in this request's memory only.
       if (image !== undefined) {
         pipeline = "menu";
+        // The speculative plate read guessed wrong; cut it loose before the
+        // menu scan runs so its upstream slot frees immediately.
+        if (speculativeMeal) {
+          speculationCancel.abort();
+          photoTimings.speculationDiscarded = true;
+        }
+        writeStage("reading_menu");
+        const analysisStartedAt = Date.now();
         const menuTurn = await generateMenuChatTurn({
           image,
           patient: patientContext,
           signal: abort.signal,
           log: req.log,
         });
+        photoTimings.analysisMs = Date.now() - analysisStartedAt;
         if (!abort.signal.aborted) {
+          photoTimings.firstTokenMs = Date.now() - startedAt;
           res.write(`data: ${JSON.stringify({ content: menuTurn.reply })}\n\n`);
           if (menuTurn.offerRecipe) {
             const yesNo = firstQuickReplySet(["yes_no"]);
@@ -297,6 +394,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               outcome: menuTurn.outcome,
               order: menuTurn.orderCount,
               avoid: menuTurn.avoidCount,
+              ...photoTimings,
             },
             "coach menu photo turn completed",
           );

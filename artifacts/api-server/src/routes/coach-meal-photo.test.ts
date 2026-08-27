@@ -11,13 +11,17 @@
  * refuses to commit to an amount, non-food photos as warm conversational
  * outcomes (never errors), persistent invalid output as the standard SSE
  * error, and routing: an image without photoKind is triaged by a tiny
- * vision call (menu photos to the menu scan, everything else to the meal
- * pipeline), and photoKind without an image stays on the plain chat.
+ * vision call that runs ALONGSIDE a speculative meal read (kept when the
+ * subject is food, cancelled when the triage says menu/label), and
+ * photoKind without an image stays on the plain chat. Photo turns also
+ * narrate staged progress on the wire ({stage:"received"}, then
+ * {stage:"reading_*"} once the pipeline is known) — asserted here so the
+ * app's progress lines never silently lose their feed.
  *
  * Budgets: this file makes 7 chat requests (burst 10) of which 6 carry an
  * image (menu-scan/vision burst 6) — no rate-limit interference. The
- * triage answer (triageJson) is a model call inside the same request, not
- * an extra request slot.
+ * triage answer (triageJson) and the speculative meal read are model calls
+ * inside the same request, not extra request slots.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
@@ -225,6 +229,12 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const events = sseEvents(await res.text());
 
+    // Staged progress: the photo is acknowledged the instant the stream
+    // opens, and the explicit photoKind names its pipeline immediately —
+    // before any model work — so the app can narrate the wait.
+    expect(events[0]).toEqual({ stage: "received" });
+    expect(events[1]).toEqual({ stage: "reading_meal" });
+
     const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
     // The fixture's coach message carries an em dash; the pipeline's
     // no-dash cleaning must rewrite it before it reaches the patient.
@@ -362,11 +372,25 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(events.some((e) => e.card !== undefined)).toBe(false);
     expect(events.at(-1)).toEqual({ done: true });
     // Triage first, then the scan — and the resolved route is announced so
-    // a client retry can name it explicitly instead of triaging again.
+    // a client retry can name it explicitly instead of triaging again. The
+    // stage narration follows the announcement, so the app relabels its
+    // progress line only after the route is settled.
     expect(events).toContainEqual({ photoKind: "menu" });
+    expect(events[0]).toEqual({ stage: "received" });
+    const kindIdx = events.findIndex((e) => e.photoKind !== undefined);
+    const stageIdx = events.findIndex((e) => e.stage === "reading_menu");
+    expect(kindIdx).toBeGreaterThan(0);
+    expect(stageIdx).toBeGreaterThan(kindIdx);
+    // THREE vision calls: the triage, the speculative meal read it launched
+    // in parallel (cancelled unawaited once the subject came back "menu"),
+    // and the menu scan that answered. The speculation is the price of the
+    // common plate case starting its read without waiting for triage.
     const vision = modelState.calls.filter((c) => c.hasImage);
-    expect(vision).toHaveLength(2);
+    expect(vision).toHaveLength(3);
     expect(vision[0].system).toContain("photo triage");
+    expect(vision[1].system).toContain("ALWAYS commit to one specific portion");
+    expect(vision[2].system).not.toContain("photo triage");
+    expect(vision[2].system).not.toContain("ALWAYS commit to one specific portion");
   });
 
   it("triages a kindless image that shows a plate onto the meal pipeline", async () => {
@@ -389,10 +413,21 @@ describe("POST /api/coach/chat with a meal photo", () => {
     // Meal turns never carry chips — the client shows its own retake chip.
     expect(events.some((e) => e.quickReplies !== undefined)).toBe(false);
     expect(events.at(-1)).toEqual({ done: true });
+    // Still exactly TWO vision calls: the triage plus the speculative meal
+    // read that launched alongside it — the "food" verdict KEEPS that
+    // in-flight read instead of starting a second one, which is the whole
+    // point of the speculation.
     const vision = modelState.calls.filter((c) => c.hasImage);
     expect(vision).toHaveLength(2);
     expect(vision[0].system).toContain("photo triage");
+    expect(vision[1].system).toContain("ALWAYS commit to one specific portion");
     expect(events).toContainEqual({ photoKind: "meal" });
+    // Stage narration: received on open, the meal line only after the
+    // route announcement settles it.
+    expect(events[0]).toEqual({ stage: "received" });
+    const kindIdx = events.findIndex((e) => e.photoKind !== undefined);
+    const stageIdx = events.findIndex((e) => e.stage === "reading_meal");
+    expect(stageIdx).toBeGreaterThan(kindIdx);
   });
 
   it("keeps photoKind without an image on the plain chat pipeline", async () => {
@@ -407,5 +442,8 @@ describe("POST /api/coach/chat with a meal photo", () => {
     // No vision call was made — the streaming chat answered.
     expect(modelState.calls.every((c) => !c.hasImage)).toBe(true);
     expect(modelState.calls.at(-1)?.stream).toBe(true);
+    // Stage narration belongs to photo turns only; a photoless turn keeps
+    // the wire exactly as old clients know it.
+    expect(events.some((e) => e.stage !== undefined)).toBe(false);
   });
 });

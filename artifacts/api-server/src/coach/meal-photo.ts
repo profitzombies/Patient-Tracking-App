@@ -240,6 +240,15 @@ async function callModel(
           // Reasoning models spend part of this budget internally before
           // emitting text; smaller caps come back empty.
           max_completion_tokens: 8192,
+          // Latency knob, NOT a model change: a plate read is see-and-
+          // transcribe work, so internal deliberation is pure wait time.
+          // The gpt-5.6 fleet's effort vocabulary on this gateway is
+          // none|low|medium|high|xhigh ("minimal" is rejected as
+          // unsupported); "none" probed ~5s vs ~12s at default on the same
+          // photo with identical foods read and zero reasoning tokens.
+          // Accuracy stays guarded by the validator's corrective retry and
+          // the meal-photo suites.
+          reasoning_effort: "none",
           response_format: { type: "json_object" },
           messages,
         },
@@ -466,6 +475,14 @@ export async function generateMealPhotoAnalysis(args: {
 
   let previous: { raw: string; problems: string } | null = null;
   for (let attempt = 0; attempt <= RETRY_LIMIT; attempt++) {
+    // A cancelled read stays cancelled: the route abandons a speculative
+    // read when triage picks another pipeline, and the corrective retry
+    // must not fire a fresh upstream call after that. (callModel itself
+    // would reject on the dead signal, but only after building and sending
+    // the request — and test mocks would count it.)
+    if (args.signal.aborted) {
+      throw new Error("meal photo analysis cancelled");
+    }
     const messages = buildMessages(systemPrompt, args.image, previous, args.correction);
     const raw = await callModel(messages, args.signal, args.log);
     const outcome = interpret(raw, slot);

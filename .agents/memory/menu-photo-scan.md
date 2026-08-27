@@ -91,8 +91,11 @@ description: Patterns proven by the menu-scan flow — vision input through the 
   meats, invents proteins) and burns 16–30s on reasoning tokens; the affordable
   tier of the newest fleet reads the same plates correctly in 3–8s. Triage,
   menu, and label reads stay nano — they read print or make a trivial call.
-  Also: `detail: "high"` on image parts is NOT honored by the proxy (identical
-  prompt tokens, occasionally worse output) — don't pass it. Escalating the
+  Also: image `detail` knobs (`"high"` and `"low"` alike) are NOT honored by
+  the proxy (identical prompt tokens) — don't pass them or promise savings
+  from them. The mid-tier plate read spends most of its time on reasoning it
+  doesn't need: `reasoning_effort: "none"` reads the same plates in ~3s vs ~7s
+  (see gateway-model-knobs). Escalating the
   meal read past mid-tier is a user cost decision, never do it unasked.
 - **Typed corrections re-run the held photo with the patient's words as ground
   truth** (foods from the words, portions from the photo, unmentioned visible
@@ -117,3 +120,5 @@ A chat-camera photo sent WITHOUT `photoKind` is triaged server-side (tiny vision
 **Why:** a client retry that re-sends kindless would trigger a SECOND triage of the same photo, which can pick the other pipeline (different reply shape, cards, chips).
 
 **How to apply:** the client stamps the announced kind onto the origin photo turn (only when kind is still undefined — never overwrite explicit kinds), so retries send the kind explicitly; replay text stays fixed at send time. Keep a fallback inference (meal-mode recipe card ⇒ meal turn) for replies whose announcement was lost, and cover "announce → error → retry carries the stamped kind" in the verify suite.
+
+**Speculative overlap:** the kindless serial double trip (triage, then analysis) is collapsed by starting the MEAL read in parallel with triage under a linked abort (`AbortSignal.any`), because most kindless chat photos are plates: a meal-routed turn awaits the already-in-flight read (the classify cost vanishes), menu/label routes cancel it and log `speculationDiscarded`. The speculative path must check abort before its corrective retry so a cancelled read never fires a fresh upstream call (also keeps mock call-counts deterministic in tests). Photo turns narrate the wait as SSE stage events (`received` on arrival, `reading_*` at branch entry) written only through an abort/writableEnded-guarded helper; the client allow-lists known stage values, captions the thinking bubble, sets `received` locally at send time, and clears on finalize/error/stop. Older clients ignore the extra field.

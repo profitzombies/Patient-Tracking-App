@@ -9,7 +9,6 @@ import { findProduct, matchProducts, productCardPayload } from "../coach/product
 import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
 import { generateLabelChatTurn } from "../coach/label-chat";
-import { generateMealChatTurn } from "../coach/meal-chat";
 import { isMealCorrectionText } from "../coach/meal-correction";
 import { buildMealSlotContext } from "../coach/meal-slot";
 import { detectMenuRecipeFollowUp, generateMenuChatTurn } from "../coach/menu-chat";
@@ -18,7 +17,6 @@ import { createPhotoUsageLog } from "../coach/usage";
 import { DashSmoother } from "../coach/text-style";
 import { MarkerFilter } from "../coach/markers";
 import { BrandSpellingSmoother } from "../lib/brand-spelling";
-import { firstQuickReplySet } from "../coach/quick-replies";
 import {
   UpstreamTimeoutError,
   createUpstreamDeadline,
@@ -32,6 +30,7 @@ import {
   PHOTO_TOO_LARGE_MESSAGE,
   decodedPhotoBytes,
 } from "../lib/photo-guards";
+import { MEAL_VERSION_REPLY_SET, firstQuickReplySet } from "../coach/quick-replies";
 
 const router: IRouter = Router();
 
@@ -137,8 +136,17 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     // Which model pipeline answers this turn — failure/completion logs carry
     // it (plus elapsed time) so a mystery error bubble can be traced to the
     // pipeline and duration that produced it.
-    let pipeline: "plain" | "menu" | "meal" | "label" | "menu-recipe" | "recipe" | "cravings" =
-      "plain";
+    let pipeline:
+      | "plain"
+      | "menu"
+      | "meal"
+      | "label"
+      | "menu-recipe"
+      | "meal-makeover"
+      | "meal-approved-recipe"
+      | "meal-keep"
+      | "recipe"
+      | "cravings" = "plain";
 
     // Token accounting for photo turns: every vision pipeline reports each
     // completed model call's usage under a stage name ("classify", "meal",
@@ -287,15 +295,18 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // A plate to log, not a menu to scan: the vision analysis identifies
       // the VISIBLE foods with committed portion estimates and the reply
       // carries an editable one-serving meal card (recipe payload, mode
-      // "meal"). No quick replies ride this turn — the client shows its own
-      // "Retake photo" chip instead. Non-food and unreadable photos are warm
-      // conversational outcomes, never errors.
+      // "meal"). Every item is also judged against the Approved Foods
+      // catalog: a plate with off-list items closes with the makeover offer
+      // and the curated yes/no chips ride the turn (next to the client's own
+      // "Retake photo" chip); a fully approved plate gets a one-line nod and
+      // no chips. Non-food and unreadable photos are warm conversational
+      // outcomes, never errors.
       if (image !== undefined && resolvedPhotoKind === "meal") {
         pipeline = "meal";
         writeStage("reading_meal");
         // analysisMs is the read's full wall span: from its actual start
         // (which overlaps the classify when the read was speculative).
-        const analysisStartedAt = speculationStartedAt ?? Date.now();
+        const analysisStartedAt = Date.now();
         const mealTurn = speculativeMeal
           ? await speculativeMeal
           : await generateMealChatTurn({
@@ -307,48 +318,6 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               signal: abort.signal,
               log: req.log,
             });
-        photoTimings.analysisMs = Date.now() - analysisStartedAt;
-        if (!abort.signal.aborted) {
-          photoTimings.firstTokenMs = Date.now() - startedAt;
-          res.write(`data: ${JSON.stringify({ content: mealTurn.reply })}\n\n`);
-          if (mealTurn.card) {
-            res.write(`data: ${JSON.stringify({ card: mealTurn.card })}\n\n`);
-          }
-          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-          req.log.info(
-            {
-              pipeline,
-              elapsedMs: Date.now() - startedAt,
-              outcome: mealTurn.outcome,
-              items: mealTurn.itemCount,
-              corrected: mealTurn.corrected,
-              ...photoTimings,
-              usage: photoUsage.snapshot(),
-            },
-            "coach meal photo turn completed",
-          );
-        }
-        return;
-      }
-
-      // ── Nutrition label turn ────────────────────────────────────────────
-      // A packaged food's Nutrition Facts panel: the label reader transcribes
-      // the printed values (never estimates) and the reply reads them back,
-      // then asks what the product is called. The validated read rides the
-      // dedicated `labelDraft` event — no card here, because the client holds
-      // the draft through the name conversation and builds the food card
-      // locally once the name settles. Old clients ignore the extra event and
-      // simply see the text. Unreadable and not-a-label photos are warm
-      // conversational outcomes, never errors.
-      if (image !== undefined && resolvedPhotoKind === "label") {
-        pipeline = "label";
-        // The speculative plate read guessed wrong; cut it loose before the
-        // label read runs so its upstream slot frees immediately.
-        if (speculativeMeal) {
-          speculationCancel.abort();
-          photoTimings.speculationDiscarded = true;
-        }
-        writeStage("reading_label");
         const analysisStartedAt = Date.now();
         const labelTurn = await generateLabelChatTurn({
           image,
@@ -441,12 +410,19 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         pipeline = "menu-recipe";
         req.log.info({}, "coach menu recipe follow-up turn");
         const result = await generateRecipeTurn({
-          mode: "recipe",
-          inspiration: "menu",
+          mode: intent,
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
           slot: slotContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+
+        const makeover = await generateMealMakeoverTurn({
+          history: modelHistory,
+          compartments: selection.compartments,
+          patient: patientContext,
           signal: abort.signal,
           log: req.log,
         });
@@ -478,6 +454,14 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           compartments: selection.compartments,
           patient: patientContext,
           slot: slotContext,
+          signal: abort.signal,
+          log: req.log,
+        });
+
+        const makeover = await generateMealMakeoverTurn({
+          history: modelHistory,
+          compartments: selection.compartments,
+          patient: patientContext,
           signal: abort.signal,
           log: req.log,
         });
@@ -636,3 +620,5 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
 });
 
 export default router;
+
+      const versionChoice = detectMealVersionChoice(history);

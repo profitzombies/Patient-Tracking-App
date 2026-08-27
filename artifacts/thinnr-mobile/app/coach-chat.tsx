@@ -479,48 +479,54 @@ export default function CoachChatScreen() {
             ))}
           </View>
         )}
-        {/* A finished meal-photo reply grows a retake chip: quick replies
-            only send text, so the "new shot" affordance is client-side.
-            Meal replies never end with "?" (server contract), which keeps
-            this chip and the quick-reply row mutually exclusive. */}
-        {offersMealPhotoRetake(messages, isStreaming) ? (
+        {/* One chip row under the newest finished reply. A meal-photo reply
+            grows a client-side "Retake photo" chip (quick replies only send
+            text, so the "new shot" affordance lives here); a reply that
+            closes with a question grows one-tap quick replies, server-curated
+            labels first. A meal reply with off-list items ends with the
+            makeover offer AND carries the card, so BOTH appear side by side
+            in this one wrapping row — chip taps send their exact label as
+            text (the server's follow-up detectors key on those labels), and
+            the retake chip keeps its fresh-capture role alongside. */}
+        {offersQuickReplies(messages[messages.length - 1], isStreaming) ||
+        offersMealPhotoRetake(messages, isStreaming) ? (
           <View style={styles.quickReplyRow}>
-            <MealPhotoButton variant="chip" testID="coach-meal-retake" />
-          </View>
-        ) : null}
-        {offersQuickReplies(messages[messages.length - 1], isStreaming) ? (
-          <View style={styles.quickReplyRow}>
-            {quickRepliesFor(messages[messages.length - 1]).map(
-              (reply, index) => (
-                <Pressable
-                  key={reply}
-                  testID={`coach-quick-reply-${index}`}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    send(reply);
-                  }}
-                  style={({ pressed }) => [
-                    styles.quickReplyChip,
-                    {
-                      borderColor: colors.activeBorder,
-                      backgroundColor: colors.activeBg,
-                      borderRadius: colors.radiusSm,
-                    },
-                    pressed && { backgroundColor: colors.accent },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.quickReplyText,
-                      { color: colors.cobalt },
-                    ]}
-                  >
-                    {reply}
-                  </Text>
-                </Pressable>
-              ),
-            )}
+            {offersQuickReplies(messages[messages.length - 1], isStreaming)
+              ? quickRepliesFor(messages[messages.length - 1]).map(
+                  (reply, index) => (
+                    <Pressable
+                      key={reply}
+                      testID={`coach-quick-reply-${index}`}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        send(reply);
+                      }}
+                      style={({ pressed }) => [
+                        styles.quickReplyChip,
+                        {
+                          borderColor: colors.activeBorder,
+                          backgroundColor: colors.activeBg,
+                          borderRadius: colors.radiusSm,
+                        },
+                        pressed && { backgroundColor: colors.accent },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.quickReplyText,
+                          { color: colors.cobalt },
+                        ]}
+                      >
+                        {reply}
+                      </Text>
+                    </Pressable>
+                  ),
+                )
+              : null}
+            {offersMealPhotoRetake(messages, isStreaming) ? (
+              <MealPhotoButton variant="chip" testID="coach-meal-retake" />
+            ) : null}
           </View>
         ) : null}
 

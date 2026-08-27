@@ -61,5 +61,6 @@
 - [Composite typecheck staleness](composite-typecheck-staleness.md) — phantom "no exported member" typecheck errors = stale referenced-lib dist d.ts; tsc -b the lib first; ts lib predates es2023 (no findLastIndex).
 - [Barcode lookup pattern](barcode-lookup.md) — open route fills a shared Supabase facts table from Open Food Facts; canonical-code keying, found-only caching; fake-looking codes can be REAL — verify miss fixtures live.
 - [Gateway model knobs](gateway-model-knobs.md) — probe knobs for acceptance only (5.6 fleet rejects "minimal"; image detail ignored); quality knobs need the multi-plate harness — "none" degraded real plate reads.
+- [Off-plan meal makeover](meal-makeover-flow.md) — approval = citation check (bad cite = off-plan, no retry); verdicts chat-only; chip labels are a wire contract shared with correction-guard copies.
 - [Food name casing seams](food-name-casing-seams.md) — inbound food names Title Case at ONE seam per source (client parse / server payload assembly); brands, menu wording, and the facts store stay verbatim.
 - [THINNR brand-spelling guard](brand-spelling-guard.md) — one shared guard (capitalized-only prose + transcript-only spoken rewrite); new AI surfaces inherit via the cleaning choke point; retrofit stored rows when adding output guards.

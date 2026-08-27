@@ -34,6 +34,14 @@ const WRONG_AS_PRAISE = /\b(nothing wrong|can'?t go wrong|cannot go wrong|can no
 export function isMealCorrectionText(raw: string): boolean {
   const text = raw.trim().toLowerCase();
   if (!text || text.endsWith('?')) return false;
+  // A bare polite decline ("no thanks", "no thank you") carries no food
+  // identity, so it is never a correction — it is how patients wave off a
+  // one-tap offer that can ride a meal-card reply (the THINNR-approved
+  // makeover offer). Bare "no" and "no, that's..." keep reading as
+  // corrections; only the nothing-but-thanks shape is exempt.
+  if (/^(no|nope|nah)[\s,.!]*(thanks|thank you|thankyou|thank u|ty)[\s.!]*$/.test(text)) {
+    return false;
+  }
   // Leading correction openers: "no, that's...", "wrong, it's...",
   // "actually it's...".
   if (/^(no|nope|nah|wrong|incorrect|correction|actually)\b/.test(text)) return true;

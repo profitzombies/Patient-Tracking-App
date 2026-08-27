@@ -50,6 +50,20 @@ export const QUICK_REPLY_SETS: readonly QuickReplySet[] = [
   },
 ];
 
+/**
+ * Server-pushed chips for the meal-makeover version question ("the approved
+ * version or keep it as photographed"). Deliberately NOT in QUICK_REPLY_SETS:
+ * that list rides the plain-chat prompt as the model's marker menu, and this
+ * pair belongs only to the server-authored MEAL_VERSION_QUESTION turn — the
+ * model must never be able to request it. The labels are exactly what the
+ * server's detectMealVersionChoice allow-lists expect back as a tap-send.
+ */
+export const MEAL_VERSION_REPLY_SET: QuickReplySet = {
+  id: "meal_version",
+  labels: ["The approved version", "Keep it as is"],
+  fits: "server-authored only: which version of the analyzed meal they want",
+};
+
 const SETS_BY_ID = new Map(QUICK_REPLY_SETS.map((set) => [set.id, set]));
 
 /**

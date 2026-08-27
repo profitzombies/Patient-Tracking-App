@@ -24,6 +24,7 @@
 
 import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { catalogPromptLines, verifiedApprovedCitation } from "./approved-catalog";
 import { cleanModelText, extractModelJson } from "./model-json";
 import { stripDashes, toTitleCase } from "./text-style";
 import { patientContextLine, type PatientContext } from "./prompt";
@@ -83,6 +84,13 @@ const MealItemSchema = z.object({
   amount: z.number().min(0).max(1000),
   unit: z.string().max(24),
   nutrition: ItemNutritionSchema,
+  /**
+   * The Approved Foods catalog id the model cites when the food IS on the
+   * THINNR approved list. Judged server-side (see interpret): a bad or
+   * missing citation simply means "not approved" — never a retry, and never
+   * a change to what gets logged.
+   */
+  approvedItemId: z.string().max(120).nullish(),
 });
 
 const ModelOutputSchema = z.object({
@@ -102,6 +110,14 @@ export interface MealPhotoAnalysis {
   message: string;
   /** Editable one-serving meal card — present only when outcome is "ok". */
   payload: RecipeCardPayload | null;
+  /**
+   * Display names of visible items that did NOT verify against the Approved
+   * Foods catalog (uncited, unknown id, or a name the citation cannot back).
+   * Empty means the whole plate is on the list. A chat-only coaching signal:
+   * it shapes the reply's callout and makeover offer, and deliberately never
+   * rides the card payload — the diary stays judgment-free.
+   */
+  offPlanItems: string[];
 }
 
 /** The model kept returning invalid output; the route answers with an error. */
@@ -146,7 +162,7 @@ Respond with a single JSON object and nothing else — no markdown, no code fenc
   "mealName": string or null,
   "description": string or null,
   "meal": "breakfast" | "lunch" | "dinner" | "snacks" or null,
-  "items": [ { "name": string, "amount": number, "unit": string, "nutrition": { "calories": number, "protein": number, "carbs": number, "fat": number } } ]
+  "items": [ { "name": string, "amount": number, "unit": string, "nutrition": { "calories": number, "protein": number, "carbs": number, "fat": number }, "approvedItemId": string (only when that food is on the approved list) } ]
 }
 
 Reading the photo:
@@ -168,6 +184,14 @@ Listing items (when "result" is "ok"):
 - "mealName": a short natural name for the whole meal, like "Grilled chicken with sweet potato" — at most 60 characters.
 - "description": one plain sentence describing what is on the plate.
 ${mealSlotRule(slot)}
+
+Judging items against the THINNR approved list (when "result" is "ok"):
+- The APPROVED FOODS CATALOG below is the THINNR program's Approved Foods list. For each item, decide whether that food IS one of the catalog entries. When it is, add "approvedItemId" with that entry's id copied exactly from the catalog. When it is not on the list, or you are not sure which entry it is, leave "approvedItemId" out entirely — never guess or force an id.
+- An item's "name" may add plain preparation words around its entry's name ("grilled chicken breast" citing the entry named "Skinless White Meat Chicken Breast"), but the food itself must BE the cited entry. Never cite an entry for a different food, even a similar one — a regular flour tortilla is not the catalog's named tortilla brand unless visible packaging proves that exact brand.
+- This judgment never changes what you list, the portions, or the nutrition — the plate is read exactly as photographed either way.
+
+APPROVED FOODS CATALOG (id — official name):
+${catalogPromptLines()}
 
 "message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked at their plate, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never say you cannot determine the portions and never ask the patient to weigh or measure anything — your best estimates are already in "items" and the patient can adjust them.${correctionRule(correction)}`;
 }
@@ -309,6 +333,14 @@ interface CleanItem {
   amount: number;
   unit: string;
   nutrition: { calories: number; protein: number; carbs: number; fat: number };
+  /**
+   * Verified against the Approved Foods catalog: true only when the model
+   * cited a real catalog id AND the item's name provably reads as that
+   * entry. Uncited or unverifiable items are simply "not approved" — a
+   * coaching signal for the reply, never a validation problem (no retry) and
+   * never part of the card payload.
+   */
+  approved: boolean;
 }
 
 type Interpretation =
@@ -372,6 +404,7 @@ function interpret(raw: string, slot: MealSlotContext): Interpretation {
       amount: item.amount,
       unit: cleanCoachText(item.unit),
       nutrition: item.nutrition,
+      approved: verifiedApprovedCitation(name, item.approvedItemId ?? undefined),
     });
   });
 
@@ -542,6 +575,10 @@ export async function generateMealPhotoAnalysis(args: {
           outcome.outcome === "ok"
             ? toMealPayload(outcome.items, outcome.mealName, outcome.description, outcome.meal)
             : null,
+        offPlanItems:
+          outcome.outcome === "ok"
+            ? outcome.items.filter((item) => !item.approved).map((item) => item.name)
+            : [],
       };
     }
     args.log.warn(

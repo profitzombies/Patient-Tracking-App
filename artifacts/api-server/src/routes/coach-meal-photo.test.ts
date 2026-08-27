@@ -34,18 +34,23 @@ const MEAL_OK_JSON = JSON.stringify({
   mealName: "Grilled chicken with sweet potatoes",
   description: "Grilled chicken breast with a side of roasted sweet potatoes.",
   meal: "dinner",
+  // Both items cite real Approved Foods catalog ids (verified server-side),
+  // so this plate reads FULLY APPROVED: the reply closes with the on-plan
+  // nod, no makeover offer, no chips.
   items: [
     {
       name: "grilled chicken breast",
       amount: 6,
       unit: "oz",
       nutrition: { calories: 280, protein: 50, carbs: 0, fat: 6 },
+      approvedItemId: "poultry:skinless_white_meat_chicken_breast",
     },
     {
       name: "roasted sweet potatoes",
       amount: 1,
       unit: "cup",
       nutrition: { calories: 180, protein: 3, carbs: 41, fat: 1 },
+      approvedItemId: "norm_foods:sweet_potatoes",
     },
   ],
 });
@@ -193,7 +198,7 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
 }));
 
 import app from "../app";
-import { MEAL_CARD_CLOSER, MEAL_TRY_ANOTHER_PHOTO } from "../coach/meal-chat";
+import { MEAL_CARD_CLOSER, MEAL_ON_PLAN_NOD, MEAL_TRY_ANOTHER_PHOTO } from "../coach/meal-chat";
 import { MENU_RECIPE_OFFER } from "../coach/menu-chat";
 
 let server: Server;
@@ -286,8 +291,11 @@ describe("POST /api/coach/chat with a meal photo", () => {
     expect(reply).toContain("Grilled Chicken Breast: about 6 oz · est. 280 cal");
     expect(reply).toContain("Roasted Sweet Potatoes: about 1 cup · est. 180 cal");
     expect(reply).toContain(MEAL_CARD_CLOSER);
-    // Never ends with a question — the client's fallback yes/no chips must
-    // stay hidden (the retake chip rides this turn instead).
+    // Every item cites a verified catalog id, so the reply carries the
+    // on-plan nod and never ends with a question — the client's fallback
+    // yes/no chips must stay hidden (the retake chip rides this turn
+    // instead). Off-plan plates are covered in coach-meal-makeover.test.ts.
+    expect(reply).toContain(MEAL_ON_PLAN_NOD);
     expect(reply.trimEnd().endsWith("?")).toBe(false);
 
     // The card is the existing recipe payload with mode "meal": one serving,
@@ -319,7 +327,8 @@ describe("POST /api/coach/chat with a meal photo", () => {
     const itemCals = card.payload.ingredients.reduce((sum, i) => sum + i.nutrition.calories, 0);
     expect(itemCals).toBe(card.payload.calories);
 
-    // No quick replies on meal turns; the turn closes cleanly.
+    // No quick replies on a fully approved meal turn; the turn closes
+    // cleanly. (Only off-plan plates carry the makeover-offer chips.)
     expect(events.some((e) => e.quickReplies !== undefined)).toBe(false);
     expect(events.at(-1)).toEqual({ done: true });
 
@@ -431,7 +440,7 @@ describe("POST /api/coach/chat with a meal photo", () => {
     const reply = (events.find((e) => typeof e.content === "string")?.content ?? "") as string;
     expect(reply).toContain("The grill section is your friend here.");
     expect(reply).toContain(MENU_RECIPE_OFFER);
-    // Menu turns carry the yes/no chips; meal turns never do.
+    // Menu turns carry the yes/no chips with the recipe offer.
     expect(events.some((e) => e.quickReplies !== undefined)).toBe(true);
     expect(events.some((e) => e.card !== undefined)).toBe(false);
     expect(events.at(-1)).toEqual({ done: true });
@@ -474,7 +483,8 @@ describe("POST /api/coach/chat with a meal photo", () => {
     };
     expect(card.kind).toBe("recipe");
     expect(card.payload.mode).toBe("meal");
-    // Meal turns never carry chips — the client shows its own retake chip.
+    // A fully approved plate carries no chips — the client shows its own
+    // retake chip on meal turns either way.
     expect(events.some((e) => e.quickReplies !== undefined)).toBe(false);
     expect(events.at(-1)).toEqual({ done: true });
     // Still exactly TWO vision calls: the triage plus the speculative meal

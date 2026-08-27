@@ -103,6 +103,19 @@ export function ingredientNameMatchesItem(name: string, id: string): boolean {
   return anchored;
 }
 
+/**
+ * The single approval judgment for a food name citing a catalog id: approved
+ * means the citation EXISTS in the catalog AND the name provably reads as
+ * that catalog item. Anything uncited, citing an unknown id, or wearing a
+ * name the citation cannot back is NOT approved — the conservative reading,
+ * used by the meal-photo judgment so an off-list food can never pass by
+ * riding a valid id (or no id at all).
+ */
+export function verifiedApprovedCitation(name: string, id: string | undefined): boolean {
+  if (!id) return false;
+  return isApprovedItemId(id) && ingredientNameMatchesItem(name, id);
+}
+
 /** Compact catalog listing for the model prompt: `id — name` grouped by section. */
 export function catalogPromptLines(): string {
   const byCategory = new Map<string, CatalogEntry[]>();

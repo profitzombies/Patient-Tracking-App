@@ -58,13 +58,25 @@
  *      rounding) while the saved food stays per-serving, and
  *      markLabelFoodAdded freezes the card payload with slot + quantity.
  *  10. Typed corrections (section 2i): the client and server copies of
- *      isMealCorrectionText agree on a shared phrase table; a correction
- *      typed under a meal-card reply re-attaches the SAME held photo (tail
- *      image + photoKind "meal", typed words as content, pinned slot and
- *      local time intact) while the bubble renders the words (photo marked
- *      reused); the rebuilt card keeps the patient's photo and the retake
- *      chip; corrections chain; an unrelated follow-up and correction
- *      words without the meal-card adjacency both stay plain text turns.
+ *      isMealCorrectionText agree on a shared phrase table (including the
+ *      one-tap chip labels and polite declines, which must NEVER read as
+ *      corrections); a correction typed under a meal-card reply re-attaches
+ *      the SAME held photo (tail image + photoKind "meal", typed words as
+ *      content, pinned slot and local time intact) while the bubble renders
+ *      the words (photo marked reused); the rebuilt card keeps the
+ *      patient's photo and the retake chip; corrections chain; an unrelated
+ *      follow-up and correction words without the meal-card adjacency both
+ *      stay plain text turns.
+ *  10b. Off-plan makeover flow (section 2j): a callout reply that carries
+ *      the meal card AND server-sent yes/no chips shows both affordances at
+ *      once (quick replies + retake chip coexist in state); chip taps ride
+ *      the normal text send with NO image re-attach (exact labels reach the
+ *      wire for the server's adjacency detectors, the callout replays in
+ *      history); the version chips arrive as the server's dedicated
+ *      two-label set (pinned against the server module); the approved
+ *      version's recipe-mode card parses and registers WITHOUT the
+ *      patient's photo; "No thanks" under a card reply stays a plain send;
+ *      and the keep branch renders the canned reply with no chips.
  *  11. The in-app camera handoff (lib/food-camera): one pending request at
  *      a time, claimed exactly once, the first settle wins, and a new
  *      request settles an orphaned predecessor with null.
@@ -115,6 +127,13 @@ import { isMealCorrectionText } from '../lib/meal-correction';
 // The server's copy of the SAME rules — a pure, dependency-free module, so
 // this suite can pin the two implementations against one phrase table.
 import { isMealCorrectionText as serverIsMealCorrectionText } from '../../api-server/src/coach/meal-correction';
+// Also dependency-free: the curated chip sets. Pinning the scripted wire
+// labels against the server module keeps the client flow and the server's
+// one-tap detectors keyed on the SAME strings.
+import {
+  MEAL_VERSION_REPLY_SET,
+  firstQuickReplySet,
+} from '../../api-server/src/coach/quick-replies';
 import { PatientProvider, usePatient } from '../context/PatientContext';
 import { parseRecipeCardPayload } from '../lib/ai-recipe';
 import {
@@ -904,6 +923,18 @@ async function main() {
       ['What should I eat tomorrow', false],
       ['nothing wrong with that read', false],
       ['Log it for dinner please', false],
+      // One-tap chip answers and polite declines around the makeover offer:
+      // tapping a chip under a card-bearing reply must never re-attach the
+      // held photo as a "correction". A decline that CARRIES a food fix
+      // ("no thanks, that's...") is still a correction, though.
+      ['Yes, please', false],
+      ['No thanks', false],
+      ['no, thanks.', false],
+      ['No thank you!', false],
+      ['no thank u', false],
+      ['The approved version', false],
+      ['Keep it as is', false],
+      ["no thanks, that's chicken and rice", true],
     ];
     for (const [text, expected] of phrases) {
       assert(
@@ -1054,6 +1085,277 @@ async function main() {
     c4.close();
   });
   await waitUntil('the no-adjacency turn finalizes', () => tailMessage().status === 'done');
+
+  // ── 2j. Off-plan callout → makeover offer → version choice ────────────────
+  // The server flags off-list foods in the reply and sends chips alongside
+  // the meal card. Client-side this is pure coexistence + plain text sends:
+  // no new request shapes, no image re-attach on chip taps.
+  {
+    // The scripted wire labels, pinned against the server's curated sets so
+    // the client flow and the server detectors key on the SAME strings.
+    const YES_NO_LABELS = ['Yes, please', 'No thanks'];
+    assertEqual(
+      'the scripted yes/no labels match the server curated set',
+      JSON.stringify(YES_NO_LABELS),
+      JSON.stringify(firstQuickReplySet(['yes_no'])?.labels ?? []),
+    );
+    const VERSION_LABELS = MEAL_VERSION_REPLY_SET.labels as string[];
+    assertEqual(
+      'the version chip set carries the two expected labels',
+      JSON.stringify(VERSION_LABELS),
+      JSON.stringify(['The approved version', 'Keep it as is']),
+    );
+
+    const MAKEOVER_OFFER_TEXT =
+      "One small heads up: the flour tortilla isn't on your THINNR Approved Foods list. That changes nothing about logging it, this meal is yours exactly as it is. Would you like a suggestion for a THINNR-approved version of this meal?";
+    const VERSION_QUESTION_TEXT =
+      'Want me to turn that into a THINNR-approved recipe card you can save and log, or would you rather keep the meal exactly as photographed?';
+    const KEEP_REPLY_TEXT =
+      'Works for me, that plate is yours. The meal card above is ready whenever you want to log it exactly as photographed, and you can fine-tune the portions right on it.';
+    const calloutReplyText = (n: number) =>
+      [
+        `Callout plate ${n}: that burrito looks hearty.`,
+        'Grilled chicken: about 4 oz · est. 190 cal\nFlour tortilla: about 1 large · est. 210 cal',
+        MEAL_CLOSER_TEXT,
+        MAKEOVER_OFFER_TEXT,
+      ].join('\n\n');
+    const SWAPS_REPLY_TEXT = `Two easy swaps get you there. Trade the flour tortilla for lettuce cups, and the sour cream for plain nonfat Greek yogurt.\n\n${VERSION_QUESTION_TEXT}`;
+    const OFFPLAN_PHOTO = { uri: 'file:///offplan-burrito.jpg', width: 800, height: 600 };
+
+    /** One scripted callout turn: photo out, callout + card + chips back. */
+    const stageCalloutTurn = async (n: number) => {
+      await actSettle(() => {
+        chat.sendPhoto(OFFPLAN_PHOTO, 'meal');
+      });
+      const stream = takeStream(`off-plan callout turn ${n}`);
+      await actSettle(() => {
+        stream.emit({ content: calloutReplyText(n) });
+        stream.emit({
+          card: { kind: 'recipe', payload: { ...MEAL_CARD_PAYLOAD, id: `meal_offplan_${n}` } },
+        });
+        stream.emit({ quickReplies: YES_NO_LABELS });
+        stream.emit({ done: true });
+        stream.close();
+      });
+      await waitUntil(
+        `callout reply ${n} finalizes with its card`,
+        () => tailMessage().status === 'done' && tailMessage().card !== undefined,
+      );
+    };
+
+    // Coexistence: the callout reply holds the card, the server chips, AND
+    // the retake affordance at once — nothing crowds anything else out.
+    await stageCalloutTurn(1);
+    assertEqual(
+      'the callout reply carries the server-sent yes/no chips',
+      JSON.stringify(tailMessage().quickReplies ?? []),
+      JSON.stringify(YES_NO_LABELS),
+    );
+    assert(
+      'the callout reply ends with the offer question',
+      (tailMessage().text ?? '').trimEnd().endsWith('?'),
+    );
+    assert(
+      'the retake chip still offers on the callout reply (both affordances at once)',
+      offersMealPhotoRetake(chat.messages, chat.isStreaming) === true,
+    );
+    assert(
+      'the callout meal card registers with the patient photo as its picture',
+      chat.getRecipeSuggestion('meal_offplan_1')?.photoUri === OFFPLAN_PHOTO.uri,
+    );
+
+    // Tapping yes rides the NORMAL text send: exact label as content, no
+    // image or photoKind anywhere (the guard keeps chip taps out of the
+    // correction path), and the callout replays in history so the server's
+    // adjacency detector can key on its authored offer.
+    await actSettle(() => {
+      chat.send(YES_NO_LABELS[0]);
+    });
+    const j1 = takeStream('makeover yes follow-up');
+    {
+      const msgs = j1.requestBody.messages ?? [];
+      assertEqual(
+        'the yes tap sends the exact chip label as content',
+        msgs[msgs.length - 1]?.content ?? '',
+        YES_NO_LABELS[0],
+      );
+      assert(
+        'the yes tap carries NO image and NO photoKind anywhere',
+        msgs.every(m => m.image === undefined && m.photoKind === undefined),
+      );
+      assert(
+        'the callout reply replays in history for the server detector',
+        msgs.some(m => m.role === 'assistant' && (m.content ?? '').includes(MAKEOVER_OFFER_TEXT)),
+      );
+    }
+    await actSettle(() => {
+      j1.emit({ content: SWAPS_REPLY_TEXT });
+      j1.emit({ quickReplies: VERSION_LABELS });
+      j1.emit({ done: true });
+      j1.close();
+    });
+    await waitUntil(
+      'the swaps reply finalizes with the version chips',
+      () => tailMessage().status === 'done' && tailMessage().quickReplies !== undefined,
+    );
+    assertEqual(
+      'the swaps reply carries the dedicated version chip set',
+      JSON.stringify(tailMessage().quickReplies ?? []),
+      JSON.stringify(VERSION_LABELS),
+    );
+    assert(
+      'the swaps reply ends with the version question',
+      (tailMessage().text ?? '').trimEnd().endsWith(VERSION_QUESTION_TEXT),
+    );
+
+    // Choosing the approved version: another plain text send; the reply's
+    // recipe-mode card parses (steps + minutes present) and registers as a
+    // normal coach recipe WITHOUT the patient's photo — the preview screen
+    // generates its own picture, exactly like the cravings pipeline.
+    await actSettle(() => {
+      chat.send(VERSION_LABELS[0]);
+    });
+    const j2 = takeStream('approved version turn');
+    {
+      const msgs = j2.requestBody.messages ?? [];
+      assertEqual(
+        'the approved-version tap sends its exact label',
+        msgs[msgs.length - 1]?.content ?? '',
+        VERSION_LABELS[0],
+      );
+      assert(
+        'the approved-version tap carries NO image and NO photoKind',
+        msgs.every(m => m.image === undefined && m.photoKind === undefined),
+      );
+      assert(
+        'the version question replays in history for the choice detector',
+        msgs.some(
+          m => m.role === 'assistant' && (m.content ?? '').includes(VERSION_QUESTION_TEXT),
+        ),
+      );
+    }
+    const APPROVED_RECIPE_PAYLOAD = {
+      id: 'recipe_makeover_1',
+      mode: 'recipe',
+      name: 'Approved Chicken Burrito Bowl',
+      description: 'The same burrito flavors, rebuilt fully on the list.',
+      meal: 'lunch',
+      minutes: 20,
+      servings: 1,
+      calories: 420,
+      protein: 38,
+      carbs: 18,
+      fat: 22,
+      ingredients: [
+        {
+          amount: 4,
+          unit: 'oz',
+          name: 'skinless white meat chicken breast',
+          nutrition: { calories: 300, protein: 20, carbs: 10, fat: 12 },
+        },
+        {
+          amount: 1,
+          unit: 'cup',
+          name: 'sweet potatoes',
+          nutrition: { calories: 120, protein: 18, carbs: 8, fat: 10 },
+        },
+      ],
+      steps: ['Grill the chicken.', 'Serve over the roasted sweet potatoes.'],
+    };
+    await actSettle(() => {
+      j2.emit({ content: 'Here is that burrito, fully approved.' });
+      j2.emit({ card: { kind: 'recipe', payload: APPROVED_RECIPE_PAYLOAD } });
+      j2.emit({ done: true });
+      j2.close();
+    });
+    await waitUntil(
+      'the approved recipe card arrives and parses',
+      () => tailMessage().status === 'done' && tailMessage().card !== undefined,
+    );
+    {
+      const suggestion = chat.getRecipeSuggestion('recipe_makeover_1');
+      assert('the approved recipe registers as a suggestion', suggestion !== undefined);
+      assertEqual('the approved card keeps recipe mode', suggestion?.mode ?? '', 'recipe');
+      assert(
+        "the approved card does NOT inherit the patient's meal photo",
+        suggestion?.photoUri === undefined,
+      );
+    }
+
+    // "No thanks" under a fresh callout reply (card attached, correction
+    // adjacency armed): the polite-decline guard keeps it a plain send —
+    // the held photo must NOT ride along as a bogus correction.
+    await stageCalloutTurn(2);
+    await actSettle(() => {
+      chat.send(YES_NO_LABELS[1]);
+    });
+    const j3 = takeStream('makeover decline turn');
+    {
+      const msgs = j3.requestBody.messages ?? [];
+      assertEqual(
+        'the decline sends its exact label as plain text',
+        msgs[msgs.length - 1]?.content ?? '',
+        YES_NO_LABELS[1],
+      );
+      assert(
+        'the decline NEVER re-attaches the held photo',
+        msgs.every(m => m.image === undefined && m.photoKind === undefined),
+      );
+    }
+    await actSettle(() => {
+      j3.emit({ content: 'All good, the card above is ready whenever you are.' });
+      j3.emit({ done: true });
+      j3.close();
+    });
+    await waitUntil('the decline turn finalizes', () => tailMessage().status === 'done');
+
+    // The keep branch: stage the version question again, answer with the
+    // keep label, and the canned reply renders with NO chips (it is a
+    // statement, not a question — the fallback chips must stay hidden).
+    await stageCalloutTurn(3);
+    await actSettle(() => {
+      chat.send(YES_NO_LABELS[0]);
+    });
+    const j4 = takeStream('second makeover follow-up');
+    await actSettle(() => {
+      j4.emit({ content: SWAPS_REPLY_TEXT });
+      j4.emit({ quickReplies: VERSION_LABELS });
+      j4.emit({ done: true });
+      j4.close();
+    });
+    await waitUntil(
+      'the second swaps reply finalizes',
+      () => tailMessage().status === 'done' && tailMessage().quickReplies !== undefined,
+    );
+    await actSettle(() => {
+      chat.send(VERSION_LABELS[1]);
+    });
+    const j5 = takeStream('keep it as is turn');
+    {
+      const msgs = j5.requestBody.messages ?? [];
+      assertEqual(
+        'the keep tap sends its exact label',
+        msgs[msgs.length - 1]?.content ?? '',
+        VERSION_LABELS[1],
+      );
+      assert(
+        'the keep tap carries NO image and NO photoKind',
+        msgs.every(m => m.image === undefined && m.photoKind === undefined),
+      );
+    }
+    await actSettle(() => {
+      j5.emit({ content: KEEP_REPLY_TEXT });
+      j5.emit({ done: true });
+      j5.close();
+    });
+    await waitUntil('the keep reply finalizes', () => tailMessage().status === 'done');
+    assertEqual('the keep reply renders the canned text', tailMessage().text, KEEP_REPLY_TEXT);
+    assert(
+      'the keep reply carries no quick replies and asks no question',
+      tailMessage().quickReplies === undefined &&
+        !(tailMessage().text ?? '').trimEnd().endsWith('?'),
+    );
+  }
 
   assertEqual('every coach stream was accounted for', opened.length, 0);
   coachTree.unmount();

@@ -129,12 +129,17 @@ interface MinimalLog {
 export interface RecipeTurnArgs {
   mode: RecipeMode;
   /**
-   * Set on menu follow-up turns: the patient just reviewed restaurant-menu
-   * suggestions in this conversation (they are in `history`) and said yes to
-   * a custom recipe inspired by them. Swaps the recipe task wording and
-   * grounds the turn in the approved-foods list. Recipe mode only.
+   * Set on follow-up turns that seed the recipe from earlier conversation:
+   * - "menu": the patient reviewed restaurant-menu suggestions (in `history`)
+   *   and said yes to a custom recipe inspired by them. Swaps the task
+   *   wording and grounds the turn in the approved-foods list.
+   * - "meal-makeover": the patient photographed a meal with off-list items,
+   *   heard the approved swaps, and chose the THINNR-approved version. Swaps
+   *   the task wording AND enforces the cravings-strength approved-only
+   *   ingredient contract (every ingredient must cite a catalog id).
+   * Recipe mode only.
    */
-  inspiration?: "menu";
+  inspiration?: "menu" | "meal-makeover";
   history: { role: "user" | "assistant"; content: string }[];
   compartments: Compartment[];
   patient: PatientContext;
@@ -173,6 +178,13 @@ const DECLINE_REPLY: Record<RecipeMode, string> = {
     "I tried to build that fix straight from the Approved Foods list and couldn't quite get there — and I won't improvise around the program.\n\nTry me again in a moment, or toss me a different craving to work with.",
 };
 
+/**
+ * Decline for the meal-makeover version specifically: it must point back at
+ * the original meal card (logging as photographed was always allowed), not
+ * at "a different craving".
+ */
+const MAKEOVER_DECLINE_REPLY =
+  "I tried to rebuild that plate straight from the Approved Foods list and couldn't quite get there, and I won't improvise around the program.\n\nYour meal card above still logs it exactly as photographed, or give me another try in a moment.";
 const RECIPE_JSON_CONTRACT = `Respond with a single JSON object and nothing else — no markdown, no code fences:
 {
   "reply": string,
@@ -189,11 +201,19 @@ const RECIPE_JSON_CONTRACT = `Respond with a single JSON object and nothing else
 - "ingredients": array of { "amount": number, "unit": string, "name": string, "nutrition": object } — use amount 0 for "to taste", unit "" when countable. "nutrition" is required on EVERY ingredient: { "calories": number, "protein": number, "carbs": number, "fat": number }, that ingredient's contribution to ONE serving at its listed amount (zeros are fine for water, plain seasonings, or "to taste" rows). Across all ingredients these must add up to the per-serving "calories", "protein", "carbs", "fat" above — the server checks the sums.
 - "steps": array of short instruction strings in cooking order`;
 
+/**
+ * The approved-only ingredient contract, shared verbatim by cravings mode
+ * and the meal-makeover inspiration. interpret() enforces it
+ * deterministically whenever `approvedOnly` is set for the turn.
+ */
+const STRICT_APPROVED_INGREDIENT_RULES = `- Every ingredient must be an item from the APPROVED FOODS CATALOG below. Each ingredient object MUST also include "approvedItemId" copied exactly from the catalog.
+- Do not use any food that is not in the catalog — no exceptions, not even pantry basics. If it is not in the catalog, leave it out.
+- Each ingredient's "name" may add simple preparation words to its catalog item (for example an id whose catalog name is "Skinless White Meat Chicken Breast" may be written "grilled chicken breast"), but every food word in the name must come from the cited catalog item's own name. The server rejects any name containing a food word that is not part of that catalog entry — never name a different food, and never a food the patient craved that is off the list.`;
 function buildRecipeSystemPrompt(
   mode: RecipeMode,
   compartments: Compartment[],
   patient: PatientContext,
-  inspiration: "menu" | undefined,
+  inspiration: RecipeTurnArgs["inspiration"],
   slot: MealSlotContext,
 ): string {
   const shared = `${COACH_PERSONA_LINE}
@@ -213,11 +233,23 @@ Grounding rules:
     const task =
       inspiration === "menu"
         ? `Task: the patient just reviewed a restaurant menu with you — your ordering suggestions are earlier in this conversation — and said yes to a custom recipe inspired by it. Propose exactly one home-cooked recipe inspired by that menu, ideally a homemade version of a dish you suggested from it, adapted to fit their current phase. In "reply", connect it naturally to the menu conversation.`
-        : "Task: the patient asked for a meal or snack idea. Propose exactly one recipe that fits their current phase.";
+        : inspiration === "meal-makeover"
+          ? `Task: earlier in this conversation the patient photographed a meal, the reply named which items are not on the THINNR Approved Foods list, and the approved swaps for them were described. The patient chose the THINNR-approved version. Build exactly one recipe: that same meal made fully approved — keep the items that were already on the list and swap each off-list item the way the swaps described. In "reply", connect it naturally to their photographed meal. Never set "recipe" to null here unless even the swapped version genuinely cannot be built from the catalog.`
+          : "Task: the patient asked for a meal or snack idea. Propose exactly one recipe that fits their current phase.";
+    const approvedRules =
+      inspiration === "meal-makeover"
+        ? `
+
+STRICT APPROVED-FOODS RULES:
+${STRICT_APPROVED_INGREDIENT_RULES}
+
+APPROVED FOODS CATALOG (id — official name):
+${catalogPromptLines()}`
+        : "";
     return `${shared}
 
 ${task}
-${recipeMealRule(slot)}
+${recipeMealRule(slot)}${approvedRules}
 
 THINNR program materials for this question:
 
@@ -229,9 +261,7 @@ ${sourcesBlock(compartments)}`;
 Task: the patient mentioned a craving. Offer one simple approved snack fix for it.
 
 STRICT CRAVINGS RULES:
-- Every ingredient must be an item from the APPROVED FOODS CATALOG below. Each ingredient object MUST also include "approvedItemId" copied exactly from the catalog.
-- Do not use any food that is not in the catalog — no exceptions, not even pantry basics. If it is not in the catalog, leave it out.
-- Each ingredient's "name" may add simple preparation words to its catalog item (for example an id whose catalog name is "Skinless White Meat Chicken Breast" may be written "grilled chicken breast"), but every food word in the name must come from the cited catalog item's own name. The server rejects any name containing a food word that is not part of that catalog entry — never name a different food, and never a food the patient craved that is off the list.
+${STRICT_APPROVED_INGREDIENT_RULES}
 ${cravingsMealRule(slot)}
 - "reply" meets the craving like a person first — acknowledge it specifically and warmly in your own words — then point at the approved swap. If no approved combination genuinely answers the craving, set "recipe" to null and say so straight and kindly, without inventing anything.
 
@@ -275,7 +305,7 @@ type Interpretation =
   | { ok: true; reply: string; recipe: GeneratedRecipe | null }
   | { ok: false; problems: string[] };
 
-function interpret(raw: string, mode: RecipeMode): Interpretation {
+function interpret(raw: string, approvedOnly: boolean): Interpretation {
   const json = extractModelJson(raw);
   if (json === null) return { ok: false, problems: ["response was not valid JSON"] };
   const parsed = ModelOutputSchema.safeParse(json);
@@ -286,7 +316,7 @@ function interpret(raw: string, mode: RecipeMode): Interpretation {
     return { ok: false, problems };
   }
   const { reply, recipe } = parsed.data;
-  if (recipe && mode === "cravings") {
+  if (recipe && approvedOnly) {
     const problems: string[] = [];
     for (const ingredient of recipe.ingredients) {
       if (!ingredient.approvedItemId) {
@@ -559,11 +589,17 @@ const RETRY_LIMIT = 1;
 
 export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTurnResult> {
   // Cravings must ground in the official list; menu-inspired home versions
-  // should too, so the adapted dish is built from program-friendly items.
+  // and meal makeovers should too, so the adapted dish is built from
+  // program-friendly items.
   const compartments =
-    args.mode === "cravings" || args.inspiration === "menu"
+    args.mode === "cravings" || args.inspiration !== undefined
       ? ensureApprovedFoodsCompartment(args.compartments)
       : args.compartments;
+  // The deterministic approved-only gate in interpret(): every ingredient
+  // must cite a verifiable catalog id. Cravings always; the meal makeover is
+  // the promise "every ingredient verified against the Approved Foods
+  // catalog", so it gets the same enforcement.
+  const approvedOnly = args.mode === "cravings" || args.inspiration === "meal-makeover";
   const slot = args.slot ?? {};
   const baseMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
     {
@@ -576,7 +612,7 @@ export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTu
   let messages = baseMessages;
   for (let attempt = 0; attempt <= RETRY_LIMIT; attempt++) {
     const raw = await callModel(messages, args.signal, args.log);
-    const outcome = interpret(raw, args.mode);
+    const outcome = interpret(raw, approvedOnly);
     if (outcome.ok) {
       if (!outcome.recipe) return { reply: outcome.reply, card: null };
       // An explicit client pin wins over whatever the model chose — the
@@ -602,5 +638,9 @@ export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTu
       },
     ];
   }
-  return { reply: DECLINE_REPLY[args.mode], card: null };
+  return { reply: declineReplyFor(args.mode, args.inspiration), card: null };
+}
+
+function declineReplyFor(mode: RecipeMode, inspiration: RecipeTurnArgs["inspiration"]): string {
+  return inspiration === "meal-makeover" ? MAKEOVER_DECLINE_REPLY : DECLINE_REPLY[mode];
 }

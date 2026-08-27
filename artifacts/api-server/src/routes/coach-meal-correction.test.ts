@@ -8,8 +8,10 @@
  *
  * Covers: the correction turn reaches the meal pipeline without re-triage
  * and its prompt carries the ground-truth rule plus the patient's words;
- * the fixed photo replay text is never treated as a correction (retakes
- * stay fresh reads); the corrective retry (invalid model answer) keeps the
+ * a corrected read re-runs the Approved Foods judgment (the fixture's
+ * uncited items surface the off-plan callout and makeover offer); the
+ * fixed photo replay text is never treated as a correction (retakes stay
+ * fresh reads); the corrective retry (invalid model answer) keeps the
  * correction context; and an unrelated text message sent after a meal-card
  * exchange stays on the plain streaming chat.
  *
@@ -20,7 +22,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-/** The corrected read after "No, that's steak and sweet potato wedges". */
+/**
+ * The corrected read after "No, that's steak and sweet potato wedges".
+ * Neither item cites an Approved Foods catalog id, so the corrected reply
+ * must re-run the judgment and close with the callout + makeover offer —
+ * a typed fix re-checks the plate, it never skips the approval pass.
+ */
 const CORRECTED_OK_JSON = JSON.stringify({
   result: "ok",
   message: "Got the fix, steak and sweet potato wedges it is.",
@@ -109,7 +116,7 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
 }));
 
 import app from "../app";
-import { MEAL_CARD_CLOSER } from "../coach/meal-chat";
+import { MEAL_CARD_CLOSER, MEAL_MAKEOVER_OFFER, offPlanCallout } from "../coach/meal-chat";
 
 let server: Server;
 let baseUrl: string;
@@ -177,8 +184,12 @@ describe("POST /api/coach/chat with a typed meal correction", () => {
     expect(reply).toContain("Sliced Steak: about 7 oz · est. 490 cal");
     expect(reply).toContain("Sweet Potato Wedges: about 1 cup · est. 180 cal");
     expect(reply).toContain(MEAL_CARD_CLOSER);
-    // The corrected read never ends with a question mark either.
-    expect(reply.trimEnd().endsWith("?")).toBe(false);
+    // The corrected read re-runs the Approved Foods judgment: neither
+    // corrected item carries a verified citation, so the reply names them
+    // in the callout and closes with the makeover offer (yes/no chips).
+    expect(reply).toContain(offPlanCallout(["sliced steak", "sweet potato wedges"]));
+    expect(reply.trimEnd().endsWith(MEAL_MAKEOVER_OFFER)).toBe(true);
+    expect(events.some((e) => Array.isArray(e.quickReplies))).toBe(true);
 
     const card = events.find((e) => e.card !== undefined)?.card as {
       kind: string;

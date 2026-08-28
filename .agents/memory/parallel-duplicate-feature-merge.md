@@ -17,3 +17,5 @@ The same feature can land twice: the task environment builds it while a parallel
 - Restore generated outputs from the task's commit (`git checkout <task-sha> -- lib/*/generated`) once the merged spec is byte-identical to the task's spec — regeneration becomes provably unnecessary.
 - Final proof: `git diff <task-sha> --stat` on the resolved tree. If it shows only the independent keepers (e.g. one screenshot), the tree equals the already-verified state and no re-verification is needed.
 - Explain the removal in `divergenceSummary` — deleting a rival implementation is exactly what it exists for.
+
+**Completion says `no_active_task`:** that refusal means the task belongs to a task agent (its state reads plain IN_PROGRESS, not MAIN_*) — the platform never bound it to the main session, no matter what the session history claims. Stop retrying completion; expect the agent's rival build to merge over yours shortly. The clean outcome is a wholesale replace: audit = dup-export grep across the collision files, workspace typecheck, served-bundle marker grep, then serial lane re-runs (2-3 concurrent max; battery reds are usually EAGAIN/thread-spawn flakes, not damage).

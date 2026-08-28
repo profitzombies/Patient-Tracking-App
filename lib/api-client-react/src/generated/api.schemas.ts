@@ -284,6 +284,67 @@ export interface BarcodeLookupResult {
   message?: string;
 }
 
+/**
+ * Which posing angle this shot is; used only to name the object
+ */
+export type ProgressPhotoUploadUrlInputAngle = typeof ProgressPhotoUploadUrlInputAngle[keyof typeof ProgressPhotoUploadUrlInputAngle];
+
+
+export const ProgressPhotoUploadUrlInputAngle = {
+  front: 'front',
+  side: 'side',
+  back: 'back',
+} as const;
+
+/**
+ * MIME type the app will send on the presigned PUT
+ */
+export type ProgressPhotoUploadUrlInputContentType = typeof ProgressPhotoUploadUrlInputContentType[keyof typeof ProgressPhotoUploadUrlInputContentType];
+
+
+export const ProgressPhotoUploadUrlInputContentType = {
+  'image/jpeg': 'image/jpeg',
+  'image/png': 'image/png',
+  'image/webp': 'image/webp',
+} as const;
+
+export interface ProgressPhotoUploadUrlInput {
+  /** Which posing angle this shot is; used only to name the object */
+  angle: ProgressPhotoUploadUrlInputAngle;
+  /** MIME type the app will send on the presigned PUT */
+  contentType: ProgressPhotoUploadUrlInputContentType;
+  /**
+     * Compressed file size in bytes; the hard cap is 10 MB
+     * @minimum 1
+     * @maximum 10485760
+     */
+  sizeBytes: number;
+}
+
+export interface ProgressPhotoUploadUrlResult {
+  /** Presigned PUT URL, valid for about 15 minutes */
+  uploadUrl: string;
+  /** Canonical object path to send to finalize; never a URL */
+  objectPath: string;
+}
+
+export interface ProgressPhotoFinalizeInput {
+  /**
+     * The object path returned by upload-url after the PUT succeeded
+     * @maxLength 500
+     */
+  objectPath: string;
+}
+
+export interface ProgressPhotoFinalizeResult {
+  /** Object path the app stores on the photo entry */
+  objectPath: string;
+  /** Verified stored size in bytes */
+  sizeBytes: number;
+  /** Content type detected from the stored bytes */
+  contentType: string;
+}
+
 export interface TrainingUploadUrlInput {
   /**
      * Original file name, for logs and error copy only
@@ -308,54 +369,6 @@ export interface TrainingUploadUrlResult {
   uploadUrl: string;
   /** Canonical object path to send to finalize; never a URL */
   objectPath: string;
-}
-
-/**
- * Which guided-session angle this shot is; used only to name the stored object
- */
-export type ProgressPhotoUploadUrlInputAngle = typeof ProgressPhotoUploadUrlInputAngle[keyof typeof ProgressPhotoUploadUrlInputAngle];
-
-
-export const ProgressPhotoUploadUrlInputAngle = {
-  front: 'front',
-  side: 'side',
-  back: 'back',
-} as const;
-
-export interface ProgressPhotoUploadUrlInput {
-  /**
-     * MIME type the client will send on the PUT (image/jpeg, image/png, image/webp)
-     * @maxLength 100
-     */
-  contentType: string;
-  /**
-     * Compressed photo size in bytes; the server enforces the 15 MB cap with a 413
-     * @minimum 1
-     */
-  sizeBytes: number;
-  /** Which guided-session angle this shot is; used only to name the stored object */
-  angle?: ProgressPhotoUploadUrlInputAngle;
-}
-
-export interface ProgressPhotoUploadUrlResult {
-  /** Presigned PUT URL, valid for ~15 minutes */
-  uploadUrl: string;
-  /** Canonical object path to send to finalize; never a URL */
-  objectPath: string;
-}
-
-export interface ProgressPhotoFinalizeInput {
-  /**
-     * Object path returned by upload-url
-     * @maxLength 300
-     */
-  objectPath: string;
-}
-
-export interface ProgressPhotoFinalizeResult {
-  objectPath: string;
-  /** Stored size in bytes, read back from object metadata */
-  sizeBytes: number;
 }
 
 /**
@@ -775,4 +788,12 @@ export const KnowledgeExtractResultStatus = {
 export interface KnowledgeExtractResult {
   status: KnowledgeExtractResultStatus;
 }
+
+export type ProgressPhotoFileParams = {
+/**
+ * Canonical object path returned by finalize
+ * @maxLength 500
+ */
+path: string;
+};
 

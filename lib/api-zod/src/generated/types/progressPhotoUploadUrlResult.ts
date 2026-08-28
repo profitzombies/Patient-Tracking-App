@@ -7,7 +7,7 @@
  */
 
 export interface ProgressPhotoUploadUrlResult {
-  /** Presigned PUT URL, valid for ~15 minutes */
+  /** Presigned PUT URL, valid for about 15 minutes */
   uploadUrl: string;
   /** Canonical object path to send to finalize; never a URL */
   objectPath: string;

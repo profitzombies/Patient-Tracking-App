@@ -5,7 +5,7 @@
  * inside the chart's goal reference.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -18,6 +18,8 @@ import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimit
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
 import { usePatient } from '@/context/PatientContext';
+import { createGuidedPhotoRequest } from '@/lib/guided-photos';
+import { progressPhotoDisplayUrl } from '@/lib/progress-photo-upload';
 import { photoDisplayLabels, type RemovedProgressPhoto } from '@/data/progress-photo-state';
 import {
   ENROLLMENT_DAYS,
@@ -46,6 +48,16 @@ export default function ProgressScreen() {
     return () => clearTimeout(timer);
   }, [removedNotice]);
 
+  // Saved-confirmation snackbar for the guided session; same auto-dismiss
+  // window as the undo notice so transient notices feel consistent.
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!savedNotice) return;
+    const timer = setTimeout(() => setSavedNotice(null), UNDO_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [savedNotice]);
+
   const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
 
   const currentWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
@@ -58,6 +70,24 @@ export default function ProgressScreen() {
     { key: 'lost', label: 'LOST', value: `−${lost.toFixed(1)}`, color: colors.cobalt },
     { key: 'goal', label: 'GOAL', value: PATIENT_PROFILE.goalWeight.toFixed(0), color: colors.navyLight },
   ];
+
+  // Hands-free guided session (module-promise handoff, like the food
+  // camera): the outcome resolves when the session settles, so the saved
+  // count lands back here for the snackbar + announcement.
+  const openGuidedSession = () => {
+    const outcome = createGuidedPhotoRequest();
+    router.push('/guided-photos');
+    void outcome.then(result => {
+      if (result && result.savedCount > 0) {
+        const message =
+          result.savedCount === 1
+            ? '1 photo saved to your grid.'
+            : `${result.savedCount} photos saved to your grid.`;
+        setSavedNotice(message);
+        AccessibilityInfo.announceForAccessibility(message);
+      }
+    });
+  };
 
   const pickPhoto = async () => {
     setPhotoError('');
@@ -149,27 +179,39 @@ export default function ProgressScreen() {
           action={{ label: '+ Add Photo', onPress: pickPhoto }}
           style={{ marginBottom: 8 }}
         />
-        {photoError ? (
-          <Text style={[styles.photoError, { color: colors.riskText }]}>{photoError}</Text>
-        ) : null}
-        {/* Hands-free three-angle session — the guided way to add photos. */}
         <Pressable
           testID="progress-guided-session"
           accessibilityRole="button"
-          onPress={() => router.push('/progress-session')}
+          accessibilityLabel="Start a guided photo session"
+          onPress={openGuidedSession}
           style={({ pressed }) => [
-            styles.primaryBtn,
-            { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm, marginTop: 0, marginBottom: 12 },
-            pressed && { opacity: 0.88 },
+            styles.guidedBtn,
+            { borderColor: colors.cobalt, backgroundColor: colors.paperCard, borderRadius: colors.radiusSm },
+            pressed && { opacity: 0.85 },
           ]}
         >
-          <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
-            Start Guided Photo Session
-          </Text>
+          <View style={[styles.guidedBtnIcon, { backgroundColor: colors.sidebarBg, borderColor: colors.border }]}>
+            <Feather name="camera" size={15} color={colors.cobalt} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.guidedBtnTitle, { color: colors.navy }]}>Guided photo session</Text>
+            <Text style={[styles.guidedBtnSub, { color: colors.subtleText }]}>
+              Hands-free Front, Side, and Back with a countdown
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={17} color={colors.subtleText} />
         </Pressable>
+        {photoError ? (
+          <Text style={[styles.photoError, { color: colors.riskText }]}>{photoError}</Text>
+        ) : null}
         <View style={styles.photoGrid}>
           {patient.photos.map(photo => {
-            const source = photo.source === 'seed' ? PROGRESS_IMAGES[photo.id] : { uri: photo.uri };
+            const source =
+              photo.source === 'seed'
+                ? PROGRESS_IMAGES[photo.id]
+                : photo.objectPath
+                  ? { uri: progressPhotoDisplayUrl(photo.objectPath) }
+                  : { uri: photo.uri };
             const seedWeight = photo.source === 'seed' ? weightAtDateKey(photo.dateKey) : null;
             const label = displayLabels.get(photo.id) ?? photo.label;
             return (
@@ -250,6 +292,15 @@ export default function ProgressScreen() {
           onAction={handleUndoRemove}
         />
       )}
+      {savedNotice && !removedNotice && (
+        <Snackbar
+          testID="guided-saved-snackbar"
+          message={savedNotice}
+          actionLabel="OK"
+          actionTestID="guided-saved-ok"
+          onAction={() => setSavedNotice(null)}
+        />
+      )}
     </View>
   );
 }
@@ -264,6 +315,32 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
+  },
+  guidedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  guidedBtnIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guidedBtnTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  guidedBtnSub: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
   },
   cardBody: {
     padding: 16,

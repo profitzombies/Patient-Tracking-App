@@ -258,16 +258,16 @@ export class ObjectStorageService {
   }
 
   /**
-   * Same contract for patient progress photos from the guided session:
-   * the server mints the WHOLE path (`/objects/progress-photos/<yyyy-mm>/
-   * <angle>-<uuid>`), so clients never control where bytes land; the
-   * month segment keeps the folder browsable as sessions accumulate.
+   * Same contract for guided progress photos: a presigned PUT bound to a
+   * fresh object under the progress-photos prefix. No row exists anywhere
+   * when the URL is minted — the phone keeps shots on-device and only
+   * stores the object path after finalize verifies the bytes, so a PUT
+   * that never finalizes is just an unreferenced object.
    */
   async progressPhotoUploadURL(angle: string): Promise<{ uploadUrl: string; objectPath: string }> {
-    const month = new Date().toISOString().slice(0, 7);
     const objectId = `${angle}-${randomUUID()}`;
-    const objectPath = `/objects/progress-photos/${month}/${objectId}`;
-    const fullPath = `${getTrainingObjectDir()}/progress-photos/${month}/${objectId}`;
+    const objectPath = `/objects/progress-photos/${objectId}`;
+    const fullPath = `${getTrainingObjectDir()}/progress-photos/${objectId}`;
     const { bucketName, objectName } = parseObjectPath(fullPath);
     const uploadUrl = await signObjectURL({
       bucketName,

@@ -199,9 +199,13 @@ export interface ProgressPhoto {
   label: string;
   source: 'seed' | 'user';
   uri?: string;
-  /** Guided-session angle, when the photo came from the hands-free flow. */
+  /** Posing angle, when the photo came from a guided session. */
   angle?: 'front' | 'side' | 'back';
-  /** Object-storage path recorded after upload (display stays on-device). */
+  /**
+   * App Storage object path for an uploaded guided shot. The grid resolves
+   * a display URL from it at render time (never persisted as a URL, so the
+   * entry survives domain changes).
+   */
   objectPath?: string;
 }
 

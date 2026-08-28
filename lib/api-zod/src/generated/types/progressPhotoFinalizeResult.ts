@@ -7,7 +7,10 @@
  */
 
 export interface ProgressPhotoFinalizeResult {
+  /** Object path the app stores on the photo entry */
   objectPath: string;
-  /** Stored size in bytes, read back from object metadata */
+  /** Verified stored size in bytes */
   sizeBytes: number;
+  /** Content type detected from the stored bytes */
+  contentType: string;
 }

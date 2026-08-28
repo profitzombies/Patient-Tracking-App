@@ -66,3 +66,6 @@
 - [THINNR brand-spelling guard](brand-spelling-guard.md) — one shared guard (capitalized-only prose + transcript-only spoken rewrite); new AI surfaces inherit via the cleaning choke point; retrofit stored rows when adding output guards.
 - [Stall-nudge outreach](stall-nudge-outreach.md) — ops states eligibility, never "sent" (delivery state is device-local); any chat reply = engaged (decline chip too), check-in pause isn't.
 - [Merge splice damage](merge-splice-repair.md) — merge storms scramble hot files (dup consts, swapped branch bodies, post-export code); rebuild from the merged tasks' tests + pre-merge rev, never blind-revert.
+- [Guided photo session](guided-photo-session.md) — no-AI positioning gate (1 Hz luma probes, 3-ready auto-start, timed fallback); auto-start must latch the HYDRATED hide pref, not live checkbox state.
+- [Finalize sniff window](finalize-sniff-window.md) — image head-sniffs need 64 KB: metadata-heavy JPEGs (AI tags, XMP/EXIF) push SOF past 4 KB; a 4 KB window rejects real photos.
+- [Parallel duplicate-feature merge](parallel-duplicate-feature-merge.md) — main can receive a rival build of the task's own feature; keep one stack, grep automerged spec/screens for dup keys and spliced buttons, prove the tree via diff against the verified commit.

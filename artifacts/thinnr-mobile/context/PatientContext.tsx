@@ -112,8 +112,6 @@ interface PersistedState {
   nudgeLastSentKey: string | null;
   /** crossedOnKey of the episode that outreach belonged to. */
   nudgeLastCrossingKey: string | null;
-  /** Patient chose to skip the guided photo session instructions. */
-  hideSessionInstructions: boolean;
 }
 
 const EMPTY_STATE: PersistedState = {
@@ -131,7 +129,6 @@ const EMPTY_STATE: PersistedState = {
   nudgeEngaged: false,
   nudgeLastSentKey: null,
   nudgeLastCrossingKey: null,
-  hideSessionInstructions: false,
 };
 
 let idSeq = 0;
@@ -173,21 +170,17 @@ interface PatientContextValue {
   setWater: (dateKey: string, oz: number) => Promise<void>;
   addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<void>;
   addPhoto: (photo: { dateKey: string; uri: string; label: string }) => Promise<void>;
-  /** One commit for a whole guided photo session (front/side/back). */
-  addPhotoSession: (
-    shots: Array<{
+  addPhotos: (
+    photos: Array<{
       dateKey: string;
-      uri: string;
       label: string;
-      angle: NonNullable<ProgressPhoto['angle']>;
+      uri?: string;
+      angle?: 'front' | 'side' | 'back';
       objectPath?: string;
     }>,
   ) => Promise<void>;
   removePhoto: (id: string) => Promise<RemovedProgressPhoto | null>;
   restorePhoto: (removed: RemovedProgressPhoto) => Promise<void>;
-  /** Persisted "don't show the guided session instructions again". */
-  hideSessionInstructions: boolean;
-  setHideSessionInstructions: (hide: boolean) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
@@ -455,42 +448,34 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [commit, runSerialized]);
 
-  // Saves a whole guided session in ONE commit: the three photos land
-  // together or not at all, so a mid-save interruption can never persist
-  // half a session. Each carries its angle and storage path so future
-  // surfaces can group a session or re-fetch the uploaded copy.
-  const addPhotoSession = useCallback(async (
-    shots: Array<{
-      dateKey: string;
-      uri: string;
-      label: string;
-      angle: NonNullable<ProgressPhoto['angle']>;
-      objectPath?: string;
-    }>,
-  ): Promise<void> => {
-    if (shots.length === 0) return;
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await hydrationGate.current!.promise;
-    await runSerialized(async () => {
-      const prev = stateRef.current;
-      const full: ProgressPhoto[] = shots.map(shot => ({
-        id: nextId('photo'),
-        source: 'user' as const,
-        ...shot,
-      }));
-      await commit({ ...prev, photos: [...prev.photos, ...full] });
-    });
-  }, [commit, runSerialized]);
-
-  // Quiet toggle — a remembered preference, not a data mutation worth a buzz.
-  const setHideSessionInstructions = useCallback(async (hide: boolean): Promise<void> => {
-    await hydrationGate.current!.promise;
-    await runSerialized(async () => {
-      const prev = stateRef.current;
-      if (prev.hideSessionInstructions === hide) return;
-      await commit({ ...prev, hideSessionInstructions: hide });
-    });
-  }, [commit, runSerialized]);
+  // Batch insert for the guided photo session: one commit, one haptic —
+  // the whole set lands atomically so an interruption mid-save can never
+  // leave a partial session in the grid.
+  const addPhotos = useCallback(
+    async (
+      photos: Array<{
+        dateKey: string;
+        label: string;
+        uri?: string;
+        angle?: 'front' | 'side' | 'back';
+        objectPath?: string;
+      }>,
+    ): Promise<void> => {
+      if (photos.length === 0) return;
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await hydrationGate.current!.promise;
+      await runSerialized(async () => {
+        const prev = stateRef.current;
+        const full: ProgressPhoto[] = photos.map(photo => ({
+          id: nextId('photo'),
+          source: 'user' as const,
+          ...photo,
+        }));
+        await commit({ ...prev, photos: [...prev.photos, ...full] });
+      });
+    },
+    [commit, runSerialized],
+  );
 
   // Removes a user-added progress photo. Seed photos are not removable: they
   // never live in the persisted array, and the state helper's source guard
@@ -815,11 +800,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setWater,
       addCheckIn,
       addPhoto,
-      addPhotoSession,
+      addPhotos,
       removePhoto,
       restorePhoto,
-      hideSessionInstructions: state.hideSessionInstructions,
-      setHideSessionInstructions,
       toggleFavorite,
       addCustomFood,
       updateCustomFood,
@@ -863,11 +846,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setWater,
       addCheckIn,
       addPhoto,
-      addPhotoSession,
+      addPhotos,
       removePhoto,
       restorePhoto,
-      state.hideSessionInstructions,
-      setHideSessionInstructions,
       toggleFavorite,
       addCustomFood,
       updateCustomFood,

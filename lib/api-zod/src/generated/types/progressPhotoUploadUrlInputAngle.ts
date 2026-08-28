@@ -7,7 +7,7 @@
  */
 
 /**
- * Which guided-session angle this shot is; used only to name the stored object
+ * Which posing angle this shot is; used only to name the object
  */
 export type ProgressPhotoUploadUrlInputAngle = typeof ProgressPhotoUploadUrlInputAngle[keyof typeof ProgressPhotoUploadUrlInputAngle];
 

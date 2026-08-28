@@ -6,18 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ProgressPhotoUploadUrlInputAngle } from './progressPhotoUploadUrlInputAngle';
+import type { ProgressPhotoUploadUrlInputContentType } from './progressPhotoUploadUrlInputContentType';
 
 export interface ProgressPhotoUploadUrlInput {
+  /** Which posing angle this shot is; used only to name the object */
+  angle: ProgressPhotoUploadUrlInputAngle;
+  /** MIME type the app will send on the presigned PUT */
+  contentType: ProgressPhotoUploadUrlInputContentType;
   /**
-     * MIME type the client will send on the PUT (image/jpeg, image/png, image/webp)
-     * @maxLength 100
-     */
-  contentType: string;
-  /**
-     * Compressed photo size in bytes; the server enforces the 15 MB cap with a 413
+     * Compressed file size in bytes; the hard cap is 10 MB
      * @minimum 1
+     * @maximum 10485760
      */
   sizeBytes: number;
-  /** Which guided-session angle this shot is; used only to name the stored object */
-  angle?: ProgressPhotoUploadUrlInputAngle;
 }

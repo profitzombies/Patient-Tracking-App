@@ -1,6 +1,7 @@
 /**
- * Node stand-in for react-native-svg: bare host elements so BodyOutline
- * renders under react-test-renderer (its testID stays queryable).
+ * Node stand-in for react-native-svg: every element renders as a bare
+ * host node (the body outline in the guided session; the weight chart on
+ * the Progress screen).
  */
 import React from 'react';
 
@@ -15,11 +16,12 @@ function host(name: string) {
   return Host;
 }
 
-export const Svg = host('Svg');
+const Svg = host('Svg');
+export default Svg;
 export const Circle = host('Circle');
 export const Ellipse = host('Ellipse');
+export const Line = host('Line');
 export const Path = host('Path');
 export const Rect = host('Rect');
-export const Line = host('Line');
 export const G = host('G');
-export default Svg;
+export const Text = host('SvgText');

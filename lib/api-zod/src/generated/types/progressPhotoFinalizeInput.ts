@@ -8,8 +8,8 @@
 
 export interface ProgressPhotoFinalizeInput {
   /**
-     * Object path returned by upload-url
-     * @maxLength 300
+     * The object path returned by upload-url after the PUT succeeded
+     * @maxLength 500
      */
   objectPath: string;
 }

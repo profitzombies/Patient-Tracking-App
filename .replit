@@ -126,7 +126,7 @@ args = "stall-nudge"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "progress-session"
+args = "guided-photos"
 
 [[workflows.workflow]]
 name = "demo-parity"
@@ -426,12 +426,12 @@ args = "pnpm --filter @workspace/thinnr-mobile run test:stall-nudge"
 isValidation = true
 
 [[workflows.workflow]]
-name = "progress-session"
+name = "guided-photos"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm --filter @workspace/thinnr-mobile run test:progress-session"
+args = "pnpm --filter @workspace/thinnr-mobile run test:guided-photos"
 
 [workflows.workflow.metadata]
 isValidation = true

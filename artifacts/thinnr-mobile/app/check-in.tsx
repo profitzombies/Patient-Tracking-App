@@ -5,11 +5,12 @@
  * cobalt selection states and primary action.
  */
 import React, { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, router } from 'expo-router';
-import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
+import { useColors } from '@/hooks/useColors';
+import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
@@ -38,6 +39,22 @@ export default function CheckInScreen() {
   const { mode, hydrated: modeHydrated } = useAppMode();
 
   const existing = patient.checkInFor(TODAY_KEY);
+
+  // Hands-free guided photo session — the outcome resolves when the
+  // session settles, so the announcement lands back on this screen.
+  const openGuidedPhotos = () => {
+    const outcome = createGuidedPhotoRequest();
+    router.push('/guided-photos');
+    void outcome.then(result => {
+      if (result && result.savedCount > 0) {
+        AccessibilityInfo.announceForAccessibility(
+          result.savedCount === 1
+            ? '1 progress photo saved.'
+            : `${result.savedCount} progress photos saved.`,
+        );
+      }
+    });
+  };
   const lastWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
 
   const [weightStr, setWeightStr] = useState(
@@ -314,27 +331,23 @@ export default function CheckInScreen() {
           />
         </LedgerCard>
 
-        {/* ── Guided photo session ── */}
+        {/* ── Guided progress photos ── */}
         <Pressable
-          testID="checkin-guided-session"
+          testID="checkin-guided-photos"
           accessibilityRole="button"
-          onPress={() => router.push('/progress-session')}
-          style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+          accessibilityLabel="Add progress photos with a guided session"
+          onPress={openGuidedPhotos}
+          style={({ pressed }) => [
+            styles.guidedLink,
+            { borderColor: colors.border, backgroundColor: colors.paperCard, borderRadius: colors.radiusSm },
+            pressed && { opacity: 0.85 },
+          ]}
         >
-          <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
-            <View style={styles.guidedRow}>
-              <View style={[styles.guidedIcon, { backgroundColor: colors.cobalt }]}>
-                <Feather name="camera" size={17} color={colors.primaryForeground} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.guidedTitle, { color: colors.foreground }]}>Add progress photos</Text>
-                <Text style={[styles.guidedSub, { color: colors.subtleText }]}>
-                  Hands-free guided session — front, side, and back
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={20} color={colors.subtleText} />
-            </View>
-          </LedgerCard>
+          <Feather name="camera" size={15} color={colors.cobalt} />
+          <Text style={[styles.guidedLinkText, { color: colors.navy }]}>
+            Add progress photos — guided session
+          </Text>
+          <Feather name="chevron-right" size={16} color={colors.subtleText} />
         </Pressable>
 
         {error ? <Text style={[styles.error, { color: colors.riskText }]}>{error}</Text> : null}
@@ -504,16 +517,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Inter_600SemiBold',
   },
-  guidedRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  guidedIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  guidedTitle: { fontFamily: 'Inter_600SemiBold', fontSize: 16 },
-  guidedSub: { fontFamily: 'Inter_400Regular', fontSize: 13.5, marginTop: 2, lineHeight: 19 },
   notesInput: {
     borderWidth: 1,
     padding: 12,
@@ -523,6 +526,20 @@ const styles = StyleSheet.create({
     minHeight: 84,
     textAlignVertical: 'top',
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}),
+  },
+  guidedLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  guidedLinkText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
   },
   error: {
     fontSize: 11.5,

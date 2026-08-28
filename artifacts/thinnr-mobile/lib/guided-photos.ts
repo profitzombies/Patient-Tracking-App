@@ -1,0 +1,114 @@
+/**
+ * Handoff between a guided-session entry point and the guided photo route
+ * (app/guided-photos) — the same module-promise convention as
+ * lib/food-camera: the entry point creates a request and navigates; the
+ * route claims it, runs the whole session (setup → per-angle countdown
+ * capture → review → upload/save), and settles with the outcome (null when
+ * the patient closed without saving). One request pending at a time,
+ * claiming is once-only, settling is idempotent.
+ *
+ * Countdown/probe timing lives here as injectable module state so the
+ * verification suite can run the full three-angle sequence in milliseconds
+ * while the app keeps the real 7-second cadence.
+ */
+
+/** The three shots a session produces, in capture order. */
+export type GuidedAngle = 'front' | 'side' | 'back';
+
+export const GUIDED_ANGLES: readonly GuidedAngle[] = ['front', 'side', 'back'];
+
+export const GUIDED_ANGLE_LABELS: Record<GuidedAngle, string> = {
+  front: 'Front',
+  side: 'Side',
+  back: 'Back',
+};
+
+/** One captured (not yet uploaded) shot, held on-device until Save. */
+export interface GuidedShot {
+  angle: GuidedAngle;
+  /** Local file URI (native) or data/bundled URI (web demo). */
+  uri: string;
+  width: number;
+  height: number;
+  /** Raw JPEG base64 when the capture provided it (upload path). */
+  base64?: string;
+}
+
+/** What the entry point learns when the session settles. */
+export interface GuidedSessionOutcome {
+  /** Number of photos committed to the progress grid. */
+  savedCount: number;
+}
+
+type Settle = (outcome: GuidedSessionOutcome | null) => void;
+
+let pending: Settle | null = null;
+
+/**
+ * Registers intent to run a guided session and resolves with the outcome
+ * (null when the screen closed without saving). Call right before pushing
+ * /guided-photos.
+ */
+export function createGuidedPhotoRequest(): Promise<GuidedSessionOutcome | null> {
+  pending?.(null);
+  return new Promise<GuidedSessionOutcome | null>(resolve => {
+    pending = resolve;
+  });
+}
+
+export interface GuidedPhotoHandoff {
+  /** Resolves the caller's promise; extra calls are no-ops. */
+  settle: Settle;
+}
+
+/**
+ * Claims the pending request (once). Returns null when nothing is pending —
+ * the route was reached without a caller (deep link, refresh) and should
+ * redirect instead of running a session into the void.
+ */
+export function claimGuidedPhotoRequest(): GuidedPhotoHandoff | null {
+  const resolve = pending;
+  if (!resolve) return null;
+  pending = null;
+  let settled = false;
+  return {
+    settle(outcome) {
+      if (settled) return;
+      settled = true;
+      resolve(outcome);
+    },
+  };
+}
+
+/** Seconds counted down before each angle's auto-capture. */
+export const COUNTDOWN_SECONDS = 7;
+
+/**
+ * Real-time milliseconds per countdown second / per positioning probe.
+ * The suite dials these down to run the whole session in tens of ms.
+ */
+let tickIntervalMs = 1000;
+let probeIntervalMs = 1000;
+
+export function setGuidedTickIntervalMs(ms: number): void {
+  tickIntervalMs = ms;
+}
+
+export function getGuidedTickIntervalMs(): number {
+  return tickIntervalMs;
+}
+
+export function setGuidedProbeIntervalMs(ms: number): void {
+  probeIntervalMs = ms;
+}
+
+export function getGuidedProbeIntervalMs(): number {
+  return probeIntervalMs;
+}
+
+/**
+ * Storage key for the persisted "Hide these instructions" preference —
+ * localStorage on web, AsyncStorage native (mirrors PatientContext's
+ * storage split).
+ */
+export const HIDE_INSTRUCTIONS_KEY = 'thinnr_guided_photo_hide_instructions_v1';

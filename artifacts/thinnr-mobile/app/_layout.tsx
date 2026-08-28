@@ -240,7 +240,7 @@ function RootLayoutNav() {
         options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
       />
       <Stack.Screen
-        name="progress-session"
+        name="guided-photos"
         options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
       />
     </Stack>

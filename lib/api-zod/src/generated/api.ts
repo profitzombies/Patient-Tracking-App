@@ -169,6 +169,60 @@ export const BarcodeLookupResponse = zod.object({
 
 
 /**
+ * Returns a short-lived presigned PUT URL so the app uploads the compressed shot straight to App Storage (the API never proxies the body), plus the canonical object path to send back to finalize. Nothing references the object until finalize verifies the bytes.
+ * @summary Mint a presigned upload URL for a guided progress photo
+ */
+export const progressPhotoUploadUrlBodySizeBytesMax = 10485760;
+
+
+
+export const ProgressPhotoUploadUrlBody = zod.object({
+  "angle": zod.enum(['front', 'side', 'back']).describe('Which posing angle this shot is; used only to name the object'),
+  "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp']).describe('MIME type the app will send on the presigned PUT'),
+  "sizeBytes": zod.number().min(1).max(progressPhotoUploadUrlBodySizeBytesMax).describe('Compressed file size in bytes; the hard cap is 10 MB')
+})
+
+export const ProgressPhotoUploadUrlResponse = zod.object({
+  "uploadUrl": zod.string().describe('Presigned PUT URL, valid for about 15 minutes'),
+  "objectPath": zod.string().describe('Canonical object path to send to finalize; never a URL')
+})
+
+
+/**
+ * Confirms the object landed under the progress-photos prefix, checks the STORED bytes really are a JPEG/PNG/WebP within the size cap (magic bytes, not the declared type), stamps the detected content type on the object, and returns the canonical path the app should keep. Any rejection deletes the stray object so nothing orphans.
+ * @summary Verify an uploaded progress photo after the PUT
+ */
+export const progressPhotoFinalizeBodyObjectPathMax = 500;
+
+
+
+export const ProgressPhotoFinalizeBody = zod.object({
+  "objectPath": zod.string().max(progressPhotoFinalizeBodyObjectPathMax).describe('The object path returned by upload-url after the PUT succeeded')
+})
+
+export const ProgressPhotoFinalizeResponse = zod.object({
+  "objectPath": zod.string().describe('Object path the app stores on the photo entry'),
+  "sizeBytes": zod.number().describe('Verified stored size in bytes'),
+  "contentType": zod.string().describe('Content type detected from the stored bytes')
+})
+
+
+/**
+ * Open read mirroring training playback: the progress grid points image tags here and the server 302-redirects to a signed GET valid for about an hour. Only paths under the progress-photos prefix resolve, so this cannot leak other stored objects.
+ * @summary Redirect to a short-lived signed URL for a stored photo
+ */
+export const progressPhotoFileQueryPathMax = 500;
+
+
+
+export const ProgressPhotoFileQueryParams = zod.object({
+  "path": zod.coerce.string().max(progressPhotoFileQueryPathMax).describe('Canonical object path returned by finalize')
+})
+
+export const ProgressPhotoFileResponse = zod.void()
+
+
+/**
  * HQ admins only. Returns a short-lived presigned PUT URL so the browser uploads the file straight to App Storage (the API never proxies the body), plus the canonical object path to send back to finalize. Nothing is written to the video row until finalize verifies the bytes.
  * @summary Mint a presigned upload URL for a training video file
  */
@@ -685,45 +739,6 @@ export const KnowledgeRetryExtractionParams = zod.object({
 
 export const KnowledgeRetryExtractionResponse = zod.object({
   "status": zod.enum(['extracting'])
-})
-
-
-/**
- * The server mints the whole object path; clients never choose where bytes land. The app PUTs the compressed JPEG to the returned URL, then calls finalize to verify the upload landed.
- * @summary Mint a presigned upload URL for a guided-session progress photo
- */
-export const progressPhotoUploadUrlBodyContentTypeMax = 100;
-
-
-
-
-export const ProgressPhotoUploadUrlBody = zod.object({
-  "contentType": zod.string().max(progressPhotoUploadUrlBodyContentTypeMax).describe('MIME type the client will send on the PUT (image\/jpeg, image\/png, image\/webp)'),
-  "sizeBytes": zod.number().min(1).describe('Compressed photo size in bytes; the server enforces the 15 MB cap with a 413'),
-  "angle": zod.enum(['front', 'side', 'back']).optional().describe('Which guided-session angle this shot is; used only to name the stored object')
-})
-
-export const ProgressPhotoUploadUrlResponse = zod.object({
-  "uploadUrl": zod.string().describe('Presigned PUT URL, valid for ~15 minutes'),
-  "objectPath": zod.string().describe('Canonical object path to send to finalize; never a URL')
-})
-
-
-/**
- * Confirms the object exists under the progress-photos prefix and its stored metadata (content type, size) is acceptable; deletes the stray object and rejects otherwise.
- * @summary Verify an uploaded progress photo landed in storage
- */
-export const progressPhotoFinalizeBodyObjectPathMax = 300;
-
-
-
-export const ProgressPhotoFinalizeBody = zod.object({
-  "objectPath": zod.string().max(progressPhotoFinalizeBodyObjectPathMax).describe('Object path returned by upload-url')
-})
-
-export const ProgressPhotoFinalizeResponse = zod.object({
-  "objectPath": zod.string(),
-  "sizeBytes": zod.number().describe('Stored size in bytes, read back from object metadata')
 })
 
 

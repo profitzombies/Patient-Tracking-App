@@ -1,0 +1,46 @@
+CONTEXT
+
+I am migrating my app's production data out of AWS DynamoDB and into Supabase (Postgres). The export has already been fully analyzed by another assistant: 48 tables, about 3.1 million records. I already have three finished, tested files ready to use later: supabase-schema.sql (a validated Postgres schema, 29 tables), schema-report.md (the full data map: verified keys, table relationships, known data quality issues), and migrate.py (a tested one-command loader that creates the tables, imports every record, adds the foreign keys, and turns on row level security).
+
+Before anything runs, I need you to analyze THIS project so the migration can be merged in safely.
+
+RULES FOR THIS STEP
+
+Read-only. Do not create, modify, or delete anything (no tables, no code changes, no installs). Never print secret values such as API keys, database passwords, or the service role key. Refer to secrets by their variable name and where they are stored, never their value.
+
+ANSWER THESE, NUMBERED EXACTLY
+
+1. App overview: what this project is, the framework and language, and where it runs.
+
+2. Supabase connection method: does the app use the supabase-js client, a direct Postgres connection, or an ORM such as Drizzle or Prisma? Which environment variables hold the credentials (names only), and which key is used where (anon key in the browser, service role key on the server)?
+
+3. Supabase project: the project ref and URL (safe to share), the region, the plan if visible, and whether this is the only Supabase project or there are separate dev, staging, and prod projects.
+
+4. Existing database contents: run this read-only SQL in the Supabase SQL editor or through the app's connection and paste the output:
+
+   select table_name,
+          (xpath('/row/cnt/text()',
+             query_to_xml('select count(*) as cnt from public.'||quote_ident(table_name), false, true, '')))[1]::text::bigint as rows
+   from information_schema.tables
+   where table_schema='public' and table_type='BASE TABLE'
+   order by table_name;
+
+   If that query is awkward to run, a plain list of every table in the public schema with approximate row counts is fine.
+
+5. Name collisions: state specifically whether any of these table names already exist in the database: providers, patients, patients_anon, customers, transactions, subscriptions, product_subscriptions, app_subscriptions, user_metrics, team_members, patient_logs, patient_messages, chatbot_messages, custom_foods, custom_recipes, approved_foods, ingredient_macros, craving_foods.
+
+6. Row level security: which existing tables have RLS enabled, and paste the output of:
+
+   select tablename, policyname, cmd, roles from pg_policies where schemaname='public';
+
+7. Auth: is Supabase Auth in use (are there real users in auth.users)? How does the app identify and log in users today?
+
+8. Other Supabase features in use: storage buckets, edge functions, database triggers or webhooks, scheduled jobs, realtime subscriptions.
+
+9. Migrations workflow: how are schema changes made today (a Supabase migrations folder, an ORM migration tool, or ad hoc in the SQL editor)? If a migrations folder exists, list its file names.
+
+10. Live usage: is anything writing to this database right now (real users, cron jobs, webhooks)? Roughly how much of the database size quota is currently used? The migration will add roughly 2 GB.
+
+11. Your recommendation, with reasons: should the migrated data land in this same Supabase project (in the public schema as-is, in a separate schema, or with a table name prefix), or in a separate Supabase project? List any risks or conflicts you can see, especially around the table names in question 5, existing RLS policies, and anything that writes to the database.
+
+Output everything as plain text I can copy. Do not start any part of the migration. After I review your answers with my other assistant, I will come back with the exact merge plan and the files.

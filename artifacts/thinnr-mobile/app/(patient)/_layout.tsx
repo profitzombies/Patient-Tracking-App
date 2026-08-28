@@ -9,6 +9,7 @@ import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
 import { SymbolView } from 'expo-symbols';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
+import { PatientFabMenu } from '@/components/patient/PatientFabMenu';
 
 // iOS 26+ liquid glass native tabs
 function NativeTabLayout() {
@@ -224,8 +225,18 @@ export default function PatientTabLayout() {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
 
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
+  // The quick-actions FAB is a sibling of the tab navigator (same pattern
+  // as the provider layout) so it floats over every patient tab.
+  return (
+    <View style={layoutStyles.container}>
+      {isLiquidGlassAvailable() ? <NativeTabLayout /> : <ClassicTabLayout />}
+      <PatientFabMenu />
+    </View>
+  );
 }
+
+const layoutStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+});

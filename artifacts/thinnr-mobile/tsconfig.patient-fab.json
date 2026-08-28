@@ -1,0 +1,36 @@
+{
+  // tsx config for scripts/verify-patient-fab.ts ONLY (not part of typecheck).
+  //
+  // The suite renders the REAL shared FabMenu, PatientFabMenu,
+  // ProviderFabMenu, and the patient tab layout under Node with
+  // react-test-renderer, so every native-only bare specifier in that import
+  // graph is remapped to a Node stub and JSX is compiled with the automatic
+  // runtime. The two context modules are also remapped (exact paths beat the
+  // `@/*` wildcard) so the layout mounts without dragging the full patient
+  // data graph into Node.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/context/AppModeContext": ["./scripts/patient-fab-stubs/app-mode-context.ts"],
+      "@/context/PatientContext": ["./scripts/patient-fab-stubs/patient-context.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/patient-fab-stubs/react-native.ts"],
+      "@expo/vector-icons": ["./scripts/patient-fab-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/patient-fab-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/patient-fab-stubs/expo-router.ts"],
+      "expo-router/unstable-native-tabs": [
+        "./scripts/patient-fab-stubs/expo-router-native-tabs.ts"
+      ],
+      "react-native-safe-area-context": [
+        "./scripts/patient-fab-stubs/react-native-safe-area-context.ts"
+      ],
+      "expo-blur": ["./scripts/patient-fab-stubs/expo-blur.ts"],
+      "expo-glass-effect": ["./scripts/patient-fab-stubs/expo-glass-effect.ts"],
+      "expo-symbols": ["./scripts/patient-fab-stubs/expo-symbols.ts"],
+      "@react-native-async-storage/async-storage": [
+        "./scripts/patient-fab-stubs/async-storage.ts"
+      ]
+    }
+  }
+}

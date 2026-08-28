@@ -128,6 +128,10 @@ args = "stall-nudge"
 task = "workflow.run"
 args = "guided-photos"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-fab"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -432,6 +436,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:guided-photos"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-fab"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:patient-fab"
 
 [workflows.workflow.metadata]
 isValidation = true

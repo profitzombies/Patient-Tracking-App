@@ -51,7 +51,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { CoachCardSlot } from "@/components/coach/CoachCardSlot";
 import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
 import type { CoachStage } from "@/lib/coach-api";
@@ -276,6 +276,20 @@ export default function CoachChatScreen() {
     if (!capture) return;
     await stageCapture(capture);
   };
+
+  // The patient FAB's "Snap a meal photo" row deep-links here with
+  // camera=1: run the exact takePhoto flow once on arrival so the shot
+  // lands in this conversation like any other camera capture. The ref
+  // guards re-renders; a fresh mount with the param (e.g. reloading that
+  // URL on web) intentionally reopens the camera. takePhoto is recreated
+  // per render, so the ref — not the dep list — makes this once-only.
+  const deepLinkParams = useLocalSearchParams<{ camera?: string }>();
+  const autoCameraRan = useRef(false);
+  useEffect(() => {
+    if (deepLinkParams.camera !== "1" || autoCameraRan.current) return;
+    autoCameraRan.current = true;
+    void takePhoto();
+  }, [deepLinkParams.camera]);
 
   // "Choose a different photo" under the staged preview: back into the
   // library picker, but staging the pick (unlike the send-straight-away

@@ -158,6 +158,15 @@ let cueSettleMs = 900;
 let speechGuardMs = 9000;
 let statusConfirmMs = 700;
 let motionStaleMs = 400;
+/**
+ * The beat between the last shot landing and the closing line.
+ *
+ * The review step replaces the live camera, and a camera going away takes
+ * the phone's audio session with it — a line that started a moment earlier
+ * gets chopped off mid-word. Waiting for the handover means the closing
+ * line begins on a settled audio session and runs to its end.
+ */
+let voiceHandoffMs = 350;
 
 export function setGuidedCueSettleMs(ms: number): void {
   cueSettleMs = ms;
@@ -173,6 +182,14 @@ export function setGuidedSpeechGuardMs(ms: number): void {
 
 export function getGuidedSpeechGuardMs(): number {
   return speechGuardMs;
+}
+
+export function setGuidedVoiceHandoffMs(ms: number): void {
+  voiceHandoffMs = ms;
+}
+
+export function getGuidedVoiceHandoffMs(): number {
+  return voiceHandoffMs;
 }
 
 export function setGuidedStatusConfirmMs(ms: number): void {

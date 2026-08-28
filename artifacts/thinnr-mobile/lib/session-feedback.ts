@@ -1,57 +1,25 @@
 /**
- * On-screen hints, screen-reader announcements, and spoken cues for the
- * guided session's line-up stage. The maps are data (the verification
- * suite asserts they stay total); the speech wrapper is the only
- * side-effectful piece — expo-speech rides the platform TTS (native voices,
- * browser speechSynthesis on web) so it works in Expo Go — and it is
- * skipped entirely while a screen reader runs, because VoiceOver/TalkBack
- * already reads every announcement and double narration is worse than none.
+ * The guided session's line-up feedback: on-screen hints, screen-reader
+ * announcements, and the pacing of the spoken coach.
+ *
+ * The words themselves live in `session-lines` (one script, checked against
+ * the recordings) and the sound of them lives in `session-voice` (recorded
+ * clips, platform voice only as a fallback). What is left here is the
+ * PACING — one mouth, one sentence at a time — and it is skipped entirely
+ * while a screen reader runs, because VoiceOver/TalkBack already reads
+ * every announcement and double narration is worse than none.
  */
 
-import * as Speech from 'expo-speech';
+import { LINEUP_ANNOUNCEMENTS, LINEUP_HINTS } from './session-lines';
+import { speakLine, stopVoice } from './session-voice';
 
-import type { LineupStatus } from './lineup';
-
-/** Short imperative line shown under the level bar. */
-export const LINEUP_HINTS: Record<LineupStatus, string> = {
-  'tilt-unavailable': 'Tilt check unavailable — a start button appears shortly',
-  'tilt-face-down': 'Tip the phone back — it is facing the floor',
-  'tilt-back-more': 'Lean the phone back a touch more',
-  'tilt-too-far': 'Stand the phone up a little',
-  'too-dark': 'More light needed',
-  'too-bright': 'Too bright — angle the phone from the light',
-  'not-detected': 'Step into the outline',
-  'too-far': 'Come a little closer',
-  'too-close': 'Step back a little',
-  'off-center': 'Center yourself in the frame',
-  ready: 'Perfect — hold still',
-};
-
-/** Fuller sentence for screen readers and the spoken cue. */
-export const LINEUP_ANNOUNCEMENTS: Record<LineupStatus, string> = {
-  'tilt-unavailable':
-    'This phone cannot check its tilt. Line up in the outline and use the start anyway button when it appears.',
-  'tilt-face-down': 'The phone is tipped toward the floor. Lean its top back against the wall.',
-  'tilt-back-more': 'Lean the phone back a little more.',
-  'tilt-too-far': 'The phone is leaned too far back. Stand it up a little.',
-  'too-dark': 'Too dark. Turn on a light or open the blinds.',
-  'too-bright': 'Too bright. Angle the phone away from direct light.',
-  'not-detected': 'Step back until your whole body is in view.',
-  'too-far': 'Too far away. Take a step toward the phone.',
-  'too-close': 'Too close. Take a step back.',
-  'off-center': 'Move toward the middle of the frame.',
-  ready: 'In position. Hold still.',
-};
+export { LINEUP_ANNOUNCEMENTS, LINEUP_HINTS };
 
 let speechBroken = false;
 
 /** Cuts any in-flight speech (leaving the screen, capture handover). */
 export function stopCues(): void {
-  try {
-    void Promise.resolve(Speech.stop()).catch(() => undefined);
-  } catch {
-    // TTS absent — nothing to stop.
-  }
+  stopVoice();
 }
 
 export interface SayOptions {
@@ -146,28 +114,38 @@ export function createCuePacer(config: CuePacerConfig): CuePacer {
     }, Math.max(0, config.settleMs()));
   };
 
+  const armGuard = (gen: number, ms: number): void => {
+    clearGuard();
+    guardTimer = setTimeout(() => {
+      // Nothing reported the end of this line. Cut it for real before
+      // moving on, so the next cue cannot land on top of one that is
+      // somehow still going.
+      stopCues();
+      utteranceEnded(gen);
+    }, Math.max(0, ms));
+  };
+
   function speakNow(text: string): void {
     generation += 1;
     const gen = generation;
     speaking = true;
     lastSpoken = text;
-    clearGuard();
-    guardTimer = setTimeout(() => {
-      // The platform never reported the end of this utterance. Cut it for
-      // real before moving on, so the next cue cannot land on top of one
-      // that is somehow still going.
-      stopCues();
-      utteranceEnded(gen);
-    }, Math.max(0, config.guardMs()));
+    armGuard(gen, config.guardMs());
     try {
-      Speech.speak(text, {
+      speakLine(text, {
         onDone: () => utteranceEnded(gen),
-        onStopped: () => utteranceEnded(gen),
         onError: () => utteranceEnded(gen),
+        // A recorded line knows exactly how long it runs, so the safety net
+        // is sized to the audio itself: a long line is never cut off part
+        // way through, and a short one never holds the mouth shut.
+        onLength: ms => {
+          if (gen !== generation || !speaking) return;
+          armGuard(gen, ms + 1500);
+        },
       });
     } catch {
-      // TTS absent or broken — stay silent from here on; the on-screen
-      // hints and screen-reader announcements carry the guidance.
+      // No voice at all on this platform — stay silent from here on; the
+      // on-screen hints and screen-reader announcements carry the guidance.
       speechBroken = true;
       speaking = false;
       clearGuard();

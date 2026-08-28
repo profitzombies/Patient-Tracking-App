@@ -19,6 +19,7 @@
       "@/components/ui/AppModal": ["./scripts/meal-photo-stubs/app-modal.ts"],
       "@/data/guided-photo-images": ["./scripts/guided-photo-stubs/guided-photo-images.ts"],
       "@/data/guided-photo-sounds": ["./scripts/guided-photo-stubs/guided-photo-sounds.ts"],
+      "@/data/guided-voice-clips": ["./scripts/guided-photo-stubs/guided-voice-clips.ts"],
       "@/data/recipe-images": ["./scripts/guided-photo-stubs/recipe-images.ts"],
       "@/*": ["./*"],
       "react-native": ["./scripts/guided-photo-stubs/react-native.ts"],

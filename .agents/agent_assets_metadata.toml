@@ -7,3 +7,164 @@ uri = "file://tmp/thinnr-e2e/narration.mp3"
 type = "audio"
 title = "thinnr training narration"
 description = "Text-to-speech audio: Welcome to the THINNR consultation walkthrough. In this lesson we cover how the front desk prepares a new patient for their first visit. Before the patient arrives, open their i…"
+
+[[outputs]]
+id = "hrbrvDdqmsqz2o9mACncT"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-tilt-face-down.mp3"
+type = "audio"
+title = "lineup-tilt-face-down"
+description = "Text-to-speech audio: The phone is tipped toward the floor. Lean its top back against the wall."
+
+[[outputs]]
+id = "_bNE1s41huenu9AalSvUV"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-tilt-too-far.mp3"
+type = "audio"
+title = "lineup-tilt-too-far"
+description = "Text-to-speech audio: The phone is leaned too far back. Stand it up a little."
+
+[[outputs]]
+id = "yYchaXCTUobd-XcSIXxCz"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-tilt-unavailable.mp3"
+type = "audio"
+title = "lineup-tilt-unavailable"
+description = "Text-to-speech audio: This phone cannot check its tilt. Line up in the outline and use the start anyway button when it appears."
+
+[[outputs]]
+id = "ERFqSizpaUeyTrRUUSv6x"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-too-dark.mp3"
+type = "audio"
+title = "lineup-too-dark"
+description = "Text-to-speech audio: Too dark. Turn on a light or open the blinds."
+
+[[outputs]]
+id = "1mWeslWSLt1Vhkv064o8m"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-too-close.mp3"
+type = "audio"
+title = "lineup-too-close"
+description = "Text-to-speech audio: Too close. Take a step back."
+
+[[outputs]]
+id = "JPgIprmp5Jmx_xGIEmaic"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/intro-back.mp3"
+type = "audio"
+title = "intro-back"
+description = "Text-to-speech audio: Back photo first. Step back about six feet and stand in the outline."
+
+[[outputs]]
+id = "M5IvXc6C7AdNj8duCcYM5"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/next-front.mp3"
+type = "audio"
+title = "next-front"
+description = "Text-to-speech audio: Now the front photo. Turn, then hold still in the outline."
+
+[[outputs]]
+id = "O3a6Sp3azIU8zZ0_gzfeE"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-off-center.mp3"
+type = "audio"
+title = "lineup-off-center"
+description = "Text-to-speech audio: Move toward the middle of the frame."
+
+[[outputs]]
+id = "m7FCRcF4M3sVDhCHBly9v"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-ready.mp3"
+type = "audio"
+title = "lineup-ready"
+description = "Text-to-speech audio: In position. Hold still."
+
+[[outputs]]
+id = "MtUkJOILIgGqJY5kMzDBO"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/done.mp3"
+type = "audio"
+title = "New coaching voice — closing line"
+description = "Sample of the recorded voice that now replaces the phone's robot narrator: \"All photos captured. Review your shots.\""
+
+[[outputs]]
+id = "c5Zm2iPqg8GGrlas01haA"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/intro-front.mp3"
+type = "audio"
+title = "intro-front"
+description = "Text-to-speech audio: Front photo first. Step back about six feet and stand in the outline."
+
+[[outputs]]
+id = "_kthpyNwGXmJPQnwyk7mr"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/next-back.mp3"
+type = "audio"
+title = "next-back"
+description = "Text-to-speech audio: Now the back photo. Turn, then hold still in the outline."
+
+[[outputs]]
+id = "qCIhz1IKc6dqOe-FdxlIJ"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/next-side.mp3"
+type = "audio"
+title = "next-side"
+description = "Text-to-speech audio: Now the side photo. Turn, then hold still in the outline."
+
+[[outputs]]
+id = "CXtz9ryEetUvPBfbQUg8p"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-too-bright.mp3"
+type = "audio"
+title = "lineup-too-bright"
+description = "Text-to-speech audio: Too bright. Angle the phone away from direct light."
+
+[[outputs]]
+id = "u_O9V0p0PCmtZUo7FTLLf"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-tilt-back-more.mp3"
+type = "audio"
+title = "lineup-tilt-back-more"
+description = "Text-to-speech audio: Lean the phone back a little more."
+
+[[outputs]]
+id = "vW3hrnWQkdKF6piUfUJYI"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/escape.mp3"
+type = "audio"
+title = "escape"
+description = "Text-to-speech audio: Taking a while to line up — you can start the countdown anyway when you are set."
+
+[[outputs]]
+id = "W-RoCtHorn08gvilptwdC"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/countdown-front.mp3"
+type = "audio"
+title = "countdown-front"
+description = "Text-to-speech audio: In position. Taking the front photo in 7 seconds. Hold still."
+
+[[outputs]]
+id = "94Y4URlqCjFxuIGskI-we"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-too-far.mp3"
+type = "audio"
+title = "lineup-too-far"
+description = "Text-to-speech audio: Too far away. Take a step toward the phone."
+
+[[outputs]]
+id = "bQiB2CvFZLQKKSjcm_Eol"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/lineup-not-detected.mp3"
+type = "audio"
+title = "lineup-not-detected"
+description = "Text-to-speech audio: Step back until your whole body is in view."
+
+[[outputs]]
+id = "X-jFNemV5rCHF1wlpZRo8"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/fallback-tilt.mp3"
+type = "audio"
+title = "fallback-tilt"
+description = "Text-to-speech audio: Automatic position check unavailable. The countdown starts once the phone angle holds steady."
+
+[[outputs]]
+id = "EGYqP5KYzUxdzUAi8pCSo"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/intro-side.mp3"
+type = "audio"
+title = "intro-side"
+description = "Text-to-speech audio: Side photo first. Step back about six feet and stand in the outline."
+
+[[outputs]]
+id = "vFfssElosUmKA3VbaI0HL"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/countdown-side.mp3"
+type = "audio"
+title = "countdown-side"
+description = "Text-to-speech audio: In position. Taking the side photo in 7 seconds. Hold still."
+
+[[outputs]]
+id = "luWWN1YRw9K4w4fXrkJzW"
+uri = "file://artifacts/thinnr-mobile/assets/audio/guided/countdown-back.mp3"
+type = "audio"
+title = "countdown-back"
+description = "Text-to-speech audio: In position. Taking the back photo in 7 seconds. Hold still."

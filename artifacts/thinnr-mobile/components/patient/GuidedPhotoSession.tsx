@@ -83,6 +83,7 @@ import {
   getGuidedSpeechGuardMs,
   getGuidedStatusConfirmMs,
   getGuidedTickIntervalMs,
+  getGuidedVoiceHandoffMs,
   HIDE_INSTRUCTIONS_KEY,
   type GuidedAngle,
   type GuidedSessionOutcome,
@@ -101,6 +102,15 @@ import {
   LINEUP_HINTS,
   type CuePacer,
 } from '@/lib/session-feedback';
+import {
+  ALL_CAPTURED_LINE,
+  angleIntroLine,
+  countdownLine,
+  ESCAPE_LINE,
+  nextAngleLine,
+  TILT_FALLBACK_LINE,
+} from '@/lib/session-lines';
+import { releaseVoice } from '@/lib/session-voice';
 import {
   createLeanSmoother,
   inReadyBandDisplay,
@@ -385,7 +395,18 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   }
   const pacer = pacerRef.current;
 
-  useEffect(() => () => pacer.cancel(), [pacer]);
+  /** Pending closing line, waiting for the camera to hand over the audio. */
+  const closingLineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (closingLineRef.current !== null) clearTimeout(closingLineRef.current);
+      pacer.cancel();
+      // The session is over — hand the recordings back.
+      releaseVoice();
+    },
+    [pacer],
+  );
 
   // Spoken cues go quiet while a screen reader runs — VoiceOver/TalkBack
   // already reads every announcement.
@@ -437,6 +458,12 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
 
   const startRun = useCallback(
     (angles: readonly GuidedAngle[]) => {
+      // A reshoot started before the closing line landed cancels it: that
+      // sentence belongs to a review the patient has already left.
+      if (closingLineRef.current !== null) {
+        clearTimeout(closingLineRef.current);
+        closingLineRef.current = null;
+      }
       queueRef.current = [...angles];
       resetLineupTracking();
       setCaptureError(null);
@@ -457,7 +484,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       });
       const first = queueRef.current[0];
       if (!first) return;
-      const message = `${GUIDED_ANGLE_LABELS[first]} photo first. Step back about six feet and stand in the outline.`;
+      const message = angleIntroLine(first);
       announce(message);
       pacer.say(message, { priority: true });
       setStage({ kind: 'positioning', angle: first });
@@ -479,7 +506,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     (angle: GuidedAngle) => {
       setStage(current => {
         if (current.kind !== 'positioning' || current.angle !== angle) return current;
-        const message = `In position. Taking the ${GUIDED_ANGLE_LABELS[angle].toLowerCase()} photo in ${COUNTDOWN_SECONDS} seconds. Hold still.`;
+        const message = countdownLine(angle);
         announce(message);
         // Capture-critical: cuts across any coaching hint still in flight.
         pacer.say(message, { priority: true });
@@ -730,9 +757,8 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     setShowEscape(false);
     const timer = setTimeout(() => {
       setShowEscape(true);
-      const message = 'Taking a while to line up — you can start the countdown anyway when you are set.';
-      announce(message);
-      pacer.say(message);
+      announce(ESCAPE_LINE);
+      pacer.say(ESCAPE_LINE);
     }, getGuidedEscapeMs());
     return () => clearTimeout(timer);
   }, [stage, pacer]);
@@ -745,10 +771,8 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     if (!fallbackAnnouncedRef.current) {
       fallbackAnnouncedRef.current = true;
       if (tiltAvailable === true) {
-        const message =
-          'Automatic position check unavailable. The countdown starts once the phone angle holds steady.';
-        announce(message);
-        pacer.say(message);
+        announce(TILT_FALLBACK_LINE);
+        pacer.say(TILT_FALLBACK_LINE);
       } else {
         announce('Automatic position check unavailable. Get set — the countdown starts on its own in a few seconds.');
       }
@@ -792,14 +816,20 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       const next = queueRef.current[0];
       if (!next) {
         setStage({ kind: 'review' });
-        const done = 'All photos captured. Review your shots.';
-        announce(done);
-        pacer.say(done, { priority: true });
+        announce(ALL_CAPTURED_LINE);
+        // The live camera is going away with this stage change, and it
+        // takes the phone's audio session with it — a closing line started
+        // now gets chopped off mid-word. Let the handover settle first.
+        if (closingLineRef.current !== null) clearTimeout(closingLineRef.current);
+        closingLineRef.current = setTimeout(() => {
+          closingLineRef.current = null;
+          pacer.say(ALL_CAPTURED_LINE, { priority: true });
+        }, getGuidedVoiceHandoffMs());
         return;
       }
       resetLineupTracking();
       setStage({ kind: 'positioning', angle: next });
-      const message = `Now the ${GUIDED_ANGLE_LABELS[next].toLowerCase()} photo. Turn, then hold still in the outline.`;
+      const message = nextAngleLine(next);
       announce(message);
       pacer.say(message, { priority: true });
     },

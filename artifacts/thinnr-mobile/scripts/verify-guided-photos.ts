@@ -37,7 +37,7 @@
  *  20. Native: beta-only motion (no gravity) can never start the countdown
  *  21. app.json ships the iOS motion permission (NSMotionUsageDescription)
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import React from 'react';
 import { act } from 'react';
@@ -98,6 +98,7 @@ import {
   setGuidedMotionStaleMs,
   setGuidedSpeechGuardMs,
   setGuidedStatusConfirmMs,
+  setGuidedVoiceHandoffMs,
   setGuidedHoldMs,
   setGuidedProbeIntervalMs,
   setGuidedTickIntervalMs,
@@ -132,6 +133,17 @@ import {
 } from '../lib/tilt';
 import { createSteadyHold, lineupStatus, type LineupStatus } from '../lib/lineup';
 import { LINEUP_ANNOUNCEMENTS, LINEUP_HINTS, createCuePacer } from '../lib/session-feedback';
+import {
+  ALL_CAPTURED_LINE,
+  angleIntroLine,
+  countdownLine,
+  ESCAPE_LINE,
+  nextAngleLine,
+  RECORDED_LINES,
+  TILT_FALLBACK_LINE,
+  voiceClipKeyFor,
+  type VoiceClipKey,
+} from '../lib/session-lines';
 import { OUTLINE_PATHS } from '../components/patient/BodyOutline';
 import { decodeBase64, decodePngToLuma, probeCameraFrame } from '../lib/photo-probe';
 import { progressPhotoDisplayUrl, uploadGuidedShots } from '../lib/progress-photo-upload';
@@ -621,6 +633,7 @@ async function main(): Promise<void> {
   setGuidedStatusConfirmMs(30); // verdicts still have to persist, just briefly
   setGuidedCueSettleMs(5);
   setGuidedSpeechGuardMs(1000);
+  setGuidedVoiceHandoffMs(5); // the camera hands the audio over instantly here
   // Under a full render tree a 50 ms sensor loop can slip; scenarios that
   // exercise the settling behaviour lower this deliberately.
   setGuidedMotionStaleMs(2000);
@@ -1251,7 +1264,11 @@ async function main(): Promise<void> {
     assertEqual(tickPlayer()?.plays, 21, 'tick sound per countdown second (7 × 3)');
     assertEqual(tonePlayer()?.plays, 3, 'capture tone once per shot');
 
-    // Spoken cues ride the same messages as the announcements.
+    // Spoken cues ride the same messages as the announcements. The closing
+    // line waits a beat for the camera to hand the audio over, so give the
+    // handover its (shortened) moment before looking for it.
+    await actSleep(30);
+
     assert(
       speechState.spoken.some(t => t.startsWith('Front photo first.')),
       'line-up intro spoken aloud',
@@ -1991,6 +2008,9 @@ async function main(): Promise<void> {
     // the coach forever — the guard cuts it and the next cue lands.
     speechState.reset();
     speechState.autoFinishMs = 5000;
+    // Nothing reports anything here, length included: this is the blind
+    // case the guard exists for.
+    speechState.reportsLength = false;
     const guarded = createCuePacer({ settleMs: () => 5, guardMs: () => 40, muted: () => false });
     guarded.say(LINEUP_ANNOUNCEMENTS['too-dark']);
     guarded.say(LINEUP_ANNOUNCEMENTS['too-bright']);
@@ -2404,6 +2424,111 @@ async function main(): Promise<void> {
     await tap(renderer, 'lb-close', 'close a standalone viewer');
     assertEqual(closed, 1, 'the caller owns closing');
     await actSettle(() => renderer.unmount());
+  }
+
+  // ── 29. The recorded voice: script, clips, and lines that finish ───────
+  section('29. Recorded coaching voice');
+  {
+    // Every sentence the session can say has to be one of the recorded
+    // ones. A line that drifts from its clip still gets spoken by the
+    // platform robot, which is exactly the regression this catches.
+    const spokenByTheSession = [
+      ...GUIDED_ANGLES.map(angleIntroLine),
+      ...GUIDED_ANGLES.map(countdownLine),
+      ...GUIDED_ANGLES.map(nextAngleLine),
+      ...Object.values(LINEUP_ANNOUNCEMENTS),
+      ESCAPE_LINE,
+      TILT_FALLBACK_LINE,
+      ALL_CAPTURED_LINE,
+    ];
+    for (const line of spokenByTheSession) {
+      assert(voiceClipKeyFor(line) !== null, `recorded in the coach's voice: "${line}"`);
+    }
+    assertEqual(
+      spokenByTheSession.length,
+      Object.keys(RECORDED_LINES).length,
+      'no recorded line is dead weight, none is missing',
+    );
+
+    // The clips themselves: one real file per line, wired by static
+    // require() so Metro bundles them.
+    const clipsSource = readFileSync(new URL('../data/guided-voice-clips.ts', import.meta.url), 'utf8');
+    for (const key of Object.keys(RECORDED_LINES) as VoiceClipKey[]) {
+      const wired = clipsSource.includes(`@/assets/audio/guided/${key}.mp3`);
+      assert(wired, `${key} is required from the clips module`);
+      let bytes = 0;
+      try {
+        bytes = statSync(new URL(`../assets/audio/guided/${key}.mp3`, import.meta.url)).size;
+      } catch {
+        bytes = 0;
+      }
+      assert(bytes > 4000, `${key}.mp3 is a real recording on disk`, String(bytes));
+    }
+    const requiredClips = clipsSource.match(/assets\/audio\/guided\/[a-z-]+\.mp3/g) ?? [];
+    assertEqual(
+      requiredClips.length,
+      Object.keys(RECORDED_LINES).length,
+      'the clips module wires exactly the recorded script',
+    );
+
+    // The bug this fixes: a line longer than the pacer's blind deadline
+    // used to be cut off part way through. A recording reports its own
+    // length, so the safety net is sized to the audio.
+    speechState.reset();
+    speechState.autoFinishMs = 300; // a long line, still playing
+    const patient = createCuePacer({ settleMs: () => 5, guardMs: () => 40, muted: () => false });
+    patient.say(ALL_CAPTURED_LINE, { priority: true });
+    await actSleep(150); // well past the blind deadline
+    assertEqual(speechState.stops, 0, 'a recorded line is never cut off by the safety net');
+    assertEqual(speechState.interrupted.length, 0, 'the closing line is still playing');
+    assert(patient.isSpeaking(), 'the pacer knows the line is still going');
+    speechState.finish();
+    await actSleep(30);
+    assert(!patient.isSpeaking(), 'the pacer moves on when the recording actually ends');
+    assertEqual(speechState.spoken.length, 1, 'nothing spoke over the closing line');
+    patient.cancel();
+
+    // A reshoot started inside the handover window must not be chased by
+    // the closing line from the review the patient just left.
+    setGuidedVoiceHandoffMs(150);
+    await resetScenario('web');
+    localStore.set(HIDE_INSTRUCTIONS_KEY, '1'); // straight into capture
+    const { renderer: reshootRenderer } = await mountSession();
+    await waitUntil('auto session reaches review', () =>
+      present(reshootRenderer, 'guided-review-save'),
+    );
+    setGuidedHoldMs(5000); // the reshoot stays in positioning while we watch
+    speechState.reset();
+    speechState.autoFinishMs = 5;
+    await tap(reshootRenderer, 'guided-reshoot-side', 'select Side');
+    await tap(reshootRenderer, 'guided-review-reshoot', 'reshoot before the closing line lands');
+    await actSleep(250); // past the handover the closing line was waiting on
+    assert(
+      present(reshootRenderer, 'guided-angle-banner'),
+      'the reshoot is still lining up (the window we care about)',
+    );
+    assert(
+      !speechState.spoken.includes(ALL_CAPTURED_LINE),
+      'a cancelled closing line never chases the reshoot',
+    );
+    await actSettle(() => reshootRenderer.unmount());
+    setGuidedHoldMs(120);
+    setGuidedVoiceHandoffMs(5);
+    localStore.delete(HIDE_INSTRUCTIONS_KEY);
+
+    // Anything unrecorded still gets said rather than lost.
+    speechState.reset();
+    speechState.autoFinishMs = 5;
+    const oddball = createCuePacer({ settleMs: () => 5, guardMs: () => 200, muted: () => false });
+    oddball.say('An unrecorded sentence.', { priority: true });
+    await actSleep(30);
+    assertEqual(
+      speechState.spoken.join(''),
+      'An unrecorded sentence.',
+      'a line without a clip falls back to the platform voice',
+    );
+    oddball.cancel();
+    speechState.reset();
   }
 
   finish();

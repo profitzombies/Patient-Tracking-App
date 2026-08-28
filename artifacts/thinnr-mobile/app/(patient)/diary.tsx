@@ -14,8 +14,9 @@
  * small accents (the TODAY badge and the over-target status).
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { patientContentBottom } from '@/constants/layout';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
@@ -155,7 +156,7 @@ export default function DiaryScreen() {
     setDateKey(notice.dateKey);
   };
 
-  const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
+  const bottomPad = patientContentBottom(insets.bottom);
 
   const entries = patient.entriesForDate(dateKey);
   const totals = useMemo(

@@ -69,4 +69,4 @@
 - [Guided photo session](guided-photo-session.md) — no-AI line-up gate; tilt trusts gravity ONLY (no beta fallback — no angle is never green); app.json must ship the motion permission; freeze detector while ready.
 - [Finalize sniff window](finalize-sniff-window.md) — image head-sniffs need 64 KB: metadata-heavy JPEGs (AI tags, XMP/EXIF) push SOF past 4 KB; a 4 KB window rejects real photos.
 - [Parallel duplicate-feature merge](parallel-duplicate-feature-merge.md) — main can receive a rival build of the task's own feature; keep one stack, grep automerged spec/screens for dup keys and spliced buttons, prove the tree via diff against the verified commit.
-- [Corner launcher shelf](corner-launcher-shelf.md) — both personas share ui/FabMenu (config-only wrappers); patient bottom-corner stacking (tab bar → FAB → snackbar) lives in constants/layout — new floating UI must join that shelf math.
+- [Patient floating bottom row](corner-launcher-shelf.md) — shared ui/FabMenu + a hand-rolled pill bar (owes its own tablist/tab a11y); all bottom stacking lives in constants/layout — new floating UI must join that shelf math.

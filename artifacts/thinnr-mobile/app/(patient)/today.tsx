@@ -19,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { patientContentBottom } from '@/constants/layout';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
@@ -82,8 +83,6 @@ const HERO_INK = {
   chipBorder: '#ced9e5',
   chipBg: 'rgba(253,252,249,0.9)',
   chipText: '#334e6e',
-  iconBtnBorder: '#cbd7e5',
-  iconBtnBg: 'rgba(253,252,249,0.9)',
   focusBorder: '#c8d7e6',
 } as const;
 
@@ -166,7 +165,7 @@ export default function TodayScreen() {
   // fake-chrome space as the shared header does.
   const heroTopPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
   const heroHeight = heroTopPad + 313;
-  const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
+  const bottomPad = patientContentBottom(insets.bottom);
 
   // The hero's copy is fixed, so on narrow phones (360dp Androids, 375pt
   // iPhones) it must yield space instead of ellipsizing mid-word. Two local
@@ -300,27 +299,10 @@ export default function TodayScreen() {
           <View style={[styles.heroContent, { paddingTop: heroTopPad + 24 }]}>
             <View style={styles.heroTopRow}>
               <Text style={[styles.wordmark, { color: colors.navy }]}>THINNR</Text>
+              {/* Coach used to sit here as a small hero icon; it has a
+                  permanent seat in the floating pill bar now, so the hero
+                  keeps only the persona avatar. */}
               <View style={styles.heroActions}>
-                <Pressable
-                  testID="coach-chat-btn"
-                  accessibilityRole="button"
-                  accessibilityLabel="Chat with the THINNR coach"
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    router.push('/coach-chat');
-                  }}
-                  style={({ pressed }) => [
-                    styles.heroIconBtn,
-                    {
-                      borderColor: HERO_INK.iconBtnBorder,
-                      backgroundColor: HERO_INK.iconBtnBg,
-                      borderRadius: colors.radiusSm,
-                    },
-                    pressed && { backgroundColor: colors.accent },
-                  ]}
-                >
-                  <Feather name="message-circle" size={17} color={colors.cobalt} />
-                </Pressable>
                 <Pressable
                   testID="patient-avatar-btn"
                   onPress={() => {
@@ -899,13 +881,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  heroIconBtn: {
-    width: 36,
-    height: 36,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   avatar: {
     width: 36,

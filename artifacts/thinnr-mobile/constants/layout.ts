@@ -1,49 +1,73 @@
 /**
  * Patient-side floating-surface shelf.
  *
- * Patients keep a visible tab bar (unlike staff, whose corner launcher
- * replaced theirs), so everything that floats near the bottom of a patient
- * screen stacks on one shared shelf above it:
+ * Patients navigate from a floating pill bar in the bottom gutter (the
+ * staff side replaced its bar with the corner launcher outright). The bar
+ * and the launcher circle share ONE row — pill on the left, circle on the
+ * right, vertically centered on each other — and everything else that
+ * floats near the bottom of a patient screen stacks above that row:
  *
- *   tab bar allowance → corner quick-actions launcher → snackbar
+ *   floating row (pill bar + launcher) → snackbar
  *
  * Keeping the math here (instead of per-surface literals) is what makes
  * the stacking safe: the snackbar's action button ("UNDO") sits exactly in
  * the bottom-right corner the launcher occupies, so the snackbar MUST
  * clear the circle — Material's snackbar-over-FAB rule — or the button
- * becomes untappable while a notice is up.
+ * becomes untappable while a notice is up. Scrollable screens pad their
+ * content by the same shelf so the last row never hides under the row.
  */
 import { Platform } from 'react-native';
-import { FAB_SIZE } from '@/components/ui/FabMenu';
+import { FAB_RIGHT, FAB_SIZE } from '@/components/ui/FabMenu';
+
+/** Height of the floating pill bar (taller than the circle it sits beside). */
+export const PATIENT_BAR_HEIGHT = 60;
+
+/** Side gutter the pill bar keeps, matching the launcher's corner offset. */
+export const PATIENT_BAR_SIDE = FAB_RIGHT;
+
+/** Breathing room between the pill bar's right edge and the circle. */
+const PATIENT_BAR_FAB_GAP = 12;
 
 /**
- * Bottom allowance that clears the patient tab bar. The web preview pins
- * the classic bar at a fixed 84 (see app/(patient)/_layout.tsx); native
- * bars add the home-indicator inset, and the same 84 covers both the
- * classic bar and the iOS 26 liquid-glass tabs with breathing room.
+ * Distance from the canvas bottom edge to the floating row's bottom edge.
+ * The web preview draws on the fixed iPhone canvas with no home indicator
+ * to clear, so it keeps a flat gutter; devices add their own inset.
  */
-export function patientTabBarAllowance(insetsBottom: number): number {
-  return Platform.OS === 'web' ? 84 : insetsBottom + 84;
+export function patientBarBottom(insetsBottom: number): number {
+  return Platform.OS === 'web' ? 18 : insetsBottom + 6;
 }
 
-/** Gap between the tab-bar allowance and the launcher circle — the same 14
- *  the staff circle keeps above its own anchor. */
-const PATIENT_FAB_GAP = 14;
+/**
+ * Right inset of the pill bar: the launcher's corner offset plus the
+ * circle plus their gap, so the bar stops short of the circle instead of
+ * running under it.
+ */
+export function patientBarRightInset(): number {
+  return FAB_RIGHT + FAB_SIZE + PATIENT_BAR_FAB_GAP;
+}
 
 /**
- * Bottom offset of the patient corner quick-actions launcher: just above
- * the tab bar, per the shared-corner design (staff has no tab bar, which
- * is why theirs sits lower).
+ * Bottom offset of the patient corner launcher: centered on the pill bar
+ * beside it, so the circle and the bar read as one floating row (staff
+ * have no bar, which is why theirs hugs the corner instead).
  */
 export function patientFabBottom(insetsBottom: number): number {
-  return patientTabBarAllowance(insetsBottom) + PATIENT_FAB_GAP;
+  return patientBarBottom(insetsBottom) + (PATIENT_BAR_HEIGHT - FAB_SIZE) / 2;
 }
 
 /**
- * Bottom offset for patient snackbars: above the launcher circle with the
+ * Bottom padding for scrollable patient screens: clears the whole floating
+ * row plus the usual 20 of breathing room.
+ */
+export function patientContentBottom(insetsBottom: number): number {
+  return patientBarBottom(insetsBottom) + PATIENT_BAR_HEIGHT + 20;
+}
+
+/**
+ * Bottom offset for patient snackbars: above the floating row with the
  * snackbar's usual 12 gap, so its corner action button always stays
  * tappable.
  */
 export function patientSnackbarBottom(insetsBottom: number): number {
-  return patientFabBottom(insetsBottom) + FAB_SIZE + 12;
+  return patientBarBottom(insetsBottom) + PATIENT_BAR_HEIGHT + 12;
 }

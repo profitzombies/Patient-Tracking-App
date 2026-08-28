@@ -5,8 +5,9 @@
  * colors and radii come from the shared theme tokens.
  */
 import React from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { patientContentBottom } from '@/constants/layout';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
@@ -119,7 +120,7 @@ export default function PlanScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
 
-  const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
+  const bottomPad = patientContentBottom(insets.bottom);
   const week = Math.ceil(ENROLLMENT_DAYS / 7);
 
   const setTarget = (key: keyof DailyTargets) => (next: number) => {

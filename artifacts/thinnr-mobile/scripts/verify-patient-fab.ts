@@ -1,33 +1,41 @@
 /**
- * Patient corner quick-actions launcher check.
+ * Patient bottom navigation check — floating pill bar + corner launcher.
  *
- * Patients get the exact same bottom-right circle + popout menu as staff —
- * one shared FabMenu implementation behind both personas — filled with
- * patient quick actions and floating above the visible patient tab bar
- * (staff hide theirs, so their circle hugs the corner). This suite renders
- * the REAL patient tab layout, both persona wrappers, and the meal-photo
- * flow the patient menu hosts, under Node with react-test-renderer
- * (tsconfig.patient-fab.json maps native-only modules to Node stubs), and
- * proves:
+ * Patients navigate from a floating row in the bottom gutter: a Heritage
+ * pill holding the four daily screens (Today, Diary, Progress, Coach) with
+ * the shared corner launcher immediately to its right, carrying the two
+ * overflow destinations (Library, Plan) above its quick actions. Staff keep
+ * the same launcher with their own config and no bar at all. This suite
+ * renders the REAL patient tab layout, both persona wrappers, and the
+ * meal-photo flow the patient menu hosts, under Node with
+ * react-test-renderer (tsconfig.patient-fab.json maps native-only modules
+ * to Node stubs), and proves:
  *
- *   1. Mount & placement — the patient tab layout carries the launcher as a
- *      sibling of the tab navigator (so it floats on every tab), a 56px
- *      navy circle at right 18 sitting above the tab bar shelf: web
- *      84 + 14, device insets + 84 + 14 — and only for the patient persona.
- *   2. Menu parity — identical card structure to staff: section label, five
- *      icon-chip rows in order, divider, cobalt primary button; identical
- *      open/close accessibility contract (button roles, expanded state,
- *      selected tick on the active destination, backdrop + twin X).
- *   3. Destinations — every row closes the menu with selection feedback and
- *      lands on an EXISTING screen: /log-food, /barcode-scan, the meal
- *      photo flow (library picker on web with the preview surviving the
- *      closed menu; /food-camera handoff on device), /check-in, the
- *      /progress tab (tab-navigate + skip-when-already-there), /coach-chat.
- *   4. Staff side unchanged — the provider wrapper still renders its six
+ *   1. Mount & shelf — the layout carries the pill bar AND the launcher as
+ *      siblings of the tab navigator (so they float on every screen), the
+ *      navigator itself draws no bar, and the two floating surfaces share
+ *      one row that they can never overlap in.
+ *   2. Pill bar — four seats in order, each with a real accessible name and
+ *      selected state (a hand-rolled bar owes its own a11y), the Heritage
+ *      orange tick on the active seat, SF Symbols on iOS / Feather
+ *      elsewhere, tab-navigate + skip-when-already-there for the three
+ *      screens, and a push for the coach chat that stacks over them.
+ *   3. Menu parity — identical card structure to staff: labelled section
+ *      groups, icon-chip rows in order, divider, cobalt primary button;
+ *      identical open/close accessibility contract (button roles, expanded
+ *      state, selected tick on the active destination, backdrop + twin X).
+ *      Patient rests as a plus, staff as the grid.
+ *   4. Destinations — every row closes the menu with selection feedback and
+ *      lands on an EXISTING screen: /recipes, /plan, /barcode-scan, the
+ *      meal photo flow (library picker on web with the preview surviving
+ *      the closed menu; /food-camera handoff on device), /check-in, the
+ *      /progress screen, /log-food.
+ *   5. Staff side unchanged — the provider wrapper still renders its six
  *      destinations + AI Support through the same shared contract.
- *   5. Stacking — the snackbar shelf clears the launcher, so a snackbar's
- *      corner action ("UNDO") never hides under the circle.
- *   6. One implementation — both wrappers are config-only (no modal /
+ *   6. Stacking — snackbars and scroll padding both clear the whole
+ *      floating row, so a snackbar's corner action ("UNDO") never hides
+ *      under the circle and no list ends under the bar.
+ *   7. One implementation — both wrappers are config-only (no modal /
  *      animation / stylesheet of their own), so the two menus cannot drift.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:patient-fab
@@ -40,9 +48,17 @@ import { Platform } from 'react-native';
 import PatientTabLayout from '../app/(patient)/_layout';
 import { PatientFabMenu } from '../components/patient/PatientFabMenu';
 import { ProviderFabMenu } from '../components/provider/ProviderFabMenu';
-import { FAB_SIZE } from '../components/ui/FabMenu';
+import { FAB_RIGHT, FAB_SIZE } from '../components/ui/FabMenu';
 import colors from '../constants/colors';
-import { patientFabBottom, patientSnackbarBottom, patientTabBarAllowance } from '../constants/layout';
+import {
+  PATIENT_BAR_HEIGHT,
+  PATIENT_BAR_SIDE,
+  patientBarBottom,
+  patientBarRightInset,
+  patientContentBottom,
+  patientFabBottom,
+  patientSnackbarBottom,
+} from '../constants/layout';
 import { claimFoodCameraRequest } from '../lib/food-camera';
 import { appModeState } from './patient-fab-stubs/app-mode-context';
 import { clearSendPhotoCalls, sendPhotoCalls } from './patient-fab-stubs/coach-chat-context';
@@ -76,17 +92,17 @@ function assertEqual(label: string, actual: string | number, expected: string | 
 function finish(): never {
   finished = true;
   if (failures > 0) {
-    console.error(`\n✗ patient corner launcher check: ${failures} failure(s) across ${checks} checks`);
+    console.error(`\n✗ patient bottom navigation check: ${failures} failure(s) across ${checks} checks`);
     process.exit(1);
   }
-  console.log(`✓ patient corner launcher check: ${checks} checks passed`);
+  console.log(`✓ patient bottom navigation check: ${checks} checks passed`);
   process.exit(0);
 }
 
 // A dangling await must never look like success.
 process.on('beforeExit', () => {
   if (!finished) {
-    console.error('✗ patient corner launcher check: exited before finishing (dangling await?)');
+    console.error('✗ patient bottom navigation check: exited before finishing (dangling await?)');
     process.exit(1);
   }
 });
@@ -191,6 +207,11 @@ function nodeKids(node: TestNode): TestNode[] {
   return node.children.filter((child): child is TestNode => typeof child !== 'string');
 }
 
+function orangeTicks(node: TestNode): number {
+  return node.findAll(n => isHost(n) && flattenStyle(n.props.style).backgroundColor === colors.light.orange)
+    .length;
+}
+
 // ─── Shared menu contract (the "pixel-matched to staff" guarantee) ───────────
 
 interface RowSpec {
@@ -200,31 +221,56 @@ interface RowSpec {
   iconName: string;
 }
 
-const PATIENT_ROWS: RowSpec[] = [
-  { key: 'log-food', label: 'Log food', iconHost: 'Feather', iconName: 'plus' },
-  { key: 'barcode', label: 'Scan a barcode', iconHost: 'MaterialCommunityIcons', iconName: 'barcode-scan' },
-  { key: 'meal-photo', label: 'Snap a meal photo', iconHost: 'Feather', iconName: 'camera' },
-  { key: 'check-in', label: 'Daily check-in', iconHost: 'Feather', iconName: 'check-circle' },
-  { key: 'progress-photos', label: 'Progress photos', iconHost: 'Feather', iconName: 'image' },
+interface SectionSpec {
+  key: string;
+  label: string;
+  rows: RowSpec[];
+}
+
+const PATIENT_SECTIONS: SectionSpec[] = [
+  {
+    key: 'destinations',
+    label: 'MENU',
+    rows: [
+      { key: 'library', label: 'Library', iconHost: 'Feather', iconName: 'grid' },
+      { key: 'plan', label: 'Plan', iconHost: 'Feather', iconName: 'clipboard' },
+    ],
+  },
+  {
+    key: 'quick-actions',
+    label: 'QUICK ACTIONS',
+    rows: [
+      { key: 'barcode', label: 'Scan a barcode', iconHost: 'MaterialCommunityIcons', iconName: 'barcode-scan' },
+      { key: 'meal-photo', label: 'Snap a meal photo', iconHost: 'Feather', iconName: 'camera' },
+      { key: 'check-in', label: 'Daily check-in', iconHost: 'Feather', iconName: 'check-circle' },
+      { key: 'progress-photos', label: 'Progress photos', iconHost: 'Feather', iconName: 'image' },
+    ],
+  },
 ];
 
-const PROVIDER_ROWS: RowSpec[] = [
-  { key: 'overview', label: 'Overview', iconHost: 'Feather', iconName: 'home' },
-  { key: 'patients', label: 'Patients', iconHost: 'Feather', iconName: 'users' },
-  { key: 'outcomes', label: 'Outcomes', iconHost: 'Feather', iconName: 'bar-chart-2' },
-  { key: 'leaderboard', label: 'Leaderboard', iconHost: 'Feather', iconName: 'award' },
-  { key: 'subscriptions', label: 'Subscriptions', iconHost: 'Feather', iconName: 'package' },
-  { key: 'training', label: 'Training', iconHost: 'Feather', iconName: 'book-open' },
+const PROVIDER_SECTIONS: SectionSpec[] = [
+  {
+    key: 'navigate',
+    label: 'NAVIGATE',
+    rows: [
+      { key: 'overview', label: 'Overview', iconHost: 'Feather', iconName: 'home' },
+      { key: 'patients', label: 'Patients', iconHost: 'Feather', iconName: 'users' },
+      { key: 'outcomes', label: 'Outcomes', iconHost: 'Feather', iconName: 'bar-chart-2' },
+      { key: 'leaderboard', label: 'Leaderboard', iconHost: 'Feather', iconName: 'award' },
+      { key: 'subscriptions', label: 'Subscriptions', iconHost: 'Feather', iconName: 'package' },
+      { key: 'training', label: 'Training', iconHost: 'Feather', iconName: 'book-open' },
+    ],
+  },
 ];
 
 interface MenuContract {
   side: string;
   root: TestNode;
   idPrefix: string;
-  sectionLabel: string;
+  sections: SectionSpec[];
   openLabel: string;
   closeLabel: string;
-  rows: RowSpec[];
+  restingIcon: string;
   primary: { key: string; label: string; a11yLabel: string; iconName: string };
   fabBottom: number;
   activeKey?: string;
@@ -240,7 +286,7 @@ function checkMenuContract(opts: MenuContract): void {
   assertEqual(`${side}: circle width`, Number(fabStyle.width), FAB_SIZE);
   assertEqual(`${side}: circle height`, Number(fabStyle.height), FAB_SIZE);
   assertEqual(`${side}: circle radius`, Number(fabStyle.borderRadius), FAB_SIZE / 2);
-  assertEqual(`${side}: corner offset`, Number(fabStyle.right), 18);
+  assertEqual(`${side}: corner offset`, Number(fabStyle.right), FAB_RIGHT);
   assertEqual(`${side}: bottom offset`, Number(fabStyle.bottom), opts.fabBottom);
   assertEqual(`${side}: navy circle`, String(fabStyle.backgroundColor), colors.light.navy);
   assert(
@@ -255,7 +301,7 @@ function checkMenuContract(opts: MenuContract): void {
     'false',
   );
   const restingIcon = fab.findAll(n => isHost(n) && n.type === 'Feather')[0];
-  assertEqual(`${side}: resting grid glyph`, String(restingIcon?.props.name), 'grid');
+  assertEqual(`${side}: resting glyph`, String(restingIcon?.props.name), opts.restingIcon);
   assertEqual(`${side}: menu starts closed`, byTestID(root, `${idPrefix}-menu`).length, 0);
 
   const hapticsBefore = selectionCalls.count;
@@ -270,27 +316,44 @@ function checkMenuContract(opts: MenuContract): void {
   assertEqual(`${side}: cream card`, String(cardStyle.backgroundColor), colors.light.card);
 
   const kids = nodeKids(menu);
-  assertEqual(`${side}: card structure (label + rows + divider + primary)`, kids.length, opts.rows.length + 3);
-  assertEqual(`${side}: section label`, textOf(kids[0]!), opts.sectionLabel);
+  assertEqual(
+    `${side}: card structure (section groups + divider + primary)`,
+    kids.length,
+    opts.sections.length + 2,
+  );
 
-  opts.rows.forEach((row, index) => {
-    const rowNode = only(root, `${idPrefix}-menu-${row.key}`);
-    if (!rowNode) return;
-    assertEqual(`${side}: row ${index + 1} is ${row.key}`, String(kids[index + 1]?.props.testID), `${idPrefix}-menu-${row.key}`);
-    assertEqual(`${side}: row ${row.key} role`, String(rowNode.props.accessibilityRole), 'button');
-    assertEqual(`${side}: row ${row.key} a11y label`, String(rowNode.props.accessibilityLabel), row.label);
-    assert(`${side}: row ${row.key} shows its label`, textOf(rowNode).includes(row.label));
-    const icon = rowNode.findAll(n => isHost(n) && n.type === row.iconHost)[0];
-    assertEqual(`${side}: row ${row.key} glyph`, String(icon?.props.name), row.iconName);
-    const selected = (rowNode.props.accessibilityState as { selected?: boolean } | undefined)?.selected;
-    assertEqual(`${side}: row ${row.key} selected state`, String(Boolean(selected)), String(row.key === opts.activeKey));
-    const ticks = rowNode.findAll(
-      n => isHost(n) && flattenStyle(n.props.style).backgroundColor === colors.light.orange,
+  opts.sections.forEach((section, sectionIndex) => {
+    const group = only(root, `${idPrefix}-menu-section-${section.key}`);
+    if (!group) return;
+    assertEqual(
+      `${side}: group ${sectionIndex + 1} is ${section.key}`,
+      String(kids[sectionIndex]?.props.testID),
+      `${idPrefix}-menu-section-${section.key}`,
     );
-    assertEqual(`${side}: row ${row.key} active tick`, ticks.length, row.key === opts.activeKey ? 1 : 0);
+    const groupKids = nodeKids(group);
+    assertEqual(`${side}: ${section.key} heading`, textOf(groupKids[0]!), section.label);
+    assertEqual(`${side}: ${section.key} row count`, groupKids.length - 1, section.rows.length);
+
+    section.rows.forEach((row, index) => {
+      const rowNode = only(root, `${idPrefix}-menu-${row.key}`);
+      if (!rowNode) return;
+      assertEqual(
+        `${side}: ${section.key} row ${index + 1} is ${row.key}`,
+        String(groupKids[index + 1]?.props.testID),
+        `${idPrefix}-menu-${row.key}`,
+      );
+      assertEqual(`${side}: row ${row.key} role`, String(rowNode.props.accessibilityRole), 'button');
+      assertEqual(`${side}: row ${row.key} a11y label`, String(rowNode.props.accessibilityLabel), row.label);
+      assert(`${side}: row ${row.key} shows its label`, textOf(rowNode).includes(row.label));
+      const icon = rowNode.findAll(n => isHost(n) && n.type === row.iconHost)[0];
+      assertEqual(`${side}: row ${row.key} glyph`, String(icon?.props.name), row.iconName);
+      const selected = (rowNode.props.accessibilityState as { selected?: boolean } | undefined)?.selected;
+      assertEqual(`${side}: row ${row.key} selected state`, String(Boolean(selected)), String(row.key === opts.activeKey));
+      assertEqual(`${side}: row ${row.key} active tick`, orangeTicks(rowNode), row.key === opts.activeKey ? 1 : 0);
+    });
   });
 
-  const divider = kids[opts.rows.length + 1];
+  const divider = kids[opts.sections.length];
   assertEqual(`${side}: divider under the rows`, Number(divider ? flattenStyle(divider.props.style).height : NaN), 1);
 
   const primary = only(root, `${idPrefix}-menu-${opts.primary.key}`);
@@ -334,6 +397,32 @@ function checkMenuContract(opts: MenuContract): void {
   assertEqual(`${side}: backdrop closes the menu`, byTestID(root, `${idPrefix}-menu`).length, 0);
 }
 
+// ─── Pill bar contract ───────────────────────────────────────────────────────
+
+interface SeatSpec {
+  key: string;
+  label: string;
+  sf: string;
+  feather: string;
+  /** What pressing it does when it is NOT the current screen. */
+  method: 'navigate' | 'push';
+  target: string;
+}
+
+const SEATS: SeatSpec[] = [
+  { key: 'today', label: 'Today', sf: 'sun.max', feather: 'sun', method: 'navigate', target: '/today' },
+  { key: 'diary', label: 'Diary', sf: 'book', feather: 'book-open', method: 'navigate', target: '/diary' },
+  {
+    key: 'progress',
+    label: 'Progress',
+    sf: 'chart.xyaxis.line',
+    feather: 'trending-down',
+    method: 'navigate',
+    target: '/progress',
+  },
+  { key: 'coach', label: 'Coach', sf: 'message', feather: 'message-circle', method: 'push', target: '/coach-chat' },
+];
+
 // ─── Run ─────────────────────────────────────────────────────────────────────
 
 const INSET_BOTTOM = 34; // what the safe-area stub reports
@@ -356,34 +445,169 @@ async function main(): Promise<void> {
   if (!TestRenderer.create) throw new Error('react-test-renderer did not expose create()');
   createRenderer = TestRenderer.create.bind(TestRenderer);
 
-  // ── 1. Patient layout mounts the launcher above the web tab bar ──────────
+  // ── 1. Layout mounts the whole floating row over a bar-less navigator ────
   Platform.OS = 'web';
   routerState.pathname = '/today';
+  const WEB_BAR_BOTTOM = patientBarBottom(INSET_BOTTOM);
   const WEB_FAB_BOTTOM = patientFabBottom(INSET_BOTTOM);
-  assertEqual('web shelf math (fixed 84px tab bar + gap)', WEB_FAB_BOTTOM, 84 + 14);
+  assertEqual('web bar shelf (flat gutter on the fixed canvas)', WEB_BAR_BOTTOM, 18);
+  assertEqual('web circle centers on the bar', WEB_FAB_BOTTOM, WEB_BAR_BOTTOM + (PATIENT_BAR_HEIGHT - FAB_SIZE) / 2);
 
   const layout = render(h(PatientTabLayout));
   const root = layout.root;
   const screens = root.findAll(n => isHost(n) && n.type === 'TabsScreen');
   assertEqual(
-    'launcher is a sibling of all five patient tabs',
+    'all five patient screens still registered',
     screens.map(s => String(s.props.name)).join(','),
     'today,diary,recipes,progress,plan',
   );
+  const navigator = root.findAll(n => isHost(n) && n.type === 'Tabs')[0];
+  assert('navigator mounted', navigator !== undefined);
+  const tabBarProp = navigator?.props.tabBar as (() => unknown) | undefined;
+  assertEqual('navigator is handed a tabBar renderer', typeof tabBarProp, 'function');
+  assertEqual('navigator draws no bar of its own', String(tabBarProp?.()), 'null');
+  assert('layout mounts the pill bar', byTestID(root, 'patient-tab-bar').length === 1);
+  assert('layout mounts the launcher', byTestID(root, 'patient-fab').length === 1);
 
+  // The two floating surfaces share a row and must never overlap: the bar
+  // stops a clear gap short of where the circle starts.
+  assertEqual('bar right inset clears the circle', patientBarRightInset(), FAB_RIGHT + FAB_SIZE + 12);
+  assert('bar cannot run under the circle', patientBarRightInset() > FAB_RIGHT + FAB_SIZE);
+  assert('bar is taller than the circle it flanks', PATIENT_BAR_HEIGHT > FAB_SIZE);
+
+  const bar = only(root, 'patient-tab-bar');
+  const barStyle = flattenStyle(bar?.props.style);
+  assertEqual('web: bar bottom', Number(barStyle.bottom), WEB_BAR_BOTTOM);
+  assertEqual('web: bar left gutter', Number(barStyle.left), PATIENT_BAR_SIDE);
+  assertEqual('web: bar right inset', Number(barStyle.right), patientBarRightInset());
+  assertEqual('web: bar height', Number(barStyle.height), PATIENT_BAR_HEIGHT);
+  assertEqual('web: capsule radius', Number(barStyle.borderRadius), PATIENT_BAR_HEIGHT / 2);
+  assertEqual('web: cream bar', String(barStyle.backgroundColor), colors.light.card);
+  assertEqual('web: bar hairline', String(barStyle.borderColor), colors.light.border);
+  assert('web: bar floats over content', String(barStyle.position) === 'absolute');
+  assert('web: bar casts a shadow', 'boxShadow' in barStyle);
+
+  // ── 2. Four seats: order, accessible names, active marking, glyphs ───────
+  const barKids = nodeKids(bar!);
+  assertEqual(
+    'seats in order',
+    barKids.map(kid => String(kid.props.testID)).join(','),
+    SEATS.map(seat => `patient-tab-${seat.key}`).join(','),
+  );
+  // A hand-rolled bar owes its own tab semantics — as four plain buttons a
+  // screen reader loses "tab 2 of 4, selected" entirely.
+  assertEqual('bar announces as a tab list', String(bar?.props.accessibilityRole), 'tablist');
+  assertEqual('bar carries the web tablist role', String(bar?.props.role), 'tablist');
+  SEATS.forEach(seat => {
+    const node = only(root, `patient-tab-${seat.key}`);
+    if (!node) return;
+    assertEqual(`seat ${seat.key} role`, String(node.props.accessibilityRole), 'tab');
+    assertEqual(`seat ${seat.key} web role`, String(node.props.role), 'tab');
+    assertEqual(`seat ${seat.key} accessible name`, String(node.props.accessibilityLabel), seat.label);
+    assert(`seat ${seat.key} shows its label`, textOf(node).includes(seat.label));
+    const active = seat.key === 'today';
+    assertEqual(
+      `seat ${seat.key} selected state on /today`,
+      String(Boolean((node.props.accessibilityState as { selected?: boolean } | undefined)?.selected)),
+      String(active),
+    );
+    assertEqual(`seat ${seat.key} active tick on /today`, orangeTicks(node), active ? 1 : 0);
+    const feather = node.findAll(n => isHost(n) && n.type === 'Feather')[0];
+    assertEqual(`web seat ${seat.key} glyph`, String(feather?.props.name), seat.feather);
+    assertEqual(`web seat ${seat.key} draws no SF symbol`, node.findAll(n => isHost(n) && n.type === 'SymbolView').length, 0);
+  });
+
+  // ── 3. Seat semantics: tab-swap, skip-when-there, coach stacks over ──────
+  const pressSeat = (key: string) => {
+    clearRouterCalls();
+    const before = selectionCalls.count;
+    tap(only(root, `patient-tab-${key}`));
+    assertEqual(`seat ${key}: one selection tick`, selectionCalls.count, before + 1);
+  };
+
+  pressSeat('diary');
+  assertEqual(
+    'seat diary: swaps tabs',
+    JSON.stringify(routerCalls),
+    JSON.stringify([{ method: 'navigate', target: '/diary' }]),
+  );
+  pressSeat('progress');
+  assertEqual(
+    'seat progress: swaps tabs',
+    JSON.stringify(routerCalls),
+    JSON.stringify([{ method: 'navigate', target: '/progress' }]),
+  );
+  pressSeat('coach');
+  assertEqual(
+    'seat coach: stacks the chat over the current screen',
+    JSON.stringify(routerCalls),
+    JSON.stringify([{ method: 'push', target: '/coach-chat' }]),
+  );
+  pressSeat('today');
+  assertEqual('seat today: already there, no re-navigation', routerCalls.length, 0);
+
+  // Active marking follows the route, not a local guess.
+  routerState.pathname = '/diary';
+  const rerender = render(h(PatientTabLayout));
+  const diarySeat = only(rerender.root, 'patient-tab-diary');
+  assertEqual(
+    'on /diary: diary seat reports selected',
+    String((diarySeat?.props.accessibilityState as { selected?: boolean } | undefined)?.selected),
+    'true',
+  );
+  assertEqual('on /diary: exactly one seat is ticked', orangeTicks(only(rerender.root, 'patient-tab-bar')!), 1);
+  unmount(rerender);
+
+  // Library and Plan live in the menu, not the bar: on those screens NO seat
+  // may claim the tick (a bar that lies about where you are is worse than a
+  // bar with nothing lit) — the menu row carries the marker instead.
+  (['/recipes', '/plan'] as const).forEach(where => {
+    routerState.pathname = where;
+    const tree = render(h(PatientTabLayout));
+    assertEqual(`on ${where}: no seat is ticked`, orangeTicks(only(tree.root, 'patient-tab-bar')!), 0);
+    SEATS.forEach(seat => {
+      const node = only(tree.root, `patient-tab-${seat.key}`);
+      assertEqual(
+        `on ${where}: seat ${seat.key} reports unselected`,
+        String(Boolean((node?.props.accessibilityState as { selected?: boolean } | undefined)?.selected)),
+        'false',
+      );
+    });
+    tap(only(tree.root, 'patient-fab'));
+    const rowKey = where === '/recipes' ? 'library' : 'plan';
+    const row = only(tree.root, `patient-menu-${rowKey}`);
+    assertEqual(`on ${where}: menu row ${rowKey} carries the tick`, row ? orangeTicks(row) : NaN, 1);
+    unmount(tree);
+  });
+
+  // The coach seat pushes unconditionally — unlike the navigate seats it
+  // never skips, so a second visit always stacks a fresh chat screen.
+  routerState.pathname = '/coach-chat';
+  const onCoach = render(h(PatientTabLayout));
+  clearRouterCalls();
+  tap(only(onCoach.root, 'patient-tab-coach'));
+  assertEqual(
+    'coach seat never skips (push, not navigate)',
+    JSON.stringify(routerCalls),
+    JSON.stringify([{ method: 'push', target: '/coach-chat' }]),
+  );
+  unmount(onCoach);
+  routerState.pathname = '/today';
+
+  // ── 4. Menu contract: two groups, plus launcher, Log food primary ────────
   checkMenuContract({
     side: 'patient(web)',
     root,
     idPrefix: 'patient',
-    sectionLabel: 'QUICK ACTIONS',
-    openLabel: 'Open quick actions menu',
-    closeLabel: 'Close quick actions menu',
-    rows: PATIENT_ROWS,
-    primary: { key: 'coach', label: 'Message Coach', a11yLabel: 'Message your coach', iconName: 'message-circle' },
+    sections: PATIENT_SECTIONS,
+    openLabel: 'Open menu and quick actions',
+    closeLabel: 'Close menu and quick actions',
+    restingIcon: 'plus',
+    primary: { key: 'log-food', label: 'Log food', a11yLabel: 'Log food', iconName: 'plus' },
     fabBottom: WEB_FAB_BOTTOM,
   });
 
-  // ── 2. Rows close the menu, tick feedback, land on existing screens ──────
+  // ── 5. Rows close the menu, tick feedback, land on existing screens ──────
   const openMenu = () => tap(only(root, 'patient-fab'));
 
   const rowNavigates = async (key: string, expected: { method: string; target: string }) => {
@@ -396,11 +620,12 @@ async function main(): Promise<void> {
     assertEqual(`row ${key}: destination`, JSON.stringify(routerCalls), JSON.stringify([expected]));
   };
 
-  await rowNavigates('log-food', { method: 'push', target: '/log-food' });
+  // The two overflow destinations swap screens like the bar's seats do.
+  await rowNavigates('library', { method: 'navigate', target: '/recipes' });
+  await rowNavigates('plan', { method: 'navigate', target: '/plan' });
   await rowNavigates('barcode', { method: 'push', target: '/barcode-scan' });
   await rowNavigates('check-in', { method: 'push', target: '/check-in' });
-  await rowNavigates('coach', { method: 'push', target: '/coach-chat' });
-  // Progress photos targets the progress TAB → tab-navigate, not push.
+  await rowNavigates('log-food', { method: 'push', target: '/log-food' });
   await rowNavigates('progress-photos', { method: 'navigate', target: '/progress' });
 
   // Already on Progress: the row shows the active tick and skips re-navigating.
@@ -412,20 +637,14 @@ async function main(): Promise<void> {
     String((activeRow?.props.accessibilityState as { selected?: boolean } | undefined)?.selected),
     'true',
   );
-  assertEqual(
-    'on /progress: row shows the orange tick',
-    activeRow
-      ? activeRow.findAll(n => isHost(n) && flattenStyle(n.props.style).backgroundColor === colors.light.orange).length
-      : NaN,
-    1,
-  );
+  assertEqual('on /progress: row shows the orange tick', activeRow ? orangeTicks(activeRow) : NaN, 1);
   clearRouterCalls();
   await tapAndSettle(activeRow);
   assertEqual('on /progress: menu closes without re-navigating', byTestID(root, 'patient-menu').length, 0);
   assertEqual('on /progress: no duplicate navigation', routerCalls.length, 0);
   routerState.pathname = '/today';
 
-  // ── 3. Snap a meal photo (web): picker → preview survives the closed menu ─
+  // ── 6. Snap a meal photo (web): picker → preview survives the closed menu ─
   pickerScript.next = {
     canceled: false,
     assets: [{ uri: 'blob:meal-fixture', width: 1200, height: 900 }],
@@ -451,7 +670,7 @@ async function main(): Promise<void> {
   assertEqual('meal photo: preview closes after send', byTestID(root, 'meal-photo-preview').length, 0);
   unmount(layout);
 
-  // ── 4. Persona gate: the launcher never leaks outside the patient side ───
+  // ── 7. Persona gate: neither surface leaks outside the patient side ──────
   appModeState.mode = 'staff';
   const staffTree = render(h(PatientTabLayout));
   assertEqual(
@@ -463,26 +682,54 @@ async function main(): Promise<void> {
     '/',
   );
   assertEqual('staff persona: no patient launcher', byTestID(staffTree.root, 'patient-fab').length, 0);
+  assertEqual('staff persona: no patient pill bar', byTestID(staffTree.root, 'patient-tab-bar').length, 0);
   unmount(staffTree);
   appModeState.mode = 'patient';
 
-  // ── 5. Device placement + in-app camera handoff ──────────────────────────
+  // ── 8. Device placement, SF symbols, in-app camera handoff ───────────────
   Platform.OS = 'ios';
+  const NATIVE_BAR_BOTTOM = patientBarBottom(INSET_BOTTOM);
   const NATIVE_FAB_BOTTOM = patientFabBottom(INSET_BOTTOM);
+  assertEqual('device bar shelf (home indicator + gutter)', NATIVE_BAR_BOTTOM, INSET_BOTTOM + 6);
   assertEqual(
-    'device shelf math (inset + tab bar + gap)',
+    'device circle centers on the bar',
     NATIVE_FAB_BOTTOM,
-    INSET_BOTTOM + patientTabBarAllowance(0) + 14,
+    NATIVE_BAR_BOTTOM + (PATIENT_BAR_HEIGHT - FAB_SIZE) / 2,
   );
+
+  const nativeLayout = render(h(PatientTabLayout));
+  const nativeBar = only(nativeLayout.root, 'patient-tab-bar');
+  assertEqual(
+    'device: bar clears the home indicator',
+    Number(flattenStyle(nativeBar?.props.style).bottom),
+    NATIVE_BAR_BOTTOM,
+  );
+  SEATS.forEach(seat => {
+    const node = only(nativeLayout.root, `patient-tab-${seat.key}`);
+    if (!node) return;
+    const symbol = node.findAll(n => isHost(n) && n.type === 'SymbolView')[0];
+    assertEqual(`device seat ${seat.key} SF symbol`, String(symbol?.props.name), seat.sf);
+  });
+  assertEqual(
+    'device: circle rides the same shelf inside the layout',
+    Number(flattenStyle(only(nativeLayout.root, 'patient-fab')?.props.style).bottom),
+    NATIVE_FAB_BOTTOM,
+  );
+  unmount(nativeLayout);
+
   const nativeTree = render(h(PatientFabMenu));
   const nativeFab = only(nativeTree.root, 'patient-fab');
   assertEqual(
-    'device: circle floats above tab bar + home indicator',
+    'device: launcher anchors to the shared shelf',
     Number(flattenStyle(nativeFab?.props.style).bottom),
     NATIVE_FAB_BOTTOM,
   );
   const providerBottom = Math.max(INSET_BOTTOM, 14) + 14;
-  assert('patients float higher than staff (visible tab bar)', NATIVE_FAB_BOTTOM > providerBottom);
+  // Both personas now float in the gutter (patients beside their pill bar,
+  // staff alone), so neither may sit on the home indicator.
+  assert('device: the patient row clears the home indicator', NATIVE_BAR_BOTTOM >= INSET_BOTTOM);
+  assert('device: the patient circle clears the home indicator', NATIVE_FAB_BOTTOM >= INSET_BOTTOM);
+  assert('device: the staff circle clears the home indicator', providerBottom >= INSET_BOTTOM);
 
   tap(nativeFab);
   clearRouterCalls();
@@ -506,17 +753,18 @@ async function main(): Promise<void> {
   unmount(nativeTree);
   Platform.OS = 'web';
 
-  // ── 6. Staff side unchanged: same shared contract, staff config ──────────
+  // ── 9. Staff side unchanged: same shared contract, staff config ──────────
   routerState.pathname = '/patients';
   const providerTree = render(h(ProviderFabMenu));
+  assertEqual('staff has no pill bar', byTestID(providerTree.root, 'patient-tab-bar').length, 0);
   checkMenuContract({
     side: 'provider',
     root: providerTree.root,
     idPrefix: 'provider',
-    sectionLabel: 'NAVIGATE',
+    sections: PROVIDER_SECTIONS,
     openLabel: 'Open navigation menu',
     closeLabel: 'Close navigation menu',
-    rows: PROVIDER_ROWS,
+    restingIcon: 'grid',
     primary: { key: 'support', label: 'AI Support', a11yLabel: 'Open AI Support', iconName: 'message-circle' },
     fabBottom: providerBottom,
     activeKey: 'patients',
@@ -540,21 +788,33 @@ async function main(): Promise<void> {
   unmount(providerTree);
   routerState.pathname = '/today';
 
-  // ── 7. Snackbars stack above the launcher (UNDO stays tappable) ──────────
+  // ── 10. Everything else stacks above the floating row ────────────────────
+  const clearsRow = (label: string, value: number, insetsBottom: number) => {
+    assert(`${label}: clears the pill bar`, value >= patientBarBottom(insetsBottom) + PATIENT_BAR_HEIGHT);
+    assert(`${label}: clears the launcher circle`, value >= patientFabBottom(insetsBottom) + FAB_SIZE);
+  };
   assertEqual(
-    'web: snackbar shelf rides the circle top + 12',
+    'web: snackbar shelf rides the row top + 12',
     patientSnackbarBottom(INSET_BOTTOM),
-    WEB_FAB_BOTTOM + FAB_SIZE + 12,
+    WEB_BAR_BOTTOM + PATIENT_BAR_HEIGHT + 12,
+  );
+  clearsRow('web snackbar', patientSnackbarBottom(INSET_BOTTOM), INSET_BOTTOM);
+  clearsRow('web scroll padding', patientContentBottom(INSET_BOTTOM), INSET_BOTTOM);
+  assert(
+    'web: scroll padding leaves more room than the snackbar shelf',
+    patientContentBottom(INSET_BOTTOM) > patientSnackbarBottom(INSET_BOTTOM),
   );
   Platform.OS = 'ios';
   assertEqual(
-    'device: snackbar shelf rides the circle top + 12',
+    'device: snackbar shelf rides the row top + 12',
     patientSnackbarBottom(INSET_BOTTOM),
-    NATIVE_FAB_BOTTOM + FAB_SIZE + 12,
+    NATIVE_BAR_BOTTOM + PATIENT_BAR_HEIGHT + 12,
   );
+  clearsRow('device snackbar', patientSnackbarBottom(INSET_BOTTOM), INSET_BOTTOM);
+  clearsRow('device scroll padding', patientContentBottom(INSET_BOTTOM), INSET_BOTTOM);
   Platform.OS = 'web';
 
-  // ── 8. One implementation, two configs (static drift guard) ──────────────
+  // ── 11. One implementation, one shelf (static drift guards) ──────────────
   const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, '..', rel), 'utf8');
   const providerSrc = read('components/provider/ProviderFabMenu.tsx');
   const patientSrc = read('components/patient/PatientFabMenu.tsx');
@@ -564,11 +824,30 @@ async function main(): Promise<void> {
   assert('patient wrapper renders the shared FabMenu', patientSrc.includes('<FabMenu'));
   assert('staff wrapper is config-only (no visuals to drift)', !ownsVisuals(providerSrc));
   assert('patient wrapper is config-only (no visuals to drift)', !ownsVisuals(patientSrc));
-  assert('patient tab layout mounts the launcher', read('app/(patient)/_layout.tsx').includes('<PatientFabMenu'));
+  const layoutSrc = read('app/(patient)/_layout.tsx');
+  assert('patient layout mounts the launcher', layoutSrc.includes('<PatientFabMenu'));
+  assert('patient layout mounts the pill bar', layoutSrc.includes('<PatientTabBar'));
   assert('staff tab layout keeps its launcher', read('app/(tabs)/_layout.tsx').includes('<ProviderFabMenu'));
   assert(
     'snackbar rides the shared shelf constant',
     read('components/ui/Snackbar.tsx').includes('patientSnackbarBottom('),
+  );
+  // Every patient screen pads from the shared shelf — a leftover literal is
+  // exactly how content starts hiding under the floating row again.
+  ['today', 'diary', 'recipes', 'progress', 'plan'].forEach(screen => {
+    const src = read(`app/(patient)/${screen}.tsx`);
+    assert(`${screen} pads from the shared shelf`, src.includes('patientContentBottom(insets.bottom)'));
+    assert(`${screen} keeps no hardcoded tab-bar allowance`, !src.includes('84 + 20'));
+  });
+  // Coach earned a permanent seat, so the old hero shortcut is gone (two
+  // entry points to the same chat on one screen is the clutter we removed).
+  assert(
+    'today drops the duplicate hero coach button',
+    !read('app/(patient)/today.tsx').includes('coach-chat-btn'),
+  );
+  assert(
+    'the pill bar carries the coach seat instead',
+    read('components/patient/PatientTabBar.tsx').includes("href: '/coach-chat'"),
   );
 
   finish();

@@ -2,26 +2,29 @@
  * Floating quick actions for the patient section — the exact corner
  * launcher the staff side uses (one shared FabMenu implementation, see
  * components/ui/FabMenu, so the two corners can never drift), mounted once
- * on the patient tab layout and floating just above the visible tab bar
- * (staff has no tab bar, which is why theirs sits lower).
+ * on the patient tab layout beside the floating pill bar (staff have no
+ * bar at all, which is why theirs hugs the corner).
  *
- * The five rows are fast paths to screens that already exist:
- * - Log food / Scan a barcode open their modals with their own defaults
- *   (today; log-food starts on breakfast, the scanner logs to snacks —
- *   both adjustable on the screen itself).
+ * Two groups in one card. MENU holds the destinations that did not earn a
+ * permanent slot in the pill bar — Library and Plan, reference material
+ * patients read now and then — with the same active-tick/skip-when-already-
+ * there semantics the staff rows use. QUICK ACTIONS below holds the fast
+ * paths into screens that already exist:
+ * - Scan a barcode opens the scanner (it logs to snacks, adjustable there).
  * - Snap a meal photo runs the same capture flow as every other meal-photo
  *   entry point, hosted HERE via useMealPhotoFlow so its confirm preview
  *   outlives the closing menu. No slot pin — the server's clock guess
  *   picks the meal, adjustable on the resulting card.
  * - Daily check-in opens the check-in modal; Progress photos switches to
- *   the Progress tab with the same active-tick/skip-when-there semantics
- *   as the staff rows.
- * Below the divider, "Message Coach" hands over to the coach chat as the
- * cobalt primary — the patient mirror of the staff side's AI Support.
+ *   the Progress screen.
+ * Below the divider, "Log food" is the cobalt primary: the single most
+ * common thing a patient opens this menu to do, which is why the launcher
+ * itself rests as a plus. (Messaging the coach used to sit here; Coach is
+ * a permanent seat in the pill bar now.)
  */
 import React from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FabMenu, type FabMenuItem } from '@/components/ui/FabMenu';
+import { FabMenu, type FabMenuSection } from '@/components/ui/FabMenu';
 import { useMealPhotoFlow } from '@/components/patient/MealPhotoButton';
 import { patientFabBottom } from '@/constants/layout';
 
@@ -29,36 +32,54 @@ export function PatientFabMenu() {
   const insets = useSafeAreaInsets();
   const mealPhoto = useMealPhotoFlow();
 
-  const items: FabMenuItem[] = [
+  const sections: FabMenuSection[] = [
     {
-      key: 'log-food',
-      label: 'Log food',
-      icon: { family: 'feather', name: 'plus' },
-      action: { kind: 'push', href: '/log-food' },
+      key: 'destinations',
+      label: 'MENU',
+      items: [
+        {
+          key: 'library',
+          label: 'Library',
+          icon: { family: 'feather', name: 'grid' },
+          action: { kind: 'navigate', href: '/recipes' },
+        },
+        {
+          key: 'plan',
+          label: 'Plan',
+          icon: { family: 'feather', name: 'clipboard' },
+          action: { kind: 'navigate', href: '/plan' },
+        },
+      ],
     },
     {
-      key: 'barcode',
-      label: 'Scan a barcode',
-      icon: { family: 'mci', name: 'barcode-scan' },
-      action: { kind: 'push', href: '/barcode-scan' },
-    },
-    {
-      key: 'meal-photo',
-      label: 'Snap a meal photo',
-      icon: { family: 'feather', name: 'camera' },
-      action: { kind: 'run', run: mealPhoto.start },
-    },
-    {
-      key: 'check-in',
-      label: 'Daily check-in',
-      icon: { family: 'feather', name: 'check-circle' },
-      action: { kind: 'push', href: '/check-in' },
-    },
-    {
-      key: 'progress-photos',
-      label: 'Progress photos',
-      icon: { family: 'feather', name: 'image' },
-      action: { kind: 'navigate', href: '/progress' },
+      key: 'quick-actions',
+      label: 'QUICK ACTIONS',
+      items: [
+        {
+          key: 'barcode',
+          label: 'Scan a barcode',
+          icon: { family: 'mci', name: 'barcode-scan' },
+          action: { kind: 'push', href: '/barcode-scan' },
+        },
+        {
+          key: 'meal-photo',
+          label: 'Snap a meal photo',
+          icon: { family: 'feather', name: 'camera' },
+          action: { kind: 'run', run: mealPhoto.start },
+        },
+        {
+          key: 'check-in',
+          label: 'Daily check-in',
+          icon: { family: 'feather', name: 'check-circle' },
+          action: { kind: 'push', href: '/check-in' },
+        },
+        {
+          key: 'progress-photos',
+          label: 'Progress photos',
+          icon: { family: 'feather', name: 'image' },
+          action: { kind: 'navigate', href: '/progress' },
+        },
+      ],
     },
   ];
 
@@ -66,16 +87,16 @@ export function PatientFabMenu() {
     <>
       <FabMenu
         idPrefix="patient"
-        openAccessibilityLabel="Open quick actions menu"
-        closeAccessibilityLabel="Close quick actions menu"
-        sectionLabel="QUICK ACTIONS"
-        items={items}
+        restingIcon="plus"
+        openAccessibilityLabel="Open menu and quick actions"
+        closeAccessibilityLabel="Close menu and quick actions"
+        sections={sections}
         primaryAction={{
-          key: 'coach',
-          label: 'Message Coach',
-          icon: 'message-circle',
-          accessibilityLabel: 'Message your coach',
-          action: { kind: 'push', href: '/coach-chat' },
+          key: 'log-food',
+          label: 'Log food',
+          icon: 'plus',
+          accessibilityLabel: 'Log food',
+          action: { kind: 'push', href: '/log-food' },
         }}
         fabBottom={patientFabBottom(insets.bottom)}
       />

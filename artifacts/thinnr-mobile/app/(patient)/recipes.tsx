@@ -8,6 +8,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { patientContentBottom } from '@/constants/layout';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -82,7 +83,7 @@ export default function LibraryScreen() {
     }, undoable ? UNDO_WINDOW_MS : CONFIRMATION_MS);
   };
 
-  const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
+  const bottomPad = patientContentBottom(insets.bottom);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

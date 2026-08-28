@@ -41,6 +41,8 @@ const MENU_SHADOW = '0 18px 44px rgba(23, 32, 46, 0.24)';
 
 /** Circle diameter; the open menu card is raised to clear it. */
 export const FAB_SIZE = 56;
+/** Corner offset — also what the patient pill bar measures its gutter from. */
+export const FAB_RIGHT = 18;
 /** Gap between the open menu card's bottom edge and the circle's top. */
 const MENU_GAP = 12;
 
@@ -75,6 +77,20 @@ export interface FabMenuItem {
   action: FabMenuAction;
 }
 
+/**
+ * A labelled group of rows. Most configs pass one ("NAVIGATE" for staff);
+ * the patient menu passes two — the destinations that did not make the
+ * pill bar, then the quick actions — so one card can hold both without the
+ * rows running together.
+ */
+export interface FabMenuSection {
+  /** Slug used in the group's testID: `${idPrefix}-menu-section-${key}`. */
+  key: string;
+  /** Small caps heading above the group's rows. */
+  label: string;
+  items: FabMenuItem[];
+}
+
 export interface FabMenuPrimaryAction {
   /** Slug used in the button's testID: `${idPrefix}-menu-${key}`. */
   key: string;
@@ -90,9 +106,15 @@ export interface FabMenuProps {
   /** Launcher accessibility label while the menu is closed / open. */
   openAccessibilityLabel: string;
   closeAccessibilityLabel: string;
-  /** Small caps section label at the top of the menu card. */
-  sectionLabel: string;
-  items: FabMenuItem[];
+  /**
+   * Glyph the closed circle rests as. Staff keep the default grid (their
+   * menu IS their navigation); the patient circle rests as a plus, because
+   * beside a pill bar it reads as "add something" (its primary is Log
+   * food). Open, both flip to the same X.
+   */
+  restingIcon?: keyof typeof Feather.glyphMap;
+  /** Row groups, rendered top to bottom in the order given. */
+  sections: FabMenuSection[];
   /** The cobalt full-width action pinned beneath the divider. */
   primaryAction: FabMenuPrimaryAction;
   /**
@@ -107,8 +129,8 @@ export function FabMenu({
   idPrefix,
   openAccessibilityLabel,
   closeAccessibilityLabel,
-  sectionLabel,
-  items,
+  restingIcon = 'grid',
+  sections,
   primaryAction,
   fabBottom,
 }: FabMenuProps) {
@@ -134,7 +156,7 @@ export function FabMenu({
   // AppModal re-applies the same iPhone canvas on web and the modal fills
   // the screen on native, so identical right/bottom means the same spot.
   const fabPlacement = {
-    right: 18,
+    right: FAB_RIGHT,
     bottom: fabBottom,
     backgroundColor: colors.navy,
     boxShadow: FAB_SHADOW,
@@ -192,7 +214,7 @@ export function FabMenu({
           pressed && { opacity: 0.88 },
         ]}
       >
-        <Feather name={open ? 'x' : 'grid'} size={21} color={colors.primaryForeground} />
+        <Feather name={open ? 'x' : restingIcon} size={21} color={colors.primaryForeground} />
       </Pressable>
 
       <AppModal
@@ -239,60 +261,68 @@ export function FabMenu({
               },
             ]}
           >
-            <Text style={[styles.menuLabel, { color: colors.labelText }]}>
-              {sectionLabel}
-            </Text>
-            {items.map((item) => {
-              const active = isActive(item.action);
-              return (
-                <Pressable
-                  key={item.key}
-                  testID={`${idPrefix}-menu-${item.key}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={item.label}
-                  accessibilityState={{ selected: active }}
-                  aria-selected={active}
-                  onPress={() => activate(item.action)}
-                  style={({ pressed }) => [
-                    styles.menuRow,
-                    { borderRadius: colors.radiusSm },
-                    active && { backgroundColor: colors.activeBg },
-                    pressed && { backgroundColor: colors.accent },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.iconChip,
-                      {
-                        borderColor: active ? colors.activeBorder : colors.border,
-                        backgroundColor: active ? colors.activeBg : colors.paperCardAlt,
-                        borderRadius: 7,
-                      },
-                    ]}
-                  >
-                    {rowIcon(item.icon, active)}
-                  </View>
-                  <Text
-                    style={[
-                      styles.menuRowText,
-                      {
-                        color: active ? colors.cobalt : colors.navy,
-                        fontFamily: active ? 'Inter_700Bold' : 'Inter_600SemiBold',
-                      },
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                  {/* The Heritage active tick, carried over from the old tab bar. */}
-                  <View
-                    style={[
-                      styles.activeTick,
-                      { backgroundColor: active ? colors.orange : 'transparent' },
-                    ]}
-                  />
-                </Pressable>
-              );
-            })}
+            {sections.map((section) => (
+              <View
+                key={section.key}
+                testID={`${idPrefix}-menu-section-${section.key}`}
+                style={styles.section}
+              >
+                <Text style={[styles.menuLabel, { color: colors.labelText }]}>
+                  {section.label}
+                </Text>
+                {section.items.map((item) => {
+                  const active = isActive(item.action);
+                  return (
+                    <Pressable
+                      key={item.key}
+                      testID={`${idPrefix}-menu-${item.key}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={item.label}
+                      accessibilityState={{ selected: active }}
+                      aria-selected={active}
+                      onPress={() => activate(item.action)}
+                      style={({ pressed }) => [
+                        styles.menuRow,
+                        { borderRadius: colors.radiusSm },
+                        active && { backgroundColor: colors.activeBg },
+                        pressed && { backgroundColor: colors.accent },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.iconChip,
+                          {
+                            borderColor: active ? colors.activeBorder : colors.border,
+                            backgroundColor: active ? colors.activeBg : colors.paperCardAlt,
+                            borderRadius: 7,
+                          },
+                        ]}
+                      >
+                        {rowIcon(item.icon, active)}
+                      </View>
+                      <Text
+                        style={[
+                          styles.menuRowText,
+                          {
+                            color: active ? colors.cobalt : colors.navy,
+                            fontFamily: active ? 'Inter_700Bold' : 'Inter_600SemiBold',
+                          },
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                      {/* The Heritage active tick, carried over from the old tab bar. */}
+                      <View
+                        style={[
+                          styles.activeTick,
+                          { backgroundColor: active ? colors.orange : 'transparent' },
+                        ]}
+                      />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
             <Pressable
               testID={`${idPrefix}-menu-${primaryAction.key}`}
@@ -364,6 +394,9 @@ const styles = StyleSheet.create({
     width: '90%',
     borderWidth: 1,
     padding: 10,
+    gap: 2,
+  },
+  section: {
     gap: 2,
   },
   menuLabel: {

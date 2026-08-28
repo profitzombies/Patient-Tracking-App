@@ -55,8 +55,7 @@ export function ProviderFabMenu() {
       idPrefix="provider"
       openAccessibilityLabel="Open navigation menu"
       closeAccessibilityLabel="Close navigation menu"
-      sectionLabel="NAVIGATE"
-      items={ITEMS}
+      sections={[{ key: 'navigate', label: 'NAVIGATE', items: ITEMS }]}
       primaryAction={{
         key: 'support',
         label: 'AI Support',

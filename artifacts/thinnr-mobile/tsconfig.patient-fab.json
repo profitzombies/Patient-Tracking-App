@@ -22,11 +22,6 @@
       "@expo/vector-icons": ["./scripts/patient-fab-stubs/expo-vector-icons.ts"],
       "expo-haptics": ["./scripts/patient-fab-stubs/expo-haptics.ts"],
       "expo-router": ["./scripts/patient-fab-stubs/expo-router.ts"],
-      "expo-router/unstable-native-tabs": [
-        "./scripts/patient-fab-stubs/expo-router-native-tabs.ts"
-      ],
-      "expo-blur": ["./scripts/patient-fab-stubs/expo-blur.ts"],
-      "expo-glass-effect": ["./scripts/patient-fab-stubs/expo-glass-effect.ts"],
       "expo-symbols": ["./scripts/patient-fab-stubs/expo-symbols.ts"],
       "expo-image": ["./scripts/patient-fab-stubs/expo-image.ts"],
       "expo-image-picker": ["./scripts/patient-fab-stubs/expo-image-picker.ts"],

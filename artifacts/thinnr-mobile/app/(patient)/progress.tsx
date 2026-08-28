@@ -7,6 +7,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AccessibilityInfo, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { patientContentBottom } from '@/constants/layout';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -58,7 +59,7 @@ export default function ProgressScreen() {
     return () => clearTimeout(timer);
   }, [savedNotice]);
 
-  const bottomPad = Platform.OS === 'web' ? 84 + 20 : insets.bottom + 84 + 20;
+  const bottomPad = patientContentBottom(insets.bottom);
 
   const currentWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
   const lost = PATIENT_PROFILE.startingWeight - currentWeight;

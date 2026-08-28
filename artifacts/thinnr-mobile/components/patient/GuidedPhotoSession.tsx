@@ -72,10 +72,14 @@ import {
   COUNTDOWN_SECONDS,
   GUIDED_ANGLES,
   GUIDED_ANGLE_LABELS,
+  getGuidedCueSettleMs,
   getGuidedEscapeMs,
   getGuidedGateTickMs,
   getGuidedHoldMs,
+  getGuidedMotionStaleMs,
   getGuidedProbeIntervalMs,
+  getGuidedSpeechGuardMs,
+  getGuidedStatusConfirmMs,
   getGuidedTickIntervalMs,
   HIDE_INSTRUCTIONS_KEY,
   type GuidedAngle,
@@ -89,8 +93,18 @@ import {
   type PositioningReading,
 } from '@/lib/photo-detection';
 import { createSteadyHold, lineupStatus, type LineupStatus } from '@/lib/lineup';
-import { LINEUP_ANNOUNCEMENTS, LINEUP_HINTS, speakCue, stopCues } from '@/lib/session-feedback';
-import { createLeanSmoother, leanBackDegrees, simulatedLeanAt } from '@/lib/tilt';
+import {
+  createCuePacer,
+  LINEUP_ANNOUNCEMENTS,
+  LINEUP_HINTS,
+  type CuePacer,
+} from '@/lib/session-feedback';
+import {
+  createLeanSmoother,
+  inReadyBandDisplay,
+  leanBackDegrees,
+  simulatedLeanAt,
+} from '@/lib/tilt';
 import { probeCameraFrame } from '@/lib/photo-probe';
 import { uploadGuidedShots } from '@/lib/progress-photo-upload';
 
@@ -110,9 +124,36 @@ type Stage =
 
 /** What the line-up UI renders each gate tick. */
 interface LineupView {
+  /** The CONFIRMED status (held steady past the confirmation window). */
   status: LineupStatus | null;
   holdProgress: number;
   leanDeg: number | null;
+  /** Meter green, with hysteresis at the band edges (display only). */
+  bandGreen: boolean;
+  /** No trustworthy angle right now — the phone is being moved. */
+  settling: boolean;
+}
+
+/** Hold banked before the guides fade out of the patient's way. */
+const GUIDE_FADE_AT = 0.18;
+
+/**
+ * Floating controls over the live preview must clear the status bar /
+ * Dynamic Island AND the system's top-edge gesture strip. The safe-area
+ * inset is the right answer when it is reported — but this session is
+ * presented full-screen over the camera, where a zero inset would drop the
+ * close X level with the clock, inside the swipe-down strip, where taps
+ * never reach it. These floors keep it reachable either way.
+ */
+function minTopInset(): number {
+  if (Platform.OS === 'ios') return 44;
+  if (Platform.OS === 'android') return 24;
+  return 14;
+}
+
+/** Extra clearance below the status bar for the top-edge gesture strip. */
+function gestureStripPad(): number {
+  return Platform.OS === 'web' ? 0 : 10;
 }
 
 function announce(message: string): void {
@@ -226,17 +267,9 @@ function ErrorNote({ text, testID }: { text: string; testID?: string }) {
 }
 
 /** Web stand-in for the live camera: a quiet, obviously-simulated feed. */
-function DemoFeed({ angle }: { angle: GuidedAngle | null }) {
+function DemoFeed() {
   return (
     <View style={[StyleSheet.absoluteFillObject, { backgroundColor: DEMO_FEED_BG }]}>
-      {angle ? (
-        <Image
-          source={GUIDED_POSE_IMAGES[angle]}
-          style={styles.demoGhost}
-          contentFit="contain"
-          transition={200}
-        />
-      ) : null}
       <View style={styles.demoBadge} pointerEvents="none">
         <Feather name="video" size={11} color="#DDE5EF" />
         <Text style={styles.demoBadgeText}>SIMULATED CAMERA</Text>
@@ -264,7 +297,13 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   const [stage, setStage] = useState<Stage>({ kind: 'setup' });
   const [shots, setShots] = useState<Partial<Record<GuidedAngle, GuidedShot>>>({});
   const [probesAvailable, setProbesAvailable] = useState<boolean | null>(null);
-  const [lineup, setLineup] = useState<LineupView>({ status: null, holdProgress: 0, leanDeg: null });
+  const [lineup, setLineup] = useState<LineupView>({
+    status: null,
+    holdProgress: 0,
+    leanDeg: null,
+    bandGreen: false,
+    settling: false,
+  });
   const [showEscape, setShowEscape] = useState(false);
   // Tilt determination: true once ANY motion reading has arrived, false
   // once the sensor path is known dead (unavailable, denied, erroring, or
@@ -289,6 +328,19 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   const leanSmootherRef = useRef(createLeanSmoother());
   const leanDegRef = useRef<number | null>(null);
   const leanAnimRef = useRef(new Animated.Value(0));
+  const guideFadeRef = useRef(new Animated.Value(1));
+  // Raw verdict currently being confirmed, and the confirmed one the UI and
+  // the coach speak from. The GATE never reads these — it keeps consuming
+  // raw verdicts, so readiness rules are untouched.
+  const pendingStatusRef = useRef<{ status: LineupStatus | null; since: number }>({
+    status: null,
+    since: 0,
+  });
+  const confirmedStatusRef = useRef<LineupStatus | null>(null);
+  /** Timestamp of the last TRUSTED gravity sample (0 = none yet). */
+  const lastMotionAtRef = useRef(0);
+  const settlingRef = useRef(false);
+  const bandGreenRef = useRef(false);
   const simStepRef = useRef(0);
   const simLeanElapsedRef = useRef(0);
   const probeBusyRef = useRef(false);
@@ -335,33 +387,73 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     });
   }, []);
 
+  // One mouth for the whole session: cues never overlap or cut each other
+  // off, and a hint that stopped being true while the previous sentence
+  // finished is dropped instead of spoken late.
+  const pacerRef = useRef<CuePacer | null>(null);
+  if (pacerRef.current === null) {
+    pacerRef.current = createCuePacer({
+      settleMs: getGuidedCueSettleMs,
+      guardMs: getGuidedSpeechGuardMs,
+      muted: () => screenReaderOnRef.current,
+    });
+  }
+  const pacer = pacerRef.current;
+
+  useEffect(() => () => pacer.cancel(), [pacer]);
+
   // Spoken cues go quiet while a screen reader runs — VoiceOver/TalkBack
   // already reads every announcement.
   useEffect(() => {
     let disposed = false;
     void AccessibilityInfo.isScreenReaderEnabled()
       .then(enabled => {
-        if (!disposed) screenReaderOnRef.current = enabled;
+        if (disposed) return;
+        screenReaderOnRef.current = enabled;
+        if (enabled) pacer.cancel();
       })
       .catch(() => {});
     const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', enabled => {
       screenReaderOnRef.current = enabled;
+      // Turning the screen reader on MID-SENTENCE has to silence the cue
+      // already in flight, or the two voices talk over each other.
+      if (enabled) pacer.cancel();
     });
     return () => {
       disposed = true;
       subscription.remove();
     };
-  }, []);
+  }, [pacer]);
 
-  useEffect(() => () => stopCues(), []);
+  /**
+   * Clears everything the line-up stage accumulates — the detector's hold,
+   * the steady bank, the confirmed verdict, the motion history, and the
+   * faded-out guides — so the next angle starts from a clean slate.
+   */
+  const resetLineupTracking = useCallback(() => {
+    detectorRef.current.resetHold();
+    holdRef.current.reset();
+    lastStatusRef.current = null;
+    readingRef.current = null;
+    pendingStatusRef.current = { status: null, since: 0 };
+    confirmedStatusRef.current = null;
+    settlingRef.current = false;
+    bandGreenRef.current = false;
+    lastMotionAtRef.current = 0;
+    guideFadeRef.current.setValue(1);
+    setLineup({
+      status: null,
+      holdProgress: 0,
+      leanDeg: leanDegRef.current,
+      bandGreen: false,
+      settling: false,
+    });
+  }, []);
 
   const startRun = useCallback(
     (angles: readonly GuidedAngle[]) => {
       queueRef.current = [...angles];
-      detectorRef.current.resetHold();
-      holdRef.current.reset();
-      lastStatusRef.current = null;
-      readingRef.current = null;
+      resetLineupTracking();
       setCaptureError(null);
       setShowEscape(false);
       if (isWeb) {
@@ -371,15 +463,21 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
         leanDegRef.current = null;
         setTiltAvailable(null);
       }
-      setLineup({ status: null, holdProgress: 0, leanDeg: leanDegRef.current });
+      setLineup({
+        status: null,
+        holdProgress: 0,
+        leanDeg: leanDegRef.current,
+        bandGreen: false,
+        settling: false,
+      });
       const first = queueRef.current[0];
       if (!first) return;
       const message = `${GUIDED_ANGLE_LABELS[first]} photo first. Step back about six feet and stand in the outline.`;
       announce(message);
-      speakCue(message, screenReaderOnRef.current);
+      pacer.say(message, { priority: true });
       setStage({ kind: 'positioning', angle: first });
     },
-    [isWeb],
+    [isWeb, pacer],
   );
 
   // Returning users who hid the instructions skip straight to capture —
@@ -392,28 +490,72 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     startRun(GUIDED_ANGLES);
   }, [hidePref, stage, fallbackMode, isWeb, cameraGranted, startRun]);
 
-  const beginCountdown = useCallback((angle: GuidedAngle) => {
-    setStage(current => {
-      if (current.kind !== 'positioning' || current.angle !== angle) return current;
-      const message = `In position. Taking the ${GUIDED_ANGLE_LABELS[angle].toLowerCase()} photo in ${COUNTDOWN_SECONDS} seconds. Hold still.`;
-      announce(message);
-      speakCue(message, screenReaderOnRef.current);
-      return { kind: 'countdown', angle, secondsLeft: COUNTDOWN_SECONDS };
-    });
-  }, []);
+  const beginCountdown = useCallback(
+    (angle: GuidedAngle) => {
+      setStage(current => {
+        if (current.kind !== 'positioning' || current.angle !== angle) return current;
+        const message = `In position. Taking the ${GUIDED_ANGLE_LABELS[angle].toLowerCase()} photo in ${COUNTDOWN_SECONDS} seconds. Hold still.`;
+        announce(message);
+        // Capture-critical: cuts across any coaching hint still in flight.
+        pacer.say(message, { priority: true });
+        return { kind: 'countdown', angle, secondsLeft: COUNTDOWN_SECONDS };
+      });
+    },
+    [pacer],
+  );
 
   // ── Live lean angle ───────────────────────────────────────────────────
   // The smoothed signed lean lives in a ref (the gate samples it) and in
   // an Animated value (the bar's indicator glides without re-rendering
   // per sample).
-  const animateLean = useCallback((deg: number) => {
+  //
+  // Each sample hands the indicator a LINEAR glide that lasts exactly as
+  // long as the gap to the next sample, so the animation completes as the
+  // next one starts: constant velocity, no restart artefacts. (The old
+  // 90 ms ease-out restarted every 50 ms and never finished — it always
+  // trailed the phone and then lurched.) Resuming after a gap in trusted
+  // gravity SNAPS instead: gliding there would animate from an angle the
+  // phone left several moments ago.
+  const animateLean = useCallback((deg: number, spanMs: number | null) => {
+    if (spanMs === null) {
+      leanAnimRef.current.setValue(deg);
+      return;
+    }
     Animated.timing(leanAnimRef.current, {
       toValue: deg,
-      duration: 90,
-      easing: Easing.out(Easing.quad),
+      duration: Math.min(200, Math.max(40, spanMs)),
+      easing: Easing.linear,
       useNativeDriver: Platform.OS !== 'web',
     }).start();
   }, []);
+
+  /**
+   * Folds one trusted gravity-derived lean into the smoother, the gate's
+   * ref, and the indicator. Returns nothing; shared by the native sensor
+   * listener and the web simulated feed so both behave identically.
+   */
+  const pushLean = useCallback(
+    (lean: number) => {
+      const now = Date.now();
+      const previous = lastMotionAtRef.current;
+      const gap = previous === 0 ? null : now - previous;
+      const resumed = gap === null || gap > getGuidedMotionStaleMs();
+      lastMotionAtRef.current = now;
+      // A gap means the phone was moving (weak gravity vector → no signal).
+      // Restart the smoother so it settles on where the phone IS, not on a
+      // blend with where it was before the move.
+      if (resumed) leanSmootherRef.current.reset();
+      const smoothed = leanSmootherRef.current.push(lean);
+      leanDegRef.current = smoothed;
+      setTiltAvailable(true);
+      animateLean(smoothed, resumed ? null : gap);
+      if (settlingRef.current) {
+        settlingRef.current = false;
+        setLineup(current => (current.settling ? { ...current, settling: false } : current));
+      }
+    },
+    [animateLean],
+  );
 
   // Native: DeviceMotion at 50 ms. Gravity carries the unambiguous sign —
   // see lib/tilt.ts for why beta alone reads face-down as leaned-back.
@@ -441,11 +583,10 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
             gravityY: measurement.accelerationIncludingGravity?.y ?? null,
             gravityZ: measurement.accelerationIncludingGravity?.z ?? null,
           });
+          // Untrusted gravity (the phone is being carried) is NOT an angle.
+          // The gate tick notices the gap and shows the level settling.
           if (lean === null) return;
-          const smoothed = leanSmootherRef.current.push(lean);
-          leanDegRef.current = smoothed;
-          setTiltAvailable(true);
-          animateLean(smoothed);
+          pushLean(lean);
         });
       } catch {
         // Motion stack broken — tilt is unavailable, never guessed. The
@@ -466,13 +607,10 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     if (stage.kind !== 'positioning' || !isWeb) return;
     const timer = setInterval(() => {
       simLeanElapsedRef.current += 50 * (1000 / getGuidedProbeIntervalMs());
-      const smoothed = leanSmootherRef.current.push(simulatedLeanAt(simLeanElapsedRef.current));
-      leanDegRef.current = smoothed;
-      setTiltAvailable(true);
-      animateLean(smoothed);
+      pushLean(simulatedLeanAt(simLeanElapsedRef.current));
     }, 50);
     return () => clearInterval(timer);
-  }, [stage.kind, isWeb, animateLean]);
+  }, [stage.kind, isWeb, pushLean]);
 
   // ── Positioning probe loop ────────────────────────────────────────────
   // ~1 Hz tiny frames through the adaptive detector; web feeds synthetic
@@ -545,23 +683,55 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     if (stage.kind !== 'positioning') return;
     const angle = stage.angle;
     const timer = setInterval(() => {
+      const now = Date.now();
+      const leanDeg = leanDegRef.current;
       const status = lineupStatus({
-        leanDeg: leanDegRef.current,
+        leanDeg,
         tiltAvailable,
         reading: readingRef.current,
         probesAvailable,
       });
-      const verdict = holdRef.current.update(status === 'ready', Date.now(), getGuidedHoldMs());
+      // No trusted gravity sample for a while means the phone is in motion:
+      // the last angle is history, so steady time must not bank on it.
+      const settling =
+        tiltAvailable === true &&
+        lastMotionAtRef.current > 0 &&
+        now - lastMotionAtRef.current > getGuidedMotionStaleMs();
+      settlingRef.current = settling;
+      const verdict = holdRef.current.update(status === 'ready' && !settling, now, getGuidedHoldMs());
       if (verdict.broke) {
         playHoldLost();
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       }
+      // Confirmation window — DISPLAY AND SPEECH ONLY. A verdict has to
+      // persist before the patient is told about it, so a borderline frame
+      // no longer flips the big hint (and the coach) back and forth. The
+      // gate above already consumed the raw verdict.
+      if (status !== pendingStatusRef.current.status) {
+        pendingStatusRef.current = { status, since: now };
+      }
+      if (now - pendingStatusRef.current.since >= getGuidedStatusConfirmMs()) {
+        confirmedStatusRef.current = status;
+      }
+      const confirmed = confirmedStatusRef.current;
+      // Meter green carries hysteresis at the band edges; the gate above
+      // used the strict band, so this cannot loosen readiness.
+      const bandGreen = leanDeg === null ? false : inReadyBandDisplay(leanDeg, bandGreenRef.current);
+      bandGreenRef.current = bandGreen;
       setLineup(current =>
-        current.status === status &&
-        current.leanDeg === leanDegRef.current &&
+        current.status === confirmed &&
+        current.leanDeg === leanDeg &&
+        current.bandGreen === bandGreen &&
+        current.settling === settling &&
         Math.abs(current.holdProgress - verdict.progress) < 0.005
           ? current
-          : { status, holdProgress: verdict.progress, leanDeg: leanDegRef.current },
+          : {
+              status: confirmed,
+              holdProgress: verdict.progress,
+              leanDeg,
+              bandGreen,
+              settling,
+            },
       );
       if (verdict.satisfied) beginCountdown(angle);
     }, getGuidedGateTickMs());
@@ -577,10 +747,10 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       setShowEscape(true);
       const message = 'Taking a while to line up — you can start the countdown anyway when you are set.';
       announce(message);
-      speakCue(message, screenReaderOnRef.current);
+      pacer.say(message);
     }, getGuidedEscapeMs());
     return () => clearTimeout(timer);
-  }, [stage]);
+  }, [stage, pacer]);
 
   // Probe-unavailable: with a tilt signal the gate honestly checks the
   // angle alone; with nothing to gate on at all, the hands-free promise
@@ -593,7 +763,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
         const message =
           'Automatic position check unavailable. The countdown starts once the phone angle holds steady.';
         announce(message);
-        speakCue(message, screenReaderOnRef.current);
+        pacer.say(message);
       } else {
         announce('Automatic position check unavailable. Get set — the countdown starts on its own in a few seconds.');
       }
@@ -606,47 +776,50 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     return () => clearTimeout(timer);
   }, [stage, probesAvailable, tiltAvailable, beginCountdown]);
 
-  // Coach only when the status CHANGES — every tick would drown the room.
-  // The first verdict stays silent when it merely repeats the angle intro
-  // ("step back and stand in the outline"); a probe-unavailable "ready" is
-  // a tilt-only verdict, so no "In position" claim either.
+  // Coach only when the CONFIRMED status changes — every tick, or every
+  // borderline flicker, would drown the room. The first verdict stays
+  // silent when it merely repeats the angle intro ("step back and stand in
+  // the outline"); a probe-unavailable "ready" is a tilt-only verdict, so
+  // no "In position" claim either.
   useEffect(() => {
     if (stage.kind !== 'positioning' || !lineup.status) return;
     if (lastStatusRef.current === lineup.status) return;
     const first = lastStatusRef.current === null;
-    lastStatusRef.current = lineup.status;
-    if (first && lineup.status === 'not-detected') return;
-    if (lineup.status === 'ready' && probesAvailable === false) return;
+    const status = lineup.status;
+    lastStatusRef.current = status;
+    if (first && status === 'not-detected') return;
+    if (status === 'ready' && probesAvailable === false) return;
     // Probes-gone runs tell their own fallback story; a tilt-unavailable
     // status on top would contradict the timed-start message.
-    if (lineup.status === 'tilt-unavailable' && probesAvailable === false) return;
-    const message = LINEUP_ANNOUNCEMENTS[lineup.status];
+    if (status === 'tilt-unavailable' && probesAvailable === false) return;
+    const message = LINEUP_ANNOUNCEMENTS[status];
     announce(message);
-    speakCue(message, screenReaderOnRef.current);
-  }, [stage, lineup.status, probesAvailable]);
+    // Queued behind whatever is already being said, and dropped if the
+    // situation has moved on by the time the mouth is free.
+    pacer.say(message, { stillTrue: () => confirmedStatusRef.current === status });
+  }, [stage, lineup.status, probesAvailable, pacer]);
 
   // ── Capture ───────────────────────────────────────────────────────────
 
-  const advanceAfterCapture = useCallback((captured: GuidedAngle) => {
-    queueRef.current = queueRef.current.filter(item => item !== captured);
-    const next = queueRef.current[0];
-    if (!next) {
-      setStage({ kind: 'review' });
-      const done = 'All photos captured. Review your shots.';
-      announce(done);
-      speakCue(done, screenReaderOnRef.current);
-      return;
-    }
-    detectorRef.current.resetHold();
-    holdRef.current.reset();
-    lastStatusRef.current = null;
-    readingRef.current = null;
-    setLineup({ status: null, holdProgress: 0, leanDeg: leanDegRef.current });
-    setStage({ kind: 'positioning', angle: next });
-    const message = `Now the ${GUIDED_ANGLE_LABELS[next].toLowerCase()} photo. Turn, then hold still in the outline.`;
-    announce(message);
-    speakCue(message, screenReaderOnRef.current);
-  }, []);
+  const advanceAfterCapture = useCallback(
+    (captured: GuidedAngle) => {
+      queueRef.current = queueRef.current.filter(item => item !== captured);
+      const next = queueRef.current[0];
+      if (!next) {
+        setStage({ kind: 'review' });
+        const done = 'All photos captured. Review your shots.';
+        announce(done);
+        pacer.say(done, { priority: true });
+        return;
+      }
+      resetLineupTracking();
+      setStage({ kind: 'positioning', angle: next });
+      const message = `Now the ${GUIDED_ANGLE_LABELS[next].toLowerCase()} photo. Turn, then hold still in the outline.`;
+      announce(message);
+      pacer.say(message, { priority: true });
+    },
+    [pacer, resetLineupTracking],
+  );
 
   const captureAngle = useCallback(
     async (angle: GuidedAngle) => {
@@ -677,11 +850,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       }
       if (!shot) {
         setCaptureError('That shot did not go through. Get back into position and it will retry.');
-        detectorRef.current.resetHold();
-        holdRef.current.reset();
-        lastStatusRef.current = null;
-        readingRef.current = null;
-        setLineup({ status: null, holdProgress: 0, leanDeg: leanDegRef.current });
+        resetLineupTracking();
         setStage({ kind: 'positioning', angle });
         return;
       }
@@ -784,11 +953,31 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     finish(null);
   };
 
-  const topPad = Math.max(insets.top, 14);
+  const topPad = Math.max(insets.top, minTopInset());
   const bottomPad = Math.max(insets.bottom, 18);
+  /** Top padding for controls floating over the camera preview. */
+  const overlayTopPad = topPad + gestureStripPad();
 
-  const activeAngle =
-    stage.kind === 'positioning' || stage.kind === 'countdown' ? stage.angle : null;
+  // Lined up, level, and banking steady time: the guides have done their
+  // job, so they fade out of the way of the patient's own reflection. Any
+  // break restores them at once (the audible reset cue rides the gate).
+  const guidesLocked = lineup.status === 'ready' && lineup.holdProgress >= GUIDE_FADE_AT;
+
+  useEffect(() => {
+    if (guidesLocked) {
+      Animated.timing(guideFadeRef.current, {
+        toValue: 0,
+        duration: 420,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: Platform.OS !== 'web',
+      }).start();
+      return;
+    }
+    // A break has to bring the outline back NOW, not over half a second:
+    // the patient needs to see what to correct.
+    guideFadeRef.current.stopAnimation?.();
+    guideFadeRef.current.setValue(1);
+  }, [guidesLocked]);
 
   // ── Permission fallback (same in-surface style as the meal camera) ────
   if (fallbackMode) {
@@ -864,7 +1053,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
         />
       ) : null}
       {isWeb && stage.kind !== 'review' && stage.kind !== 'saving' ? (
-        <DemoFeed angle={activeAngle} />
+        <DemoFeed />
       ) : null}
 
       {/* ── Setup ── */}
@@ -877,8 +1066,8 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
               accessibilityRole="button"
               accessibilityLabel="Close the guided photo session"
               onPress={close}
-              hitSlop={10}
-              style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+              hitSlop={12}
+              style={({ pressed }) => [styles.sheetClose, pressed && { opacity: 0.6 }]}
             >
               <Feather name="x" size={22} color={colors.navy} />
             </Pressable>
@@ -973,14 +1162,24 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       {/* ── Positioning (the line-up stage) ── */}
       {stage.kind === 'positioning' ? (
         <>
-          <BodyOutline angle={stage.angle} ready={lineup.status === 'ready'} />
-          <TiltLevelBar
-            leanAnim={leanAnimRef.current}
-            leanDeg={lineup.leanDeg}
-            holdProgress={lineup.holdProgress}
-            holdActive={lineup.status === 'ready'}
-          />
-          <View style={[styles.captureTop, { paddingTop: topPad }]} pointerEvents="box-none">
+          <Animated.View
+            testID="guided-guides"
+            pointerEvents="none"
+            accessibilityElementsHidden={guidesLocked}
+            importantForAccessibility={guidesLocked ? 'no-hide-descendants' : 'auto'}
+            style={[StyleSheet.absoluteFill, { opacity: guideFadeRef.current }]}
+          >
+            <BodyOutline angle={stage.angle} ready={lineup.status === 'ready'} />
+            <TiltLevelBar
+              leanAnim={leanAnimRef.current}
+              leanDeg={lineup.leanDeg}
+              holdProgress={lineup.holdProgress}
+              holdActive={lineup.status === 'ready'}
+              inBand={lineup.bandGreen}
+              settling={lineup.settling}
+            />
+          </Animated.View>
+          <View style={[styles.captureTop, { paddingTop: overlayTopPad }]} pointerEvents="box-none">
             <View style={styles.bannerBand} accessible accessibilityLabel={`${GUIDED_ANGLE_LABELS[stage.angle]} photo`}>
               <Text testID="guided-angle-banner" style={styles.bannerText}>
                 {GUIDED_ANGLE_LABELS[stage.angle].toUpperCase()}
@@ -991,14 +1190,30 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
               accessibilityRole="button"
               accessibilityLabel="Close the guided photo session"
               onPress={close}
-              hitSlop={10}
-              style={({ pressed }) => [styles.closeFloat, pressed && { opacity: 0.7 }]}
+              hitSlop={12}
+              style={({ pressed }) => [styles.closeFloat, { top: overlayTopPad }, pressed && { opacity: 0.7 }]}
             >
               <Feather name="x" size={20} color="#FFFFFF" />
             </Pressable>
           </View>
           <View style={[styles.captureBottom, { paddingBottom: bottomPad + 8 }]} pointerEvents="box-none">
             {captureError ? <ErrorNote text={captureError} testID="guided-capture-error" /> : null}
+            {guidesLocked ? (
+              <View
+                testID="guided-hold-quiet"
+                style={styles.quietHold}
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                <View
+                  style={[
+                    styles.quietHoldFill,
+                    { width: `${Math.round(Math.min(1, lineup.holdProgress) * 1000) / 10}%` },
+                  ]}
+                />
+              </View>
+            ) : null}
             <View style={styles.hintBand}>
               <Text testID="guided-positioning-hint" style={styles.hintText}>
                 {probesAvailable === false && tiltAvailable !== true
@@ -1030,7 +1245,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       {stage.kind === 'countdown' ? (
         <>
           <BodyOutline angle={stage.angle} ready dim />
-          <View style={[styles.captureTop, { paddingTop: topPad }]} pointerEvents="box-none">
+          <View style={[styles.captureTop, { paddingTop: overlayTopPad }]} pointerEvents="box-none">
             <View style={styles.bannerBand} accessible accessibilityLabel={`${GUIDED_ANGLE_LABELS[stage.angle]} photo countdown`}>
               <Text testID="guided-angle-banner" style={styles.bannerText}>
                 {GUIDED_ANGLE_LABELS[stage.angle].toUpperCase()}
@@ -1064,8 +1279,8 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
               accessibilityRole="button"
               accessibilityLabel="Close without saving"
               onPress={close}
-              hitSlop={10}
-              style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+              hitSlop={12}
+              style={({ pressed }) => [styles.sheetClose, pressed && { opacity: 0.6 }]}
             >
               <Feather name="x" size={22} color={colors.navy} />
             </Pressable>
@@ -1288,17 +1503,40 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     letterSpacing: 10,
   },
+  // `top` is set inline from the safe-area + gesture-strip padding: on a
+  // notched phone this control must sit BELOW the clock, not level with it,
+  // or the system swallows the tap before the session ever sees it.
   closeFloat: {
     position: 'absolute',
     left: 14,
-    top: 0,
-    marginTop: 8,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: CONTROL_SCRIM,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // The quiet stand-in for the faded guides: a slim steady-hold bar that
+  // keeps the countdown visible without covering the patient.
+  quietHold: {
+    width: 132,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  quietHoldFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: 'rgba(127, 216, 164, 0.95)',
+  },
+  sheetClose: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -10,
   },
   captureBottom: {
     position: 'absolute',
@@ -1375,10 +1613,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     textAlign: 'center',
     paddingVertical: 4,
-  },
-  demoGhost: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.32,
   },
   demoBadge: {
     position: 'absolute',

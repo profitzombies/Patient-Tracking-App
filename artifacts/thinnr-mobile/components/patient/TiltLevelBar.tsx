@@ -34,13 +34,31 @@ interface TiltLevelBarProps {
   holdProgress: number;
   /** True while every line-up check is green (tilt, framing, light). */
   holdActive: boolean;
+  /**
+   * Meter green, decided by the caller WITH hysteresis at the band edges so
+   * a phone resting on 12° or 18° does not flicker. Omitted (tests, other
+   * callers) falls back to the strict band.
+   */
+  inBand?: boolean;
+  /**
+   * No trustworthy angle right now — the phone is being moved. The meter
+   * says so instead of pretending the last reading is still live.
+   */
+  settling?: boolean;
 }
 
-export function TiltLevelBar({ leanAnim, leanDeg, holdProgress, holdActive }: TiltLevelBarProps) {
+export function TiltLevelBar({
+  leanAnim,
+  leanDeg,
+  holdProgress,
+  holdActive,
+  inBand: inBandProp,
+  settling = false,
+}: TiltLevelBarProps) {
   const [trackHeight, setTrackHeight] = useState(0);
   if (leanDeg === null) return null;
 
-  const inBand = classifyLean(leanDeg) === 'ready';
+  const inBand = !settling && (inBandProp ?? classifyLean(leanDeg) === 'ready');
   const bandTop = leanToBarFraction(TILT_READY_MAX_DEG);
   const bandBottom = leanToBarFraction(TILT_READY_MIN_DEG);
   const translateY = leanAnim.interpolate({
@@ -85,7 +103,9 @@ export function TiltLevelBar({ leanAnim, leanDeg, holdProgress, holdActive }: Ti
         />
       ) : null}
       <View style={styles.readout}>
-        <Text style={styles.readoutText}>{`${leanDeg.toFixed(1)}°`}</Text>
+        <Text testID="guided-level-readout" style={[styles.readoutText, settling && styles.readoutSettling]}>
+          {settling ? 'Settling…' : `${leanDeg.toFixed(1)}°`}
+        </Text>
       </View>
     </View>
   );
@@ -170,5 +190,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Inter_700Bold',
     fontVariant: ['tabular-nums'],
+  },
+  readoutSettling: {
+    color: 'rgba(255, 255, 255, 0.72)',
   },
 });

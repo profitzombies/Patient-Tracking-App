@@ -80,6 +80,25 @@ export function leanBackDegrees(sample: MotionSample): number | null {
   return null;
 }
 
+/**
+ * Slack, in degrees, that keeps a green band edge green once it has been
+ * reached. A phone resting right on 12° or 18° jitters a few tenths of a
+ * degree, which used to flicker the meter between amber and green. DISPLAY
+ * ONLY — the readiness gate keeps using the strict band (classifyLean), so
+ * nothing outside 12–18° can ever bank steady time.
+ */
+export const TILT_BAND_HYSTERESIS_DEG = 1.2;
+
+/**
+ * Whether the meter should render green, given the previous frame's answer.
+ * Entering the band takes the strict window; leaving it takes the strict
+ * window plus the hysteresis margin.
+ */
+export function inReadyBandDisplay(leanDeg: number, wasIn: boolean): boolean {
+  const margin = wasIn ? TILT_BAND_HYSTERESIS_DEG : 0;
+  return leanDeg >= TILT_READY_MIN_DEG - margin && leanDeg <= TILT_READY_MAX_DEG + margin;
+}
+
 export type TiltZone = 'face-down' | 'tilt-back' | 'ready' | 'too-far';
 
 /** Zone for guidance copy; the bar itself renders the continuous angle. */

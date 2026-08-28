@@ -92,8 +92,12 @@ import {
   HIDE_INSTRUCTIONS_KEY,
   claimGuidedPhotoRequest,
   createGuidedPhotoRequest,
+  setGuidedCueSettleMs,
   setGuidedEscapeMs,
   setGuidedGateTickMs,
+  setGuidedMotionStaleMs,
+  setGuidedSpeechGuardMs,
+  setGuidedStatusConfirmMs,
   setGuidedHoldMs,
   setGuidedProbeIntervalMs,
   setGuidedTickIntervalMs,
@@ -110,6 +114,7 @@ import {
 } from '../lib/photo-detection';
 import {
   SIM_LEAN_SETTLE_MS,
+  TILT_BAND_HYSTERESIS_DEG,
   TILT_BAR_BOTTOM_DEG,
   TILT_BAR_TOP_DEG,
   TILT_FACE_DOWN_DEG,
@@ -118,13 +123,14 @@ import {
   TILT_READY_MIN_DEG,
   classifyLean,
   createLeanSmoother,
+  inReadyBandDisplay,
   leanBackDegrees,
   leanToBarFraction,
   simulatedLeanAt,
   type MotionSample,
 } from '../lib/tilt';
 import { createSteadyHold, lineupStatus, type LineupStatus } from '../lib/lineup';
-import { LINEUP_ANNOUNCEMENTS, LINEUP_HINTS } from '../lib/session-feedback';
+import { LINEUP_ANNOUNCEMENTS, LINEUP_HINTS, createCuePacer } from '../lib/session-feedback';
 import { OUTLINE_PATHS } from '../components/patient/BodyOutline';
 import { decodeBase64, decodePngToLuma, probeCameraFrame } from '../lib/photo-probe';
 import { progressPhotoDisplayUrl, uploadGuidedShots } from '../lib/progress-photo-upload';
@@ -218,6 +224,32 @@ async function waitUntil(label: string, predicate: () => boolean, timeoutMs = 80
   }
 }
 
+/**
+ * Waits like `waitUntil`, but keeps a propped phone's gravity feed running
+ * underneath — a still device reports ~20 samples a second, and the
+ * session treats a gap in that feed as "the phone is being moved".
+ */
+async function waitUntilHolding(
+  label: string,
+  predicate: () => boolean,
+  leanDeg: number,
+  timeoutMs = 8000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (predicate()) {
+      assert(true, label);
+      return true;
+    }
+    if (Date.now() > deadline) {
+      assert(false, label, 'timed out waiting');
+      return false;
+    }
+    await actSettle(() => motionState.emitLean(leanDeg));
+    await actSleep(10);
+  }
+}
+
 function allByTestID(renderer: TRenderer, testID: string): TInstance[] {
   return renderer.root.findAll(
     node => typeof node.type === 'string' && node.props?.testID === testID,
@@ -241,6 +273,30 @@ function collectText(node: TInstance | string): string[] {
 
 function textOf(node: TInstance | null): string {
   return node ? collectText(node).join(' ') : '';
+}
+
+/**
+ * Resolves a RN style prop — a function (Pressable), an array, or a plain
+ * object — into the single flat object the platform would apply.
+ */
+function flattenStyle(style: unknown): Record<string, unknown> {
+  const resolved = typeof style === 'function' ? (style as (s: unknown) => unknown)({ pressed: false }) : style;
+  const out: Record<string, unknown> = {};
+  const visit = (value: unknown): void => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry);
+      return;
+    }
+    if (typeof value === 'object') Object.assign(out, value as Record<string, unknown>);
+  };
+  visit(resolved);
+  return out;
+}
+
+/** Pose illustrations currently drawn on screen (the web feed used one). */
+function countPoseImages(renderer: TRenderer): number {
+  return renderer.root.findAll(node => node.type === 'ExpoImage').length;
 }
 
 function surfaceText(renderer: TRenderer): string {
@@ -555,6 +611,12 @@ async function main(): Promise<void> {
   setGuidedHoldMs(120);
   setGuidedGateTickMs(10);
   setGuidedEscapeMs(60000); // escape hatch stays out of the way unless a scenario wants it
+  setGuidedStatusConfirmMs(30); // verdicts still have to persist, just briefly
+  setGuidedCueSettleMs(5);
+  setGuidedSpeechGuardMs(1000);
+  // Under a full render tree a 50 ms sensor loop can slip; scenarios that
+  // exercise the settling behaviour lower this deliberately.
+  setGuidedMotionStaleMs(2000);
 
   // ── 1. Handoff contract ────────────────────────────────────────────────
   section('1. Handoff contract');
@@ -1483,6 +1545,9 @@ async function main(): Promise<void> {
     await resetScenario('ios');
     await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
     setGuidedHoldMs(2000); // long enough to observe banking, break, and restart
+    // This scenario drives motion in bursts rather than a live 20 Hz feed,
+    // so the settling window stays out of the way (section 23 owns it).
+    setGuidedMotionStaleMs(60000);
     scriptNativeCamera();
     const { renderer } = await mountSession();
 
@@ -1506,9 +1571,12 @@ async function main(): Promise<void> {
     await waitUntil('hold progress clears after the break', () =>
       !present(renderer, 'guided-hold-progress'),
     );
-    assert(
-      countAnnounced('Lean the phone back a little more.') >= 1,
+    // Coaching waits out the confirmation window: a verdict has to persist
+    // before the patient is told about it.
+    await waitUntil(
       'break re-announces what to fix',
+      () => countAnnounced('Lean the phone back a little more.') >= 1,
+      2000,
     );
 
     // Re-green: the bank must restart from zero (full steady time again).
@@ -1526,6 +1594,7 @@ async function main(): Promise<void> {
     );
     await actSettle(() => renderer.unmount());
     setGuidedHoldMs(120);
+    setGuidedMotionStaleMs(2000);
   }
 
   // ── 15. Native: capture failure recovers ───────────────────────────────
@@ -1834,6 +1903,327 @@ async function main(): Promise<void> {
       typeof motion === 'string' && /tilt|angle|motion/i.test(motion),
       'permission copy explains the tilt use',
     );
+  }
+
+  // ── 22. The spoken coach paces itself ──────────────────────────────────
+  section('22. Cue pacer: one voice, no pile-up');
+  {
+    speechState.reset();
+    speechState.autoFinishMs = 30;
+    let muted = false;
+    const pacer = createCuePacer({
+      settleMs: () => 15,
+      guardMs: () => 5000,
+      muted: () => muted,
+    });
+
+    pacer.say(LINEUP_ANNOUNCEMENTS['too-far']);
+    pacer.say(LINEUP_ANNOUNCEMENTS['too-close']);
+    assertEqual(speechState.spoken.length, 1, 'a second cue waits instead of cutting the first off');
+    assert(pacer.isSpeaking(), 'first cue is in flight');
+    await actSleep(120);
+    assertEqual(
+      speechState.spoken.join(' | '),
+      `${LINEUP_ANNOUNCEMENTS['too-far']} | ${LINEUP_ANNOUNCEMENTS['too-close']}`,
+      'the waiting cue speaks after the settle beat',
+    );
+    assertEqual(speechState.overlaps, 0, 'no cue ever lands on top of another');
+    assertEqual(speechState.stops, 0, 'nothing was cut off mid-sentence');
+
+    // Only the LATEST advice waits: a burst while the mouth is busy
+    // collapses to one cue rather than a backlog the patient hears late.
+    speechState.reset();
+    speechState.autoFinishMs = 30;
+    pacer.say(LINEUP_ANNOUNCEMENTS['too-dark']);
+    pacer.say(LINEUP_ANNOUNCEMENTS['off-center']);
+    pacer.say(LINEUP_ANNOUNCEMENTS['not-detected']);
+    pacer.say(LINEUP_ANNOUNCEMENTS['too-bright']);
+    await actSleep(140);
+    assertEqual(
+      speechState.spoken.join(' | '),
+      `${LINEUP_ANNOUNCEMENTS['too-dark']} | ${LINEUP_ANNOUNCEMENTS['too-bright']}`,
+      'a burst of statuses collapses to the newest advice',
+    );
+
+    // A cue whose situation moved on while the previous sentence finished
+    // is dropped rather than spoken late.
+    speechState.reset();
+    speechState.autoFinishMs = 30;
+    let stillTrue = true;
+    pacer.say(LINEUP_ANNOUNCEMENTS['too-far']);
+    pacer.say(LINEUP_ANNOUNCEMENTS['too-close'], { stillTrue: () => stillTrue });
+    stillTrue = false;
+    await actSleep(120);
+    assertEqual(speechState.spoken.length, 1, 'a stale cue is dropped, not spoken late');
+
+    // Saying the same thing twice in a row adds nothing.
+    speechState.reset();
+    speechState.autoFinishMs = 30;
+    pacer.say(LINEUP_ANNOUNCEMENTS['off-center']);
+    await actSleep(80);
+    pacer.say(LINEUP_ANNOUNCEMENTS['off-center']);
+    await actSleep(80);
+    assertEqual(speechState.spoken.length, 1, 'an identical repeat is dropped');
+
+    // Capture-critical cues jump the queue and interrupt coaching.
+    speechState.reset();
+    speechState.autoFinishMs = 5000; // a long coaching sentence, still going
+    pacer.say(LINEUP_ANNOUNCEMENTS['not-detected']);
+    await actSleep(10);
+    pacer.say('In position. Taking the front photo in 7 seconds. Hold still.', { priority: true });
+    assertEqual(speechState.spoken.length, 2, 'the priority cue speaks immediately');
+    assertEqual(
+      speechState.interrupted.join(''),
+      LINEUP_ANNOUNCEMENTS['not-detected'],
+      'the coaching cue it interrupted was stopped first',
+    );
+    assertEqual(speechState.overlaps, 0, 'priority still never overlaps');
+    pacer.cancel();
+
+    // A platform that never reports the end of an utterance must not mute
+    // the coach forever — the guard cuts it and the next cue lands.
+    speechState.reset();
+    speechState.autoFinishMs = 5000;
+    const guarded = createCuePacer({ settleMs: () => 5, guardMs: () => 40, muted: () => false });
+    guarded.say(LINEUP_ANNOUNCEMENTS['too-dark']);
+    guarded.say(LINEUP_ANNOUNCEMENTS['too-bright']);
+    await actSleep(140);
+    assertEqual(speechState.spoken.length, 2, 'the guard releases a stuck utterance');
+    assertEqual(speechState.overlaps, 0, 'the stuck utterance was stopped before the next one');
+    guarded.cancel();
+
+    // Screen readers: the pacer stays completely silent.
+    speechState.reset();
+    speechState.autoFinishMs = 5;
+    muted = true;
+    pacer.say(LINEUP_ANNOUNCEMENTS['too-far']);
+    pacer.say('In position. Hold still.', { priority: true });
+    await actSleep(40);
+    assertEqual(speechState.spoken.length, 0, 'no spoken cues while a screen reader runs');
+    muted = false;
+    pacer.cancel();
+    speechState.reset();
+  }
+
+  // ── 23. Band hysteresis + settling level ───────────────────────────────
+  section('23. Level: band hysteresis and honest settling');
+  {
+    // Entering takes the strict band; leaving takes the margin, so a phone
+    // resting on an edge cannot flicker. The GATE still uses classifyLean.
+    assertEqual(
+      inReadyBandDisplay(TILT_READY_MIN_DEG - 0.4, false),
+      false,
+      'just below the band does not turn the meter green',
+    );
+    assertEqual(
+      inReadyBandDisplay(TILT_READY_MIN_DEG - 0.4, true),
+      true,
+      'a green meter tolerates a nudge below the band',
+    );
+    assertEqual(
+      inReadyBandDisplay(TILT_READY_MAX_DEG + 0.4, true),
+      true,
+      'a green meter tolerates a nudge above the band',
+    );
+    assertEqual(
+      inReadyBandDisplay(TILT_READY_MAX_DEG + TILT_BAND_HYSTERESIS_DEG + 0.3, true),
+      false,
+      'past the margin the meter honestly goes amber',
+    );
+    assertEqual(
+      classifyLean(TILT_READY_MIN_DEG - 0.4),
+      'tilt-back',
+      'the gate band itself is untouched by display hysteresis',
+    );
+
+    await resetScenario('ios');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    setGuidedHoldMs(4000); // stay in line-up long enough to watch the meter
+    setGuidedMotionStaleMs(250);
+    scriptNativeCamera();
+    const { renderer } = await mountSession();
+    await waitUntil('settling scenario reaches positioning', () =>
+      present(renderer, 'guided-angle-banner'),
+    );
+    await waitUntil('settling scenario listening for motion', () => motionState.listeners.size > 0);
+
+    // A propped phone: gravity keeps arriving, so the angle stays live.
+    await waitUntilHolding(
+      'level reads a live angle',
+      () => textOf(byTestID(renderer, 'guided-level-readout')).includes('°'),
+      15,
+    );
+    await waitUntilHolding(
+      'steady time banks while the angle is live',
+      () => present(renderer, 'guided-hold-progress'),
+      15,
+    );
+
+    // The phone is picked up: gravity stops being trustworthy, so samples
+    // stop arriving. The meter must SAY it is settling rather than freeze
+    // on a stale angle, and steady time must not keep banking.
+    await waitUntil(
+      'level says it is settling while the phone moves',
+      () => textOf(byTestID(renderer, 'guided-level-readout')).includes('Settling'),
+    );
+    assert(
+      !present(renderer, 'guided-hold-progress'),
+      'steady time does not bank on an angle nobody is measuring',
+    );
+    assert(!present(renderer, 'guided-countdown'), 'no countdown starts while the phone is moving');
+
+    // Set back down at a different angle: the reading resumes from where
+    // the phone actually IS, not blended with where it was before.
+    await actSettle(() => motionState.emitLean(5));
+    await waitUntil(
+      'the level resumes from the real angle after a gap (no stale blend)',
+      () => textOf(byTestID(renderer, 'guided-level-readout')).trim() === '5.0°',
+      1000,
+    );
+    await actSettle(() => renderer.unmount());
+    setGuidedHoldMs(120);
+    setGuidedMotionStaleMs(2000);
+  }
+
+  // ── 24. Guides clear once the patient is locked in ─────────────────────
+  section('24. Guides fade when locked and return on a break');
+  {
+    await resetScenario('ios');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    setGuidedHoldMs(3000); // long enough to watch the fade before the countdown
+    setGuidedMotionStaleMs(60000);
+    scriptNativeCamera();
+    const { renderer } = await mountSession();
+    await waitUntil('fade scenario reaches positioning', () =>
+      present(renderer, 'guided-angle-banner'),
+    );
+    await waitUntil('fade scenario listening for motion', () => motionState.listeners.size > 0);
+
+    const guidesHidden = (): boolean =>
+      byTestID(renderer, 'guided-guides')?.props.accessibilityElementsHidden === true;
+    /** The wrapper's live opacity (1 = fully drawn, 0 = faded away). */
+    const guidesOpacity = (): number => {
+      const value = flattenStyle(byTestID(renderer, 'guided-guides')?.props.style).opacity as
+        | { value?: number }
+        | undefined;
+      return typeof value?.value === 'number' ? value.value : Number.NaN;
+    };
+
+    assert(present(renderer, 'guided-guides'), 'the guides render during line-up');
+    assert(!guidesHidden(), 'guides are visible while the patient is still lining up');
+    assertEqual(guidesOpacity(), 1, 'the outline is fully drawn while lining up');
+    assert(!present(renderer, 'guided-hold-quiet'), 'no quiet hold indicator before the lock');
+
+    for (let i = 0; i < 8; i++) await actSettle(() => motionState.emitLean(15));
+    await waitUntil('fade scenario goes green', () =>
+      textOf(byTestID(renderer, 'guided-positioning-hint')).includes('hold still'),
+    );
+    await waitUntil('guides clear once the hold is banking', guidesHidden);
+    assertEqual(guidesOpacity(), 0, 'the outline actually fades off the screen, not just the a11y tree');
+    assert(
+      present(renderer, 'guided-hold-quiet'),
+      'a quiet hold indicator replaces the faded guides',
+    );
+    assert(!present(renderer, 'guided-countdown'), 'the fade happens before the countdown, not after');
+
+    // Break the angle: the guides must come straight back.
+    await actSettle(() => motionState.emitLean(-9));
+    await waitUntil('guides return the moment the line-up breaks', () => !guidesHidden());
+    assertEqual(guidesOpacity(), 1, 'the outline is fully back the moment the line-up breaks');
+    assert(
+      !present(renderer, 'guided-hold-quiet'),
+      'the quiet indicator goes away with the broken hold',
+    );
+    await actSettle(() => renderer.unmount());
+    setGuidedHoldMs(120);
+    setGuidedMotionStaleMs(2000);
+  }
+
+  // ── 25. One guide, and a reachable way out ─────────────────────────────
+  section('25. One body guide + a reachable close control');
+  {
+    await resetScenario('ios');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    setGuidedHoldMs(4000);
+    setGuidedMotionStaleMs(60000);
+    scriptNativeCamera();
+    const { renderer } = await mountSession();
+    await waitUntil('exit scenario reaches positioning', () =>
+      present(renderer, 'guided-angle-banner'),
+    );
+
+    assertEqual(allByTestID(renderer, 'guided-outline').length, 1, 'exactly one body guide (native)');
+
+    const closeStyle = flattenStyle(byTestID(renderer, 'guided-close')?.props.style);
+    assert(
+      Number(closeStyle.width) >= 44 && Number(closeStyle.height) >= 44,
+      'the close control is a finger-sized target',
+      JSON.stringify({ width: closeStyle.width, height: closeStyle.height }),
+    );
+    assert(
+      Number(closeStyle.top) >= 44,
+      'the close control clears the status bar and the top gesture strip',
+      closeStyle.top,
+    );
+    await tap(renderer, 'guided-close', 'the close control still closes the session');
+    await actSettle(() => renderer.unmount());
+
+    // The simulated web feed must not add a second person-shaped guide.
+    await resetScenario('web');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    localStore.set(HIDE_INSTRUCTIONS_KEY, '1');
+    const web = await mountSession();
+    await waitUntil('web line-up reached', () => present(web.renderer, 'guided-angle-banner'));
+    assertEqual(
+      allByTestID(web.renderer, 'guided-outline').length,
+      1,
+      'exactly one body guide on the simulated feed',
+    );
+    assertEqual(
+      countPoseImages(web.renderer),
+      0,
+      'the simulated feed no longer draws its own pose illustration behind the outline',
+    );
+    await actSettle(() => web.renderer.unmount());
+    setGuidedHoldMs(120);
+    setGuidedMotionStaleMs(2000);
+  }
+
+  // ── 26. A screen reader switched on mid-sentence ───────────────────────
+  section('26. Turning a screen reader on silences the cue in flight');
+  {
+    await resetScenario('ios');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    setGuidedHoldMs(4000);
+    setGuidedMotionStaleMs(60000);
+    speechState.autoFinishMs = 5000; // a long sentence, still being spoken
+    scriptNativeCamera();
+    const { renderer } = await mountSession();
+    await waitUntil('mid-sentence scenario reaches positioning', () =>
+      present(renderer, 'guided-angle-banner'),
+    );
+    await waitUntil('the coach starts talking', () => speechState.spoken.length > 0);
+    const spokenBefore = speechState.spoken.length;
+
+    await actSettle(() => screenReaderState.set(true));
+    assert(speechState.stops >= 1, 'the sentence in flight is cut, not left running');
+    assert(speechState.active === null, 'nothing is being spoken once VoiceOver takes over');
+
+    // And nothing new starts talking over the screen reader.
+    await waitUntil('motion listening for mid-sentence scenario', () => motionState.listeners.size > 0);
+    for (let i = 0; i < 8; i++) await actSettle(() => motionState.emitLean(15));
+    await actSleep(120);
+    assertEqual(
+      speechState.spoken.length,
+      spokenBefore,
+      'no further spoken cues while the screen reader runs',
+    );
+    assert(announcements.length > 0, 'screen-reader announcements still flow');
+    await actSettle(() => renderer.unmount());
+    screenReaderState.reset();
+    speechState.reset();
+    setGuidedHoldMs(120);
+    setGuidedMotionStaleMs(2000);
   }
 
   finish();

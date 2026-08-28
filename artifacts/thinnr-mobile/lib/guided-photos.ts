@@ -141,6 +141,57 @@ export function getGuidedEscapeMs(): number {
 }
 
 /**
+ * Pacing for the spoken coach and the on-screen verdict:
+ *  - cueSettleMs: the beat of silence after a cue finishes before the next
+ *    one may start (the pacer re-derives the situation across it).
+ *  - speechGuardMs: safety net for a platform TTS that never reports the
+ *    end of an utterance — the pacer resumes anyway rather than going mute.
+ *  - statusConfirmMs: how long a line-up verdict must persist before it
+ *    counts as the DISPLAYED and SPOKEN truth. Display-only: the steady
+ *    gate keeps consuming raw verdicts, so readiness rules are unchanged.
+ *  - motionStaleMs: no trustworthy gravity sample for this long means the
+ *    phone is being moved — the level shows "settling" and the hold cannot
+ *    bank on an angle nobody is measuring.
+ * Injectable for the same reason as the tick/probe intervals.
+ */
+let cueSettleMs = 900;
+let speechGuardMs = 9000;
+let statusConfirmMs = 700;
+let motionStaleMs = 400;
+
+export function setGuidedCueSettleMs(ms: number): void {
+  cueSettleMs = ms;
+}
+
+export function getGuidedCueSettleMs(): number {
+  return cueSettleMs;
+}
+
+export function setGuidedSpeechGuardMs(ms: number): void {
+  speechGuardMs = ms;
+}
+
+export function getGuidedSpeechGuardMs(): number {
+  return speechGuardMs;
+}
+
+export function setGuidedStatusConfirmMs(ms: number): void {
+  statusConfirmMs = ms;
+}
+
+export function getGuidedStatusConfirmMs(): number {
+  return statusConfirmMs;
+}
+
+export function setGuidedMotionStaleMs(ms: number): void {
+  motionStaleMs = ms;
+}
+
+export function getGuidedMotionStaleMs(): number {
+  return motionStaleMs;
+}
+
+/**
  * Storage key for the persisted "Hide these instructions" preference —
  * localStorage on web, AsyncStorage native (mirrors PatientContext's
  * storage split).

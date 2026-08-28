@@ -22,6 +22,13 @@ omit height classes entirely (let stretch do it) and give inner fillers
 whose parent height is genuinely definite. Screenshots catch this class of
 bug; DOM/a11y assertions do not.
 
+**Paged-carousel corollary:** a horizontal paging `ScrollView` sizes its
+content container to its children, so a page styled `{ width, height: '100%' }`
+resolves against an indefinite height and can render an invisible (zero-height)
+image. Measure the pager's own box with `onLayout` and give each page that
+explicit width AND height — the same measurement then drives the paging math
+(`round(contentOffset.x / pageWidth)`), so one source of truth covers both.
+
 **RN-web corollary:** `alignSelf` on a `position: 'absolute'` box becomes CSS
 `align-self`, and a non-auto self-alignment on an abspos box REPLACES
 top/bottom inset stretching with block-axis alignment (css-align §6.4) — the

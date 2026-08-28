@@ -71,3 +71,25 @@ export function patientContentBottom(insetsBottom: number): number {
 export function patientSnackbarBottom(insetsBottom: number): number {
   return patientBarBottom(insetsBottom) + PATIENT_BAR_HEIGHT + 12;
 }
+
+/**
+ * Top padding for a full-screen surface (a sheet, a viewer): the reported
+ * safe-area inset, floored per platform. A surface presented over the
+ * camera — or inside a modal — can be handed a ZERO top inset, which would
+ * drop its header level with the clock / Dynamic Island.
+ */
+export function screenTopPad(insetsTop: number): number {
+  if (Platform.OS === 'ios') return Math.max(insetsTop, 44);
+  if (Platform.OS === 'android') return Math.max(insetsTop, 24);
+  return Math.max(insetsTop, 14);
+}
+
+/**
+ * Top padding for controls that FLOAT over a full-screen surface (a close
+ * X over a camera preview or a photo). Same floor, plus clearance for the
+ * system's top-edge gesture strip: a control inside that strip swallows
+ * taps into the OS, and the patient cannot leave the screen.
+ */
+export function overlayTopPad(insetsTop: number): number {
+  return screenTopPad(insetsTop) + (Platform.OS === 'web' ? 0 : 10);
+}

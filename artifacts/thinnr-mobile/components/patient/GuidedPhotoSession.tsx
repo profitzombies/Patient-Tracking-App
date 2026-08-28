@@ -65,6 +65,8 @@ import { useColors } from '@/hooks/useColors';
 import { usePatient } from '@/context/PatientContext';
 import { BodyOutline } from '@/components/patient/BodyOutline';
 import { TiltLevelBar } from '@/components/patient/TiltLevelBar';
+import { PhotoLightbox, type LightboxPhoto } from '@/components/ui/PhotoLightbox';
+import { overlayTopPad, screenTopPad } from '@/constants/layout';
 import { GUIDED_POSE_IMAGES } from '@/data/guided-photo-images';
 import { CAPTURE_TONE_SOUND, HOLD_LOST_SOUND, TICK_SOUND } from '@/data/guided-photo-sounds';
 import { ENROLLMENT_DAYS, TODAY_KEY } from '@/data/patient-data';
@@ -136,25 +138,6 @@ interface LineupView {
 
 /** Hold banked before the guides fade out of the patient's way. */
 const GUIDE_FADE_AT = 0.18;
-
-/**
- * Floating controls over the live preview must clear the status bar /
- * Dynamic Island AND the system's top-edge gesture strip. The safe-area
- * inset is the right answer when it is reported — but this session is
- * presented full-screen over the camera, where a zero inset would drop the
- * close X level with the clock, inside the swipe-down strip, where taps
- * never reach it. These floors keep it reachable either way.
- */
-function minTopInset(): number {
-  if (Platform.OS === 'ios') return 44;
-  if (Platform.OS === 'android') return 24;
-  return 14;
-}
-
-/** Extra clearance below the status bar for the top-edge gesture strip. */
-function gestureStripPad(): number {
-  return Platform.OS === 'web' ? 0 : 10;
-}
 
 function announce(message: string): void {
   AccessibilityInfo.announceForAccessibility(message);
@@ -312,6 +295,8 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   // without a live angle (see lib/lineup.ts).
   const [tiltAvailable, setTiltAvailable] = useState<boolean | null>(null);
   const [reshootSelection, setReshootSelection] = useState<Set<GuidedAngle>>(new Set());
+  /** Angle currently open in the full-screen viewer (null = closed). */
+  const [viewerAngle, setViewerAngle] = useState<GuidedAngle | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [hidePref, setHidePref] = useState<boolean | null>(null);
@@ -900,10 +885,17 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     );
   };
 
+  const openViewer = (angle: GuidedAngle) => {
+    if (!shots[angle]) return;
+    void Haptics.selectionAsync().catch(() => {});
+    setViewerAngle(angle);
+  };
+
   const beginReshoot = () => {
     const selected = GUIDED_ANGLES.filter(angle => reshootSelection.has(angle));
     if (selected.length === 0) return;
     void Haptics.selectionAsync().catch(() => {});
+    setViewerAngle(null);
     setReshootSelection(new Set());
     setUploadError(null);
     startRun(selected);
@@ -953,10 +945,24 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     finish(null);
   };
 
-  const topPad = Math.max(insets.top, minTopInset());
+  // The viewer only ever pages between shots that EXIST — an angle still
+  // waiting to be captured is skipped rather than shown as an empty frame.
+  const capturedAngles = GUIDED_ANGLES.filter(angle => shots[angle]);
+  const viewerPhotos: LightboxPhoto[] = capturedAngles.map(angle => ({
+    key: angle,
+    uri: shots[angle]!.uri,
+    label: GUIDED_ANGLE_LABELS[angle],
+    caption: reshootSelection.has(angle) ? 'Marked for a reshoot' : undefined,
+  }));
+  const viewerIndex = Math.max(
+    0,
+    capturedAngles.findIndex(angle => angle === viewerAngle),
+  );
+
+  const topPad = screenTopPad(insets.top);
   const bottomPad = Math.max(insets.bottom, 18);
   /** Top padding for controls floating over the camera preview. */
-  const overlayTopPad = topPad + gestureStripPad();
+  const controlsTopPad = overlayTopPad(insets.top);
 
   // Lined up, level, and banking steady time: the guides have done their
   // job, so they fade out of the way of the patient's own reflection. Any
@@ -1179,7 +1185,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
               settling={lineup.settling}
             />
           </Animated.View>
-          <View style={[styles.captureTop, { paddingTop: overlayTopPad }]} pointerEvents="box-none">
+          <View style={[styles.captureTop, { paddingTop: controlsTopPad }]} pointerEvents="box-none">
             <View style={styles.bannerBand} accessible accessibilityLabel={`${GUIDED_ANGLE_LABELS[stage.angle]} photo`}>
               <Text testID="guided-angle-banner" style={styles.bannerText}>
                 {GUIDED_ANGLE_LABELS[stage.angle].toUpperCase()}
@@ -1191,7 +1197,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
               accessibilityLabel="Close the guided photo session"
               onPress={close}
               hitSlop={12}
-              style={({ pressed }) => [styles.closeFloat, { top: overlayTopPad }, pressed && { opacity: 0.7 }]}
+              style={({ pressed }) => [styles.closeFloat, { top: controlsTopPad }, pressed && { opacity: 0.7 }]}
             >
               <Feather name="x" size={20} color="#FFFFFF" />
             </Pressable>
@@ -1245,7 +1251,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       {stage.kind === 'countdown' ? (
         <>
           <BodyOutline angle={stage.angle} ready dim />
-          <View style={[styles.captureTop, { paddingTop: overlayTopPad }]} pointerEvents="box-none">
+          <View style={[styles.captureTop, { paddingTop: controlsTopPad }]} pointerEvents="box-none">
             <View style={styles.bannerBand} accessible accessibilityLabel={`${GUIDED_ANGLE_LABELS[stage.angle]} photo countdown`}>
               <Text testID="guided-angle-banner" style={styles.bannerText}>
                 {GUIDED_ANGLE_LABELS[stage.angle].toUpperCase()}
@@ -1292,11 +1298,12 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
             {GUIDED_ANGLES.map(angle => {
               const shot = shots[angle];
               const selected = reshootSelection.has(angle);
-              return (
-                <View
-                  key={angle}
-                  style={[styles.reviewCard, { backgroundColor: colors.paperCard, borderColor: colors.border, borderRadius: colors.radiusSm }]}
-                >
+              const label = GUIDED_ANGLE_LABELS[angle];
+              // The thumbnail is far too small to judge a shot by, so the
+              // photo AND its caption open the full-screen viewer. The
+              // reshoot checkbox stays a sibling with its own tap area.
+              const preview = (
+                <>
                   {shot ? (
                     <Image source={{ uri: shot.uri }} style={styles.reviewImage} contentFit="cover" transition={120} />
                   ) : (
@@ -1305,11 +1312,31 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
                     </View>
                   )}
                   <View style={styles.reviewMeta}>
-                    <Text style={[styles.reviewAngle, { color: colors.navy }]}>{GUIDED_ANGLE_LABELS[angle]}</Text>
+                    <Text style={[styles.reviewAngle, { color: colors.navy }]}>{label}</Text>
                     <Text style={[styles.reviewSub, { color: colors.subtleText }]}>
-                      {selected ? 'Will be reshot' : 'Looks good'}
+                      {shot ? (selected ? 'Will be reshot' : 'Tap to view full screen') : 'Not captured'}
                     </Text>
                   </View>
+                </>
+              );
+              return (
+                <View
+                  key={angle}
+                  style={[styles.reviewCard, { backgroundColor: colors.paperCard, borderColor: colors.border, borderRadius: colors.radiusSm }]}
+                >
+                  {shot ? (
+                    <Pressable
+                      testID={`guided-review-open-${angle}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View the ${label.toLowerCase()} photo full screen`}
+                      onPress={() => openViewer(angle)}
+                      style={({ pressed }) => [styles.reviewPreview, pressed && { opacity: 0.75 }]}
+                    >
+                      {preview}
+                    </Pressable>
+                  ) : (
+                    <View style={styles.reviewPreview}>{preview}</View>
+                  )}
                   <Pressable
                     testID={`guided-reshoot-${angle}`}
                     accessibilityRole="checkbox"
@@ -1369,6 +1396,55 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
               </Text>
             </Pressable>
           </ScrollView>
+
+          {/* Full-screen look at a shot, paging Front → Side → Back. */}
+          <PhotoLightbox
+            testID="guided-viewer"
+            visible={viewerAngle !== null}
+            photos={viewerPhotos}
+            index={viewerIndex}
+            onIndexChange={next => {
+              const angle = capturedAngles[next];
+              if (angle) setViewerAngle(angle);
+            }}
+            onClose={() => setViewerAngle(null)}
+            closeLabel="Close the photo and go back to the review"
+            renderAction={photo => {
+              const angle = photo.key as GuidedAngle;
+              const selected = reshootSelection.has(angle);
+              return (
+                <Pressable
+                  testID={`guided-viewer-reshoot-${angle}`}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: selected }}
+                  aria-checked={selected}
+                  accessibilityLabel={`Reshoot the ${GUIDED_ANGLE_LABELS[angle].toLowerCase()} photo`}
+                  onPress={() => toggleReshoot(angle)}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.viewerReshoot,
+                    { borderColor: selected ? colors.cobalt : 'rgba(255,255,255,0.5)' },
+                    selected && { backgroundColor: colors.cobalt },
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Feather
+                    name={selected ? 'check' : 'refresh-cw'}
+                    size={14}
+                    color={selected ? colors.primaryForeground : '#FFFFFF'}
+                  />
+                  <Text
+                    style={[
+                      styles.viewerReshootText,
+                      { color: selected ? colors.primaryForeground : '#FFFFFF' },
+                    ]}
+                  >
+                    {selected ? 'Will be reshot' : 'Reshoot this one'}
+                  </Text>
+                </Pressable>
+              );
+            }}
+          />
         </View>
       ) : null}
 
@@ -1643,6 +1719,28 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
     gap: 12,
+  },
+  reviewPreview: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  viewerReshoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderRadius: 9,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
+    minHeight: 44,
+    alignSelf: 'stretch',
+  },
+  viewerReshootText: {
+    fontSize: 14,
+    fontFamily: 'Inter_700Bold',
   },
   reviewImage: {
     width: 72,

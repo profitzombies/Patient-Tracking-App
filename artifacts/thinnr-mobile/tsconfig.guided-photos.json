@@ -16,6 +16,7 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "paths": {
+      "@/components/ui/AppModal": ["./scripts/meal-photo-stubs/app-modal.ts"],
       "@/data/guided-photo-images": ["./scripts/guided-photo-stubs/guided-photo-images.ts"],
       "@/data/guided-photo-sounds": ["./scripts/guided-photo-stubs/guided-photo-sounds.ts"],
       "@/data/recipe-images": ["./scripts/guided-photo-stubs/recipe-images.ts"],

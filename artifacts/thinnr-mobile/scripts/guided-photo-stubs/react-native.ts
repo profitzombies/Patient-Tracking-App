@@ -45,6 +45,19 @@ export const AccessibilityInfo = {
   },
 };
 
+/**
+ * Fixed iPhone-reference window — the full-screen photo viewer sizes its
+ * pages from this, so a page is exactly one "screen" wide under Node too.
+ */
+export function useWindowDimensions(): {
+  width: number;
+  height: number;
+  scale: number;
+  fontScale: number;
+} {
+  return { width: 393, height: 852, scale: 3, fontScale: 1 };
+}
+
 export class AnimatedValueStub {
   constructor(public value: number) {}
   setValue(next: number): void {

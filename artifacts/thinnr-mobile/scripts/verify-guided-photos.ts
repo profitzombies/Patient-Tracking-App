@@ -103,6 +103,7 @@ import {
   setGuidedTickIntervalMs,
   type GuidedSessionOutcome,
 } from '../lib/guided-photos';
+import { PhotoLightbox } from '../components/ui/PhotoLightbox';
 import {
   ABSORB_PROBES,
   BODY_HEIGHT_READY_MAX,
@@ -273,6 +274,12 @@ function collectText(node: TInstance | string): string[] {
 
 function textOf(node: TInstance | null): string {
   return node ? collectText(node).join(' ') : '';
+}
+
+/** textOf with runs of whitespace collapsed — interpolated JSX text ("{n} of
+ * {total}") arrives as separate children, so raw textOf double-spaces it. */
+function compactText(node: TInstance | null): string {
+  return textOf(node).replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -2224,6 +2231,179 @@ async function main(): Promise<void> {
     speechState.reset();
     setGuidedHoldMs(120);
     setGuidedMotionStaleMs(2000);
+  }
+
+  // ── 27. Review: open a shot full screen, page it, mark it, come back ────
+  section('27. Full-screen viewer on the review step');
+  {
+    await resetScenario('web');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    localStore.set(HIDE_INSTRUCTIONS_KEY, '1');
+    const { renderer } = await mountSession();
+    await waitUntil('viewer scenario reaches review', () =>
+      present(renderer, 'guided-review-save'),
+    );
+
+    assert(!present(renderer, 'guided-viewer'), 'the viewer stays closed until a shot is tapped');
+    for (const angle of GUIDED_ANGLES) {
+      assert(
+        present(renderer, `guided-review-open-${angle}`),
+        `${angle} thumbnail is tappable on the review card`,
+      );
+    }
+
+    // Opening on SIDE: the label and position are on screen and spoken.
+    await tap(renderer, 'guided-review-open-side', 'tap the side thumbnail');
+    assert(present(renderer, 'guided-viewer'), 'the viewer opens full screen');
+    assertEqual(textOf(byTestID(renderer, 'guided-viewer-label')), 'Side', 'viewer names the angle');
+    assertEqual(
+      compactText(byTestID(renderer, 'guided-viewer-position')),
+      '2 of 3',
+      'viewer shows the position in the set',
+    );
+    assert(announcements.includes('Side photo. 2 of 3.'), 'opening the viewer is announced');
+    assertEqual(
+      allByTestID(renderer, 'guided-viewer-page-front').length +
+        allByTestID(renderer, 'guided-viewer-page-side').length +
+        allByTestID(renderer, 'guided-viewer-page-back').length,
+      3,
+      'every captured angle is a page — none skipped, none duplicated',
+    );
+
+    // Paging forward with the Next control, then back with a real swipe.
+    await tap(renderer, 'guided-viewer-next', 'page to the next photo');
+    assertEqual(textOf(byTestID(renderer, 'guided-viewer-label')), 'Back', 'next lands on Back');
+    assertEqual(
+      compactText(byTestID(renderer, 'guided-viewer-position')),
+      '3 of 3',
+      'position follows',
+    );
+    assert(announcements.includes('Back photo. 3 of 3.'), 'the page change is announced');
+    assertEqual(
+      byTestID(renderer, 'guided-viewer-next')?.props['aria-disabled'],
+      true,
+      'Next is blocked on the last photo',
+    );
+
+    const pager = byTestID(renderer, 'guided-viewer-pager');
+    assert(pager?.props.pagingEnabled === true, 'the pager snaps one photo per swipe');
+    await actSettle(() =>
+      pager!.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: 0 } } }),
+    );
+    assertEqual(
+      textOf(byTestID(renderer, 'guided-viewer-label')),
+      'Front',
+      'swiping back to the first page shows Front',
+    );
+    assert(announcements.includes('Front photo. 1 of 3.'), 'the swipe is announced too');
+    assertEqual(
+      byTestID(renderer, 'guided-viewer-prev')?.props['aria-disabled'],
+      true,
+      'Previous is blocked on the first photo',
+    );
+
+    // Marking a reshoot from inside the viewer drives the SAME selection
+    // the review cards read.
+    assertEqual(
+      checkedOf(byTestID(renderer, 'guided-viewer-reshoot-front')),
+      false,
+      'the front photo starts unmarked in the viewer',
+    );
+    await tap(renderer, 'guided-viewer-reshoot-front', 'mark Front for a reshoot from the viewer');
+    assertEqual(
+      checkedOf(byTestID(renderer, 'guided-viewer-reshoot-front')),
+      true,
+      'the viewer toggle shows the mark',
+    );
+    assertEqual(
+      textOf(byTestID(renderer, 'guided-viewer-caption')),
+      'Marked for a reshoot',
+      'the viewer caption states the mark',
+    );
+    assert(
+      announcements.includes('Front selected for reshoot. 1 selected.'),
+      'marking from the viewer announces like the review card does',
+    );
+    assertEqual(
+      checkedOf(byTestID(renderer, 'guided-reshoot-front')),
+      true,
+      'the review card behind the viewer holds the same selection',
+    );
+
+    // Closing returns to the review with the selection intact.
+    await tap(renderer, 'guided-viewer-close', 'close the viewer');
+    assert(!present(renderer, 'guided-viewer'), 'the viewer is gone');
+    assert(present(renderer, 'guided-review-save'), 'the review step is back');
+    assertEqual(
+      checkedOf(byTestID(renderer, 'guided-reshoot-front')),
+      true,
+      'the reshoot selection survives closing the viewer',
+    );
+    assert(
+      /\(\s*1\s*\)/.test(textOf(byTestID(renderer, 'guided-review-reshoot'))),
+      'the reshoot CTA still counts the selection',
+      textOf(byTestID(renderer, 'guided-review-reshoot')),
+    );
+
+    // Unmarking from the review card clears the viewer's copy as well.
+    await tap(renderer, 'guided-reshoot-front', 'unmark Front from the review card');
+    await tap(renderer, 'guided-review-open-front', 'reopen the front photo');
+    assertEqual(
+      checkedOf(byTestID(renderer, 'guided-viewer-reshoot-front')),
+      false,
+      'one source of truth: the viewer reflects the card',
+    );
+    await tap(renderer, 'guided-viewer-close', 'close again');
+    await actSettle(() => renderer.unmount());
+  }
+
+  // ── 28. The viewer itself is reusable outside the guided session ────────
+  section('28. PhotoLightbox stands alone');
+  {
+    announcements.length = 0;
+    let index = 0;
+    let closed = 0;
+    let renderer!: TRenderer;
+    const photos = [
+      { key: 'week-1', uri: 'asset://week-1', label: 'Week 1', caption: 'March 3' },
+      { key: 'week-6', uri: 'asset://week-6', label: 'Week 6', caption: 'April 7' },
+    ];
+    const render = () =>
+      h(PhotoLightbox, {
+        testID: 'lb',
+        visible: true,
+        photos,
+        index,
+        onIndexChange: (next: number) => {
+          index = next;
+        },
+        onClose: () => {
+          closed += 1;
+        },
+      });
+    await actSettle(() => {
+      renderer = TestRendererCreate(render());
+    });
+
+    assertEqual(textOf(byTestID(renderer, 'lb-label')), 'Week 1', 'a non-guided caption renders');
+    assertEqual(textOf(byTestID(renderer, 'lb-caption')), 'March 3', 'the secondary line renders');
+    assertEqual(
+      compactText(byTestID(renderer, 'lb-position')),
+      '1 of 2',
+      'position counts this list',
+    );
+    assert(announcements.includes('Week 1 photo. 1 of 2.'), 'opening announces the first photo');
+    assert(!present(renderer, 'lb-action'), 'no action row without a caller-supplied control');
+
+    await tap(renderer, 'lb-next', 'page a standalone viewer');
+    assertEqual(index, 1, 'the caller owns the index');
+    await actSettle(() => renderer.update(render()));
+    assertEqual(textOf(byTestID(renderer, 'lb-label')), 'Week 6', 'the new page shows');
+    assert(announcements.includes('Week 6 photo. 2 of 2.'), 'the page change is announced');
+
+    await tap(renderer, 'lb-close', 'close a standalone viewer');
+    assertEqual(closed, 1, 'the caller owns closing');
+    await actSettle(() => renderer.unmount());
   }
 
   finish();

@@ -23,6 +23,7 @@
     "test:photo-backfill": "tsx scripts/verify-photo-backfill.ts",
     "test:provider-training": "tsx --tsconfig tsconfig.provider-training.json scripts/verify-provider-training.mts",
     "test:photo-remove": "tsx scripts/verify-photo-remove.ts",
+    "test:progress-session": "tsx --tsconfig tsconfig.progress-session.json scripts/verify-progress-session.ts",
     "test:recipe-nutrition": "tsx scripts/verify-recipe-nutrition.ts",
     "test:stall-nudge": "tsx scripts/verify-stall-nudge.ts"
   },
@@ -77,8 +78,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
+    "expo-audio": "~1.1.1",
     "expo-camera": "~17.0.10",
     "expo-image-manipulator": "~14.0.8",
-    "expo-media-library": "~18.2.1"
+    "expo-media-library": "~18.2.1",
+    "expo-sensors": "~15.0.8",
+    "expo-speech": "~14.0.8",
+    "jpeg-js": "^0.4.4"
   }
 }

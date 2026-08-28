@@ -239,6 +239,10 @@ function RootLayoutNav() {
         name="food-camera"
         options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
       />
+      <Stack.Screen
+        name="progress-session"
+        options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
+      />
     </Stack>
   );
 }

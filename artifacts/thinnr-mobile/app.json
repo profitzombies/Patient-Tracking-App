@@ -41,7 +41,8 @@
         {
           "photosPermission": "THINNR shows your recent photos so you can attach one for the AI coach."
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,

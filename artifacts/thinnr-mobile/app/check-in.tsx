@@ -9,6 +9,7 @@ import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
+import { Feather } from '@expo/vector-icons';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
@@ -313,6 +314,29 @@ export default function CheckInScreen() {
           />
         </LedgerCard>
 
+        {/* ── Guided photo session ── */}
+        <Pressable
+          testID="checkin-guided-session"
+          accessibilityRole="button"
+          onPress={() => router.push('/progress-session')}
+          style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+        >
+          <LedgerCard style={{ padding: 16, marginBottom: 14 }}>
+            <View style={styles.guidedRow}>
+              <View style={[styles.guidedIcon, { backgroundColor: colors.cobalt }]}>
+                <Feather name="camera" size={17} color={colors.primaryForeground} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.guidedTitle, { color: colors.foreground }]}>Add progress photos</Text>
+                <Text style={[styles.guidedSub, { color: colors.subtleText }]}>
+                  Hands-free guided session — front, side, and back
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={colors.subtleText} />
+            </View>
+          </LedgerCard>
+        </Pressable>
+
         {error ? <Text style={[styles.error, { color: colors.riskText }]}>{error}</Text> : null}
 
         <Pressable
@@ -480,6 +504,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Inter_600SemiBold',
   },
+  guidedRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  guidedIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guidedTitle: { fontFamily: 'Inter_600SemiBold', fontSize: 16 },
+  guidedSub: { fontFamily: 'Inter_400Regular', fontSize: 13.5, marginTop: 2, lineHeight: 19 },
   notesInput: {
     borderWidth: 1,
     padding: 12,

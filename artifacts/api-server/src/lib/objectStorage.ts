@@ -257,6 +257,27 @@ export class ObjectStorageService {
     return { uploadUrl, objectPath };
   }
 
+  /**
+   * Same contract for patient progress photos from the guided session:
+   * the server mints the WHOLE path (`/objects/progress-photos/<yyyy-mm>/
+   * <angle>-<uuid>`), so clients never control where bytes land; the
+   * month segment keeps the folder browsable as sessions accumulate.
+   */
+  async progressPhotoUploadURL(angle: string): Promise<{ uploadUrl: string; objectPath: string }> {
+    const month = new Date().toISOString().slice(0, 7);
+    const objectId = `${angle}-${randomUUID()}`;
+    const objectPath = `/objects/progress-photos/${month}/${objectId}`;
+    const fullPath = `${getTrainingObjectDir()}/progress-photos/${month}/${objectId}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const uploadUrl = await signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: UPLOAD_URL_TTL_SEC,
+    });
+    return { uploadUrl, objectPath };
+  }
+
   /** Resolve `/objects/...` to the underlying file; throws when absent. */
   async entityFile(objectPath: string): Promise<File> {
     const file = this.fileFor(objectPath);

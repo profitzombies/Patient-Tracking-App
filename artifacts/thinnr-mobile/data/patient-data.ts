@@ -199,6 +199,10 @@ export interface ProgressPhoto {
   label: string;
   source: 'seed' | 'user';
   uri?: string;
+  /** Guided-session angle, when the photo came from the hands-free flow. */
+  angle?: 'front' | 'side' | 'back';
+  /** Object-storage path recorded after upload (display stays on-device). */
+  objectPath?: string;
 }
 
 export interface DailyTargets {

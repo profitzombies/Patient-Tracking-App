@@ -4,6 +4,7 @@ import coachRouter from "./coach";
 import recipeImageRouter from "./recipe-image";
 import menuScanRouter from "./menu-scan";
 import trainingMediaRouter from "./training-media";
+import progressMediaRouter from "./progress-media";
 import knowledgeDocsRouter from "./knowledge-docs";
 import staffLoginsRouter from "./staff-logins";
 import labelScanRouter from "./label-scan";
@@ -20,6 +21,7 @@ router.use(menuScanRouter);
 router.use(labelScanRouter);
 router.use(barcodeRouter);
 router.use(trainingMediaRouter);
+router.use(progressMediaRouter);
 router.use(knowledgeDocsRouter);
 router.use(staffLoginsRouter);
 

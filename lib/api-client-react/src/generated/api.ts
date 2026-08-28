@@ -39,6 +39,10 @@ import type {
   KnowledgeReplaceInput,
   KnowledgeUploadUrlInput,
   KnowledgeUploadUrlResult,
+  ProgressPhotoFinalizeInput,
+  ProgressPhotoFinalizeResult,
+  ProgressPhotoUploadUrlInput,
+  ProgressPhotoUploadUrlResult,
   SupportChatInput,
   TrainingAttachmentDownloadResult,
   TrainingAttachmentFinalizeInput,
@@ -2225,6 +2229,150 @@ export const useKnowledgeRetryExtraction = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getKnowledgeRetryExtractionMutationOptions(options));
+    }
+
+export const getProgressPhotoUploadUrlUrl = () => {
+
+
+
+
+  return `/api/progress-photos/upload-url`
+}
+
+/**
+ * The server mints the whole object path; clients never choose where bytes land. The app PUTs the compressed JPEG to the returned URL, then calls finalize to verify the upload landed.
+ * @summary Mint a presigned upload URL for a guided-session progress photo
+ */
+export const progressPhotoUploadUrl = async (progressPhotoUploadUrlInput: ProgressPhotoUploadUrlInput, options?: Parameters<typeof customFetch>[1]): Promise<ProgressPhotoUploadUrlResult> => {
+
+  return customFetch<ProgressPhotoUploadUrlResult>(getProgressPhotoUploadUrlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(progressPhotoUploadUrlInput)
+  }
+);}
+
+
+
+
+
+export const getProgressPhotoUploadUrlMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof progressPhotoUploadUrl>>, TError,{data: BodyType<ProgressPhotoUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof progressPhotoUploadUrl>>, TError,{data: BodyType<ProgressPhotoUploadUrlInput>}, TContext> => {
+
+const mutationKey = ['progressPhotoUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof progressPhotoUploadUrl>>, {data: BodyType<ProgressPhotoUploadUrlInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  progressPhotoUploadUrl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ProgressPhotoUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof progressPhotoUploadUrl>>>
+    export type ProgressPhotoUploadUrlMutationBody = BodyType<ProgressPhotoUploadUrlInput>
+    export type ProgressPhotoUploadUrlMutationError = ErrorType<void>
+
+    /**
+ * @summary Mint a presigned upload URL for a guided-session progress photo
+ */
+export const useProgressPhotoUploadUrl = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof progressPhotoUploadUrl>>, TError,{data: BodyType<ProgressPhotoUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof progressPhotoUploadUrl>>,
+        TError,
+        {data: BodyType<ProgressPhotoUploadUrlInput>},
+        TContext
+      > => {
+      return useMutation(getProgressPhotoUploadUrlMutationOptions(options));
+    }
+
+export const getProgressPhotoFinalizeUrl = () => {
+
+
+
+
+  return `/api/progress-photos/finalize`
+}
+
+/**
+ * Confirms the object exists under the progress-photos prefix and its stored metadata (content type, size) is acceptable; deletes the stray object and rejects otherwise.
+ * @summary Verify an uploaded progress photo landed in storage
+ */
+export const progressPhotoFinalize = async (progressPhotoFinalizeInput: ProgressPhotoFinalizeInput, options?: Parameters<typeof customFetch>[1]): Promise<ProgressPhotoFinalizeResult> => {
+
+  return customFetch<ProgressPhotoFinalizeResult>(getProgressPhotoFinalizeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(progressPhotoFinalizeInput)
+  }
+);}
+
+
+
+
+
+export const getProgressPhotoFinalizeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof progressPhotoFinalize>>, TError,{data: BodyType<ProgressPhotoFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof progressPhotoFinalize>>, TError,{data: BodyType<ProgressPhotoFinalizeInput>}, TContext> => {
+
+const mutationKey = ['progressPhotoFinalize'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof progressPhotoFinalize>>, {data: BodyType<ProgressPhotoFinalizeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  progressPhotoFinalize(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ProgressPhotoFinalizeMutationResult = NonNullable<Awaited<ReturnType<typeof progressPhotoFinalize>>>
+    export type ProgressPhotoFinalizeMutationBody = BodyType<ProgressPhotoFinalizeInput>
+    export type ProgressPhotoFinalizeMutationError = ErrorType<void>
+
+    /**
+ * @summary Verify an uploaded progress photo landed in storage
+ */
+export const useProgressPhotoFinalize = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof progressPhotoFinalize>>, TError,{data: BodyType<ProgressPhotoFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof progressPhotoFinalize>>,
+        TError,
+        {data: BodyType<ProgressPhotoFinalizeInput>},
+        TContext
+      > => {
+      return useMutation(getProgressPhotoFinalizeMutationOptions(options));
     }
 
 export const getHealthCheckUrl = () => {

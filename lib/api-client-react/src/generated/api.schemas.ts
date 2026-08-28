@@ -311,6 +311,54 @@ export interface TrainingUploadUrlResult {
 }
 
 /**
+ * Which guided-session angle this shot is; used only to name the stored object
+ */
+export type ProgressPhotoUploadUrlInputAngle = typeof ProgressPhotoUploadUrlInputAngle[keyof typeof ProgressPhotoUploadUrlInputAngle];
+
+
+export const ProgressPhotoUploadUrlInputAngle = {
+  front: 'front',
+  side: 'side',
+  back: 'back',
+} as const;
+
+export interface ProgressPhotoUploadUrlInput {
+  /**
+     * MIME type the client will send on the PUT (image/jpeg, image/png, image/webp)
+     * @maxLength 100
+     */
+  contentType: string;
+  /**
+     * Compressed photo size in bytes; the server enforces the 15 MB cap with a 413
+     * @minimum 1
+     */
+  sizeBytes: number;
+  /** Which guided-session angle this shot is; used only to name the stored object */
+  angle?: ProgressPhotoUploadUrlInputAngle;
+}
+
+export interface ProgressPhotoUploadUrlResult {
+  /** Presigned PUT URL, valid for ~15 minutes */
+  uploadUrl: string;
+  /** Canonical object path to send to finalize; never a URL */
+  objectPath: string;
+}
+
+export interface ProgressPhotoFinalizeInput {
+  /**
+     * Object path returned by upload-url
+     * @maxLength 300
+     */
+  objectPath: string;
+}
+
+export interface ProgressPhotoFinalizeResult {
+  objectPath: string;
+  /** Stored size in bytes, read back from object metadata */
+  sizeBytes: number;
+}
+
+/**
  * MIME type sent on the presigned PUT
  */
 export type TrainingThumbnailUploadUrlInputContentType = typeof TrainingThumbnailUploadUrlInputContentType[keyof typeof TrainingThumbnailUploadUrlInputContentType];

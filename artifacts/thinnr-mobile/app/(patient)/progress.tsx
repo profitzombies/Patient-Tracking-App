@@ -152,6 +152,21 @@ export default function ProgressScreen() {
         {photoError ? (
           <Text style={[styles.photoError, { color: colors.riskText }]}>{photoError}</Text>
         ) : null}
+        {/* Hands-free three-angle session — the guided way to add photos. */}
+        <Pressable
+          testID="progress-guided-session"
+          accessibilityRole="button"
+          onPress={() => router.push('/progress-session')}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm, marginTop: 0, marginBottom: 12 },
+            pressed && { opacity: 0.88 },
+          ]}
+        >
+          <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
+            Start Guided Photo Session
+          </Text>
+        </Pressable>
         <View style={styles.photoGrid}>
           {patient.photos.map(photo => {
             const source = photo.source === 'seed' ? PROGRESS_IMAGES[photo.id] : { uri: photo.uri };

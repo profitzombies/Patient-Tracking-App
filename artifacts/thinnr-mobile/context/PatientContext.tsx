@@ -112,6 +112,8 @@ interface PersistedState {
   nudgeLastSentKey: string | null;
   /** crossedOnKey of the episode that outreach belonged to. */
   nudgeLastCrossingKey: string | null;
+  /** Patient chose to skip the guided photo session instructions. */
+  hideSessionInstructions: boolean;
 }
 
 const EMPTY_STATE: PersistedState = {
@@ -129,6 +131,7 @@ const EMPTY_STATE: PersistedState = {
   nudgeEngaged: false,
   nudgeLastSentKey: null,
   nudgeLastCrossingKey: null,
+  hideSessionInstructions: false,
 };
 
 let idSeq = 0;
@@ -170,8 +173,21 @@ interface PatientContextValue {
   setWater: (dateKey: string, oz: number) => Promise<void>;
   addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<void>;
   addPhoto: (photo: { dateKey: string; uri: string; label: string }) => Promise<void>;
+  /** One commit for a whole guided photo session (front/side/back). */
+  addPhotoSession: (
+    shots: Array<{
+      dateKey: string;
+      uri: string;
+      label: string;
+      angle: NonNullable<ProgressPhoto['angle']>;
+      objectPath?: string;
+    }>,
+  ) => Promise<void>;
   removePhoto: (id: string) => Promise<RemovedProgressPhoto | null>;
   restorePhoto: (removed: RemovedProgressPhoto) => Promise<void>;
+  /** Persisted "don't show the guided session instructions again". */
+  hideSessionInstructions: boolean;
+  setHideSessionInstructions: (hide: boolean) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
@@ -436,6 +452,43 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const prev = stateRef.current;
       const full: ProgressPhoto = { id: nextId('photo'), source: 'user', ...photo };
       await commit({ ...prev, photos: [...prev.photos, full] });
+    });
+  }, [commit, runSerialized]);
+
+  // Saves a whole guided session in ONE commit: the three photos land
+  // together or not at all, so a mid-save interruption can never persist
+  // half a session. Each carries its angle and storage path so future
+  // surfaces can group a session or re-fetch the uploaded copy.
+  const addPhotoSession = useCallback(async (
+    shots: Array<{
+      dateKey: string;
+      uri: string;
+      label: string;
+      angle: NonNullable<ProgressPhoto['angle']>;
+      objectPath?: string;
+    }>,
+  ): Promise<void> => {
+    if (shots.length === 0) return;
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      const full: ProgressPhoto[] = shots.map(shot => ({
+        id: nextId('photo'),
+        source: 'user' as const,
+        ...shot,
+      }));
+      await commit({ ...prev, photos: [...prev.photos, ...full] });
+    });
+  }, [commit, runSerialized]);
+
+  // Quiet toggle — a remembered preference, not a data mutation worth a buzz.
+  const setHideSessionInstructions = useCallback(async (hide: boolean): Promise<void> => {
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      const prev = stateRef.current;
+      if (prev.hideSessionInstructions === hide) return;
+      await commit({ ...prev, hideSessionInstructions: hide });
     });
   }, [commit, runSerialized]);
 
@@ -762,8 +815,11 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setWater,
       addCheckIn,
       addPhoto,
+      addPhotoSession,
       removePhoto,
       restorePhoto,
+      hideSessionInstructions: state.hideSessionInstructions,
+      setHideSessionInstructions,
       toggleFavorite,
       addCustomFood,
       updateCustomFood,
@@ -807,8 +863,11 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setWater,
       addCheckIn,
       addPhoto,
+      addPhotoSession,
       removePhoto,
       restorePhoto,
+      state.hideSessionInstructions,
+      setHideSessionInstructions,
       toggleFavorite,
       addCustomFood,
       updateCustomFood,

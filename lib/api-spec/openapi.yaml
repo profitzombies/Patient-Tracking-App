@@ -975,6 +975,68 @@ paths:
           description: No such knowledge document
         "409":
           description: An extraction run is already in progress
+  /progress-photos/upload-url:
+    post:
+      operationId: progressPhotoUploadUrl
+      tags: [progress]
+      summary: Mint a presigned upload URL for a guided-session progress photo
+      description: >-
+        The server mints the whole object path; clients never choose where
+        bytes land. The app PUTs the compressed JPEG to the returned URL,
+        then calls finalize to verify the upload landed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressPhotoUploadUrlInput"
+      responses:
+        "200":
+          description: Presigned PUT URL and canonical object path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgressPhotoUploadUrlResult"
+        "400":
+          description: Invalid input
+        "413":
+          description: File too large
+        "415":
+          description: Unsupported content type
+        "429":
+          description: Rate limited
+  /progress-photos/finalize:
+    post:
+      operationId: progressPhotoFinalize
+      tags: [progress]
+      summary: Verify an uploaded progress photo landed in storage
+      description: >-
+        Confirms the object exists under the progress-photos prefix and its
+        stored metadata (content type, size) is acceptable; deletes the
+        stray object and rejects otherwise.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressPhotoFinalizeInput"
+      responses:
+        "200":
+          description: Photo verified and safe to reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgressPhotoFinalizeResult"
+        "400":
+          description: Invalid object path
+        "404":
+          description: No uploaded object at that path
+        "413":
+          description: Stored object too large
+        "415":
+          description: Stored object is not an accepted image type
+        "429":
+          description: Rate limited
   /healthz:
     get:
       operationId: healthCheck
@@ -1378,6 +1440,56 @@ components:
       required:
         - uploadUrl
         - objectPath
+    ProgressPhotoUploadUrlInput:
+      type: object
+      properties:
+        contentType:
+          type: string
+          maxLength: 100
+          description: MIME type the client will send on the PUT (image/jpeg, image/png, image/webp)
+        sizeBytes:
+          type: number
+          minimum: 1
+          description: Compressed photo size in bytes; the server enforces the 15 MB cap with a 413
+        angle:
+          type: string
+          enum: [front, side, back]
+          description: Which guided-session angle this shot is; used only to name the stored object
+      required:
+        - contentType
+        - sizeBytes
+    ProgressPhotoUploadUrlResult:
+      type: object
+      properties:
+        uploadUrl:
+          type: string
+          description: Presigned PUT URL, valid for ~15 minutes
+        objectPath:
+          type: string
+          description: Canonical object path to send to finalize; never a URL
+      required:
+        - uploadUrl
+        - objectPath
+    ProgressPhotoFinalizeInput:
+      type: object
+      properties:
+        objectPath:
+          type: string
+          maxLength: 300
+          description: Object path returned by upload-url
+      required:
+        - objectPath
+    ProgressPhotoFinalizeResult:
+      type: object
+      properties:
+        objectPath:
+          type: string
+        sizeBytes:
+          type: number
+          description: Stored size in bytes, read back from object metadata
+      required:
+        - objectPath
+        - sizeBytes
     TrainingThumbnailUploadUrlInput:
       type: object
       properties:

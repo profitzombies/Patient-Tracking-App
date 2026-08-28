@@ -1,10 +1,10 @@
-/** Node stand-in for react-native-safe-area-context with settable insets. */
-let insets = { top: 0, bottom: 0, left: 0, right: 0 };
-
-export function setInsets(next: Partial<typeof insets>): void {
-  insets = { ...insets, ...next };
-}
-
+/**
+ * Node stand-in for react-native-safe-area-context. A phone-like bottom
+ * inset (home indicator) so the suite can tell the patient placement
+ * formula (insets + tab bar + gap) apart from the staff one
+ * (max(insets, 14) + 14) — with 0-insets both sides of several branches
+ * would collapse to the same number.
+ */
 export function useSafeAreaInsets(): { top: number; bottom: number; left: number; right: number } {
-  return insets;
+  return { top: 59, bottom: 34, left: 0, right: 0 };
 }

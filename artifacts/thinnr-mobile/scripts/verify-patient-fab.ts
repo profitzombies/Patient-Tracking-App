@@ -1,45 +1,60 @@
 /**
- * Patient corner-menu (FAB) invariants check.
+ * Patient corner quick-actions launcher check.
  *
- * Renders the REAL shared FabMenu through both side-specific wrappers
- * (PatientFabMenu, ProviderFabMenu) and the real patient tab layout under
- * Node (react-test-renderer + the patient-fab-stubs), so a refactor can
- * never silently:
- *   1. move or resize the patient circle (it must clear the visible tab
- *      bar per platform — the provider side has no bar and sits lower),
- *   2. change the patient rows, their order, icons, or navigation targets
- *      (including the guided-session handoff that must be armed BEFORE
- *      /guided-photos is pushed, and the coach-chat camera deep link),
- *   3. drift the provider menu while sharing the implementation (testIDs,
- *      rows, active-row tick, dedupe-on-navigate, AI Support target),
- *   4. drop the accessibility contract (roles, labels, expanded state), or
- *   5. unmount the FAB from the patient layout / break its mode guards.
+ * Patients get the exact same bottom-right circle + popout menu as staff —
+ * one shared FabMenu implementation behind both personas — filled with
+ * patient quick actions and floating above the visible patient tab bar
+ * (staff hide theirs, so their circle hugs the corner). This suite renders
+ * the REAL patient tab layout, both persona wrappers, and the meal-photo
+ * flow the patient menu hosts, under Node with react-test-renderer
+ * (tsconfig.patient-fab.json maps native-only modules to Node stubs), and
+ * proves:
+ *
+ *   1. Mount & placement — the patient tab layout carries the launcher as a
+ *      sibling of the tab navigator (so it floats on every tab), a 56px
+ *      navy circle at right 18 sitting above the tab bar shelf: web
+ *      84 + 14, device insets + 84 + 14 — and only for the patient persona.
+ *   2. Menu parity — identical card structure to staff: section label, five
+ *      icon-chip rows in order, divider, cobalt primary button; identical
+ *      open/close accessibility contract (button roles, expanded state,
+ *      selected tick on the active destination, backdrop + twin X).
+ *   3. Destinations — every row closes the menu with selection feedback and
+ *      lands on an EXISTING screen: /log-food, /barcode-scan, the meal
+ *      photo flow (library picker on web with the preview surviving the
+ *      closed menu; /food-camera handoff on device), /check-in, the
+ *      /progress tab (tab-navigate + skip-when-already-there), /coach-chat.
+ *   4. Staff side unchanged — the provider wrapper still renders its six
+ *      destinations + AI Support through the same shared contract.
+ *   5. Stacking — the snackbar shelf clears the launcher, so a snackbar's
+ *      corner action ("UNDO") never hides under the circle.
+ *   6. One implementation — both wrappers are config-only (no modal /
+ *      animation / stylesheet of their own), so the two menus cannot drift.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:patient-fab
  */
-import React from 'react';
-import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
-import { PatientFabMenu, patientFabBottom } from '../components/patient/PatientFabMenu';
-import { ProviderFabMenu } from '../components/provider/ProviderFabMenu';
-import PatientTabLayout from '../app/(patient)/_layout';
-import {
-  clearRouterCalls,
-  clearRedirects,
-  redirects,
-  routerCalls,
-  setPathname,
-} from './patient-fab-stubs/expo-router';
-import { clearHapticCalls, hapticCalls } from './patient-fab-stubs/expo-haptics';
-import { setInsets } from './patient-fab-stubs/react-native-safe-area-context';
-import { setAppMode } from './patient-fab-stubs/app-mode-context';
-import { setLiquidGlassAvailable } from './patient-fab-stubs/expo-glass-effect';
-import { claimGuidedPhotoRequest } from '../lib/guided-photos';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import React, { act } from 'react';
+import { Platform } from 'react-native';
 
-// Opt in to act() — react-test-renderer under plain Node, no jest environment.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+import PatientTabLayout from '../app/(patient)/_layout';
+import { PatientFabMenu } from '../components/patient/PatientFabMenu';
+import { ProviderFabMenu } from '../components/provider/ProviderFabMenu';
+import { FAB_SIZE } from '../components/ui/FabMenu';
+import colors from '../constants/colors';
+import { patientFabBottom, patientSnackbarBottom, patientTabBarAllowance } from '../constants/layout';
+import { claimFoodCameraRequest } from '../lib/food-camera';
+import { appModeState } from './patient-fab-stubs/app-mode-context';
+import { clearSendPhotoCalls, sendPhotoCalls } from './patient-fab-stubs/coach-chat-context';
+import { selectionCalls } from './patient-fab-stubs/expo-haptics';
+import { pickerCalls, pickerScript } from './patient-fab-stubs/expo-image-picker';
+import { clearRouterCalls, routerCalls, routerState } from './patient-fab-stubs/expo-router';
+
+const h = React.createElement;
 
 let checks = 0;
 let failures = 0;
+let finished = false;
 
 function fail(message: string) {
   failures += 1;
@@ -51,451 +66,515 @@ function assert(label: string, condition: boolean) {
   if (!condition) fail(label);
 }
 
-/** Host-only matching: stub components are functions, so composite nodes
- *  would otherwise double-match testIDs (see the guided-photos suite). */
-const isHost = (node: ReactTestInstance) => typeof node.type === 'string';
-
-function byIdAll(root: ReactTestInstance, id: string): ReactTestInstance[] {
-  return root.findAll((n) => isHost(n) && n.props.testID === id);
-}
-
-function byId(root: ReactTestInstance, id: string): ReactTestInstance {
-  const all = byIdAll(root, id);
-  if (all.length !== 1) throw new Error(`expected exactly one #${id}, found ${all.length}`);
-  return all[0];
-}
-
-function queryId(root: ReactTestInstance, id: string): ReactTestInstance | null {
-  return byIdAll(root, id)[0] ?? null;
-}
-
-/** Flatten a react-native style (possibly nested arrays) into one object. */
-function flat(style: unknown): Record<string, unknown> {
-  if (Array.isArray(style)) {
-    return style.reduce<Record<string, unknown>>((acc, s) => ({ ...acc, ...flat(s) }), {});
+function assertEqual(label: string, actual: string | number, expected: string | number) {
+  checks += 1;
+  if (actual !== expected) {
+    fail(`${label}\n        expected: ${JSON.stringify(expected)}\n        actual:   ${JSON.stringify(actual)}`);
   }
-  if (style && typeof style === 'object') return { ...(style as Record<string, unknown>) };
-  return {};
 }
 
-/** Concatenated string content beneath a node. */
-function textOf(node: ReactTestInstance): string {
-  const parts: string[] = [];
-  const walk = (child: unknown) => {
-    if (typeof child === 'string') {
-      parts.push(child);
-      return;
-    }
-    if (Array.isArray(child)) {
-      child.forEach(walk);
-      return;
-    }
-    const inst = child as { children?: unknown } | null;
-    if (inst && typeof inst === 'object' && 'children' in inst) walk(inst.children);
-  };
-  walk(node.children);
-  return parts.join('');
+function finish(): never {
+  finished = true;
+  if (failures > 0) {
+    console.error(`\n✗ patient corner launcher check: ${failures} failure(s) across ${checks} checks`);
+    process.exit(1);
+  }
+  console.log(`✓ patient corner launcher check: ${checks} checks passed`);
+  process.exit(0);
 }
 
-async function press(node: ReactTestInstance): Promise<void> {
+// A dangling await must never look like success.
+process.on('beforeExit', () => {
+  if (!finished) {
+    console.error('✗ patient corner launcher check: exited before finishing (dangling await?)');
+    process.exit(1);
+  }
+});
+
+// ─── react-test-renderer harness ─────────────────────────────────────────────
+
+interface TestNode {
+  type: unknown;
+  props: Record<string, unknown>;
+  children: (TestNode | string)[];
+  findAll(predicate: (node: TestNode) => boolean): TestNode[];
+}
+
+interface Renderer {
+  root: TestNode;
+  unmount(): void;
+}
+
+let createRenderer: (el: React.ReactElement) => Renderer;
+
+function render(element: React.ReactElement): Renderer {
+  let renderer!: Renderer;
+  act(() => {
+    renderer = createRenderer(element);
+  });
+  return renderer;
+}
+
+function isHost(node: TestNode): boolean {
+  return typeof node.type === 'string';
+}
+
+function byTestID(root: TestNode, id: string): TestNode[] {
+  return root.findAll(node => isHost(node) && node.props.testID === id);
+}
+
+/** Exactly-one lookup; missing/duplicated testIDs fail loudly. */
+function only(root: TestNode, id: string): TestNode | null {
+  const all = byTestID(root, id);
+  assertEqual(`exactly one "${id}"`, all.length, 1);
+  return all[0] ?? null;
+}
+
+function tap(node: TestNode | null): void {
+  if (!node) return;
+  act(() => {
+    (node.props.onPress as (() => void) | undefined)?.();
+  });
+}
+
+/** Drains microtasks + several macrotask rounds so async chains finish INSIDE act. */
+async function drainAsync(): Promise<void> {
+  for (let round = 0; round < 4; round += 1) {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+  }
+}
+
+/** Tap whose handler kicks off async work (picker, photo prep, handoff). */
+async function tapAndSettle(node: TestNode | null): Promise<void> {
+  if (!node) return;
   await act(async () => {
     (node.props.onPress as (() => void) | undefined)?.();
-    await Promise.resolve();
+    await drainAsync();
   });
 }
 
-async function render(element: React.ReactElement): Promise<ReactTestRenderer> {
-  let renderer: ReactTestRenderer;
-  await act(async () => {
-    renderer = create(element);
-    await Promise.resolve();
-  });
-  return renderer!;
-}
-
-async function unmount(renderer: ReactTestRenderer): Promise<void> {
-  await act(async () => {
+function unmount(renderer: Renderer): void {
+  act(() => {
     renderer.unmount();
   });
 }
 
-const featherIn = (node: ReactTestInstance): string | undefined =>
-  node.findAll((n) => n.type === 'Feather')[0]?.props.name as string | undefined;
-
-const PATIENT_ROWS = [
-  { id: 'patient-menu-log-food', label: 'Log food', icon: 'plus-circle' },
-  { id: 'patient-menu-barcode', label: 'Scan a barcode', icon: 'barcode-scan' },
-  { id: 'patient-menu-meal-photo', label: 'Snap a meal photo', icon: 'camera' },
-  { id: 'patient-menu-check-in', label: 'Daily check-in', icon: 'check-circle' },
-  { id: 'patient-menu-progress-photos', label: 'Progress photos', icon: 'image' },
-];
-
-const PROVIDER_ROWS = [
-  { id: 'provider-menu-overview', label: 'Overview' },
-  { id: 'provider-menu-patients', label: 'Patients' },
-  { id: 'provider-menu-outcomes', label: 'Outcomes' },
-  { id: 'provider-menu-leaderboard', label: 'Leaderboard' },
-  { id: 'provider-menu-subscriptions', label: 'Subscriptions' },
-  { id: 'provider-menu-training', label: 'Training' },
-];
-
-async function main() {
-  // ── 1. Placement math: the circle clears the tab bar per platform ─────────
-  {
-    assert('web bottom = 84px pinned bar + 14 gap', patientFabBottom('web', 0) === 98);
-    assert('web bottom ignores the inset (bar is pinned)', patientFabBottom('web', 34) === 98);
-    assert('iOS bottom = 49 + home indicator + 14', patientFabBottom('ios', 34) === 97);
-    assert('iOS without inset = 49 + 14', patientFabBottom('ios', 0) === 63);
-    assert('android bottom includes its inset', patientFabBottom('android', 24) === 87);
-  }
-
-  setInsets({ top: 0, bottom: 0, left: 0, right: 0 });
-  setPathname('/today');
-  let patientCircleColor: unknown;
-  let patientCircleShadow: unknown;
-
-  // ── 2. Patient launcher at rest ────────────────────────────────────────────
-  {
-    clearRouterCalls();
-    clearHapticCalls();
-    const r = await render(React.createElement(PatientFabMenu));
-    const fab = byId(r.root, 'patient-fab');
-    const style = flat(fab.props.style);
-
-    assert('launcher is a button', fab.props.accessibilityRole === 'button');
-    assert(
-      'launcher announces "Open quick actions menu"',
-      fab.props.accessibilityLabel === 'Open quick actions menu',
-    );
-    assert('launcher reports collapsed', fab.props['aria-expanded'] === false);
-    assert(
-      'launcher accessibilityState collapsed',
-      (fab.props.accessibilityState as { expanded?: boolean }).expanded === false,
-    );
-    assert('launcher shows the grid icon', featherIn(fab) === 'grid');
-    assert('circle is 56px', style.width === 56 && style.height === 56);
-    assert('circle is round', style.borderRadius === 28);
-    assert('circle hugs the right edge at 18', style.right === 18);
-    assert('circle floats above the web tab bar (bottom 98)', style.bottom === 98);
-    assert('circle is absolutely positioned', style.position === 'absolute');
-    assert('circle has the navy fill', typeof style.backgroundColor === 'string');
-    assert('circle carries the Heritage shadow', typeof style.boxShadow === 'string');
-    patientCircleColor = style.backgroundColor;
-    patientCircleShadow = style.boxShadow;
-
-    assert('menu is closed at rest', queryId(r.root, 'patient-menu') === null);
-    assert('no stray navigation at rest', routerCalls.length === 0);
-    await unmount(r);
-  }
-
-  // ── 3. Opening the patient menu ────────────────────────────────────────────
-  {
-    clearRouterCalls();
-    clearHapticCalls();
-    const r = await render(React.createElement(PatientFabMenu));
-    await press(byId(r.root, 'patient-fab'));
-
-    assert('toggle fires a selection haptic', hapticCalls.includes('selection'));
-    const fab = byId(r.root, 'patient-fab');
-    assert('launcher reports expanded', fab.props['aria-expanded'] === true);
-    assert('launcher swaps to the X icon', featherIn(fab) === 'x');
-    assert(
-      'launcher announces "Close quick actions menu"',
-      fab.props.accessibilityLabel === 'Close quick actions menu',
-    );
-
-    const menu = queryId(r.root, 'patient-menu');
-    assert('menu card appears', menu !== null);
-    if (!menu) throw new Error('menu did not open');
-    const cardStyle = flat(menu.props.style);
-    assert('card is 90% of the canvas', cardStyle.width === '90%');
-    assert(
-      'card is raised above the circle (98 + 56 + 12)',
-      cardStyle.marginBottom === 98 + 56 + 12,
-    );
-    assert(
-      'reveal animation completed',
-      (cardStyle.opacity as { __value?: number } | undefined)?.__value === 1,
-    );
-
-    assert('backdrop is tappable', queryId(r.root, 'patient-menu-backdrop') !== null);
-    const twin = queryId(r.root, 'patient-fab-close');
-    assert('in-modal X twin exists', twin !== null);
-    assert('twin announces close', twin?.props.accessibilityLabel === 'Close quick actions menu');
-    assert('twin reports expanded', twin?.props['aria-expanded'] === true);
-    assert(
-      'twin sits on the launcher coordinates',
-      flat(twin?.props.style).bottom === 98 && flat(twin?.props.style).right === 18,
-    );
-
-    assert('section label reads QUICK ACTIONS', textOf(menu).includes('QUICK ACTIONS'));
-
-    const rows = menu.findAll(
-      (n) =>
-        isHost(n) &&
-        typeof n.props.testID === 'string' &&
-        (n.props.testID as string).startsWith('patient-menu-') &&
-        n.props.testID !== 'patient-menu-coach',
-    );
-    assert(
-      'exactly the five quick-action rows, in order',
-      rows.map((n) => n.props.testID).join(',') === PATIENT_ROWS.map((row) => row.id).join(','),
-    );
-    for (const [index, expected] of PATIENT_ROWS.entries()) {
-      const row = rows[index];
-      if (!row) {
-        fail(`row ${expected.id} missing`);
-        continue;
-      }
-      assert(`${expected.id} shows "${expected.label}"`, textOf(row).includes(expected.label));
-      assert(`${expected.id} is a button`, row.props.accessibilityRole === 'button');
-      assert(
-        `${expected.id} announces its label`,
-        row.props.accessibilityLabel === expected.label,
-      );
-      assert(
-        `${expected.id} is not marked active`,
-        (row.props.accessibilityState as { selected?: boolean }).selected === false,
-      );
-      const iconName =
-        expected.id === 'patient-menu-barcode'
-          ? (row.findAll((n) => n.type === 'MaterialCommunityIcons')[0]?.props.name as string)
-          : featherIn(row);
-      assert(`${expected.id} carries the ${expected.icon} icon`, iconName === expected.icon);
+function flattenStyle(style: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const visit = (value: unknown): void => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
     }
-    assert(
-      'the barcode row reuses the diary scan glyph family',
-      rows[1]?.findAll((n) => n.type === 'MaterialCommunityIcons').length === 1,
-    );
-
-    const coach = byId(r.root, 'patient-menu-coach');
-    assert('coach button reads Message Coach', textOf(coach).includes('Message Coach'));
-    assert(
-      'coach button announces "Message your coach"',
-      coach.props.accessibilityLabel === 'Message your coach',
-    );
-    assert('coach button carries the chat icon', featherIn(coach) === 'message-circle');
-
-    assert('opening navigates nowhere', routerCalls.length === 0);
-    await unmount(r);
-  }
-
-  // ── 4. Patient row actions ─────────────────────────────────────────────────
-  const rowAction = async (rowId: string) => {
-    clearRouterCalls();
-    clearHapticCalls();
-    const r = await render(React.createElement(PatientFabMenu));
-    await press(byId(r.root, 'patient-fab'));
-    await press(byId(r.root, rowId));
-    const closed = queryId(r.root, 'patient-menu') === null;
-    await unmount(r);
-    return { calls: [...routerCalls], closed, haptics: hapticCalls.length };
+    if (typeof value === 'object') Object.assign(out, value as Record<string, unknown>);
   };
-
-  {
-    const logFood = await rowAction('patient-menu-log-food');
-    assert('Log food pushes /log-food', JSON.stringify(logFood.calls) === JSON.stringify([{ method: 'push', target: '/log-food' }]));
-    assert('Log food closes the menu', logFood.closed);
-    assert('Log food fires haptics (toggle + select)', logFood.haptics >= 2);
-
-    const barcode = await rowAction('patient-menu-barcode');
-    assert('Scan a barcode pushes /barcode-scan', JSON.stringify(barcode.calls) === JSON.stringify([{ method: 'push', target: '/barcode-scan' }]));
-    assert('Scan a barcode closes the menu', barcode.closed);
-
-    const mealPhoto = await rowAction('patient-menu-meal-photo');
-    assert(
-      'Snap a meal photo deep-links the chat camera',
-      JSON.stringify(mealPhoto.calls) ===
-        JSON.stringify([
-          { method: 'push', target: { pathname: '/coach-chat', params: { camera: '1' } } },
-        ]),
-    );
-    assert('Snap a meal photo closes the menu', mealPhoto.closed);
-
-    const checkIn = await rowAction('patient-menu-check-in');
-    assert('Daily check-in pushes /check-in', JSON.stringify(checkIn.calls) === JSON.stringify([{ method: 'push', target: '/check-in' }]));
-
-    assert('no guided handoff armed beforehand', claimGuidedPhotoRequest() === null);
-    const progress = await rowAction('patient-menu-progress-photos');
-    assert('Progress photos pushes /guided-photos', JSON.stringify(progress.calls) === JSON.stringify([{ method: 'push', target: '/guided-photos' }]));
-    const handoff = claimGuidedPhotoRequest();
-    assert('Progress photos arms the session handoff BEFORE pushing', handoff !== null);
-    assert('the handoff drains after one claim', claimGuidedPhotoRequest() === null);
-
-    clearRouterCalls();
-    const r = await render(React.createElement(PatientFabMenu));
-    await press(byId(r.root, 'patient-fab'));
-    await press(byId(r.root, 'patient-menu-coach'));
-    assert('Message Coach pushes /coach-chat (no camera param)', JSON.stringify(routerCalls) === JSON.stringify([{ method: 'push', target: '/coach-chat' }]));
-    assert('Message Coach closes the menu', queryId(r.root, 'patient-menu') === null);
-    await unmount(r);
-  }
-
-  // ── 5. Close paths never navigate ──────────────────────────────────────────
-  {
-    clearRouterCalls();
-    let r = await render(React.createElement(PatientFabMenu));
-    await press(byId(r.root, 'patient-fab'));
-    await press(byId(r.root, 'patient-menu-backdrop'));
-    assert('backdrop closes the menu', queryId(r.root, 'patient-menu') === null);
-    assert('backdrop close keeps the collapsed launcher label', byId(r.root, 'patient-fab').props.accessibilityLabel === 'Open quick actions menu');
-    await unmount(r);
-
-    r = await render(React.createElement(PatientFabMenu));
-    await press(byId(r.root, 'patient-fab'));
-    await press(byId(r.root, 'patient-fab-close'));
-    assert('the X twin closes the menu', queryId(r.root, 'patient-menu') === null);
-    await unmount(r);
-
-    r = await render(React.createElement(PatientFabMenu));
-    await press(byId(r.root, 'patient-fab'));
-    const modal = r.root.findAll((n) => n.type === 'Modal')[0];
-    await act(async () => {
-      (modal.props.onRequestClose as () => void)();
-    });
-    assert('hardware back / Escape closes the menu', queryId(r.root, 'patient-menu') === null);
-
-    // Reopen still works after every close path.
-    await press(byId(r.root, 'patient-fab'));
-    assert('menu reopens after closing', queryId(r.root, 'patient-menu') !== null);
-    await unmount(r);
-    assert('close paths never navigate', routerCalls.length === 0);
-  }
-
-  // ── 6. Provider menu through the shared component (parity guard) ──────────
-  {
-    clearRouterCalls();
-    setPathname('/patients');
-    const r = await render(React.createElement(ProviderFabMenu));
-    const fab = byId(r.root, 'provider-fab');
-    const style = flat(fab.props.style);
-    assert('provider launcher keeps its testID', fab !== null);
-    assert(
-      'provider launcher keeps "Open navigation menu"',
-      fab.props.accessibilityLabel === 'Open navigation menu',
-    );
-    assert('provider circle keeps 56px', style.width === 56 && style.height === 56);
-    assert('provider circle keeps right 18', style.right === 18);
-    assert('provider sits lower (no tab bar): bottom 28', style.bottom === 28);
-    assert('both circles share the exact navy', style.backgroundColor === patientCircleColor);
-    assert('both circles share the exact shadow', style.boxShadow === patientCircleShadow);
-
-    await press(fab);
-    const menu = queryId(r.root, 'provider-menu');
-    assert('provider menu opens', menu !== null);
-    if (!menu) throw new Error('provider menu did not open');
-    assert('provider label reads NAVIGATE', textOf(menu).includes('NAVIGATE'));
-    assert('provider card raised above its circle (28 + 56 + 12)', flat(menu.props.style).marginBottom === 96);
-    assert('provider card matches the patient width', flat(menu.props.style).width === '90%');
-
-    const rows = menu.findAll(
-      (n) =>
-        isHost(n) &&
-        typeof n.props.testID === 'string' &&
-        (n.props.testID as string).startsWith('provider-menu-') &&
-        n.props.testID !== 'provider-menu-support',
-    );
-    assert(
-      'provider keeps its six rows in order',
-      rows.map((n) => n.props.testID).join(',') === PROVIDER_ROWS.map((row) => row.id).join(','),
-    );
-    for (const [index, expected] of PROVIDER_ROWS.entries()) {
-      assert(
-        `${expected.id} still reads "${expected.label}"`,
-        rows[index] !== undefined && textOf(rows[index]).includes(expected.label),
-      );
-    }
-
-    const active = rows.filter(
-      (n) => (n.props.accessibilityState as { selected?: boolean }).selected === true,
-    );
-    assert('exactly one active provider row on /patients', active.length === 1 && active[0].props.testID === 'provider-menu-patients');
-    const activeTick = active[0]
-      ?.findAllByType('View' as never)
-      .map((n) => flat(n.props.style))
-      .find((s) => s.width === 14 && s.height === 3);
-    assert('active row shows the orange tick', activeTick !== undefined && activeTick.backgroundColor !== 'transparent');
-    const inactiveTick = rows[0]
-      .findAllByType('View' as never)
-      .map((n) => flat(n.props.style))
-      .find((s) => s.width === 14 && s.height === 3);
-    assert('inactive rows keep a transparent tick', inactiveTick !== undefined && inactiveTick.backgroundColor === 'transparent');
-
-    // Selecting the already-active destination dedupes (no navigation).
-    await press(byId(r.root, 'provider-menu-patients'));
-    assert('active row press closes without navigating', routerCalls.length === 0 && queryId(r.root, 'provider-menu') === null);
-
-    await press(byId(r.root, 'provider-fab'));
-    await press(byId(r.root, 'provider-menu-outcomes'));
-    assert(
-      'other rows navigate (navigate method, not push)',
-      JSON.stringify(routerCalls) === JSON.stringify([{ method: 'navigate', target: '/outcomes' }]),
-    );
-
-    clearRouterCalls();
-    await press(byId(r.root, 'provider-fab'));
-    const support = byId(r.root, 'provider-menu-support');
-    assert('AI Support keeps its label', textOf(support).includes('AI Support'));
-    assert('AI Support keeps its announcement', support.props.accessibilityLabel === 'Open AI Support');
-    await press(support);
-    assert('AI Support still pushes /support-chat', JSON.stringify(routerCalls) === JSON.stringify([{ method: 'push', target: '/support-chat' }]));
-    await unmount(r);
-    setPathname('/today');
-  }
-
-  // ── 7. The patient layout mounts the FAB behind its guards ────────────────
-  {
-    clearRedirects();
-    clearRouterCalls();
-    setLiquidGlassAvailable(false);
-    setAppMode({ mode: 'patient', hydrated: true });
-    let r = await render(React.createElement(PatientTabLayout));
-    const screens = r.root.findAll((n) => n.type === 'TabsScreen');
-    assert(
-      'classic layout keeps the five tabs',
-      screens.map((n) => n.props.name).join(',') === 'today,diary,recipes,progress,plan',
-    );
-    assert('FAB is mounted over the classic tabs', queryId(r.root, 'patient-fab') !== null);
-    assert('no redirect in patient mode', redirects.length === 0);
-    await unmount(r);
-
-    setLiquidGlassAvailable(true);
-    r = await render(React.createElement(PatientTabLayout));
-    assert('liquid-glass layout renders native tabs', r.root.findAll((n) => n.type === 'NativeTabs').length === 1);
-    assert('FAB is mounted over the native tabs too', queryId(r.root, 'patient-fab') !== null);
-    await unmount(r);
-    setLiquidGlassAvailable(false);
-
-    setAppMode({ mode: 'staff', hydrated: true });
-    r = await render(React.createElement(PatientTabLayout));
-    assert('staff mode redirects to the provider home', JSON.stringify(redirects) === JSON.stringify(['/']));
-    assert('staff mode never mounts the patient FAB', queryId(r.root, 'patient-fab') === null);
-    await unmount(r);
-    clearRedirects();
-
-    setAppMode({ mode: 'unknown', hydrated: true });
-    r = await render(React.createElement(PatientTabLayout));
-    assert('unknown mode redirects to the persona chooser', JSON.stringify(redirects) === JSON.stringify(['/persona']));
-    await unmount(r);
-    clearRedirects();
-
-    setAppMode({ mode: 'patient', hydrated: false });
-    r = await render(React.createElement(PatientTabLayout));
-    assert('unhydrated layout renders nothing', r.root.findAll((n) => isHost(n)).length === 0);
-    assert('unhydrated layout does not redirect', redirects.length === 0);
-    await unmount(r);
-    setAppMode({ mode: 'patient', hydrated: true });
-  }
-
-  // ── Result ─────────────────────────────────────────────────────────────────
-  if (failures > 0) {
-    console.error(`\n✗ Patient corner menu: ${failures} failure(s) across ${checks} checks`);
-    process.exit(1);
-  }
-  console.log(`✓ Patient corner menu: ${checks} checks passed`);
+  visit(style);
+  return out;
 }
 
-main().catch((error) => {
-  console.error('✗ Patient corner menu: suite crashed', error);
-  process.exit(1);
+function textOf(node: TestNode): string {
+  const parts: string[] = [];
+  const walk = (child: TestNode | string): void => {
+    if (typeof child === 'string') {
+      parts.push(child);
+      return;
+    }
+    child.children.forEach(walk);
+  };
+  node.children.forEach(walk);
+  return parts.join('');
+}
+
+function nodeKids(node: TestNode): TestNode[] {
+  return node.children.filter((child): child is TestNode => typeof child !== 'string');
+}
+
+// ─── Shared menu contract (the "pixel-matched to staff" guarantee) ───────────
+
+interface RowSpec {
+  key: string;
+  label: string;
+  iconHost: 'Feather' | 'MaterialCommunityIcons';
+  iconName: string;
+}
+
+const PATIENT_ROWS: RowSpec[] = [
+  { key: 'log-food', label: 'Log food', iconHost: 'Feather', iconName: 'plus' },
+  { key: 'barcode', label: 'Scan a barcode', iconHost: 'MaterialCommunityIcons', iconName: 'barcode-scan' },
+  { key: 'meal-photo', label: 'Snap a meal photo', iconHost: 'Feather', iconName: 'camera' },
+  { key: 'check-in', label: 'Daily check-in', iconHost: 'Feather', iconName: 'check-circle' },
+  { key: 'progress-photos', label: 'Progress photos', iconHost: 'Feather', iconName: 'image' },
+];
+
+const PROVIDER_ROWS: RowSpec[] = [
+  { key: 'overview', label: 'Overview', iconHost: 'Feather', iconName: 'home' },
+  { key: 'patients', label: 'Patients', iconHost: 'Feather', iconName: 'users' },
+  { key: 'outcomes', label: 'Outcomes', iconHost: 'Feather', iconName: 'bar-chart-2' },
+  { key: 'leaderboard', label: 'Leaderboard', iconHost: 'Feather', iconName: 'award' },
+  { key: 'subscriptions', label: 'Subscriptions', iconHost: 'Feather', iconName: 'package' },
+  { key: 'training', label: 'Training', iconHost: 'Feather', iconName: 'book-open' },
+];
+
+interface MenuContract {
+  side: string;
+  root: TestNode;
+  idPrefix: string;
+  sectionLabel: string;
+  openLabel: string;
+  closeLabel: string;
+  rows: RowSpec[];
+  primary: { key: string; label: string; a11yLabel: string; iconName: string };
+  fabBottom: number;
+  activeKey?: string;
+}
+
+/** Opens the menu, checks every shared visual/a11y invariant, closes it. */
+function checkMenuContract(opts: MenuContract): void {
+  const { side, root, idPrefix } = opts;
+
+  const fab = only(root, `${idPrefix}-fab`);
+  if (!fab) return;
+  const fabStyle = flattenStyle(fab.props.style);
+  assertEqual(`${side}: circle width`, Number(fabStyle.width), FAB_SIZE);
+  assertEqual(`${side}: circle height`, Number(fabStyle.height), FAB_SIZE);
+  assertEqual(`${side}: circle radius`, Number(fabStyle.borderRadius), FAB_SIZE / 2);
+  assertEqual(`${side}: corner offset`, Number(fabStyle.right), 18);
+  assertEqual(`${side}: bottom offset`, Number(fabStyle.bottom), opts.fabBottom);
+  assertEqual(`${side}: navy circle`, String(fabStyle.backgroundColor), colors.light.navy);
+  assert(
+    `${side}: circle casts the shared shadow`,
+    'boxShadow' in fabStyle || 'shadowColor' in fabStyle || 'elevation' in fabStyle,
+  );
+  assertEqual(`${side}: launcher role`, String(fab.props.accessibilityRole), 'button');
+  assertEqual(`${side}: launcher label (closed)`, String(fab.props.accessibilityLabel), opts.openLabel);
+  assertEqual(
+    `${side}: launcher reports collapsed`,
+    String((fab.props.accessibilityState as { expanded?: boolean } | undefined)?.expanded),
+    'false',
+  );
+  const restingIcon = fab.findAll(n => isHost(n) && n.type === 'Feather')[0];
+  assertEqual(`${side}: resting grid glyph`, String(restingIcon?.props.name), 'grid');
+  assertEqual(`${side}: menu starts closed`, byTestID(root, `${idPrefix}-menu`).length, 0);
+
+  const hapticsBefore = selectionCalls.count;
+  tap(fab);
+  assertEqual(`${side}: opening ticks selection feedback`, selectionCalls.count, hapticsBefore + 1);
+
+  const menu = only(root, `${idPrefix}-menu`);
+  if (!menu) return;
+  const cardStyle = flattenStyle(menu.props.style);
+  const cardDrop = cardStyle.marginBottom ?? cardStyle.bottom;
+  assertEqual(`${side}: card floats above the circle`, Number(cardDrop), opts.fabBottom + FAB_SIZE + 12);
+  assertEqual(`${side}: cream card`, String(cardStyle.backgroundColor), colors.light.card);
+
+  const kids = nodeKids(menu);
+  assertEqual(`${side}: card structure (label + rows + divider + primary)`, kids.length, opts.rows.length + 3);
+  assertEqual(`${side}: section label`, textOf(kids[0]!), opts.sectionLabel);
+
+  opts.rows.forEach((row, index) => {
+    const rowNode = only(root, `${idPrefix}-menu-${row.key}`);
+    if (!rowNode) return;
+    assertEqual(`${side}: row ${index + 1} is ${row.key}`, String(kids[index + 1]?.props.testID), `${idPrefix}-menu-${row.key}`);
+    assertEqual(`${side}: row ${row.key} role`, String(rowNode.props.accessibilityRole), 'button');
+    assertEqual(`${side}: row ${row.key} a11y label`, String(rowNode.props.accessibilityLabel), row.label);
+    assert(`${side}: row ${row.key} shows its label`, textOf(rowNode).includes(row.label));
+    const icon = rowNode.findAll(n => isHost(n) && n.type === row.iconHost)[0];
+    assertEqual(`${side}: row ${row.key} glyph`, String(icon?.props.name), row.iconName);
+    const selected = (rowNode.props.accessibilityState as { selected?: boolean } | undefined)?.selected;
+    assertEqual(`${side}: row ${row.key} selected state`, String(Boolean(selected)), String(row.key === opts.activeKey));
+    const ticks = rowNode.findAll(
+      n => isHost(n) && flattenStyle(n.props.style).backgroundColor === colors.light.orange,
+    );
+    assertEqual(`${side}: row ${row.key} active tick`, ticks.length, row.key === opts.activeKey ? 1 : 0);
+  });
+
+  const divider = kids[opts.rows.length + 1];
+  assertEqual(`${side}: divider under the rows`, Number(divider ? flattenStyle(divider.props.style).height : NaN), 1);
+
+  const primary = only(root, `${idPrefix}-menu-${opts.primary.key}`);
+  if (primary) {
+    assertEqual(
+      `${side}: primary sits last`,
+      String(kids[kids.length - 1]?.props.testID),
+      `${idPrefix}-menu-${opts.primary.key}`,
+    );
+    assertEqual(`${side}: primary a11y label`, String(primary.props.accessibilityLabel), opts.primary.a11yLabel);
+    assert(`${side}: primary shows its label`, textOf(primary).includes(opts.primary.label));
+    assertEqual(
+      `${side}: cobalt primary`,
+      String(flattenStyle(primary.props.style).backgroundColor),
+      colors.light.cobalt,
+    );
+    const icon = primary.findAll(n => isHost(n) && n.type === 'Feather')[0];
+    assertEqual(`${side}: primary glyph`, String(icon?.props.name), opts.primary.iconName);
+  }
+
+  const backdrop = only(root, `${idPrefix}-menu-backdrop`);
+  if (backdrop) {
+    assertEqual(`${side}: backdrop role`, String(backdrop.props.accessibilityRole), 'button');
+    assertEqual(`${side}: backdrop label`, String(backdrop.props.accessibilityLabel), 'Close menu');
+  }
+
+  const twin = only(root, `${idPrefix}-fab-close`);
+  if (twin) {
+    assertEqual(`${side}: twin X label`, String(twin.props.accessibilityLabel), opts.closeLabel);
+    assertEqual(
+      `${side}: twin X reports expanded`,
+      String((twin.props.accessibilityState as { expanded?: boolean } | undefined)?.expanded),
+      'true',
+    );
+    assertEqual(`${side}: twin X keeps the corner`, Number(flattenStyle(twin.props.style).bottom), opts.fabBottom);
+    const twinIcon = twin.findAll(n => isHost(n) && n.type === 'Feather')[0];
+    assertEqual(`${side}: twin X glyph`, String(twinIcon?.props.name), 'x');
+  }
+
+  tap(backdrop);
+  assertEqual(`${side}: backdrop closes the menu`, byTestID(root, `${idPrefix}-menu`).length, 0);
+}
+
+// ─── Run ─────────────────────────────────────────────────────────────────────
+
+const INSET_BOTTOM = 34; // what the safe-area stub reports
+
+async function main(): Promise<void> {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
+  // react-test-renderer 19 prints a one-line deprecation notice; keep the
+  // output readable but let every other console.error through untouched.
+  const realConsoleError = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('react-test-renderer is deprecated')) return;
+    realConsoleError(...args);
+  };
+  const rendererModule = (await import('react-test-renderer')) as unknown as {
+    default?: { create?: (el: React.ReactElement) => Renderer };
+    create?: (el: React.ReactElement) => Renderer;
+  };
+  const TestRenderer = rendererModule.default ?? rendererModule;
+  if (!TestRenderer.create) throw new Error('react-test-renderer did not expose create()');
+  createRenderer = TestRenderer.create.bind(TestRenderer);
+
+  // ── 1. Patient layout mounts the launcher above the web tab bar ──────────
+  Platform.OS = 'web';
+  routerState.pathname = '/today';
+  const WEB_FAB_BOTTOM = patientFabBottom(INSET_BOTTOM);
+  assertEqual('web shelf math (fixed 84px tab bar + gap)', WEB_FAB_BOTTOM, 84 + 14);
+
+  const layout = render(h(PatientTabLayout));
+  const root = layout.root;
+  const screens = root.findAll(n => isHost(n) && n.type === 'TabsScreen');
+  assertEqual(
+    'launcher is a sibling of all five patient tabs',
+    screens.map(s => String(s.props.name)).join(','),
+    'today,diary,recipes,progress,plan',
+  );
+
+  checkMenuContract({
+    side: 'patient(web)',
+    root,
+    idPrefix: 'patient',
+    sectionLabel: 'QUICK ACTIONS',
+    openLabel: 'Open quick actions menu',
+    closeLabel: 'Close quick actions menu',
+    rows: PATIENT_ROWS,
+    primary: { key: 'coach', label: 'Message Coach', a11yLabel: 'Message your coach', iconName: 'message-circle' },
+    fabBottom: WEB_FAB_BOTTOM,
+  });
+
+  // ── 2. Rows close the menu, tick feedback, land on existing screens ──────
+  const openMenu = () => tap(only(root, 'patient-fab'));
+
+  const rowNavigates = async (key: string, expected: { method: string; target: string }) => {
+    openMenu();
+    clearRouterCalls();
+    const before = selectionCalls.count;
+    await tapAndSettle(only(root, `patient-menu-${key}`));
+    assertEqual(`row ${key}: menu closes`, byTestID(root, 'patient-menu').length, 0);
+    assertEqual(`row ${key}: one selection tick`, selectionCalls.count, before + 1);
+    assertEqual(`row ${key}: destination`, JSON.stringify(routerCalls), JSON.stringify([expected]));
+  };
+
+  await rowNavigates('log-food', { method: 'push', target: '/log-food' });
+  await rowNavigates('barcode', { method: 'push', target: '/barcode-scan' });
+  await rowNavigates('check-in', { method: 'push', target: '/check-in' });
+  await rowNavigates('coach', { method: 'push', target: '/coach-chat' });
+  // Progress photos targets the progress TAB → tab-navigate, not push.
+  await rowNavigates('progress-photos', { method: 'navigate', target: '/progress' });
+
+  // Already on Progress: the row shows the active tick and skips re-navigating.
+  routerState.pathname = '/progress';
+  openMenu();
+  const activeRow = only(root, 'patient-menu-progress-photos');
+  assertEqual(
+    'on /progress: row reports selected',
+    String((activeRow?.props.accessibilityState as { selected?: boolean } | undefined)?.selected),
+    'true',
+  );
+  assertEqual(
+    'on /progress: row shows the orange tick',
+    activeRow
+      ? activeRow.findAll(n => isHost(n) && flattenStyle(n.props.style).backgroundColor === colors.light.orange).length
+      : NaN,
+    1,
+  );
+  clearRouterCalls();
+  await tapAndSettle(activeRow);
+  assertEqual('on /progress: menu closes without re-navigating', byTestID(root, 'patient-menu').length, 0);
+  assertEqual('on /progress: no duplicate navigation', routerCalls.length, 0);
+  routerState.pathname = '/today';
+
+  // ── 3. Snap a meal photo (web): picker → preview survives the closed menu ─
+  pickerScript.next = {
+    canceled: false,
+    assets: [{ uri: 'blob:meal-fixture', width: 1200, height: 900 }],
+  };
+  clearSendPhotoCalls();
+  openMenu();
+  clearRouterCalls();
+  await tapAndSettle(only(root, 'patient-menu-meal-photo'));
+  assertEqual('meal photo: menu closes', byTestID(root, 'patient-menu').length, 0);
+  assertEqual('meal photo: library picker launched once', pickerCalls.count, 1);
+  assert('meal photo: preview outlives the closed menu', only(root, 'meal-photo-preview') !== null);
+  assertEqual('meal photo: nothing sent before confirm', sendPhotoCalls.length, 0);
+  await tapAndSettle(only(root, 'meal-photo-use'));
+  assertEqual('meal photo: one photo handed to the coach', sendPhotoCalls.length, 1);
+  assertEqual('meal photo: sent as a meal read', String(sendPhotoCalls[0]?.kind), 'meal');
+  assertEqual('meal photo: the picked shot rides through', String(sendPhotoCalls[0]?.photo.uri), 'blob:meal-fixture');
+  assert('meal photo: no meal-slot pin from the menu', sendPhotoCalls[0]?.options === undefined);
+  assertEqual(
+    'meal photo: lands in coach chat',
+    JSON.stringify(routerCalls),
+    JSON.stringify([{ method: 'push', target: '/coach-chat' }]),
+  );
+  assertEqual('meal photo: preview closes after send', byTestID(root, 'meal-photo-preview').length, 0);
+  unmount(layout);
+
+  // ── 4. Persona gate: the launcher never leaks outside the patient side ───
+  appModeState.mode = 'staff';
+  const staffTree = render(h(PatientTabLayout));
+  assertEqual(
+    'staff persona: patient layout redirects away',
+    staffTree.root
+      .findAll(n => isHost(n) && n.type === 'Redirect')
+      .map(n => String(n.props.href))
+      .join(','),
+    '/',
+  );
+  assertEqual('staff persona: no patient launcher', byTestID(staffTree.root, 'patient-fab').length, 0);
+  unmount(staffTree);
+  appModeState.mode = 'patient';
+
+  // ── 5. Device placement + in-app camera handoff ──────────────────────────
+  Platform.OS = 'ios';
+  const NATIVE_FAB_BOTTOM = patientFabBottom(INSET_BOTTOM);
+  assertEqual(
+    'device shelf math (inset + tab bar + gap)',
+    NATIVE_FAB_BOTTOM,
+    INSET_BOTTOM + patientTabBarAllowance(0) + 14,
+  );
+  const nativeTree = render(h(PatientFabMenu));
+  const nativeFab = only(nativeTree.root, 'patient-fab');
+  assertEqual(
+    'device: circle floats above tab bar + home indicator',
+    Number(flattenStyle(nativeFab?.props.style).bottom),
+    NATIVE_FAB_BOTTOM,
+  );
+  const providerBottom = Math.max(INSET_BOTTOM, 14) + 14;
+  assert('patients float higher than staff (visible tab bar)', NATIVE_FAB_BOTTOM > providerBottom);
+
+  tap(nativeFab);
+  clearRouterCalls();
+  await tapAndSettle(only(nativeTree.root, 'patient-menu-meal-photo'));
+  assertEqual(
+    'device meal photo: opens the in-app food camera',
+    JSON.stringify(routerCalls),
+    JSON.stringify([{ method: 'push', target: '/food-camera' }]),
+  );
+  const session = claimFoodCameraRequest();
+  assert('device meal photo: capture request pending for the camera screen', session !== null);
+  await act(async () => {
+    session?.settle(null);
+    await drainAsync();
+  });
+  assertEqual(
+    'device meal photo: backing out of the camera shows no preview',
+    byTestID(nativeTree.root, 'meal-photo-preview').length,
+    0,
+  );
+  unmount(nativeTree);
+  Platform.OS = 'web';
+
+  // ── 6. Staff side unchanged: same shared contract, staff config ──────────
+  routerState.pathname = '/patients';
+  const providerTree = render(h(ProviderFabMenu));
+  checkMenuContract({
+    side: 'provider',
+    root: providerTree.root,
+    idPrefix: 'provider',
+    sectionLabel: 'NAVIGATE',
+    openLabel: 'Open navigation menu',
+    closeLabel: 'Close navigation menu',
+    rows: PROVIDER_ROWS,
+    primary: { key: 'support', label: 'AI Support', a11yLabel: 'Open AI Support', iconName: 'message-circle' },
+    fabBottom: providerBottom,
+    activeKey: 'patients',
+  });
+  tap(only(providerTree.root, 'provider-fab'));
+  clearRouterCalls();
+  await tapAndSettle(only(providerTree.root, 'provider-menu-overview'));
+  assertEqual(
+    'staff row semantics intact (tab-navigate to Overview)',
+    JSON.stringify(routerCalls),
+    JSON.stringify([{ method: 'navigate', target: '/' }]),
+  );
+  tap(only(providerTree.root, 'provider-fab'));
+  clearRouterCalls();
+  await tapAndSettle(only(providerTree.root, 'provider-menu-support'));
+  assertEqual(
+    'staff primary semantics intact (push AI Support)',
+    JSON.stringify(routerCalls),
+    JSON.stringify([{ method: 'push', target: '/support-chat' }]),
+  );
+  unmount(providerTree);
+  routerState.pathname = '/today';
+
+  // ── 7. Snackbars stack above the launcher (UNDO stays tappable) ──────────
+  assertEqual(
+    'web: snackbar shelf rides the circle top + 12',
+    patientSnackbarBottom(INSET_BOTTOM),
+    WEB_FAB_BOTTOM + FAB_SIZE + 12,
+  );
+  Platform.OS = 'ios';
+  assertEqual(
+    'device: snackbar shelf rides the circle top + 12',
+    patientSnackbarBottom(INSET_BOTTOM),
+    NATIVE_FAB_BOTTOM + FAB_SIZE + 12,
+  );
+  Platform.OS = 'web';
+
+  // ── 8. One implementation, two configs (static drift guard) ──────────────
+  const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, '..', rel), 'utf8');
+  const providerSrc = read('components/provider/ProviderFabMenu.tsx');
+  const patientSrc = read('components/patient/PatientFabMenu.tsx');
+  const ownsVisuals = (src: string) =>
+    src.includes('<AppModal') || src.includes('Animated.') || src.includes('StyleSheet.create');
+  assert('staff wrapper renders the shared FabMenu', providerSrc.includes('<FabMenu'));
+  assert('patient wrapper renders the shared FabMenu', patientSrc.includes('<FabMenu'));
+  assert('staff wrapper is config-only (no visuals to drift)', !ownsVisuals(providerSrc));
+  assert('patient wrapper is config-only (no visuals to drift)', !ownsVisuals(patientSrc));
+  assert('patient tab layout mounts the launcher', read('app/(patient)/_layout.tsx').includes('<PatientFabMenu'));
+  assert('staff tab layout keeps its launcher', read('app/(tabs)/_layout.tsx').includes('<ProviderFabMenu'));
+  assert(
+    'snackbar rides the shared shelf constant',
+    read('components/ui/Snackbar.tsx').includes('patientSnackbarBottom('),
+  );
+
+  finish();
+}
+
+main().catch((error: unknown) => {
+  fail(`unhandled: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+  finish();
 });

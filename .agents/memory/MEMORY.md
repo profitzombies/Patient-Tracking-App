@@ -69,3 +69,4 @@
 - [Guided photo session](guided-photo-session.md) — no-AI positioning gate (1 Hz luma probes, 3-ready auto-start, timed fallback); auto-start must latch the HYDRATED hide pref, not live checkbox state.
 - [Finalize sniff window](finalize-sniff-window.md) — image head-sniffs need 64 KB: metadata-heavy JPEGs (AI tags, XMP/EXIF) push SOF past 4 KB; a 4 KB window rejects real photos.
 - [Parallel duplicate-feature merge](parallel-duplicate-feature-merge.md) — main can receive a rival build of the task's own feature; keep one stack, grep automerged spec/screens for dup keys and spliced buttons, prove the tree via diff against the verified commit.
+- [Corner launcher shelf](corner-launcher-shelf.md) — both personas share ui/FabMenu (config-only wrappers); patient bottom-corner stacking (tab bar → FAB → snackbar) lives in constants/layout — new floating UI must join that shelf math.

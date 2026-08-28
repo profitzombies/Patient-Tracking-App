@@ -1,13 +1,10 @@
 /**
- * Node stand-in for @/context/PatientContext — just the hydration flag the
- * patient tab layout reads.
+ * Node stand-in for @/context/PatientContext: the tab layout only reads
+ * `hydrated` (it holds rendering until storage rehydrates), so that is all
+ * the stub provides.
  */
-let hydrated = true;
-
-export function setPatientHydrated(value: boolean): void {
-  hydrated = value;
-}
+export const patientState = { hydrated: true };
 
 export function usePatient(): { hydrated: boolean } {
-  return { hydrated };
+  return { hydrated: patientState.hydrated };
 }

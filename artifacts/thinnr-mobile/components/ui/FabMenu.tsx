@@ -1,19 +1,21 @@
 /**
- * Shared floating corner menu — the Slack-style bottom-right launcher used
- * by BOTH app sides. The provider (staff) section renders it through
- * ProviderFabMenu; the patient section through PatientFabMenu. One
- * implementation so the two menus can never drift apart visually.
+ * FabMenu — the shared corner launcher + popout menu behind BOTH personas'
+ * floating navy circle. The provider (staff) side mounts it as its whole
+ * navigation (components/provider/ProviderFabMenu); the patient side mounts
+ * the same component above its tab bar for quick actions
+ * (components/patient/PatientFabMenu). One implementation, two configs, so
+ * the two corners can never drift apart in look or behavior.
  *
  * A round navy button floats in the bottom-right corner and never leaves
  * it. Tapping it pops out a Heritage menu card floating horizontally
  * centered at 90% of the app canvas width, raised so its bottom edge clears
  * the circle with a small gap — and the circle flips to an X that closes
- * the menu again (tap to reopen). One row per entry (icon chip + label,
- * the active row marked with the small orange tick), and a prominent cobalt
- * call-to-action pinned full-width beneath a divider — the side's primary
- * chat action lives outside the rows the way Slack's primary action does.
- * Backdrop tap, Escape, hardware back, or picking a row also close the
- * menu, returning the circle to its grid icon.
+ * the menu again (tap to reopen). One row per item (icon chip + label, the
+ * active screen marked with the small orange tick for navigate rows), and a
+ * prominent cobalt primary action pinned full-width beneath a divider — the
+ * way Slack's primary action sits outside the rows. Backdrop tap, Escape,
+ * hardware back, or picking a row also close the menu, returning the circle
+ * to its resting icon.
  *
  * The popout rides AppModal so web keeps iPhone-canvas parity (the 90%
  * width sizes against the fixed iPhone canvas, not the browser window), the
@@ -22,13 +24,8 @@
  * on web), nothing rendered outside it can draw above the backdrop — so the
  * open-state X is a twin circle rendered INSIDE the modal at the same
  * canvas coordinates. The always-mounted launcher underneath mirrors the X
- * icon, keeps the launcher testID queryable in both states, and gives the
+ * icon, keeps `${idPrefix}-fab` queryable in both states, and gives the
  * modal's focus-restore a target after close.
- *
- * Everything visual (sizes, colors, shadows, spacing, the 170ms reveal) is
- * fixed here; callers only supply placement (`bottom`), rows, labels, and
- * testIDs. The provider config is the original and must stay byte-identical
- * in look and behavior — change this file with both sides in mind.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -48,55 +45,73 @@ export const FAB_SIZE = 56;
 const MENU_GAP = 12;
 
 /**
- * Feather covers almost every row; `material-community` exists for the one
- * glyph Feather lacks (the barcode) so the menu can reuse the exact icon
- * patients already see on the diary's scan chip.
+ * Row icon — Feather for most glyphs, MaterialCommunityIcons for the few
+ * that Feather lacks (e.g. barcode-scan). Both families are preloaded by
+ * the root font gate, so either renders safely anywhere.
  */
-type FabMenuItemIcon =
-  | { iconSet?: 'feather'; icon: keyof typeof Feather.glyphMap }
-  | { iconSet: 'material-community'; icon: keyof typeof MaterialCommunityIcons.glyphMap };
+export type FabMenuIcon =
+  | { family: 'feather'; name: keyof typeof Feather.glyphMap }
+  | { family: 'mci'; name: keyof typeof MaterialCommunityIcons.glyphMap };
 
-export type FabMenuItem = FabMenuItemIcon & {
-  /** Row testID suffix: `${menuTestID}-${key}`. */
+/**
+ * What tapping a row (or the primary action) does. The menu always closes
+ * first, with the same selection haptic:
+ * - navigate: tab-style destination — shows the orange active tick when the
+ *   current pathname matches, and skips navigation when already there.
+ * - push: stacks a screen (modals like log-food keep their own dismissal).
+ * - run: caller-provided behavior (e.g. the patient meal-photo flow, which
+ *   must create its capture request before navigating).
+ */
+export type FabMenuAction =
+  | { kind: 'navigate'; href: Href }
+  | { kind: 'push'; href: Href }
+  | { kind: 'run'; run: () => void };
+
+export interface FabMenuItem {
+  /** Slug used in the row's testID: `${idPrefix}-menu-${key}`. */
   key: string;
   label: string;
-  /** Screen-reader label; defaults to `label`. */
-  a11yLabel?: string;
-  /**
-   * Navigation target. With `method: 'navigate'` (default) the row dedupes
-   * against the current pathname — tab-style destinations; with `'push'` it
-   * always stacks — modal-style actions. The active-row tick compares this
-   * href to the current pathname (string hrefs only).
-   */
-  href?: Href;
-  method?: 'navigate' | 'push';
-  /** Escape hatch: runs INSTEAD of href navigation (after close + haptics). */
-  onSelect?: () => void;
-};
+  icon: FabMenuIcon;
+  action: FabMenuAction;
+}
 
-export type FabMenuConfig = {
-  /** Launcher testID; the in-modal X twin is `${fabTestID}-close`. */
-  fabTestID: string;
-  /** Card testID; rows are `${menuTestID}-${key}`, backdrop `-backdrop`. */
-  menuTestID: string;
-  /** Tiny all-caps section label above the rows (e.g. "NAVIGATE"). */
+export interface FabMenuPrimaryAction {
+  /** Slug used in the button's testID: `${idPrefix}-menu-${key}`. */
+  key: string;
+  label: string;
+  icon: keyof typeof Feather.glyphMap;
+  accessibilityLabel: string;
+  action: FabMenuAction;
+}
+
+export interface FabMenuProps {
+  /** testID prefix: `${idPrefix}-fab`, `${idPrefix}-menu`, `${idPrefix}-menu-${key}`, … */
+  idPrefix: string;
+  /** Launcher accessibility label while the menu is closed / open. */
+  openAccessibilityLabel: string;
+  closeAccessibilityLabel: string;
+  /** Small caps section label at the top of the menu card. */
   sectionLabel: string;
-  openA11yLabel: string;
-  closeA11yLabel: string;
-  /** Absolute distance from the container's bottom edge to the circle. */
-  bottom: number;
   items: FabMenuItem[];
-  /** The cobalt full-width action beneath the divider. */
-  primary: {
-    testID: string;
-    label: string;
-    a11yLabel: string;
-    icon: keyof typeof Feather.glyphMap;
-    onSelect: () => void;
-  };
-};
+  /** The cobalt full-width action pinned beneath the divider. */
+  primaryAction: FabMenuPrimaryAction;
+  /**
+   * Distance from the canvas bottom edge to the circle's bottom edge. Each
+   * side computes its own anchor (staff: home-indicator inset; patient:
+   * above the tab bar) — everything else about the corner is shared.
+   */
+  fabBottom: number;
+}
 
-export function FabMenu({ config }: { config: FabMenuConfig }) {
+export function FabMenu({
+  idPrefix,
+  openAccessibilityLabel,
+  closeAccessibilityLabel,
+  sectionLabel,
+  items,
+  primaryAction,
+  fabBottom,
+}: FabMenuProps) {
   const colors = useColors();
   const router = useRouter();
   const pathname = usePathname();
@@ -120,7 +135,7 @@ export function FabMenu({ config }: { config: FabMenuConfig }) {
   // the screen on native, so identical right/bottom means the same spot.
   const fabPlacement = {
     right: 18,
-    bottom: config.bottom,
+    bottom: fabBottom,
     backgroundColor: colors.navy,
     boxShadow: FAB_SHADOW,
   };
@@ -130,30 +145,30 @@ export function FabMenu({ config }: { config: FabMenuConfig }) {
     setOpen((current) => !current);
   };
 
-  const selectItem = (item: FabMenuItem) => {
+  const isActive = (action: FabMenuAction) =>
+    action.kind === 'navigate' &&
+    (action.href === '/' ? pathname === '/' : pathname.startsWith(String(action.href)));
+
+  /** Close-then-act, with the same press haptic on every row. */
+  const activate = (action: FabMenuAction) => {
     Haptics.selectionAsync();
     setOpen(false);
-    if (item.onSelect) {
-      item.onSelect();
-      return;
+    if (action.kind === 'navigate') {
+      if (pathname !== action.href) router.navigate(action.href);
+    } else if (action.kind === 'push') {
+      router.push(action.href);
+    } else {
+      action.run();
     }
-    if (item.href === undefined) return;
-    if (item.method === 'push') {
-      router.push(item.href);
-      return;
-    }
-    if (pathname !== item.href) router.navigate(item.href);
   };
 
-  const selectPrimary = () => {
-    Haptics.selectionAsync();
-    setOpen(false);
-    config.primary.onSelect();
-  };
-
-  const isActive = (href: FabMenuItem['href']) => {
-    if (typeof href !== 'string') return false;
-    return href === '/' ? pathname === '/' : pathname.startsWith(href);
+  const rowIcon = (icon: FabMenuIcon, active: boolean) => {
+    const color = active ? colors.cobalt : colors.navyLight;
+    return icon.family === 'mci' ? (
+      <MaterialCommunityIcons name={icon.name} size={15} color={color} />
+    ) : (
+      <Feather name={icon.name} size={15} color={color} />
+    );
   };
 
   return (
@@ -162,12 +177,12 @@ export function FabMenu({ config }: { config: FabMenuConfig }) {
           node sits under the modal (the tappable X is the twin inside it,
           below) but mirrors the X icon and close label, so open/close reads
           as one circle swapping icons through the modal's fade. Staying
-          mounted and visible keeps the launcher testID queryable in both
+          mounted and visible keeps `${idPrefix}-fab` queryable in both
           states and gives RNW's modal focus-restore its target after close. */}
       <Pressable
-        testID={config.fabTestID}
+        testID={`${idPrefix}-fab`}
         accessibilityRole="button"
-        accessibilityLabel={open ? config.closeA11yLabel : config.openA11yLabel}
+        accessibilityLabel={open ? closeAccessibilityLabel : openAccessibilityLabel}
         accessibilityState={{ expanded: open }}
         aria-expanded={open}
         onPress={toggle}
@@ -188,20 +203,20 @@ export function FabMenu({ config }: { config: FabMenuConfig }) {
       >
         <View style={styles.overlay}>
           <Pressable
-            testID={`${config.menuTestID}-backdrop`}
+            testID={`${idPrefix}-menu-backdrop`}
             accessibilityRole="button"
             accessibilityLabel="Close menu"
             onPress={() => setOpen(false)}
             style={styles.backdrop}
           />
           <Animated.View
-            testID={config.menuTestID}
+            testID={`${idPrefix}-menu`}
             style={[
               styles.menuCard,
               {
                 // Raised above the circle: clear the launcher plus a small
                 // gap instead of docking at the very bottom.
-                marginBottom: config.bottom + FAB_SIZE + MENU_GAP,
+                marginBottom: fabBottom + FAB_SIZE + MENU_GAP,
                 backgroundColor: colors.card,
                 borderColor: colors.border,
                 borderRadius: colors.radius,
@@ -225,19 +240,19 @@ export function FabMenu({ config }: { config: FabMenuConfig }) {
             ]}
           >
             <Text style={[styles.menuLabel, { color: colors.labelText }]}>
-              {config.sectionLabel}
+              {sectionLabel}
             </Text>
-            {config.items.map((item) => {
-              const active = isActive(item.href);
+            {items.map((item) => {
+              const active = isActive(item.action);
               return (
                 <Pressable
                   key={item.key}
-                  testID={`${config.menuTestID}-${item.key}`}
+                  testID={`${idPrefix}-menu-${item.key}`}
                   accessibilityRole="button"
-                  accessibilityLabel={item.a11yLabel ?? item.label}
+                  accessibilityLabel={item.label}
                   accessibilityState={{ selected: active }}
                   aria-selected={active}
-                  onPress={() => selectItem(item)}
+                  onPress={() => activate(item.action)}
                   style={({ pressed }) => [
                     styles.menuRow,
                     { borderRadius: colors.radiusSm },
@@ -255,19 +270,7 @@ export function FabMenu({ config }: { config: FabMenuConfig }) {
                       },
                     ]}
                   >
-                    {item.iconSet === 'material-community' ? (
-                      <MaterialCommunityIcons
-                        name={item.icon}
-                        size={15}
-                        color={active ? colors.cobalt : colors.navyLight}
-                      />
-                    ) : (
-                      <Feather
-                        name={item.icon}
-                        size={15}
-                        color={active ? colors.cobalt : colors.navyLight}
-                      />
-                    )}
+                    {rowIcon(item.icon, active)}
                   </View>
                   <Text
                     style={[
@@ -292,19 +295,19 @@ export function FabMenu({ config }: { config: FabMenuConfig }) {
             })}
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
             <Pressable
-              testID={config.primary.testID}
+              testID={`${idPrefix}-menu-${primaryAction.key}`}
               accessibilityRole="button"
-              accessibilityLabel={config.primary.a11yLabel}
-              onPress={selectPrimary}
+              accessibilityLabel={primaryAction.accessibilityLabel}
+              onPress={() => activate(primaryAction.action)}
               style={({ pressed }) => [
-                styles.supportBtn,
+                styles.primaryBtn,
                 { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },
                 pressed && { opacity: 0.88 },
               ]}
             >
-              <Feather name={config.primary.icon} size={15} color={colors.primaryForeground} />
-              <Text style={[styles.supportText, { color: colors.primaryForeground }]}>
-                {config.primary.label}
+              <Feather name={primaryAction.icon} size={15} color={colors.primaryForeground} />
+              <Text style={[styles.primaryText, { color: colors.primaryForeground }]}>
+                {primaryAction.label}
               </Text>
             </Pressable>
           </Animated.View>
@@ -314,9 +317,9 @@ export function FabMenu({ config }: { config: FabMenuConfig }) {
               canvas coordinates as the launcher, so visually it IS the same
               circle — now an X that closes the menu. */}
           <Pressable
-            testID={`${config.fabTestID}-close`}
+            testID={`${idPrefix}-fab-close`}
             accessibilityRole="button"
-            accessibilityLabel={config.closeA11yLabel}
+            accessibilityLabel={closeAccessibilityLabel}
             accessibilityState={{ expanded: true }}
             aria-expanded={true}
             onPress={toggle}
@@ -400,14 +403,14 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     marginHorizontal: 6,
   },
-  supportBtn: {
+  primaryBtn: {
     minHeight: 46,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  supportText: {
+  primaryText: {
     fontSize: 13.5,
     fontFamily: 'Inter_600SemiBold',
   },

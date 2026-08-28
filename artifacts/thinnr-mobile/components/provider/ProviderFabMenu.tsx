@@ -2,24 +2,33 @@
  * Floating navigation for the provider (staff) section — the Slack-style
  * bottom-right launcher that replaced the full-width tab bar.
  *
- * The button, popout card, animation, and modal-twin mechanics live in the
- * shared FabMenu (components/ui/FabMenu.tsx), which this file configures
- * with the staff destinations: the same six rows the old tab bar held
- * (same icons), the active screen marked with the small orange tick, and
- * the cobalt "AI Support" action pinned beneath the divider. The patient
- * side mounts the same shared component with its own rows — change the
- * shared file with both sides in mind; this config must keep the provider
- * menu byte-identical in look and behavior.
+ * A round navy button floats in the bottom-right corner of every staff
+ * screen and never leaves it. Tapping it pops out a Heritage menu card with
+ * one row per destination (the same six the old tab bar held, same icons),
+ * the active screen marked with the small orange tick the tabs used, and a
+ * prominent cobalt "AI Support" action pinned full-width beneath a divider
+ * — the staff-side AI chat lives outside the six rows the way Slack's
+ * primary action does.
  *
- * Placement: the staff section has no tab bar (the FAB is its only nav
- * chrome), so the circle sits directly above the home-indicator inset.
+ * All rendering, animation, and interaction live in the shared FabMenu
+ * (components/ui/FabMenu) — the patient side mounts the exact same
+ * component with its own rows, so the two corners can never drift apart.
+ * This file is only the provider CONFIG: the six destinations, the AI
+ * Support primary, and the staff-side corner anchor (staff has no tab bar,
+ * so the circle hugs the home-indicator inset).
  */
 import React from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
+import { type Href } from 'expo-router';
 import { FabMenu, type FabMenuItem } from '@/components/ui/FabMenu';
 
-const DESTINATIONS: FabMenuItem[] = [
+const DESTINATIONS: {
+  key: string;
+  label: string;
+  icon: keyof typeof Feather.glyphMap;
+  href: Href;
+}[] = [
   { key: 'overview', label: 'Overview', icon: 'home', href: '/' },
   { key: 'patients', label: 'Patients', icon: 'users', href: '/patients' },
   { key: 'outcomes', label: 'Outcomes', icon: 'bar-chart-2', href: '/outcomes' },
@@ -28,28 +37,34 @@ const DESTINATIONS: FabMenuItem[] = [
   { key: 'training', label: 'Training', icon: 'book-open', href: '/training' },
 ];
 
+const ITEMS: FabMenuItem[] = DESTINATIONS.map((destination) => ({
+  key: destination.key,
+  label: destination.label,
+  icon: { family: 'feather', name: destination.icon },
+  action: { kind: 'navigate', href: destination.href },
+}));
+
 export function ProviderFabMenu() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
+  // No staff tab bar: the circle clears the home indicator (or 14 where
+  // there is none) plus a 14 gap — the resting spot the menu raises above.
+  const fabBottom = Math.max(insets.bottom, 14) + 14;
 
   return (
     <FabMenu
-      config={{
-        fabTestID: 'provider-fab',
-        menuTestID: 'provider-menu',
-        sectionLabel: 'NAVIGATE',
-        openA11yLabel: 'Open navigation menu',
-        closeA11yLabel: 'Close navigation menu',
-        bottom: Math.max(insets.bottom, 14) + 14,
-        items: DESTINATIONS,
-        primary: {
-          testID: 'provider-menu-support',
-          label: 'AI Support',
-          a11yLabel: 'Open AI Support',
-          icon: 'message-circle',
-          onSelect: () => router.push('/support-chat'),
-        },
+      idPrefix="provider"
+      openAccessibilityLabel="Open navigation menu"
+      closeAccessibilityLabel="Close navigation menu"
+      sectionLabel="NAVIGATE"
+      items={ITEMS}
+      primaryAction={{
+        key: 'support',
+        label: 'AI Support',
+        icon: 'message-circle',
+        accessibilityLabel: 'Open AI Support',
+        action: { kind: 'push', href: '/support-chat' },
       }}
+      fabBottom={fabBottom}
     />
   );
 }

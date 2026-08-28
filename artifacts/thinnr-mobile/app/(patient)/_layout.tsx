@@ -225,8 +225,9 @@ export default function PatientTabLayout() {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
 
-  // The quick-actions FAB is a sibling of the tab navigator (same pattern
-  // as the provider layout) so it floats over every patient tab.
+  // The corner quick-actions launcher mounts once here, beside whichever
+  // tab variant renders, so every patient tab shows the same circle
+  // (mirrors the staff layout's mount in app/(tabs)/_layout.tsx).
   return (
     <View style={layoutStyles.container}>
       {isLiquidGlassAvailable() ? <NativeTabLayout /> : <ClassicTabLayout />}

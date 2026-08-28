@@ -1,13 +1,15 @@
 /**
- * Snackbar — transient notice floating above the patient tab bar, with one
- * uppercase action button (e.g. "UNDO", "VIEW"). Purely presentational: the
- * caller owns visibility, content, and any auto-dismiss timer. Screens should
- * keep a single snackbar slot so a newer notice replaces the current one.
+ * Snackbar — transient notice floating above the patient tab bar and the
+ * corner quick-actions launcher, with one uppercase action button (e.g.
+ * "UNDO", "VIEW"). Purely presentational: the caller owns visibility,
+ * content, and any auto-dismiss timer. Screens should keep a single
+ * snackbar slot so a newer notice replaces the current one.
  */
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { patientSnackbarBottom } from '@/constants/layout';
 
 interface SnackbarProps {
   message: string;
@@ -28,7 +30,10 @@ export function Snackbar({ message, actionLabel, onAction, testID, actionTestID 
         {
           backgroundColor: colors.navy,
           borderColor: colors.navyLight,
-          bottom: (Platform.OS === 'web' ? 84 : insets.bottom + 84) + 12,
+          // Above the launcher circle (Material snackbar-over-FAB): the
+          // action button sits exactly in the corner the circle owns, so
+          // docking at the old tab-bar shelf would leave it untappable.
+          bottom: patientSnackbarBottom(insets.bottom),
         },
       ]}
     >

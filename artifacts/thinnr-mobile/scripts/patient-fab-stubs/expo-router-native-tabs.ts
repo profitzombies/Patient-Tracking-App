@@ -1,7 +1,8 @@
 /**
- * Node stand-in for expo-router/unstable-native-tabs. The suite forces the
- * classic layout (liquid glass unavailable), so these only need to resolve
- * as importable components.
+ * Node stand-in for expo-router/unstable-native-tabs (the iOS 26 liquid
+ * glass variant). The glass-effect stub reports unavailable, so these only
+ * need to exist for the import graph — they still render as host elements
+ * in case a scenario ever flips the branch.
  */
 import React from 'react';
 
@@ -16,13 +17,11 @@ function host(name: string) {
   return Host;
 }
 
-function NativeTabsComponent(props: AnyProps): React.ReactElement {
-  const { children, ...rest } = props;
-  return React.createElement('NativeTabs', rest, children);
-}
+const NativeTabsImpl = host('NativeTabs');
 
-NativeTabsComponent.Trigger = host('NativeTabsTrigger');
+export const NativeTabs = Object.assign(NativeTabsImpl, {
+  Trigger: host('NativeTabsTrigger'),
+});
 
-export const NativeTabs = NativeTabsComponent;
 export const Icon = host('NativeTabsIcon');
 export const Label = host('NativeTabsLabel');

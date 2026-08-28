@@ -1,13 +1,20 @@
 /**
- * Node stand-in for @/context/AppModeContext — just the hook the patient
- * tab layout reads, with knobs for the suite's guard checks.
+ * Node stand-in for @/context/AppModeContext: the persona gate as plain
+ * mutable state. The suite flips `mode` to prove the patient layout (and
+ * with it the corner launcher) only renders for the patient persona.
  */
-let state: { mode: string; hydrated: boolean } = { mode: 'patient', hydrated: true };
+export type AppMode = 'patient' | 'staff' | null;
 
-export function setAppMode(next: Partial<typeof state>): void {
-  state = { ...state, ...next };
-}
+export const appModeState: { mode: AppMode; hydrated: boolean } = {
+  mode: 'patient',
+  hydrated: true,
+};
 
-export function useAppMode(): typeof state {
-  return state;
+export function useAppMode() {
+  return {
+    mode: appModeState.mode,
+    hydrated: appModeState.hydrated,
+    async setMode(_next: AppMode): Promise<void> {},
+    async clearMode(): Promise<void> {},
+  };
 }

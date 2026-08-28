@@ -2,9 +2,11 @@
  * "Take a photo of your meal" — the shared entry point for photo meal
  * logging, placed at the top of the patient Library screen (card variant),
  * on every diary meal section as a compact "Take a photo" chip (action
- * variant), and under a finished meal-photo reply in the coach chat as the
- * "Retake photo" chip (chip variant). All entry points run the exact same
- * flow:
+ * variant), under a finished meal-photo reply in the coach chat as the
+ * "Retake photo" chip (chip variant), and on the corner quick-actions
+ * menu's "Snap a meal photo" row (which is not a button here at all — it
+ * runs the flow through useMealPhotoFlow below). All entry points run the
+ * exact same flow:
  *
  *   tap → the app's own full-screen camera (app/food-camera: live preview,
  *   shutter, and a corner library shortcut for picking an existing shot;
@@ -30,6 +32,12 @@
  * log a meal. This button's own fallback sheet remains for library-pick
  * failures. While a coach reply is already streaming the button disables
  * rather than queueing a second turn.
+ *
+ * Structure: useMealPhotoFlow owns the whole capture flow (state, camera
+ * handoff, prep, the fallback + preview modals, the send). MealPhotoButton
+ * is that hook behind a pressable in three visual variants; other hosts
+ * (the patient corner menu) call the hook directly and render its `modals`
+ * wherever they stay mounted.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -57,24 +65,30 @@ import { preparePhotoForUpload, type PreparedPhoto } from '@/lib/photo-prep';
 const CHIP_SHADOW = '0 5px 12px rgba(35, 61, 95, 0.08)';
 const CARD_SHADOW = '0 8px 20px rgba(40, 55, 74, 0.07)';
 
-interface MealPhotoButtonProps {
-  /**
-   * "card": the prominent Library entry point.
-   * "action": a diary meal-section chip (pairs with that row's "Add food").
-   * "chip": the compact "Retake photo" chip under a coach reply.
-   */
-  variant: 'card' | 'chip' | 'action';
-  testID: string;
+export interface MealPhotoFlowOptions {
   /**
    * Diary slot this entry point captures for — sent with the photo turn as
-   * the explicit meal-slot pin (overrides the server's clock guess).
+   * the explicit meal-slot pin (overrides the server's clock guess). Omit
+   * where no slot is implied (Library card, corner menu row).
    */
   mealSlot?: MealSlot;
-  /** Extra outer styling (e.g. screen-specific margins). */
-  style?: object;
 }
 
-export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoButtonProps) {
+export interface MealPhotoFlow {
+  /** Launches capture: in-app camera on device, library picker on web.
+   *  No-op while the flow is busy. */
+  start: () => void;
+  /** True while a photo is being prepared or the coach is replying —
+   *  entry points disable rather than queue a second turn. */
+  busy: boolean;
+  preparing: boolean;
+  isStreaming: boolean;
+  /** The flow's modals (fallback sheet + use-photo preview). Render once,
+   *  somewhere that stays mounted for the whole flow. */
+  modals: React.ReactElement;
+}
+
+export function useMealPhotoFlow({ mealSlot }: MealPhotoFlowOptions = {}): MealPhotoFlow {
   const colors = useColors();
   const router = useRouter();
   const pathname = usePathname();
@@ -194,124 +208,8 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
   const photoAspect = (p: PreparedPhoto) =>
     Math.min(Math.max(p.width / Math.max(p.height, 1), 0.62), 1.7);
 
-  return (
+  const modals = (
     <>
-      {variant === 'card' ? (
-        <Pressable
-          testID={testID}
-          accessibilityRole="button"
-          accessibilityLabel="Take a photo of your meal"
-          accessibilityHint="Opens the camera. The AI coach identifies the foods so you can log the meal."
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
-          onPress={start}
-          style={({ pressed }) => [
-            styles.card,
-            {
-              backgroundColor: colors.cobalt,
-              borderRadius: colors.radius,
-              boxShadow: CARD_SHADOW,
-            },
-            pressed && !busy && { opacity: 0.9 },
-            busy && { opacity: 0.6 },
-            style,
-          ]}
-        >
-          <View
-            style={[
-              styles.cardIcon,
-              {
-                backgroundColor: 'rgba(255, 255, 255, 0.14)',
-                borderColor: 'rgba(255, 255, 255, 0.25)',
-                borderRadius: colors.radiusSm,
-              },
-            ]}
-          >
-            {preparing ? (
-              <ActivityIndicator size="small" color={colors.primaryForeground} />
-            ) : (
-              <Feather name="camera" size={17} color={colors.primaryForeground} />
-            )}
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.cardTitle, { color: colors.primaryForeground }]}>
-              Take a photo of your meal
-            </Text>
-            <Text style={[styles.cardSub, { color: 'rgba(255, 255, 255, 0.75)' }]}>
-              {isStreaming
-                ? 'The coach is replying, one moment'
-                : 'AI reads your plate so you can log it in a tap'}
-            </Text>
-          </View>
-          <Feather name="chevron-right" size={16} color="rgba(255, 255, 255, 0.75)" />
-        </Pressable>
-      ) : variant === 'action' ? (
-        <Pressable
-          testID={testID}
-          accessibilityRole="button"
-          accessibilityLabel={
-            mealSlot
-              ? `Take a photo of your ${MEAL_LABELS[mealSlot].toLowerCase()}`
-              : 'Take a photo of your meal'
-          }
-          accessibilityHint={
-            mealSlot
-              ? `Opens the camera. The AI coach identifies the foods so you can log them to ${MEAL_LABELS[mealSlot]}.`
-              : 'Opens the camera. The AI coach identifies the foods so you can log the meal.'
-          }
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
-          onPress={start}
-          style={({ pressed }) => [
-            styles.actionChip,
-            {
-              borderColor: colors.activeBorder,
-              backgroundColor: pressed && !busy ? colors.accent : colors.activeBg,
-              borderRadius: colors.radiusSm,
-            },
-            busy && { opacity: 0.5 },
-            style,
-          ]}
-        >
-          {preparing ? (
-            <ActivityIndicator size="small" color={colors.cobalt} />
-          ) : (
-            <Feather name="camera" size={13} color={colors.cobalt} />
-          )}
-          <Text style={[styles.actionChipText, { color: colors.cobalt }]} numberOfLines={1}>
-            Take a photo
-          </Text>
-        </Pressable>
-      ) : (
-        <Pressable
-          testID={testID}
-          accessibilityRole="button"
-          accessibilityLabel="Retake the meal photo"
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
-          onPress={start}
-          style={({ pressed }) => [
-            styles.chip,
-            {
-              borderColor: colors.activeBorder,
-              backgroundColor: colors.activeBg,
-              borderRadius: colors.radiusSm,
-              boxShadow: CHIP_SHADOW,
-            },
-            pressed && { backgroundColor: colors.accent },
-            busy && { opacity: 0.5 },
-            style,
-          ]}
-        >
-          {preparing ? (
-            <ActivityIndicator size="small" color={colors.cobalt} />
-          ) : (
-            <Feather name="camera" size={13} color={colors.cobalt} />
-          )}
-          <Text style={[styles.chipText, { color: colors.cobalt }]}>Retake photo</Text>
-        </Pressable>
-      )}
-
       {/* ── Fallback sheet: library pick declined/failed → try again ── */}
       <AppModal
         visible={fallbackOpen && photo === null}
@@ -473,6 +371,152 @@ export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoB
           </View>
         </View>
       </AppModal>
+    </>
+  );
+
+  return { start, busy, preparing, isStreaming, modals };
+}
+
+interface MealPhotoButtonProps {
+  /**
+   * "card": the prominent Library entry point.
+   * "action": a diary meal-section chip (pairs with that row's "Add food").
+   * "chip": the compact "Retake photo" chip under a coach reply.
+   */
+  variant: 'card' | 'chip' | 'action';
+  testID: string;
+  /**
+   * Diary slot this entry point captures for — sent with the photo turn as
+   * the explicit meal-slot pin (overrides the server's clock guess).
+   */
+  mealSlot?: MealSlot;
+  /** Extra outer styling (e.g. screen-specific margins). */
+  style?: object;
+}
+
+export function MealPhotoButton({ variant, mealSlot, testID, style }: MealPhotoButtonProps) {
+  const colors = useColors();
+  const { start, busy, preparing, isStreaming, modals } = useMealPhotoFlow({ mealSlot });
+
+  return (
+    <>
+      {variant === 'card' ? (
+        <Pressable
+          testID={testID}
+          accessibilityRole="button"
+          accessibilityLabel="Take a photo of your meal"
+          accessibilityHint="Opens the camera. The AI coach identifies the foods so you can log the meal."
+          accessibilityState={{ disabled: busy }}
+          disabled={busy}
+          onPress={start}
+          style={({ pressed }) => [
+            styles.card,
+            {
+              backgroundColor: colors.cobalt,
+              borderRadius: colors.radius,
+              boxShadow: CARD_SHADOW,
+            },
+            pressed && !busy && { opacity: 0.9 },
+            busy && { opacity: 0.6 },
+            style,
+          ]}
+        >
+          <View
+            style={[
+              styles.cardIcon,
+              {
+                backgroundColor: 'rgba(255, 255, 255, 0.14)',
+                borderColor: 'rgba(255, 255, 255, 0.25)',
+                borderRadius: colors.radiusSm,
+              },
+            ]}
+          >
+            {preparing ? (
+              <ActivityIndicator size="small" color={colors.primaryForeground} />
+            ) : (
+              <Feather name="camera" size={17} color={colors.primaryForeground} />
+            )}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cardTitle, { color: colors.primaryForeground }]}>
+              Take a photo of your meal
+            </Text>
+            <Text style={[styles.cardSub, { color: 'rgba(255, 255, 255, 0.75)' }]}>
+              {isStreaming
+                ? 'The coach is replying, one moment'
+                : 'AI reads your plate so you can log it in a tap'}
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={16} color="rgba(255, 255, 255, 0.75)" />
+        </Pressable>
+      ) : variant === 'action' ? (
+        <Pressable
+          testID={testID}
+          accessibilityRole="button"
+          accessibilityLabel={
+            mealSlot
+              ? `Take a photo of your ${MEAL_LABELS[mealSlot].toLowerCase()}`
+              : 'Take a photo of your meal'
+          }
+          accessibilityHint={
+            mealSlot
+              ? `Opens the camera. The AI coach identifies the foods so you can log them to ${MEAL_LABELS[mealSlot]}.`
+              : 'Opens the camera. The AI coach identifies the foods so you can log the meal.'
+          }
+          accessibilityState={{ disabled: busy }}
+          disabled={busy}
+          onPress={start}
+          style={({ pressed }) => [
+            styles.actionChip,
+            {
+              borderColor: colors.activeBorder,
+              backgroundColor: pressed && !busy ? colors.accent : colors.activeBg,
+              borderRadius: colors.radiusSm,
+            },
+            busy && { opacity: 0.5 },
+            style,
+          ]}
+        >
+          {preparing ? (
+            <ActivityIndicator size="small" color={colors.cobalt} />
+          ) : (
+            <Feather name="camera" size={13} color={colors.cobalt} />
+          )}
+          <Text style={[styles.actionChipText, { color: colors.cobalt }]} numberOfLines={1}>
+            Take a photo
+          </Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          testID={testID}
+          accessibilityRole="button"
+          accessibilityLabel="Retake the meal photo"
+          accessibilityState={{ disabled: busy }}
+          disabled={busy}
+          onPress={start}
+          style={({ pressed }) => [
+            styles.chip,
+            {
+              borderColor: colors.activeBorder,
+              backgroundColor: colors.activeBg,
+              borderRadius: colors.radiusSm,
+              boxShadow: CHIP_SHADOW,
+            },
+            pressed && { backgroundColor: colors.accent },
+            busy && { opacity: 0.5 },
+            style,
+          ]}
+        >
+          {preparing ? (
+            <ActivityIndicator size="small" color={colors.cobalt} />
+          ) : (
+            <Feather name="camera" size={13} color={colors.cobalt} />
+          )}
+          <Text style={[styles.chipText, { color: colors.cobalt }]}>Retake photo</Text>
+        </Pressable>
+      )}
+
+      {modals}
     </>
   );
 }

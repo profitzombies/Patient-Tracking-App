@@ -50,3 +50,5 @@ bundle; spot-check asset delivery with
 `/assets/?unstable_path=...` + sha256 against the node_modules source.
 Remind testers to reload (Expo Go: rescan QR / shake → Reload) — their open
 session keeps the old bundle.
+
+**Bundle-marker gotcha:** pick grep markers that exist as LITERAL strings in source (a11y labels, copy). Computed values — e.g. testIDs built via template strings — never appear in the served bundle, so grepping for them false-negatives a perfectly fresh server.

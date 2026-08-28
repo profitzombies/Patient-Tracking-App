@@ -1,19 +1,19 @@
 /**
- * Node stand-in for expo-router (see tsconfig.patient-fab.json `paths`).
- *
- * Unlike the older suites' stubs, `target` keeps the RAW href — the FAB's
- * meal-photo row pushes an OBJECT ({ pathname, params }) and the suite
- * asserts the params ride along. Both the components (importing
- * 'expo-router') and the suite (importing this file relatively) resolve to
- * this same module instance.
+ * Node stand-in for expo-router for the patient-fab suite: records
+ * navigation calls (rows push /log-food, /barcode-scan, /check-in,
+ * /coach-chat, /food-camera; "Progress photos" navigates to the /progress
+ * tab), lets scenarios pick the active pathname (active-tick + skip-when-
+ * already-there semantics), and renders Tabs / Tabs.Screen as bare host
+ * elements so the REAL patient tab layout can mount under Node with its
+ * screen registrations visible to the tree.
  */
 import React from 'react';
 
-export type Href = unknown;
+export type Href = string;
 
 export interface RouterCall {
-  method: 'push' | 'replace' | 'navigate' | 'back';
-  target: unknown;
+  method: 'push' | 'replace' | 'back' | 'navigate';
+  target: string;
 }
 
 export const routerCalls: RouterCall[] = [];
@@ -22,62 +22,52 @@ export function clearRouterCalls(): void {
   routerCalls.length = 0;
 }
 
-export const router = {
+/** Active pathname reported by usePathname; set per scenario. */
+export const routerState = { pathname: '/today' };
+
+const routerApi = {
   push(href: unknown): void {
-    routerCalls.push({ method: 'push', target: href });
-  },
-  navigate(href: unknown): void {
-    routerCalls.push({ method: 'navigate', target: href });
+    routerCalls.push({ method: 'push', target: String(href) });
   },
   replace(href: unknown): void {
-    routerCalls.push({ method: 'replace', target: href });
+    routerCalls.push({ method: 'replace', target: String(href) });
+  },
+  navigate(href: unknown): void {
+    routerCalls.push({ method: 'navigate', target: String(href) });
   },
   back(): void {
     routerCalls.push({ method: 'back', target: '' });
   },
   canGoBack(): boolean {
-    return false;
+    return true;
   },
 };
 
-export function useRouter(): typeof router {
-  return router;
-}
+export const router = routerApi;
 
-let currentPathname = '/today';
-
-export function setPathname(pathname: string): void {
-  currentPathname = pathname;
+export function useRouter(): typeof routerApi {
+  return routerApi;
 }
 
 export function usePathname(): string {
-  return currentPathname;
+  return routerState.pathname;
 }
 
-/** Redirects render nothing and are recorded for guard assertions. */
-export const redirects: unknown[] = [];
-
-export function clearRedirects(): void {
-  redirects.length = 0;
+/** Redirects render as a queryable host node instead of navigating. */
+export function Redirect(props: { href: unknown }): React.ReactElement {
+  return React.createElement('Redirect', { href: String(props.href) });
 }
 
-export function Redirect({ href }: { href: unknown }): null {
-  redirects.push(href);
-  return null;
-}
-
-/** Tabs render as host elements so the layout suite can count screens. */
 type AnyProps = Record<string, unknown> & { children?: React.ReactNode };
 
-function TabsComponent(props: AnyProps): React.ReactElement {
+function TabsImpl(props: AnyProps): React.ReactElement {
   const { children, ...rest } = props;
   return React.createElement('Tabs', rest, children);
 }
 
+/** Screen registrations stay visible (name + options) but render nothing. */
 function TabsScreen(props: AnyProps): React.ReactElement {
   return React.createElement('TabsScreen', props);
 }
 
-TabsComponent.Screen = TabsScreen;
-
-export const Tabs = TabsComponent;
+export const Tabs = Object.assign(TabsImpl, { Screen: TabsScreen });

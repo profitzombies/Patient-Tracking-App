@@ -140,6 +140,10 @@ router.post(STAFF_LOGINS_PATH, requireStaff(["hq_admin"]), async (req, res) => {
       email,
       password,
       email_confirm: true,
+      // Marks the account as server-provisioned. With email autoconfirm on,
+      // role elevation requires this marker — a bare public signup with a
+      // pre-approved email can never become staff.
+      app_metadata: { thinnr_provisioned: true },
       user_metadata: { display_name: name },
     });
     if (created.status === 400 || created.status === 422) {

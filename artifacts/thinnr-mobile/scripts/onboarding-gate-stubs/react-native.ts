@@ -51,6 +51,14 @@ export const Platform = {
 };
 
 /** Captured iOS-style announcements (unused on the 'web' platform path). */
+/** No-op app-state handle — lib/supabase.ts wires token auto-refresh to it. */
+export const AppState = {
+  currentState: 'active' as const,
+  addEventListener(_type: string, _handler: (state: string) => void) {
+    return { remove() {} };
+  },
+};
+
 export const announcements: string[] = [];
 export const AccessibilityInfo = {
   announceForAccessibility(message: string): void {

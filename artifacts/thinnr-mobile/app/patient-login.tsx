@@ -107,8 +107,8 @@ export default function PatientLoginScreen() {
       setError('Enter your password.');
       return;
     }
-    if (mode === 'sign-up' && password.length < 6) {
-      setError('Passwords need at least 6 characters.');
+    if (mode === 'sign-up' && password.length < 8) {
+      setError('Passwords need at least 8 characters.');
       return;
     }
 
@@ -395,7 +395,7 @@ export default function PatientLoginScreen() {
                   textContentType={mode === 'sign-in' ? 'password' : 'newPassword'}
                   editable={!busy && supabaseConfigured}
                 />
-                {mode === 'sign-up' && <NoteText text="At least 6 characters." />}
+                {mode === 'sign-up' && <NoteText text="At least 8 characters." />}
               </View>
 
               {error && (
@@ -438,6 +438,34 @@ export default function PatientLoginScreen() {
               >
                 <Text style={[styles.toggleModeText, { color: colors.cobalt }]}>
                   {mode === 'sign-in' ? 'New here? Create an account' : 'Already have an account? Sign in'}
+                </Text>
+              </Pressable>
+
+              <View style={[styles.claimDivider, { backgroundColor: colors.divider }]} />
+              <Pressable
+                testID="login-claim"
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.push('/claim-account');
+                }}
+                style={styles.claimLinkBtn}
+              >
+                <Text style={[styles.toggleModeText, { color: colors.cobalt }]}>
+                  Already a THINNR member? Claim your account
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="login-forgot"
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.push('/claim-account');
+                }}
+                style={styles.claimLinkBtn}
+              >
+                <Text style={[styles.toggleModeText, { color: colors.subtleText }]}>
+                  Forgot your password?
                 </Text>
               </Pressable>
             </FormWrap>
@@ -661,6 +689,16 @@ const styles = StyleSheet.create({
   },
   toggleModeBtn: {
     marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  claimDivider: {
+    height: 1,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  claimLinkBtn: {
+    marginTop: 8,
     alignItems: 'center',
     paddingVertical: 4,
   },

@@ -70,7 +70,10 @@ export function describeAuthError(error: { message?: string; status?: number } |
     return 'An account already exists with those details. Sign in instead.';
   }
   if (raw.includes('password should be')) {
-    return 'Passwords need at least 6 characters.';
+    return 'Passwords need at least 8 characters.';
+  }
+  if (raw.includes('known to be weak') || raw.includes('easy to guess') || raw.includes('pwned')) {
+    return 'That password shows up in lists of leaked passwords — pick something more unique.';
   }
   if (
     raw.includes('phone_provider_disabled') ||

@@ -64,6 +64,17 @@ export interface AuthUser {
   displayName: string | null;
 }
 
+/**
+ * A claimed real-world account (from the migrated THINNR rolls) deliberately
+ * has no demo profile row — the API's whoami endpoint tells us who they are.
+ */
+export interface ClaimedWorkspaceInfo {
+  kind: 'provider' | 'team_member';
+  name: string | null;
+  officeName: string | null;
+  providerId: string | null;
+}
+
 interface SessionValue {
   /** Resolved area: the real role first; demo persona only while signed out. */
   persona: Persona | null;
@@ -72,6 +83,8 @@ interface SessionValue {
   authRole: AuthRole | null;
   /** Provider office (seeded account id) for signed-in provider staff; null otherwise. */
   providerAccountCode: string | null;
+  /** Set when the signed-in user is a claimed provider/office staffer with no demo profile. */
+  claimedWorkspace: ClaimedWorkspaceInfo | null;
   roleStatus: RoleStatus;
   /** False when the Supabase env vars are missing (demo-only mode). */
   supabaseEnabled: boolean;
@@ -106,6 +119,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [authRole, setAuthRole] = useState<AuthRole | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
   const [providerAccountCode, setProviderAccountCode] = useState<string | null>(null);
+  const [claimedWorkspace, setClaimedWorkspace] = useState<ClaimedWorkspaceInfo | null>(null);
   const [roleStatus, setRoleStatus] = useState<RoleStatus>('idle');
   const [roleNonce, setRoleNonce] = useState(0);
 
@@ -131,27 +145,75 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const userId = session?.user?.id ?? null;
 
   useEffect(() => {
-    if (!supabase || !userId) {
+    const client = supabase;
+    if (!client || !userId) {
       setAuthRole(null);
       setProfileName(null);
       setProviderAccountCode(null);
+      setClaimedWorkspace(null);
       setRoleStatus('idle');
       return;
     }
     let cancelled = false;
     setRoleStatus('loading');
-    void supabase
+
+    // Claimed real-world accounts (patients, providers, office staff from the
+    // migrated rolls) deliberately have no demo profile row. When the profile
+    // lookup comes back empty, ask the API who this login belongs to.
+    const resolveClaimedAccount = async () => {
+      try {
+        const { data: sessionData } = await client.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) throw new Error('no session token');
+        const response = await fetch('/api/claim/whoami', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+        if (cancelled) return;
+        if (response.ok && body) {
+          if (body.kind === 'patient') {
+            setAuthRole('patient');
+            setProfileName(typeof body.name === 'string' ? body.name : null);
+            setClaimedWorkspace(null);
+            setRoleStatus('ready');
+            return;
+          }
+          if (body.kind === 'provider' || body.kind === 'team_member') {
+            setAuthRole(null);
+            setProfileName(typeof body.name === 'string' ? body.name : null);
+            setClaimedWorkspace({
+              kind: body.kind,
+              name: typeof body.name === 'string' ? body.name : null,
+              officeName: typeof body.officeName === 'string' ? body.officeName : null,
+              providerId: typeof body.providerId === 'string' ? body.providerId : null,
+            });
+            setRoleStatus('ready');
+            return;
+          }
+        }
+        setRoleStatus('error');
+      } catch {
+        if (!cancelled) setRoleStatus('error');
+      }
+    };
+
+    void client
       .from('profiles')
       .select('role, display_name, provider_account_code')
       .eq('id', userId)
       .maybeSingle()
       .then(({ data, error }) => {
         if (cancelled) return;
+        if (!error && !data) {
+          void resolveClaimedAccount();
+          return;
+        }
         const role = data?.role as string | undefined;
         if (error || !data || (role !== 'hq_admin' && role !== 'provider_staff' && role !== 'patient')) {
           setAuthRole(null);
           setProfileName(null);
           setProviderAccountCode(null);
+          setClaimedWorkspace(null);
           setRoleStatus('error');
           return;
         }
@@ -160,6 +222,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setProviderAccountCode(
           role === 'provider_staff' ? ((data.provider_account_code as string | null) ?? null) : null,
         );
+        setClaimedWorkspace(null);
         setRoleStatus('ready');
       });
     return () => {
@@ -333,6 +396,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       authUser,
       authRole,
       providerAccountCode,
+      claimedWorkspace,
       roleStatus,
       supabaseEnabled: supabaseConfigured,
       signIn,
@@ -349,6 +413,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       authUser,
       authRole,
       providerAccountCode,
+      claimedWorkspace,
       roleStatus,
       signIn,
       signOut,

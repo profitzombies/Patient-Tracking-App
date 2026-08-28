@@ -25,7 +25,14 @@ import {
 
 import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 import SignIn from '@/pages/SignIn';
-import { AccountLockedScreen, BootScreen, PatientOnWebNotice, ProfileErrorScreen } from '@/pages/AuthScreens';
+import ClaimAccount from '@/pages/ClaimAccount';
+import {
+  AccountLockedScreen,
+  BootScreen,
+  ClaimedWorkspaceScreen,
+  PatientOnWebNotice,
+  ProfileErrorScreen,
+} from '@/pages/AuthScreens';
 import { AdminShell } from '@/components/admin/AdminShell';
 import HqOverview from '@/pages/admin/HqOverview';
 import Accounts from '@/pages/admin/Accounts';
@@ -145,16 +152,24 @@ function ScopedOfficeApp() {
 }
 
 function PersonaRouter() {
-  const { persona, authStatus, authRole, roleStatus } = useSession();
+  const { persona, authStatus, authRole, roleStatus, claimedWorkspace } = useSession();
 
   if (authStatus === 'loading') return <BootScreen />;
   if (authStatus === 'signed-in') {
     if (roleStatus === 'idle' || roleStatus === 'loading') return <BootScreen />;
     if (roleStatus === 'error') return <ProfileErrorScreen />;
     if (authRole === 'patient') return <PatientOnWebNotice />;
+    if (claimedWorkspace) return <ClaimedWorkspaceScreen />;
   }
 
-  if (persona === null) return <SignIn />;
+  if (persona === null) {
+    return (
+      <Switch>
+        <Route path="/claim" component={ClaimAccount} />
+        <Route component={SignIn} />
+      </Switch>
+    );
+  }
 
   if (persona === 'office') {
     return (

@@ -71,3 +71,4 @@
 - [Parallel duplicate-feature merge](parallel-duplicate-feature-merge.md) — main can receive a rival build of the task's own feature; keep one stack, grep automerged spec/screens for dup keys and spliced buttons, prove the tree via diff against the verified commit.
 - [Recorded voice lines](recorded-voice-lines.md) — pre-recorded clips replace platform TTS: transcript/builder lockstep, guards sized to clip length, camera teardown steals the audio session.
 - [Patient floating bottom row](corner-launcher-shelf.md) — shared ui/FabMenu + a hand-rolled pill bar (owes its own tablist/tab a11y); all bottom stacking lives in constants/layout — new floating UI must join that shelf math.
+- [Account claiming](account-claiming.md) — neutral identify, one-shot DOB, two-column link writes; GoTrue merges app_metadata AFTER insert → deferred constraint triggers; claimed logins have NO profile row (whoami fallback).

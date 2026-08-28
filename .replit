@@ -132,6 +132,10 @@ args = "guided-photos"
 task = "workflow.run"
 args = "patient-fab"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "claim-flow"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -447,6 +451,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:patient-fab"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "claim-flow"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:claim-flow"
 
 [workflows.workflow.metadata]
 isValidation = true

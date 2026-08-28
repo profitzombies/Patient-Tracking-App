@@ -3,7 +3,7 @@
  * profile lookup, and the "patients live in the mobile app" notice. All
  * keep the Heritage look of the sign-in screen.
  */
-import { AlertTriangle, Lock, LogOut, RefreshCw, Smartphone } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, Lock, LogOut, RefreshCw, Smartphone } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { findSeededAccount } from '@/data/hq/accounts';
 
@@ -109,6 +109,52 @@ export function AccountLockedScreen() {
           type="button"
           onClick={signOut}
           data-testid="button-signout-locked"
+          className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <LogOut size={15} aria-hidden="true" />
+          Sign out
+        </button>
+      </section>
+    </Frame>
+  );
+}
+
+/**
+ * Landing for a claimed provider or office staffer. Their login is real and
+ * verified against the migrated THINNR rolls, but claimed accounts see live
+ * program data through their own scoped views as those tools roll out — the
+ * demo workspaces stay reserved for the guided walkthrough personas.
+ */
+export function ClaimedWorkspaceScreen() {
+  const { signOut, claimedWorkspace, authUser } = useSession();
+  const firstName = (claimedWorkspace?.name ?? '').trim().split(/\s+/)[0] || null;
+  return (
+    <Frame>
+      <section
+        className="rounded-lg border border-card-border bg-card p-6 text-center shadow-soft"
+        data-testid="screen-claimed-workspace"
+      >
+        <span className="mx-auto grid h-10 w-10 place-items-center rounded-md bg-accent text-primary" aria-hidden="true">
+          <BadgeCheck size={20} />
+        </span>
+        <h1 className="mt-4 font-serif text-xl font-bold tracking-[-.01em] text-navy">
+          {firstName ? `Welcome back, ${firstName}` : 'Your account is claimed'}
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground" data-testid="text-claimed-detail">
+          {claimedWorkspace?.name ?? authUser?.email ?? 'Your account'} is verified
+          {claimedWorkspace?.officeName ? (
+            <>
+              {' '}with <span className="font-semibold text-foreground">{claimedWorkspace.officeName}</span>
+            </>
+          ) : null}
+          {claimedWorkspace?.kind === 'provider' ? ' as the provider on file' : ''}. Your login and
+          password are set — the office workspace for claimed accounts opens here as THINNR rolls
+          it out, and this same sign-in will take you straight in.
+        </p>
+        <button
+          type="button"
+          onClick={signOut}
+          data-testid="button-signout-claimed"
           className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <LogOut size={15} aria-hidden="true" />

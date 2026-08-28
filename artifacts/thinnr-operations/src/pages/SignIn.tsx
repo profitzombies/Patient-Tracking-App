@@ -109,8 +109,8 @@ export default function SignIn() {
       setError('Enter your password.');
       return;
     }
-    if (mode === 'sign-up' && password.length < 6) {
-      setError('Passwords need at least 6 characters.');
+    if (mode === 'sign-up' && password.length < 8) {
+      setError('Passwords need at least 8 characters.');
       return;
     }
 
@@ -315,7 +315,7 @@ export default function SignIn() {
                     disabled={busy || !supabaseEnabled}
                   />
                   {mode === 'sign-up' && (
-                    <p className="mt-1.5 text-[11px] text-muted-foreground">At least 6 characters.</p>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">At least 8 characters.</p>
                   )}
                 </div>
 
@@ -360,6 +360,29 @@ export default function SignIn() {
                       : 'Already have an account? Sign in'}
                   </button>
                 </p>
+
+                <div className="space-y-2 border-t border-border pt-3 text-center">
+                  <p>
+                    <button
+                      type="button"
+                      data-testid="button-claim-account"
+                      onClick={() => navigate('/claim')}
+                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                    >
+                      Already a THINNR member? Claim your account
+                    </button>
+                  </p>
+                  <p>
+                    <button
+                      type="button"
+                      data-testid="button-forgot-password"
+                      onClick={() => navigate('/claim')}
+                      className="text-xs font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      Forgot your password?
+                    </button>
+                  </p>
+                </div>
               </div>
             </form>
           )}

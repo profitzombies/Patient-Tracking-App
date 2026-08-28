@@ -31,7 +31,10 @@ export function describeAuthError(raw: string): string {
     return 'That account already exists \u2014 sign in instead.';
   }
   if (message.includes('password should be at least')) {
-    return 'Passwords need at least 6 characters.';
+    return 'Passwords need at least 8 characters.';
+  }
+  if (message.includes('known to be weak') || message.includes('easy to guess') || message.includes('pwned')) {
+    return 'That password shows up in lists of leaked passwords \u2014 pick something more unique.';
   }
   if (
     message.includes('sms') ||

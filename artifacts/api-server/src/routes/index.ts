@@ -10,6 +10,7 @@ import staffLoginsRouter from "./staff-logins";
 import labelScanRouter from "./label-scan";
 import barcodeRouter from "./barcode";
 import supportRouter from "./support";
+import claimRouter from "./claim";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(trainingMediaRouter);
 router.use(progressPhotosRouter);
 router.use(knowledgeDocsRouter);
 router.use(staffLoginsRouter);
+router.use(claimRouter);
 
 export default router;

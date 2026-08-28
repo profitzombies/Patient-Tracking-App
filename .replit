@@ -459,3 +459,19 @@ packages = ["ffmpeg"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea"
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 19713
+externalPort = 80
+
+[[ports]]
+localPort = 21456
+externalPort = 3000

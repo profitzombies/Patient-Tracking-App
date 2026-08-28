@@ -1,0 +1,89 @@
+# THINNR Login and Account Claiming: Build Specification
+
+Paste-ready brief for the Replit build. The production data migration is COMPLETE: 26 tables, 3.07 million rows, sitting in this project's Supabase, locked with row level security and no policies. This spec covers how people get into that data. Do not re-run any migration, do not modify migrated rows except where this spec says to, and do not touch the 18 demo tables or their policies.
+
+## The concept in one paragraph
+
+Every returning user already exists in the database; what nobody has is a login, because the old logins lived in AWS Cognito and are gone. So the app runs a claim flow: recognize the person by something we have on file (phone or email), make them prove they own it (a code they request), let them set a password, then permanently link the new login to their existing record. From that moment their entire history (provider, logs, messages, subscriptions) lights up, because every row already carries their patient or provider ID. Data was loaded silently; accounts come into existence one at a time, only when a person shows up.
+
+## Hard rules (non-negotiable)
+
+1. NO UNPROMPTED MESSAGES, EVER. The system must never send an email or text on account creation, provider setup, or any other event. The only messages allowed are verification codes the user personally triggers by tapping "continue" on the login screen.
+2. All auth users are created server-side through the Supabase admin API, pre-confirmed (email_confirm / phone_confirm set), so Supabase has nothing to send. Email confirmations OFF in Auth settings. No invite emails, no magic links, no recovery emails anywhere in the product; the claim flow doubles as password reset.
+3. The service role key lives only on the API server. Never in web or mobile bundles.
+4. Never reveal whether a phone/email is in the system. Every lookup responds identically: "If we have an account matching, a code is on its way."
+5. Never display account names or counts during disambiguation.
+
+## Account types and data model
+
+Four roles: admin (HQ), provider (clinic owner), staff (team members under a provider), patient. The migrated tables: `providers` (589, key `provider_id`, 5-digit text), `team_members` (726, uuid `id`, has `provider_id` and `email`), `patients` (14,660, uuid `id`, has `provider_id`, `phone`, `email`, `date_of_birth`, `activation_status`). All patient data tables carry `patient_id`.
+
+Schema additions to make (the only allowed writes to migrated tables):
+
+```sql
+alter table patients     add column auth_user_id uuid unique references auth.users(id),
+                         add column claimed_at timestamptz;
+alter table providers    add column auth_user_id uuid unique references auth.users(id),
+                         add column claimed_at timestamptz;
+alter table team_members add column auth_user_id uuid unique references auth.users(id),
+                         add column claimed_at timestamptz;
+```
+
+Existing HQ admin: Andrew@ThinnrWeightLoss.com (created manually in the dashboard; wire it to the HQ admin role).
+
+## Patient claim flow (the core build)
+
+Step 1, identify. One field: "Phone number or email." Normalize phone to E.164 (data holds 10-digit US numbers, a few with a leading 1; strip non-digits, take last 10, prefix +1). Lowercase emails. Look up in `patients` server-side via the API server (service role).
+
+Step 2, prove ownership. If they entered a phone with a match: send a Twilio Verify SMS code. If they entered an email with a match: send a verification code email (this is the single permitted email type, and only because the user just asked for it). If no match: respond with the same neutral message and send nothing. `activation_status = 'disabled'` records are treated as no-match.
+
+Step 3, disambiguate if needed. About 96% of patients match exactly one record; proceed. If the verified contact matches MULTIPLE patient records (family members sharing a phone, etc.): show one input, "Enter your date of birth." Compare against the candidates' `date_of_birth`. Exactly one match: proceed with that record. No match, candidate has no birthday on file, or two candidates share the birthday: stop with "We couldn't verify your account automatically. Please contact your clinic." No names, no hints, no retry hammering (rate limit). Data note: every actively-used account in a shared group has a birthday on file, so real users pass; never-activated edge cases fall to the clinic, which is intended.
+
+Step 4, set password. Rules for every account type: minimum 8 characters, at least one uppercase, one lowercase, one symbol, with a confirm field, enforced in the app. Supabase leaked password protection must be ON so breached passwords are rejected server-side. No expiration, no forced rotation.
+
+Step 5, create and link. Server-side admin API: create the auth user with the verified phone and/or email plus the password, pre-confirmed. Then set `patients.auth_user_id` and `claimed_at`. If the patient record is already claimed (auth_user_id not null), do NOT create another user; route to normal login / forgot password.
+
+Step 6, session. Log them in. The app reads everything through their `patient_id`.
+
+Returning logins: standard Supabase password sign-in. Forgot password: rerun the exact same claim verification (code to the contact on file, then set a new password). One flow, built once.
+
+Email-only patients (~7%, no phone on file): the email-code path above covers them. After first login, prompt once to add and verify a phone number.
+
+## Staff and provider claim flow
+
+Providers and team members all have emails on file (100% coverage). Same mechanics: enter work email, receive user-initiated code, set password (same rules), link `auth_user_id` on their row. Their role comes from which table matched: provider owner from `providers`, staff from `team_members` (scoped to their `provider_id`). HQ admins are created manually by Andrew in the dashboard, never self-serve. Admin-typed shared passwords (the old demo pattern) are retired; staff set their own through this flow.
+
+## Fix the auth triggers BEFORE launch (critical)
+
+This project has triggers on `auth.users` (`on_auth_user_created`, `on_auth_user_created_thinnr`) that auto-create demo profile/role rows for every new auth user. Sixteen thousand patients claiming accounts would fire them sixteen thousand times and pollute the demo role tables. Before the claim flow ships, update these triggers to recognize the account's type (patient vs staff vs provider vs demo) and only create what's appropriate, or replace them with explicit provisioning inside the claim endpoint.
+
+## Row level security policies (the data is locked; open it correctly)
+
+Write policies on the 26 migrated tables, keyed off the new `auth_user_id` links. Baseline:
+
+Patients: read and update their own `patients` row; read their own rows in `patient_logs`, `patient_messages`, `chatbot_messages`, `custom_foods`, `custom_recipes`, `patient_measurements`, `patient_feedback`, `transactions`, `app_subscriptions`, `product_subscriptions` (matching `patient_id` through their claimed link). Writes go through the API server initially; add direct-write policies only where the app truly needs them.
+
+Provider owners and staff: read patients and patient data where the row's `provider_id` equals their own provider; providers see their own `providers` row; staff scoping per existing role patterns.
+
+Admin: everything.
+
+Reference tables (`approved_foods`, `craving_foods`, `ingredient_macros`, `possible_free_foods`, `craving_foods_flagged`): readable by any authenticated user; no anon access.
+
+Financial and aggregate tables (`transactions`, `app_subscriptions`, `product_subscriptions`, `customers`, `users_onboarded_daily`, `global_onboard_daily`, `provider_referrals`): staff/provider/admin scope; patient sees only their own where noted above. Note: some financial rows reference deleted patients (kept as business records); they belong to no claimable user and only admin/staff scopes should surface them.
+
+Leave every demo table's policies exactly as they are.
+
+## Supabase settings checklist
+
+Auth: email confirmations OFF; leaked password protection ON; Twilio Verify configured for SMS codes (or codes issued by the API server); minimum password length 8 (the app enforces the full complexity rule). Verify by creating one dummy user through the claim endpoint and confirming zero emails fire before any real user touches it.
+
+## Acceptance tests
+
+1. Claim with a phone that matches one patient: code arrives only after tapping continue, password rules enforced, account created with no email sent, history visible after login, `auth_user_id` set.
+2. Claim with a phone matching two patients: birthday asked, correct birthday resolves to the right record, wrong birthday blocks with the neutral clinic message, no names shown either way.
+3. Claim with an unknown phone: identical neutral response, nothing sent, nothing created.
+4. Email-only patient claims via email code, then is prompted to add a phone.
+5. Disabled patient cannot claim. Already-claimed patient is routed to login instead of a duplicate account.
+6. Staff claim via email lands with correct provider scoping; one provider's staff cannot read another provider's patients (RLS test).
+7. Password reset reruns verification and never sends anything unprompted.
+8. Trigger check: a claimed patient creates no demo profile/role rows.

@@ -72,5 +72,12 @@ writeFileSync(join(outDir, 'countdown-tick.wav'), wavFile(tick));
 const capture = concat(tone(880, 130, { gain: 0.5, decayPow: 2 }), tone(1318.5, 290, { gain: 0.55, decayPow: 2.5 }));
 writeFileSync(join(outDir, 'capture-tone.wav'), wavFile(capture));
 
+// Hold lost: two soft FALLING notes (E5 → A4) — the inverse contour of the
+// capture tone, so "the steady hold reset" is audible from six feet away
+// without reading anything.
+const holdLost = concat(tone(659.3, 110, { gain: 0.4, decayPow: 2 }), tone(440, 240, { gain: 0.42, decayPow: 2.5 }));
+writeFileSync(join(outDir, 'hold-lost.wav'), wavFile(holdLost));
+
 console.log('wrote', join(outDir, 'countdown-tick.wav'), tick.length * 2 + 44, 'bytes');
 console.log('wrote', join(outDir, 'capture-tone.wav'), capture.length * 2 + 44, 'bytes');
+console.log('wrote', join(outDir, 'hold-lost.wav'), holdLost.length * 2 + 44, 'bytes');

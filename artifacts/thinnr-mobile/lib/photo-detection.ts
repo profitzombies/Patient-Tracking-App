@@ -13,12 +13,10 @@
  * unchanged pixels into the background (lighting drift), and force-adopts
  * pixels that stay changed for many consecutive probes (the scene itself
  * changed — e.g. the patient's close-up body at the phone vacated once they
- * stepped back). The subject's bounding box gives distance and centering;
- * mean luma gives the light checks. `readyStreak` counts consecutive ready
- * probes so the countdown only auto-starts once the patient has held
- * position — a person standing still IS absorbed into the background
- * eventually, but the ready hold (3 probes) fires long before absorption
- * (10 probes) can dissolve them.
+ * stepped back). Absorption is frozen while the reading is 'ready': a
+ * patient holding still through the steady gate must never dissolve into
+ * the background, however long the hold takes. The subject's bounding box
+ * gives distance and centering; mean luma gives the light checks.
  */
 
 /** Grayscale probe frame, row-major, 0–255. */
@@ -47,8 +45,6 @@ export interface PositioningReading {
   centerOffsetFraction: number | null;
   /** Consecutive ready probes, including this one. */
   readyStreak: number;
-  /** True once the ready hold is satisfied — the caller starts the countdown. */
-  shouldStartCountdown: boolean;
 }
 
 // Light thresholds: mean luma outside this band means the shot would be
@@ -68,9 +64,6 @@ export const BODY_HEIGHT_READY_MAX = 0.93;
 
 /** Center offset beyond this asks the patient to re-center. */
 export const CENTER_OFFSET_MAX = 0.22;
-
-/** Consecutive ready probes before the countdown auto-starts. */
-export const READY_HOLD_PROBES = 3;
 
 /** Probes a pixel may stay "changed" before the background adopts it. */
 export const ABSORB_PROBES = 10;
@@ -120,7 +113,6 @@ export function createSubjectDetector(): SubjectDetector {
       bodyHeightFraction,
       centerOffsetFraction,
       readyStreak,
-      shouldStartCountdown: readyStreak >= READY_HOLD_PROBES,
     };
   }
 
@@ -142,18 +134,82 @@ export function createSubjectDetector(): SubjectDetector {
       if (meanLuma >= BRIGHT_LUMA_MIN) return reading('too-bright', meanLuma, null, null);
       if (seeded) return reading('not-detected', meanLuma, null, null);
 
-      // Classify against the background, then update the model.
+      // Pass 1 — classify against the background without touching the model.
       const changed = new Uint8Array(n);
       let changedCount = 0;
       for (let i = 0; i < n; i++) {
-        const diff = Math.abs(luma[i] - bg[i]);
-        if (diff > DIFF_THRESHOLD) {
+        if (Math.abs(luma[i] - bg[i]) > DIFF_THRESHOLD) {
           changed[i] = 1;
           changedCount += 1;
-          stuckCounts[i] += 1;
-          if (stuckCounts[i] >= ABSORB_PROBES) {
-            bg[i] = luma[i];
-            stuckCounts[i] = 0;
+        }
+      }
+
+      let status: PositioningStatus = 'not-detected';
+      let bodyHeightFraction: number | null = null;
+      let centerOffsetFraction: number | null = null;
+
+      if (changedCount / n >= MIN_PRESENCE_FRACTION) {
+        // Bounding box over rows/columns with enough subject pixels to kill
+        // single-cell speckle (sensor noise, a fluttering curtain edge).
+        const minRowCells = Math.max(1, Math.round(width * 0.12));
+        const minColCells = Math.max(1, Math.round(height * 0.08));
+        let top = -1;
+        let bottom = -1;
+        for (let y = 0; y < height; y++) {
+          let cells = 0;
+          for (let x = 0; x < width; x++) cells += changed[y * width + x];
+          if (cells >= minRowCells) {
+            if (top === -1) top = y;
+            bottom = y;
+          }
+        }
+        let left = -1;
+        let right = -1;
+        for (let x = 0; x < width; x++) {
+          let cells = 0;
+          for (let y = 0; y < height; y++) cells += changed[y * width + x];
+          if (cells >= minColCells) {
+            if (left === -1) left = x;
+            right = x;
+          }
+        }
+        if (top !== -1 && left !== -1) {
+          bodyHeightFraction = (bottom - top + 1) / height;
+          centerOffsetFraction = ((left + right + 1) / 2 - width / 2) / width;
+          if (
+            bodyHeightFraction > BODY_HEIGHT_READY_MAX &&
+            top === 0 &&
+            bottom === height - 1
+          ) {
+            status = 'too-close';
+          } else if (bodyHeightFraction < BODY_HEIGHT_READY_MIN) {
+            status = 'too-far';
+          } else if (Math.abs(centerOffsetFraction) > CENTER_OFFSET_MAX) {
+            status = 'off-center';
+          } else {
+            status = 'ready';
+          }
+        } else {
+          bodyHeightFraction = null;
+          centerOffsetFraction = null;
+        }
+      }
+
+      // Pass 2 — update the model. A ready subject is deliberately NOT
+      // absorbed: freezing the stuck counters while the reading is 'ready'
+      // lets the patient hold still through the whole steady gate without
+      // dissolving into the background, while scene changes that read as
+      // anything else (the at-phone close-up vacating, moved furniture)
+      // still get adopted after ABSORB_PROBES.
+      const freezeStuck = status === 'ready';
+      for (let i = 0; i < n; i++) {
+        if (changed[i]) {
+          if (!freezeStuck) {
+            stuckCounts[i] += 1;
+            if (stuckCounts[i] >= ABSORB_PROBES) {
+              bg[i] = luma[i];
+              stuckCounts[i] = 0;
+            }
           }
         } else {
           bg[i] += (luma[i] - bg[i]) * BACKGROUND_BLEND;
@@ -161,55 +217,7 @@ export function createSubjectDetector(): SubjectDetector {
         }
       }
 
-      if (changedCount / n < MIN_PRESENCE_FRACTION) {
-        return reading('not-detected', meanLuma, null, null);
-      }
-
-      // Bounding box over rows/columns with enough subject pixels to kill
-      // single-cell speckle (sensor noise, a fluttering curtain edge).
-      const minRowCells = Math.max(1, Math.round(width * 0.12));
-      const minColCells = Math.max(1, Math.round(height * 0.08));
-      let top = -1;
-      let bottom = -1;
-      for (let y = 0; y < height; y++) {
-        let cells = 0;
-        for (let x = 0; x < width; x++) cells += changed[y * width + x];
-        if (cells >= minRowCells) {
-          if (top === -1) top = y;
-          bottom = y;
-        }
-      }
-      let left = -1;
-      let right = -1;
-      for (let x = 0; x < width; x++) {
-        let cells = 0;
-        for (let y = 0; y < height; y++) cells += changed[y * width + x];
-        if (cells >= minColCells) {
-          if (left === -1) left = x;
-          right = x;
-        }
-      }
-      if (top === -1 || left === -1) {
-        return reading('not-detected', meanLuma, null, null);
-      }
-
-      const bodyHeightFraction = (bottom - top + 1) / height;
-      const centerOffsetFraction = ((left + right + 1) / 2 - width / 2) / width;
-
-      if (
-        bodyHeightFraction > BODY_HEIGHT_READY_MAX &&
-        top === 0 &&
-        bottom === height - 1
-      ) {
-        return reading('too-close', meanLuma, bodyHeightFraction, centerOffsetFraction);
-      }
-      if (bodyHeightFraction < BODY_HEIGHT_READY_MIN) {
-        return reading('too-far', meanLuma, bodyHeightFraction, centerOffsetFraction);
-      }
-      if (Math.abs(centerOffsetFraction) > CENTER_OFFSET_MAX) {
-        return reading('off-center', meanLuma, bodyHeightFraction, centerOffsetFraction);
-      }
-      return reading('ready', meanLuma, bodyHeightFraction, centerOffsetFraction);
+      return reading(status, meanLuma, bodyHeightFraction, centerOffsetFraction);
     },
 
     resetHold() {

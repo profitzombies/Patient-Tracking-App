@@ -12,3 +12,7 @@ export const TICK_SOUND = require('@/assets/sounds/countdown-tick.wav');
 /** The distinct capture tone at zero, right before the shutter. */
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 export const CAPTURE_TONE_SOUND = require('@/assets/sounds/capture-tone.wav');
+
+/** Soft falling notes when the steady hold breaks and resets. */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+export const HOLD_LOST_SOUND = require('@/assets/sounds/hold-lost.wav');

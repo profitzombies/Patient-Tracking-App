@@ -42,6 +42,12 @@
           "photosPermission": "THINNR shows your recent photos so you can attach one for the AI coach."
         }
       ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "THINNR reads the phone's tilt so guided progress photos line up at the same angle every week."
+        }
+      ],
       "expo-audio",
       "expo-asset"
     ],

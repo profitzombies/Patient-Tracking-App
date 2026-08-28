@@ -86,6 +86,7 @@
     "expo-image-manipulator": "~14.0.8",
     "expo-media-library": "~18.2.1",
     "expo-sensors": "~15.0.8",
+    "expo-speech": "~14.0.8",
     "pako": "^3.0.1"
   }
 }

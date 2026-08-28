@@ -5,3 +5,4 @@
  */
 export const TICK_SOUND = { sound: 'tick' };
 export const CAPTURE_TONE_SOUND = { sound: 'capture-tone' };
+export const HOLD_LOST_SOUND = { sound: 'hold-lost' };

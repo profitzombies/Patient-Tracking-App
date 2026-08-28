@@ -44,7 +44,7 @@
 - [Training video hosting](training-video-hosting.md) — presigned PUT + finalize probe; paths in DB, signed GETs; derived artifacts clear in lockstep; SSE explicit done; media routes OPEN (demo posture), writes per-IP limited.
 - [Playwright codec gap](playwright-codec-gap.md) — the tester's Chromium can't decode H.264/AAC: use VP9/Opus WebM fixtures for playback e2e, and players must catch play() rejections with an inline error.
 - [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.
-- [Indefinite-height flex chains](indefinite-height-flex.md) — h-full collapses (to zero for absolute-child wrappers) inside min-h-full columns; omit heights and let flex stretch; screenshots catch it, DOM checks don't.
+- [Indefinite-height flex chains](indefinite-height-flex.md) — h-full collapses in min-h-full columns; RN-web alignSelf on absolute boxes kills inset stretch; screenshots catch it, DOM checks don't.
 - [Root artifact paths](root-artifact-paths.md) — operations web is the ROOT artifact: URLs are root-relative (/menu); wrong prefixes SPA-fallback into the in-app 404 and module probes return index.html.
 - [Fluid menu rail](menu-rail-fluid.md) — collapsed rails size blocks fluidly (w-full in gutters + overflow-hidden → 44px boxes); fixed-width clipping slices box edges and was rejected.
 - [Phone-width table overflow](table-overflow-phone.md) — sr-only spans escape overflow-x wrappers (ICB) and widen the page; truncate max-w caps drive table min-content; measure page AND wrapper at 390px.
@@ -66,7 +66,7 @@
 - [THINNR brand-spelling guard](brand-spelling-guard.md) — one shared guard (capitalized-only prose + transcript-only spoken rewrite); new AI surfaces inherit via the cleaning choke point; retrofit stored rows when adding output guards.
 - [Stall-nudge outreach](stall-nudge-outreach.md) — ops states eligibility, never "sent" (delivery state is device-local); any chat reply = engaged (decline chip too), check-in pause isn't.
 - [Merge splice damage](merge-splice-repair.md) — merge storms scramble hot files (dup consts, swapped branch bodies, post-export code); rebuild from the merged tasks' tests + pre-merge rev, never blind-revert.
-- [Guided photo session](guided-photo-session.md) — no-AI positioning gate (1 Hz luma probes, 3-ready auto-start, timed fallback); auto-start must latch the HYDRATED hide pref, not live checkbox state.
+- [Guided photo session](guided-photo-session.md) — no-AI line-up gate; tilt trusts gravity ONLY (no beta fallback — no angle is never green); app.json must ship the motion permission; freeze detector while ready.
 - [Finalize sniff window](finalize-sniff-window.md) — image head-sniffs need 64 KB: metadata-heavy JPEGs (AI tags, XMP/EXIF) push SOF past 4 KB; a 4 KB window rejects real photos.
 - [Parallel duplicate-feature merge](parallel-duplicate-feature-merge.md) — main can receive a rival build of the task's own feature; keep one stack, grep automerged spec/screens for dup keys and spliced buttons, prove the tree via diff against the verified commit.
 - [Corner launcher shelf](corner-launcher-shelf.md) — both personas share ui/FabMenu (config-only wrappers); patient bottom-corner stacking (tab bar → FAB → snackbar) lives in constants/layout — new floating UI must join that shelf math.

@@ -31,6 +31,7 @@
       "expo-router": ["./scripts/meal-photo-stubs/expo-router.ts"],
       "expo-camera": ["./scripts/guided-photo-stubs/expo-camera.ts"],
       "expo-sensors": ["./scripts/guided-photo-stubs/expo-sensors.ts"],
+      "expo-speech": ["./scripts/guided-photo-stubs/expo-speech.ts"],
       "expo-audio": ["./scripts/guided-photo-stubs/expo-audio.ts"],
       "expo-asset": ["./scripts/guided-photo-stubs/expo-asset.ts"],
       "expo-image": ["./scripts/label-scan-stubs/expo-image.ts"],

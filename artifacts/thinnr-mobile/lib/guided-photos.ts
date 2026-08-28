@@ -107,6 +107,40 @@ export function getGuidedProbeIntervalMs(): number {
 }
 
 /**
+ * Steady-gate timing: how long every line-up check must hold green before
+ * the countdown starts, how often the gate re-evaluates, and how long the
+ * line-up may stay unsatisfied before the "Start anyway" escape appears.
+ * Injectable for the same reason as the tick/probe intervals.
+ */
+let holdSteadyMs = 5000;
+let gateTickMs = 100;
+let escapeAfterMs = 20000;
+
+export function setGuidedHoldMs(ms: number): void {
+  holdSteadyMs = ms;
+}
+
+export function getGuidedHoldMs(): number {
+  return holdSteadyMs;
+}
+
+export function setGuidedGateTickMs(ms: number): void {
+  gateTickMs = ms;
+}
+
+export function getGuidedGateTickMs(): number {
+  return gateTickMs;
+}
+
+export function setGuidedEscapeMs(ms: number): void {
+  escapeAfterMs = ms;
+}
+
+export function getGuidedEscapeMs(): number {
+  return escapeAfterMs;
+}
+
+/**
  * Storage key for the persisted "Hide these instructions" preference —
  * localStorage on web, AsyncStorage native (mirrors PatientContext's
  * storage split).

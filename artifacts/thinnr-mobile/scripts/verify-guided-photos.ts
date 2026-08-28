@@ -1,32 +1,43 @@
 /**
- * Guided progress-photo session verification (task: hands-free countdown
- * capture with per-angle reshoot and App Storage upload).
+ * Guided progress-photo session verification (tasks: hands-free countdown
+ * capture with per-angle reshoot + App Storage upload, and the line-up
+ * gate — level bar, subject check, steady hold — that precedes every
+ * countdown).
  *
  * Runs the REAL GuidedPhotoSession component tree, PatientContext,
- * detection/probe/upload libs, and the Progress + Check-in entry points
- * under Node via react-test-renderer, with native modules remapped to
- * scripts/guided-photo-stubs (see tsconfig.guided-photos.json).
+ * tilt/line-up/detection/probe/upload libs, and the Progress + Check-in
+ * entry points under Node via react-test-renderer, with native modules
+ * remapped to scripts/guided-photo-stubs (see tsconfig.guided-photos.json).
  *
- * Countdown/probe timing is dialed down through the injectable module
+ * Countdown/probe/hold timing is dialed down through the injectable module
  * knobs so full three-angle sessions run in tens of milliseconds.
  *
  * Sections:
  *   1. Handoff contract (create / claim / settle semantics)
- *   2. Subject detector unit behavior (light, walk-in, off-center, hold)
- *   3. PNG luma decode + camera probe pipeline
- *   4. Upload pipeline unit behavior (presign → PUT → finalize, failures)
- *   5. Web demo: full auto session (setup → positioning → countdown ×3 → review)
- *   6. Web demo: per-angle reshoot + save (uploads, grid entries, settle)
- *   7. Upload failure → inline error → retry uploads only failed angles
- *   8. Hide-instructions persistence (toggle + skip-straight-to-capture)
- *   9. Manual "Start now" fallback
- *  10. Native: tilt meter states, probe options, capture quality, save
- *  11. Native: capture failure recovers into positioning
- *  12. Native: probe-unavailable timed fallback
- *  13. Native: permission fallback (ask / settings / close / auto-ask)
- *  14. Progress screen entry point, saved snackbar, grid objectPath sources
- *  15. Check-in entry point + saved announcement
+ *   2. Subject detector (light, walk-in, ready-freeze, vacate, absorb)
+ *   3. Tilt model (signed lean, hemisphere fold, gravity-only trust —
+ *      beta never consulted, zones, bar mapping, smoother, sim curve)
+ *   4. Line-up gate (status priority matrix + steady-hold semantics)
+ *   5. Guidance maps stay total + outline art is curved and distinct
+ *   6. PNG luma decode + camera probe pipeline
+ *   7. Upload pipeline unit behavior (presign → PUT → finalize, failures)
+ *   8. Web demo: full auto session (setup → line-up → countdown ×3 → review)
+ *   9. Web demo: per-angle reshoot + save (uploads, grid entries, settle)
+ *  10. Upload failure → inline error → retry uploads only failed angles
+ *  11. Hide-instructions persistence (toggle + skip-straight-to-capture)
+ *  12. Escape hatch: "Start anyway" appears only after prolonged failure
+ *      (+ spoken cues stay silent under a screen reader)
+ *  13. Native: tilt gates the countdown, probe options, capture, save
+ *  14. Native: losing the hold resets progress with an audible cue
+ *  15. Native: capture failure recovers into positioning
+ *  16. Native: probe-unavailable — timed fallback and tilt-only gate
+ *  17. Native: permission fallback (ask / settings / close / auto-ask)
+ *  18. Progress screen entry point, saved snackbar, grid objectPath sources
+ *  19. Check-in entry point + saved announcement
+ *  20. Native: beta-only motion (no gravity) can never start the countdown
+ *  21. app.json ships the iOS motion permission (NSMotionUsageDescription)
  */
+import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import React from 'react';
 import { act } from 'react';
@@ -64,11 +75,12 @@ console.error = (...args: unknown[]) => {
 };
 
 // ── Stubs (same module instances the components see via tsconfig paths) ──
-import { announcements, Platform } from './guided-photo-stubs/react-native';
+import { announcements, Platform, screenReaderState } from './guided-photo-stubs/react-native';
 import { openSettingsCalls } from './meal-photo-stubs/react-native';
 import { cameraState, resetCameraStub } from './guided-photo-stubs/expo-camera';
 import { motionState } from './guided-photo-stubs/expo-sensors';
 import { audioState, StubAudioPlayer } from './guided-photo-stubs/expo-audio';
+import { speechState } from './guided-photo-stubs/expo-speech';
 import { routerCalls, clearRouterCalls, routerState } from './meal-photo-stubs/expo-router';
 import AsyncStorageStub from './meal-photo-stubs/async-storage';
 
@@ -80,18 +92,40 @@ import {
   HIDE_INSTRUCTIONS_KEY,
   claimGuidedPhotoRequest,
   createGuidedPhotoRequest,
+  setGuidedEscapeMs,
+  setGuidedGateTickMs,
+  setGuidedHoldMs,
   setGuidedProbeIntervalMs,
   setGuidedTickIntervalMs,
   type GuidedSessionOutcome,
 } from '../lib/guided-photos';
 import {
+  ABSORB_PROBES,
   BODY_HEIGHT_READY_MAX,
   BODY_HEIGHT_READY_MIN,
-  READY_HOLD_PROBES,
   createSubjectDetector,
   makeSimulatedFrame,
   type LumaFrame,
+  type PositioningReading,
 } from '../lib/photo-detection';
+import {
+  SIM_LEAN_SETTLE_MS,
+  TILT_BAR_BOTTOM_DEG,
+  TILT_BAR_TOP_DEG,
+  TILT_FACE_DOWN_DEG,
+  TILT_IDEAL_DEG,
+  TILT_READY_MAX_DEG,
+  TILT_READY_MIN_DEG,
+  classifyLean,
+  createLeanSmoother,
+  leanBackDegrees,
+  leanToBarFraction,
+  simulatedLeanAt,
+  type MotionSample,
+} from '../lib/tilt';
+import { createSteadyHold, lineupStatus, type LineupStatus } from '../lib/lineup';
+import { LINEUP_ANNOUNCEMENTS, LINEUP_HINTS } from '../lib/session-feedback';
+import { OUTLINE_PATHS } from '../components/patient/BodyOutline';
 import { decodeBase64, decodePngToLuma, probeCameraFrame } from '../lib/photo-probe';
 import { progressPhotoDisplayUrl, uploadGuidedShots } from '../lib/progress-photo-upload';
 import { ENROLLMENT_DAYS, TODAY_KEY } from '../data/patient-data';
@@ -418,6 +452,8 @@ async function resetScenario(platform: 'web' | 'ios'): Promise<void> {
   audioState.reset();
   resetCameraStub();
   motionState.reset();
+  speechState.reset();
+  screenReaderState.reset();
   clearRouterCalls();
   resetUploadScript();
   openSettingsCalls.count = 0;
@@ -459,6 +495,13 @@ function tickPlayer(): StubAudioPlayer | null {
 function tonePlayer(): StubAudioPlayer | null {
   return (
     audioState.players.find(p => (p.source as { sound?: string })?.sound === 'capture-tone') ??
+    null
+  );
+}
+
+function holdLostPlayer(): StubAudioPlayer | null {
+  return (
+    audioState.players.find(p => (p.source as { sound?: string })?.sound === 'hold-lost') ??
     null
   );
 }
@@ -509,6 +552,9 @@ async function main(): Promise<void> {
 
   setGuidedTickIntervalMs(20);
   setGuidedProbeIntervalMs(20);
+  setGuidedHoldMs(120);
+  setGuidedGateTickMs(10);
+  setGuidedEscapeMs(60000); // escape hatch stays out of the way unless a scenario wants it
 
   // ── 1. Handoff contract ────────────────────────────────────────────────
   section('1. Handoff contract');
@@ -559,7 +605,7 @@ async function main(): Promise<void> {
 
     const walk = createSubjectDetector();
     const statuses: string[] = [];
-    const readings = [];
+    const readings: PositioningReading[] = [];
     for (let step = 0; step <= 6; step++) {
       const reading = walk.push(makeSimulatedFrame(step));
       statuses.push(reading.status);
@@ -571,9 +617,7 @@ async function main(): Promise<void> {
       'walk-in status sequence',
     );
     assertEqual(readings[4].readyStreak, 1, 'first ready probe streak 1');
-    assertEqual(readings[4].shouldStartCountdown, false, 'streak 1 does not start');
-    assertEqual(readings[6].readyStreak, READY_HOLD_PROBES, 'third ready probe hits hold');
-    assertEqual(readings[6].shouldStartCountdown, true, 'ready hold starts countdown');
+    assertEqual(readings[6].readyStreak, 3, 'streak counts consecutive ready probes');
     assert(
       readings[6].bodyHeightFraction !== null &&
         readings[6].bodyHeightFraction! >= BODY_HEIGHT_READY_MIN &&
@@ -590,7 +634,38 @@ async function main(): Promise<void> {
     walk.resetHold();
     const afterReset = walk.push(makeSimulatedFrame(6));
     assertEqual(afterReset.readyStreak, 1, 'resetHold clears the ready streak');
-    assertEqual(afterReset.shouldStartCountdown, false, 'no start right after reset');
+
+    // The steady gate can hold for many seconds: a ready subject standing
+    // still must NEVER dissolve into the background, however many probes
+    // pass. (Before the freeze, ABSORB_PROBES identical frames would eat
+    // the patient and flip the reading back to not-detected.)
+    let frozen = afterReset;
+    for (let i = 0; i < ABSORB_PROBES * 3; i++) frozen = walk.push(makeSimulatedFrame(6));
+    assertEqual(frozen.status, 'ready', 'still subject stays detected far past ABSORB_PROBES');
+    assert(
+      frozen.readyStreak >= ABSORB_PROBES * 3,
+      'ready streak keeps counting through the freeze',
+      frozen.readyStreak,
+    );
+
+    // …and because the background never absorbed them, the person leaving
+    // reads not-detected on the very next probe.
+    assertEqual(
+      walk.push(makeSimulatedFrame(0)).status,
+      'not-detected',
+      'vacated scene reads not-detected immediately',
+    );
+
+    // Non-ready scene changes still get adopted: the at-phone close-up
+    // vacating re-learns as background after ABSORB_PROBES.
+    const moved = createSubjectDetector();
+    moved.push(customFrame(18, 24, 70)); // seeded with the at-phone close-up
+    let sceneReading = moved.push(customFrame(18, 24, 150));
+    assertEqual(sceneReading.status, 'too-close', 'whole-frame change first reads too-close');
+    for (let i = 0; i < ABSORB_PROBES + 2 && sceneReading.status !== 'not-detected'; i++) {
+      sceneReading = moved.push(customFrame(18, 24, 150));
+    }
+    assertEqual(sceneReading.status, 'not-detected', 'scene change absorbs after ABSORB_PROBES');
 
     const offCenter = createSubjectDetector();
     offCenter.push(customFrame(18, 24, 150));
@@ -607,8 +682,318 @@ async function main(): Promise<void> {
     assertEqual(closeReading.status, 'too-close', 'full-height subject reads too-close');
   }
 
-  // ── 3. PNG decode + probe pipeline ─────────────────────────────────────
-  section('3. PNG decode + camera probe');
+  // ── 3. Tilt model ──────────────────────────────────────────────────────
+  section('3. Tilt model: signed lean, zones, bar mapping, smoothing, sim');
+  {
+    const G = 9.81;
+    const grav = (leanDeg: number): MotionSample => ({
+      gravityY: G * Math.cos((leanDeg * Math.PI) / 180),
+      gravityZ: G * Math.sin((leanDeg * Math.PI) / 180),
+    });
+
+    for (const lean of [-30, -8, -1.6, 0, 5, 12, 15, 18, 25, 40]) {
+      const measured = leanBackDegrees(grav(lean));
+      assert(
+        measured !== null && Math.abs(measured - lean) < 0.001,
+        `gravity lean ${lean}° measures signed and continuous`,
+        measured,
+      );
+    }
+
+    // Apple-style (un-negated) gravity lands 180° away — the hemisphere
+    // fold brings a clearly propped phone back to its true lean.
+    const flipped = grav(15);
+    const folded = leanBackDegrees({
+      gravityY: -(flipped.gravityY as number),
+      gravityZ: -(flipped.gravityZ as number),
+    });
+    assert(
+      folded !== null && Math.abs(folded - 15) < 0.001,
+      'far-hemisphere gravity folds back to the true lean',
+      folded,
+    );
+
+    // Weak gravity (device shaken / freefall) is untrusted → NO signal.
+    // There is deliberately no rotation.beta fallback: iOS beta folds at
+    // 90°, so a face-down phone reports the same beta as a leaned-back one
+    // and a beta-derived lean could fabricate green face-down. A degraded
+    // sensor path must read null — never a guess.
+    assertEqual(
+      leanBackDegrees({ gravityY: 0.3, gravityZ: 0.1 }),
+      null,
+      'weak gravity yields null — nothing may invent a lean',
+    );
+
+    // THE demo-run regression, restated on the trusted signal: the two
+    // poses that share a folded beta measure with OPPOSITE gravity signs.
+    const faceDown = leanBackDegrees(grav(-8));
+    const leanedBack = leanBackDegrees(grav(8));
+    assert(
+      faceDown !== null && faceDown < TILT_FACE_DOWN_DEG,
+      'face-down phone reads negative from gravity alone',
+      faceDown,
+    );
+    assert(
+      leanedBack !== null && Math.abs(leanedBack - 8) < 0.001,
+      'leaned-back phone reads +8° from the mirrored gravity',
+      leanedBack,
+    );
+    assertEqual(leanBackDegrees({}), null, 'no usable signal → null');
+
+    // Zones: green only inside the tight leaned-back band.
+    const zoneCases: Array<[number, string]> = [
+      [-30, 'face-down'],
+      [-2, 'face-down'],
+      [-1, 'tilt-back'],
+      [0, 'tilt-back'],
+      [11.9, 'tilt-back'],
+      [12, 'ready'],
+      [15, 'ready'],
+      [18, 'ready'],
+      [18.1, 'too-far'],
+      [40, 'too-far'],
+    ];
+    for (const [lean, zone] of zoneCases) {
+      assertEqual(classifyLean(lean), zone, `zone at ${lean}°`);
+    }
+    assert(
+      TILT_READY_MAX_DEG - TILT_READY_MIN_DEG <= 6,
+      'ready band is tight (a few degrees)',
+      TILT_READY_MAX_DEG - TILT_READY_MIN_DEG,
+    );
+    assert(
+      TILT_READY_MIN_DEG > 0 &&
+        TILT_IDEAL_DEG > TILT_READY_MIN_DEG &&
+        TILT_IDEAL_DEG < TILT_READY_MAX_DEG,
+      'ideal lean sits inside a leaned-BACK band (never upright or forward)',
+    );
+
+    // Bar mapping: continuous and strictly monotonic — the level glides.
+    assertEqual(leanToBarFraction(TILT_IDEAL_DEG), 0.5, 'ideal lean centers the bar');
+    assertEqual(leanToBarFraction(TILT_BAR_TOP_DEG), 0, 'max displayed lean pins the top');
+    assertEqual(leanToBarFraction(TILT_BAR_BOTTOM_DEG), 1, 'min displayed lean pins the bottom');
+    let previous = leanToBarFraction(TILT_BAR_BOTTOM_DEG);
+    let monotonic = true;
+    for (let lean = TILT_BAR_BOTTOM_DEG + 0.1; lean <= TILT_BAR_TOP_DEG; lean += 0.1) {
+      const fraction = leanToBarFraction(lean);
+      if (!(fraction < previous)) {
+        monotonic = false;
+        break;
+      }
+      previous = fraction;
+    }
+    assert(monotonic, 'bar fraction moves for every 0.1° — continuous, never stepped');
+
+    // Smoother: glides toward samples, converges, resets clean.
+    const smoother = createLeanSmoother();
+    assertEqual(smoother.value(), null, 'smoother starts empty');
+    assertEqual(smoother.push(10), 10, 'first sample passes through raw');
+    const eased = smoother.push(20);
+    assert(eased > 10 && eased < 20, 'smoother eases toward new samples', eased);
+    let settled = eased;
+    for (let i = 0; i < 40; i++) settled = smoother.push(20);
+    assert(Math.abs(settled - 20) < 0.01, 'smoother converges on a held angle', settled);
+    smoother.reset();
+    assertEqual(smoother.value(), null, 'reset clears the smoother');
+
+    // Scripted web lean: starts tipped forward, settles inside the band,
+    // keeps floating (never parks) without leaving the band.
+    assert(
+      simulatedLeanAt(0) < TILT_FACE_DOWN_DEG,
+      'sim lean starts tipped forward (face-down guidance shows first)',
+      simulatedLeanAt(0),
+    );
+    const midway = simulatedLeanAt(SIM_LEAN_SETTLE_MS / 2);
+    assert(
+      midway > simulatedLeanAt(0) && midway < TILT_READY_MIN_DEG,
+      'sim lean eases back through the middle',
+      midway,
+    );
+    for (const at of [SIM_LEAN_SETTLE_MS, SIM_LEAN_SETTLE_MS + 500, SIM_LEAN_SETTLE_MS * 3]) {
+      const lean = simulatedLeanAt(at);
+      assert(
+        lean > TILT_READY_MIN_DEG && lean < TILT_READY_MAX_DEG,
+        `sim lean in-band at ${at}ms`,
+        lean,
+      );
+    }
+    assert(
+      Math.abs(simulatedLeanAt(SIM_LEAN_SETTLE_MS + 200) - simulatedLeanAt(SIM_LEAN_SETTLE_MS + 700)) > 0.01,
+      'settled sim lean still wobbles like a live sensor',
+    );
+  }
+
+  // ── 4. Line-up gate ────────────────────────────────────────────────────
+  section('4. Line-up gate: status priority + steady hold');
+  {
+    const readyReading: PositioningReading = {
+      status: 'ready',
+      meanLuma: 128,
+      bodyHeightFraction: 0.7,
+      centerOffsetFraction: 0,
+      readyStreak: 1,
+    };
+    const tooFarReading: PositioningReading = { ...readyReading, status: 'too-far' };
+
+    assertEqual(
+      lineupStatus({ leanDeg: -6, tiltAvailable: true, reading: readyReading, probesAvailable: true }),
+      'tilt-face-down',
+      'face-down outranks a ready frame',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: 5, tiltAvailable: true, reading: readyReading, probesAvailable: true }),
+      'tilt-back-more',
+      'under-leaned outranks framing',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: 30, tiltAvailable: true, reading: readyReading, probesAvailable: true }),
+      'tilt-too-far',
+      'over-leaned outranks framing',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: 15, tiltAvailable: true, reading: tooFarReading, probesAvailable: true }),
+      'too-far',
+      'green tilt lets framing speak',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: 15, tiltAvailable: true, reading: readyReading, probesAvailable: true }),
+      'ready',
+      'green tilt + ready frame = ready',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: 15, tiltAvailable: true, reading: null, probesAvailable: false }),
+      'ready',
+      'probes unavailable → tilt is the whole gate',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: 2, tiltAvailable: true, reading: null, probesAvailable: false }),
+      'tilt-back-more',
+      'probes unavailable still respects tilt',
+    );
+    // A missing live angle is NEVER green — the reviewer regression: a
+    // degraded sensor path (beta-only, weak gravity, dead sensor) must not
+    // let a perfectly framed patient auto-start at an unknown camera angle.
+    assertEqual(
+      lineupStatus({ leanDeg: null, tiltAvailable: null, reading: readyReading, probesAvailable: true }),
+      'not-detected',
+      'tilt undetermined + ready frame stays un-green (quiet intro status)',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: null, tiltAvailable: false, reading: readyReading, probesAvailable: true }),
+      'tilt-unavailable',
+      'tilt known unavailable + ready frame → says so, never ready',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: null, tiltAvailable: false, reading: tooFarReading, probesAvailable: true }),
+      'tilt-unavailable',
+      'tilt-unavailable outranks framing guidance',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: null, tiltAvailable: false, reading: null, probesAvailable: false }),
+      'tilt-unavailable',
+      'nothing at all still never yields ready',
+    );
+    assertEqual(
+      lineupStatus({ leanDeg: null, tiltAvailable: null, reading: null, probesAvailable: null }),
+      'not-detected',
+      'nothing yet → not-detected',
+    );
+
+    const hold = createSteadyHold();
+    let snap = hold.update(true, 1000, 5000);
+    assertEqual(snap.progress, 0, 'hold starts banking from zero');
+    snap = hold.update(true, 3500, 5000);
+    assertEqual(snap.progress, 0.5, 'progress tracks continuous time');
+    assertEqual(snap.satisfied, false, 'halfway is not satisfied');
+    snap = hold.update(true, 6000, 5000);
+    assert(snap.progress === 1 && snap.satisfied, 'full steady time satisfies the hold');
+
+    hold.reset();
+    hold.update(true, 10000, 5000);
+    snap = hold.update(false, 10100, 5000); // 100ms banked < 8% of 5000
+    assertEqual(snap.broke, false, 'sub-threshold flicker resets silently');
+    assertEqual(snap.progress, 0, 'flicker still zeroes the bank');
+    hold.update(true, 10200, 5000);
+    snap = hold.update(false, 11000, 5000); // 800ms banked ≥ 8% of 5000
+    assertEqual(snap.broke, true, 'losing meaningful banked progress flags a break');
+    snap = hold.update(false, 11100, 5000);
+    assertEqual(snap.broke, false, 'already-broken stays quiet');
+    snap = hold.update(true, 12000, 5000);
+    assertEqual(snap.progress, 0, 're-green restarts the bank at zero');
+  }
+
+  // ── 5. Guidance maps + outline art ─────────────────────────────────────
+  section('5. Guidance maps stay total + outline art');
+  {
+    const universe: LineupStatus[] = [
+      'tilt-unavailable',
+      'tilt-face-down',
+      'tilt-back-more',
+      'tilt-too-far',
+      'too-dark',
+      'too-bright',
+      'not-detected',
+      'too-far',
+      'too-close',
+      'off-center',
+      'ready',
+    ];
+    for (const status of universe) {
+      assert(
+        typeof LINEUP_HINTS[status] === 'string' && LINEUP_HINTS[status].length > 0,
+        `hint exists for ${status}`,
+      );
+      assert(
+        typeof LINEUP_ANNOUNCEMENTS[status] === 'string' && LINEUP_ANNOUNCEMENTS[status].length > 0,
+        `announcement exists for ${status}`,
+      );
+    }
+    assertEqual(Object.keys(LINEUP_HINTS).length, universe.length, 'no stray hint keys');
+    assertEqual(
+      Object.keys(LINEUP_ANNOUNCEMENTS).length,
+      universe.length,
+      'no stray announcement keys',
+    );
+    assertEqual(LINEUP_ANNOUNCEMENTS.ready, 'In position. Hold still.', 'ready announcement wording');
+    assert(
+      /floor/i.test(LINEUP_ANNOUNCEMENTS['tilt-face-down']),
+      'face-down announcement names the floor',
+    );
+    assert(/back/i.test(LINEUP_HINTS['too-close']), 'too-close asks to step back');
+    assert(/closer/i.test(LINEUP_HINTS['too-far']), 'too-far asks to come closer');
+    assert(
+      /start/i.test(LINEUP_HINTS['tilt-unavailable']),
+      'tilt-unavailable hint points at the start-anyway escape',
+    );
+
+    const joinedByAngle: Record<string, string> = {};
+    for (const angle of GUIDED_ANGLES) {
+      const paths = OUTLINE_PATHS[angle];
+      assert(Array.isArray(paths) && paths.length > 0, `${angle} outline has paths`);
+      const joined = paths.join(' ');
+      joinedByAngle[angle] = joined;
+      assert(
+        paths.every(p => p.startsWith('M')), 
+        `${angle} outline paths start with a move`,
+      );
+      assert(
+        !/[LHVlhv]/.test(joined),
+        `${angle} outline has no straight-line commands (all curves)`,
+      );
+      const curveCount = (joined.match(/C/g) ?? []).length;
+      assert(curveCount >= 12, `${angle} outline is richly curved`, curveCount);
+      assert(/Z/.test(joined), `${angle} silhouette closes`);
+    }
+    assert(
+      joinedByAngle.front !== joinedByAngle.side &&
+        joinedByAngle.side !== joinedByAngle.back &&
+        joinedByAngle.front !== joinedByAngle.back,
+      'three distinct silhouettes (front, side, back)',
+    );
+  }
+
+  // ── 6. PNG decode + probe pipeline ─────────────────────────────────────
+  section('6. PNG decode + camera probe');
   {
     const source = makeSimulatedFrame(6);
     const gray = decodePngToLuma(decodeBase64(encodePng(source, 0)));
@@ -652,8 +1037,8 @@ async function main(): Promise<void> {
     assertEqual(await probeCameraFrame(throwing), null, 'camera error probes null');
   }
 
-  // ── 4. Upload pipeline units ───────────────────────────────────────────
-  section('4. Upload pipeline');
+  // ── 7. Upload pipeline units ───────────────────────────────────────────
+  section('7. Upload pipeline');
   {
     assertEqual(
       progressPhotoDisplayUrl('/objects/progress-photos/demo-1'),
@@ -705,8 +1090,8 @@ async function main(): Promise<void> {
     assertEqual(finalizeFail.failed.join(','), 'back', 'failed finalize reports its angle');
   }
 
-  // ── 5. Web demo: full auto session ─────────────────────────────────────
-  section('5. Web demo: setup → auto positioning → countdown ×3 → review');
+  // ── 8. Web demo: full auto session ─────────────────────────────────────
+  section('8. Web demo: setup → line-up gate → countdown ×3 → review');
   let webSession: MountedSession;
   {
     await resetScenario('web');
@@ -715,18 +1100,12 @@ async function main(): Promise<void> {
 
     await waitUntil('setup card appears', () => present(renderer, 'guided-begin'));
     assert(present(renderer, 'guided-hide-instructions'), 'hide-instructions checkbox present');
+    assert(!present(renderer, 'guided-level-bar'), 'level bar waits for the live stage');
     const setupCopy = surfaceText(renderer);
     assert(/floor/i.test(setupCopy), 'setup mentions floor placement');
     assert(/six feet|6 feet/i.test(setupCopy), 'setup mentions six feet');
     assert(/front camera/i.test(setupCopy), 'setup mentions front camera');
-
-    const tilt = byTestID(renderer, 'guided-tilt');
-    assert(tilt !== null, 'tilt meter rendered');
-    assertEqual(
-      tilt?.props.accessibilityLabel,
-      'Tilt the phone back a little more.',
-      'web tilt script starts in tilt-back',
-    );
+    assert(/level bar|line up|line-up/i.test(setupCopy), 'setup mentions the line-up stage');
 
     await tap(renderer, 'guided-begin', 'tap Start session');
     await waitUntil('positioning stage shows angle banner', () =>
@@ -734,13 +1113,28 @@ async function main(): Promise<void> {
     );
     assert(/front/i.test(textOf(byTestID(renderer, 'guided-angle-banner'))), 'banner names FRONT');
     assert(present(renderer, 'guided-outline'), 'body outline overlay present');
-    assert(present(renderer, 'guided-start-now'), 'manual Start now available');
+    assert(present(renderer, 'guided-positioning-hint'), 'guidance hint band present');
+    assert(
+      !present(renderer, 'guided-start-anyway'),
+      'no escape button while the gate is fresh — nothing shoots early',
+    );
+    assert(!present(renderer, 'guided-countdown'), 'countdown gated behind line-up');
     assert(
       announcements.some(a => a.startsWith('Front photo first.')),
       'positioning intro announced',
     );
 
-    await waitUntil('simulated probes auto-start the countdown', () =>
+    await waitUntil('level bar appears over the live preview', () =>
+      present(renderer, 'guided-level-bar'),
+    );
+    await waitUntil('level readout shows continuous degrees', () =>
+      /-?\d+\.\d°/.test(textOf(byTestID(renderer, 'guided-level-bar'))),
+    );
+    await waitUntil('gate goes green (ready hint shows)', () =>
+      textOf(byTestID(renderer, 'guided-positioning-hint')).includes('hold still'),
+    );
+
+    await waitUntil('steady hold auto-starts the countdown', () =>
       present(renderer, 'guided-countdown'),
     );
     assertEqual(
@@ -753,6 +1147,10 @@ async function main(): Promise<void> {
         `In position. Taking the front photo in ${COUNTDOWN_SECONDS} seconds. Hold still.`,
       ),
       'countdown start announced',
+    );
+    assert(
+      present(renderer, 'guided-outline'),
+      'outline stays on screen (dimmed) behind the countdown numeral',
     );
 
     await waitUntil('all three angles captured → review', () =>
@@ -784,6 +1182,17 @@ async function main(): Promise<void> {
     assertEqual(tickPlayer()?.plays, 21, 'tick sound per countdown second (7 × 3)');
     assertEqual(tonePlayer()?.plays, 3, 'capture tone once per shot');
 
+    // Spoken cues ride the same messages as the announcements.
+    assert(
+      speechState.spoken.some(t => t.startsWith('Front photo first.')),
+      'line-up intro spoken aloud',
+    );
+    assert(speechState.spoken.includes('In position. Hold still.'), 'ready cue spoken aloud');
+    assert(
+      speechState.spoken.includes('All photos captured. Review your shots.'),
+      'review arrival spoken aloud',
+    );
+
     for (const angle of GUIDED_ANGLES) {
       const image = renderer.root.findAll(
         node =>
@@ -793,8 +1202,8 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── 6. Web demo: reshoot side only, then save ──────────────────────────
-  section('6. Per-angle reshoot + save');
+  // ── 9. Web demo: reshoot side only, then save ──────────────────────────
+  section('9. Per-angle reshoot + save');
   {
     const { renderer, outcomes } = webSession;
 
@@ -870,8 +1279,8 @@ async function main(): Promise<void> {
     await actSettle(() => webSession.renderer.unmount());
   }
 
-  // ── 7. Upload failure → retry only failed angles ───────────────────────
-  section('7. Upload failure keeps shots + retry sends only failed angles');
+  // ── 10. Upload failure → retry only failed angles ──────────────────────
+  section('10. Upload failure keeps shots + retry sends only failed angles');
   {
     await resetScenario('web');
     localStore.set(HIDE_INSTRUCTIONS_KEY, '1'); // also exercises skip-straight-to-capture
@@ -919,8 +1328,8 @@ async function main(): Promise<void> {
     await actSettle(() => renderer.unmount());
   }
 
-  // ── 8. Hide-instructions persistence ───────────────────────────────────
-  section('8. Hide-instructions checkbox persists');
+  // ── 11. Hide-instructions persistence ──────────────────────────────────
+  section('11. Hide-instructions checkbox persists');
   {
     await resetScenario('web');
     const { renderer } = await mountSession();
@@ -947,45 +1356,59 @@ async function main(): Promise<void> {
     await actSettle(() => renderer.unmount());
   }
 
-  // ── 9. Manual "Start now" ──────────────────────────────────────────────
-  section('9. Manual Start now skips the positioning gate');
+  // ── 12. Escape hatch + screen-reader silence ───────────────────────────
+  section('12. Escape hatch appears only after prolonged failure');
   {
     await resetScenario('web');
-    setGuidedProbeIntervalMs(500); // slow probes so auto-start cannot win the race
+    setGuidedProbeIntervalMs(400); // slow probes: neither framing nor sim lean can go green quickly
+    setGuidedEscapeMs(250);
+    screenReaderState.enabled = true; // spoken cues must stay silent under a screen reader
     const { renderer } = await mountSession();
-    await waitUntil('setup for manual start', () => present(renderer, 'guided-begin'));
+    await waitUntil('setup for escape scenario', () => present(renderer, 'guided-begin'));
     await tap(renderer, 'guided-begin', 'begin session');
-    await waitUntil('positioning for manual start', () => present(renderer, 'guided-start-now'));
-    assert(!present(renderer, 'guided-countdown'), 'countdown not yet running');
-    await tap(renderer, 'guided-start-now', 'tap Start now');
-    await waitUntil('manual start begins countdown', () => present(renderer, 'guided-countdown'));
+    await waitUntil('positioning for escape scenario', () =>
+      present(renderer, 'guided-angle-banner'),
+    );
+    assert(!present(renderer, 'guided-start-anyway'), 'escape hidden while the gate is fresh');
+    assert(!present(renderer, 'guided-countdown'), 'countdown still gated');
+    await waitUntil('escape appears after the configured delay', () =>
+      present(renderer, 'guided-start-anyway'),
+    );
+    assert(announcedIncluding('start the countdown anyway') > 0, 'escape offer announced');
+    assert(!present(renderer, 'guided-countdown'), 'no auto countdown before the tap');
+    await tap(renderer, 'guided-start-anyway', 'tap Start anyway');
+    await waitUntil('escape starts the countdown', () => present(renderer, 'guided-countdown'));
     assert(
       announcements.includes(
         `In position. Taking the front photo in ${COUNTDOWN_SECONDS} seconds. Hold still.`,
       ),
-      'manual start announces countdown',
+      'escape start announces countdown',
     );
+    assertEqual(
+      speechState.spoken.length,
+      0,
+      'spoken cues suppressed while a screen reader runs',
+    );
+    assert(announcements.length > 0, 'screen-reader announcements still flow');
     await actSettle(() => renderer.unmount());
+    screenReaderState.reset();
     setGuidedProbeIntervalMs(20);
+    setGuidedEscapeMs(60000);
   }
 
-  // ── 10. Native: tilt, probes, capture, save ────────────────────────────
-  section('10. Native flow: tilt states, probe options, capture, save');
+  // ── 13. Native: tilt gates the countdown, probes, capture, save ────────
+  section('13. Native flow: tilt gates the countdown, cheap probes, save');
   {
     await resetScenario('ios');
     const camera = scriptNativeCamera();
     const { renderer, outcomes } = await mountSession();
 
     await waitUntil('native setup card', () => present(renderer, 'guided-begin'));
-    await waitUntil('tilt meter listening', () => motionState.listeners.size > 0);
-    assert(motionState.updateIntervals.includes(250), 'DeviceMotion update interval set');
-    const tiltLabel = () => byTestID(renderer, 'guided-tilt')?.props.accessibilityLabel;
-    await actSettle(() => motionState.emitBetaDegrees(88)); // lean 2°
-    assertEqual(tiltLabel(), 'Tilt the phone back a little more.', 'lean 2° → tilt-back');
-    await actSettle(() => motionState.emitBetaDegrees(40)); // lean 50°
-    assertEqual(tiltLabel(), 'Phone is tilted too far back.', 'lean 50° → too far');
-    await actSettle(() => motionState.emitBetaDegrees(70)); // lean 20°
-    assertEqual(tiltLabel(), 'Phone angle is good.', 'lean 20° → ready');
+    assertEqual(
+      motionState.listeners.size,
+      0,
+      'no motion listener during setup — the line-up stage owns tilt now',
+    );
 
     await tap(renderer, 'guided-begin', 'native begin');
     await waitUntil('native camera mounts', () => cameraState.mounted > 0);
@@ -995,9 +1418,35 @@ async function main(): Promise<void> {
     assert(cameraNode !== undefined, 'CameraView rendered');
     assertEqual(cameraNode?.props.facing, 'front', 'front camera selected');
 
-    await waitUntil('native probes auto-start countdown', () =>
+    await waitUntil('motion listener attached for line-up', () => motionState.listeners.size > 0);
+    assert(
+      motionState.updateIntervals.includes(50),
+      'DeviceMotion sampled fast enough for a fluid bar',
+      motionState.updateIntervals.join(','),
+    );
+
+    // Face-down first — the demo-run regression: frames go ready but the
+    // wrong lean must hold the gate shut.
+    await actSettle(() => motionState.emitLean(-8));
+    await waitUntil('face-down hint shows', () =>
+      textOf(byTestID(renderer, 'guided-positioning-hint')).includes('facing the floor'),
+    );
+    await actSleep(250); // frames are long ready by now; tilt alone blocks
+    assert(!present(renderer, 'guided-countdown'), 'face-down phone never starts the countdown');
+    assert(announcedIncluding('tipped toward the floor') > 0, 'face-down announced');
+    assert(present(renderer, 'guided-level-bar'), 'level bar overlays the live preview');
+    assert(
+      /-?\d+\.\d°/.test(textOf(byTestID(renderer, 'guided-level-bar'))),
+      'live readout shows continuous degrees',
+      textOf(byTestID(renderer, 'guided-level-bar')),
+    );
+
+    // Lean back into the tight band → smoother settles → gate passes.
+    for (let i = 0; i < 10; i++) await actSettle(() => motionState.emitLean(15.5));
+    await waitUntil('in-band lean starts the countdown', () =>
       present(renderer, 'guided-countdown'),
     );
+
     const probeCalls = cameraState.calls.filter(call => call.quality !== 1);
     assert(probeCalls.length >= 7, 'probe stills taken (~1 per interval)', probeCalls.length);
     assert(
@@ -1028,8 +1477,59 @@ async function main(): Promise<void> {
     await actSettle(() => renderer.unmount());
   }
 
-  // ── 11. Native: capture failure recovers ───────────────────────────────
-  section('11. Capture failure recovers into positioning');
+  // ── 14. Native: hold lost resets with a cue ────────────────────────────
+  section('14. Losing the hold resets progress with an audible cue');
+  {
+    await resetScenario('ios');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    setGuidedHoldMs(2000); // long enough to observe banking, break, and restart
+    scriptNativeCamera();
+    const { renderer } = await mountSession();
+
+    await waitUntil('hold scenario reaches positioning', () =>
+      present(renderer, 'guided-angle-banner'),
+    );
+    await waitUntil('motion listening for hold scenario', () => motionState.listeners.size > 0);
+    for (let i = 0; i < 10; i++) await actSettle(() => motionState.emitLean(15));
+    await waitUntil('gate goes green', () =>
+      textOf(byTestID(renderer, 'guided-positioning-hint')).includes('hold still'),
+    );
+    await waitUntil('hold progress becomes visible while banking', () =>
+      present(renderer, 'guided-hold-progress'),
+    );
+    await actSleep(400); // bank ~20% of the 2000ms hold — past the break threshold
+    assert(!present(renderer, 'guided-countdown'), 'countdown still gated mid-hold');
+
+    await actSettle(() => motionState.emitLean(-9)); // one push knocks the smoothed lean out of band
+    await waitUntil('hold-lost cue plays', () => (holdLostPlayer()?.plays ?? 0) >= 1);
+    assert(!present(renderer, 'guided-countdown'), 'break resets — no countdown');
+    await waitUntil('hold progress clears after the break', () =>
+      !present(renderer, 'guided-hold-progress'),
+    );
+    assert(
+      countAnnounced('Lean the phone back a little more.') >= 1,
+      'break re-announces what to fix',
+    );
+
+    // Re-green: the bank must restart from zero (full steady time again).
+    for (let i = 0; i < 10; i++) await actSettle(() => motionState.emitLean(15));
+    const regreenAt = Date.now();
+    await waitUntil(
+      'countdown only after a fresh full hold',
+      () => present(renderer, 'guided-countdown'),
+      15000,
+    );
+    assert(
+      Date.now() - regreenAt >= 1500,
+      'restarted hold takes the full steady time again',
+      Date.now() - regreenAt,
+    );
+    await actSettle(() => renderer.unmount());
+    setGuidedHoldMs(120);
+  }
+
+  // ── 15. Native: capture failure recovers ───────────────────────────────
+  section('15. Capture failure recovers into positioning');
   {
     await resetScenario('ios');
     await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
@@ -1039,6 +1539,9 @@ async function main(): Promise<void> {
     await waitUntil('failure scenario reaches positioning', () =>
       present(renderer, 'guided-angle-banner'),
     );
+    // The gate now strictly requires a live angle, so prop the phone.
+    await waitUntil('failure scenario listening for motion', () => motionState.listeners.size > 0);
+    await actSettle(() => motionState.emitLean(15));
     await waitUntil('capture error appears after shutter jam', () =>
       present(renderer, 'guided-capture-error'),
     );
@@ -1055,16 +1558,23 @@ async function main(): Promise<void> {
     await actSettle(() => renderer.unmount());
   }
 
-  // ── 12. Native: probe-unavailable timed fallback ───────────────────────
-  section('12. Probe-unavailable timed fallback');
+  // ── 16. Native: probe-unavailable fallbacks ────────────────────────────
+  section('16. Probe-unavailable: timed fallback, and tilt-only gate');
   {
+    // A) No probes AND no tilt signal → original timed fallback.
     await resetScenario('ios');
     await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    setGuidedProbeIntervalMs(100); // widen the window between "unavailable" and the timer
     const camera = scriptNativeCamera({ probeUri: () => null }); // every probe fails
     const { renderer } = await mountSession();
 
     await waitUntil('fallback announced after repeated probe misses', () =>
       announcedIncluding('Automatic position check unavailable') > 0,
+    );
+    assert(
+      textOf(byTestID(renderer, 'guided-positioning-hint')).includes('Get set'),
+      'no-probe hint shows get-set copy',
+      textOf(byTestID(renderer, 'guided-positioning-hint')),
     );
     await waitUntil('timed fallback starts the countdown anyway', () =>
       present(renderer, 'guided-countdown'),
@@ -1074,15 +1584,47 @@ async function main(): Promise<void> {
     );
     assertEqual(camera.captures(), 3, 'captures still fire on the timer');
     assertEqual(
-      announcements.filter(a => a.startsWith('Automatic position check unavailable')).length,
+      countAnnounced(
+        'Automatic position check unavailable. Get set — the countdown starts on its own in a few seconds.',
+      ),
       1,
       'unavailable note announced only once',
     );
     await actSettle(() => renderer.unmount());
+
+    // B) No probes but tilt works → the level gate runs the show instead.
+    await resetScenario('ios');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    const tiltCamera = scriptNativeCamera({ probeUri: () => null });
+    const tiltRun = await mountSession();
+    await waitUntil('tilt variant reaches positioning', () =>
+      present(tiltRun.renderer, 'guided-angle-banner'),
+    );
+    await waitUntil('motion listening (tilt variant)', () => motionState.listeners.size > 0);
+    await actSettle(() => motionState.emitLean(15));
+    await waitUntil('tilt-aware unavailable note announced', () =>
+      countAnnounced(
+        'Automatic position check unavailable. The countdown starts once the phone angle holds steady.',
+      ) === 1,
+    );
+    assertEqual(
+      announcedIncluding('starts on its own'),
+      0,
+      'timed-fallback wording not used when tilt still gates',
+    );
+    await waitUntil('tilt-only gate starts the countdown', () =>
+      present(tiltRun.renderer, 'guided-countdown'),
+    );
+    await waitUntil('tilt-only session completes all angles', () =>
+      present(tiltRun.renderer, 'guided-review-save'),
+    );
+    assertEqual(tiltCamera.captures(), 3, 'tilt-only gate still captures all three');
+    await actSettle(() => tiltRun.renderer.unmount());
+    setGuidedProbeIntervalMs(20);
   }
 
-  // ── 13. Native: permission fallback ────────────────────────────────────
-  section('13. Permission fallback');
+  // ── 17. Native: permission fallback ────────────────────────────────────
+  section('17. Permission fallback');
   {
     await resetScenario('ios');
     cameraState.permission = { granted: false, canAskAgain: true, status: 'denied' };
@@ -1119,8 +1661,8 @@ async function main(): Promise<void> {
     await actSettle(() => auto.renderer.unmount());
   }
 
-  // ── 14. Progress screen entry point ────────────────────────────────────
-  section('14. Progress screen entry point + snackbar + grid sources');
+  // ── 18. Progress screen entry point ────────────────────────────────────
+  section('18. Progress screen entry point + snackbar + grid sources');
   {
     await resetScenario('web');
     routerState.pathname = '/progress';
@@ -1181,8 +1723,8 @@ async function main(): Promise<void> {
     await actSettle(() => renderer.unmount());
   }
 
-  // ── 15. Check-in entry point ───────────────────────────────────────────
-  section('15. Check-in entry point');
+  // ── 19. Check-in entry point ───────────────────────────────────────────
+  section('19. Check-in entry point');
   {
     await resetScenario('web');
     routerState.pathname = '/check-in';
@@ -1220,6 +1762,78 @@ async function main(): Promise<void> {
       'singular saved announcement from check-in',
     );
     await actSettle(() => renderer.unmount());
+  }
+
+  // ── 20. Beta-only motion can never start the countdown ────────────────
+  section('20. Native: beta-only motion (no gravity) never auto-starts');
+  {
+    await resetScenario('ios');
+    await AsyncStorageStub.setItem(HIDE_INSTRUCTIONS_KEY, '1');
+    setGuidedEscapeMs(300);
+    scriptNativeCamera(); // probes WORK and frame a ready subject
+    const { renderer } = await mountSession();
+    await waitUntil('beta-only: motion listening', () => motionState.listeners.size > 0);
+
+    // A face-down phone whose gravity vector never arrives: rotation-only
+    // measurements carrying the folded beta that used to read green.
+    const betaTimer = setInterval(() => motionState.emitBetaDegrees(82), 20);
+    try {
+      await waitUntil('tilt declared unavailable', () =>
+        textOf(byTestID(renderer, 'guided-positioning-hint')).includes('Tilt check unavailable'),
+      );
+      assert(
+        announcedIncluding('cannot check its tilt') > 0,
+        'tilt-unavailable announced for screen readers',
+      );
+      assert(!present(renderer, 'guided-level-bar'), 'level bar hidden without a real angle');
+
+      // Frames are ready and betas keep flowing — several full hold
+      // windows pass and the gate must stay shut.
+      await actSleep(600);
+      assert(
+        !present(renderer, 'guided-countdown'),
+        'beta-only motion never auto-starts the countdown',
+      );
+
+      // Only the explicit escape may begin capture.
+      await waitUntil('beta-only: escape offered', () => present(renderer, 'guided-start-anyway'));
+      await tap(renderer, 'guided-start-anyway', 'beta-only Start anyway');
+      await waitUntil('beta-only: escape starts the countdown', () =>
+        present(renderer, 'guided-countdown'),
+      );
+    } finally {
+      clearInterval(betaTimer);
+    }
+    await actSettle(() => renderer.unmount());
+    setGuidedEscapeMs(60000);
+  }
+
+  // ── 21. Production iOS build config ────────────────────────────────────
+  section('21. app.json ships the iOS motion permission');
+  {
+    // The Node suite stubs expo-sensors, so only this guard notices when
+    // the build-time config goes missing: without the expo-sensors plugin
+    // (NSMotionUsageDescription) a production iOS build cannot grant the
+    // DeviceMotion permission the whole line-up gate depends on.
+    const appJson = JSON.parse(readFileSync(new URL('../app.json', import.meta.url), 'utf8')) as {
+      expo?: { plugins?: unknown[] };
+    };
+    const plugins = appJson.expo?.plugins ?? [];
+    const entry = plugins.find(
+      (plugin): plugin is [string, { motionPermission?: unknown }] =>
+        Array.isArray(plugin) && plugin[0] === 'expo-sensors',
+    );
+    assert(entry !== undefined, 'expo-sensors config plugin is registered');
+    const motion = entry?.[1]?.motionPermission;
+    assert(
+      typeof motion === 'string' && motion.trim().length >= 20,
+      'motionPermission carries a real usage description',
+      motion,
+    );
+    assert(
+      typeof motion === 'string' && /tilt|angle|motion/i.test(motion),
+      'permission copy explains the tilt use',
+    );
   }
 
   finish();

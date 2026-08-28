@@ -4,23 +4,28 @@
  * and the app shoots Front, Side, and Back automatically.
  *
  * Stages:
- *  - setup: floor-placement instructions (persisted "hide" preference), a
- *    live tilt meter from the device motion sensor, and the three posing
- *    examples. Returning users who hid the instructions skip straight to
- *    capture — safe, because nothing shoots until positioning confirms.
- *  - positioning (per angle): a cheap on-device check — no AI, no
- *    network — reads tiny probe frames about once a second, compares them
- *    against an adaptive background, and coaches with one huge instruction
- *    at a time (more light, too close, too far, center yourself). A dashed
- *    body outline sized to ~75% of frame height shows where to stand, and
- *    a giant FRONT/SIDE/BACK banner is readable from across the room. The
- *    countdown starts ITSELF once the patient holds steady in the ready
- *    window; "Start now" always works, and when probing is unavailable the
- *    countdown starts on a plain timer instead.
- *  - countdown: a BIG 7-second count with a tick sound and haptic each
- *    second and a distinct capture tone at zero, when the front camera
- *    auto-takes the shot; the next angle's positioning begins so the
- *    patient has time to turn.
+ *  - setup: floor-placement instructions (persisted "hide" preference) and
+ *    the three posing examples. Returning users who hid the instructions
+ *    skip straight to capture — safe, because nothing shoots until the
+ *    line-up gate clears.
+ *  - positioning (per angle): the live LINE-UP stage. A huge vertical
+ *    level bar over the camera preview renders the CONTINUOUS smoothed
+ *    lean angle from the motion sensor (sub-degree, no steps); green only
+ *    inside the tight 12–18° lean-back band for a floor-propped phone —
+ *    tipped toward the floor can never read green. Meanwhile a cheap
+ *    on-device check — no AI, no network — reads tiny probe frames about
+ *    once a second, compares them against an adaptive background, and
+ *    coaches with one huge instruction at a time, on screen and out loud.
+ *    Only when tilt, framing, and light ALL hold green for the steady
+ *    window (progress fills the band) does the countdown start itself;
+ *    losing the lock resets the hold with a falling cue. If the gate stays
+ *    unsatisfied long enough, a plain "Start anyway" appears so nobody is
+ *    stranded — imperfect shots still get flagged at review. When probing
+ *    is unavailable the gate runs on tilt alone, and with no tilt signal
+ *    either, a plain timer keeps the hands-free promise.
+ *  - countdown: a BIG 7-second count — numeral dead center, dimmed outline
+ *    behind it — with a tick sound and haptic each second and a distinct
+ *    capture tone at zero, when the front camera auto-takes the shot.
  *  - review: three labeled shots with per-angle reshoot checkboxes —
  *    reshoot re-runs positioning + countdown for only the chosen angles;
  *    unselected shots are kept. Save silently compresses and uploads the
@@ -29,15 +34,16 @@
  *
  * Camera permission denied (or a camera that fails to start) swaps to the
  * same in-surface fallback style as the meal camera. On web the identical
- * flow runs against a simulated feed: scripted tilt, synthetic probe
- * frames through the SAME detector, and the bundled posing illustrations
- * as captured frames — so the whole session, upload included, demos
- * inside the fit-to-iPhone shell.
+ * flow runs against a simulated feed: a scripted lean settling into the
+ * band and synthetic probe frames, both through the SAME engine — so the
+ * whole line-up, gate included, demos inside the fit-to-iPhone shell.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  Easing,
   Linking,
   Platform,
   Pressable,
@@ -52,19 +58,23 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
-import Svg, { Ellipse, Path } from 'react-native-svg';
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { DeviceMotion } from 'expo-sensors';
 import { Asset } from 'expo-asset';
 import { useColors } from '@/hooks/useColors';
 import { usePatient } from '@/context/PatientContext';
+import { BodyOutline } from '@/components/patient/BodyOutline';
+import { TiltLevelBar } from '@/components/patient/TiltLevelBar';
 import { GUIDED_POSE_IMAGES } from '@/data/guided-photo-images';
-import { CAPTURE_TONE_SOUND, TICK_SOUND } from '@/data/guided-photo-sounds';
+import { CAPTURE_TONE_SOUND, HOLD_LOST_SOUND, TICK_SOUND } from '@/data/guided-photo-sounds';
 import { ENROLLMENT_DAYS, TODAY_KEY } from '@/data/patient-data';
 import {
   COUNTDOWN_SECONDS,
   GUIDED_ANGLES,
   GUIDED_ANGLE_LABELS,
+  getGuidedEscapeMs,
+  getGuidedGateTickMs,
+  getGuidedHoldMs,
   getGuidedProbeIntervalMs,
   getGuidedTickIntervalMs,
   HIDE_INSTRUCTIONS_KEY,
@@ -77,8 +87,10 @@ import {
   makeSimulatedFrame,
   type LumaFrame,
   type PositioningReading,
-  type PositioningStatus,
 } from '@/lib/photo-detection';
+import { createSteadyHold, lineupStatus, type LineupStatus } from '@/lib/lineup';
+import { LINEUP_ANNOUNCEMENTS, LINEUP_HINTS, speakCue, stopCues } from '@/lib/session-feedback';
+import { createLeanSmoother, leanBackDegrees, simulatedLeanAt } from '@/lib/tilt';
 import { probeCameraFrame } from '@/lib/photo-probe';
 import { uploadGuidedShots } from '@/lib/progress-photo-upload';
 
@@ -88,37 +100,6 @@ const CONTROL_SCRIM = 'rgba(16, 22, 31, 0.42)';
 const BAND_SCRIM = 'rgba(14, 20, 29, 0.62)';
 /** Simulated-feed backdrop on web, where live capture is native-only. */
 const DEMO_FEED_BG = '#232E3C';
-/** Outline + ready-state colors over the dark preview. */
-const OUTLINE_IDLE = 'rgba(255, 255, 255, 0.85)';
-const OUTLINE_READY = '#7FD8A4';
-
-/** Tilt-back window (degrees past vertical) for a floor-propped phone. */
-export const TILT_READY_MIN_DEG = 10;
-export const TILT_READY_MAX_DEG = 35;
-
-/** One huge instruction per positioning status — readable from 6 feet. */
-const POSITIONING_HINTS: Record<PositioningStatus, string> = {
-  'too-dark': 'More light needed',
-  'too-bright': 'Too bright — block direct light',
-  'not-detected': 'Step into the outline',
-  'too-far': 'Come a little closer',
-  'too-close': 'Step back a little',
-  'off-center': 'Center yourself',
-  ready: 'Hold still…',
-};
-
-/** Longer spoken versions for screen readers. */
-const POSITIONING_ANNOUNCEMENTS: Record<PositioningStatus, string> = {
-  'too-dark': 'More light needed. Turn on a lamp or open the blinds.',
-  'too-bright': 'Too bright. Angle the phone away from direct light.',
-  'not-detected': 'Step back until your whole body is in view.',
-  'too-far': 'Too far away. Come a little closer.',
-  'too-close': 'Too close. Step back a little.',
-  'off-center': 'Move toward the middle of the frame.',
-  ready: 'In position. Hold still.',
-};
-
-type TiltState = 'checking' | 'unavailable' | 'tilt-back' | 'too-far' | 'ready';
 
 type Stage =
   | { kind: 'setup' }
@@ -126,6 +107,13 @@ type Stage =
   | { kind: 'countdown'; angle: GuidedAngle; secondsLeft: number }
   | { kind: 'review' }
   | { kind: 'saving' };
+
+/** What the line-up UI renders each gate tick. */
+interface LineupView {
+  status: LineupStatus | null;
+  holdProgress: number;
+  leanDeg: number | null;
+}
 
 function announce(message: string): void {
   AccessibilityInfo.announceForAccessibility(message);
@@ -164,127 +152,54 @@ async function writeHideInstructions(hide: boolean): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Tilt meter — DeviceMotion on native, a scripted walk-through on web
-// (no motion sensor reaches the proxied preview iframe).
-// ---------------------------------------------------------------------------
-
-function useTiltMeter(active: boolean): { state: TiltState; degrees: number | null } {
-  const [state, setState] = useState<TiltState>('checking');
-  const [degrees, setDegrees] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!active) return;
-    if (Platform.OS === 'web') {
-      const steps: Array<{ state: TiltState; degrees: number }> = [
-        { state: 'tilt-back', degrees: 4 },
-        { state: 'tilt-back', degrees: 8 },
-        { state: 'ready', degrees: 17 },
-      ];
-      let index = 0;
-      setState(steps[0].state);
-      setDegrees(steps[0].degrees);
-      const timer = setInterval(() => {
-        index += 1;
-        const step = steps[Math.min(index, steps.length - 1)];
-        setState(step.state);
-        setDegrees(step.degrees);
-        if (index >= steps.length - 1) clearInterval(timer);
-      }, 1200);
-      return () => clearInterval(timer);
-    }
-
-    let cancelled = false;
-    let subscription: { remove(): void } | null = null;
-    (async () => {
-      try {
-        const available = await DeviceMotion.isAvailableAsync();
-        if (cancelled) return;
-        if (!available) {
-          setState('unavailable');
-          return;
-        }
-        const permission = await DeviceMotion.requestPermissionsAsync();
-        if (cancelled) return;
-        if (!permission.granted) {
-          setState('unavailable');
-          return;
-        }
-        DeviceMotion.setUpdateInterval(250);
-        subscription = DeviceMotion.addListener(measurement => {
-          const beta = measurement.rotation?.beta;
-          if (typeof beta !== 'number' || Number.isNaN(beta)) return;
-          // beta is the front/back pitch in radians: ~π/2 standing
-          // perfectly upright, 0 lying flat. Lean-back = degrees past
-          // vertical.
-          const lean = 90 - Math.abs((beta * 180) / Math.PI);
-          const rounded = Math.round(lean);
-          setDegrees(rounded);
-          if (rounded < TILT_READY_MIN_DEG) setState('tilt-back');
-          else if (rounded > TILT_READY_MAX_DEG) setState('too-far');
-          else setState('ready');
-        });
-      } catch {
-        if (!cancelled) setState('unavailable');
-      }
-    })();
-    return () => {
-      cancelled = true;
-      subscription?.remove();
-    };
-  }, [active]);
-
-  return { state, degrees };
-}
-
-// ---------------------------------------------------------------------------
-// Countdown sounds (expo-audio). Failures degrade quietly — haptics and
+// Session sounds (expo-audio). Failures degrade quietly — haptics and
 // spoken announcements still carry the rhythm.
 // ---------------------------------------------------------------------------
 
-function useCountdownSounds(): { playTick: () => void; playTone: () => void } {
+function useSessionSounds(): {
+  playTick: () => void;
+  playTone: () => void;
+  playHoldLost: () => void;
+} {
   const tickRef = useRef<AudioPlayer | null>(null);
   const toneRef = useRef<AudioPlayer | null>(null);
+  const holdLostRef = useRef<AudioPlayer | null>(null);
 
   useEffect(() => {
     try {
       void setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
       tickRef.current = createAudioPlayer(TICK_SOUND);
       toneRef.current = createAudioPlayer(CAPTURE_TONE_SOUND);
+      holdLostRef.current = createAudioPlayer(HOLD_LOST_SOUND);
     } catch {
       tickRef.current = null;
       toneRef.current = null;
+      holdLostRef.current = null;
     }
     return () => {
-      try {
-        tickRef.current?.remove();
-      } catch {}
-      try {
-        toneRef.current?.remove();
-      } catch {}
-      tickRef.current = null;
-      toneRef.current = null;
+      for (const ref of [tickRef, toneRef, holdLostRef]) {
+        try {
+          ref.current?.remove();
+        } catch {}
+        ref.current = null;
+      }
     };
   }, []);
 
-  const playTick = useCallback(() => {
+  const playFrom = (ref: React.MutableRefObject<AudioPlayer | null>) => {
     try {
-      const player = tickRef.current;
+      const player = ref.current;
       if (!player) return;
       void player.seekTo(0);
       player.play();
     } catch {}
-  }, []);
+  };
 
-  const playTone = useCallback(() => {
-    try {
-      const player = toneRef.current;
-      if (!player) return;
-      void player.seekTo(0);
-      player.play();
-    } catch {}
-  }, []);
+  const playTick = useCallback(() => playFrom(tickRef), []);
+  const playTone = useCallback(() => playFrom(toneRef), []);
+  const playHoldLost = useCallback(() => playFrom(holdLostRef), []);
 
-  return { playTick, playTone };
+  return { playTick, playTone, playHoldLost };
 }
 
 // ---------------------------------------------------------------------------
@@ -306,36 +221,6 @@ function ErrorNote({ text, testID }: { text: string; testID?: string }) {
     >
       <Feather name="alert-triangle" size={14} color={colors.riskText} />
       <Text style={[styles.errorNoteText, { color: colors.riskText }]}>{text}</Text>
-    </View>
-  );
-}
-
-/** Dashed body outline the patient steps into — ~75% of frame height. */
-function BodyOutline({ ready }: { ready: boolean }) {
-  const stroke = ready ? OUTLINE_READY : OUTLINE_IDLE;
-  return (
-    <View pointerEvents="none" style={styles.outlineWrap} testID="guided-outline">
-      <View style={styles.outlineBox}>
-        <Svg width="100%" height="100%" viewBox="0 0 120 300">
-          <Ellipse
-            cx="60"
-            cy="34"
-            rx="21"
-            ry="24"
-            stroke={stroke}
-            strokeWidth={4}
-            strokeDasharray="10 8"
-            fill={ready ? 'rgba(127, 216, 164, 0.10)' : 'rgba(255, 255, 255, 0.04)'}
-          />
-          <Path
-            d="M47 62 C40 66 30 72 26 84 L14 150 L28 154 L36 112 L34 168 L26 284 L50 284 L58 196 L62 196 L70 284 L94 284 L86 168 L84 112 L92 154 L106 150 L94 84 C90 72 80 66 73 62 C69 60 51 60 47 62 Z"
-            stroke={stroke}
-            strokeWidth={4}
-            strokeDasharray="10 8"
-            fill={ready ? 'rgba(127, 216, 164, 0.10)' : 'rgba(255, 255, 255, 0.04)'}
-          />
-        </Svg>
-      </View>
     </View>
   );
 }
@@ -374,12 +259,19 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const [permission, requestPermission] = useCameraPermissions();
-  const { playTick, playTone } = useCountdownSounds();
+  const { playTick, playTone, playHoldLost } = useSessionSounds();
 
   const [stage, setStage] = useState<Stage>({ kind: 'setup' });
   const [shots, setShots] = useState<Partial<Record<GuidedAngle, GuidedShot>>>({});
-  const [reading, setReading] = useState<PositioningReading | null>(null);
   const [probesAvailable, setProbesAvailable] = useState<boolean | null>(null);
+  const [lineup, setLineup] = useState<LineupView>({ status: null, holdProgress: 0, leanDeg: null });
+  const [showEscape, setShowEscape] = useState(false);
+  // Tilt determination: true once ANY motion reading has arrived, false
+  // once the sensor path is known dead (unavailable, denied, erroring, or
+  // silent past the stall window), null while undetermined. The gate may
+  // only lean on tilt when this is true — and it can NEVER go green
+  // without a live angle (see lib/lineup.ts).
+  const [tiltAvailable, setTiltAvailable] = useState<boolean | null>(null);
   const [reshootSelection, setReshootSelection] = useState<Set<GuidedAngle>>(new Set());
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
@@ -391,14 +283,21 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   const detectorRef = useRef(createSubjectDetector());
   const queueRef = useRef<GuidedAngle[]>([]);
   const uploadedRef = useRef(new Map<GuidedAngle, string>());
-  const lastStatusRef = useRef<PositioningStatus | null>(null);
+  const lastStatusRef = useRef<LineupStatus | null>(null);
+  const readingRef = useRef<PositioningReading | null>(null);
+  const holdRef = useRef(createSteadyHold());
+  const leanSmootherRef = useRef(createLeanSmoother());
+  const leanDegRef = useRef<number | null>(null);
+  const leanAnimRef = useRef(new Animated.Value(0));
   const simStepRef = useRef(0);
+  const simLeanElapsedRef = useRef(0);
   const probeBusyRef = useRef(false);
   const probeMissRef = useRef(0);
   const captureBusyRef = useRef(false);
   const askedRef = useRef(false);
   const autoStartedRef = useRef(false);
   const fallbackAnnouncedRef = useRef(false);
+  const screenReaderOnRef = useRef(false);
   // Hide-instructions value as HYDRATED from storage. Auto-start keys off
   // this, not live state — ticking the checkbox during setup must persist
   // the preference without launching the session out from under the user.
@@ -436,25 +335,55 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     });
   }, []);
 
-  const tiltActive = stage.kind === 'setup' && !fallbackMode;
-  const tilt = useTiltMeter(tiltActive);
-
-  const startRun = useCallback((angles: readonly GuidedAngle[]) => {
-    queueRef.current = [...angles];
-    detectorRef.current.resetHold();
-    lastStatusRef.current = null;
-    setReading(null);
-    setCaptureError(null);
-    const first = queueRef.current[0];
-    if (!first) return;
-    announce(
-      `${GUIDED_ANGLE_LABELS[first]} photo first. Step back about six feet and stand in the outline.`,
-    );
-    setStage({ kind: 'positioning', angle: first });
+  // Spoken cues go quiet while a screen reader runs — VoiceOver/TalkBack
+  // already reads every announcement.
+  useEffect(() => {
+    let disposed = false;
+    void AccessibilityInfo.isScreenReaderEnabled()
+      .then(enabled => {
+        if (!disposed) screenReaderOnRef.current = enabled;
+      })
+      .catch(() => {});
+    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', enabled => {
+      screenReaderOnRef.current = enabled;
+    });
+    return () => {
+      disposed = true;
+      subscription.remove();
+    };
   }, []);
 
+  useEffect(() => () => stopCues(), []);
+
+  const startRun = useCallback(
+    (angles: readonly GuidedAngle[]) => {
+      queueRef.current = [...angles];
+      detectorRef.current.resetHold();
+      holdRef.current.reset();
+      lastStatusRef.current = null;
+      readingRef.current = null;
+      setCaptureError(null);
+      setShowEscape(false);
+      if (isWeb) {
+        // Each web run replays the scripted lean settle from the top.
+        simLeanElapsedRef.current = 0;
+        leanSmootherRef.current.reset();
+        leanDegRef.current = null;
+        setTiltAvailable(null);
+      }
+      setLineup({ status: null, holdProgress: 0, leanDeg: leanDegRef.current });
+      const first = queueRef.current[0];
+      if (!first) return;
+      const message = `${GUIDED_ANGLE_LABELS[first]} photo first. Step back about six feet and stand in the outline.`;
+      announce(message);
+      speakCue(message, screenReaderOnRef.current);
+      setStage({ kind: 'positioning', angle: first });
+    },
+    [isWeb],
+  );
+
   // Returning users who hid the instructions skip straight to capture —
-  // nothing shoots until positioning (or its manual button) says so.
+  // nothing shoots until the line-up gate (or its escape button) says so.
   useEffect(() => {
     if (autoStartedRef.current || initialHidePrefRef.current !== true) return;
     if (stage.kind !== 'setup' || fallbackMode) return;
@@ -466,17 +395,90 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   const beginCountdown = useCallback((angle: GuidedAngle) => {
     setStage(current => {
       if (current.kind !== 'positioning' || current.angle !== angle) return current;
-      announce(`In position. Taking the ${GUIDED_ANGLE_LABELS[angle].toLowerCase()} photo in ${COUNTDOWN_SECONDS} seconds. Hold still.`);
+      const message = `In position. Taking the ${GUIDED_ANGLE_LABELS[angle].toLowerCase()} photo in ${COUNTDOWN_SECONDS} seconds. Hold still.`;
+      announce(message);
+      speakCue(message, screenReaderOnRef.current);
       return { kind: 'countdown', angle, secondsLeft: COUNTDOWN_SECONDS };
     });
   }, []);
+
+  // ── Live lean angle ───────────────────────────────────────────────────
+  // The smoothed signed lean lives in a ref (the gate samples it) and in
+  // an Animated value (the bar's indicator glides without re-rendering
+  // per sample).
+  const animateLean = useCallback((deg: number) => {
+    Animated.timing(leanAnimRef.current, {
+      toValue: deg,
+      duration: 90,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
+  }, []);
+
+  // Native: DeviceMotion at 50 ms. Gravity carries the unambiguous sign —
+  // see lib/tilt.ts for why beta alone reads face-down as leaned-back.
+  useEffect(() => {
+    if (stage.kind !== 'positioning' || isWeb) return;
+    let cancelled = false;
+    let subscription: { remove(): void } | null = null;
+    (async () => {
+      try {
+        const available = await DeviceMotion.isAvailableAsync();
+        if (cancelled) return;
+        if (!available) {
+          setTiltAvailable(false);
+          return;
+        }
+        const motionPermission = await DeviceMotion.requestPermissionsAsync();
+        if (cancelled) return;
+        if (!motionPermission.granted) {
+          setTiltAvailable(false);
+          return;
+        }
+        DeviceMotion.setUpdateInterval(50);
+        subscription = DeviceMotion.addListener(measurement => {
+          const lean = leanBackDegrees({
+            gravityY: measurement.accelerationIncludingGravity?.y ?? null,
+            gravityZ: measurement.accelerationIncludingGravity?.z ?? null,
+          });
+          if (lean === null) return;
+          const smoothed = leanSmootherRef.current.push(lean);
+          leanDegRef.current = smoothed;
+          setTiltAvailable(true);
+          animateLean(smoothed);
+        });
+      } catch {
+        // Motion stack broken — tilt is unavailable, never guessed. The
+        // gate stays shut; only the explicit escape can start capture.
+        if (!cancelled) setTiltAvailable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [stage.kind, isWeb, animateLean]);
+
+  // Web: the scripted lean settles into the band through the SAME
+  // smoothing pipeline. Virtual time advances on the probe-interval scale
+  // so shortened demo/suite knobs play the settle proportionally faster.
+  useEffect(() => {
+    if (stage.kind !== 'positioning' || !isWeb) return;
+    const timer = setInterval(() => {
+      simLeanElapsedRef.current += 50 * (1000 / getGuidedProbeIntervalMs());
+      const smoothed = leanSmootherRef.current.push(simulatedLeanAt(simLeanElapsedRef.current));
+      leanDegRef.current = smoothed;
+      setTiltAvailable(true);
+      animateLean(smoothed);
+    }, 50);
+    return () => clearInterval(timer);
+  }, [stage.kind, isWeb, animateLean]);
 
   // ── Positioning probe loop ────────────────────────────────────────────
   // ~1 Hz tiny frames through the adaptive detector; web feeds synthetic
   // frames through the SAME code path so the demo behaves like the phone.
   useEffect(() => {
     if (stage.kind !== 'positioning') return;
-    const angle = stage.angle;
     let disposed = false;
     const timer = setInterval(() => {
       if (disposed || probeBusyRef.current) return;
@@ -503,9 +505,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
           if (disposed || !frame) return;
           probeMissRef.current = 0;
           setProbesAvailable(true);
-          const next = detectorRef.current.push(frame);
-          setReading(next);
-          if (next.shouldStartCountdown) beginCountdown(angle);
+          readingRef.current = detectorRef.current.push(frame);
         } finally {
           probeBusyRef.current = false;
         }
@@ -515,7 +515,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       disposed = true;
       clearInterval(timer);
     };
-  }, [stage, isWeb, cameraReady, beginCountdown]);
+  }, [stage.kind, isWeb, cameraReady]);
 
   // If probing never produces a verdict (camera never ready, manipulator
   // missing), declare it unavailable rather than waiting forever.
@@ -527,29 +527,103 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     return () => clearTimeout(timer);
   }, [stage, probesAvailable, isWeb]);
 
-  // Probe-unavailable fallback: the hands-free promise still holds — the
-  // countdown starts itself on a plain timer after a settling pause.
+  // Same determination for tilt: a sensor that never delivers a sample is
+  // declared unavailable — announced and gated around, never guessed.
+  useEffect(() => {
+    if (stage.kind !== 'positioning' || tiltAvailable !== null || isWeb) return;
+    const timer = setTimeout(() => {
+      setTiltAvailable(current => (current === null ? false : current));
+    }, 6 * getGuidedProbeIntervalMs());
+    return () => clearTimeout(timer);
+  }, [stage, tiltAvailable, isWeb]);
+
+  // ── The steady gate ───────────────────────────────────────────────────
+  // Tilt + framing + light collapse into one status at a fast tick; all
+  // green for the hold window auto-starts the countdown, and losing the
+  // lock resets the bank with a falling cue.
+  useEffect(() => {
+    if (stage.kind !== 'positioning') return;
+    const angle = stage.angle;
+    const timer = setInterval(() => {
+      const status = lineupStatus({
+        leanDeg: leanDegRef.current,
+        tiltAvailable,
+        reading: readingRef.current,
+        probesAvailable,
+      });
+      const verdict = holdRef.current.update(status === 'ready', Date.now(), getGuidedHoldMs());
+      if (verdict.broke) {
+        playHoldLost();
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }
+      setLineup(current =>
+        current.status === status &&
+        current.leanDeg === leanDegRef.current &&
+        Math.abs(current.holdProgress - verdict.progress) < 0.005
+          ? current
+          : { status, holdProgress: verdict.progress, leanDeg: leanDegRef.current },
+      );
+      if (verdict.satisfied) beginCountdown(angle);
+    }, getGuidedGateTickMs());
+    return () => clearInterval(timer);
+  }, [stage, probesAvailable, tiltAvailable, beginCountdown, playHoldLost]);
+
+  // The escape hatch: prolonged failure to satisfy the gate surfaces a
+  // plain "Start anyway" so nobody gets stranded.
+  useEffect(() => {
+    if (stage.kind !== 'positioning') return;
+    setShowEscape(false);
+    const timer = setTimeout(() => {
+      setShowEscape(true);
+      const message = 'Taking a while to line up — you can start the countdown anyway when you are set.';
+      announce(message);
+      speakCue(message, screenReaderOnRef.current);
+    }, getGuidedEscapeMs());
+    return () => clearTimeout(timer);
+  }, [stage]);
+
+  // Probe-unavailable: with a tilt signal the gate honestly checks the
+  // angle alone; with nothing to gate on at all, the hands-free promise
+  // still holds — the countdown starts itself on a plain timer.
   useEffect(() => {
     if (stage.kind !== 'positioning' || probesAvailable !== false) return;
     if (!fallbackAnnouncedRef.current) {
       fallbackAnnouncedRef.current = true;
-      announce('Automatic position check unavailable. Get set — the countdown starts on its own in a few seconds.');
+      if (tiltAvailable === true) {
+        const message =
+          'Automatic position check unavailable. The countdown starts once the phone angle holds steady.';
+        announce(message);
+        speakCue(message, screenReaderOnRef.current);
+      } else {
+        announce('Automatic position check unavailable. Get set — the countdown starts on its own in a few seconds.');
+      }
     }
+    if (tiltAvailable === true) return;
     const timer = setTimeout(
       () => beginCountdown(stage.angle),
       4 * getGuidedProbeIntervalMs(),
     );
     return () => clearTimeout(timer);
-  }, [stage, probesAvailable, beginCountdown]);
+  }, [stage, probesAvailable, tiltAvailable, beginCountdown]);
 
-  // Speak positioning coaching only when the status CHANGES — once a
-  // second would drown the countdown for screen-reader users.
+  // Coach only when the status CHANGES — every tick would drown the room.
+  // The first verdict stays silent when it merely repeats the angle intro
+  // ("step back and stand in the outline"); a probe-unavailable "ready" is
+  // a tilt-only verdict, so no "In position" claim either.
   useEffect(() => {
-    if (stage.kind !== 'positioning' || !reading) return;
-    if (lastStatusRef.current === reading.status) return;
-    lastStatusRef.current = reading.status;
-    announce(POSITIONING_ANNOUNCEMENTS[reading.status]);
-  }, [stage, reading]);
+    if (stage.kind !== 'positioning' || !lineup.status) return;
+    if (lastStatusRef.current === lineup.status) return;
+    const first = lastStatusRef.current === null;
+    lastStatusRef.current = lineup.status;
+    if (first && lineup.status === 'not-detected') return;
+    if (lineup.status === 'ready' && probesAvailable === false) return;
+    // Probes-gone runs tell their own fallback story; a tilt-unavailable
+    // status on top would contradict the timed-start message.
+    if (lineup.status === 'tilt-unavailable' && probesAvailable === false) return;
+    const message = LINEUP_ANNOUNCEMENTS[lineup.status];
+    announce(message);
+    speakCue(message, screenReaderOnRef.current);
+  }, [stage, lineup.status, probesAvailable]);
 
   // ── Capture ───────────────────────────────────────────────────────────
 
@@ -558,14 +632,20 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     const next = queueRef.current[0];
     if (!next) {
       setStage({ kind: 'review' });
-      announce('All photos captured. Review your shots.');
+      const done = 'All photos captured. Review your shots.';
+      announce(done);
+      speakCue(done, screenReaderOnRef.current);
       return;
     }
     detectorRef.current.resetHold();
+    holdRef.current.reset();
     lastStatusRef.current = null;
-    setReading(null);
+    readingRef.current = null;
+    setLineup({ status: null, holdProgress: 0, leanDeg: leanDegRef.current });
     setStage({ kind: 'positioning', angle: next });
-    announce(`Now the ${GUIDED_ANGLE_LABELS[next].toLowerCase()} photo. Turn, then hold still in the outline.`);
+    const message = `Now the ${GUIDED_ANGLE_LABELS[next].toLowerCase()} photo. Turn, then hold still in the outline.`;
+    announce(message);
+    speakCue(message, screenReaderOnRef.current);
   }, []);
 
   const captureAngle = useCallback(
@@ -598,8 +678,10 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       if (!shot) {
         setCaptureError('That shot did not go through. Get back into position and it will retry.');
         detectorRef.current.resetHold();
+        holdRef.current.reset();
         lastStatusRef.current = null;
-        setReading(null);
+        readingRef.current = null;
+        setLineup({ status: null, holdProgress: 0, leanDeg: leanDegRef.current });
         setStage({ kind: 'positioning', angle });
         return;
       }
@@ -804,9 +886,9 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
           <ScrollView contentContainerStyle={[styles.sheetBody, { paddingBottom: bottomPad + 12 }]}>
             <View style={[styles.stepCard, { backgroundColor: colors.paperCard, borderColor: colors.border, borderRadius: colors.radiusSm }]}>
               {[
-                { icon: 'smartphone' as const, text: 'Prop your phone on the floor against a wall, screen facing you, leaning slightly back.' },
+                { icon: 'smartphone' as const, text: 'Prop your phone on the floor against a wall, screen facing you, leaning slightly back — the big level bar on the next screen turns green at the right lean.' },
                 { icon: 'user' as const, text: 'Use the front camera and step back about 6 feet so your whole body is in view.' },
-                { icon: 'clock' as const, text: 'The app checks your position, counts down from 7, and takes Front, Side, and Back shots by itself.' },
+                { icon: 'clock' as const, text: 'Once your angle and position hold steady, the app counts down from 7 and takes Front, Side, and Back shots by itself.' },
               ].map((step, index) => (
                 <View key={step.icon} style={[styles.stepRow, index > 0 && { marginTop: 12 }]}>
                   <View style={[styles.stepIcon, { backgroundColor: colors.sidebarBg, borderColor: colors.border }]}>
@@ -815,59 +897,6 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
                   <Text style={[styles.stepText, { color: colors.bodyText }]}>{step.text}</Text>
                 </View>
               ))}
-            </View>
-
-            {/* Tilt meter */}
-            <View
-              testID="guided-tilt"
-              accessible
-              accessibilityLabel={
-                tilt.state === 'unavailable'
-                  ? 'Tilt guide unavailable on this device. Prop the phone leaning slightly back.'
-                  : tilt.state === 'checking'
-                    ? 'Checking phone angle.'
-                    : tilt.state === 'ready'
-                      ? 'Phone angle is good.'
-                      : tilt.state === 'tilt-back'
-                        ? 'Tilt the phone back a little more.'
-                        : 'Phone is tilted too far back.'
-              }
-              style={[styles.tiltCard, { backgroundColor: colors.paperCard, borderColor: colors.border, borderRadius: colors.radiusSm }]}
-            >
-              <Text style={[styles.tiltLabel, { color: colors.labelText }]}>PHONE ANGLE</Text>
-              {tilt.state === 'unavailable' ? (
-                <Text style={[styles.tiltNote, { color: colors.subtleText }]}>
-                  Tilt guide unavailable on this device — prop the phone leaning slightly back and you're set.
-                </Text>
-              ) : (
-                <>
-                  <View style={[styles.tiltTrack, { backgroundColor: colors.sidebarBg, borderColor: colors.border }]}>
-                    <View style={[styles.tiltReadyZone, { backgroundColor: 'rgba(127, 216, 164, 0.35)', borderColor: OUTLINE_READY }]} />
-                    {tilt.degrees !== null ? (
-                      <View
-                        style={[
-                          styles.tiltNeedle,
-                          {
-                            backgroundColor: tilt.state === 'ready' ? '#2E7D53' : colors.cobalt,
-                            left: `${Math.min(Math.max(tilt.degrees, 0), 45) / 45 * 100}%`,
-                          },
-                        ]}
-                      />
-                    ) : null}
-                  </View>
-                  <Text
-                    style={[
-                      styles.tiltHint,
-                      { color: tilt.state === 'ready' ? '#2E7D53' : colors.bodyText },
-                    ]}
-                  >
-                    {tilt.state === 'checking' && 'Checking phone angle…'}
-                    {tilt.state === 'tilt-back' && 'Tilt the phone back a little more'}
-                    {tilt.state === 'too-far' && 'Tilted too far back — stand it up a little'}
-                    {tilt.state === 'ready' && 'Angle is good — you are set'}
-                  </Text>
-                </>
-              )}
             </View>
 
             {/* Posing examples */}
@@ -941,10 +970,16 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
         </View>
       ) : null}
 
-      {/* ── Positioning ── */}
+      {/* ── Positioning (the line-up stage) ── */}
       {stage.kind === 'positioning' ? (
         <>
-          <BodyOutline ready={reading?.status === 'ready'} />
+          <BodyOutline angle={stage.angle} ready={lineup.status === 'ready'} />
+          <TiltLevelBar
+            leanAnim={leanAnimRef.current}
+            leanDeg={lineup.leanDeg}
+            holdProgress={lineup.holdProgress}
+            holdActive={lineup.status === 'ready'}
+          />
           <View style={[styles.captureTop, { paddingTop: topPad }]} pointerEvents="box-none">
             <View style={styles.bannerBand} accessible accessibilityLabel={`${GUIDED_ANGLE_LABELS[stage.angle]} photo`}>
               <Text testID="guided-angle-banner" style={styles.bannerText}>
@@ -966,25 +1001,27 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
             {captureError ? <ErrorNote text={captureError} testID="guided-capture-error" /> : null}
             <View style={styles.hintBand}>
               <Text testID="guided-positioning-hint" style={styles.hintText}>
-                {probesAvailable === false
+                {probesAvailable === false && tiltAvailable !== true
                   ? 'Get set — starting shortly'
-                  : reading
-                    ? POSITIONING_HINTS[reading.status]
+                  : lineup.status
+                    ? LINEUP_HINTS[lineup.status]
                     : 'Step back about 6 feet'}
               </Text>
             </View>
-            <Pressable
-              testID="guided-start-now"
-              accessibilityRole="button"
-              accessibilityLabel="Start the countdown now"
-              onPress={() => {
-                void Haptics.selectionAsync().catch(() => {});
-                beginCountdown(stage.angle);
-              }}
-              style={({ pressed }) => [styles.startNowBtn, pressed && { opacity: 0.8 }]}
-            >
-              <Text style={styles.startNowText}>Start now</Text>
-            </Pressable>
+            {showEscape ? (
+              <Pressable
+                testID="guided-start-anyway"
+                accessibilityRole="button"
+                accessibilityLabel="Start the countdown anyway"
+                onPress={() => {
+                  void Haptics.selectionAsync().catch(() => {});
+                  beginCountdown(stage.angle);
+                }}
+                style={({ pressed }) => [styles.escapeBtn, pressed && { opacity: 0.8 }]}
+              >
+                <Text style={styles.escapeText}>Start anyway</Text>
+              </Pressable>
+            ) : null}
           </View>
         </>
       ) : null}
@@ -992,6 +1029,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       {/* ── Countdown ── */}
       {stage.kind === 'countdown' ? (
         <>
+          <BodyOutline angle={stage.angle} ready dim />
           <View style={[styles.captureTop, { paddingTop: topPad }]} pointerEvents="box-none">
             <View style={styles.bannerBand} accessible accessibilityLabel={`${GUIDED_ANGLE_LABELS[stage.angle]} photo countdown`}>
               <Text testID="guided-angle-banner" style={styles.bannerText}>
@@ -1174,49 +1212,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  tiltCard: {
-    borderWidth: 1,
-    padding: 14,
-    marginTop: 12,
-  },
-  tiltLabel: {
-    fontSize: 11,
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: 1.2,
-    marginBottom: 10,
-  },
-  tiltNote: {
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  tiltTrack: {
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  tiltReadyZone: {
-    position: 'absolute',
-    left: '22.2%',
-    width: '55.6%',
-    top: 0,
-    bottom: 0,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-  },
-  tiltNeedle: {
-    position: 'absolute',
-    top: -2,
-    bottom: -2,
-    width: 4,
-    borderRadius: 2,
-    marginLeft: -2,
-  },
-  tiltHint: {
-    fontSize: 13,
-    fontFamily: 'Inter_600SemiBold',
-    marginTop: 8,
-  },
   posesLabel: {
     fontSize: 11,
     fontFamily: 'Inter_700Bold',
@@ -1305,15 +1300,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  outlineWrap: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  outlineBox: {
-    height: '75%',
-    aspectRatio: 120 / 300,
-  },
   captureBottom: {
     position: 'absolute',
     left: 0,
@@ -1337,7 +1323,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     textAlign: 'center',
   },
-  startNowBtn: {
+  escapeBtn: {
     backgroundColor: CONTROL_SCRIM,
     borderColor: 'rgba(255,255,255,0.55)',
     borderWidth: 1.5,
@@ -1345,7 +1331,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 10,
   },
-  startNowText: {
+  escapeText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontFamily: 'Inter_700Bold',
@@ -1396,8 +1382,8 @@ const styles = StyleSheet.create({
   },
   demoBadge: {
     position: 'absolute',
-    top: '50%',
-    alignSelf: 'center',
+    left: 10,
+    bottom: '31%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,

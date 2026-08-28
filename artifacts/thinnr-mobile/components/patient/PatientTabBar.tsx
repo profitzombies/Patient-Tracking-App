@@ -19,6 +19,12 @@
  * accessibility: every button carries an explicit role, name, and selected
  * state, because a custom label silently drops the name react-navigation
  * would otherwise supply.
+ *
+ * The active seat is marked by lighting the whole seat — a pale cobalt
+ * capsule behind its icon and label — not by an underline. An underline
+ * has to be paid for out of the seat's height, which pushed every icon in
+ * the bar upward off centre for the sake of marking one of them; the
+ * capsule marks the seat without taking any vertical space from it.
  */
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -36,6 +42,14 @@ import {
 } from '@/constants/layout';
 
 const BAR_SHADOW = '0 10px 26px rgba(23, 32, 46, 0.18)';
+
+/**
+ * A seat fills the capsule's inner height minus a hairline of breathing
+ * room, so the lit seat reads as a capsule inside a capsule and every
+ * icon sits on the bar's true vertical centre.
+ */
+const SEAT_INSET = 6;
+const SEAT_HEIGHT = PATIENT_BAR_HEIGHT - SEAT_INSET * 2;
 
 interface BarItem {
   key: string;
@@ -121,7 +135,14 @@ export function PatientTabBar() {
             accessibilityState={{ selected: active }}
             aria-selected={active}
             onPress={() => press(item)}
-            style={({ pressed }) => [styles.item, pressed && { opacity: 0.7 }]}
+            style={({ pressed }) => [
+              styles.item,
+              {
+                borderRadius: SEAT_HEIGHT / 2,
+                backgroundColor: active ? colors.accent : 'transparent',
+              },
+              pressed && { opacity: 0.7 },
+            ]}
           >
             {isIOS ? (
               <SymbolView name={item.sf} tintColor={tint} size={21} />
@@ -139,13 +160,6 @@ export function PatientTabBar() {
             >
               {item.label}
             </Text>
-            {/* The Heritage active tick the old bar carried. */}
-            <View
-              style={[
-                styles.tick,
-                { backgroundColor: active ? colors.orange : 'transparent' },
-              ]}
-            />
           </Pressable>
         );
       })}
@@ -163,17 +177,12 @@ const styles = StyleSheet.create({
   },
   item: {
     flex: 1,
+    height: SEAT_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    paddingVertical: 6,
   },
   label: {
     fontSize: 10,
-  },
-  tick: {
-    height: 3,
-    width: 16,
-    borderRadius: 1.5,
   },
 });

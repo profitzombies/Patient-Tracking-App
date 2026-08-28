@@ -16,10 +16,12 @@
  *      navigator itself draws no bar, and the two floating surfaces share
  *      one row that they can never overlap in.
  *   2. Pill bar — four seats in order, each with a real accessible name and
- *      selected state (a hand-rolled bar owes its own a11y), the Heritage
- *      orange tick on the active seat, SF Symbols on iOS / Feather
- *      elsewhere, tab-navigate + skip-when-already-there for the three
- *      screens, and a push for the coach chat that stacks over them.
+ *      selected state (a hand-rolled bar owes its own a11y), the active
+ *      seat lit as a pale cobalt capsule (never an underline, which stole
+ *      height from every seat and pushed the icons off centre), SF Symbols
+ *      on iOS / Feather elsewhere, tab-navigate + skip-when-already-there
+ *      for the three screens, and a push for the coach chat that stacks
+ *      over them.
  *   3. Menu parity — identical card structure to staff: labelled section
  *      groups, icon-chip rows in order, divider, cobalt primary button;
  *      identical open/close accessibility contract (button roles, expanded
@@ -209,6 +211,17 @@ function nodeKids(node: TestNode): TestNode[] {
 
 function orangeTicks(node: TestNode): number {
   return node.findAll(n => isHost(n) && flattenStyle(n.props.style).backgroundColor === colors.light.orange)
+    .length;
+}
+
+/**
+ * Seats in the pill bar mark themselves by lighting the whole seat (a pale
+ * cobalt capsule), not by an underline: the underline had to come out of
+ * the seat's own height, which shifted every icon in the bar upward to
+ * make room for a marker only one seat ever showed.
+ */
+function litSeats(node: TestNode): number {
+  return node.findAll(n => isHost(n) && flattenStyle(n.props.style).backgroundColor === colors.light.accent)
     .length;
 }
 
@@ -511,7 +524,38 @@ async function main(): Promise<void> {
       String(Boolean((node.props.accessibilityState as { selected?: boolean } | undefined)?.selected)),
       String(active),
     );
-    assertEqual(`seat ${seat.key} active tick on /today`, orangeTicks(node), active ? 1 : 0);
+    // The marker IS the seat: the seat Pressable itself carries the lit
+    // capsule, sized to the bar's inner height, so nothing above or below
+    // the icon moves between the lit and unlit states. Expected numbers are
+    // spelled out here rather than imported from the component — a test
+    // that reads its own expectation out of the code under test would wave
+    // any future re-shuffle straight through.
+    const seatStyle = flattenStyle(node.props.style);
+    assertEqual(`seat ${seat.key} fills the capsule's inner height`, Number(seatStyle.height), 48);
+    assertEqual(`seat ${seat.key} is capsule-shaped`, Number(seatStyle.borderRadius), 24);
+    assertEqual(
+      `seat ${seat.key} leaves 6pt of bar above and below`,
+      PATIENT_BAR_HEIGHT - Number(seatStyle.height),
+      12,
+    );
+    assertEqual(`seat ${seat.key} centers its glyph`, String(seatStyle.justifyContent), 'center');
+    assertEqual(`seat ${seat.key} adds no vertical padding`, seatStyle.paddingVertical ?? 0, 0);
+    // The lit background belongs to the seat itself, and unlit seats stay
+    // fully transparent — a seat that painted a nested box would reintroduce
+    // exactly the height-stealing marker this replaced.
+    assertEqual(
+      `seat ${seat.key} background on /today`,
+      String(seatStyle.backgroundColor),
+      active ? colors.light.accent : 'transparent',
+    );
+    assertEqual(`seat ${seat.key} lights nothing but itself`, litSeats(node), active ? 1 : 0);
+    // No decorative child of any color may return: the seat holds its glyph
+    // and its label, nothing else. A tick/underline would show up here as a
+    // childless host box, whatever color it was painted.
+    const decorations = node.findAll(
+      n => isHost(n) && n !== node && n.type === 'View' && n.findAll(inner => isHost(inner) && inner !== n).length === 0,
+    );
+    assertEqual(`seat ${seat.key} draws no underline or tick`, decorations.length, 0);
     const feather = node.findAll(n => isHost(n) && n.type === 'Feather')[0];
     assertEqual(`web seat ${seat.key} glyph`, String(feather?.props.name), seat.feather);
     assertEqual(`web seat ${seat.key} draws no SF symbol`, node.findAll(n => isHost(n) && n.type === 'SymbolView').length, 0);
@@ -555,7 +599,7 @@ async function main(): Promise<void> {
     String((diarySeat?.props.accessibilityState as { selected?: boolean } | undefined)?.selected),
     'true',
   );
-  assertEqual('on /diary: exactly one seat is ticked', orangeTicks(only(rerender.root, 'patient-tab-bar')!), 1);
+  assertEqual('on /diary: exactly one seat is lit', litSeats(only(rerender.root, 'patient-tab-bar')!), 1);
   unmount(rerender);
 
   // Library and Plan live in the menu, not the bar: on those screens NO seat
@@ -564,7 +608,7 @@ async function main(): Promise<void> {
   (['/recipes', '/plan'] as const).forEach(where => {
     routerState.pathname = where;
     const tree = render(h(PatientTabLayout));
-    assertEqual(`on ${where}: no seat is ticked`, orangeTicks(only(tree.root, 'patient-tab-bar')!), 0);
+    assertEqual(`on ${where}: no seat is lit`, litSeats(only(tree.root, 'patient-tab-bar')!), 0);
     SEATS.forEach(seat => {
       const node = only(tree.root, `patient-tab-${seat.key}`);
       assertEqual(

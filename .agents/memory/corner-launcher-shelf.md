@@ -14,6 +14,7 @@ Both personas' bottom-right launcher (navy 56px circle + cream popout menu) rend
 **Consequences to respect:**
 - A hand-rolled bar owes its own accessibility: `tablist` container + `tab` seats + selected state (set both the RN `accessibilityRole` and the web `role`). As plain buttons it silently loses "tab 2 of 4, selected".
 - Screens the bar has no seat for must light NO seat — the menu row carries the marker instead. A bar that lies about location is worse than one with nothing lit.
+- The active seat is marked by lighting the WHOLE seat (pale cobalt capsule the size of the seat), never an underline/tick. **Why:** an underline has to be paid for out of the seat's own height, so every icon in the bar shifts upward to reserve space for a marker only one seat ever shows — the user read the whole bar as misaligned. Any future marker must cost zero vertical space.
 - Dropping the iOS liquid-glass `NativeTabs` branch is deliberate: a system bar cannot coexist with a custom pill.
 
 **Stacking is centralized in `constants/layout.ts`** — bar bottom → FAB bottom (centered on the bar) → snackbar (bar top + 12) → scroll content padding. The snackbar deliberately rides ABOVE the row because its corner UNDO would otherwise sit under the circle.

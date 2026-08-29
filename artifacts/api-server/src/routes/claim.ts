@@ -53,6 +53,16 @@ export const CLAIM_COMPLETE_PATH = "/claim/complete";
 export const CLAIM_WHOAMI_PATH = "/claim/whoami";
 export const CLAIM_ADD_PHONE_PATH = "/claim/add-phone";
 export const CLAIM_ADD_PHONE_VERIFY_PATH = "/claim/add-phone/verify";
+export const CLAIM_TEST_STATE_PATH = "/claim/test-state";
+
+const CLAIM_TEST_PATIENT_ID = "93c85218-e8c2-409a-966b-a8a5bd98cdbb";
+const CLAIM_TEST_PHONE = "+18135145141";
+const CLAIM_TEST_SCENARIOS = new Set([
+  "claim_phone",
+  "recover_phone",
+  "claim_email",
+  "recover_email",
+]);
 
 /** Shown for every identify request, match or not. */
 const NEUTRAL_MESSAGE =
@@ -735,6 +745,176 @@ function bearerToken(req: { headers: Record<string, unknown> }): string | null {
   const token = header.slice(7).trim();
   return token.length > 0 ? token : null;
 }
+
+interface ClaimTestPatient {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  auth_user_id: string;
+  claimed_at: string | null;
+}
+
+async function authorizedClaimTestPatient(
+  req: { headers: Record<string, unknown> },
+): Promise<
+  | { kind: "ok"; user: { id: string; email: string | null; phone: string | null }; patient: ClaimTestPatient }
+  | { kind: "unauthorized" }
+  | { kind: "unavailable" }
+  | { kind: "forbidden" }
+> {
+  const token = bearerToken(req);
+  if (!token) return { kind: "unauthorized" };
+  let user;
+  try {
+    user = await fetchAuthUser(token);
+  } catch {
+    return { kind: "unavailable" };
+  }
+  if (!user) return { kind: "unauthorized" };
+  const found = await supabaseAdmin(
+    "GET",
+    `/rest/v1/patients?id=eq.${CLAIM_TEST_PATIENT_ID}&auth_user_id=eq.${enc(user.id)}&select=id,name,email,phone,auth_user_id,claimed_at`,
+  );
+  if (found.status >= 300) throw new Error(`test patient authorization failed (${found.status})`);
+  if (!Array.isArray(found.json) || found.json.length !== 1) return { kind: "forbidden" };
+  return { kind: "ok", user, patient: found.json[0] as ClaimTestPatient };
+}
+
+function maskedContact(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = normalizeIdentifier(value);
+  return normalized ? maskIdentifier(normalized) : null;
+}
+
+async function inspectClaimTestState(ownerId: string): Promise<{ collision: boolean }> {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/claim_test_state_inspect", {
+    p_patient_id: CLAIM_TEST_PATIENT_ID,
+    p_owner_auth_user_id: ownerId,
+    p_approved_phone: CLAIM_TEST_PHONE,
+  });
+  if (result.status >= 300) throw new Error(`test state inspection failed (${result.status})`);
+  const value = Array.isArray(result.json) ? result.json[0] : result.json;
+  return { collision: value?.collision !== false };
+}
+
+router.get(CLAIM_TEST_STATE_PATH, async (req, res) => {
+  try {
+    const auth = await authorizedClaimTestPatient(req);
+    if (auth.kind === "unauthorized") {
+      res.status(401).json({ error: "Sign in required." });
+      return;
+    }
+    if (auth.kind === "unavailable") {
+      res.status(503).json({ error: "Account lookup is unavailable right now." });
+      return;
+    }
+    if (auth.kind === "forbidden") {
+      res.status(403).json({ error: "This test state belongs to a different account." });
+      return;
+    }
+    if ((await inspectClaimTestState(auth.user.id)).collision) {
+      res.status(409).json({ error: "The test state has a contact collision and cannot be used." });
+      return;
+    }
+    const patient = auth.patient;
+    res.json({
+      patient: {
+        name: patient.name,
+        emailMasked: maskedContact(patient.email),
+        phoneMasked: maskedContact(patient.phone),
+      },
+      state: {
+        claimed: Boolean(patient.auth_user_id),
+        hasPhone: Boolean(patient.phone),
+        hasEmail: Boolean(patient.email),
+      },
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "claim test state inspection failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
+
+router.post(CLAIM_TEST_STATE_PATH, async (req, res) => {
+  try {
+    const auth = await authorizedClaimTestPatient(req);
+    if (auth.kind === "unauthorized") {
+      res.status(401).json({ error: "Sign in required." });
+      return;
+    }
+    if (auth.kind === "unavailable") {
+      res.status(503).json({ error: "Account lookup is unavailable right now." });
+      return;
+    }
+    if (auth.kind === "forbidden") {
+      res.status(403).json({ error: "This test state belongs to a different account." });
+      return;
+    }
+    const scenario = (req.body ?? {}).scenario;
+    if (typeof scenario !== "string" || !CLAIM_TEST_SCENARIOS.has(scenario)) {
+      res.status(400).json({ error: "Choose a valid claim test scenario.", field: "scenario" });
+      return;
+    }
+    if ((await inspectClaimTestState(auth.user.id)).collision) {
+      res.status(409).json({ error: "The test state has a contact collision and cannot be used." });
+      return;
+    }
+
+    let authContactChanged = false;
+    if (scenario.startsWith("recover_")) {
+      const identifier = scenario === "recover_phone" ? CLAIM_TEST_PHONE : auth.patient.email;
+      if (!identifier) throw new Error("test patient email missing");
+      try {
+        const update =
+          scenario === "recover_phone"
+            ? { phone: identifier, phone_confirm: true }
+            : { email: identifier, email_confirm: true };
+        const updated = await supabaseAdmin("PUT", `/auth/v1/admin/users/${auth.user.id}`, update);
+        if (updated.status >= 300) throw new Error(`test login contact update failed (${updated.status})`);
+        authContactChanged = true;
+      } catch (error) {
+        throw error; // no database work has happened yet
+      }
+    }
+    const prepared = await supabaseAdmin("POST", "/rest/v1/rpc/claim_test_state_prepare", {
+      p_patient_id: CLAIM_TEST_PATIENT_ID,
+      p_owner_auth_user_id: auth.user.id,
+      p_approved_phone: CLAIM_TEST_PHONE,
+      p_scenario: scenario,
+    });
+    if (prepared.status >= 300) {
+      if (authContactChanged) {
+        const restored = await supabaseAdmin("PUT", `/auth/v1/admin/users/${auth.user.id}`, {
+          email: auth.user.email,
+          phone: auth.user.phone,
+          email_confirm: Boolean(auth.user.email),
+          phone_confirm: Boolean(auth.user.phone),
+        });
+        if (restored.status >= 300) throw new Error(`test login contact rollback failed (${restored.status})`);
+      }
+      if (prepared.status === 409 || prepared.status === 400) {
+        res.status(409).json({ error: "The test state has a contact collision and cannot be used." });
+        return;
+      }
+      throw new Error(`test state preparation failed (${prepared.status})`);
+    }
+    const result = Array.isArray(prepared.json) ? prepared.json[0] : prepared.json;
+    if (!result || result.prepared !== true || typeof result.identifier !== "string") {
+      throw new Error("test state preparation returned an invalid result");
+    }
+
+    res.json({
+      prepared: true,
+      scenario,
+      identifier: result.identifier,
+      mode: scenario.startsWith("claim_") ? ("create" as const) : ("reset" as const),
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "claim test state preparation failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
 
 router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
   try {

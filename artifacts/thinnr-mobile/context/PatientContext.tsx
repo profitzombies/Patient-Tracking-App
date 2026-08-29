@@ -210,6 +210,8 @@ interface PatientContextValue {
   setNudgeOptOut: (optOut: boolean) => Promise<void>;
   /** Stamps the outreach as sent for the current episode (cooldown anchor). */
   recordNudgeSent: () => Promise<void>;
+  /** Clears only this device's patient companion data before an auth handoff. */
+  clearLocalState: () => Promise<void>;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -636,6 +638,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [commit, runSerialized]);
 
+  const clearLocalState = useCallback(async (): Promise<void> => {
+    await hydrationGate.current!.promise;
+    await runSerialized(async () => {
+      await commit({ ...EMPTY_STATE });
+    });
+  }, [commit, runSerialized]);
+
   // ─── Stall-nudge state ─────────────────────────────────────────────────────
   // (The assessment memo and recordNudgeSent live under Merged projections —
   // recordNudgeSent reads the computed crossing day.)
@@ -819,6 +828,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       markNudgeEngaged,
       setNudgeOptOut,
       recordNudgeSent,
+      clearLocalState,
     }),
     [
       hydrated,
@@ -865,6 +875,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       markNudgeEngaged,
       setNudgeOptOut,
       recordNudgeSent,
+      clearLocalState,
     ],
   );
 

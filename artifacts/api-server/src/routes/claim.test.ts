@@ -25,6 +25,9 @@ class FakeBackend {
   twilioStarts: string[] = [];
   twilioApprovedCode: string | null = null;
   failEmailSend = false;
+  failAuthUpdate = false;
+  failAuthDelete = false;
+  failTestStatePrepare = false;
   deletedUsers: string[] = [];
   /** One-shot hook fired right after a login is created — simulates a rival
    *  claim landing between user creation and the guarded link update. */
@@ -38,6 +41,7 @@ class FakeBackend {
       team_members: [],
       profiles: [],
       staff_role_assignments: [],
+      role_assignments: [],
     };
     this.authUsers.clear();
     this.sessions.clear();
@@ -45,6 +49,9 @@ class FakeBackend {
     this.twilioStarts = [];
     this.twilioApprovedCode = null;
     this.failEmailSend = false;
+    this.failAuthUpdate = false;
+    this.failAuthDelete = false;
+    this.failTestStatePrepare = false;
     this.deletedUsers = [];
     this.onUserCreate = null;
   }
@@ -193,6 +200,7 @@ class FakeBackend {
       return json(200, user);
     }
     if (idMatch && method === "PUT") {
+      if (this.failAuthUpdate) return json(500, { msg: "simulated auth update failure" });
       const user = this.authUsers.get(idMatch[1]);
       if (!user) return json(404, { msg: "User not found" });
       if (body?.phone) {
@@ -206,6 +214,20 @@ class FakeBackend {
         }
         user.phone = String(body.phone);
       }
+      if (body?.email) {
+        for (const [otherId, other] of this.authUsers) {
+          if (
+            otherId !== idMatch[1] &&
+            String(other.email ?? "").toLowerCase() === String(body.email).toLowerCase()
+          ) {
+            return json(422, {
+              error_code: "email_exists",
+              msg: "A user with this email address has already been registered",
+            });
+          }
+        }
+        user.email = String(body.email).toLowerCase();
+      }
       if (body?.password) {
         if (body.password === PWNED_PASSWORD) {
           return json(422, {
@@ -218,6 +240,7 @@ class FakeBackend {
       return json(200, user);
     }
     if (idMatch && method === "DELETE") {
+      if (this.failAuthDelete) return json(500, { msg: "simulated auth delete failure" });
       this.authUsers.delete(idMatch[1]);
       this.deletedUsers.push(idMatch[1]);
       return json(200, {});
@@ -315,6 +338,84 @@ class FakeBackend {
       };
       ledger.push(row);
       return json(200, [row]);
+    }
+
+    if (
+      url.pathname === "/rest/v1/rpc/claim_test_state_inspect" ||
+      url.pathname === "/rest/v1/rpc/claim_test_state_prepare" ||
+      url.pathname === "/rest/v1/rpc/claim_test_state_restore"
+    ) {
+      const p = body as Row;
+      const patient = this.tables.patients.find(
+        (row) =>
+          row.id === p.p_patient_id &&
+          (url.pathname.endsWith("restore") || row.auth_user_id === p.p_owner_auth_user_id),
+      );
+      if (!patient) return json(403, { message: "owner mismatch" });
+      if (url.pathname.endsWith("restore")) {
+        const scenario = String(p.p_scenario);
+        const expectedPhone = scenario.endsWith("_phone") ? p.p_approved_phone : null;
+        const expectedAuth = scenario.startsWith("claim_") ? null : p.p_owner_auth_user_id;
+        if (patient.phone !== expectedPhone || patient.auth_user_id !== expectedAuth) {
+          return json(409, { message: "not eligible for restore" });
+        }
+        patient.phone = p.p_prior_phone ?? null;
+        patient.auth_user_id = p.p_prior_auth_user_id ?? null;
+        patient.claimed_at = p.p_prior_claimed_at ?? null;
+        return json(200, { restored: true });
+      }
+      const email = String(patient.email ?? "").toLowerCase();
+      const phoneDigits = String(p.p_approved_phone).replace(/\D/g, "").slice(-10);
+      const sameEmail = (value: unknown) =>
+        Boolean(email) && String(value ?? "").toLowerCase() === email;
+      const samePhone = (value: unknown) =>
+        Boolean(value) && String(value).replace(/\D/g, "").slice(-10) === phoneDigits;
+      const collision =
+        this.tables.profiles.some((row) => row.id === p.p_owner_auth_user_id) ||
+        this.tables.patients.some(
+          (row) =>
+            row.id !== p.p_patient_id && (sameEmail(row.email) || samePhone(row.phone)),
+        ) ||
+        this.tables.providers.some((row) => sameEmail(row.email)) ||
+        this.tables.team_members.some((row) => sameEmail(row.email)) ||
+        this.tables.profiles.some(
+          (row) =>
+            row.id !== p.p_owner_auth_user_id && (sameEmail(row.email) || samePhone(row.phone)),
+        ) ||
+        this.tables.staff_role_assignments.some((row) => sameEmail(row.email)) ||
+        this.tables.role_assignments.some(
+          (row) => sameEmail(row.email) || samePhone(row.phone),
+        ) ||
+        [...this.authUsers.values()].some(
+          (row) =>
+            row.id !== p.p_owner_auth_user_id && (sameEmail(row.email) || samePhone(row.phone)),
+        );
+      if (url.pathname.endsWith("inspect")) return json(200, { collision });
+      if (collision) return json(409, { message: "collision" });
+      if (this.failTestStatePrepare) return json(500, { message: "simulated prepare failure" });
+      const scenario = String(p.p_scenario);
+      if (!["claim_phone", "recover_phone", "claim_email", "recover_email"].includes(scenario)) {
+        return json(400, { message: "invalid scenario" });
+      }
+      const byPhone = scenario.endsWith("_phone");
+      const create = scenario.startsWith("claim_");
+      patient.phone = byPhone ? p.p_approved_phone : null;
+      patient.auth_user_id = create ? null : p.p_owner_auth_user_id;
+      patient.claimed_at = create ? null : patient.claimed_at ?? new Date().toISOString();
+      this.tables.claim_verifications = this.tables.claim_verifications.filter(
+        (row) =>
+          !(
+            (row.identifier_kind === "email" && sameEmail(row.identifier)) ||
+            (row.identifier_kind === "phone" && samePhone(row.identifier))
+          ),
+      );
+      if (create) this.authUsers.delete(String(p.p_owner_auth_user_id));
+      return json(200, {
+        prepared: true,
+        scenario,
+        identifier: byPhone ? p.p_approved_phone : email,
+        mode: create ? "create" : "reset",
+      });
     }
 
     const tableMatch = url.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
@@ -929,6 +1030,211 @@ describe("staff, providers, and the HQ admin", () => {
     expect(complete.status).toBe(200);
     expect(backend.authUsers.get(adminId)!.password).toBe("Admin!Passphrase");
     expect(backend.authUsers.size).toBe(1);
+  });
+});
+
+describe("owner claim test-state handoff", () => {
+  const designatedId = "93c85218-e8c2-409a-966b-a8a5bd98cdbb";
+  const approvedPhone = "+18135145141";
+
+  function seedOwner() {
+    const ownerId = crypto.randomUUID();
+    backend.authUsers.set(ownerId, {
+      id: ownerId,
+      email: "owner.claim@example.com",
+      phone: "+19995550123",
+    });
+    const patient = seedPatient({
+      id: designatedId,
+      email: "owner.claim@example.com",
+      phone: "(999) 555-0123",
+      auth_user_id: ownerId,
+      claimed_at: "2026-01-02T03:04:05.000Z",
+      goal_weight: 145,
+      provider_id: "clinical-provider",
+      saved_diet_prefs: ["vegetarian"],
+      medical_history: { diagnosis: "preserve me" },
+    });
+    return { ownerId, patient, token: backend.addSession(ownerId) };
+  }
+
+  it("requires a valid token linked to the exact designated patient", async () => {
+    seedOwner();
+    expect((await api("GET", "/api/claim/test-state")).status).toBe(401);
+    const stranger = crypto.randomUUID();
+    backend.authUsers.set(stranger, { id: stranger, email: "stranger@example.com" });
+    const wrong = await api("GET", "/api/claim/test-state", undefined, {
+      Authorization: `Bearer ${backend.addSession(stranger)}`,
+    });
+    expect(wrong.status).toBe(403);
+    const wrongPatientOwner = crypto.randomUUID();
+    backend.authUsers.set(wrongPatientOwner, { id: wrongPatientOwner });
+    seedPatient({ auth_user_id: wrongPatientOwner });
+    const alsoWrong = await api("POST", "/api/claim/test-state", { scenario: "recover_phone" }, {
+      Authorization: `Bearer ${backend.addSession(wrongPatientOwner)}`,
+    });
+    expect(alsoWrong.status).toBe(403);
+  });
+
+  it("inspects only masked contacts and fails closed for every collision surface", async () => {
+    const { token } = seedOwner();
+    const inspected = await api("GET", "/api/claim/test-state", undefined, {
+      Authorization: `Bearer ${token}`,
+    });
+    expect(inspected.status).toBe(200);
+    expect(inspected.json).toEqual({
+      patient: {
+        name: "Casey Claimant",
+        emailMasked: "o•••@e•••",
+        phoneMasked: "•••-•••-0123",
+      },
+      state: { claimed: true, hasPhone: true, hasEmail: true },
+    });
+    expect(JSON.stringify(inspected.json)).not.toContain("owner.claim@example.com");
+    expect(JSON.stringify(inspected.json)).not.toContain("+19995550123");
+
+    const collisionSeeds: Array<() => void> = [
+      () => seedPatient({ email: "owner.claim@example.com" }),
+      () => backend.tables.providers.push({ provider_id: "collision", email: "owner.claim@example.com" }),
+      () => backend.tables.team_members.push({ id: crypto.randomUUID(), email: "owner.claim@example.com" }),
+      () => backend.tables.staff_role_assignments.push({ email: "owner.claim@example.com", role: "hq_admin" }),
+      () => backend.tables.profiles.push({ id: crypto.randomUUID(), phone: approvedPhone }),
+      () => {
+        const id = crypto.randomUUID();
+        backend.authUsers.set(id, { id, phone: approvedPhone });
+      },
+    ];
+    for (const seedCollision of collisionSeeds) {
+      backend.reset();
+      const current = seedOwner();
+      seedCollision();
+      const result = await api("POST", "/api/claim/test-state", { scenario: "recover_phone" }, {
+        Authorization: `Bearer ${current.token}`,
+      });
+      expect(result.status).toBe(409);
+      expect(current.patient.auth_user_id).toBe(current.ownerId);
+    }
+  });
+
+  it("prepares all four transitions, preserves unrelated data, and reports create vs reset", async () => {
+    for (const scenario of ["claim_phone", "recover_phone", "claim_email", "recover_email"]) {
+      backend.reset();
+      const { ownerId, patient, token } = seedOwner();
+      backend.tables.claim_verifications.push(
+        { identifier_kind: "email", identifier: "owner.claim@example.com" },
+        { identifier_kind: "phone", identifier: approvedPhone },
+        { identifier_kind: "email", identifier: "unrelated@example.com" },
+      );
+      const before = {
+        name: patient.name,
+        goal_weight: patient.goal_weight,
+        provider_id: patient.provider_id,
+        saved_diet_prefs: patient.saved_diet_prefs,
+        medical_history: patient.medical_history,
+        email: patient.email,
+      };
+      const result = await api("POST", "/api/claim/test-state", { scenario }, {
+        Authorization: `Bearer ${token}`,
+      });
+      expect(result.status).toBe(200);
+      expect(result.json).toEqual({
+        prepared: true,
+        scenario,
+        identifier: scenario.endsWith("_phone") ? approvedPhone : "owner.claim@example.com",
+        mode: scenario.startsWith("claim_") ? "create" : "reset",
+      });
+      expect(patient).toMatchObject(before);
+      expect(patient.phone).toBe(scenario.endsWith("_phone") ? approvedPhone : null);
+      expect(patient.auth_user_id).toBe(scenario.startsWith("claim_") ? null : ownerId);
+      expect(backend.tables.claim_verifications).toEqual([
+        { identifier_kind: "email", identifier: "unrelated@example.com" },
+      ]);
+      if (scenario.startsWith("claim_")) {
+        expect(backend.deletedUsers).toEqual([]); // no Auth Admin DELETE saga
+        expect(backend.authUsers.has(ownerId)).toBe(false);
+      } else {
+        const user = backend.authUsers.get(ownerId)!;
+        expect(scenario.endsWith("_phone") ? user.phone : user.email).toBe(result.json.identifier);
+      }
+    }
+  });
+
+  it("makes repeated recovery preparation deterministic", async () => {
+    const { ownerId, patient, token } = seedOwner();
+    for (let i = 0; i < 2; i += 1) {
+      const result = await api("POST", "/api/claim/test-state", { scenario: "recover_phone" }, {
+        Authorization: `Bearer ${token}`,
+      });
+      expect(result.status).toBe(200);
+      expect(result.json.mode).toBe("reset");
+      expect(result.json.identifier).toBe(approvedPhone);
+    }
+    expect(patient.auth_user_id).toBe(ownerId);
+    expect(patient.phone).toBe(approvedPhone);
+    expect(backend.authUsers.size).toBe(1);
+  });
+
+  it("rolls back claim preparation atomically when its RPC fails", async () => {
+    const { ownerId, patient, token } = seedOwner();
+    const prior = {
+      phone: patient.phone,
+      auth_user_id: patient.auth_user_id,
+      claimed_at: patient.claimed_at,
+    };
+    backend.tables.claim_verifications.push({ identifier_kind: "phone", identifier: approvedPhone });
+    backend.failTestStatePrepare = true;
+    const result = await api("POST", "/api/claim/test-state", { scenario: "claim_phone" }, {
+      Authorization: `Bearer ${token}`,
+    });
+    expect(result.status).toBe(502);
+    expect(patient).toMatchObject(prior);
+    expect(backend.authUsers.has(ownerId)).toBe(true);
+    expect(backend.tables.claim_verifications).toEqual([
+      { identifier_kind: "phone", identifier: approvedPhone },
+    ]);
+  });
+
+  it("leaves database state untouched when recovery Auth update fails", async () => {
+    const { ownerId, patient, token } = seedOwner();
+    const prior = {
+      phone: patient.phone,
+      auth_user_id: patient.auth_user_id,
+      claimed_at: patient.claimed_at,
+    };
+    backend.failAuthUpdate = true;
+    const result = await api("POST", "/api/claim/test-state", { scenario: "recover_phone" }, {
+      Authorization: `Bearer ${token}`,
+    });
+    expect(result.status).toBe(502);
+    expect(patient).toMatchObject(prior);
+    expect(backend.authUsers.get(ownerId)!.phone).toBe("+19995550123");
+  });
+
+  it("restores the prior Auth contact when recovery preparation RPC fails", async () => {
+    const { ownerId, patient, token } = seedOwner();
+    const prior = { phone: patient.phone, auth_user_id: patient.auth_user_id, claimed_at: patient.claimed_at };
+    backend.tables.claim_verifications.push({ identifier_kind: "phone", identifier: approvedPhone });
+    backend.failTestStatePrepare = true;
+    const result = await api("POST", "/api/claim/test-state", { scenario: "recover_phone" }, {
+      Authorization: `Bearer ${token}`,
+    });
+    expect(result.status).toBe(502);
+    expect(patient).toMatchObject(prior);
+    expect(backend.tables.claim_verifications).toEqual([
+      { identifier_kind: "phone", identifier: approvedPhone },
+    ]);
+    expect(backend.authUsers.get(ownerId)!.phone).toBe("+19995550123");
+  });
+
+  it("fails closed when the owner has a profile that could cascade on claim deletion", async () => {
+    const { ownerId, patient, token } = seedOwner();
+    backend.tables.profiles.push({ id: ownerId, email: "unrelated-profile@example.com" });
+    const result = await api("POST", "/api/claim/test-state", { scenario: "claim_phone" }, {
+      Authorization: `Bearer ${token}`,
+    });
+    expect(result.status).toBe(409);
+    expect(patient.auth_user_id).toBe(ownerId);
+    expect(backend.authUsers.has(ownerId)).toBe(true);
   });
 });
 

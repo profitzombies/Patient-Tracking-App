@@ -33,3 +33,7 @@ export const router = {
     return false;
   },
 };
+
+export function Redirect(_props: { href: string }) {
+  return null;
+}

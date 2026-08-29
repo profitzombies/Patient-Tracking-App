@@ -32,6 +32,7 @@ import { fonts } from '@/constants/colors';
 import { APPROVED_FOODS_HREF } from '@/constants/links';
 import { MacroBar } from '@/components/patient/MacroBar';
 import { WaterTracker } from '@/components/patient/WaterTracker';
+import { ClaimTestEntryCard } from '@/components/patient/ClaimTestEntryCard';
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
@@ -548,6 +549,8 @@ export default function TodayScreen() {
               <Feather name="chevron-right" size={17} color={colors.subtleText} />
             </View>
           </LedgerCard>
+
+          <ClaimTestEntryCard />
 
           {/* ── Calories: dome gauge + macros ── */}
           <LedgerCard style={styles.calorieCard}>

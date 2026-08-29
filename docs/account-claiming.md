@@ -61,6 +61,30 @@ Current staged rollout: set `CLAIM_SMS_DELIVERY_MODE=live` while leaving
 `CLAIM_EMAIL_DELIVERY_MODE=dev`. Phone claim/recovery then uses real Twilio
 Verify SMS, while email claim/recovery continues showing the inline test code.
 
+## Repeating the designated patient login tests
+
+The mobile app has a server-gated **Private test control** on Today. It is
+returned only to the one designated patient while that patient is signed in;
+the API checks the live bearer token against the exact linked patient row.
+Hiding the card is not the authorization boundary.
+
+1. Sign in as the designated patient and open **Account claim paths** on Today.
+2. Choose one of the four exact scenarios:
+   - first-time claim by phone (restores `+1 (813) 514-5141` and keeps email on file)
+   - password recovery by phone
+   - first-time claim by email only (removes phone from claim matching)
+   - password recovery by email
+3. Review the listed effects, then tap **Prepare and sign me out**.
+4. The app clears patient-only device state, signs out, and opens **Claim your
+   account** with a one-time reminder and the prepared identifier filled in.
+5. Dismiss the reminder or start the claim to clear it.
+
+Preparation changes only the designated patient's phone/auth linkage and
+related claim-verification rows. Diary, server-side coaching history, clinical
+data, progress, subscriptions, and clinic data are preserved. Any contact
+collision across patients, staff, providers, role assignments, profiles, or
+Auth users blocks preparation rather than guessing.
+
 ## Tests
 
 | Suite | Command |

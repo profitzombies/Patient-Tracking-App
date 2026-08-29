@@ -215,6 +215,8 @@ interface CoachChatContextValue {
    * the entry — the card then freezes so a double tap cannot save twice.
    */
   markLabelFoodAdded: (cardMessageId: string, slot: MealSlot, quantity?: number) => void;
+  /** Drops the session-only patient conversation before signing out. */
+  clearLocalState: () => void;
 }
 
 const CoachChatContext = createContext<CoachChatContextValue | null>(null);
@@ -1345,6 +1347,21 @@ export function CoachChatProvider({
     if (suggestion) suggestionsRef.current.set(id, { ...suggestion, photoUri });
   }, []);
 
+  const clearLocalState = useCallback(() => {
+    abortRef.current?.abort();
+    if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
+    revealRef.current = null;
+    abortRef.current = null;
+    inFlightRef.current = false;
+    suggestionsRef.current.clear();
+    updateLabelFlow(null);
+    setPendingStage(null);
+    setIsStreaming(false);
+    const greeting = buildGreetingMessage();
+    messagesRef.current = [greeting];
+    setMessages([greeting]);
+  }, [updateLabelFlow]);
+
   const value = useMemo(
     () => ({
       messages,
@@ -1359,6 +1376,7 @@ export function CoachChatProvider({
       labelFlow,
       beginLabelRename,
       markLabelFoodAdded,
+      clearLocalState,
     }),
     [
       messages,
@@ -1373,6 +1391,7 @@ export function CoachChatProvider({
       labelFlow,
       beginLabelRename,
       markLabelFoodAdded,
+      clearLocalState,
     ],
   );
 

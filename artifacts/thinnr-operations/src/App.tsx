@@ -26,6 +26,7 @@ import {
 import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 import SignIn from '@/pages/SignIn';
 import ClaimAccount from '@/pages/ClaimAccount';
+import TwilioVerifyTest from '@/pages/TwilioVerifyTest';
 import {
   AccountLockedScreen,
   BootScreen,
@@ -153,6 +154,8 @@ function ScopedOfficeApp() {
 
 function PersonaRouter() {
   const { persona, authStatus, authRole, roleStatus, claimedWorkspace } = useSession();
+
+  if (window.location.pathname === '/test') return <TwilioVerifyTest />;
 
   if (authStatus === 'loading') return <BootScreen />;
   if (authStatus === 'signed-in') {

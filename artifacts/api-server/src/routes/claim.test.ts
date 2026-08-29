@@ -446,6 +446,8 @@ afterAll(async () => {
 beforeEach(() => {
   backend.reset();
   process.env.CLAIM_DELIVERY_MODE = "dev";
+  process.env.CLAIM_SMS_DELIVERY_MODE = "dev";
+  process.env.CLAIM_EMAIL_DELIVERY_MODE = "dev";
   delete process.env.TWILIO_ACCOUNT_SID;
   delete process.env.TWILIO_AUTH_TOKEN;
   delete process.env.TWILIO_VERIFY_SERVICE_SID;
@@ -523,7 +525,7 @@ describe("identify", () => {
   });
 
   it("starts live delivery only after the response went out (no hit-only signal)", async () => {
-    process.env.CLAIM_DELIVERY_MODE = "live";
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
     process.env.TWILIO_AUTH_TOKEN = "token";
     process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
@@ -1068,6 +1070,8 @@ describe("whoami and add-phone", () => {
 describe("live delivery mode", () => {
   it("fails loudly when flipped live without credentials", async () => {
     process.env.CLAIM_DELIVERY_MODE = "live";
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.CLAIM_EMAIL_DELIVERY_MODE = "live";
     seedPatient();
     const sms = await api("POST", "/api/claim/identify", { identifier: "5552013344" });
     expect(sms.status).toBe(503);
@@ -1078,7 +1082,7 @@ describe("live delivery mode", () => {
   });
 
   it("uses Twilio Verify for SMS when configured", async () => {
-    process.env.CLAIM_DELIVERY_MODE = "live";
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
     process.env.TWILIO_AUTH_TOKEN = "secret";
     process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
@@ -1101,10 +1105,19 @@ describe("live delivery mode", () => {
     });
     expect(right.status).toBe(200);
     expect(right.json.next).toBe("password");
+
+    // Staged rollout: SMS can be live while email stays in test mode.
+    seedPatient({ email: "email-stays-dev@example.com", phone: null });
+    const email = await api("POST", "/api/claim/identify", {
+      identifier: "email-stays-dev@example.com",
+    });
+    expect(email.status).toBe(200);
+    expect(email.json.devCode).toMatch(/^\d{6}$/);
+    expect(backend.sentEmails).toHaveLength(0);
   });
 
   it("emails through Resend and stays neutral even when the send fails", async () => {
-    process.env.CLAIM_DELIVERY_MODE = "live";
+    process.env.CLAIM_EMAIL_DELIVERY_MODE = "live";
     process.env.RESEND_API_KEY = "re_test";
     process.env.CLAIM_EMAIL_FROM = "THINNR <no-reply@thinnr.example>";
     seedPatient({ email: "casey@example.com", phone: null });

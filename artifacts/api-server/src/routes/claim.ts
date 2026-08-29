@@ -302,7 +302,7 @@ router.post(CLAIM_IDENTIFY_PATH, async (req, res) => {
       `/rest/v1/claim_verifications?created_at=lt.${enc(dayAgo)}`,
     ).catch(() => {});
 
-    const mode = deliveryMode();
+    const mode = deliveryMode(identifier.kind === "phone" ? "sms" : "email");
     const storedIdentifier = identifier.kind === "phone" ? identifier.e164 : identifier.email;
 
     const candidates = await findCandidates(identifier);
@@ -890,7 +890,7 @@ router.post(CLAIM_ADD_PHONE_PATH, async (req, res) => {
       throw error;
     }
 
-    const mode = deliveryMode();
+    const mode = deliveryMode("sms");
     const delivery = mode === "dev" ? "dev" : "twilio_verify";
     const localCode = delivery === "dev" ? generateCode() : null;
     const salt = localCode ? crypto.randomBytes(16).toString("hex") : null;

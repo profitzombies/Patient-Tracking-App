@@ -16,8 +16,20 @@ import crypto from "node:crypto";
 
 export type DeliveryMode = "dev" | "live";
 
-export function deliveryMode(): DeliveryMode {
-  const raw = (process.env.CLAIM_DELIVERY_MODE || "").trim().toLowerCase();
+export function deliveryMode(channel?: "sms" | "email"): DeliveryMode {
+  const channelKey =
+    channel === "sms"
+      ? "CLAIM_SMS_DELIVERY_MODE"
+      : channel === "email"
+        ? "CLAIM_EMAIL_DELIVERY_MODE"
+        : null;
+  const raw = (
+    (channelKey ? process.env[channelKey] : undefined) ||
+    process.env.CLAIM_DELIVERY_MODE ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
   if (raw === "dev" || raw === "live") return raw;
   return process.env.NODE_ENV === "production" ? "live" : "dev";
 }
@@ -50,7 +62,7 @@ function resendCreds(): { apiKey: string; from: string } | null {
 
 /** Throws when live mode cannot deliver on the requested channel. */
 export function assertLiveChannelReady(channel: "sms" | "email"): void {
-  if (deliveryMode() !== "live") return;
+  if (deliveryMode(channel) !== "live") return;
   if (channel === "sms" && !twilioCreds()) throw new DeliveryNotConfiguredError("sms");
   if (channel === "email" && !resendCreds()) throw new DeliveryNotConfiguredError("email");
 }

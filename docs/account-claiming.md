@@ -45,7 +45,9 @@ team_member > patient.
 
 ## Delivery modes
 
-`CLAIM_DELIVERY_MODE` on the API server:
+Delivery mode on the API server can be set globally with
+`CLAIM_DELIVERY_MODE`, or independently with `CLAIM_SMS_DELIVERY_MODE` and
+`CLAIM_EMAIL_DELIVERY_MODE` (a channel-specific value wins):
 
 - `dev` (default): no SMS/email is sent; the code rides the API response and
   the apps show it inline ("Test mode…").
@@ -54,6 +56,10 @@ team_member > patient.
 
 Env vars for live mode: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
 `TWILIO_VERIFY_SERVICE_SID`, `RESEND_API_KEY`, `CLAIM_EMAIL_FROM`.
+
+Current staged rollout: set `CLAIM_SMS_DELIVERY_MODE=live` while leaving
+`CLAIM_EMAIL_DELIVERY_MODE=dev`. Phone claim/recovery then uses real Twilio
+Verify SMS, while email claim/recovery continues showing the inline test code.
 
 ## Tests
 
@@ -71,7 +77,8 @@ children-first; it is env-gated so normal `api-tests` runs skip it.
 1. Create a Twilio Verify service; set the three `TWILIO_*` secrets.
 2. Verify the sending domain in Resend; set `RESEND_API_KEY` and
    `CLAIM_EMAIL_FROM` (an address on the verified domain).
-3. Set `CLAIM_DELIVERY_MODE=live` and restart the API server.
+3. Set `CLAIM_SMS_DELIVERY_MODE=live`; set `CLAIM_EMAIL_DELIVERY_MODE=live`
+   only after Resend is configured, then restart the API server.
 4. Smoke: claim a synthetic test account by SMS and by email.
 5. Andrew signs in by running the claim flow against his HQ email (his
    `hq_admin` auth user exists; the flow acts as password reset for it).

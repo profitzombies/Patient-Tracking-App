@@ -482,6 +482,8 @@ EXPO_PUBLIC_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
 VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_x_jS0otm2b7K8wc_HLXbUg_6Dq3_Haz"
 VITE_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
 TRAINING_OBJECT_DIR = "/replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea/.private"
+CLAIM_EMAIL_DELIVERY_MODE = "dev"
+CLAIM_SMS_DELIVERY_MODE = "live"
 
 [nix]
 channel = "stable-25_05"

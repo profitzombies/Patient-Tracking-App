@@ -103,6 +103,28 @@ function birthdayToIso(value: string): string | null {
   return iso;
 }
 
+/** US phone mask for display; normalizePhone adds +1 only at the API boundary. */
+function formatUsPhoneInput(value: string): string {
+  let digits = value.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+  digits = digits.slice(0, 10);
+  if (!digits) return '';
+  if (digits.length <= 3) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+function formatClaimIdentifierInput(value: string): string {
+  if (/[A-Za-z@]/.test(value)) return value;
+  const digits = value.replace(/\D/g, '');
+  if (value.trim().startsWith('+') && digits.length > 0 && !digits.startsWith('1')) return value;
+  return formatUsPhoneInput(value);
+}
+
+function displayClaimIdentifier(value: string): string {
+  return value.includes('@') ? value : formatClaimIdentifierInput(value);
+}
+
 const PASSWORD_RULES = [
   { key: 'length', label: 'At least 8 characters', test: (p: string) => p.length >= 8 },
   { key: 'upper', label: 'An uppercase letter', test: (p: string) => /[A-Z]/.test(p) },
@@ -159,7 +181,7 @@ export default function ClaimAccountScreen() {
     getClaimTestHandoff().then(handoff => {
       if (!live || !handoff) return;
       setTestHandoff(handoff);
-      setIdentifier(handoff.identifier);
+      setIdentifier(displayClaimIdentifier(handoff.identifier));
     });
     return () => {
       live = false;
@@ -532,7 +554,9 @@ export default function ClaimAccountScreen() {
                     </Text>
                     <Text style={[styles.testHandoffBody, { color: colors.bodyText }]}>
                       {claimTestScenarioLabel(testHandoff)} is ready. Use{' '}
-                      <Text style={styles.testHandoffIdentifier}>{testHandoff.identifier}</Text>.
+                      <Text style={styles.testHandoffIdentifier}>
+                        {displayClaimIdentifier(testHandoff.identifier)}
+                      </Text>.
                       It is filled in below. Scenario: {testHandoff.scenario}; path: {testHandoff.mode}.
                     </Text>
                     {testHandoff.cleanupWarning && (
@@ -568,13 +592,13 @@ export default function ClaimAccountScreen() {
                 <LedgerInput
                   testID="claim-identifier"
                   value={identifier}
-                  onChangeText={setIdentifier}
+                  onChangeText={value => setIdentifier(formatClaimIdentifierInput(value))}
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="email-address"
                   autoComplete="username"
                   textContentType="username"
-                  placeholder="you@example.com or +1 555 123 4567"
+                  placeholder="you@example.com or (555) 123-4567"
                   editable={!busy && supabaseConfigured}
                 />
               </View>
@@ -809,14 +833,14 @@ export default function ClaimAccountScreen() {
               <LedgerInput
                 testID="claim-new-phone"
                 value={newPhone}
-                onChangeText={setNewPhone}
+                  onChangeText={value => setNewPhone(formatUsPhoneInput(value))}
                 keyboardType="phone-pad"
                 autoComplete="tel"
                 textContentType="telephoneNumber"
-                placeholder="+1 555 123 4567"
+                  placeholder="(555) 123-4567"
                 editable={!busy}
               />
-              <NoteText text="Include the country code — ten digits are treated as US." />
+              <NoteText text="Enter all 10 digits. The US country code (+1) is added automatically." />
             </View>
             {error && (
               <View style={styles.blockGap}>

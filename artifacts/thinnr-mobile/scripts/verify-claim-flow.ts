@@ -348,6 +348,7 @@ async function scenarioPatientBirthdayPath() {
 
   const tree = await renderScreen();
   await typeText(tree, 'claim-identifier', rawPhone);
+  assert('typed US phone is displayed in the familiar local format', inputValue(tree, 'claim-identifier') === '(555) 010-4477');
   await press(tree, 'claim-identify-submit');
   assert('identify posts the NORMALIZED phone', callsTo('identify')[0]?.body?.identifier === normalized);
   assert('no devCode → no test-mode box', !exists(tree, 'claim-dev-code'));
@@ -415,6 +416,7 @@ async function scenarioPatientAddPhone() {
   const rawPhone = '555 010 9911';
   const normalized = normalizePhone(rawPhone);
   await typeText(tree, 'claim-new-phone', rawPhone);
+  assert('add-phone field formats ten digits without asking for +1', inputValue(tree, 'claim-new-phone') === '(555) 010-9911');
   await press(tree, 'claim-add-phone-submit');
   assert('add-phone posts the normalized number under the session token', (() => {
     const call = callsTo('add-phone')[0];

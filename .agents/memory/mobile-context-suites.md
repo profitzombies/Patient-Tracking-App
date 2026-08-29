@@ -34,3 +34,4 @@ If a suite prints NOTHING and exits 0, an `await` never settled (e.g. a scripted
 - Register a `process.on('beforeExit')` hook that fails loudly; only `finish()`'s explicit `process.exit` may end the run.
 
 - testID queries in RTR suites must filter to HOST nodes (typeof node.type === 'string'): a component that forwards a testID prop (e.g. MealPhotoButton) matches findAll before its inner Pressable and carries no onPress, so taps silently no-op.
+- Host button wrappers may intentionally fire async handlers with `void`, so `tap()` cannot await delayed retries/recovery. After triggering a real-timer branch, use an act-wrapped bounded sleep before asserting the settled screen.

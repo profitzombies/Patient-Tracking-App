@@ -79,6 +79,8 @@ type Handler = (call: ApiCall) => { status: number; body: unknown };
 
 const apiCalls: ApiCall[] = [];
 const handlers = new Map<string, Handler>();
+let failNextFetch = false;
+let loseNextResponseForPath: string | null = null;
 
 function onApi(path: string, handler: Handler) {
   handlers.set(path, handler);
@@ -91,9 +93,15 @@ function callsTo(path: string): ApiCall[] {
 function resetApi() {
   apiCalls.length = 0;
   handlers.clear();
+  failNextFetch = false;
+  loseNextResponseForPath = null;
 }
 
 globalThis.fetch = (async (input: unknown, init?: { method?: string; headers?: Record<string, string>; body?: string }) => {
+  if (failNextFetch) {
+    failNextFetch = false;
+    throw new TypeError('Network request failed');
+  }
   const url = String(input);
   const match = url.match(/^https:\/\/thinnr\.test\/api\/claim\/(.+)$/);
   if (!match) throw new Error(`unexpected fetch: ${url}`);
@@ -110,6 +118,10 @@ globalThis.fetch = (async (input: unknown, init?: { method?: string; headers?: R
     return { status: 500, json: async () => ({ error: 'unscripted' }) };
   }
   const result = handler(call);
+  if (loseNextResponseForPath === call.path) {
+    loseNextResponseForPath = null;
+    throw new TypeError('Network response was lost');
+  }
   return { status: result.status, json: async () => result.body };
 }) as typeof fetch;
 
@@ -232,6 +244,82 @@ async function scenarioIdentifyLocalValidation() {
   await press(tree, 'claim-identify-submit');
   assert('unparseable phone stays local', apiCalls.length === 0);
   assert('unparseable phone explains itself', textOf(tree).includes('mobile number'));
+  tree.unmount();
+}
+
+async function scenarioIdentifyTransientNetworkRetry() {
+  section('identify absorbs one transient Expo transport failure');
+  resetApi();
+  onApi('identify', () => ({
+    status: 200,
+    body: { ok: true, requestId: 'req-after-retry', devCode: '121212' },
+  }));
+  failNextFetch = true;
+
+  const tree = await renderScreen();
+  await typeText(tree, 'claim-identifier', '8135145141');
+  await press(tree, 'claim-identify-submit');
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 450));
+  });
+
+  assert('transient retry advances to the code phase', exists(tree, 'claim-code'));
+  assert('transient retry does not show the connection error', !textOf(tree).includes('Couldn’t reach THINNR'));
+  assert('successful retry keeps the formatted phone visible before navigation', callsTo('identify')[0]?.body?.identifier === '+18135145141');
+  tree.unmount();
+}
+
+async function scenarioCommittedPasswordResponseLoss() {
+  section('password completion recovers when the committed response is lost');
+  resetApi();
+  onApi('identify', () => ({
+    status: 200,
+    body: { ok: true, requestId: 'req-lost-complete', devCode: '343434' },
+  }));
+  onApi('verify', () => ({
+    status: 200,
+    body: {
+      ok: true,
+      claimToken: 'tok-lost-complete',
+      accountType: 'patient',
+      masked: 'a•••@t•••.com',
+      next: 'password',
+      mode: 'create',
+    },
+  }));
+  onApi('complete', () => ({
+    status: 200,
+    body: {
+      ok: true,
+      signIn: { method: 'email', identifier: 'andrew+patient@thinnrweightloss.com' },
+    },
+  }));
+  onApi('whoami', () => ({
+    status: 200,
+    body: { kind: 'patient', name: 'Andrew Strotheide', hasPhone: true, hasEmail: true },
+  }));
+
+  const tree = await renderScreen();
+  await typeText(tree, 'claim-identifier', 'andrew+patient@thinnrweightloss.com');
+  await press(tree, 'claim-identify-submit');
+  await typeText(tree, 'claim-code', '343434');
+  await press(tree, 'claim-code-submit');
+  await typeText(tree, 'claim-password', GOOD_PASSWORD);
+  await typeText(tree, 'claim-password-confirm', GOOD_PASSWORD);
+  loseNextResponseForPath = 'complete';
+  await press(tree, 'claim-password-submit');
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+  });
+
+  assert('completion endpoint was submitted exactly once', callsTo('complete').length === 1);
+  assert(
+    'lost completion response recovers with the established email credential',
+    signInCalls.length === 1 &&
+      signInCalls[0].email === 'andrew+patient@thinnrweightloss.com',
+  );
+  assert('recovered completion lands on the done phase', exists(tree, 'claim-done-continue'));
+  assert('recovered completion does not show the connection error', !textOf(tree).includes('Couldn’t reach THINNR'));
   tree.unmount();
 }
 
@@ -513,6 +601,8 @@ async function scenarioSignInFailureStaysRecoverable() {
 
 async function main() {
   await scenarioIdentifyLocalValidation();
+  await scenarioIdentifyTransientNetworkRetry();
+  await scenarioCommittedPasswordResponseLoss();
   await scenarioProviderResetHappyPath();
   await scenarioPatientBirthdayPath();
   await scenarioPatientAddPhone();

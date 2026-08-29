@@ -58,22 +58,49 @@ interface ClaimResponse {
   json: Record<string, unknown> | null;
 }
 
-async function claimApi(path: string, body?: unknown, token?: string): Promise<ClaimResponse> {
-  const response = await fetch(`${apiBase()}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  let json: Record<string, unknown> | null = null;
-  try {
-    json = (await response.json()) as Record<string, unknown>;
-  } catch {
-    json = null;
+function pause(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isTransientAuthError(error: { message?: string } | null): boolean {
+  const message = (error?.message ?? '').toLowerCase();
+  return (
+    message.includes('network') ||
+    message.includes('fetch') ||
+    message.includes('connection') ||
+    message.includes('timeout')
+  );
+}
+
+async function claimApi(
+  path: string,
+  body?: unknown,
+  token?: string,
+  retryNetworkOnce = false,
+): Promise<ClaimResponse> {
+  const requestBody = body === undefined ? undefined : JSON.stringify(body);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await fetch(`${apiBase()}${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: requestBody,
+      });
+      let json: Record<string, unknown> | null = null;
+      try {
+        json = (await response.json()) as Record<string, unknown>;
+      } catch {
+        json = null;
+      }
+      return { status: response.status, json };
+    } catch (error) {
+      if (!retryNetworkOnce || attempt > 0) throw error;
+      await pause(350);
+    }
   }
-  return { status: response.status, json };
 }
 
 function errorFrom(result: ClaimResponse, fallback: string): string {
@@ -238,7 +265,7 @@ export default function ClaimAccountScreen() {
     }
     setBusy(true);
     try {
-      const result = await claimApi('/claim/identify', { identifier: payload });
+      const result = await claimApi('/claim/identify', { identifier: payload }, undefined, true);
       if (result.status !== 200 || typeof result.json?.requestId !== 'string') {
         setError(errorFrom(result, 'We couldn’t start verification. Try again.'));
         return;
@@ -341,7 +368,56 @@ export default function ClaimAccountScreen() {
     }
     setBusy(true);
     try {
-      const result = await claimApi('/claim/complete', { claimToken, password, passwordConfirm });
+      let result: ClaimResponse;
+      try {
+        result = await claimApi('/claim/complete', { claimToken, password, passwordConfirm });
+      } catch {
+        // The API may have committed even if Expo lost the response. Try the
+        // credential we just established before inviting a duplicate submit.
+        await pause(400);
+        const recoveryCredentials = sentIdentifier.includes('@')
+          ? { email: sentIdentifier, password }
+          : { phone: sentIdentifier, password };
+        let recovered = await supabase.auth.signInWithPassword(recoveryCredentials);
+        if (recovered.error && isTransientAuthError(recovered.error)) {
+          await pause(350);
+          recovered = await supabase.auth.signInWithPassword(recoveryCredentials);
+        }
+        if (recovered.data.session) {
+          let who: ClaimResponse | null = null;
+          try {
+            who = await claimApi(
+              '/claim/whoami',
+              undefined,
+              recovered.data.session.access_token,
+              true,
+            );
+          } catch {
+            // Non-fatal: the account and session are already established.
+          }
+          const rawKind = who?.json?.kind;
+          const recoveredKind =
+            rawKind === 'demo_staff' || rawKind === 'demo_patient'
+              ? 'demo'
+              : typeof rawKind === 'string' && rawKind !== 'none'
+                ? (rawKind as AccountKind)
+                : 'patient';
+          setSignedInKind(recoveredKind);
+          setSignedInName(
+            typeof who?.json?.name === 'string' ? (who.json.name as string) : null,
+          );
+          setOfferPhone(
+            recoveredKind === 'patient' &&
+              !(typeof who?.json?.hasPhone === 'boolean'
+                ? who.json.hasPhone
+                : !sentIdentifier.includes('@')),
+          );
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setPhase('done');
+          return;
+        }
+        throw new Error(recovered.error?.message ?? 'claim completion response lost');
+      }
       if (result.status !== 200) {
         setError(errorFrom(result, 'We couldn’t finish setting up. Try again.'));
         return;
@@ -355,7 +431,11 @@ export default function ClaimAccountScreen() {
         signIn.method === 'phone'
           ? { phone: signIn.identifier, password }
           : { email: signIn.identifier, password };
-      const { data, error: signInError } = await supabase.auth.signInWithPassword(credentials);
+      let { data, error: signInError } = await supabase.auth.signInWithPassword(credentials);
+      if (signInError && isTransientAuthError(signInError)) {
+        await pause(350);
+        ({ data, error: signInError } = await supabase.auth.signInWithPassword(credentials));
+      }
       if (signInError || !data.session) {
         setError(
           signInError

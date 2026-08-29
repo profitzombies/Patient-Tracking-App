@@ -57,9 +57,9 @@ Delivery mode on the API server can be set globally with
 Env vars for live mode: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
 `TWILIO_VERIFY_SERVICE_SID`, `RESEND_API_KEY`, `CLAIM_EMAIL_FROM`.
 
-Current staged rollout: set `CLAIM_SMS_DELIVERY_MODE=live` while leaving
-`CLAIM_EMAIL_DELIVERY_MODE=dev`. Phone claim/recovery then uses real Twilio
-Verify SMS, while email claim/recovery continues showing the inline test code.
+Current rollout: `CLAIM_SMS_DELIVERY_MODE=live` and
+`CLAIM_EMAIL_DELIVERY_MODE=live`. Phone claim/recovery uses real Twilio Verify
+SMS, and email claim/recovery uses Resend from the configured sender.
 
 ## Repeating the designated patient login tests
 

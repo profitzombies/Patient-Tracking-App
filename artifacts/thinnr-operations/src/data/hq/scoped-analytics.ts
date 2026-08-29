@@ -66,8 +66,8 @@ export const PROGRAM_ANALYTICS_RANGE: ScopedAnalyticsRange = {
 };
 
 export function buildAccountAnalyticsRange(account: ProviderAccount): ScopedAnalyticsRange {
-  const recurringShare = account.recurringRevenue / MOCK_ANALYTICS.recurringRevenue;
-  const enrollmentShare = account.enrollmentRevenue / MOCK_ANALYTICS.enrollmentRevenue;
+  const recurringShare = (account.recurringRevenue ?? 0) / MOCK_ANALYTICS.recurringRevenue;
+  const enrollmentShare = (account.enrollmentRevenue ?? 0) / MOCK_ANALYTICS.enrollmentRevenue;
   const offsets = OUTCOME_OFFSETS[account.id] ?? ZERO_OFFSETS;
 
   const scopedRevenue = (range: AnalyticsRange): RevenueSummary => {

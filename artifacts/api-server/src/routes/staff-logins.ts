@@ -24,6 +24,7 @@
  * The password only ever rides the request body: the request serializer logs
  * method + path, and nothing in this handler logs or echoes the body.
  */
+import crypto from "node:crypto";
 import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { requireStaff } from "../lib/staff-auth";
@@ -79,6 +80,16 @@ interface AdminResponse {
   json: any;
 }
 
+export function providerAcceptsNewStaff(rows: unknown, locks: unknown = []): boolean {
+  return (
+    Array.isArray(rows) &&
+    rows.length === 1 &&
+    rows[0]?.access_disabled !== true &&
+    Array.isArray(locks) &&
+    locks.length === 0
+  );
+}
+
 async function supabaseAdmin(
   method: string,
   path: string,
@@ -119,12 +130,86 @@ router.post(STAFF_LOGINS_PATH, requireStaff(["hq_admin"]), async (req, res) => {
   const name = `${parsed.data.firstName} ${parsed.data.lastName}`.replace(/\s+/g, " ").trim();
   const email = parsed.data.email.toLowerCase();
   const phone = parsed.data.phone ?? "";
+  const phoneDigits = phone.replace(/\D/g, "");
   const password = parsed.data.password;
 
   let userId: string | null = null;
+  let teamMemberId: string | null = null;
   let priorAssignment: { role: string; provider_account_code: string | null } | null = null;
 
   try {
+    // Existing imported provider/staff rows are identities, even when they
+    // have never completed Auth linkage. Never create or message a duplicate.
+    const [targetProvider, targetLocks, providerMatch, staffMatch, phoneProviders, phoneViewers, authUsers] = await Promise.all([
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/providers?provider_id=eq.${encodeURIComponent(accountId)}&select=provider_id,access_disabled&limit=2`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/provider_account_locks?or=(account_id.eq.${encodeURIComponent(accountId)},account_id.eq.${encodeURIComponent(`acct-${accountId}`)})&select=account_id&limit=1`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/providers?email=ilike.${encodeURIComponent(email)}&select=provider_id,auth_user_id&limit=1`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/team_members?email=ilike.${encodeURIComponent(email)}&select=id,auth_user_id&limit=1`,
+      ),
+      phoneDigits.length >= 10
+        ? supabaseAdmin("GET", "/rest/v1/providers?select=provider_id,phone&phone=not.is.null&limit=5000")
+        : Promise.resolve({ status: 200, json: [] }),
+      phoneDigits.length >= 10
+        ? supabaseAdmin("GET", "/rest/v1/training_viewers?select=id,phone&phone=not.is.null&limit=5000")
+        : Promise.resolve({ status: 200, json: [] }),
+      phoneDigits.length >= 10
+        ? supabaseAdmin("GET", "/auth/v1/admin/users?page=1&per_page=1000")
+        : Promise.resolve({ status: 200, json: { users: [] } }),
+    ]);
+    if ([targetProvider, targetLocks, providerMatch, staffMatch, phoneProviders, phoneViewers, authUsers].some((result) => result.status >= 300)) {
+      throw new Error("identity duplicate lookup failed");
+    }
+    if (!providerAcceptsNewStaff(targetProvider.json, targetLocks.json)) {
+      res.status(409).json({
+        error: "Choose an existing provider account with active access.",
+        field: "accountId",
+      });
+      return;
+    }
+    if (Array.isArray(providerMatch.json) && providerMatch.json.length > 0) {
+      res.status(409).json({
+        error: "That person already has a provider record. Existing records must use the normal claim flow.",
+        field: "email",
+      });
+      return;
+    }
+    if (Array.isArray(staffMatch.json) && staffMatch.json.length > 0) {
+      const linked = Boolean(staffMatch.json[0]?.auth_user_id);
+      res.status(409).json({
+        error: linked
+          ? "That staff member already has an active login."
+          : "That staff member already exists and currently needs setup.",
+        field: "email",
+      });
+      return;
+    }
+    if (phoneDigits.length >= 10) {
+      const normalized = phoneDigits.slice(-10);
+      const phoneTaken = [
+        ...(Array.isArray(phoneProviders.json) ? phoneProviders.json : []),
+        ...(Array.isArray(phoneViewers.json) ? phoneViewers.json : []),
+        ...(Array.isArray(authUsers.json?.users) ? authUsers.json.users : []),
+      ].some((row) => String(row?.phone ?? "").replace(/\D/g, "").slice(-10) === normalized);
+      if (phoneTaken) {
+        res.status(409).json({
+          error: "That phone number already belongs to a provider, staff member, or login.",
+          field: "phone",
+        });
+        return;
+      }
+    }
+
     // Remember any pre-existing (dangling) pre-approval for this email so a
     // failed request can restore it exactly. A LIVE user with this email
     // cannot exist past step 1, so this row can only be an unclaimed one.
@@ -199,7 +284,28 @@ router.post(STAFF_LOGINS_PATH, requireStaff(["hq_admin"]), async (req, res) => {
       throw new Error("provisioning chain did not converge");
     }
 
-    // 4. Optional phone onto the roster row — cosmetic, so failure only logs.
+    // 4. Materialize the canonical live provider-staff row only after Auth
+    // and scope have converged. Existing rows were rejected before step 1.
+    teamMemberId = crypto.randomUUID();
+    const teamMember = await supabaseAdmin(
+      "POST",
+      "/rest/v1/team_members",
+      {
+        id: teamMemberId,
+        provider_id: accountId,
+        name,
+        email,
+        activation_status: "activated",
+        auth_user_id: userId,
+        claimed_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      },
+    );
+    if (teamMember.status >= 300) {
+      throw new Error(`provider staff row create failed (${teamMember.status})`);
+    }
+
+    // 5. Optional phone onto the training roster row — cosmetic.
     if (phone) {
       const patched = await supabaseAdmin("PATCH", `/rest/v1/training_viewers?id=eq.${viewerRow.id}`, {
         phone,
@@ -224,6 +330,9 @@ router.post(STAFF_LOGINS_PATH, requireStaff(["hq_admin"]), async (req, res) => {
     // before the assignment write.
     try {
       if (userId) {
+        if (teamMemberId) {
+          await supabaseAdmin("DELETE", `/rest/v1/team_members?id=eq.${teamMemberId}`);
+        }
         await supabaseAdmin("DELETE", `/auth/v1/admin/users/${userId}`);
         if (priorAssignment) {
           await supabaseAdmin(

@@ -11,6 +11,7 @@ import labelScanRouter from "./label-scan";
 import barcodeRouter from "./barcode";
 import supportRouter from "./support";
 import claimRouter from "./claim";
+import providerAccountsRouter from "./provider-accounts";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(progressPhotosRouter);
 router.use(knowledgeDocsRouter);
 router.use(staffLoginsRouter);
 router.use(claimRouter);
+router.use(providerAccountsRouter);
 
 export default router;

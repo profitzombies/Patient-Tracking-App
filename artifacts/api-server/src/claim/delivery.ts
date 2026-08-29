@@ -144,3 +144,35 @@ export async function sendClaimEmail(to: string, code: string): Promise<void> {
     throw new Error(`Resend send failed (${response.status})`);
   }
 }
+
+/** One post-commit invitation for a genuinely new provider. */
+export async function sendProviderClaimInvitation(
+  to: string,
+  input: { officeName: string; providerName: string; providerCode: string },
+): Promise<void> {
+  const creds = resendCreds();
+  if (!creds) throw new DeliveryNotConfiguredError("email");
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: creds.from,
+      to: [to],
+      subject: "Your THINNR provider account is ready to claim",
+      text: [
+        `Hello ${input.providerName},`,
+        "",
+        `${input.officeName} is now set up in THINNR.`,
+        `Your patient onboarding code is ${input.providerCode}.`,
+        "",
+        "Use the claim flow in THINNR with this email address to verify your account and choose a password.",
+        "If you did not expect this invitation, contact THINNR support.",
+      ].join("\n"),
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Resend provider invitation failed (${response.status})`);
+}

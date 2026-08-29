@@ -1,12 +1,8 @@
 /**
  * Provider accounts — every sub-account under the THINNR umbrella.
  *
- * The four seeded accounts wrap the office demo's providers and carry exact
- * splits of its program totals. "Add provider account" creates a mock
- * sub-account: it appears immediately, persists for this browser session
- * (sessionStorage), starts Pending with zero patients, and draws its
- * six-digit onboarding code from a reserved pool so it never collides with
- * the seeded codes.
+ * Rows and additions are durable live provider records. Existing imported
+ * rows may have intentionally unavailable account fields.
  */
 import { useState } from 'react';
 import { Link } from 'wouter';
@@ -26,6 +22,7 @@ import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader } from '@/c
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { monthlyRevenueOf, type AccountPlan } from '@/data/hq/accounts';
+import { ProviderAccountError } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
@@ -42,7 +39,7 @@ const EMPTY_FORM = {
 };
 
 export default function Accounts() {
-  const { accounts, addAccount, settingsValues } = useHqData();
+  const { accounts, accountsStatus, accountsError, addAccount, settingsValues } = useHqData();
   const { isLocked } = useAccountLocks();
   const { toast } = useToast();
 
@@ -52,39 +49,54 @@ export default function Accounts() {
   // actually feeds the rest of the demo.
   const defaultPlan = (settingsValues['provider-accounts.default-plan'] as AccountPlan) ?? 'Plus';
   const [plan, setPlan] = useState<AccountPlan>(defaultPlan);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const openDialog = () => {
     setForm(EMPTY_FORM);
     setPlan(defaultPlan);
+    setFormError(null);
     setOpen(true);
   };
 
   const setField = (key: keyof typeof EMPTY_FORM) => (event: React.ChangeEvent<HTMLInputElement>) =>
     setForm((current) => ({ ...current, [key]: event.target.value }));
 
-  const submit = () => {
+  const submit = async () => {
+    if (submitting) return;
     const officeName = form.officeName.trim();
     const providerName = form.providerName.trim();
-    if (!officeName || !providerName) {
-      toast({ variant: 'destructive', title: 'Office and provider names are required', description: 'The rest can be filled in later.' });
+    const email = form.email.trim().toLowerCase();
+    if (!officeName || !providerName || !email) {
+      setFormError('Office name, provider name, and a claim email are required.');
       return;
     }
-    const account = addAccount({
-      officeName,
-      providerName,
-      providerRole: form.providerRole.trim() || 'Practitioner',
-      city: form.city.trim() || 'TBD',
-      state: form.state.trim().toUpperCase().slice(0, 2) || '—',
-      plan,
-      email: form.email.trim() || 'pending@thinnr.example.com',
-      phone: form.phone.trim() || '—',
-    });
-    toast({
-      variant: 'success',
-      title: `${account.officeName} created`,
-      description: `Pending activation · provider code ${account.providerCode}. Lives for this demo session.`,
-    });
-    setOpen(false);
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      const created = await addAccount({
+        officeName, providerName,
+        providerRole: form.providerRole.trim() || 'Practitioner',
+        city: form.city.trim(),
+        state: form.state.trim().toUpperCase().slice(0, 2),
+        plan,
+        email,
+        phone: form.phone.trim(),
+      });
+      toast({
+        variant: 'success',
+        title: `${created.account.officeName} created`,
+        description:
+          created.invitation === 'sent'
+            ? `Needs setup · provider code ${created.account.providerCode ?? 'unavailable'} · claim invitation sent.`
+            : `Needs setup · provider code ${created.account.providerCode ?? 'unavailable'} · the claim invitation could not be sent.`,
+      });
+      setOpen(false);
+    } catch (cause) {
+      setFormError(cause instanceof ProviderAccountError ? cause.message : 'The provider account could not be created.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -92,7 +104,7 @@ export default function Accounts() {
       <PageHeader
         kicker="Sub-accounts"
         title="Provider accounts"
-        sub="Each office links to the program through the six-digit code its patients type during mobile onboarding. Accounts added here appear immediately and persist for this browser session."
+        sub="Each live office links to the program through the six-digit code its patients type during mobile onboarding."
         action={
           <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-add-account" onClick={openDialog}>
             <Plus size={14} aria-hidden="true" />
@@ -101,7 +113,7 @@ export default function Accounts() {
         }
       />
 
-      <SectionCard title="All accounts" sub={`${accounts.length} offices under the umbrella`}>
+      <SectionCard title="All accounts" sub={accountsStatus === 'ready' ? `${accounts.length} offices under the umbrella` : 'Live provider directory'}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-left text-xs">
             <thead>
@@ -120,18 +132,28 @@ export default function Accounts() {
               </tr>
             </thead>
             <tbody>
+              {accountsStatus !== 'ready' && (
+                <tr><td colSpan={9} className="px-5 py-10 text-center text-xs text-muted-foreground">
+                  {accountsStatus === 'loading' ? 'Loading live provider accounts…' : accountsStatus === 'unauthorized' ? 'Sign in with a THINNR HQ account to view the live provider directory.' : accountsError ?? 'The live provider directory could not be loaded.'}
+                </td></tr>
+              )}
+              {accountsStatus === 'ready' && accounts.length === 0 && (
+                <tr><td colSpan={9} className="px-5 py-10 text-center text-xs text-muted-foreground" data-testid="text-accounts-empty">
+                  No provider accounts yet. Add the first provider account to get started.
+                </td></tr>
+              )}
               {accounts.map((account) => (
                 <tr key={account.id} className="border-b border-border transition hover:bg-accent/40 last:border-b-0" data-testid={`row-account-${account.id}`}>
                   <td className="px-5 py-3">
                     <b className="block text-xs font-semibold text-navy">{account.officeName}</b>
-                    <small className="text-[10px] text-muted-foreground">{account.city}, {account.state}</small>
+                     <small className="text-[10px] text-muted-foreground">{[account.city, account.state].filter(Boolean).join(', ') || '—'}</small>
                   </td>
                   <td className="px-3 py-3">
                     <span className="block text-foreground">{account.providerName}</span>
                     <small className="text-[10px] text-muted-foreground">{account.providerRole}</small>
                   </td>
-                  <td className="px-3 py-3 font-mono text-[11px] tracking-[.08em] text-foreground">{account.providerCode}</td>
-                  <td className="px-3 py-3 text-foreground">{account.plan}</td>
+                   <td className="px-3 py-3 font-mono text-[11px] tracking-[.08em] text-foreground">{account.providerCode ?? '—'}</td>
+                   <td className="px-3 py-3 text-foreground">{account.plan ?? '—'}</td>
                   <td className="px-3 py-3">
                     <span className="inline-flex flex-wrap items-center gap-1.5">
                       <AccountStatusChip status={account.status} />
@@ -140,7 +162,7 @@ export default function Accounts() {
                   </td>
                   <td className="px-3 py-3 text-right font-semibold text-navy">{fmt(account.activePatientCount)}</td>
                   <td className="px-3 py-3 text-right text-foreground">
-                    {monthlyRevenueOf(account) > 0 ? `$${fmt(monthlyRevenueOf(account))}` : '—'}
+                     {monthlyRevenueOf(account) == null ? '—' : `$${fmt(monthlyRevenueOf(account)!)}`}
                   </td>
                   <td className="px-3 py-3 text-muted-foreground">{formatDateKey(account.joinedKey, true)}</td>
                   <td className="px-5 py-3 text-right">
@@ -165,8 +187,7 @@ export default function Accounts() {
           <DialogHeader>
             <DialogTitle className="font-serif text-navy">Add a provider account</DialogTitle>
             <DialogDescription>
-              Creates a mock sub-account for this demo session. It starts Pending with zero patients and receives the next
-              reserved onboarding code.
+              Creates a durable unclaimed provider account and sends one claim invitation after the account is saved.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -204,20 +225,21 @@ export default function Accounts() {
               </Select>
             </div>
             <label className="block">
-              <span className={PANEL_LABEL}>Office email</span>
-              <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.email} onChange={setField('email')} placeholder="frontdesk@office.example.com" data-testid="input-account-email" />
+              <span className={PANEL_LABEL}>Claim email *</span>
+              <input type="email" required className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.email} onChange={setField('email')} placeholder="frontdesk@office.example.com" data-testid="input-account-email" />
             </label>
             <label className="block sm:col-span-2">
               <span className={PANEL_LABEL}>Office phone</span>
               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.phone} onChange={setField('phone')} placeholder="(555) 000-0000" data-testid="input-account-phone" />
             </label>
           </div>
+          {formError && <p role="alert" className="text-xs font-semibold text-destructive" data-testid="text-account-form-error">{formError}</p>}
           <DialogFooter>
             <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setOpen(false)}>
               Cancel
             </button>
-            <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-account-create" onClick={submit}>
-              Create account
+             <button type="button" disabled={submitting} className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-account-create" onClick={submit}>
+               {submitting ? 'Creating account…' : 'Create account'}
             </button>
           </DialogFooter>
         </DialogContent>

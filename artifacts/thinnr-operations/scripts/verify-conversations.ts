@@ -25,8 +25,25 @@ import {
   parseAtLabel,
   type ConversationSearchFields,
 } from '../src/data/hq/conversations';
-import { SEEDED_ACCOUNTS } from '../src/data/hq/accounts';
 import { MOCK_PATIENTS } from '../src/data/mock-data';
+
+// Search-matcher fixtures live in this isolated verifier. Provider accounts in
+// the application itself are live-only and must never be repopulated from
+// conversation-demo metadata.
+const ACCOUNT_SEARCH_FIXTURES = [
+  {
+    id: 'acct-p1',
+    officeName: 'Jenkins Aesthetics & Wellness',
+    providerName: 'Dr. Sarah Jenkins',
+    providerCode: '123456',
+  },
+  {
+    id: 'acct-p3',
+    officeName: 'Rostova Medical',
+    providerName: 'Dr. Elena Rostova',
+    providerCode: '590233',
+  },
+];
 
 let failures = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -99,8 +116,8 @@ check(
 // ─── Search matcher ──────────────────────────────────────────────────────────
 const emma = MOCK_PATIENTS.find((p) => p.id === 'pat_100');
 if (!emma) throw new Error('Demo patient pat_100 missing from mock data');
-const jenkins = SEEDED_ACCOUNTS.find((a) => a.id === 'acct-p1');
-if (!jenkins) throw new Error('Seeded account acct-p1 missing');
+const jenkins = ACCOUNT_SEARCH_FIXTURES.find((a) => a.id === 'acct-p1');
+if (!jenkins) throw new Error('Conversation search fixture acct-p1 missing');
 
 const emmaFields: ConversationSearchFields = {
   patientName: emma.name,
@@ -130,7 +147,7 @@ check('AND across tokens rejects mixups', conversationMatchesQuery(emmaFields, '
 // ─── Search over the real rail rows (same composition the page uses) ─────────
 const rows = all.map((conv) => {
   const patient = MOCK_PATIENTS.find((p) => p.id === conv.patientId);
-  const account = SEEDED_ACCOUNTS.find((a) => a.id === conv.accountId);
+  const account = ACCOUNT_SEARCH_FIXTURES.find((a) => a.id === conv.accountId);
   return {
     conv,
     fields: {

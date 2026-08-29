@@ -3,19 +3,14 @@
  * by side as the two main columns, the Office profile beneath them, and (last,
  * deliberately separated) the danger zone where THINNR locks the account.
  *
- * The drill-in button is the umbrella's key move: it opens the existing
- * office screens scoped to this provider inside the admin shell. For
- * session-added accounts (zero patients) the button explains itself instead
- * of opening an empty dashboard — patients appear only after they onboard
- * with the office's code, which never happens inside the demo session.
- *
- * The lock is the one piece of live data on the page: it lives in Supabase
- * (world-readable, HQ-admin-writable) so a locked office stays locked in
- * every browser, while the account records themselves stay seeded demo data.
+ * The drill-in button opens the existing office shell under the canonical
+ * provider id. Accounts without linked patients explain why it is unavailable.
+ * Account identity, roster, staff, and lock state all come from live rows.
  * HQ keeps full visibility into a locked account — badges here and on the
  * accounts list — because the lock only shuts out the provider side.
  */
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'wouter';
 import { ArrowLeft, ArrowRight, Copy, Lock, MessagesSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -32,9 +27,7 @@ import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText }
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
-import { monthlyRevenueOf } from '@/data/hq/accounts';
-import { getConversations } from '@/data/hq/conversations';
-import { MOCK_PATIENTS } from '@/data/mock-data';
+import { fetchProviderAccountDetail } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
@@ -52,22 +45,30 @@ function Stat({ label, value, testId }: { label: string; value: React.ReactNode;
 
 export default function AccountDetail() {
   const { id } = useParams<{ id: string }>();
-  const { findAccount } = useHqData();
+  const { findAccount, accountsStatus } = useHqData();
   const { locks, isLocked, setAccountLock } = useAccountLocks();
   const { toast } = useToast();
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const account = findAccount(id);
+  const detailQuery = useQuery({
+    queryKey: ['provider-account-detail', id],
+    queryFn: () => fetchProviderAccountDetail(id),
+    enabled: accountsStatus === 'ready' && Boolean(id),
+  });
+  const account = detailQuery.data?.account ?? findAccount(id);
 
+  if (!account && (accountsStatus === 'loading' || detailQuery.isPending)) {
+    return <AdminPage><p className="py-10 text-center text-xs text-muted-foreground">Loading live provider account…</p></AdminPage>;
+  }
   if (!account) {
     return (
       <AdminPage>
         <div className="mx-auto max-w-md rounded-lg border border-card-border bg-card px-6 py-10 text-center shadow-soft">
           <h1 className="font-serif text-lg font-bold text-navy">Account not found</h1>
           <p className="mt-2 text-xs text-muted-foreground">
-            This provider account doesn&rsquo;t exist in the demo session — it may have been created in another tab.
+             This provider account could not be found in the live directory.
           </p>
           <Link href="/admin/accounts" className={`${BTN_SECONDARY} mt-5 h-9 px-3.5`} data-testid="link-back-to-accounts">
             <ArrowLeft size={14} aria-hidden="true" />
@@ -77,17 +78,26 @@ export default function AccountDetail() {
       </AdminPage>
     );
   }
+  if (detailQuery.isError) {
+    return (
+      <AdminPage>
+        <div className="mx-auto max-w-md rounded-lg border border-card-border bg-card px-6 py-10 text-center shadow-soft">
+          <h1 className="font-serif text-lg font-bold text-navy">Account details unavailable</h1>
+          <p className="mt-2 text-xs text-muted-foreground">
+            The provider directory loaded, but the live roster and staff details did not. Try again before acting on this account.
+          </p>
+          <button type="button" className={`${BTN_SECONDARY} mt-5 h-9 px-3.5`} onClick={() => detailQuery.refetch()}>
+            Try again
+          </button>
+        </div>
+      </AdminPage>
+    );
+  }
 
   const hasPatients = account.activePatientCount > 0;
-  const rosterPreview = account.providerId
-    ? MOCK_PATIENTS.filter((patient) => patient.providerId === account.providerId).slice(0, 5)
-    : [];
-  const conversationCount = getConversations(account.id).length;
+  const rosterPreview = detailQuery.data?.roster ?? [];
 
-  // Only seeded accounts get the lock control: session-added accounts are
-  // per-browser figments whose ids repeat across sessions, so a global
-  // Supabase lock keyed to them would leak between unrelated demos.
-  const lockable = Boolean(account.providerId);
+  const lockable = true;
   const locked = isLocked(account.id);
   const lock = locks.get(account.id);
   const lockedSince = lock?.lockedAt
@@ -95,6 +105,7 @@ export default function AccountDetail() {
     : null;
 
   const copyCode = async () => {
+    if (!account.providerCode) return;
     const landed = await copyText(account.providerCode);
     toast(
       landed
@@ -142,7 +153,7 @@ export default function AccountDetail() {
         title={account.officeName}
         sub={
           <>
-            {account.providerName} · {account.providerRole} · {account.city}, {account.state} · Joined{' '}
+             {account.providerName} · {account.providerRole} · {[account.city, account.state].filter(Boolean).join(', ') || '—'} · Joined{' '}
             {formatDateKey(account.joinedKey, true)}
           </>
         }
@@ -150,7 +161,7 @@ export default function AccountDetail() {
           <div className="flex flex-wrap items-center gap-2">
             {locked && <AccountLockedChip testId="chip-account-locked" />}
             <AccountStatusChip status={account.status} />
-            <span className={CHIP_COBALT}>{account.plan} plan</span>
+             <span className={CHIP_COBALT}>{account.plan ? `${account.plan} plan` : 'Plan —'}</span>
           </div>
         }
       />
@@ -172,7 +183,7 @@ export default function AccountDetail() {
             onClick={() =>
               toast({
                 title: 'No office dashboard yet',
-                description: `The dashboard unlocks once patients onboard with code ${account.providerCode}.`,
+                 description: account.providerCode ? `The dashboard unlocks once patients onboard with code ${account.providerCode}.` : 'This account does not have an onboarding code yet.',
               })
             }
           >
@@ -180,9 +191,9 @@ export default function AccountDetail() {
             <ArrowRight size={14} aria-hidden="true" />
           </button>
         )}
-        <Link href={`/admin/conversations?account=${account.id}`} className={`${BTN_SECONDARY} h-9 px-3.5`} data-testid="link-view-conversations">
+         <Link href={`/admin/conversations?account=${account.id}`} className={`${BTN_SECONDARY} h-9 px-3.5`} data-testid="link-view-conversations">
           <MessagesSquare size={14} aria-hidden="true" />
-          Coach conversations{conversationCount > 0 ? ` (${conversationCount})` : ''}
+           Coach conversations
         </Link>
       </div>
 
@@ -190,26 +201,25 @@ export default function AccountDetail() {
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <SectionCard
           title="Account metrics"
-          sub={hasPatients ? 'Exact split of the program totals at the demo anchor' : 'Awaiting first patients'}
+           sub={hasPatients ? 'Live patient count; unsupported analytics remain unavailable' : 'Awaiting first patients'}
         >
           {hasPatients ? (
             // Two-up on phones, three-up from sm — the tiles fill the column
             // instead of leaving the old dead white space.
             <div className="grid grid-cols-2 gap-2.5 px-4 py-4 sm:grid-cols-3">
               <Stat label="Active patients" value={fmt(account.activePatientCount)} testId="text-account-patients" />
-              <Stat label="New enrollments" value={fmt(account.newEnrollments)} />
-              <Stat label="Monthly revenue" value={`$${fmt(monthlyRevenueOf(account))}`} testId="text-account-revenue" />
-              <Stat label="Subscriptions" value={fmt(account.activeSubscriptions)} />
-              <Stat label="Deliveries · 30d" value={fmt(account.deliveriesInWindow)} />
-              <Stat label="Engagement" value={`${account.engagementRate}%`} />
-              <Stat label="Avg pounds lost" value={account.avgPoundsLost} />
-              <Stat label="Goal completion" value={`${account.goalCompletion}%`} />
-              <Stat label="Retention" value={`${account.retention}%`} />
+               <Stat label="New enrollments" value="—" />
+               <Stat label="Monthly revenue" value="—" testId="text-account-revenue" />
+               <Stat label="Subscriptions" value="—" />
+               <Stat label="Deliveries · 30d" value="—" />
+               <Stat label="Engagement" value="—" />
+               <Stat label="Avg pounds lost" value="—" />
+               <Stat label="Goal completion" value="—" />
+               <Stat label="Retention" value="—" />
             </div>
           ) : (
             <p className="px-5 py-6 text-xs leading-relaxed text-muted-foreground">
-              No metrics yet — this account was created during the demo session. Numbers begin once patients onboard in
-              the mobile app with provider code <span className="font-mono tracking-[.08em] text-foreground">{account.providerCode}</span>.
+               No active patients are linked yet. Unsupported account analytics remain unavailable rather than estimated.
             </p>
           )}
         </SectionCard>
@@ -258,9 +268,9 @@ export default function AccountDetail() {
               <p className={PANEL_LABEL}>Provider code</p>
               <div className="mt-1.5 flex items-center gap-2">
                 <span className="font-mono text-xl font-bold tracking-[.18em] text-navy" data-testid="text-account-code">
-                  {account.providerCode}
+                   {account.providerCode ?? '—'}
                 </span>
-                <button
+                 {account.providerCode && <button
                   type="button"
                   aria-label="Copy provider code"
                   className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
@@ -269,7 +279,7 @@ export default function AccountDetail() {
                 >
                   <Copy size={12} aria-hidden="true" />
                   Copy
-                </button>
+                 </button>}
               </div>
               <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
                 Patients type this six-digit code during mobile onboarding to link their account to this office.
@@ -278,10 +288,10 @@ export default function AccountDetail() {
             <div>
               {[
                 { label: 'Email', value: account.email },
-                { label: 'Phone', value: account.phone },
-                { label: 'Location', value: `${account.city}, ${account.state}` },
+                 { label: 'Phone', value: account.phone ?? '—' },
+                 { label: 'Location', value: [account.city, account.state].filter(Boolean).join(', ') || '—' },
                 { label: 'Joined', value: formatDateKey(account.joinedKey, true) },
-                { label: 'Plan', value: account.plan },
+                 { label: 'Plan', value: account.plan ?? '—' },
               ].map((row) => (
                 <div key={row.label} className="flex items-baseline justify-between gap-4 border-b border-border px-5 py-3 last:border-b-0">
                   <span className={MICRO_LABEL}>{row.label}</span>
@@ -295,7 +305,7 @@ export default function AccountDetail() {
 
       {/* Staff sign-ins — real office logins, provisioned from this page. */}
       <div className="mt-5">
-        <StaffAccessCard account={account} />
+         <StaffAccessCard account={account} staff={detailQuery.data?.staff ?? []} onCreated={() => detailQuery.refetch()} />
       </div>
 
       {/* Danger zone — the page's very last section, clearly separated.

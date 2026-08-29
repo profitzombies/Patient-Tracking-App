@@ -77,11 +77,13 @@ export function PreviewBanner({ children }: { children: ReactNode }) {
   );
 }
 
-export function AccountStatusChip({ status }: { status: 'active' | 'pending' }) {
+export function AccountStatusChip({ status }: { status: 'active' | 'needs_setup' | 'locked' }) {
   return status === 'active' ? (
     <span className={CHIP_COBALT}>Active</span>
+  ) : status === 'locked' ? (
+    <span className={CHIP_RISK}>Disabled</span>
   ) : (
-    <span className={CHIP_WARM}>Pending</span>
+    <span className={CHIP_WARM}>Needs setup</span>
   );
 }
 

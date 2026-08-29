@@ -50,7 +50,7 @@ const searchFieldsOf = ({ patient, account }: RailRow): ConversationSearchFields
   patientPhone: patient?.phone,
   officeName: account?.officeName,
   providerName: account?.providerName,
-  providerCode: account?.providerCode,
+  providerCode: account?.providerCode ?? undefined,
 });
 
 function PatientAvatar({ patient }: { patient: Patient | undefined }) {

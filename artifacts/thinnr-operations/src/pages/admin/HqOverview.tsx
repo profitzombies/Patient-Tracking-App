@@ -29,20 +29,10 @@ export default function HqOverview() {
   const { accounts } = useHqData();
 
   const totalPatients = accounts.reduce((sum, account) => sum + account.activePatientCount, 0);
-  const totalEnrollments = accounts.reduce((sum, account) => sum + account.newEnrollments, 0);
-  const totalSubscriptions = accounts.reduce((sum, account) => sum + account.activeSubscriptions, 0);
-  const totalDeliveries = accounts.reduce((sum, account) => sum + account.deliveriesInWindow, 0);
-  const totalRecurring = accounts.reduce((sum, account) => sum + account.recurringRevenue, 0);
-  const totalEnrollmentRevenue = accounts.reduce((sum, account) => sum + account.enrollmentRevenue, 0);
-  const totalMonthly = totalRecurring + totalEnrollmentRevenue;
-  // Weighted by patients so the rollup reproduces the program's 89.5%.
-  const weightedEngagement =
-    totalPatients > 0
-      ? round1(accounts.reduce((sum, account) => sum + account.engagementRate * account.activePatientCount, 0) / totalPatients)
-      : 0;
+  const totalMonthly: number | null = null;
 
   const activeAccounts = accounts.filter((account) => account.status === 'active');
-  const revenueAccounts = accounts.filter((account) => monthlyRevenueOf(account) > 0);
+  const revenueAccounts = accounts.filter((account) => monthlyRevenueOf(account) != null);
 
   const latestConversations = getConversations().slice(0, 3);
 
@@ -63,25 +53,25 @@ export default function HqOverview() {
         <MetricTile
           label="Patients across accounts"
           value={fmt(totalPatients)}
-          detail={`${fmt(totalEnrollments)} new enrollments this month`}
+          detail="Active patients from live provider-linked rows"
           testId="text-hq-patients"
         />
         <MetricTile
           label="Active subscriptions"
-          value={fmt(totalSubscriptions)}
-          detail="Recurring product deliveries in force"
+          value="—"
+          detail="No confirmed live subscription source"
           testId="text-hq-subscriptions"
         />
         <MetricTile
           label="Deliveries · demo window"
-          value={fmt(totalDeliveries)}
-          detail="Shipments across all offices, last 30 days"
+          value="—"
+          detail="No confirmed live delivery source"
           testId="text-hq-deliveries"
         />
         <MetricTile
           label="Avg engagement"
-          value={`${weightedEngagement}%`}
-          detail="Weekly app engagement, weighted by patients"
+          value="—"
+          detail="No confirmed live engagement source"
           testId="text-hq-engagement"
         />
       </div>
@@ -89,14 +79,14 @@ export default function HqOverview() {
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,7fr),minmax(0,5fr)]">
         <SectionCard
           title="Monthly program revenue"
-          sub="Across every provider account — reconciles with the office demo's headline."
+          sub="Across every provider account"
         >
           <div className="px-5 py-4">
             <p className="font-serif text-[30px] font-bold leading-none tracking-[-.01em] text-navy" data-testid="text-hq-revenue">
-              ${fmt(totalMonthly)}
+              —
             </p>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              ${fmt(totalRecurring)} recurring subscriptions · ${fmt(totalEnrollmentRevenue)} new-enrollment revenue
+              No confirmed live revenue source is available for this directory.
             </p>
 
             {/* Share-of-revenue stacked bar: one segment per revenue-bearing account. */}
@@ -105,7 +95,7 @@ export default function HqOverview() {
                 <span
                   key={account.id}
                   className={BAR_CLASSES[index % BAR_CLASSES.length]}
-                  style={{ width: `${(monthlyRevenueOf(account) / totalMonthly) * 100}%` }}
+                  style={{ width: `${100 / Math.max(1, revenueAccounts.length)}%` }}
                 />
               ))}
             </div>
@@ -114,17 +104,16 @@ export default function HqOverview() {
                 <li key={account.id} className="flex items-center gap-2 text-[11px]">
                   <span className={`h-2 w-2 shrink-0 rounded-full ${BAR_CLASSES[index % BAR_CLASSES.length]}`} aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate text-foreground">{account.officeName}</span>
-                  <span className="shrink-0 font-semibold text-navy">${fmt(monthlyRevenueOf(account))}</span>
+                  <span className="shrink-0 font-semibold text-navy">${fmt(monthlyRevenueOf(account) ?? 0)}</span>
                   <span className="w-10 shrink-0 text-right text-muted-foreground">
-                    {Math.round((monthlyRevenueOf(account) / totalMonthly) * 100)}%
+                    —
                   </span>
                 </li>
               ))}
             </ul>
 
             <p className="mt-4 border-t border-border pt-3 text-[10px] leading-relaxed text-muted-foreground">
-              The seeded accounts partition the program totals — the same {fmt(totalPatients)} patients and ${fmt(totalMonthly)}
-              /month the office desk reports at the {formatDateKey(TODAY_KEY, true)} anchor.
+              Unavailable values stay unavailable until an authoritative live source is connected.
             </p>
           </div>
         </SectionCard>
@@ -201,9 +190,9 @@ export default function HqOverview() {
                     <td className="px-3 py-3 text-foreground">{account.providerName}</td>
                     <td className="px-3 py-3"><AccountStatusChip status={account.status} /></td>
                     <td className="px-3 py-3 text-right font-semibold text-navy">{fmt(account.activePatientCount)}</td>
-                    <td className="px-3 py-3 text-right text-foreground">${fmt(monthlyRevenueOf(account))}</td>
+                    <td className="px-3 py-3 text-right text-foreground">{monthlyRevenueOf(account) == null ? '—' : `$${fmt(monthlyRevenueOf(account)!)}`}</td>
                     <td className="px-5 py-3 text-right text-foreground">
-                      {account.activePatientCount > 0 ? `${account.engagementRate}%` : '—'}
+                      {account.engagementRate == null ? '—' : `${account.engagementRate}%`}
                     </td>
                   </tr>
                 ))}

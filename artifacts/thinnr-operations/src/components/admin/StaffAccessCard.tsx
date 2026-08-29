@@ -40,7 +40,7 @@ import {
   StaffProvisioningError,
   type StaffFormField,
 } from '@/lib/staff-provisioning';
-import type { ProviderAccount } from '@/data/hq/accounts';
+import type { ProviderAccount, ProviderStaffMember } from '@/data/hq/accounts';
 
 const CHIP_MUTED =
   'inline-flex items-center rounded-full border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.08em] text-muted-foreground';
@@ -57,8 +57,12 @@ function initialsOf(name: string): string {
     .join('');
 }
 
-export function StaffAccessCard({ account }: { account: ProviderAccount }) {
-  const { viewers, canEdit, refresh, status } = useTrainingData();
+export function StaffAccessCard({ account, staff: liveStaff, onCreated }: {
+  account: ProviderAccount;
+  staff: ProviderStaffMember[];
+  onCreated: () => void;
+}) {
+  const { canEdit, refresh } = useTrainingData();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -67,20 +71,18 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
   // The office code the roster keys on is account.id ('acct-p1'); providerId
   // ('p1') only marks which accounts are real provisioned offices. Session-
   // added accounts have providerId null — no real office, no sign-ins.
-  const officeCode = account.providerId ? account.id : null;
+  const officeCode = account.id;
 
   // Sign-in holders first, then the roster-only rows, both alphabetized —
   // "who can actually get in" is the question this card answers.
   const staff = useMemo(() => {
-    if (!officeCode) return [];
-    return viewers
-      .filter((viewer) => viewer.accountId === officeCode)
+    return [...liveStaff]
       .sort(
         (a, b) =>
           Number(Boolean(b.authUserId)) - Number(Boolean(a.authUserId)) ||
           a.name.localeCompare(b.name),
       );
-  }, [viewers, officeCode]);
+  }, [liveStaff]);
 
   const setField =
     (field: keyof FormState) =>
@@ -139,6 +141,7 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
       setForm(EMPTY_FORM);
       setOpen(false);
       refresh();
+      onCreated();
     } catch (cause) {
       if (cause instanceof StaffProvisioningError) {
         setError({ message: cause.message, field: cause.field });
@@ -196,9 +199,9 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
                       </small>
                     </span>
                     {person.authUserId ? (
-                      <span className={CHIP_COBALT}>Sign-in active</span>
+                      <span className={CHIP_COBALT}>Active</span>
                     ) : (
-                      <span className={CHIP_MUTED}>Roster only</span>
+                      <span className={CHIP_MUTED}>{person.activationStatus === 'disabled' ? 'Disabled' : 'Needs setup'}</span>
                     )}
                   </li>
                 ))}
@@ -208,11 +211,7 @@ export function StaffAccessCard({ account }: { account: ProviderAccount }) {
                 className="border-b border-border px-5 py-4 text-xs leading-relaxed text-muted-foreground"
                 data-testid="text-staff-empty"
               >
-                {status === 'ready'
-                  ? 'No staff filed under this office on the training roster yet — use Add Team Member above to create the first sign-in.'
-                  : status === 'error'
-                    ? 'The live roster could not be loaded, so this list may be incomplete.'
-                    : 'Loading the office roster…'}
+                No staff are filed under this provider account yet — use Add Team Member above to create the first sign-in.
               </p>
             )}
           </>

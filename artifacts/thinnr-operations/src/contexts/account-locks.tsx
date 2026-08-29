@@ -1,6 +1,5 @@
 /**
- * Provider-account lock state — the one piece of account data that lives in
- * Supabase instead of the seeded demo session.
+ * Provider-account lock state, keyed by the canonical live provider id.
  *
  * A row in provider_account_locks means THINNR shut off that office's access:
  * the office side blocks its staff, while HQ keeps full visibility. Rows are
@@ -58,7 +57,7 @@ async function fetchLocks(): Promise<AccountLock[]> {
     .limit(1000);
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => ({
-    accountId: String(row.account_id),
+    accountId: String(row.account_id).replace(/^acct-/, ''),
     lockedAt: String(row.locked_at ?? ''),
   }));
 }

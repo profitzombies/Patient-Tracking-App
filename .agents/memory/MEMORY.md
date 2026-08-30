@@ -52,8 +52,8 @@
 - [Web admin persona gate](web-admin-persona-gate.md) — operations /admin screenshots need the tester through the guided-demo persona (sessionStorage); static Screenshot only sees the sign-in card.
 - [Provider account lock](account-lock-pattern.md) — presence-keyed row + lock-aware caller_* helpers collapse office RLS at one choke point; keep locked staff's own-profile read for the notice.
 - [Web fit-to-iPhone shell](web-fit-shell.md) — Expo web lays out on a fixed 393pt canvas transform-scaled to the frame; use the app width hook, ?layoutWidth= to pin/disable; gBCR consumers see real px.
-- [Knowledge doc library](knowledge-doc-library.md) — AI Support grounding docs: extract-on-finalize with object-path-conditional persists, routing aids total at ingest, seed only via the real HTTP path.
-- [Support chat grounding](support-chat-grounding.md) — broaden-marker routing; brand fixes via stream rewrite; history caps fit replayed replies (turn TWO); AI Support + knowledge routes deliberately open, per-IP-limited; never bundle creds.
+- [Knowledge doc library](knowledge-doc-library.md) — AI Support grounding docs: extract-on-finalize with object-path-conditional persists, routing aids at ingest; HTTP seed path now behind the HQ content gate.
+- [Support chat grounding](support-chat-grounding.md) — broaden-marker routing; brand fixes via stream rewrite; history caps fit replayed replies (turn TWO); chat open per-IP-limited, knowledge routes now HQ-gated; never bundle creds.
 - [Unicode in authored TSX](tsx-unicode-escapes.md) — \uXXXX in JSX text renders literally (green builds, broken UI); write real characters when generating files.
 - [Synthetic image fixtures](synthetic-image-fixtures.md) — no sharp/PIL/chromium here: a no-deps Node PNG encoder + 5x7 pixel font makes vision-readable fixtures; certify via curl before e2e.
 - [In-app food camera handoff](food-camera-handoff.md) — camera route settles a module promise with the RAW asset; prep + single blue confirm live at entry points; denied fallbacks live inside the surface.
@@ -73,3 +73,4 @@
 - [Patient floating bottom row](corner-launcher-shelf.md) — shared ui/FabMenu + a hand-rolled pill bar (owes its own tablist/tab a11y); all bottom stacking lives in constants/layout — new floating UI must join that shelf math.
 - [Account claiming](account-claiming.md) — neutral identify, one-shot DOB, two-column link writes; GoTrue merges app_metadata AFTER insert → deferred constraint triggers; claimed logins have NO profile row (whoami fallback).
 - [HQ department access](hq-department-access.md) — active HQ membership is authoritative across client, API, and RLS; the coarse profile role must never grant or classify department access alone.
+- [Legacy DB archive-and-reset](legacy-db-reset.md) — CTAS archive + checksum gate + gated wipe; audit manifests must be write-once (mgmt-API applies skip migration history); TRUNCATE fires no triggers.

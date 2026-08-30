@@ -15,4 +15,4 @@ The provider AI Support chat grounds on `knowledge_documents`: full extracted te
 
 **Why:** the chat task consumes this; if aids became optional or persists unconditional, grounding would route badly or replace races would resurrect stale text (same class of bug as training's stale-thumbnail re-check).
 
-**How to apply:** seeding/re-seeding goes through the real HTTP path (idempotent by original filename), never direct DB inserts. The library is LIVE shared state — any e2e run that uploads must delete its fixture documents afterward. The routes are deliberately open (any demo persona manages the library; per-IP limits are the only brake), so never "fix" a missing auth gate there.
+**How to apply:** seeding/re-seeding goes through the real HTTP path (idempotent by original filename), never direct DB inserts. The library is LIVE shared state — any e2e run that uploads must delete its fixture documents afterward. Since the HQ team-access work, every `/knowledge` route requires a signed-in HQ session with the content permission (the per-IP write limiter still applies behind the gate), so HTTP seeding needs such a session.

@@ -1,43 +1,48 @@
 /**
  * AI Support knowledge base — live end-to-end check of the deployed rules.
  *
- * The hermetic vitest suites already pin the route logic; this script checks
- * what only the LIVE stack can prove:
+ * The hermetic vitest suites (api-server knowledge-docs tests) pin the route
+ * logic, the permission matrix, and the per-IP write limiter; this script
+ * checks what only the LIVE stack can prove:
  *
  *   1. RLS: anonymous PostgREST reads of knowledge_documents see nothing —
  *      the API server (service role) stays the only road into the library.
- *   2. The API itself is OPEN (demo posture): tokenless callers list the
- *      library and mint upload URLs — reaching the admin page is enough, the
- *      old 401 gate is retired — and a bearer-carrying call behaves
- *      identically, so signed-in staff keep working unchanged. Abuse is
- *      bounded by the per-IP write limiter instead, which must deny a
- *      rapid-fire burst with retryable 429s while reads stay unlimited.
- *   3. The seeded library is genuinely usable: the five starting documents
- *      are `ready`, and the detail endpoint serves extracted text whose
- *      length matches the advertised character count, plus routing aids
- *      (summary + keywords) for the chat task that depends on this.
+ *   2. The API enforces the HQ content permission. Since the HQ team-access
+ *      work, every /knowledge route requires a signed-in HQ session with
+ *      content_manage — the earlier open demo posture is retired. Tokenless
+ *      and garbage-bearer callers get 401 on reads AND writes, and the gate
+ *      answers BEFORE the write limiter, so anonymous traffic can never buy
+ *      a 429 or touch storage. (Limiter and permission-tier behavior for
+ *      real sessions stays pinned hermetically, where auth is mockable.)
+ *   3. The seeded library is genuinely usable: read through the service role
+ *      (the same credential the API server itself uses), the five starting
+ *      documents are `ready` with extracted text whose length matches the
+ *      advertised character count, plus routing aids (summary + keywords)
+ *      for the chat task that depends on this.
  *
- * Live suite — needs SUPABASE_URL + SUPABASE_ANON_KEY (for the RLS check)
- * and the API server running (the `artifacts/api-server` workflow). The
- * library is only read: the write-path proof mints an upload URL (nothing
- * is ever uploaded) and the limiter proof burns tokens on invalid bodies
- * that fail validation before touching storage.
+ * Live suite — needs SUPABASE_URL, SUPABASE_ANON_KEY (RLS check),
+ * SUPABASE_SERVICE_ROLE_KEY (library check) and the API server running (the
+ * `artifacts/api-server` workflow). Strictly read-only: the gate rejects
+ * every probe before a row or object could exist.
  *
  *   pnpm --filter @workspace/thinnr-operations run test:knowledge
  */
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const API_BASE = (process.env.STAFF_API_BASE ?? 'http://localhost:80').replace(/\/$/, '');
 
-if (!SUPABASE_URL || !ANON_KEY) {
-  console.error('Missing SUPABASE_URL / SUPABASE_ANON_KEY in the environment.');
+if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) {
+  console.error(
+    'Missing SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY in the environment.',
+  );
   process.exit(1);
 }
 
 const BASE = SUPABASE_URL.replace(/\/$/, '');
 
-/** One synthetic client IP for the limiter proof (TEST-NET-3, never real). */
+/** One synthetic client IP for the gate-precedes-limiter proof (TEST-NET-3, never real). */
 const LIMITER_IP = '203.0.113.77';
 
 const SEEDED_FILES = [
@@ -79,6 +84,15 @@ async function apiPost(
   return { status: response.status, json };
 }
 
+/** Read the library the way the API server itself does: service role via PostgREST. */
+async function serviceSelect(query: string): Promise<{ status: number; rows: any }> {
+  const response = await fetch(`${BASE}/rest/v1/knowledge_documents?${query}`, {
+    headers: { apikey: SERVICE_KEY!, Authorization: `Bearer ${SERVICE_KEY}` },
+  });
+  const rows: any = await response.json().catch(() => null);
+  return { status: response.status, rows };
+}
+
 async function main() {
   const health = await fetch(`${API_BASE}/api/healthz`).catch(() => null);
   if (!health || !health.ok) {
@@ -98,61 +112,47 @@ async function main() {
     `${anonRest.status} ${JSON.stringify(anonRows).slice(0, 120)}`,
   );
 
-  console.log('2. The API is open (demo posture) with per-IP write limits');
+  console.log('2. The API requires the HQ content permission on every /knowledge route');
   const openList = await apiList(null);
-  check(
-    'tokenless caller lists the library — the old 401 gate is retired',
-    openList.status === 200,
-    String(openList.status),
-  );
+  check('tokenless caller cannot list the library', openList.status === 401, String(openList.status));
   const bearerList = await apiList('synthetic-staff-bearer');
   check(
-    'bearer-carrying caller behaves identically (signed-in staff unchanged)',
-    bearerList.status === 200,
+    'a garbage bearer is not a session (still 401)',
+    bearerList.status === 401,
     String(bearerList.status),
   );
 
   const mint = await apiPost('/knowledge/upload-url', {
-    fileName: 'qa-open-posture-check.pdf',
+    fileName: 'qa-gated-posture-check.pdf',
     contentType: 'application/pdf',
     sizeBytes: 1024,
   });
-  check(
-    'tokenless caller mints an upload URL (document management is open)',
-    mint.status === 200 &&
-      typeof mint.json?.uploadUrl === 'string' &&
-      typeof mint.json?.documentId === 'string',
-    `status ${mint.status}`,
-  );
+  check('tokenless caller cannot mint an upload URL', mint.status === 401, `status ${mint.status}`);
 
-  // The limiter proof: rapid-fire writes from one synthetic client IP
-  // (trust proxy honors X-Forwarded-For) until a denial appears. Invalid
-  // bodies burn limiter tokens but fail validation before touching storage.
-  let denial: any = null;
-  let attempts = 0;
-  for (let i = 0; i < 30 && denial === null; i++) {
-    attempts += 1;
+  // The gate must answer before the write limiter: a burst of anonymous
+  // writes from one synthetic client IP (trust proxy honors X-Forwarded-For)
+  // stays 401 throughout — anonymous traffic can never buy a 429, burn
+  // limiter tokens for real staff, or reach storage/validation.
+  let sawNon401 = null as number | null;
+  for (let i = 0; i < 5 && sawNon401 === null; i++) {
     const res = await apiPost('/knowledge/documents', {}, { 'X-Forwarded-For': LIMITER_IP });
-    if (res.status === 429) denial = res.json;
+    if (res.status !== 401) sawNon401 = res.status;
   }
-  check('rapid-fire writes trip the per-IP limiter', denial !== null, `no 429 in ${attempts} attempts`);
   check(
-    'limiter denial is retryable and phrased for people',
-    denial?.retryable === true && String(denial?.error ?? '').includes('too quickly'),
-    JSON.stringify(denial),
+    'anonymous write bursts stay 401 (gate precedes the limiter)',
+    sawNon401 === null,
+    `unexpected status ${sawNon401}`,
   );
-  const drainedRead = await fetch(`${API_BASE}/api/knowledge/documents`, {
-    headers: { 'X-Forwarded-For': LIMITER_IP },
-  });
-  await drainedRead.json().catch(() => null);
-  check('reads stay unlimited on the drained IP', drainedRead.status === 200, String(drainedRead.status));
 
-  console.log('3. The seeded library is ready and genuinely extracted');
-  const documents: any[] = openList.json?.documents ?? [];
-  check('at least the five starting documents exist', documents.length >= 5, String(documents.length));
+  console.log('3. The seeded library is ready and genuinely extracted (service-role read)');
+  const list = await serviceSelect(
+    'select=id,title,original_filename,status,extracted_chars,summary,keywords&order=original_filename.asc',
+  );
+  const documents: any[] = Array.isArray(list.rows) ? list.rows : [];
+  check('at least the five starting documents exist', documents.length >= 5, `status=${list.status} count=${documents.length}`);
 
   for (const fileName of SEEDED_FILES) {
-    const doc = documents.find((candidate) => candidate.originalFilename === fileName);
+    const doc = documents.find((candidate) => candidate.original_filename === fileName);
     if (!doc) {
       check(`${fileName} present`, false, 'not in the list');
       continue;
@@ -160,29 +160,29 @@ async function main() {
     check(
       `${doc.title}: ready with text and routing aids`,
       doc.status === 'ready' &&
-        doc.extractedChars > 0 &&
+        doc.extracted_chars > 0 &&
         typeof doc.summary === 'string' &&
         doc.summary.length > 0 &&
         Array.isArray(doc.keywords) &&
         doc.keywords.length > 0,
-      `status=${doc.status} chars=${doc.extractedChars} summary=${Boolean(doc.summary)} keywords=${doc.keywords?.length}`,
+      `status=${doc.status} chars=${doc.extracted_chars} summary=${Boolean(doc.summary)} keywords=${doc.keywords?.length}`,
     );
   }
 
-  const sample = documents.find((candidate) => candidate.originalFilename === SEEDED_FILES[2]);
+  const sample = documents.find((candidate) => candidate.original_filename === SEEDED_FILES[2]);
   if (sample) {
-    const detailResponse = await fetch(`${API_BASE}/api/knowledge/documents/${sample.id}`);
-    const detail: any = await detailResponse.json().catch(() => null);
+    const detail = await serviceSelect(`select=extracted_text,extracted_chars&id=eq.${sample.id}`);
+    const row: any = Array.isArray(detail.rows) ? detail.rows[0] : null;
     check(
-      'detail endpoint serves the full extracted text (tokenless)',
-      detailResponse.status === 200 &&
-        typeof detail?.extractedText === 'string' &&
-        detail.extractedText.length === detail.extractedChars,
-      `${detailResponse.status} len=${detail?.extractedText?.length} chars=${detail?.extractedChars}`,
+      'stored extracted text matches the advertised character count',
+      detail.status === 200 &&
+        typeof row?.extracted_text === 'string' &&
+        row.extracted_text.length === row.extracted_chars,
+      `${detail.status} len=${row?.extracted_text?.length} chars=${row?.extracted_chars}`,
     );
     check(
       'approved-foods text reads like the real document',
-      typeof detail?.extractedText === 'string' && /food|protein|vegetable/i.test(detail.extractedText),
+      typeof row?.extracted_text === 'string' && /food|protein|vegetable/i.test(row.extracted_text),
     );
   }
 

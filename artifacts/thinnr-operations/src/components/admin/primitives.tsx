@@ -21,6 +21,19 @@ export function AdminPage({ children }: { children: ReactNode }) {
   return <div className="w-full px-4 py-6 md:px-8 md:py-8">{children}</div>;
 }
 
+/** Used by the route gate before an unauthorized page has a chance to mount. */
+export function UnauthorizedState({ role }: { role: string | null }) {
+  return (
+    <div className="mx-auto w-full max-w-2xl px-4 py-16 md:px-8" role="alert" data-testid="status-admin-unauthorized">
+      <p className="text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Access restricted</p>
+      <h1 className="mt-2 font-serif text-2xl font-bold text-navy">You don’t have access to this HQ section.</h1>
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        Your {role ?? 'current'} department role does not include this page. Choose an available section from the navigation.
+      </p>
+    </div>
+  );
+}
+
 interface PageHeaderProps {
   kicker: string;
   title: ReactNode;
@@ -97,11 +110,11 @@ export function AccountLockedChip({ testId }: { testId?: string }) {
   );
 }
 
-export function TeamStatusChip({ status }: { status: 'active' | 'invited' }) {
+export function TeamStatusChip({ status }: { status: 'active' | 'pending' }) {
   return status === 'active' ? (
     <span className={CHIP_COBALT}>Active</span>
   ) : (
-    <span className={CHIP_WARM}>Invited</span>
+    <span className={CHIP_WARM}>Pending</span>
   );
 }
 

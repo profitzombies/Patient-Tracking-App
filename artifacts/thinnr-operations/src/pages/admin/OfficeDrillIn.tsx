@@ -25,7 +25,7 @@ export default function OfficeDrillIn() {
   // Stale or hand-typed URL: land back on the accounts list, not a dead end.
   if (!account) return <Redirect to="~/admin/accounts" replace />;
 
-  if (account.activePatientCount === 0) {
+  if ((account.activePatientCount ?? 0) === 0) {
     return (
       <div className="grid min-h-[100dvh] place-items-center bg-background px-5 font-sans text-foreground">
         <div className="max-w-md rounded-lg border border-card-border bg-card px-6 py-10 text-center shadow-soft">

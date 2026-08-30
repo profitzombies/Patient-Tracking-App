@@ -23,6 +23,7 @@
  * uses lives here too so it stays pure and node-testable.
  */
 import { TODAY_KEY } from '../nutrition-data';
+import type { HqRole } from './team';
 
 export interface HqCoachCard {
   kind: 'recipe' | 'product';
@@ -331,6 +332,30 @@ export function getConversations(accountId?: string): HqConversationSummary[] {
     ? HQ_CONVERSATION_SUMMARIES.filter((conv) => conv.accountId === accountId)
     : HQ_CONVERSATION_SUMMARIES;
   return [...list].sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.id.localeCompare(b.id));
+}
+
+/**
+ * Coach transcripts contain patient clinical context. Support is intentionally
+ * excluded: this demo has no server-backed support-conversation source, so an
+ * empty result is safer and more honest than re-labeling coach fixtures.
+ */
+export function canReadClinicalCoachConversations(role: HqRole | null): boolean {
+  return role === 'Super Admin' || role === 'Admin' || role === 'Clinical';
+}
+
+export function getConversationsForRole(
+  role: HqRole | null,
+  accountId?: string,
+): HqConversationSummary[] {
+  return canReadClinicalCoachConversations(role) ? getConversations(accountId) : [];
+}
+
+export function getConversationMessagesForRole(
+  role: HqRole | null,
+  conversationId: string,
+): HqCoachMessage[] {
+  if (!canReadClinicalCoachConversations(role)) return [];
+  return [...(HQ_CONVERSATION_MESSAGES[conversationId] ?? [])];
 }
 
 // ─── Rail search ─────────────────────────────────────────────────────────────

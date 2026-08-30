@@ -18,18 +18,45 @@
  */
 import type { NextFunction, Request, Response } from "express";
 
-export type StaffRole = "hq_admin" | "provider_staff";
+export type StaffRole = "hq_admin";
+export type HqDepartmentRole = "super_admin" | "admin" | "clinical" | "support" | "content";
+export type HqPermission =
+  | "team_manage"
+  | "settings_manage"
+  | "provider_manage"
+  | "provider_read"
+  | "provider_contact_read"
+  | "clinical_read"
+  | "analytics_read"
+  | "conversation_clinical"
+  | "conversation_support"
+  | "content_manage"
+  | "financial_read"
+  | "account_lock";
 
 export interface StaffIdentity {
   userId: string;
   role: StaffRole;
+  /** The active durable membership role (legacy HQ admins are treated as admin). */
+  departmentRole: HqDepartmentRole;
 }
 
-const CACHE_TTL_MS = 60_000;
-const CACHE_MAX_ENTRIES = 500;
+const PERMISSIONS: Record<HqDepartmentRole, readonly HqPermission[]> = {
+  super_admin: ["team_manage", "settings_manage", "provider_manage", "provider_read", "provider_contact_read", "clinical_read", "analytics_read", "conversation_clinical", "conversation_support", "content_manage", "financial_read", "account_lock"],
+  admin: ["team_manage", "settings_manage", "provider_manage", "provider_read", "provider_contact_read", "clinical_read", "analytics_read", "conversation_clinical", "conversation_support", "content_manage", "financial_read", "account_lock"],
+  clinical: ["provider_read", "provider_contact_read", "clinical_read", "analytics_read", "conversation_clinical"],
+  support: ["provider_contact_read", "conversation_support"],
+  content: ["content_manage"],
+};
 
-/** token → verified identity (or null for "valid request, not staff"). */
-const cache = new Map<string, { identity: StaffIdentity | null; expiresAt: number }>();
+function isDepartmentRole(value: unknown): value is HqDepartmentRole {
+  return value === "super_admin" || value === "admin" || value === "clinical" ||
+    value === "support" || value === "content";
+}
+
+export function hasHqPermission(identity: StaffIdentity, permission: HqPermission): boolean {
+  return PERMISSIONS[identity.departmentRole].includes(permission);
+}
 
 function supabaseBase(): string {
   const url = process.env.SUPABASE_URL;
@@ -43,15 +70,6 @@ function serviceKey(): string {
   return key;
 }
 
-function remember(token: string, identity: StaffIdentity | null): StaffIdentity | null {
-  if (cache.size >= CACHE_MAX_ENTRIES) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  cache.set(token, { identity, expiresAt: Date.now() + CACHE_TTL_MS });
-  return identity;
-}
-
 /**
  * Resolve a Supabase access token to a staff identity.
  * Returns null for anything that is not a live staff/HQ session; throws only
@@ -59,10 +77,6 @@ function remember(token: string, identity: StaffIdentity | null): StaffIdentity 
  * an outage must never read as "you are signed out").
  */
 export async function verifyStaffToken(token: string): Promise<StaffIdentity | null> {
-  const hit = cache.get(token);
-  if (hit && hit.expiresAt > Date.now()) return hit.identity;
-  cache.delete(token);
-
   const base = supabaseBase();
   const key = serviceKey();
 
@@ -70,11 +84,35 @@ export async function verifyStaffToken(token: string): Promise<StaffIdentity | n
     headers: { apikey: key, Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(10_000),
   });
-  if (userRes.status === 401 || userRes.status === 403) return remember(token, null);
+  if (userRes.status === 401 || userRes.status === 403) return null;
   if (!userRes.ok) throw new Error(`Supabase auth check failed (${userRes.status})`);
   const user = (await userRes.json()) as { id?: string };
-  if (!user.id) return remember(token, null);
+  if (!user.id) return null;
 
+  // Always inspect memberships before considering the legacy profile. In
+  // particular, a revoked membership must not fall through to a stale
+  // `profiles.role = hq_admin` row.
+  const membershipRes = await fetch(
+    `${base}/rest/v1/hq_memberships?auth_user_id=eq.${encodeURIComponent(user.id)}&select=department_role,status&limit=2`,
+    {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  if (!membershipRes.ok) throw new Error(`Supabase membership check failed (${membershipRes.status})`);
+  const memberships = (await membershipRes.json()) as Array<{ department_role?: unknown; status?: unknown }>;
+  const activeRole = memberships
+    .filter((membership) => membership.status === "active")
+    .map((membership) => membership.department_role)
+    .find(isDepartmentRole);
+  if (activeRole) {
+    return { userId: user.id, role: "hq_admin", departmentRole: activeRole };
+  }
+  // A durable row is authoritative even when it is invited or revoked.
+  if (memberships.length > 0) return null;
+
+  // Temporary compatibility for installations which have not yet created a
+  // durable membership for an existing HQ admin.
   const profileRes = await fetch(
     `${base}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role`,
     {
@@ -85,8 +123,8 @@ export async function verifyStaffToken(token: string): Promise<StaffIdentity | n
   if (!profileRes.ok) throw new Error(`Supabase profile check failed (${profileRes.status})`);
   const rows = (await profileRes.json()) as Array<{ role?: string }>;
   const role = rows[0]?.role;
-  if (role !== "hq_admin" && role !== "provider_staff") return remember(token, null);
-  return remember(token, { userId: user.id, role });
+  if (role !== "hq_admin") return null;
+  return { userId: user.id, role, departmentRole: "admin" };
 }
 
 /**
@@ -115,6 +153,37 @@ export function requireStaff(roles: readonly StaffRole[]) {
     }
     if (!roles.includes(identity.role)) {
       res.status(403).json({ error: "Only HQ administrators can do this." });
+      return;
+    }
+    res.locals.staff = identity;
+    next();
+  };
+}
+
+/** Require one explicit HQ permission. Unknown permissions are impossible at
+ * the type level and identities without an active membership fail closed. */
+export function requireHqPermission(permission: HqPermission) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const header = req.headers.authorization ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+    if (!token) {
+      res.status(401).json({ error: "Sign in to continue." });
+      return;
+    }
+    let identity: StaffIdentity | null;
+    try {
+      identity = await verifyStaffToken(token);
+    } catch (error) {
+      req.log?.error({ err: error }, "staff token verification unavailable");
+      res.status(503).json({ error: "Could not verify your session — try again in a moment." });
+      return;
+    }
+    if (!identity) {
+      res.status(401).json({ error: "Sign in with an active HQ account to continue." });
+      return;
+    }
+    if (!hasHqPermission(identity, permission)) {
+      res.status(403).json({ error: "Your HQ role does not have permission to do this." });
       return;
     }
     res.locals.staff = identity;

@@ -20,8 +20,11 @@
  */
 import {
   HQ_CONVERSATIONS,
+  canReadClinicalCoachConversations,
   conversationMatchesQuery,
+  getConversationMessagesForRole,
   getConversations,
+  getConversationsForRole,
   parseAtLabel,
   type ConversationSearchFields,
 } from '../src/data/hq/conversations';
@@ -68,6 +71,15 @@ function checkThrows(label: string, fn: () => unknown) {
 }
 
 console.log(`TZ=${process.env.TZ ?? '(system)'}\n`);
+
+// ─── Department-role boundary ────────────────────────────────────────────────
+check('Support cannot read coach conversations', canReadClinicalCoachConversations('Support'), false);
+check('Clinical can read coach conversations', canReadClinicalCoachConversations('Clinical'), true);
+check('Admin can read coach conversations', canReadClinicalCoachConversations('Admin'), true);
+check('Support conversation summaries fail closed', getConversationsForRole('Support').length, 0);
+check('Support transcript messages fail closed', getConversationMessagesForRole('Support', 'conv-01').length, 0);
+check('Clinical retains conversation summaries', getConversationsForRole('Clinical').length, HQ_CONVERSATIONS.length);
+check('Clinical retains transcript messages', getConversationMessagesForRole('Clinical', 'conv-01').length > 0, true);
 
 // ─── Label parsing (demo-timeline timestamps, timezone-independent) ──────────
 check('parseAtLabel midnight', parseAtLabel('Aug 22 · 12:00 AM'), Date.UTC(2026, 7, 22, 0, 0));

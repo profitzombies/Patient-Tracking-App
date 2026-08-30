@@ -1,4 +1,8 @@
-import express from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response as ExpressResponse,
+} from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,6 +56,17 @@ const aiState = vi.hoisted(() => ({
   create: vi.fn(async () => {
     throw new Error("AI must not be called by thumbnail routes");
   }),
+}));
+
+vi.mock("../lib/staff-auth", () => ({
+  requireHqPermission: () => (req: Request, res: ExpressResponse, next: NextFunction) => {
+    const token = req.headers.authorization?.replace(/^Bearer\s+/, "");
+    if (!token) return void res.status(401).json({ error: "Sign in to continue." });
+    if (token !== "content-token" && token !== "admin-token") {
+      return void res.status(403).json({ error: "Your HQ role does not have permission to do this." });
+    }
+    next();
+  },
 }));
 
 vi.mock("@workspace/integrations-openai-ai-server", () => ({
@@ -292,7 +307,7 @@ function nextIp(): string {
 async function post(path: string, body: unknown, ip = nextIp()): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": ip, Authorization: "Bearer content-token" },
     body: JSON.stringify(body),
   });
 }
@@ -390,36 +405,37 @@ describe("training thumbnail lifecycle", () => {
   });
 });
 
-describe("open access (demo posture)", () => {
-  it("serves tokenless callers and treats a bearer as decoration — ignored, not verified", async () => {
+describe("content authorization", () => {
+  it("preserves the learner media read while denying anonymous, Clinical, and Support mutations", async () => {
     const tokenless = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/media`, {
       headers: { "X-Forwarded-For": nextIp() },
     });
     expect(tokenless.status).toBe(200);
-
-    // A synthetic bearer would 401 under the old staff gate; now it changes nothing.
-    const withBearer = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/media`, {
-      headers: { "X-Forwarded-For": nextIp(), Authorization: "Bearer synthetic-staff-bearer" },
+    const anonymousWrite = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/upload-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": nextIp() },
+      body: JSON.stringify({ fileName: "lesson.mp4", contentType: "video/mp4", sizeBytes: 1024 }),
     });
-    expect(withBearer.status).toBe(200);
-    // Compare the stable fields — expiresAtMs is clock-derived per call.
-    const first = (await tokenless.json()) as Record<string, unknown>;
-    const second = (await withBearer.json()) as Record<string, unknown>;
-    expect(second.videoUrl).toBe(first.videoUrl);
-    expect(second.thumbnailUrl).toBe(first.thumbnailUrl);
+    expect(anonymousWrite.status).toBe(401);
+    for (const token of ["clinical-token", "support-token"]) {
+      const response = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/upload-url`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": nextIp(),
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ fileName: "lesson.mp4", contentType: "video/mp4", sizeBytes: 1024 }),
+      });
+      expect(response.status).toBe(403);
+    }
   });
 
-  it("mints an upload URL for a tokenless caller — the demo can really upload", async () => {
-    const mint = await post(`/training/videos/${VIDEO_ID}/upload-url`, {
-      fileName: "lesson.mp4",
-      contentType: "video/mp4",
-      sizeBytes: 1024,
+  it.each(["content-token", "admin-token"])("allows %s", async (token) => {
+    const response = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/media`, {
+      headers: { "X-Forwarded-For": nextIp(), Authorization: `Bearer ${token}` },
     });
-    expect(mint.status).toBe(200);
-    expect(await mint.json()).toMatchObject({
-      uploadUrl: "https://storage.test/upload",
-      objectPath: `/objects/training-videos/${VIDEO_ID}/video-new`,
-    });
+    expect(response.status).toBe(200);
   });
 });
 
@@ -433,12 +449,12 @@ describe("lesson attachments", () => {
   async function del(path: string): Promise<Response> {
     return fetch(`${baseUrl}${path}`, {
       method: "DELETE",
-      headers: { "X-Forwarded-For": nextIp() },
+      headers: { "X-Forwarded-For": nextIp(), Authorization: "Bearer content-token" },
     });
   }
 
   async function get(path: string): Promise<Response> {
-    return fetch(`${baseUrl}${path}`, { headers: { "X-Forwarded-For": nextIp() } });
+    return fetch(`${baseUrl}${path}`, { headers: { "X-Forwarded-For": nextIp(), Authorization: "Bearer content-token" } });
   }
 
   it("mints attachment uploads in their own folder — never the video prefix", async () => {
@@ -1015,7 +1031,7 @@ describe("per-IP write limiter (runs last — drains one IP's bucket)", () => {
     // Reads from the SAME drained IP still pass — only writes are limited.
     for (let i = 0; i < 5; i++) {
       const read = await fetch(`${baseUrl}/training/videos/${VIDEO_ID}/media`, {
-        headers: { "X-Forwarded-For": ip },
+        headers: { "X-Forwarded-For": ip, Authorization: "Bearer content-token" },
       });
       expect(read.status).toBe(200);
     }

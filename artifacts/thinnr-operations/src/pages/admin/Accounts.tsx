@@ -24,6 +24,7 @@ import { useHqData } from '@/contexts/hq-data';
 import { monthlyRevenueOf, type AccountPlan } from '@/data/hq/accounts';
 import { ProviderAccountError } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
+import { useSession } from '@/contexts/session';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
 const PLANS: AccountPlan[] = ['Core', 'Plus', 'Concierge'];
@@ -40,6 +41,7 @@ const EMPTY_FORM = {
 
 export default function Accounts() {
   const { accounts, accountsStatus, accountsError, addAccount, settingsValues } = useHqData();
+  const { authStatus, hqRole } = useSession();
   const { isLocked } = useAccountLocks();
   const { toast } = useToast();
 
@@ -51,6 +53,7 @@ export default function Accounts() {
   const [plan, setPlan] = useState<AccountPlan>(defaultPlan);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const canManageAccounts = authStatus === 'signed-out' || hqRole === 'Super Admin' || hqRole === 'Admin';
 
   const openDialog = () => {
     setForm(EMPTY_FORM);
@@ -105,12 +108,12 @@ export default function Accounts() {
         kicker="Sub-accounts"
         title="Provider accounts"
         sub="Each live office links to the program through the provider code its patients type during mobile onboarding."
-        action={
+        action={canManageAccounts ? (
           <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-add-account" onClick={openDialog}>
             <Plus size={14} aria-hidden="true" />
             Add provider account
           </button>
-        }
+        ) : undefined}
       />
 
       <SectionCard title="All accounts" sub={accountsStatus === 'ready' ? `${accounts.length} offices under the umbrella` : 'Live provider directory'}>
@@ -160,7 +163,7 @@ export default function Accounts() {
                       {isLocked(account.id) && <AccountLockedChip testId={`chip-locked-${account.id}`} />}
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-right font-semibold text-navy">{fmt(account.activePatientCount)}</td>
+                   <td className="px-3 py-3 text-right font-semibold text-navy">{account.activePatientCount == null ? '—' : fmt(account.activePatientCount)}</td>
                   <td className="px-3 py-3 text-right text-foreground">
                      {monthlyRevenueOf(account) == null ? '—' : `$${fmt(monthlyRevenueOf(account)!)}`}
                   </td>

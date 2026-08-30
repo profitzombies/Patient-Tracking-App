@@ -1,12 +1,9 @@
 /**
  * Client for the API server's hosted training-video routes.
  *
- * The routes are OPEN in the demo posture — reaching the admin portal is
- * enough, no staff sign-in (the same opening as the AI Support knowledge
- * library). When the caller DOES have a Supabase session its bearer is
- * still attached — signed-in staff send exactly what they always sent; the
- * server simply ignores it. Writes ride a modest per-IP limiter server-side,
- * so denials surface here as plain-words 429 errors.
+ * Admin media management routes require the current HQ staff bearer. The
+ * learner-facing playback/download helpers retain optional-session behavior
+ * so this client does not turn public lesson flows into admin-only calls.
  *
  * Paths are root-relative (`/api/...`): the operations app is the ROOT
  * artifact and the API server is mounted at /api on the same domain, in dev
@@ -155,15 +152,18 @@ export function describeAttachmentProblem(file: File): string | null {
   return null;
 }
 
-/** The session's bearer when one exists — the server ignores it either way. */
+/** The current session bearer, shared by admin and learner-facing requests. */
 async function sessionToken(): Promise<string | null> {
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;
 }
 
-async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function apiFetch<T>(path: string, init: RequestInit = {}, requireAdmin = false): Promise<T> {
   const token = await sessionToken();
+  if (requireAdmin && !token) {
+    throw new TrainingMediaError('Sign in with an authorized THINNR HQ account to manage training media.', 401);
+  }
   const response = await fetch(`/api${path}`, {
     ...init,
     headers: {
@@ -176,6 +176,11 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new TrainingMediaError(await errorMessage(response), response.status);
   }
   return (await response.json()) as T;
+}
+
+/** Fetch an HQ content-management endpoint with a mandatory current bearer. */
+function adminApiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return apiFetch<T>(path, init, true);
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -193,7 +198,7 @@ export async function requestUploadUrl(
   file: File,
   contentType: string,
 ): Promise<{ uploadUrl: string; objectPath: string }> {
-  return apiFetch(`/training/videos/${videoId}/upload-url`, {
+  return adminApiFetch(`/training/videos/${videoId}/upload-url`, {
     method: 'POST',
     body: JSON.stringify({ fileName: file.name, contentType, sizeBytes: file.size }),
   });
@@ -204,7 +209,7 @@ export async function requestThumbnailUploadUrl(
   file: File,
   contentType: string,
 ): Promise<{ uploadUrl: string; objectPath: string; videoSource: string }> {
-  return apiFetch(`/training/videos/${videoId}/thumbnail-upload-url`, {
+  return adminApiFetch(`/training/videos/${videoId}/thumbnail-upload-url`, {
     method: 'POST',
     body: JSON.stringify({ fileName: file.name, contentType, sizeBytes: file.size }),
   });
@@ -241,14 +246,14 @@ export async function finalizeUpload(
   videoId: string,
   objectPath: string,
 ): Promise<{ videoSource: string; durationSeconds: number; thumbnailSource: string | null }> {
-  return apiFetch(`/training/videos/${videoId}/video`, {
+  return adminApiFetch(`/training/videos/${videoId}/video`, {
     method: 'POST',
     body: JSON.stringify({ objectPath }),
   });
 }
 
 export async function removeVideoFile(videoId: string): Promise<void> {
-  await apiFetch(`/training/videos/${videoId}/video`, { method: 'DELETE' });
+  await adminApiFetch(`/training/videos/${videoId}/video`, { method: 'DELETE' });
 }
 
 export async function fetchMediaUrls(videoId: string): Promise<TrainingMediaUrls> {
@@ -270,7 +275,7 @@ export async function captureThumbnail(
   videoId: string,
   atSeconds: number,
 ): Promise<{ thumbnailSource: string; thumbnailUrl: string }> {
-  return apiFetch(`/training/videos/${videoId}/thumbnail`, {
+  return adminApiFetch(`/training/videos/${videoId}/thumbnail`, {
     method: 'POST',
     body: JSON.stringify({ atSeconds }),
   });
@@ -282,7 +287,7 @@ export async function finalizeThumbnailUpload(
   contentType: string,
   videoSource: string,
 ): Promise<{ thumbnailSource: string; thumbnailUrl: string }> {
-  return apiFetch(`/training/videos/${videoId}/thumbnail-upload`, {
+  return adminApiFetch(`/training/videos/${videoId}/thumbnail-upload`, {
     method: 'POST',
     body: JSON.stringify({ objectPath, contentType, videoSource }),
   });
@@ -309,7 +314,7 @@ export async function requestAttachmentUploadUrl(
   file: File,
   contentType: string,
 ): Promise<{ uploadUrl: string; objectPath: string }> {
-  return apiFetch(`/training/videos/${videoId}/attachment-upload-url`, {
+  return adminApiFetch(`/training/videos/${videoId}/attachment-upload-url`, {
     method: 'POST',
     body: JSON.stringify({ fileName: file.name, contentType, sizeBytes: file.size }),
   });
@@ -321,14 +326,14 @@ export async function finalizeAttachment(
   name: string,
   contentType: string,
 ): Promise<{ attachment: AttachmentPayload }> {
-  return apiFetch(`/training/videos/${videoId}/attachments`, {
+  return adminApiFetch(`/training/videos/${videoId}/attachments`, {
     method: 'POST',
     body: JSON.stringify({ objectPath, name, contentType }),
   });
 }
 
 export async function removeAttachment(videoId: string, attachmentId: string): Promise<void> {
-  await apiFetch(`/training/videos/${videoId}/attachments/${attachmentId}`, { method: 'DELETE' });
+  await adminApiFetch(`/training/videos/${videoId}/attachments/${attachmentId}`, { method: 'DELETE' });
 }
 
 /** Deletes every attachment entry AND its stored file — the video-deletion
@@ -336,7 +341,7 @@ export async function removeAttachment(videoId: string, attachmentId: string): P
 export async function removeAllAttachments(
   videoId: string,
 ): Promise<{ removed: number; deletedObjects: number }> {
-  return apiFetch(`/training/videos/${videoId}/attachments`, { method: 'DELETE' });
+  return adminApiFetch(`/training/videos/${videoId}/attachments`, { method: 'DELETE' });
 }
 
 /** Minted fresh per click with a short TTL — never persisted client-side,
@@ -373,11 +378,14 @@ export async function processVideo(
   onEvent: (event: ProcessEvent) => void,
 ): Promise<ProcessOutcome> {
   const token = await sessionToken();
+  if (!token) {
+    throw new TrainingMediaError('Sign in with an authorized THINNR HQ account to manage training media.', 401);
+  }
   const response = await fetch(`/api/training/videos/${videoId}/process`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(steps && steps.length > 0 ? { steps } : {}),
   });

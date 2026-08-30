@@ -21,11 +21,13 @@ import {
   Route,
   Switch,
   Router as WouterRouter,
+  useLocation,
 } from 'wouter';
 
 import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 import SignIn from '@/pages/SignIn';
 import ClaimAccount from '@/pages/ClaimAccount';
+import TeamSetup from '@/pages/TeamSetup';
 import {
   AccountLockedScreen,
   BootScreen,
@@ -34,6 +36,7 @@ import {
   ProfileErrorScreen,
 } from '@/pages/AuthScreens';
 import { AdminShell } from '@/components/admin/AdminShell';
+import { UnauthorizedState } from '@/components/admin/primitives';
 import HqOverview from '@/pages/admin/HqOverview';
 import Accounts from '@/pages/admin/Accounts';
 import AccountDetail from '@/pages/admin/AccountDetail';
@@ -60,11 +63,29 @@ import { HqDataProvider } from '@/contexts/hq-data';
 import { TrainingDataProvider } from '@/contexts/training-data';
 import { ProviderScopeProvider } from '@/contexts/provider-scope';
 import { findSeededAccount } from '@/data/hq/accounts';
+import { canHq, firstAllowedAdminPath, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 
 const queryClient = new QueryClient();
 
 /** Everything a signed-in HQ admin can reach. */
 function AdminArea() {
+  const [location] = useLocation();
+  const { authStatus, hqRole } = useSession();
+  const effectiveRole: HqRole | null = authStatus === 'signed-out' ? 'Super Admin' : hqRole;
+  const authorized = canHq(effectiveRole, permissionForAdminPath(location));
+
+  // Check the concrete URL before Switch resolves its component. AdminShell
+  // remains a defensive presentation guard, but it is too late to prevent a
+  // forbidden page's hooks and queries from mounting. This also covers the
+  // two routes which intentionally render without the admin chrome.
+  if (!authorized) {
+    return (
+      <RoutedErrorBoundary>
+        <AdminShell><UnauthorizedState role={effectiveRole} /></AdminShell>
+      </RoutedErrorBoundary>
+    );
+  }
+  const landingPath = effectiveRole ? firstAllowedAdminPath(effectiveRole) : '/admin';
   return (
     <RoutedErrorBoundary>
       <Switch>
@@ -96,7 +117,7 @@ function AdminArea() {
               <Route path="/admin/files" component={Files} />
               {/* Admin persona anywhere else (including office URLs) → HQ. */}
               <Route>
-                <Redirect to="/admin" replace />
+                <Redirect to={landingPath} replace />
               </Route>
             </Switch>
           </AdminShell>
@@ -165,6 +186,7 @@ function PersonaRouter() {
   if (persona === null) {
     return (
       <Switch>
+        <Route path="/team/setup" component={TeamSetup} />
         <Route path="/claim" component={ClaimAccount} />
         <Route component={SignIn} />
       </Switch>

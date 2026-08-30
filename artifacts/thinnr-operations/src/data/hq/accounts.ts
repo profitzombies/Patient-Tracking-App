@@ -19,7 +19,8 @@ export interface ProviderAccount {
   phone: string | null;
   joinedKey: string;
   greetingName: string;
-  activePatientCount: number;
+  /** Omitted by Support's contact-only provider directory DTO. */
+  activePatientCount: number | null;
   newEnrollments: number | null;
   recurringRevenue: number | null;
   enrollmentRevenue: number | null;
@@ -64,7 +65,7 @@ export function getAccountAnalytics(account: ProviderAccount): typeof MOCK_ANALY
     monthlyRevenue: 0,
     enrollmentRevenue: 0,
     recurringRevenue: 0,
-    activePatients: account.activePatientCount,
+    activePatients: account.activePatientCount ?? 0,
     newEnrollments: 0,
     averagePoundsLost: 0,
     averageGoalCompletion: 0,

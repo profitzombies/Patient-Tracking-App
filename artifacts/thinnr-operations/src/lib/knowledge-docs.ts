@@ -3,11 +3,8 @@
  *
  * Transport: paths are root-relative `/api/...`, and files go STRAIGHT to
  * App Storage via a presigned PUT — the JSON API only mints upload URLs and
- * finalizes them. The routes have no sign-in gate (demo posture): anyone in
- * the admin portal manages the library, and the server bounds writes with a
- * per-IP limiter instead. When a real Supabase session exists its bearer is
- * still attached (signed-in staff send exactly what they always sent); a
- * missing session simply means an anonymous call, never a refusal.
+ * finalizes them. These are HQ content-management routes, so every JSON API
+ * request carries the current Supabase bearer required by content_manage.
  */
 import { supabase } from '@/lib/supabase';
 import { uploadToStorage } from '@/lib/training-media';
@@ -98,14 +95,21 @@ export function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-/** The real app session's bearer when one exists; null means anonymous. */
-async function sessionToken(): Promise<string | null> {
-  if (!supabase) return null;
+/** Resolve the existing Supabase session helper to a required admin bearer. */
+async function sessionToken(): Promise<string> {
+  if (!supabase) {
+    throw new KnowledgeError('Sign in with an authorized THINNR HQ account to manage AI Support knowledge.', 401);
+  }
   try {
     const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? null;
-  } catch {
-    return null;
+    const token = data.session?.access_token;
+    if (!token) {
+      throw new KnowledgeError('Sign in with an authorized THINNR HQ account to manage AI Support knowledge.', 401);
+    }
+    return token;
+  } catch (error) {
+    if (error instanceof KnowledgeError) throw error;
+    throw new KnowledgeError('The current sign-in session could not be read. Sign in again and retry.', 401);
   }
 }
 
@@ -126,7 +130,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers: {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(init.headers ?? {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${token}`,
     },
   });
   if (!response.ok) {

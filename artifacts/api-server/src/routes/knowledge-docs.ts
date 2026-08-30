@@ -1,14 +1,10 @@
 /**
  * AI Support knowledge base routes.
  *
- * Access model (demo posture): reaching the admin portal is enough — these
- * routes have NO sign-in gate, unlike training media. The staff identity was
- * only ever a gate here: there is one global library, read and written with
- * the service role, with no office scoping or attribution. A signed-in
- * caller's bearer, when attached, is simply ignored. In its place every
- * WRITE rides a modest per-IP limiter (reads stay open for the page's
- * status polling), so the endpoints cannot be hammered; re-tightening later
- * is one middleware away.
+ * The library is global and uses service-role storage/database access, so
+ * every route under /knowledge requires the explicit HQ content permission.
+ * The middleware is path-scoped because this router is mounted without a
+ * prefix alongside the rest of the API routers.
  *
  * Storage model: browsers upload straight to App Storage via a presigned PUT
  * bound to the document's prefix, then hit a finalize call that verifies the
@@ -43,8 +39,12 @@ import {
 } from "../knowledge/docs-store";
 import { DOCUMENT_CONTENT_TYPES } from "../knowledge/extract";
 import { isExtractionActive, startExtraction } from "../knowledge/ingest";
+import { requireHqPermission } from "../lib/staff-auth";
 
 const router: IRouter = Router();
+// The knowledge library is a global service-role catalog; both reads and
+// mutations require the explicit content permission.
+router.use("/knowledge", requireHqPermission("content_manage"));
 
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 

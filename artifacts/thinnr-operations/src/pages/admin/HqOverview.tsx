@@ -17,7 +17,7 @@ import { monthlyRevenueOf } from '@/data/hq/accounts';
 import { getConversations } from '@/data/hq/conversations';
 import { MOCK_PATIENTS } from '@/data/mock-data';
 import { TODAY_KEY, formatDateKey } from '@/data/nutrition-data';
-import { HQ_ADMIN_IDENTITY } from '@/data/hq/team';
+import { useSession } from '@/contexts/session';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
 const round1 = (value: number) => Math.round(value * 10) / 10;
@@ -27,8 +27,12 @@ const BAR_CLASSES = ['bg-chart-1', 'bg-chart-2', 'bg-chart-3', 'bg-chart-4'];
 
 export default function HqOverview() {
   const { accounts } = useHqData();
+  const { authStatus, authUser } = useSession();
+  const firstName = authStatus === 'signed-in'
+    ? authUser?.displayName?.trim().split(/\s+/)[0] ?? null
+    : 'HQ guest';
 
-  const totalPatients = accounts.reduce((sum, account) => sum + account.activePatientCount, 0);
+  const totalPatients = accounts.reduce((sum, account) => sum + (account.activePatientCount ?? 0), 0);
   const totalMonthly: number | null = null;
 
   const activeAccounts = accounts.filter((account) => account.status === 'active');
@@ -40,7 +44,7 @@ export default function HqOverview() {
     <AdminPage>
       <PageHeader
         kicker="THINNR HQ"
-        title={`Good morning, ${HQ_ADMIN_IDENTITY.name.split(' ')[0]}.`}
+        title={firstName ? `Good morning, ${firstName}.` : 'Good morning.'}
         sub={
           <>
             <span data-testid="text-hq-demo-date">{formatDateKey(TODAY_KEY, true)}</span> · Rollup across{' '}
@@ -189,7 +193,7 @@ export default function HqOverview() {
                     </td>
                     <td className="px-3 py-3 text-foreground">{account.providerName}</td>
                     <td className="px-3 py-3"><AccountStatusChip status={account.status} /></td>
-                    <td className="px-3 py-3 text-right font-semibold text-navy">{fmt(account.activePatientCount)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-navy">{fmt(account.activePatientCount ?? 0)}</td>
                     <td className="px-3 py-3 text-right text-foreground">{monthlyRevenueOf(account) == null ? '—' : `$${fmt(monthlyRevenueOf(account)!)}`}</td>
                     <td className="px-5 py-3 text-right text-foreground">
                       {account.engagementRate == null ? '—' : `${account.engagementRate}%`}

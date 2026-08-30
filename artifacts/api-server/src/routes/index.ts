@@ -12,6 +12,7 @@ import barcodeRouter from "./barcode";
 import supportRouter from "./support";
 import claimRouter from "./claim";
 import providerAccountsRouter from "./provider-accounts";
+import hqTeamRouter from "./hq-team";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(knowledgeDocsRouter);
 router.use(staffLoginsRouter);
 router.use(claimRouter);
 router.use(providerAccountsRouter);
+router.use(hqTeamRouter);
 
 export default router;

@@ -27,7 +27,7 @@
 import crypto from "node:crypto";
 import { Router, type IRouter } from "express";
 import { z } from "zod";
-import { requireStaff } from "../lib/staff-auth";
+import { requireHqPermission } from "../lib/staff-auth";
 
 const router: IRouter = Router();
 
@@ -117,7 +117,7 @@ async function supabaseAdmin(
   return { status: response.status, json };
 }
 
-router.post(STAFF_LOGINS_PATH, requireStaff(["hq_admin"]), async (req, res) => {
+router.post(STAFF_LOGINS_PATH, requireHqPermission("provider_manage"), async (req, res) => {
   const parsed = BodySchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

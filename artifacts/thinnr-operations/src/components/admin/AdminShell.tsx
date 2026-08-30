@@ -26,8 +26,9 @@ import {
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
-import { HQ_ADMIN_IDENTITY } from '@/data/hq/team';
+import { canHq, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
+import { UnauthorizedState } from '@/components/admin/primitives';
 
 interface NavItem {
   path: string;
@@ -59,8 +60,10 @@ const ADMIN_NAV_SECTION_DEFS = [
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const [location, navigate] = useLocation();
-  const { signOut } = useSession();
+  const { signOut, authStatus, authUser, hqRole, profileTitle } = useSession();
   const { accounts } = useHqData();
+  const effectiveRole: HqRole | null = authStatus === 'signed-out' ? 'Super Admin' : hqRole;
+  const visibleNavItems = NAV_ITEMS.filter((item) => canHq(effectiveRole, permissionForAdminPath(item.path)));
   const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +72,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const activeItem =
     NAV_ITEMS.find((item) => (item.path === '/admin' ? location === '/admin' : location.startsWith(item.path))) ??
     NAV_ITEMS[0];
+  const authorized = canHq(effectiveRole, permissionForAdminPath(location));
 
   // Admin pages are short-lived browse views — landing at the top of each
   // page beats restoring scroll (the office shell keeps its own restoration).
@@ -92,7 +96,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   };
 
   // The Porcelain menu: admin sections, live links, real sign-out.
-  const menuSections = groupMenuSections(NAV_ITEMS, ADMIN_NAV_SECTION_DEFS).map((section) => ({
+  const menuSections = groupMenuSections(visibleNavItems, ADMIN_NAV_SECTION_DEFS).map((section) => ({
     label: section.label,
     items: section.items.map((item) => ({
       path: item.path,
@@ -114,9 +118,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
         sections={menuSections}
         isItemActive={(path) => activeItem.path === path}
         brandSubtitle="HQ admin"
-        accountName={HQ_ADMIN_IDENTITY.name}
-        accountRole={HQ_ADMIN_IDENTITY.title}
-        accountInitials={HQ_ADMIN_IDENTITY.initials}
+         accountName={authStatus === 'signed-in' ? (authUser?.displayName ?? 'Profile unavailable') : 'Demo HQ workspace'}
+         accountRole={authStatus === 'signed-in' ? ([hqRole, profileTitle].filter(Boolean).join(' · ') || 'Profile unavailable') : 'Demo access'}
+         accountInitials={authStatus === 'signed-in' ? initialsOf(authUser?.displayName) : 'HQ'}
         onSignOut={handleSignOut}
         onSettings={() => navigate('/admin/settings')}
       />
@@ -144,11 +148,15 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
             <div className="ml-1 flex items-center gap-2 rounded-md px-2 py-1.5">
               <span className="grid h-8 w-8 place-items-center rounded-md bg-navy text-[10px] font-bold text-brand-foreground shadow-xs">
-                {HQ_ADMIN_IDENTITY.initials}
+                 {authStatus === 'signed-in' ? initialsOf(authUser?.displayName) : 'HQ'}
               </span>
               <span className="hidden text-left md:block">
-                <b className="block text-xs font-semibold text-navy">{HQ_ADMIN_IDENTITY.name}</b>
-                <small className="text-[10px] text-muted-foreground">{HQ_ADMIN_IDENTITY.title}</small>
+                 <b className="block text-xs font-semibold text-navy" data-testid="text-admin-identity-name">
+                   {authStatus === 'signed-in' ? (authUser?.displayName ?? 'Profile unavailable') : 'Demo HQ workspace'}
+                 </b>
+                 <small className="text-[10px] text-muted-foreground" data-testid="text-admin-identity-role">
+                   {authStatus === 'signed-in' ? ([hqRole, profileTitle].filter(Boolean).join(' · ') || 'Profile unavailable') : 'Demo access'}
+                 </small>
               </span>
             </div>
           </div>
@@ -156,12 +164,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
         {/* The scrollable content */}
         <div ref={scrollContainerRef} className="flex-1 overflow-x-hidden overflow-y-auto">
-          {children}
+          {authorized ? children : <UnauthorizedState role={effectiveRole} />}
         </div>
 
         {/* Seven destinations don't fit five fixed columns — the bar scrolls. */}
         <nav aria-label="Mobile primary navigation" className="flex shrink-0 overflow-x-auto border-t border-border bg-paper-alt md:hidden">
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = activeItem.path === item.path;
             return (
               <Link
@@ -190,4 +198,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
       </section>
     </div>
   );
+}
+
+function initialsOf(name: string | null | undefined): string {
+  if (!name) return '—';
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || '—';
 }

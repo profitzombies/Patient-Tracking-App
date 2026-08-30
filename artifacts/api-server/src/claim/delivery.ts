@@ -176,3 +176,47 @@ export async function sendProviderClaimInvitation(
   });
   if (!response.ok) throw new Error(`Resend provider invitation failed (${response.status})`);
 }
+
+/** Sent only after the durable HQ invitation transaction has committed. */
+export async function sendHqSetupInvitation(
+  to: string,
+  input: { name: string; role: string; setupToken: string },
+): Promise<void> {
+  const creds = resendCreds();
+  if (!creds) throw new DeliveryNotConfiguredError("email");
+  const configuredUrl = process.env.HQ_SETUP_URL;
+  if (!configuredUrl) throw new Error("HQ_SETUP_URL is not configured");
+  let setupUrl: string;
+  try {
+    const url = new URL(configuredUrl);
+    // Tokens are query parameters: request logging strips query strings,
+    // unlike a path token which is commonly retained in access logs.
+    url.searchParams.set("token", input.setupToken);
+    setupUrl = url.toString();
+  } catch {
+    throw new Error("HQ_SETUP_URL is invalid");
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: creds.from,
+      to: [to],
+      subject: "Set up your THINNR HQ account",
+      text: [
+        `Hello ${input.name},`,
+        "",
+        `You have been invited to the THINNR HQ team as ${input.role}.`,
+        "Use this one-time secure link to verify your identity and choose a password:",
+        setupUrl,
+        "",
+        "If you did not expect this invitation, contact THINNR support.",
+      ].join("\n"),
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Resend HQ invitation failed (${response.status})`);
+}

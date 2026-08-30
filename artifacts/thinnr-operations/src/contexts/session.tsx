@@ -2,12 +2,12 @@
  * Session for the operations app — real Supabase auth in front, with the
  * demo persona chooser as an explicit bypass underneath.
  *
- * Precedence: a real signed-in session always wins. Its profile role picks
- * the area — hq_admin → HQ umbrella, provider_staff → office desk, patient →
- * a notice that the patient experience lives in the mobile app. While nobody
- * is signed in, the demo bypass ("Explore the demo" on the sign-in screen)
- * still sets a sessionStorage persona so investor walkthroughs need no
- * credentials. Sign out clears both worlds.
+ * Precedence: a real signed-in session always wins. An active HQ membership
+ * picks the HQ area regardless of the compatibility role on profiles.
+ * Otherwise the profile role picks provider/patient behavior. While nobody is
+ * signed in, the demo bypass ("Explore the demo" on the sign-in screen) still
+ * sets a sessionStorage persona so investor walkthroughs need no credentials.
+ * Sign out clears both worlds.
  */
 import {
   createContext,
@@ -20,6 +20,7 @@ import {
 } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { describeAuthError, supabase, supabaseConfigured } from '@/lib/supabase';
+import type { HqRole } from '@/data/hq/team';
 
 export type Persona = 'hq-admin' | 'office';
 export type AuthRole = 'hq_admin' | 'provider_staff' | 'patient';
@@ -34,8 +35,14 @@ function isAuthRole(value: unknown): value is AuthRole {
   return value === 'hq_admin' || value === 'provider_staff' || value === 'patient';
 }
 
-function isStaffRole(role: AuthRole | null): role is 'hq_admin' | 'provider_staff' {
-  return role === 'hq_admin' || role === 'provider_staff';
+function normalizeHqRole(value: unknown): HqRole | null {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase().replace(/[_-]+/g, ' ') : '';
+  if (normalized === 'super admin') return 'Super Admin';
+  if (normalized === 'admin') return 'Admin';
+  if (normalized === 'clinical') return 'Clinical';
+  if (normalized === 'support') return 'Support';
+  if (normalized === 'content') return 'Content';
+  return null;
 }
 
 /** sessionStorage can throw (privacy modes); the demo degrades to in-memory. */
@@ -81,6 +88,9 @@ interface SessionValue {
   authStatus: AuthStatus;
   authUser: AuthUser | null;
   authRole: AuthRole | null;
+  /** Department-level HQ authorization resolved from the active membership. */
+  hqRole: HqRole | null;
+  profileTitle: string | null;
   /** Provider office (seeded account id) for signed-in provider staff; null otherwise. */
   providerAccountCode: string | null;
   /** Set when the signed-in user is a claimed provider/office staffer with no demo profile. */
@@ -118,6 +128,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
   const [authRole, setAuthRole] = useState<AuthRole | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
+  const [hqRole, setHqRole] = useState<HqRole | null>(null);
+  const [profileTitle, setProfileTitle] = useState<string | null>(null);
   const [providerAccountCode, setProviderAccountCode] = useState<string | null>(null);
   const [claimedWorkspace, setClaimedWorkspace] = useState<ClaimedWorkspaceInfo | null>(null);
   const [roleStatus, setRoleStatus] = useState<RoleStatus>('idle');
@@ -149,12 +161,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!client || !userId) {
       setAuthRole(null);
       setProfileName(null);
+      setHqRole(null);
+      setProfileTitle(null);
       setProviderAccountCode(null);
       setClaimedWorkspace(null);
       setRoleStatus('idle');
       return;
     }
     let cancelled = false;
+    // Never carry identity or privileges across a token/user transition while
+    // the next live profile is being resolved.
+    setAuthRole(null);
+    setProfileName(null);
+    setHqRole(null);
+    setProfileTitle(null);
+    setProviderAccountCode(null);
+    setClaimedWorkspace(null);
     setRoleStatus('loading');
 
     // Claimed real-world accounts (patients, providers, office staff from the
@@ -197,73 +219,216 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    void client
-      .from('profiles')
-      .select('role, display_name, provider_account_code')
-      .eq('id', userId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (!error && !data) {
-          void resolveClaimedAccount();
-          return;
-        }
-        const role = data?.role as string | undefined;
-        if (error || !data || (role !== 'hq_admin' && role !== 'provider_staff' && role !== 'patient')) {
-          setAuthRole(null);
-          setProfileName(null);
-          setProviderAccountCode(null);
-          setClaimedWorkspace(null);
+    void Promise.all([
+      client
+        .from('profiles')
+        .select('role, display_name, provider_account_code')
+        .eq('id', userId)
+        .maybeSingle(),
+      client
+        .from('hq_memberships')
+        .select('display_name, department_role, job_title')
+        .eq('auth_user_id', userId)
+        .eq('status', 'active')
+        .maybeSingle(),
+    ]).then(([profileResult, membershipResult]) => {
+      if (cancelled) return;
+
+      // Membership is authorization, so never fall back to a possibly stale
+      // profiles.role when RLS/network failure leaves membership unresolved.
+      if (membershipResult.error) {
+        setRoleStatus('error');
+        return;
+      }
+      if (membershipResult.data) {
+        const departmentRole = normalizeHqRole(membershipResult.data.department_role);
+        if (departmentRole === null) {
           setRoleStatus('error');
           return;
         }
-        setAuthRole(role);
-        setProfileName((data.display_name as string | null) ?? null);
-        setProviderAccountCode(
-          role === 'provider_staff' ? ((data.provider_account_code as string | null) ?? null) : null,
-        );
+        setAuthRole('hq_admin');
+        setProfileName((membershipResult.data.display_name as string | null) ?? null);
+        setHqRole(departmentRole);
+        setProfileTitle((membershipResult.data.job_title as string | null) ?? null);
+        setProviderAccountCode(null);
         setClaimedWorkspace(null);
         setRoleStatus('ready');
-      });
+        return;
+      }
+
+      const { data, error } = profileResult;
+      if (!error && !data) {
+        void resolveClaimedAccount();
+        return;
+      }
+      const role = data?.role as string | undefined;
+      if (error || !data || !isAuthRole(role)) {
+        setRoleStatus('error');
+        return;
+      }
+      if (role === 'hq_admin') {
+        // A profile-only HQ role is stale compatibility data, never access.
+        setRoleStatus('error');
+        writeStoredPersona(null);
+        setDemoPersona(null);
+        void client.auth.signOut();
+        return;
+      }
+      setAuthRole(role);
+      setProfileName((data.display_name as string | null) ?? null);
+      setHqRole(null);
+      setProfileTitle(null);
+      setProviderAccountCode(
+        role === 'provider_staff' ? ((data.provider_account_code as string | null) ?? null) : null,
+      );
+      setClaimedWorkspace(null);
+      setRoleStatus('ready');
+    });
     return () => {
       cancelled = true;
     };
   }, [userId, roleNonce]);
 
-  // A staff approval can be revoked while the browser is open. Realtime gives
-  // an immediate update where enabled; polling is the safe fallback for
-  // projects that have not published profiles to Realtime yet.
+  // Profile roles and HQ memberships can change while the browser is open.
+  // Realtime gives an immediate update where enabled; polling is the safe
+  // fallback for projects that have not published both tables to Realtime.
   useEffect(() => {
     const client = supabase;
-    if (!client || !userId || !isStaffRole(authRole)) return;
+    if (!client || !userId) return;
     let disposed = false;
 
     const refreshActiveStaffRole = async () => {
-      const { data, error } = await client
-        .from('profiles')
-        .select('role, display_name, provider_account_code')
-        .eq('id', userId)
-        .maybeSingle();
+      const [profileResult, membershipResult] = await Promise.all([
+        client
+          .from('profiles')
+          .select('role, display_name, provider_account_code')
+          .eq('id', userId)
+          .maybeSingle(),
+        client
+          .from('hq_memberships')
+          .select('display_name, department_role, job_title')
+          .eq('auth_user_id', userId)
+          .eq('status', 'active')
+          .maybeSingle(),
+      ]);
       if (disposed) return;
 
-      const nextRole = data?.role;
-      if (error || !data || !isAuthRole(nextRole) || nextRole === 'patient') {
-        // Remove privileged UI before invalidating the persisted auth session.
-        setAuthRole(nextRole === 'patient' ? nextRole : null);
-        setProfileName(null);
+      if (membershipResult.error) {
+        setRoleStatus('error');
+        return;
+      }
+
+      if (membershipResult.data) {
+        const nextHqRole = normalizeHqRole(membershipResult.data.department_role);
+        if (nextHqRole === null) {
+          setAuthRole(null);
+          setHqRole(null);
+          setProfileTitle(null);
+          setProviderAccountCode(null);
+          setRoleStatus('error');
+          return;
+        }
+        setAuthRole('hq_admin');
+        setProfileName((membershipResult.data.display_name as string | null) ?? null);
+        setHqRole(nextHqRole);
+        setProfileTitle((membershipResult.data.job_title as string | null) ?? null);
         setProviderAccountCode(null);
-        setRoleStatus(error || !data ? 'error' : 'ready');
+        setClaimedWorkspace(null);
+        setRoleStatus('ready');
+        return;
+      }
+
+      // An account which was admitted through a membership must not retain a
+      // session after that membership is revoked, even if profiles.role still
+      // says hq_admin due to compatibility data or trigger timing.
+      if (authRole === 'hq_admin') {
+        setAuthRole(null);
+        setProfileName(null);
+        setHqRole(null);
+        setProfileTitle(null);
+        setProviderAccountCode(null);
+        setClaimedWorkspace(null);
+        setRoleStatus('error');
         writeStoredPersona(null);
         setDemoPersona(null);
         await client.auth.signOut();
         return;
       }
 
+      if (profileResult.error) {
+        setRoleStatus('error');
+        if (authRole === 'provider_staff') {
+          setAuthRole(null);
+          setProfileName(null);
+          setProviderAccountCode(null);
+          setClaimedWorkspace(null);
+          writeStoredPersona(null);
+          setDemoPersona(null);
+          await client.auth.signOut();
+        }
+        return;
+      }
+      const data = profileResult.data;
+      const nextRole = data?.role;
+      // No profile is normal for claimed provider/patient identities. Their
+      // whoami resolution remains authoritative outside HQ.
+      if (!data) {
+        if (authRole === 'provider_staff') {
+          setAuthRole(null);
+          setProfileName(null);
+          setProviderAccountCode(null);
+          setClaimedWorkspace(null);
+          setRoleStatus('error');
+          writeStoredPersona(null);
+          setDemoPersona(null);
+          await client.auth.signOut();
+        }
+        return;
+      }
+      if (!isAuthRole(nextRole)) {
+        setAuthRole(null);
+        setProfileName(null);
+        setHqRole(null);
+        setProfileTitle(null);
+        setProviderAccountCode(null);
+        setClaimedWorkspace(null);
+        setRoleStatus('error');
+        return;
+      }
+      if (nextRole === 'hq_admin') {
+        setAuthRole(null);
+        setProfileName(null);
+        setHqRole(null);
+        setProfileTitle(null);
+        setProviderAccountCode(null);
+        setClaimedWorkspace(null);
+        setRoleStatus('error');
+        writeStoredPersona(null);
+        setDemoPersona(null);
+        await client.auth.signOut();
+        return;
+      }
+      if (authRole === 'provider_staff' && nextRole === 'patient') {
+        setAuthRole('patient');
+        setProfileName(null);
+        setHqRole(null);
+        setProfileTitle(null);
+        setProviderAccountCode(null);
+        setClaimedWorkspace(null);
+        setRoleStatus('ready');
+        writeStoredPersona(null);
+        setDemoPersona(null);
+        await client.auth.signOut();
+        return;
+      }
       setAuthRole(nextRole);
       setProfileName((data.display_name as string | null) ?? null);
+      setHqRole(null);
+      setProfileTitle(null);
       setProviderAccountCode(
         nextRole === 'provider_staff' ? ((data.provider_account_code as string | null) ?? null) : null,
       );
+      setClaimedWorkspace(null);
       setRoleStatus('ready');
     };
 
@@ -271,15 +436,30 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .channel(`thinnr-active-role-${userId}`)
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+        { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+        () => void refreshActiveStaffRole(),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'hq_memberships',
+          filter: `auth_user_id=eq.${userId}`,
+        },
         () => void refreshActiveStaffRole(),
       )
       .subscribe();
     const pollId = window.setInterval(() => void refreshActiveStaffRole(), STAFF_ROLE_POLL_MS);
+    const refreshOnFocus = () => void refreshActiveStaffRole();
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnFocus);
 
     return () => {
       disposed = true;
       window.clearInterval(pollId);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnFocus);
       void client.removeChannel(channel);
     };
   }, [userId, authRole]);
@@ -395,6 +575,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       authStatus,
       authUser,
       authRole,
+      hqRole,
+      profileTitle,
       providerAccountCode,
       claimedWorkspace,
       roleStatus,
@@ -412,6 +594,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       authStatus,
       authUser,
       authRole,
+      hqRole,
+      profileTitle,
       providerAccountCode,
       claimedWorkspace,
       roleStatus,

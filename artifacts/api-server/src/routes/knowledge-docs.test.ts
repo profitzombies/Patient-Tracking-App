@@ -7,7 +7,11 @@
  * per-IP limiter while reads stay unlimited; the limiter test runs last
  * because it drains one IP's bucket.
  */
-import express from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response as ExpressResponse,
+} from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,6 +46,17 @@ const state = vi.hoisted(() => ({
   extractActive: false,
   extractionStarts: [] as Array<{ id: string; object_path: string }>,
   startResult: true,
+}));
+
+vi.mock("../lib/staff-auth", () => ({
+  requireHqPermission: () => (req: Request, res: ExpressResponse, next: NextFunction) => {
+    const token = req.headers.authorization?.replace(/^Bearer\s+/, "");
+    if (!token) return void res.status(401).json({ error: "Sign in to continue." });
+    if (token !== "content-token" && token !== "admin-token") {
+      return void res.status(403).json({ error: "Your HQ role does not have permission to do this." });
+    }
+    next();
+  },
 }));
 
 function makeRow(overrides: Partial<StoredRow> = {}): StoredRow {
@@ -194,6 +209,7 @@ async function call(method: string, path: string, body?: unknown, ip = nextIp())
     method,
     headers: {
       "X-Forwarded-For": ip,
+      Authorization: "Bearer content-token",
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -204,17 +220,25 @@ async function call(method: string, path: string, body?: unknown, ip = nextIp())
 
 const GOOD_UPLOAD = { fileName: "handbook.pdf", contentType: "application/pdf", sizeBytes: 2048 };
 
-describe("open access (demo posture)", () => {
-  it("serves tokenless callers — there is no staff gate on any route", async () => {
+describe("content authorization", () => {
+  it("denies anonymous callers", async () => {
     state.rows.set(DOC_ID, makeRow());
-    const { status } = await call("GET", "/knowledge/documents");
-    expect(status).toBe(200);
+    const response = await fetch(`${baseUrl}/knowledge/documents`);
+    expect(response.status).toBe(401);
   });
 
-  it("treats a bearer-carrying caller (signed-in staff) exactly the same", async () => {
+  it.each(["clinical-token", "support-token"])("denies %s", async (token) => {
     state.rows.set(DOC_ID, makeRow());
     const response = await fetch(`${baseUrl}/knowledge/documents`, {
-      headers: { Authorization: "Bearer real-staff-session", "X-Forwarded-For": nextIp() },
+      headers: { Authorization: `Bearer ${token}`, "X-Forwarded-For": nextIp() },
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it.each(["content-token", "admin-token"])("allows %s", async (token) => {
+    state.rows.set(DOC_ID, makeRow());
+    const response = await fetch(`${baseUrl}/knowledge/documents`, {
+      headers: { Authorization: `Bearer ${token}`, "X-Forwarded-For": nextIp() },
     });
     expect(response.status).toBe(200);
   });

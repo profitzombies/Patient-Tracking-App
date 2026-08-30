@@ -23,6 +23,8 @@
     "seed:training": "tsx scripts/seed-training.ts",
     "test:conversations": "TZ=UTC tsx scripts/verify-conversations.ts && TZ=Pacific/Kiritimati tsx scripts/verify-conversations.ts && TZ=America/Anchorage tsx scripts/verify-conversations.ts",
     "test:supabase-roles": "tsx scripts/verify-supabase-role-revocation.ts"
+    ,"test:hq-access": "tsx scripts/verify-hq-access.ts",
+    "test:hq-setup": "tsx scripts/verify-hq-setup.ts"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

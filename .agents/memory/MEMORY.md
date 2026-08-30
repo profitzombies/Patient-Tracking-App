@@ -72,3 +72,4 @@
 - [Recorded voice lines](recorded-voice-lines.md) — pre-recorded clips replace platform TTS: transcript/builder lockstep, guards sized to clip length, camera teardown steals the audio session.
 - [Patient floating bottom row](corner-launcher-shelf.md) — shared ui/FabMenu + a hand-rolled pill bar (owes its own tablist/tab a11y); all bottom stacking lives in constants/layout — new floating UI must join that shelf math.
 - [Account claiming](account-claiming.md) — neutral identify, one-shot DOB, two-column link writes; GoTrue merges app_metadata AFTER insert → deferred constraint triggers; claimed logins have NO profile row (whoami fallback).
+- [HQ department access](hq-department-access.md) — active HQ membership is authoritative across client, API, and RLS; the coarse profile role must never grant or classify department access alone.

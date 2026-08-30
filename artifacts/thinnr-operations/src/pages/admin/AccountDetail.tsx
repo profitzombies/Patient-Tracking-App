@@ -94,7 +94,7 @@ export default function AccountDetail() {
     );
   }
 
-  const hasPatients = account.activePatientCount > 0;
+  const hasPatients = (account.activePatientCount ?? 0) > 0;
   const rosterPreview = detailQuery.data?.roster ?? [];
 
   const lockable = true;
@@ -207,7 +207,7 @@ export default function AccountDetail() {
             // Two-up on phones, three-up from sm — the tiles fill the column
             // instead of leaving the old dead white space.
             <div className="grid grid-cols-2 gap-2.5 px-4 py-4 sm:grid-cols-3">
-              <Stat label="Active patients" value={fmt(account.activePatientCount)} testId="text-account-patients" />
+               <Stat label="Active patients" value={account.activePatientCount == null ? '—' : fmt(account.activePatientCount)} testId="text-account-patients" />
                <Stat label="New enrollments" value="—" />
                <Stat label="Monthly revenue" value="—" testId="text-account-revenue" />
                <Stat label="Subscriptions" value="—" />

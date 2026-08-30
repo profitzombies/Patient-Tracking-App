@@ -1,10 +1,7 @@
 /**
  * THINNR team management — HQ staff, distinct from office providers.
  *
- * All actions are simulated: invites, role changes, and removals mutate the
- * session-only HQ store (sessionStorage), so the page demos the workflow
- * without accounts or email. The Owner seat is intentionally immovable — a
- * demo shouldn't let you orphan the org.
+ * The roster and every mutation are backed by the authenticated HQ API.
  */
 import { useState } from 'react';
 import { UserPlus } from 'lucide-react';
@@ -31,21 +28,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { AdminPage, PageHeader, TeamStatusChip } from '@/components/admin/primitives';
 import { useHqData } from '@/contexts/hq-data';
-import { HQ_ROLE_NOTES, type HqRole, type HqTeamMember } from '@/data/hq/team';
-
-const ROLES: HqRole[] = ['Owner', 'Admin', 'Clinical', 'Support', 'Content'];
-/** Roles offered on invite — a demo org has exactly one Owner. */
-const INVITE_ROLES: HqRole[] = ['Admin', 'Clinical', 'Support', 'Content'];
+import { HQ_ROLE_NOTES, INVITABLE_HQ_ROLES, type HqRole, type HqTeamMember } from '@/data/hq/team';
 
 const NEUTRAL_CHIP =
   'inline-flex items-center gap-1.5 rounded-sm border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.06em] text-foreground';
 
 function RoleChip({ role }: { role: HqRole }) {
-  return <span className={role === 'Owner' ? CHIP_COBALT : NEUTRAL_CHIP}>{role}</span>;
+  return <span className={role === 'Super Admin' ? CHIP_COBALT : NEUTRAL_CHIP}>{role}</span>;
 }
 
 export default function Team() {
-  const { team, inviteTeamMember, updateTeamMember, removeTeamMember } = useHqData();
+  const { team, teamStatus, teamError, inviteTeamMember, updateTeamMember, removeTeamMember, teamMutationPending } = useHqData();
   const { toast } = useToast();
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -60,40 +53,62 @@ export default function Team() {
 
   const [removing, setRemoving] = useState<HqTeamMember | null>(null);
 
-  const submitInvite = () => {
+  const submitInvite = async () => {
     const name = inviteName.trim();
     const email = inviteEmail.trim();
     if (!name || !email.includes('@')) {
-      toast({ variant: 'destructive', title: 'Name and a valid email are required', description: 'Both fields are needed to send the (simulated) invite.' });
+      toast({ variant: 'destructive', title: 'Name and a valid email are required', description: 'Both fields are needed to send the secure invitation.' });
       return;
     }
-    inviteTeamMember({ name, email, role: inviteRole, title: inviteTitle.trim() || inviteRole });
-    toast({ variant: 'success', title: `Invite sent to ${name}`, description: `Simulated — they join as ${inviteRole} for this demo session.` });
-    setInviteOpen(false);
-    setInviteName('');
-    setInviteEmail('');
-    setInviteTitle('');
-    setInviteRole('Support');
+    try {
+      const result = await inviteTeamMember({ name, email, role: inviteRole as Exclude<HqRole, 'Super Admin'>, title: inviteTitle.trim() });
+      if (result.invitation === 'sent') {
+        toast({ variant: 'success', title: `Invite sent to ${name}`, description: `They can securely set their password and join as ${inviteRole}.` });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: `${name} was added, but the email was not sent`,
+          description: result.invitation === 'not_configured'
+            ? 'Invitation delivery is not configured. Their account remains pending.'
+            : 'Invitation delivery failed. Their account remains pending; contact an administrator before retrying.',
+        });
+      }
+      setInviteOpen(false);
+      setInviteName('');
+      setInviteEmail('');
+      setInviteTitle('');
+      setInviteRole('Support');
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Invitation not sent', description: error instanceof Error ? error.message : 'Try again.' });
+    }
   };
 
   const openEdit = (member: HqTeamMember) => {
     setEditing(member);
     setEditRole(member.role);
-    setEditTitle(member.title);
+    setEditTitle(member.title ?? '');
   };
 
-  const submitEdit = () => {
-    if (!editing) return;
-    updateTeamMember(editing.id, { role: editRole, title: editTitle.trim() || editing.title });
-    toast({ variant: 'success', title: `${editing.name} updated`, description: 'Changes apply to this demo session.' });
-    setEditing(null);
+  const submitEdit = async () => {
+    if (!editing || editing.role === 'Super Admin') return;
+    try {
+      await updateTeamMember(editing.id, { role: editRole as Exclude<HqRole, 'Super Admin'>, title: editTitle.trim() });
+      toast({ variant: 'success', title: `${editing.name} updated`, description: 'Their live access has been updated.' });
+      setEditing(null);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Changes not saved', description: error instanceof Error ? error.message : 'Try again.' });
+    }
   };
 
-  const confirmRemove = () => {
-    if (!removing) return;
-    removeTeamMember(removing.id);
-    toast({ variant: 'success', title: `${removing.name} removed`, description: 'Simulated — the seat frees up for this demo session.' });
-    setRemoving(null);
+  const confirmRemove = async () => {
+    if (!removing || removing.role === 'Super Admin') return;
+    try {
+      await removeTeamMember(removing.id);
+      toast({ variant: 'success', title: `${removing.name} removed`, description: 'Their THINNR HQ access has been revoked.' });
+      setRemoving(null);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Access not removed', description: error instanceof Error ? error.message : 'Try again.' });
+    }
   };
 
   return (
@@ -101,16 +116,21 @@ export default function Team() {
       <PageHeader
         kicker="THINNR team"
         title="People at headquarters"
-        sub="The staff running the umbrella — separate from the provider offices they support. Invites, edits, and removals are simulated and last for this demo session."
+        sub="The staff running the umbrella — separate from the provider offices they support. Invitations and access changes apply to live THINNR accounts."
         action={
-          <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-invite" onClick={() => setInviteOpen(true)}>
+          <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-invite" onClick={() => setInviteOpen(true)} disabled={teamMutationPending}>
             <UserPlus size={14} aria-hidden="true" />
             Invite teammate
           </button>
         }
       />
 
-      <SectionCard title="Team roster" sub={`${team.length} people · one Owner seat`}>
+      <SectionCard title="Team roster" sub={teamStatus === 'ready' ? `${team.length} ${team.length === 1 ? 'person' : 'people'} · protected Super Admin` : 'Live THINNR HQ accounts'}>
+        {teamStatus === 'loading' && <p className="px-5 py-8 text-xs text-muted-foreground" data-testid="status-team-loading">Loading the live roster…</p>}
+        {teamStatus === 'error' && <p className="px-5 py-8 text-xs text-destructive" role="alert" data-testid="status-team-error">{teamError ?? 'The live roster could not be loaded.'}</p>}
+        {teamStatus === 'unauthorized' && <p className="px-5 py-8 text-xs text-muted-foreground" role="alert" data-testid="status-team-unauthorized">You do not have permission to manage the HQ team.</p>}
+        {teamStatus === 'ready' && team.length === 0 && <p className="px-5 py-8 text-xs text-muted-foreground" data-testid="status-team-empty">No HQ teammates were returned.</p>}
+        {teamStatus === 'ready' && team.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-xs">
             <thead>
@@ -137,7 +157,7 @@ export default function Team() {
                       </span>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-foreground">{member.title}</td>
+                  <td className="px-3 py-3 text-foreground">{member.title || '—'}</td>
                   <td className="px-3 py-3"><RoleChip role={member.role} /></td>
                   <td className="px-3 py-3"><TeamStatusChip status={member.status} /></td>
                   <td className="px-3 py-3 text-muted-foreground">{member.joinedLabel}</td>
@@ -151,9 +171,9 @@ export default function Team() {
                       >
                         Edit
                       </button>
-                      {member.role === 'Owner' ? (
-                        <span className="text-[10px] text-muted-foreground" title="The Owner seat can't be removed in this demo.">
-                          Owner seat
+                      {member.role === 'Super Admin' ? (
+                        <span className="text-[10px] text-muted-foreground" title="Super Admin access is protected.">
+                          Protected
                         </span>
                       ) : (
                         <button
@@ -172,6 +192,7 @@ export default function Team() {
             </tbody>
           </table>
         </div>
+        )}
       </SectionCard>
 
       {/* Invite dialog */}
@@ -179,7 +200,7 @@ export default function Team() {
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle className="font-serif text-navy">Invite a teammate</DialogTitle>
-            <DialogDescription>Simulated invite — no email is sent; they appear in the roster immediately.</DialogDescription>
+            <DialogDescription>A secure setup email lets the teammate choose their own password.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <label className="block">
@@ -219,7 +240,7 @@ export default function Team() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {INVITE_ROLES.map((role) => (
+                  {INVITABLE_HQ_ROLES.map((role) => (
                     <SelectItem key={role} value={role} className="text-xs">{role}</SelectItem>
                   ))}
                 </SelectContent>
@@ -231,8 +252,8 @@ export default function Team() {
             <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setInviteOpen(false)}>
               Cancel
             </button>
-            <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-invite-submit" onClick={submitInvite}>
-              Send invite
+            <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-invite-submit" onClick={() => void submitInvite()} disabled={teamMutationPending}>
+              {teamMutationPending ? 'Sending…' : 'Send invite'}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -243,7 +264,7 @@ export default function Team() {
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle className="font-serif text-navy">Edit {editing?.name}</DialogTitle>
-            <DialogDescription>Role and title only — identity fields stay fixed in the demo.</DialogDescription>
+            <DialogDescription>Update the teammate’s department access and job title.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <label className="block">
@@ -257,18 +278,18 @@ export default function Team() {
             </label>
             <div>
               <span className={PANEL_LABEL}>Role</span>
-              <Select value={editRole} onValueChange={(value) => setEditRole(value as HqRole)} disabled={editing?.role === 'Owner'}>
+              <Select value={editRole} onValueChange={(value) => setEditRole(value as HqRole)} disabled={editing?.role === 'Super Admin'}>
                 <SelectTrigger className="mt-1 h-9 text-xs" data-testid="select-edit-role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(editing?.role === 'Owner' ? ROLES : INVITE_ROLES).map((role) => (
+                  {(editing?.role === 'Super Admin' ? ['Super Admin'] as HqRole[] : INVITABLE_HQ_ROLES).map((role) => (
                     <SelectItem key={role} value={role} className="text-xs">{role}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                {editing?.role === 'Owner' ? 'The Owner role is fixed in this demo.' : HQ_ROLE_NOTES[editRole]}
+                 {editing?.role === 'Super Admin' ? 'The Super Admin role cannot be changed here.' : HQ_ROLE_NOTES[editRole]}
               </p>
             </div>
           </div>
@@ -276,8 +297,8 @@ export default function Team() {
             <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setEditing(null)}>
               Cancel
             </button>
-            <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-edit-submit" onClick={submitEdit}>
-              Save changes
+            <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-edit-submit" onClick={() => void submitEdit()} disabled={teamMutationPending || editing?.role === 'Super Admin'}>
+              {teamMutationPending ? 'Saving…' : 'Save changes'}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -289,13 +310,13 @@ export default function Team() {
           <AlertDialogHeader>
             <AlertDialogTitle className="font-serif text-navy">Remove {removing?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              They lose access to THINNR HQ (simulated). This only affects the current demo session.
+              Their live THINNR HQ access will be revoked. They will need a new invitation to regain access.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="text-xs">Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-xs text-destructive-foreground hover:bg-destructive/90" data-testid="button-remove-confirm" onClick={confirmRemove}>
-              Remove
+            <AlertDialogAction className="bg-destructive text-xs text-destructive-foreground hover:bg-destructive/90" data-testid="button-remove-confirm" onClick={() => void confirmRemove()} disabled={teamMutationPending}>
+              {teamMutationPending ? 'Removing…' : 'Remove'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

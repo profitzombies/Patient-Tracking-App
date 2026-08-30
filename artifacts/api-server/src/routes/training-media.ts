@@ -74,8 +74,28 @@ import {
   writeDescription,
 } from "../training/pipeline";
 import { keepaliveIntervalMs, UpstreamTimeoutError } from "../coach/upstream";
+import { requireHqPermission } from "../lib/staff-auth";
 
 const router: IRouter = Router();
+const requireContentManager = requireHqPermission("content_manage");
+// Existing learner clients need these three read-only delivery endpoints.
+// Every catalog mutation and all other administrative reads fail closed.
+router.use((req, res, next) => {
+  if (!req.path.startsWith("/training/")) {
+    next();
+    return;
+  }
+  const learnerRead = req.method === "GET" && (
+    /^\/training\/videos\/[^/]+\/media$/.test(req.path) ||
+    /^\/training\/videos\/[^/]+\/transcript$/.test(req.path) ||
+    /^\/training\/videos\/[^/]+\/attachments\/[^/]+\/download-url$/.test(req.path)
+  );
+  if (learnerRead) {
+    next();
+    return;
+  }
+  void requireContentManager(req, res, next);
+});
 
 export const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
 export const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;

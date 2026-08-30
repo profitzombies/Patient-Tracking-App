@@ -7,8 +7,8 @@
  */
 import { Router, type IRouter } from "express";
 import { z } from "zod";
-import { requireStaff } from "../lib/staff-auth";
-import { supabaseAdmin, fetchAuthUser } from "../lib/supabase-admin";
+import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
+import { supabaseAdmin } from "../lib/supabase-admin";
 import { sendProviderClaimInvitation } from "../claim/delivery";
 
 const router: IRouter = Router();
@@ -40,6 +40,8 @@ const AccountInput = z.object({
 
 const PROVIDER_SELECT =
   "provider_id,provider_name,office_name,email,phone,city,state,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location";
+const SUPPORT_PROVIDER_SELECT =
+  "provider_id,provider_name,office_name,email,phone,city,state,provider_role,access_disabled,auth_user_id,created_at";
 
 function enc(value: string): string {
   return encodeURIComponent(value);
@@ -53,22 +55,26 @@ function errorMessage(json: unknown): string {
   return "The live account request could not be completed.";
 }
 
-async function loadAccounts() {
+async function loadAccounts(supportOnly = false) {
   const providers = await supabaseAdmin(
     "GET",
-    `/rest/v1/providers?select=${PROVIDER_SELECT}&order=created_at.asc&limit=5000`,
+    `/rest/v1/providers?select=${supportOnly ? SUPPORT_PROVIDER_SELECT : PROVIDER_SELECT}&order=created_at.asc&limit=5000`,
   );
   if (providers.status >= 300 || !Array.isArray(providers.json)) {
     throw new Error(`provider list failed (${providers.status})`);
   }
-  const patientRows = await supabaseAdmin(
-    "GET",
-    "/rest/v1/patients?select=id,provider_id,activation_status,name,email&limit=20000",
-  );
-  const teamRows = await supabaseAdmin(
-    "GET",
-    "/rest/v1/team_members?select=id,provider_id,name,email,activation_status,auth_user_id,claimed_at,created_at&limit=5000",
-  );
+  const patientRows = supportOnly
+    ? { status: 200, json: [] }
+    : await supabaseAdmin(
+        "GET",
+        "/rest/v1/patients?select=id,provider_id,activation_status,name,email&limit=20000",
+      );
+  const teamRows = supportOnly
+    ? { status: 200, json: [] }
+    : await supabaseAdmin(
+        "GET",
+        "/rest/v1/team_members?select=id,provider_id,name,email,activation_status,auth_user_id,claimed_at,created_at&limit=5000",
+      );
   const locks = await supabaseAdmin(
     "GET",
     "/rest/v1/provider_account_locks?select=account_id,locked_at&limit=5000",
@@ -138,19 +144,48 @@ async function loadAccounts() {
   };
 }
 
-router.get("/provider-accounts", requireStaff(["hq_admin"]), async (req, res) => {
+export function supportProviderAccountDto(account: Record<string, unknown>) {
+  return {
+    id: account.id,
+    providerId: account.providerId,
+    officeName: account.officeName,
+    providerName: account.providerName,
+    providerRole: account.providerRole,
+    status: account.status,
+    email: account.email,
+    phone: account.phone,
+    city: account.city,
+    state: account.state,
+    joinedKey: account.joinedKey,
+  };
+}
+
+function clinicalAccountDto(account: Record<string, unknown>) {
+  // Intentionally omit onboarding/provider codes and all admin-only analytics.
+  return { ...supportProviderAccountDto(account), plan: account.plan, location: account.location, activePatientCount: account.activePatientCount };
+}
+
+function accountDtoFor(identity: StaffIdentity, account: Record<string, unknown>) {
+  if (identity.departmentRole === "support") return supportProviderAccountDto(account);
+  if (identity.departmentRole === "clinical") return clinicalAccountDto(account);
+  return account;
+}
+
+router.get("/provider-accounts", requireHqPermission("provider_contact_read"), async (req, res) => {
   try {
-    const snapshot = await loadAccounts();
-    res.json({ accounts: snapshot.accounts });
+    const staff = res.locals.staff as StaffIdentity;
+    const snapshot = await loadAccounts(staff.departmentRole === "support");
+    res.json({ accounts: snapshot.accounts.map((account) => accountDtoFor(staff, account)) });
   } catch (error) {
     req.log?.error({ err: error }, "provider account list failed");
     res.status(502).json({ error: "Could not load provider accounts right now." });
   }
 });
 
-router.get("/provider-accounts/:id", requireStaff(["hq_admin"]), async (req, res) => {
+router.get("/provider-accounts/:id", requireHqPermission("provider_contact_read"), async (req, res) => {
   try {
-    const snapshot = await loadAccounts();
+    const identity = res.locals.staff as StaffIdentity;
+    const snapshot = await loadAccounts(identity.departmentRole === "support");
     const account = snapshot.accounts.find((item) => item.id === req.params.id);
     if (!account) {
       res.status(404).json({ error: "Provider account not found." });
@@ -175,14 +210,20 @@ router.get("/provider-accounts/:id", requireStaff(["hq_admin"]), async (req, res
         authUserId: row.auth_user_id ? String(row.auth_user_id) : null,
         claimedAt: row.claimed_at ? String(row.claimed_at) : null,
       }));
-    res.json({ account, roster, staff });
+    // Support is deliberately limited to contact and access status. It must
+    // never receive patient or provider-staff identities from this endpoint.
+    if (identity.departmentRole === "support") {
+      res.json({ account: supportProviderAccountDto(account) });
+      return;
+    }
+    res.json({ account: accountDtoFor(identity, account), roster, staff });
   } catch (error) {
     req.log?.error({ err: error }, "provider account detail failed");
     res.status(502).json({ error: "Could not load this provider account right now." });
   }
 });
 
-router.post("/provider-accounts", requireStaff(["hq_admin"]), async (req, res) => {
+router.post("/provider-accounts", requireHqPermission("provider_manage"), async (req, res) => {
   const parsed = AccountInput.safeParse(req.body ?? {});
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -192,17 +233,8 @@ router.post("/provider-accounts", requireStaff(["hq_admin"]), async (req, res) =
     });
     return;
   }
-  let callerId: string;
   try {
-    const token = req.headers.authorization?.startsWith("Bearer ")
-      ? req.headers.authorization.slice("Bearer ".length).trim()
-      : "";
-    const user = await fetchAuthUser(token);
-    if (!user) {
-      res.status(401).json({ error: "Sign in with a THINNR HQ account to create provider accounts." });
-      return;
-    }
-    callerId = user.id;
+    const callerId = (res.locals.staff as StaffIdentity).userId;
     const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_create_provider_account", {
       p_created_by: callerId,
       p_office_name: parsed.data.officeName,

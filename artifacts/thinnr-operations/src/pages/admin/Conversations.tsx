@@ -23,13 +23,15 @@ import { useLocation, useSearch } from 'wouter';
 import { ArrowLeft, MessagesSquare, Search, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BTN_SECONDARY, CHIP_WARM, WARM_TEXT } from '@/components/patient/heritage';
+import { AccountStatusChip } from '@/components/admin/primitives';
 import { useHqData } from '@/contexts/hq-data';
+import { useSession } from '@/contexts/session';
 import { MOCK_PATIENTS, MOCK_PRODUCTS, type Patient } from '@/data/mock-data';
 import type { ProviderAccount } from '@/data/hq/accounts';
 import {
-  HQ_CONVERSATION_MESSAGES,
   conversationMatchesQuery,
-  getConversations,
+  getConversationMessagesForRole,
+  getConversationsForRole,
   type ConversationSearchFields,
   type HqCoachMessage,
   type HqConversationSummary,
@@ -154,7 +156,68 @@ function MessageRow({ message }: { message: HqCoachMessage }) {
   );
 }
 
-export default function Conversations() {
+function SupportConversations() {
+  const { accounts, accountsStatus, accountsError } = useHqData();
+
+  return (
+    <div className="h-full min-h-0 overflow-y-auto bg-background px-4 py-6 md:px-8 md:py-8" data-testid="support-conversations-view">
+      <div className="mx-auto max-w-4xl">
+        <header>
+          <p className="text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Support</p>
+          <h1 className="mt-1 font-serif text-[26px] font-bold leading-tight text-navy">Conversations</h1>
+          <p className="mt-1.5 max-w-[68ch] text-xs leading-relaxed text-muted-foreground">
+            Support conversations and provider contact/status context only.
+          </p>
+        </header>
+
+        <section className="mt-6 rounded-lg border border-card-border bg-card p-5 shadow-soft" aria-live="polite">
+          <MessagesSquare size={20} className="text-muted-foreground" aria-hidden="true" />
+          <h2 className="mt-3 font-serif text-lg font-bold text-navy">No support conversations available</h2>
+          <p className="mt-1 max-w-[66ch] text-xs leading-relaxed text-muted-foreground" data-testid="status-support-conversations-unavailable">
+            Support conversation history is not connected to a server-backed source. Clinical coach demo transcripts are
+            intentionally not shown in this workspace.
+          </p>
+        </section>
+
+        <section className="mt-5 overflow-hidden rounded-lg border border-card-border bg-card shadow-soft">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="font-serif text-base font-bold text-navy">Provider contact and status</h2>
+            <p className="mt-1 text-[11px] text-muted-foreground">Live provider directory fields available to Support.</p>
+          </div>
+          {accountsStatus === 'loading' && (
+            <p className="px-5 py-6 text-xs text-muted-foreground" role="status">Loading provider contacts…</p>
+          )}
+          {accountsStatus === 'error' && (
+            <p className="px-5 py-6 text-xs text-destructive" role="alert">
+              {accountsError ?? 'Provider contacts could not be loaded.'}
+            </p>
+          )}
+          {accountsStatus !== 'loading' && accountsStatus !== 'error' && accounts.length === 0 && (
+            <p className="px-5 py-6 text-xs text-muted-foreground">No live provider contacts are available.</p>
+          )}
+          {accounts.length > 0 && (
+            <ul className="divide-y divide-border/60" aria-label="Provider contact and status">
+              {accounts.map((account) => (
+                <li key={account.id} className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-navy">{account.officeName}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{account.providerName}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {account.email}{account.phone ? ` · ${account.phone}` : ''}
+                    </p>
+                  </div>
+                  <AccountStatusChip status={account.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ClinicalConversations({ role }: { role: 'Super Admin' | 'Admin' | 'Clinical' }) {
   const [, navigate] = useLocation();
   const search = useSearch();
   const { accounts, findAccount } = useHqData();
@@ -183,12 +246,12 @@ export default function Conversations() {
   // patient and account each row renders and searches against.
   const accountRows = useMemo<RailRow[]>(
     () =>
-      getConversations(accountFilter === 'all' ? undefined : accountFilter).map((conv) => ({
+       getConversationsForRole(role, accountFilter === 'all' ? undefined : accountFilter).map((conv) => ({
         conv,
         patient: MOCK_PATIENTS.find((patient) => patient.id === conv.patientId),
         account: findAccount(conv.accountId),
       })),
-    [accountFilter, findAccount],
+    [accountFilter, findAccount, role],
   );
 
   const visibleRows = useMemo(
@@ -263,13 +326,13 @@ export default function Conversations() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">
-              All provider accounts ({getConversations().length})
+               All provider accounts ({getConversationsForRole(role).length})
             </SelectItem>
             {accounts.map((account) => (
               <SelectItem key={account.id} value={account.id} className="text-xs">
                 {/* Office, provider, and code all identify the account. */}
                 <span className="block">
-                  {account.officeName} ({getConversations(account.id).length})
+                   {account.officeName} ({getConversationsForRole(role, account.id).length})
                 </span>
                 <span className="mt-0.5 block text-[10px] text-muted-foreground">
                   {account.providerName} · Code {account.providerCode}
@@ -383,7 +446,7 @@ export default function Conversations() {
               <p className="text-center text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground/80">
                 {selected.conv.topic} · Started {selected.conv.startedLabel}
               </p>
-              {(HQ_CONVERSATION_MESSAGES[selected.conv.id] ?? []).map((message) => (
+               {getConversationMessagesForRole(role, selected.conv.id).map((message) => (
                 <MessageRow key={message.id} message={message} />
               ))}
             </div>
@@ -415,4 +478,15 @@ export default function Conversations() {
       {viewerPane}
     </div>
   );
+}
+
+export default function Conversations() {
+  const { authStatus, hqRole } = useSession();
+  const effectiveRole = authStatus === 'signed-out' ? 'Super Admin' : hqRole;
+
+  if (effectiveRole === 'Support') return <SupportConversations />;
+  if (effectiveRole === 'Super Admin' || effectiveRole === 'Admin' || effectiveRole === 'Clinical') {
+    return <ClinicalConversations role={effectiveRole} />;
+  }
+  return null;
 }

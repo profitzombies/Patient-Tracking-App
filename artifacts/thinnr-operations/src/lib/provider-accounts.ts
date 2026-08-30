@@ -5,6 +5,14 @@ import type {
   ProviderAccountDetail,
 } from '@/data/hq/accounts';
 
+/** The directory shape returned to Support: contact and access status only. */
+export type SupportProviderAccount = Pick<
+  ProviderAccount,
+  'id' | 'providerId' | 'officeName' | 'providerName' | 'providerRole' | 'status' | 'city' | 'state' | 'email' | 'phone' | 'joinedKey'
+>;
+
+type ProviderAccountDto = Partial<ProviderAccount> & SupportProviderAccount;
+
 export interface NewProviderAccountInput {
   officeName: string;
   providerName: string;
@@ -66,13 +74,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+function normalizeProviderAccount(account: ProviderAccountDto): ProviderAccount {
+  // The support endpoint intentionally omits sensitive fields instead of
+  // replacing them with invented values. Normalize omissions to unavailable
+  // values so shared account components can safely render that field-safe DTO.
+  return {
+    ...account,
+    providerCode: account.providerCode ?? null,
+    plan: account.plan ?? null,
+    greetingName: account.greetingName ?? account.providerName.split(/\s+/)[0] ?? 'Provider',
+    activePatientCount: account.activePatientCount ?? null,
+    newEnrollments: account.newEnrollments ?? null,
+    recurringRevenue: account.recurringRevenue ?? null,
+    enrollmentRevenue: account.enrollmentRevenue ?? null,
+    activeSubscriptions: account.activeSubscriptions ?? null,
+    deliveriesInWindow: account.deliveriesInWindow ?? null,
+    engagementRate: account.engagementRate ?? null,
+    avgPoundsLost: account.avgPoundsLost ?? null,
+    goalCompletion: account.goalCompletion ?? null,
+    retention: account.retention ?? null,
+  };
+}
+
 export async function fetchProviderAccounts(): Promise<ProviderAccount[]> {
-  const body = await request<{ accounts: ProviderAccount[] }>('/api/provider-accounts');
-  return body.accounts ?? [];
+  const body = await request<{ accounts: ProviderAccountDto[] }>('/api/provider-accounts');
+  return (body.accounts ?? []).map(normalizeProviderAccount);
 }
 
 export async function fetchProviderAccountDetail(id: string): Promise<ProviderAccountDetail> {
-  return request<ProviderAccountDetail>(`/api/provider-accounts/${encodeURIComponent(id)}`);
+  const detail = await request<Omit<ProviderAccountDetail, 'account'> & { account: ProviderAccountDto }>(
+    `/api/provider-accounts/${encodeURIComponent(id)}`,
+  );
+  return { ...detail, account: normalizeProviderAccount(detail.account) };
 }
 
 export async function createProviderAccount(input: NewProviderAccountInput): Promise<{

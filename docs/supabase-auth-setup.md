@@ -54,6 +54,94 @@ delete from public.staff_role_assignments
 where email = lower('frontdesk@yourclinic.com');
 ```
 
+## Live HQ team roles
+
+Apply `supabase/migrations/20260908000000_hq_team_access.sql` after the account
+claiming and live-provider migrations. It adds the canonical `hq_memberships`
+roster and hashed-token `hq_invitations` lifecycle.
+
+The migration links the existing, confirmed
+`andrew+admin@thinnrweightloss.com` Auth user and profile to the sole protected
+`super_admin` membership. It does not write `auth.users`, create a replacement
+user, reset a password, alter confirmation state, or send an invitation. If the
+owner Auth identity is absent the migration emits a notice and does not
+manufacture one; if it exists but is unconfirmed, migration fails explicitly.
+
+The one approved QA cleanup is intentionally exact: both Auth UUID
+`65825658-4ceb-442f-99fa-5ace1c06df83` and email
+`qa-ui-hq-1787681027458@thinnr-staff-check.com` must agree before deletion.
+There is no domain wildcard or reusable purge function. The migration removes
+that identity from Auth, profiles (by Auth cascade), both role-assignment
+tables, the HQ lifecycle tables, and its training-viewer row. Do not broaden
+those predicates for convenience.
+
+Department permissions are enforced by database helpers and RLS:
+
+| Role | Database authority |
+| --- | --- |
+| Super Admin | Full access; protected from ordinary demotion/removal |
+| Admin | Full HQ access, including team, settings, locks, and financial data |
+| Clinical | Provider and clinical directories, clinical records/conversations, and non-financial analytics |
+| Support | Narrow provider contact/status directory and support conversations only |
+| Content | Training and knowledge management only |
+
+`private.is_hq_admin()` remains the compatibility check for old code, but now
+means an active Super Admin/Admin membership. A pre-migration `hq_admin`
+profile with no membership remains compatible; once a membership exists,
+including a revoked one, the durable membership is authoritative. Clinical,
+Support, and Content profiles are deliberately not marked `hq_admin`, so
+legacy API checks fail closed.
+
+New authorization code should use
+`private.has_hq_permission(permission_name)` for the signed-in caller, or the
+service-role-only `private.hq_user_has_permission(user_id, permission_name)`
+after the API has verified the bearer token. Unknown permission names return
+false. Direct client writes to memberships and invitations are denied; the API
+must perform lifecycle writes with the service role after checking
+`team_manage`.
+
+Invitation rows store only a 64-character SHA-256 token hash. Never store a
+plaintext setup token or temporary password. Create the pending membership and
+invitation atomically, commit, and only then send the setup email. Activation
+requires a matching, email-confirmed Auth identity. Revocation immediately
+removes admin compatibility assignment/profile elevation, while retaining the
+membership audit row. The protected owner and the final active team
+administrator are guarded by database triggers.
+
+For a secure setup email, the API must call the service-only
+`public.hq_invite_team_member_v2(actor_id, name, email, title, role,
+token_hash, expires_at default null)` RPC. Generate the plaintext token in API
+memory, send only its lowercase SHA-256 hash to PostgreSQL, and put the
+plaintext token only in the single-use setup URL sent after commit. Once GoTrue
+has created the recipient's chosen-password account, call the service-only
+`public.hq_accept_team_invitation(token_hash, auth_user_id)` RPC. It locks the
+token row, requires a pending unexpired token and matching confirmed email,
+creates/updates the profile, activates the membership, accepts the invitation,
+and is idempotent only for the same token/Auth-user pair. The legacy
+five-argument `hq_invite_team_member` remains only for compatibility and must
+not be used for new secure invitations.
+
+Support must read provider data through
+`public.hq_provider_contact_directory()`; it intentionally excludes balances,
+MRR, banking, pricing, and patient metrics. Clinical patient directory reads
+use `public.hq_clinical_patient_directory()`, which excludes the legacy
+patients table's billing/subscription fields. Service-role API handlers must
+apply the same permission and field selection rather than treating the service
+role as authorization.
+
+The migration ends with executable SQL assertions for the role matrix, exact
+QA deletion, protected owner, and one-person initial live roster. After
+applying, run the Supabase Security Advisor and verify:
+
+```sql
+select display_name, email, department_role, status, is_protected_owner
+from public.hq_memberships
+where status = 'active';
+```
+
+The live bootstrap result must be exactly Andrew,
+`andrew+admin@thinnrweightloss.com`, `super_admin`, `active`, `true`.
+
 ## Enable phone sign-in and sign-up
 
 Phone password sign-up is already implemented in both the web flow and the

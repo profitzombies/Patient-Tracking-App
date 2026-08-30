@@ -151,10 +151,26 @@ async function main() {
       password: adminPassword,
       email_confirm: true,
       user_metadata: { display_name: 'QA Lock Admin' },
+      // Elevation requires the server-provisioned marker; this QA fixture
+      // stands in for an account the API server would provision.
+      app_metadata: { thinnr_provisioned: 'true' },
     });
     adminUserId = created.json?.id ?? created.json?.user?.id ?? null;
     if ((created.status !== 200 && created.status !== 201) || !adminUserId)
       throw new Error(`admin create failed (${created.status}): ${JSON.stringify(created.json)}`);
+    // Lock writes are gated on an ACTIVE HQ membership (department
+    // permissions), not the coarse profile role, so the QA admin needs a
+    // real membership row.
+    const membership = await svc('POST', '/rest/v1/hq_memberships', {
+      email: adminEmail,
+      auth_user_id: adminUserId,
+      status: 'active',
+      department_role: 'admin',
+      display_name: 'QA Lock Admin',
+      activated_at: new Date().toISOString(),
+    });
+    if (membership.status !== 201)
+      throw new Error(`hq membership insert failed (${membership.status}): ${JSON.stringify(membership.json)}`);
     const adminToken = await signIn(adminEmail, adminPassword);
     check('HQ admin signs in', adminToken !== null);
     if (!adminToken) throw new Error('cannot continue without an HQ admin session');
@@ -258,6 +274,7 @@ async function main() {
       'DELETE',
       `/rest/v1/staff_role_assignments?email=in.(${[teammateEmail, adminEmail].map((email) => `"${email}"`).join(',')})`,
     );
+    await svc('DELETE', `/rest/v1/hq_memberships?email=eq.${encodeURIComponent(adminEmail)}`);
     if (adminUserId) await svc('DELETE', `/auth/v1/admin/users/${adminUserId}`);
   }
 

@@ -11,6 +11,7 @@ import labelScanRouter from "./label-scan";
 import barcodeRouter from "./barcode";
 import supportRouter from "./support";
 import claimRouter from "./claim";
+import authRouter from "./auth";
 import providerAccountsRouter from "./provider-accounts";
 import hqTeamRouter from "./hq-team";
 
@@ -28,6 +29,7 @@ router.use(progressPhotosRouter);
 router.use(knowledgeDocsRouter);
 router.use(staffLoginsRouter);
 router.use(claimRouter);
+router.use(authRouter);
 router.use(providerAccountsRouter);
 router.use(hqTeamRouter);
 

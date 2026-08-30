@@ -126,6 +126,9 @@ async function main() {
         password: PASSWORD,
         email_confirm: true,
         user_metadata: { display_name: name },
+        // Role elevation requires the server-provisioned marker; these QA
+        // fixtures stand in for accounts the API server would provision.
+        app_metadata: { thinnr_provisioned: 'true' },
       });
       const id = created.json?.id ?? created.json?.user?.id;
       if ((created.status !== 200 && created.status !== 201) || !id)

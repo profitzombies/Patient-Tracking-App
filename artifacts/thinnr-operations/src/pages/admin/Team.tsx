@@ -63,7 +63,7 @@ export default function Team() {
     try {
       const result = await inviteTeamMember({ name, email, role: inviteRole as Exclude<HqRole, 'Super Admin'>, title: inviteTitle.trim() });
       if (result.invitation === 'sent') {
-        toast({ variant: 'success', title: `Invite sent to ${name}`, description: `They can securely set their password and join as ${inviteRole}.` });
+        toast({ variant: 'success', title: `Invite sent to ${name}`, description: `They sign in with a one-time email code and join as ${inviteRole}.` });
       } else {
         toast({
           variant: 'destructive',
@@ -200,7 +200,7 @@ export default function Team() {
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle className="font-serif text-navy">Invite a teammate</DialogTitle>
-            <DialogDescription>A secure setup email lets the teammate choose their own password.</DialogDescription>
+            <DialogDescription>The teammate signs in with a one-time code sent to their email — no password to set up.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <label className="block">

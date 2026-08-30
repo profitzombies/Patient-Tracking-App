@@ -7,20 +7,15 @@
  * is root-relative — the operations app is the ROOT artifact and the API
  * server is mounted at /api on the same domain, in dev and published alike.
  *
- * The password rides only this one request body: never a URL, never a log.
+ * Sign-ins are passwordless: the server files the staff member under the
+ * office and emails them an invitation; they sign in with a one-time email
+ * code, so no credential ever rides this request.
  */
 import { supabase } from '@/lib/supabase';
 
-export type StaffFormField = 'accountId' | 'firstName' | 'lastName' | 'email' | 'phone' | 'password';
+export type StaffFormField = 'accountId' | 'firstName' | 'lastName' | 'email';
 
-const FIELDS: readonly StaffFormField[] = [
-  'accountId',
-  'firstName',
-  'lastName',
-  'email',
-  'phone',
-  'password',
-];
+const FIELDS: readonly StaffFormField[] = ['accountId', 'firstName', 'lastName', 'email'];
 
 export class StaffProvisioningError extends Error {
   status: number;
@@ -39,15 +34,14 @@ export interface NewStaffLogin {
   firstName: string;
   lastName: string;
   email: string;
-  phone?: string;
-  password: string;
 }
 
 export interface ProvisionedStaff {
-  viewerId: string;
+  id: string;
   name: string;
   email: string;
   accountId: string;
+  status: 'invited';
 }
 
 export async function provisionStaffLogin(

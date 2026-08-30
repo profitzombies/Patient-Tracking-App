@@ -147,9 +147,10 @@ export function ClaimedWorkspaceScreen() {
               {' '}with <span className="font-semibold text-foreground">{claimedWorkspace.officeName}</span>
             </>
           ) : null}
-          {claimedWorkspace?.kind === 'provider' ? ' as the provider on file' : ''}. Your login and
-          password are set — the office workspace for claimed accounts opens here as THINNR rolls
-          it out, and this same sign-in will take you straight in.
+          {claimedWorkspace?.kind === 'provider' ? ' as the provider on file' : ''}. Your login is
+          set — sign in anytime with a one-time code sent to your email. The office workspace for
+          claimed accounts opens here as THINNR rolls it out, and this same sign-in will take you
+          straight in.
         </p>
         <button
           type="button"

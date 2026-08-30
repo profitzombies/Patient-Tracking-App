@@ -26,10 +26,44 @@ export type Persona = 'hq-admin' | 'office';
 export type AuthRole = 'hq_admin' | 'provider_staff' | 'patient';
 export type AuthStatus = 'loading' | 'signed-out' | 'signed-in';
 export type RoleStatus = 'idle' | 'loading' | 'ready' | 'error';
-export type SignUpOutcome = 'session' | 'confirm-email' | 'verify-phone' | 'error';
 
 const STORAGE_KEY = 'thinnr-ops-persona';
 const STAFF_ROLE_POLL_MS = 10_000;
+
+/**
+ * Web device memory for code login: after a successful code the browser stays
+ * signed in for ~30 days; past that, the next visit asks for a fresh code.
+ * The stamp lives in localStorage next to Supabase's own persisted session.
+ */
+const DEVICE_MEMORY_KEY = 'thinnr-ops-code-login-at';
+const DEVICE_MEMORY_MS = 30 * 24 * 60 * 60 * 1000;
+
+function deviceMemoryExpired(): boolean {
+  try {
+    const raw = window.localStorage.getItem(DEVICE_MEMORY_KEY);
+    const at = raw ? Number(raw) : Number.NaN;
+    return !Number.isFinite(at) || Date.now() - at > DEVICE_MEMORY_MS;
+  } catch {
+    // Storage being unavailable must not lock anyone into a sign-in loop.
+    return false;
+  }
+}
+
+function stampDeviceMemory() {
+  try {
+    window.localStorage.setItem(DEVICE_MEMORY_KEY, String(Date.now()));
+  } catch {
+    // Best-effort; the session itself still works for this visit.
+  }
+}
+
+function clearDeviceMemory() {
+  try {
+    window.localStorage.removeItem(DEVICE_MEMORY_KEY);
+  } catch {
+    // Best-effort.
+  }
+}
 
 function isAuthRole(value: unknown): value is AuthRole {
   return value === 'hq_admin' || value === 'provider_staff' || value === 'patient';
@@ -102,19 +136,15 @@ interface SessionValue {
   signIn: (persona: Persona) => void;
   /** Ends both the real session and the demo persona. */
   signOut: () => void;
-  signInWithPassword: (input: {
-    email?: string;
-    phone?: string;
-    password: string;
-  }) => Promise<{ error: string | null }>;
-  signUpWithPassword: (input: {
-    email?: string;
-    phone?: string;
-    password: string;
-    displayName: string;
-  }) => Promise<{ outcome: SignUpOutcome; error: string | null }>;
-  verifyPhoneCode: (input: { phone: string; token: string }) => Promise<{ error: string | null }>;
-  resendPhoneCode: (input: { phone: string }) => Promise<{ error: string | null }>;
+  /** Asks the server to email a one-time sign-in code to a staff address. */
+  requestStaffCode: (email: string) => Promise<{
+    requestId: string | null;
+    message: string | null;
+    devCode: string | null;
+    error: string | null;
+  }>;
+  /** Trades a correct code for a real Supabase session on this device. */
+  verifyStaffCode: (input: { requestId: string; code: string }) => Promise<{ error: string | null }>;
   retryRoleFetch: () => void;
 }
 
@@ -136,14 +166,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [roleNonce, setRoleNonce] = useState(0);
 
   useEffect(() => {
-    if (!supabase) return;
+    const client = supabase;
+    if (!client) return;
     let cancelled = false;
-    void supabase.auth.getSession().then(({ data }) => {
+    void client.auth.getSession().then(({ data }) => {
       if (cancelled) return;
+      if (data.session && deviceMemoryExpired()) {
+        // The ~30-day device memory has lapsed (or predates code login) —
+        // ask for a fresh code instead of silently resuming.
+        clearDeviceMemory();
+        void client.auth.signOut();
+        setSession(null);
+        setAuthStatus('signed-out');
+        return;
+      }
       setSession(data.session);
       setAuthStatus(data.session ? 'signed-in' : 'signed-out');
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: listener } = client.auth.onAuthStateChange((_event, next) => {
       // State only in this callback — no awaited supabase calls (deadlocks).
       setSession(next);
       setAuthStatus(next ? 'signed-in' : 'signed-out');
@@ -472,75 +512,70 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(() => {
     writeStoredPersona(null);
     setDemoPersona(null);
+    clearDeviceMemory();
     if (supabase) void supabase.auth.signOut();
   }, []);
 
-  const signInWithPassword = useCallback(
-    async (input: { email?: string; phone?: string; password: string }) => {
-      if (!supabase) return { error: 'Real sign-in isn\u2019t configured in this environment.' };
-      const { error } = await supabase.auth.signInWithPassword(
-        input.email !== undefined
-          ? { email: input.email, password: input.password }
-          : { phone: input.phone ?? '', password: input.password },
-      );
-      return { error: error ? describeAuthError(error.message) : null };
-    },
-    [],
-  );
-
-  const signUpWithPassword = useCallback(
-    async (input: { email?: string; phone?: string; password: string; displayName: string }) => {
-      if (!supabase) {
-        return { outcome: 'error' as const, error: 'Real sign-in isn\u2019t configured in this environment.' };
-      }
-      if (input.email !== undefined) {
-        // Confirmation links bounce back to this app (once the URL is
-        // allow-listed in Supabase; otherwise the Site URL is used).
-        const emailRedirectTo =
-          typeof window !== 'undefined'
-            ? window.location.origin + ((import.meta.env.BASE_URL as string | undefined) ?? '/')
-            : undefined;
-        const { data, error } = await supabase.auth.signUp({
-          email: input.email,
-          password: input.password,
-          options: { data: { display_name: input.displayName }, emailRedirectTo },
-        });
-        if (error) return { outcome: 'error' as const, error: describeAuthError(error.message) };
-        if (data.session) return { outcome: 'session' as const, error: null };
-        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-          return { outcome: 'error' as const, error: 'That email already has an account \u2014 sign in instead.' };
-        }
-        return { outcome: 'confirm-email' as const, error: null };
-      }
-      const { data, error } = await supabase.auth.signUp({
-        phone: input.phone ?? '',
-        password: input.password,
-        options: { data: { display_name: input.displayName } },
-      });
-      if (error) return { outcome: 'error' as const, error: describeAuthError(error.message) };
-      if (data.session) return { outcome: 'session' as const, error: null };
-      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        return { outcome: 'error' as const, error: 'That phone number already has an account \u2014 sign in instead.' };
-      }
-      return { outcome: 'verify-phone' as const, error: null };
-    },
-    [],
-  );
-
-  const verifyPhoneCode = useCallback(async (input: { phone: string; token: string }) => {
-    if (!supabase) return { error: 'Real sign-in isn\u2019t configured in this environment.' };
-    const { error } = await supabase.auth.verifyOtp({
-      phone: input.phone,
-      token: input.token,
-      type: 'sms',
+  const requestStaffCode = useCallback(async (email: string) => {
+    const failure = (message: string) => ({
+      requestId: null,
+      message: null,
+      devCode: null,
+      error: message,
     });
-    return { error: error ? describeAuthError(error.message) : null };
+    if (!supabaseConfigured) {
+      return failure('Real sign-in isn\u2019t configured in this environment.');
+    }
+    try {
+      const response = await fetch('/api/auth/login/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ realm: 'staff', identifier: email }),
+      });
+      const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!response.ok || !body || typeof body.requestId !== 'string') {
+        return failure(
+          typeof body?.error === 'string' ? body.error : 'Could not send a code right now. Try again in a moment.',
+        );
+      }
+      return {
+        requestId: body.requestId,
+        message: typeof body.message === 'string' ? body.message : null,
+        devCode: typeof body.devCode === 'string' ? body.devCode : null,
+        error: null,
+      };
+    } catch {
+      return failure('Could not reach the sign-in service. Check your connection and try again.');
+    }
   }, []);
 
-  const resendPhoneCode = useCallback(async (input: { phone: string }) => {
+  const verifyStaffCode = useCallback(async (input: { requestId: string; code: string }) => {
     if (!supabase) return { error: 'Real sign-in isn\u2019t configured in this environment.' };
-    const { error } = await supabase.auth.resend({ phone: input.phone, type: 'sms' });
-    return { error: error ? describeAuthError(error.message) : null };
+    try {
+      const response = await fetch('/api/auth/login/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: input.requestId, code: input.code }),
+      });
+      const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!response.ok || !body || typeof body.tokenHash !== 'string') {
+        return {
+          error:
+            typeof body?.error === 'string'
+              ? body.error
+              : 'That code didn\u2019t work. Request a fresh one and try again.',
+        };
+      }
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash: body.tokenHash,
+        type: 'email',
+      });
+      if (error) return { error: describeAuthError(error.message) };
+      stampDeviceMemory();
+      return { error: null };
+    } catch {
+      return { error: 'Could not reach the sign-in service. Check your connection and try again.' };
+    }
   }, []);
 
   const retryRoleFetch = useCallback(() => {
@@ -583,10 +618,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       supabaseEnabled: supabaseConfigured,
       signIn,
       signOut,
-      signInWithPassword,
-      signUpWithPassword,
-      verifyPhoneCode,
-      resendPhoneCode,
+      requestStaffCode,
+      verifyStaffCode,
       retryRoleFetch,
     }),
     [
@@ -601,10 +634,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       roleStatus,
       signIn,
       signOut,
-      signInWithPassword,
-      signUpWithPassword,
-      verifyPhoneCode,
-      resendPhoneCode,
+      requestStaffCode,
+      verifyStaffCode,
       retryRoleFetch,
     ],
   );

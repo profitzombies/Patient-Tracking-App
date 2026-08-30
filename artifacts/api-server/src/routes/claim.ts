@@ -1,7 +1,11 @@
 /**
- * Account claiming + password reset for migrated THINNR accounts.
+ * Account claiming for migrated THINNR PATIENT records.
  *
- * One flow serves both jobs: prove control of the phone/email on file with a
+ * Staff (HQ admins, providers, team members) sign in passwordless via
+ * routes/auth.ts — identify requests matching staff records answer with the
+ * same neutral body as a miss and send nothing. This flow remains for the
+ * legacy patient-claiming path (currently dormant until archived patients
+ * are re-imported): prove control of the phone/email on file with a
  * one-time code, then set a password. If the record was never linked, the
  * server creates the login and links it (auth_user_id + claimed_at — the only
  * writes ever made to migrated tables). If it was already linked, the same
@@ -43,6 +47,25 @@ import {
   acquireVerifySlot,
   acquireCompleteSlot,
 } from "../claim/limits";
+import {
+  CODE_TTL_MS,
+  MAX_CODE_ATTEMPTS,
+  SENDS_PER_IDENTIFIER_PER_HOUR,
+  type VerificationRow as ClaimRow,
+  type Candidate,
+  holdUntilFloor,
+  sha256,
+  codeMatches,
+  loadRowById,
+  loadRowByToken,
+  patchRow,
+  takeAttempt,
+  pruneStaleRows,
+  isUuid,
+  isTokenShaped,
+  isCodeShaped,
+  clientIp,
+} from "../auth/ledger";
 
 const router: IRouter = Router();
 
@@ -75,152 +98,17 @@ const CLINIC_MESSAGE =
 const SESSION_EXPIRED = "That session has expired. Please start over.";
 const SERVER_ERROR = "We couldn't process that just now. Please try again in a moment.";
 
-const CODE_TTL_MS = 10 * 60 * 1000;
-const MAX_CODE_ATTEMPTS = 5;
-const SENDS_PER_IDENTIFIER_PER_HOUR = 3;
 /** Across ALL destination numbers one signed-in account may try per hour. */
 const ADD_PHONE_SENDS_PER_ACCOUNT_PER_HOUR = 6;
 
-/**
- * Identify must take the same time whether or not an account exists —
- * otherwise response timing becomes an existence oracle even though the
- * response bodies are identical. Every account-dependent outcome (miss,
- * send-capped, hit) is held to this minimum elapsed time. The real work is
- * one database round trip, which fits well inside the floor; live SMS/email
- * delivery is fired after the response and never adds to it.
- */
-const IDENTIFY_FLOOR_DEFAULT_MS = 350;
-
-function identifyFloorMs(): number {
-  const raw = Number(process.env.CLAIM_IDENTIFY_FLOOR_MS ?? IDENTIFY_FLOOR_DEFAULT_MS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : IDENTIFY_FLOOR_DEFAULT_MS;
-}
-
-async function holdUntilFloor(startedAt: number): Promise<void> {
-  const wait = identifyFloorMs() - (Date.now() - startedAt);
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-}
-
-type AccountType = "patient" | "provider" | "team_member" | "hq_admin";
-
-interface Candidate {
-  type: AccountType;
-  ref: string;
-  name: string | null;
-  dob: string | null;
-  claimed: boolean;
-  auth_user_id: string | null;
-}
-
-interface ClaimRow {
-  id: string;
-  created_at: string;
-  purpose: "claim" | "add_phone";
-  identifier_kind: "phone" | "email";
-  identifier: string;
-  account_type: AccountType | null;
-  candidates: Candidate[];
-  resolved_ref: string | null;
-  delivery: "dev" | "twilio_verify" | "resend";
-  code_salt: string | null;
-  code_hash: string | null;
-  code_expires_at: string | null;
-  code_attempts: number;
-  verified_at: string | null;
-  claim_token_hash: string | null;
-  birthday_checked: boolean;
-  consumed_at: string | null;
-  auth_user_id: string | null;
-}
-
-const TABLE_FOR_TYPE: Record<
-  Exclude<AccountType, "hq_admin">,
-  { table: string; refCol: string; select: string }
-> = {
-  patient: { table: "patients", refCol: "id", select: "id,auth_user_id,name,email,phone" },
-  provider: {
-    table: "providers",
-    refCol: "provider_id",
-    select: "provider_id,auth_user_id,provider_name,office_name,email",
-  },
-  team_member: { table: "team_members", refCol: "id", select: "id,auth_user_id,name,email" },
-};
-
-function sha256(value: string): string {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function codeMatches(row: ClaimRow, code: string): boolean {
-  if (!row.code_salt || !row.code_hash) return false;
-  const expected = Buffer.from(row.code_hash, "hex");
-  const actual = Buffer.from(sha256(row.code_salt + code), "hex");
-  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
-}
+const PATIENT_TABLE = {
+  table: "patients",
+  refCol: "id",
+  select: "id,auth_user_id,name,email,phone",
+} as const;
 
 function enc(value: string): string {
   return encodeURIComponent(value);
-}
-
-async function loadRowById(id: string): Promise<ClaimRow | null> {
-  const res = await supabaseAdmin(
-    "GET",
-    `/rest/v1/claim_verifications?id=eq.${enc(id)}&select=*`,
-  );
-  if (res.status >= 300) throw new Error(`claim row load failed (${res.status})`);
-  return Array.isArray(res.json) && res.json.length > 0 ? (res.json[0] as ClaimRow) : null;
-}
-
-async function loadRowByToken(token: string): Promise<ClaimRow | null> {
-  const hash = sha256(token);
-  const res = await supabaseAdmin(
-    "GET",
-    `/rest/v1/claim_verifications?claim_token_hash=eq.${enc(hash)}&select=*`,
-  );
-  if (res.status >= 300) throw new Error(`claim row load failed (${res.status})`);
-  return Array.isArray(res.json) && res.json.length > 0 ? (res.json[0] as ClaimRow) : null;
-}
-
-async function patchRow(id: string, patch: Record<string, unknown>, guard = ""): Promise<number> {
-  const res = await supabaseAdmin(
-    "PATCH",
-    `/rest/v1/claim_verifications?id=eq.${enc(id)}${guard}`,
-    patch,
-    "return=representation",
-  );
-  if (res.status >= 300) throw new Error(`claim row update failed (${res.status})`);
-  return Array.isArray(res.json) ? res.json.length : 0;
-}
-
-/**
- * Count-a-code-attempt with an optimistic guard so parallel guesses cannot
- * share one attempt slot. Returns false when the row moved underneath us.
- */
-async function takeAttempt(row: ClaimRow): Promise<boolean> {
-  const rows = await patchRow(
-    row.id,
-    { code_attempts: row.code_attempts + 1 },
-    `&code_attempts=eq.${row.code_attempts}`,
-  );
-  return rows === 1;
-}
-
-function isUuid(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-  );
-}
-
-function isTokenShaped(value: unknown): value is string {
-  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
-}
-
-function isCodeShaped(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4,8}$/.test(value);
-}
-
-function clientIp(req: { ip?: string }): string {
-  return req.ip ?? "unknown";
 }
 
 /**
@@ -245,38 +133,10 @@ async function findCandidates(identifier: NormalizedIdentifier): Promise<Candida
   if (rpc.status >= 300) throw new Error(`candidate lookup failed (${rpc.status})`);
   const rows: Candidate[] = Array.isArray(rpc.json) ? (rpc.json as Candidate[]) : [];
 
-  // The HQ admin claims/resets through the same flow. Their pre-approved
-  // email maps to the pre-provisioned auth user via the profiles row.
-  if (identifier.kind === "email") {
-    const approval = await supabaseAdmin(
-      "GET",
-      `/rest/v1/staff_role_assignments?email=eq.${enc(identifier.email)}&role=eq.hq_admin&select=email`,
-    );
-    if (approval.status < 300 && Array.isArray(approval.json) && approval.json.length > 0) {
-      const profile = await supabaseAdmin(
-        "GET",
-        `/rest/v1/profiles?email=eq.${enc(identifier.email)}&role=eq.hq_admin&select=id,display_name`,
-      );
-      if (profile.status < 300 && Array.isArray(profile.json) && profile.json.length > 0) {
-        rows.push({
-          type: "hq_admin",
-          ref: String(profile.json[0].id),
-          name: profile.json[0].display_name ?? null,
-          dob: null,
-          claimed: true,
-          auth_user_id: String(profile.json[0].id),
-        });
-      }
-    }
-  }
-
-  // Precedence when one email lives in several tables: the operationally
-  // narrower identity wins; patients with a colliding email use their phone.
-  for (const type of ["hq_admin", "provider", "team_member", "patient"] as const) {
-    const group = rows.filter((c) => c.type === type);
-    if (group.length > 0) return group;
-  }
-  return [];
+  // Claiming serves PATIENT records only. Staff identities (HQ, providers,
+  // team members) sign in with login codes via /api/auth — a staff email
+  // here is a miss, answered exactly like any other miss.
+  return rows.filter((c) => c.type === "patient");
 }
 
 router.post(CLAIM_IDENTIFY_PATH, async (req, res) => {
@@ -305,12 +165,7 @@ router.post(CLAIM_IDENTIFY_PATH, async (req, res) => {
       throw error;
     }
 
-    // Opportunistic ledger hygiene — expired rows are useless after a day.
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    void supabaseAdmin(
-      "DELETE",
-      `/rest/v1/claim_verifications?created_at=lt.${enc(dayAgo)}`,
-    ).catch(() => {});
+    pruneStaleRows();
 
     const mode = deliveryMode(identifier.kind === "phone" ? "sms" : "email");
     const storedIdentifier = identifier.kind === "phone" ? identifier.e164 : identifier.email;
@@ -452,11 +307,22 @@ router.post(CLAIM_VERIFY_PATH, async (req, res) => {
 
     const token = crypto.randomBytes(32).toString("hex");
     const single = candidates.length === 1;
-    await patchRow(row.id, {
-      verified_at: new Date().toISOString(),
-      claim_token_hash: sha256(token),
-      resolved_ref: single ? candidates[0].ref : null,
-    });
+    // Exactly one verify may redeem the code: this conditional write is the
+    // atomic claim, so a concurrent request that matched the same code loses
+    // here and is answered like any wrong guess.
+    const claimed = await patchRow(
+      row.id,
+      {
+        verified_at: new Date().toISOString(),
+        claim_token_hash: sha256(token),
+        resolved_ref: single ? candidates[0].ref : null,
+      },
+      "&verified_at=is.null&consumed_at=is.null",
+    );
+    if (claimed !== 1) {
+      res.status(400).json({ error: CODE_ERROR });
+      return;
+    }
 
     const identifier = normalizeIdentifier(row.identifier);
     res.json({
@@ -467,10 +333,7 @@ router.post(CLAIM_VERIFY_PATH, async (req, res) => {
       ...(single
         ? {
             next: "password" as const,
-            mode:
-              candidates[0].claimed || row.account_type === "hq_admin"
-                ? ("reset" as const)
-                : ("create" as const),
+            mode: candidates[0].claimed ? ("reset" as const) : ("create" as const),
           }
         : { next: "birthday" as const }),
     });
@@ -581,7 +444,7 @@ router.post(CLAIM_COMPLETE_PATH, async (req, res) => {
       return;
     }
     const target = (row.candidates ?? []).find((c) => c.ref === row.resolved_ref);
-    if (!target || !row.account_type) {
+    if (!target || row.account_type !== "patient") {
       res.status(400).json({ error: SESSION_EXPIRED });
       return;
     }
@@ -591,25 +454,7 @@ router.post(CLAIM_COMPLETE_PATH, async (req, res) => {
       identifier: row.identifier,
     };
 
-    // The HQ admin login is pre-provisioned; proving the email sets its password.
-    if (row.account_type === "hq_admin") {
-      const updated = await supabaseAdmin("PUT", `/auth/v1/admin/users/${target.ref}`, {
-        password,
-      });
-      if (updated.status === 400 || updated.status === 422) {
-        res.status(400).json({
-          error: rejectedPasswordMessage(updated.json),
-          field: "password",
-        });
-        return;
-      }
-      if (updated.status >= 300) throw new Error(`admin password update failed (${updated.status})`);
-      await patchRow(row.id, { consumed_at: new Date().toISOString(), auth_user_id: target.ref });
-      res.json({ ok: true, mode: "reset" as const, signIn });
-      return;
-    }
-
-    const mapping = TABLE_FOR_TYPE[row.account_type];
+    const mapping = PATIENT_TABLE;
     const fresh = await supabaseAdmin(
       "GET",
       `/rest/v1/${mapping.table}?${mapping.refCol}=eq.${enc(target.ref)}&select=${mapping.select}`,
@@ -645,10 +490,7 @@ router.post(CLAIM_COMPLETE_PATH, async (req, res) => {
 
     // Unclaimed → create the login with ONLY the verified contact, marked so
     // the demo signup triggers stand aside, then link the record.
-    const displayName =
-      row.account_type === "provider"
-        ? (freshRow.provider_name || freshRow.office_name || "").trim() || null
-        : (freshRow.name || "").trim() || null;
+    const displayName = (freshRow.name || "").trim() || null;
     const created = await supabaseAdmin("POST", "/auth/v1/admin/users", {
       ...(row.identifier_kind === "phone"
         ? { phone: row.identifier, phone_confirm: true }
@@ -1179,6 +1021,18 @@ router.post(CLAIM_ADD_PHONE_VERIFY_PATH, async (req, res) => {
       matched = codeMatches(row, code);
     }
     if (!matched) {
+      res.status(400).json({ error: CODE_ERROR });
+      return;
+    }
+
+    // Claim the row atomically before touching the account: one verify wins,
+    // concurrent racers are answered like wrong guesses.
+    const claimed = await patchRow(
+      row.id,
+      { verified_at: new Date().toISOString() },
+      "&verified_at=is.null&consumed_at=is.null",
+    );
+    if (claimed !== 1) {
       res.status(400).json({ error: CODE_ERROR });
       return;
     }

@@ -1,11 +1,14 @@
 /**
- * Patient sign-in — the real front door. Email + password works today; phone
- * + password (with a texted 6-digit code at sign-up) lights up once Twilio
- * Verify is connected in the Supabase dashboard. The guided demo (Emma) stays
- * one tap away and never touches real auth.
+ * Patient sign-in — the real front door, passwordless and patient-first.
  *
- * Any real session gets the patient companion experience — this app *is* the
- * patient surface; staff tooling lives on the web.
+ * Patients are keyed on their cell phone: type the number, get a 6-digit
+ * text code, and the code becomes a real session that sticks until sign-out.
+ * An email fallback covers the day the phone is unreachable, and brand-new
+ * patients hop to the signup flow with their office's provider code. Staff
+ * use the small "Provider login" door at the bottom — their accounts are
+ * keyed on work email, so the same human can hold both kinds of account.
+ *
+ * The guided demo (Emma) stays one tap away and never touches real auth.
  */
 import React, { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -25,25 +28,19 @@ import {
 } from '@/components/onboarding/OnboardingFields';
 import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
-import {
-  describeAuthError,
-  normalizePhone,
-  supabase,
-  supabaseConfigured,
-  useSupabaseSession,
-} from '@/lib/supabase';
+import { requestLoginCode, signInWithTokenHash, verifyLoginCode } from '@/lib/auth-api';
+import { normalizePhone, supabase, supabaseConfigured, useSupabaseSession } from '@/lib/supabase';
 
-type AuthMethod = 'email' | 'phone';
-type AuthMode = 'sign-in' | 'sign-up';
-type Phase = 'credentials' | 'verify-phone' | 'check-email';
+type Channel = 'phone' | 'email';
+type Phase = 'identify' | 'code';
 
 const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
 
 /**
- * On web, RN renders inputs as bare <input> elements and browsers expect
- * password fields inside a <form> (quiets the "[DOM] Password field is not
- * contained in a form" warning and helps autofill). display:contents keeps
- * the wrapper out of layout; native renders children directly.
+ * On web, RN renders inputs as bare <input> elements; a real <form> wrapper
+ * helps browsers wire up autofill and one-time-code suggestions.
+ * display:contents keeps the wrapper out of layout; native renders children
+ * directly.
  */
 function FormWrap({ children }: { children: React.ReactNode }) {
   if (Platform.OS !== 'web') return <>{children}</>;
@@ -60,16 +57,15 @@ export default function PatientLoginScreen() {
   const { setMode } = useAppMode();
   const { session } = useSupabaseSession();
 
-  const [method, setMethod] = useState<AuthMethod>('email');
-  const [mode, setAuthMode] = useState<AuthMode>('sign-in');
-  const [phase, setPhase] = useState<Phase>('credentials');
-  const [displayName, setDisplayName] = useState('');
-  const [email, setEmail] = useState('');
+  const [channel, setChannel] = useState<Channel>('phone');
+  const [phase, setPhase] = useState<Phase>('identify');
   const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
-  const [pendingPhone, setPendingPhone] = useState('');
-  const [pendingEmail, setPendingEmail] = useState('');
+  const [requestId, setRequestId] = useState<string | null>(null);
+  const [pendingLabel, setPendingLabel] = useState('');
+  const [pendingIdentifier, setPendingIdentifier] = useState('');
+  const [devCode, setDevCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -82,85 +78,50 @@ export default function PatientLoginScreen() {
     router.replace('/today');
   };
 
-  const submitCredentials = async () => {
-    if (busy || !supabase) return;
+  const sendCode = async (identifier: string, label: string) => {
+    const result = await requestLoginCode('patient', identifier);
+    if (!result.ok) {
+      setError(result.error);
+      return false;
+    }
+    setRequestId(result.requestId);
+    setPendingIdentifier(identifier);
+    setPendingLabel(label);
+    setDevCode(result.devCode);
+    setNotice(result.message ?? 'If that matches an account, a code is on its way.');
+    return true;
+  };
+
+  const submitIdentifier = async () => {
+    if (busy || !supabaseConfigured) return;
     setError(null);
     setNotice(null);
 
-    let identifier: { email: string } | { phone: string };
-    if (method === 'email') {
-      const trimmed = email.trim();
-      if (!trimmed) {
-        setError('Enter your email.');
-        return;
-      }
-      identifier = { email: trimmed };
-    } else {
+    let identifier: string;
+    let label: string;
+    if (channel === 'phone') {
       const normalized = normalizePhone(phone);
       if (!normalized) {
-        setError('Enter your mobile number, including the country code.');
+        setError('Enter your cell phone number — ten digits are treated as US.');
         return;
       }
-      identifier = { phone: normalized };
-    }
-    if (!password) {
-      setError('Enter your password.');
-      return;
-    }
-    if (mode === 'sign-up' && password.length < 8) {
-      setError('Passwords need at least 8 characters.');
-      return;
+      identifier = normalized;
+      label = normalized;
+    } else {
+      const trimmed = email.trim();
+      if (!trimmed || !trimmed.includes('@')) {
+        setError('Enter the email on your account.');
+        return;
+      }
+      identifier = trimmed;
+      label = trimmed;
     }
 
     setBusy(true);
     try {
-      if (mode === 'sign-in') {
-        const { data, error: signInError } = await supabase.auth.signInWithPassword({
-          ...identifier,
-          password,
-        });
-        if (signInError) {
-          setError(describeAuthError(signInError));
-          return;
-        }
-        if (data.session) await enterPatientExperience();
-        return;
-      }
-
-      // Sign-up
-      const name = displayName.trim();
-      const { data, error: signUpError } =
-        'email' in identifier
-          ? await supabase.auth.signUp({
-              email: identifier.email,
-              password,
-              options: { data: { display_name: name } },
-            })
-          : await supabase.auth.signUp({
-              phone: identifier.phone,
-              password,
-              options: { data: { display_name: name } },
-            });
-      if (signUpError) {
-        setError(describeAuthError(signUpError));
-        return;
-      }
-      // Supabase signals "already registered" with a user that has no identities.
-      if (data.user && (data.user.identities?.length ?? 0) === 0) {
-        setError('An account already exists with those details. Sign in instead.');
-        return;
-      }
-      if (data.session) {
-        await enterPatientExperience();
-        return;
-      }
-      if ('phone' in identifier) {
-        setPendingPhone(identifier.phone);
+      if (await sendCode(identifier, label)) {
         setOtp('');
-        setPhase('verify-phone');
-      } else {
-        setPendingEmail(identifier.email);
-        setPhase('check-email');
+        setPhase('code');
       }
     } finally {
       setBusy(false);
@@ -168,45 +129,61 @@ export default function PatientLoginScreen() {
   };
 
   const submitOtp = async () => {
-    if (busy || !supabase) return;
+    if (busy || !requestId) return;
     setError(null);
-    setNotice(null);
     if (otp.trim().length < 6) {
-      setError('Enter the 6-digit code from the text message.');
+      setError(
+        channel === 'phone'
+          ? 'Enter the 6-digit code from the text message.'
+          : 'Enter the 6-digit code from the email.',
+      );
       return;
     }
     setBusy(true);
     try {
-      const { data, error: verifyError } = await supabase.auth.verifyOtp({
-        phone: pendingPhone,
-        token: otp.trim(),
-        type: 'sms',
-      });
-      if (verifyError) {
-        setError(describeAuthError(verifyError));
+      const result = await verifyLoginCode({ requestId, code: otp.trim() });
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
-      if (data.session) await enterPatientExperience();
+      const sessionError = await signInWithTokenHash(result.tokenHash);
+      if (sessionError) {
+        setError(sessionError);
+        return;
+      }
+      await enterPatientExperience();
     } finally {
       setBusy(false);
     }
   };
 
   const resendCode = async () => {
-    if (busy || !supabase) return;
+    if (busy || !pendingIdentifier) return;
     setError(null);
     setNotice(null);
     setBusy(true);
     try {
-      const { error: resendError } = await supabase.auth.resend({
-        type: 'sms',
-        phone: pendingPhone,
-      });
-      if (resendError) setError(describeAuthError(resendError));
-      else setNotice('We sent a fresh code.');
+      setOtp('');
+      await sendCode(pendingIdentifier, pendingLabel);
     } finally {
       setBusy(false);
     }
+  };
+
+  const backToIdentify = () => {
+    setPhase('identify');
+    setOtp('');
+    setRequestId(null);
+    setDevCode(null);
+    setError(null);
+    setNotice(null);
+  };
+
+  const switchChannel = (next: Channel) => {
+    Haptics.selectionAsync();
+    setChannel(next);
+    setError(null);
+    setNotice(null);
   };
 
   const signOutReal = async () => {
@@ -221,38 +198,8 @@ export default function PatientLoginScreen() {
     else router.replace('/persona');
   };
 
-  const methodTab = (value: AuthMethod, label: string, testID: string) => {
-    const active = method === value;
-    return (
-      <Pressable
-        testID={testID}
-        accessibilityRole="button"
-        accessibilityState={{ selected: active }}
-        onPress={() => {
-          Haptics.selectionAsync();
-          setMethod(value);
-          setError(null);
-          setNotice(null);
-        }}
-        style={[
-          styles.methodTab,
-          { borderRadius: 5 },
-          active && { backgroundColor: colors.navy },
-        ]}
-      >
-        <Text
-          style={[
-            styles.methodTabText,
-            { color: active ? colors.brandMarkText : colors.labelText },
-          ]}
-        >
-          {label}
-        </Text>
-      </Pressable>
-    );
-  };
-
-  const identifierLabel = session?.user.email ?? (session?.user.phone ? `+${session.user.phone}` : 'your account');
+  const identifierLabel =
+    session?.user.phone ? `+${session.user.phone}` : session?.user.email ?? 'your account';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
@@ -283,13 +230,11 @@ export default function PatientLoginScreen() {
       >
         <Text style={[styles.kicker, { color: colors.labelText }]}>PATIENT ACCESS</Text>
         <Text style={[styles.title, { color: colors.navy }]}>
-          {phase === 'verify-phone'
-            ? 'Check your texts'
-            : phase === 'check-email'
-              ? 'Check your inbox'
-              : mode === 'sign-in'
-                ? 'Sign in to THINNR'
-                : 'Create your account'}
+          {phase === 'code'
+            ? channel === 'phone'
+              ? 'Check your texts'
+              : 'Check your inbox'
+            : 'Sign in to THINNR'}
         </Text>
 
         {!supabaseConfigured && (
@@ -301,7 +246,7 @@ export default function PatientLoginScreen() {
           </View>
         )}
 
-        {session && phase === 'credentials' ? (
+        {session && phase === 'identify' ? (
           <LedgerCard style={styles.cardPad}>
             <Text style={[styles.sessionTitle, { color: colors.navy }]}>You’re signed in</Text>
             <Text style={[styles.sessionSub, { color: colors.subtleText }]} numberOfLines={1}>
@@ -322,31 +267,27 @@ export default function PatientLoginScreen() {
           </LedgerCard>
         ) : null}
 
-        {!session && phase === 'credentials' && (
+        {!session && phase === 'identify' && (
           <LedgerCard style={styles.cardPad}>
             <FormWrap>
-              <View style={[styles.methodRow, { borderColor: colors.border, backgroundColor: colors.background }]}>
-                {methodTab('email', 'Email', 'login-method-email')}
-                {methodTab('phone', 'Phone', 'login-method-phone')}
-              </View>
-
-              {mode === 'sign-up' && (
-                <View style={styles.fieldGap}>
-                  <FieldLabel text="Name (optional)" />
+              {channel === 'phone' ? (
+                <View>
+                  <FieldLabel text="Cell phone number" />
                   <LedgerInput
-                    testID="login-name"
-                    value={displayName}
-                    onChangeText={setDisplayName}
-                    autoComplete="name"
-                    textContentType="name"
+                    testID="login-phone"
+                    value={phone}
+                    onChangeText={setPhone}
+                    keyboardType="phone-pad"
+                    autoComplete="tel"
+                    textContentType="telephoneNumber"
+                    placeholder="+1 555 123 4567"
                     editable={!busy && supabaseConfigured}
                   />
+                  <NoteText text="We’ll text you a 6-digit sign-in code. No password to remember." />
                 </View>
-              )}
-
-              {method === 'email' ? (
-                <View style={styles.fieldGap}>
-                  <FieldLabel text="Email" />
+              ) : (
+                <View>
+                  <FieldLabel text="Email on your account" />
                   <LedgerInput
                     testID="login-email"
                     value={email}
@@ -359,44 +300,9 @@ export default function PatientLoginScreen() {
                     placeholder="you@example.com"
                     editable={!busy && supabaseConfigured}
                   />
-                </View>
-              ) : (
-                <View style={styles.fieldGap}>
-                  <FieldLabel text="Mobile number" />
-                  <LedgerInput
-                    testID="login-phone"
-                    value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="phone-pad"
-                    autoComplete="tel"
-                    textContentType="telephoneNumber"
-                    placeholder="+1 555 123 4567"
-                    editable={!busy && supabaseConfigured}
-                  />
-                  <NoteText
-                    text={
-                      mode === 'sign-up'
-                        ? 'Include the country code — ten digits are treated as US. We’ll text you a 6-digit code.'
-                        : 'Include the country code — ten digits are treated as US.'
-                    }
-                  />
+                  <NoteText text="We’ll email you a 6-digit sign-in code — handy when your phone’s unavailable." />
                 </View>
               )}
-
-              <View style={styles.fieldGap}>
-                <FieldLabel text="Password" />
-                <LedgerInput
-                  testID="login-password"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'}
-                  textContentType={mode === 'sign-in' ? 'password' : 'newPassword'}
-                  editable={!busy && supabaseConfigured}
-                />
-                {mode === 'sign-up' && <NoteText text="At least 8 characters." />}
-              </View>
 
               {error && (
                 <View style={styles.blockGap}>
@@ -406,16 +312,8 @@ export default function PatientLoginScreen() {
 
               <PrimaryButton
                 testID="login-submit"
-                label={
-                  busy
-                    ? mode === 'sign-in'
-                      ? 'Signing in…'
-                      : 'Creating account…'
-                    : mode === 'sign-in'
-                      ? 'Sign in'
-                      : 'Create account'
-                }
-                onPress={submitCredentials}
+                label={busy ? 'Sending code…' : channel === 'phone' ? 'Text me a code' : 'Email me a code'}
+                onPress={submitIdentifier}
                 disabled={busy || !supabaseConfigured}
                 onDisabledPress={
                   supabaseConfigured
@@ -426,56 +324,42 @@ export default function PatientLoginScreen() {
               />
 
               <Pressable
-                testID="login-toggle-mode"
+                testID="login-switch-channel"
                 accessibilityRole="button"
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setAuthMode(current => (current === 'sign-in' ? 'sign-up' : 'sign-in'));
-                  setError(null);
-                  setNotice(null);
-                }}
+                onPress={() => switchChannel(channel === 'phone' ? 'email' : 'phone')}
                 style={styles.toggleModeBtn}
               >
                 <Text style={[styles.toggleModeText, { color: colors.cobalt }]}>
-                  {mode === 'sign-in' ? 'New here? Create an account' : 'Already have an account? Sign in'}
+                  {channel === 'phone'
+                    ? 'Can’t get texts right now? Use your email'
+                    : 'Use your phone number instead'}
                 </Text>
               </Pressable>
 
               <View style={[styles.claimDivider, { backgroundColor: colors.divider }]} />
               <Pressable
-                testID="login-claim"
+                testID="login-signup"
                 accessibilityRole="button"
                 onPress={() => {
                   Haptics.selectionAsync();
-                  router.push('/claim-account');
+                  router.push('/patient-signup');
                 }}
                 style={styles.claimLinkBtn}
               >
                 <Text style={[styles.toggleModeText, { color: colors.cobalt }]}>
-                  Already a THINNR member? Claim your account
-                </Text>
-              </Pressable>
-              <Pressable
-                testID="login-forgot"
-                accessibilityRole="button"
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push('/claim-account');
-                }}
-                style={styles.claimLinkBtn}
-              >
-                <Text style={[styles.toggleModeText, { color: colors.subtleText }]}>
-                  Forgot your password?
+                  New patient? Create your account
                 </Text>
               </Pressable>
             </FormWrap>
           </LedgerCard>
         )}
 
-        {phase === 'verify-phone' && (
+        {phase === 'code' && (
           <LedgerCard style={styles.cardPad}>
             <Text style={[styles.sessionSub, { color: colors.subtleText }]}>
-              A 6-digit code is on its way to {pendingPhone}.
+              {channel === 'phone'
+                ? `If ${pendingLabel} matches an account, a 6-digit code is on its way by text. It expires in 10 minutes.`
+                : `If ${pendingLabel} matches an account, a 6-digit code is on its way by email. It expires in 10 minutes.`}
             </Text>
             <View style={styles.fieldGap}>
               <FieldLabel text="Verification code" />
@@ -492,12 +376,17 @@ export default function PatientLoginScreen() {
               />
             </View>
 
+            {devCode && (
+              <Text testID="login-devcode" style={[styles.noticeText, { color: colors.subtleText }]}>
+                Dev delivery mode — your code is {devCode}.
+              </Text>
+            )}
             {error && (
               <View style={styles.blockGap}>
                 <ErrorBox testID="login-error" message={error} />
               </View>
             )}
-            {notice && (
+            {notice && !error && (
               <Text testID="login-notice" style={[styles.noticeText, { color: colors.activeGreen }]}>
                 {notice}
               </Text>
@@ -512,45 +401,12 @@ export default function PatientLoginScreen() {
             />
             <View style={styles.linkRow}>
               <Pressable testID="login-resend" accessibilityRole="button" onPress={resendCode} disabled={busy}>
-                <Text style={[styles.toggleModeText, { color: colors.cobalt }]}>Resend code</Text>
+                <Text style={[styles.toggleModeText, { color: colors.cobalt }]}>Send a fresh code</Text>
               </Pressable>
-              <Pressable
-                testID="login-back"
-                accessibilityRole="button"
-                onPress={() => {
-                  setPhase('credentials');
-                  setOtp('');
-                  setError(null);
-                  setNotice(null);
-                }}
-              >
+              <Pressable testID="login-back" accessibilityRole="button" onPress={backToIdentify}>
                 <Text style={[styles.toggleModeText, { color: colors.subtleText }]}>Back</Text>
               </Pressable>
             </View>
-          </LedgerCard>
-        )}
-
-        {phase === 'check-email' && (
-          <LedgerCard style={styles.cardPad}>
-            <View style={[styles.mailIcon, { backgroundColor: colors.accent }]}>
-              <Feather name="mail" size={18} color={colors.cobalt} />
-            </View>
-            <Text style={[styles.sessionTitle, { color: colors.navy }]}>Confirm your email</Text>
-            <Text style={[styles.sessionSub, { color: colors.subtleText }]}>
-              We sent a confirmation link to {pendingEmail}. Open it, then come back and sign in.
-              The demo mailer can take a few minutes.
-            </Text>
-            <GhostButton
-              testID="login-back"
-              label="Back to sign in"
-              onPress={() => {
-                setPhase('credentials');
-                setAuthMode('sign-in');
-                setError(null);
-                setNotice(null);
-              }}
-              style={styles.blockGap}
-            />
           </LedgerCard>
         )}
 
@@ -587,6 +443,18 @@ export default function PatientLoginScreen() {
             </Text>
           </View>
           <Feather name="arrow-right" size={16} color={colors.cobalt} />
+        </Pressable>
+
+        <Pressable
+          testID="login-provider"
+          accessibilityRole="button"
+          onPress={() => {
+            Haptics.selectionAsync();
+            router.push('/provider-login');
+          }}
+          style={styles.providerLinkBtn}
+        >
+          <Text style={[styles.providerLinkText, { color: colors.subtleText }]}>Provider login</Text>
         </Pressable>
 
         <Text style={[styles.footerText, { color: colors.labelText }]}>
@@ -659,25 +527,6 @@ const styles = StyleSheet.create({
   cardPad: {
     padding: 16,
   },
-  methodRow: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderRadius: 7,
-    padding: 3,
-    gap: 3,
-    marginBottom: 14,
-  },
-  methodTab: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  methodTabText: {
-    fontSize: 11,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: 0.4,
-  },
   fieldGap: {
     marginTop: 12,
   },
@@ -738,14 +587,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     marginTop: 4,
   },
-  mailIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -789,12 +630,25 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     marginTop: 3,
   },
+  providerLinkBtn: {
+    alignSelf: 'center',
+    marginTop: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  providerLinkText: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.3,
+    textDecorationLine: 'underline',
+  },
   footerText: {
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 1.6,
     fontFamily: 'Inter_700Bold',
     textAlign: 'center',
-    marginTop: 24,
+    marginTop: 16,
   },
 });

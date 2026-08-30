@@ -1,8 +1,8 @@
 /**
  * App entry — providers, the real-auth front door, and the two persona areas.
  *
- * The app opens on a real Supabase sign-in (email or phone + password), with
- * an explicit "Explore the demo" bypass: office staff get the
+ * The app opens on a real passwordless sign-in (work email + one-time code),
+ * with an explicit "Explore the demo" bypass: office staff get the
  * operations desk exactly as it runs standalone, THINNR HQ admins get the
  * umbrella above it. A signed-in account's profile role picks the area;
  * signed-in patients are pointed at the mobile app. Gating is absolute in both directions — the office
@@ -26,8 +26,6 @@ import {
 
 import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 import SignIn from '@/pages/SignIn';
-import ClaimAccount from '@/pages/ClaimAccount';
-import TeamSetup from '@/pages/TeamSetup';
 import {
   AccountLockedScreen,
   BootScreen,
@@ -186,8 +184,6 @@ function PersonaRouter() {
   if (persona === null) {
     return (
       <Switch>
-        <Route path="/team/setup" component={TeamSetup} />
-        <Route path="/claim" component={ClaimAccount} />
         <Route component={SignIn} />
       </Switch>
     );

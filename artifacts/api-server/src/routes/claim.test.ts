@@ -301,14 +301,14 @@ class FakeBackend {
     }
 
     if (url.pathname === "/rest/v1/rpc/claim_register_send") {
-      // Mirrors the real atomic function: purpose-scoped hourly counts for
-      // the destination and the optional account scope, then insert-or-empty.
+      // Mirrors the real atomic function: destination-scoped hourly counts
+      // across ALL purposes (one shared 3/hr pot per target, so login/signup/
+      // claim/add-phone rails cannot stack), plus the optional account scope,
+      // then insert-or-empty.
       const p = body as Row;
       const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const ledger = this.tables.claim_verifications;
-      const inHour = ledger.filter(
-        (r) => r.purpose === p.p_purpose && String(r.created_at) > hourAgo,
-      );
+      const inHour = ledger.filter((r) => String(r.created_at) > hourAgo);
       const byIdentifier = inHour.filter((r) => r.identifier === p.p_identifier).length;
       if (byIdentifier >= Number(p.p_max_per_hour)) return json(200, []);
       if (p.p_scope_key != null && p.p_scope_max_per_hour != null) {
@@ -611,6 +611,28 @@ describe("identify", () => {
     expect(backend.tables.claim_verifications).toHaveLength(3);
   });
 
+  it("shares the destination cap with the login and signup rails", async () => {
+    seedPatient();
+    // Three codes already went to this number via OTHER purposes this hour
+    // (login/signup ride the same ledger; add_phone rides the same RPC). The
+    // claim rail must not hand the destination a fourth code.
+    const recent = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    for (const purpose of ["login", "signup", "login"]) {
+      backend.tables.claim_verifications.push({
+        id: crypto.randomUUID(),
+        created_at: recent,
+        purpose,
+        identifier_kind: "phone",
+        identifier: "+15552013344",
+        code_attempts: 0,
+      });
+    }
+    const fourth = await api("POST", "/api/claim/identify", { identifier: "5552013344" });
+    expect(fourth.status).toBe(200);
+    expect(fourth.json.devCode).toMatch(/^\d{6}$/); // decoy — indistinguishable
+    expect(backend.tables.claim_verifications).toHaveLength(3);
+  });
+
   it("holds the cap for concurrent identify bursts (single atomic registration call)", async () => {
     seedPatient();
     const burst = await Promise.all(
@@ -664,7 +686,7 @@ describe("identify", () => {
     }
   });
 
-  it("prefers provider over patient when one email lives in both tables", async () => {
+  it("claims the patient when a staff row shares the email (staff claims are retired)", async () => {
     seedPatient({ email: "shared@example.com", phone: null });
     backend.tables.providers.push({
       provider_id: "20001",
@@ -675,7 +697,7 @@ describe("identify", () => {
       auth_user_id: null,
     });
     await api("POST", "/api/claim/identify", { identifier: "Shared@Example.com" });
-    expect(backend.tables.claim_verifications[0].account_type).toBe("provider");
+    expect(backend.tables.claim_verifications[0].account_type).toBe("patient");
   });
 });
 
@@ -977,9 +999,9 @@ describe("shared phones and birthdays", () => {
   });
 });
 
-describe("staff, providers, and the HQ admin", () => {
-  it("claims a provider by email", async () => {
-    const provider = {
+describe("staff emails (claims retired — login codes own staff sign-in)", () => {
+  it("answers every staff email neutrally and stores nothing", async () => {
+    backend.tables.providers.push({
       provider_id: "20002",
       provider_name: "Dr. Rivera",
       office_name: "Rivera Wellness",
@@ -987,49 +1009,31 @@ describe("staff, providers, and the HQ admin", () => {
       access_disabled: false,
       auth_user_id: null,
       claimed_at: null,
-    };
-    backend.tables.providers.push(provider);
-    const { verify } = await identifyAndVerify("rivera@clinic.example");
-    expect(verify.json.accountType).toBe("provider");
-    const complete = await api("POST", "/api/claim/complete", {
-      claimToken: verify.json.claimToken,
-      password: "Provider!Pass",
-      passwordConfirm: "Provider!Pass",
     });
-    expect(complete.status).toBe(200);
-    expect(provider.auth_user_id).toBeTruthy();
-    const user = backend.authUsers.get(String(provider.auth_user_id))!;
-    expect(user.email).toBe("rivera@clinic.example");
-    expect((user.user_metadata as Row).display_name).toBe("Dr. Rivera");
-  });
-
-  it("sends duplicate staff emails to the clinic instead of guessing", async () => {
-    backend.tables.team_members.push(
-      { id: crypto.randomUUID(), name: "Sam One", email: "dup@clinic.example", activation_status: "active", provider_id: "20002", auth_user_id: null },
-      { id: crypto.randomUUID(), name: "Sam Two", email: "dup@clinic.example", activation_status: "active", provider_id: "20003", auth_user_id: null },
-    );
-    const { verify } = await identifyAndVerify("dup@clinic.example");
-    expect(verify.status).toBe(409);
-    expect(verify.json.error).toContain("contact your clinic");
-  });
-
-  it("routes the pre-approved HQ admin email to a password reset", async () => {
-    const adminId = crypto.randomUUID();
-    backend.authUsers.set(adminId, { id: adminId, email: "hq@thinnr.example", password: "unset" });
+    backend.tables.team_members.push({
+      id: crypto.randomUUID(),
+      name: "Sam Staffer",
+      email: "staffer@clinic.example",
+      activation_status: "active",
+      provider_id: "20002",
+      auth_user_id: null,
+    });
     backend.tables.staff_role_assignments.push({ email: "hq@thinnr.example", role: "hq_admin" });
-    backend.tables.profiles.push({ id: adminId, email: "hq@thinnr.example", role: "hq_admin", display_name: "HQ Admin" });
 
-    const { verify } = await identifyAndVerify("hq@thinnr.example");
-    expect(verify.json.accountType).toBe("hq_admin");
-    expect(verify.json.mode).toBe("reset");
-    const complete = await api("POST", "/api/claim/complete", {
-      claimToken: verify.json.claimToken,
-      password: "Admin!Passphrase",
-      passwordConfirm: "Admin!Passphrase",
-    });
-    expect(complete.status).toBe(200);
-    expect(backend.authUsers.get(adminId)!.password).toBe("Admin!Passphrase");
-    expect(backend.authUsers.size).toBe(1);
+    const miss = await api("POST", "/api/claim/identify", { identifier: "nobody@example.com" });
+    expect(miss.status).toBe(200);
+    for (const identifier of [
+      "rivera@clinic.example",
+      "staffer@clinic.example",
+      "hq@thinnr.example",
+    ]) {
+      const res = await api("POST", "/api/claim/identify", { identifier });
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.json).sort()).toEqual(Object.keys(miss.json).sort());
+      expect(res.json.devCode).toMatch(/^\d{6}$/);
+    }
+    expect(backend.tables.claim_verifications).toHaveLength(0);
+    expect(backend.authUsers.size).toBe(0);
   });
 });
 

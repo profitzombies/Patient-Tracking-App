@@ -32,7 +32,9 @@ const AccountInput = z.object({
   providerName: z.string().trim().min(1).max(160),
   providerRole: z.string().trim().max(120).optional().default("Practitioner"),
   email: z.string().trim().email().max(320),
-  phone: z.string().trim().max(40).optional().default(""),
+  // Contact-only office line — never used for sign-in, so a provider's
+  // personal cell stays free for their own patient account.
+  phone: z.string().trim().min(1, "Office phone is required.").max(40),
   city: z.string().trim().max(120).optional().default(""),
   state: z.string().trim().max(2).optional().default(""),
   plan: z.enum(["Core", "Plus", "Concierge"]).nullable(),

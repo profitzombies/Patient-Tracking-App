@@ -27,7 +27,7 @@ const HEADERS: Record<string, string> = {
 };
 
 const EMAIL = 'dana.frontdesk@jenkinswellness.example.com';
-const PASSWORD = 'JenkinsTraining!26'; // demo credential — documented in replit.md
+const PASSWORD = 'JenkinsTraining!26'; // mechanics only (token grants in suites) — staff sign-in is passwordless email-code
 const NAME = 'Dana Reyes';
 const OFFICE = 'acct-p1';
 
@@ -69,6 +69,8 @@ async function main() {
       password: PASSWORD,
       email_confirm: true,
       user_metadata: { display_name: NAME },
+      // Elevation requires the server-provisioned marker for demo staff too.
+      app_metadata: { thinnr_provisioned: 'true' },
     });
     if (update.status >= 300) throw new Error(`admin update failed (${update.status}): ${JSON.stringify(update.json)}`);
     console.log('Existing auth user converged (password + confirmation).');
@@ -78,6 +80,8 @@ async function main() {
       password: PASSWORD,
       email_confirm: true,
       user_metadata: { display_name: NAME },
+      // Elevation requires the server-provisioned marker for demo staff too.
+      app_metadata: { thinnr_provisioned: 'true' },
     });
     userId = created.json?.id ?? created.json?.user?.id;
     if ((created.status !== 200 && created.status !== 201) || !userId)
@@ -97,8 +101,9 @@ async function main() {
 
   console.log(`Linked viewer: ${viewerRow.name} <${viewerRow.email}> @ ${viewerRow.account_id}`);
   console.log('\nDemo staff login ready:');
-  console.log(`  Email:    ${EMAIL}`);
-  console.log(`  Password: ${PASSWORD}`);
+  console.log(`  Email: ${EMAIL}`);
+  console.log('  Sign-in: email + 6-digit code on the ops sign-in page (no password).');
+  console.log('  The inbox is fake — use dev delivery (CLAIM_EMAIL_DELIVERY_MODE=dev, or unset outside production) so the code shows inline.');
 }
 
 void main().catch((error) => {

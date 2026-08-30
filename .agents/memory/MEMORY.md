@@ -74,3 +74,4 @@
 - [Account claiming](account-claiming.md) — neutral identify, one-shot DOB, two-column link writes; GoTrue merges app_metadata AFTER insert → deferred constraint triggers; claimed logins have NO profile row (whoami fallback).
 - [HQ department access](hq-department-access.md) — active HQ membership is authoritative across client, API, and RLS; the coarse profile role must never grant or classify department access alone.
 - [Legacy DB archive-and-reset](legacy-db-reset.md) — CTAS archive + checksum gate + gated wipe; audit manifests must be write-once (mgmt-API applies skip migration history); TRUNCATE fires no triggers.
+- [Passwordless code login](passwordless-login.md) — one shared send-cap pot; atomic claim between proof and reward; ids resolve by id; every staff login provisions a usable workspace atomically.

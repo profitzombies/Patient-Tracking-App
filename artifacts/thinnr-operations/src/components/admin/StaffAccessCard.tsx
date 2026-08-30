@@ -4,10 +4,11 @@
  *
  * The list reads from the live training roster (the same rows the office's
  * Team page shows): people filed under this office, with a chip marking who
- * has a working sign-in. The add form provisions a REAL login through the
- * API server: the staff member signs in immediately with this email and the
- * password the admin typed — no forced reset, by explicit decision — scoped
- * to this office exactly like the seeded demo staffer.
+ * has a working sign-in. The add form files a REAL login through the API
+ * server: sign-ins are passwordless, so the server records the staff member
+ * under this office and emails an invitation — they sign in right away with
+ * a one-time code sent to that email, scoped to this office exactly like
+ * the seeded demo staffer.
  *
  * Writes follow the author-write rule: only a real signed-in HQ admin can
  * provision; the demo persona gets the standard sign-in nudge. Session-added
@@ -45,7 +46,7 @@ import type { ProviderAccount, ProviderStaffMember } from '@/data/hq/accounts';
 const CHIP_MUTED =
   'inline-flex items-center rounded-full border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.08em] text-muted-foreground';
 
-const EMPTY_FORM = { firstName: '', lastName: '', email: '', phone: '', password: '' };
+const EMPTY_FORM = { firstName: '', lastName: '', email: '' };
 
 type FormState = typeof EMPTY_FORM;
 
@@ -98,12 +99,6 @@ export function StaffAccessCard({ account, staff: liveStaff, onCreated }: {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return { message: 'Enter a valid email address.', field: 'email' };
     }
-    if (form.password.length < 8) {
-      return { message: 'Passwords need at least 8 characters.', field: 'password' };
-    }
-    if (form.password.length > 72) {
-      return { message: 'Passwords max out at 72 characters.', field: 'password' };
-    }
     return null;
   };
 
@@ -130,13 +125,11 @@ export function StaffAccessCard({ account, staff: liveStaff, onCreated }: {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim().toLowerCase(),
-        phone: form.phone.trim() || undefined,
-        password: form.password,
       });
       toast({
         variant: 'success',
         title: `${created.name} can now sign in`,
-        description: 'Their email and the password you set work on the office sign-in right away.',
+        description: 'We emailed them an invitation — a one-time code sent to that address signs them in. No password to share.',
       });
       setForm(EMPTY_FORM);
       setOpen(false);
@@ -201,7 +194,7 @@ export function StaffAccessCard({ account, staff: liveStaff, onCreated }: {
                     {person.authUserId ? (
                       <span className={CHIP_COBALT}>Active</span>
                     ) : (
-                      <span className={CHIP_MUTED}>{person.activationStatus === 'disabled' ? 'Disabled' : 'Needs setup'}</span>
+                      <span className={CHIP_MUTED}>{person.activationStatus === 'disabled' ? 'Disabled' : 'Invited'}</span>
                     )}
                   </li>
                 ))}
@@ -233,8 +226,9 @@ export function StaffAccessCard({ account, staff: liveStaff, onCreated }: {
           <DialogHeader>
             <DialogTitle className="font-serif text-navy">Add Team Member</DialogTitle>
             <DialogDescription>
-              Creates a real login for this office. They can sign in immediately with the email and
-              password you set, and will appear on the office training roster.
+              Creates a real login for this office. We email them an invitation, and a one-time code
+              sent to that address signs them in — no password. They appear on the office training
+              roster right away.
             </DialogDescription>
           </DialogHeader>
 
@@ -264,7 +258,7 @@ export function StaffAccessCard({ account, staff: liveStaff, onCreated }: {
                   data-testid="input-staff-last-name"
                 />
               </label>
-              <label className="block">
+              <label className="block sm:col-span-2">
                 <span className={MICRO_LABEL}>Email *</span>
                 <input
                   type="email"
@@ -276,34 +270,9 @@ export function StaffAccessCard({ account, staff: liveStaff, onCreated }: {
                   placeholder="name@office.example.com"
                   data-testid="input-staff-email"
                 />
-              </label>
-              <label className="block">
-                <span className={MICRO_LABEL}>Phone (optional)</span>
-                <input
-                  type="tel"
-                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-                  value={form.phone}
-                  onChange={setField('phone')}
-                  autoComplete="off"
-                  aria-invalid={error?.field === 'phone' || undefined}
-                  placeholder="(555) 000-0000"
-                  data-testid="input-staff-phone"
-                />
-              </label>
-              <label className="block sm:col-span-2">
-                <span className={MICRO_LABEL}>Password *</span>
-                <input
-                  type="password"
-                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-                  value={form.password}
-                  onChange={setField('password')}
-                  autoComplete="new-password"
-                  aria-invalid={error?.field === 'password' || undefined}
-                  data-testid="input-staff-password"
-                />
                 <span className="mt-1 block text-[10px] text-muted-foreground">
-                  At least 8 characters. The staff member keeps using exactly this password. Share the
-                  password with them yourself; THINNR never emails it.
+                  This is their sign-in: a one-time code goes to this address each time they log in
+                  from a new device.
                 </span>
               </label>
             </div>

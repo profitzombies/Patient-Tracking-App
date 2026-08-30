@@ -1,8 +1,9 @@
+import crypto from "node:crypto";
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import router, { createSetupToken, hashSetupToken, safeguardMutation } from "./hq-team";
+import router, { createSetupToken, safeguardMutation } from "./hq-team";
 
 type Row = Record<string, unknown>;
 const originalFetch = global.fetch;
@@ -16,10 +17,6 @@ let logoutCalls: string[] = [];
 let resendFails = false;
 let logoutFails = false;
 let setupInvites = new Map<string, Row>();
-let authCreated: Row[] = [];
-let authDeleted: string[] = [];
-let authDeleteFails = false;
-let acceptFails = false;
 
 function response(json: unknown, status = 200): Response {
   return new Response(json == null ? "" : JSON.stringify(json), {
@@ -34,7 +31,6 @@ beforeAll(async () => {
   process.env.CLAIM_EMAIL_DELIVERY_MODE = "live";
   process.env.RESEND_API_KEY = "resend";
   process.env.CLAIM_EMAIL_FROM = "THINNR <test@thinnr.test>";
-  process.env.HQ_SETUP_URL = "https://operations.thinnr.test/setup";
   const app = express();
   app.use(express.json());
   app.use(router);
@@ -66,10 +62,6 @@ beforeEach(() => {
   resendFails = false;
   logoutFails = false;
   setupInvites = new Map();
-  authCreated = [];
-  authDeleted = [];
-  authDeleteFails = false;
-  acceptFails = false;
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.hostname === "api.resend.com") return response({}, resendFails ? 500 : 200);
@@ -118,32 +110,6 @@ beforeEach(() => {
       if (body.p_title != null) target.title = body.p_title;
       if (body.p_role != null) target.role = body.p_role;
       return response(target);
-    }
-    if (url.pathname === "/rest/v1/hq_invitations") {
-      const invite = setupInvites.get(String(url.searchParams.get("token_hash") ?? "").replace("eq.", ""));
-      return invite ? response([{
-        email: invite.email,
-        hq_memberships: { display_name: invite.name, department_role: invite.role, status: "invited" },
-      }]) : response([]);
-    }
-    if (url.pathname.endsWith("/rpc/hq_accept_team_invitation")) {
-      if (acceptFails) return response({ message: "expired" }, 409);
-      const body = JSON.parse(String(init?.body)) as Row;
-      const invite = setupInvites.get(String(body.p_token_hash));
-      if (!invite) return response({ message: "expired" }, 409);
-      invite.auth_user_id = body.p_auth_user_id;
-      invite.status = "active";
-      return response(invite);
-    }
-    if (url.pathname === "/auth/v1/admin/users" && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as Row;
-      const user = { id: "new-auth-user", email: body.email };
-      authCreated.push(user);
-      return response(user, 201);
-    }
-    if (url.pathname.startsWith("/auth/v1/admin/users/") && init?.method === "DELETE") {
-      authDeleted.push(url.pathname.split("/").at(-1)!);
-      return response({}, authDeleteFails ? 503 : 200);
     }
     if (url.pathname.endsWith("/logout")) {
       logoutCalls.push(url.pathname);
@@ -196,7 +162,7 @@ describe("HQ setup token", () => {
     const second = createSetupToken();
     expect(first.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(first.tokenHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(first.tokenHash).toBe(hashSetupToken(first.token));
+    expect(first.tokenHash).toBe(crypto.createHash("sha256").update(first.token).digest("hex"));
     expect(first.token).not.toBe(second.token);
   });
 });
@@ -238,90 +204,15 @@ describe("HQ team API", () => {
     expect(inviteBody).not.toHaveProperty("p_setup_token");
   });
 
-  it("inspects only a valid shaped, unexpired setup token without exposing it", async () => {
+  it("no longer exposes the retired password-setup endpoints", async () => {
     const token = createSetupToken();
-    setupInvites.set(token.tokenHash, {
-      id: "pending", name: "Pending", email: "pending@example.com", role: "support", status: "invited",
-    });
-    const inspected = await originalFetch(`${baseUrl}/hq-team/setup?token=${token.token}`);
-    expect(inspected.status).toBe(200);
-    expect(await inspected.json()).toEqual({ name: "Pending", email: "pending@example.com", role: "support" });
-    const malformed = await originalFetch(`${baseUrl}/hq-team/setup?token=bad`);
-    expect(malformed.status).toBe(400);
-  });
-
-  it("creates confirmed Auth only after token inspection then activates it", async () => {
-    const token = createSetupToken();
-    setupInvites.set(token.tokenHash, {
-      id: "pending", name: "Pending", email: "pending@example.com", role: "support", status: "invited",
-    });
-    const completed = await originalFetch(`${baseUrl}/hq-team/setup/complete`, {
+    const inspect = await originalFetch(`${baseUrl}/hq-team/setup?token=${token.token}`);
+    expect(inspect.status).toBe(404);
+    const complete = await originalFetch(`${baseUrl}/hq-team/setup/complete`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: token.token, password: "Strong!Pass1", passwordConfirm: "Strong!Pass1" }),
     });
-    expect(completed.status).toBe(201);
-    expect(authCreated).toEqual([{ id: "new-auth-user", email: "pending@example.com" }]);
-    expect(await completed.json()).toMatchObject({ member: { status: "active", authUserId: "new-auth-user" } });
-  });
-
-  it("does not create Auth for expired links and honestly reports successful cleanup after an activation race", async () => {
-    const expired = createSetupToken();
-    const noCreate = await originalFetch(`${baseUrl}/hq-team/setup/complete`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: expired.token, password: "Strong!Pass1", passwordConfirm: "Strong!Pass1" }),
-    });
-    expect(noCreate.status).toBe(404);
-    expect(authCreated).toEqual([]);
-
-    const racing = createSetupToken();
-    setupInvites.set(racing.tokenHash, {
-      id: "pending", name: "Pending", email: "pending@example.com", role: "support", status: "invited",
-    });
-    acceptFails = true;
-    const failed = await originalFetch(`${baseUrl}/hq-team/setup/complete`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: racing.token, password: "Strong!Pass1", passwordConfirm: "Strong!Pass1" }),
-    });
-    expect(failed.status).toBe(502);
-    expect(authDeleted).toEqual(["new-auth-user"]);
-    expect(await failed.json()).toEqual({
-      error: "Could not finish account setup. No login was left active.",
-    });
-    expect(setupInvites.get(racing.tokenHash)).toMatchObject({ status: "invited" });
-    expect(setupInvites.get(racing.tokenHash)?.auth_user_id).toBeUndefined();
-  });
-
-  it("requires reconciliation when Auth cleanup fails without granting HQ access", async () => {
-    const racing = createSetupToken();
-    setupInvites.set(racing.tokenHash, {
-      id: "pending", name: "Pending", email: "pending@example.com", role: "admin", status: "invited",
-      auth_user_id: null,
-    });
-    acceptFails = true;
-    authDeleteFails = true;
-
-    const failed = await originalFetch(`${baseUrl}/hq-team/setup/complete`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: racing.token, password: "Strong!Pass1", passwordConfirm: "Strong!Pass1" }),
-    });
-
-    expect(failed.status).toBe(502);
-    expect(authDeleted).toEqual(["new-auth-user"]);
-    const body = await failed.json() as Row;
-    expect(body).toMatchObject({
-      code: "HQ_SETUP_RECONCILIATION_REQUIRED",
-      reconciliationRequired: true,
-      invitationState: "pending",
-      hqAccessGranted: false,
-    });
-    expect(String(body.error)).toMatch(/Critical/i);
-    expect(String(body.error)).toMatch(/could not be removed/i);
-    expect(String(body.error)).toMatch(/reconcile/i);
-    expect(String(body.error)).not.toMatch(/no login/i);
-    expect(setupInvites.get(racing.tokenHash)).toMatchObject({
-      status: "invited",
-      auth_user_id: null,
-    });
+    expect(complete.status).toBe(404);
   });
 
   it("blocks self-revocation before calling the database", async () => {

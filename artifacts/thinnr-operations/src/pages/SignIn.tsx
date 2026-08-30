@@ -1,24 +1,22 @@
 /**
- * The front door — real Supabase sign-in, with the demo chooser one click away.
+ * The front door — passwordless staff sign-in, with the demo chooser one
+ * click away.
  *
- * Email + password works today; phone + password is fully wired and lights up
- * the moment Twilio Verify is connected in the Supabase dashboard (until then
- * the server declines and we explain that in plain words). Accounts on the
- * pre-approved list land as HQ admin or provider staff; everyone else becomes
- * a patient and is pointed at the mobile app.
+ * Staff accounts are keyed on business email: enter the address, we email a
+ * 6-digit code, the code becomes a real Supabase session. There is no
+ * password anywhere, no signup form, and no forgot-password path — a wrong
+ * or unknown address gets the same neutral "code is on its way" reply, so
+ * the screen never confirms whether an account exists.
  */
 import { useState, type FormEvent } from 'react';
 import { useLocation } from 'wouter';
-import { ArrowRight, Building2, ChevronDown, MailCheck, Stethoscope } from 'lucide-react';
+import { ArrowRight, Building2, ChevronDown, Stethoscope } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useSession, type Persona } from '@/contexts/session';
-import { normalizePhone } from '@/lib/supabase';
 
-type AuthMethod = 'email' | 'phone';
-type AuthMode = 'sign-in' | 'sign-up';
-type Phase = 'credentials' | 'verify-phone' | 'check-email';
+type Phase = 'email' | 'code';
 
 const DEMO_OPTIONS: Array<{
   persona: Persona;
@@ -47,26 +45,15 @@ const DEMO_OPTIONS: Array<{
 ];
 
 export default function SignIn() {
-  const {
-    signIn,
-    signInWithPassword,
-    signUpWithPassword,
-    verifyPhoneCode,
-    resendPhoneCode,
-    supabaseEnabled,
-  } = useSession();
+  const { signIn, requestStaffCode, verifyStaffCode, supabaseEnabled } = useSession();
   const [, navigate] = useLocation();
 
-  const [method, setMethod] = useState<AuthMethod>('email');
-  const [mode, setMode] = useState<AuthMode>('sign-in');
-  const [phase, setPhase] = useState<Phase>('credentials');
-  const [displayName, setDisplayName] = useState('');
+  const [phase, setPhase] = useState<Phase>('email');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
-  const [pendingPhone, setPendingPhone] = useState('');
+  const [requestId, setRequestId] = useState<string | null>(null);
   const [pendingEmail, setPendingEmail] = useState('');
+  const [devCode, setDevCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,128 +64,78 @@ export default function SignIn() {
     navigate(persona === 'hq-admin' ? '/admin' : '/', { replace: true });
   };
 
-  const switchMethod = (next: AuthMethod) => {
-    setMethod(next);
-    setError(null);
-    setNotice(null);
+  const sendCode = async (address: string) => {
+    const result = await requestStaffCode(address);
+    if (result.error || !result.requestId) {
+      setError(result.error ?? 'Could not send a code right now. Try again in a moment.');
+      return false;
+    }
+    setRequestId(result.requestId);
+    setPendingEmail(address);
+    setDevCode(result.devCode);
+    setNotice(result.message ?? 'If that address has an account, a sign-in code is on its way.');
+    return true;
   };
 
-  const submitCredentials = async (event: FormEvent) => {
+  const submitEmail = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || !supabaseEnabled) return;
     setError(null);
     setNotice(null);
-
-    let identifier: { email: string } | { phone: string };
-    if (method === 'email') {
-      const trimmed = email.trim();
-      if (!trimmed) {
-        setError('Enter your email.');
-        return;
-      }
-      identifier = { email: trimmed };
-    } else {
-      const normalized = normalizePhone(phone);
-      if (!normalized) {
-        setError('Enter your mobile number, including the country code.');
-        return;
-      }
-      identifier = { phone: normalized };
-    }
-    if (!password) {
-      setError('Enter your password.');
+    const trimmed = email.trim();
+    if (!trimmed || !trimmed.includes('@')) {
+      setError('Enter your work email address.');
       return;
     }
-    if (mode === 'sign-up' && password.length < 8) {
-      setError('Passwords need at least 8 characters.');
-      return;
-    }
-
     setBusy(true);
     try {
-      if (mode === 'sign-in') {
-        const result = await signInWithPassword({ ...identifier, password });
-        if (result.error) setError(result.error);
-        // Success: the session listener re-routes to the right workspace.
-      } else {
-        const result = await signUpWithPassword({
-          ...identifier,
-          password,
-          displayName: displayName.trim(),
-        });
-        if (result.error) {
-          setError(result.error);
-        } else if (result.outcome === 'confirm-email') {
-          setPendingEmail('email' in identifier ? identifier.email : '');
-          setPhase('check-email');
-        } else if (result.outcome === 'verify-phone') {
-          setPendingPhone('phone' in identifier ? identifier.phone : '');
-          setOtp('');
-          setPhase('verify-phone');
-        }
+      if (await sendCode(trimmed)) {
+        setOtp('');
+        setPhase('code');
       }
     } finally {
       setBusy(false);
     }
   };
 
-  const submitOtp = async (event: FormEvent) => {
+  const submitCode = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || !requestId) return;
     setError(null);
-    setNotice(null);
     if (otp.trim().length < 6) {
-      setError('Enter the 6-digit code from the text message.');
+      setError('Enter the 6-digit code from the email.');
       return;
     }
     setBusy(true);
     try {
-      const result = await verifyPhoneCode({ phone: pendingPhone, token: otp.trim() });
+      const result = await verifyStaffCode({ requestId, code: otp.trim() });
       if (result.error) setError(result.error);
-      // Success: verified codes sign the account in automatically.
+      // Success: the session listener re-routes to the right workspace.
     } finally {
       setBusy(false);
     }
   };
 
   const resendCode = async () => {
-    if (busy) return;
+    if (busy || !pendingEmail) return;
     setError(null);
     setNotice(null);
     setBusy(true);
     try {
-      const result = await resendPhoneCode({ phone: pendingPhone });
-      if (result.error) setError(result.error);
-      else setNotice('We sent a fresh code.');
+      setOtp('');
+      await sendCode(pendingEmail);
     } finally {
       setBusy(false);
     }
   };
 
-  const backToCredentials = () => {
-    setPhase('credentials');
+  const backToEmail = () => {
+    setPhase('email');
     setOtp('');
+    setRequestId(null);
+    setDevCode(null);
     setError(null);
     setNotice(null);
-  };
-
-  const methodButton = (value: AuthMethod, label: string, testId: string) => {
-    const active = method === value;
-    return (
-      <button
-        type="button"
-        aria-pressed={active}
-        data-testid={testId}
-        onClick={() => switchMethod(value)}
-        className={
-          active
-            ? 'h-8 rounded-[5px] bg-navy text-xs font-semibold text-brand-foreground shadow-xs transition'
-            : 'h-8 rounded-[5px] text-xs font-semibold text-muted-foreground transition hover:text-foreground'
-        }
-      >
-        {label}
-      </button>
-    );
   };
 
   return (
@@ -212,8 +149,8 @@ export default function SignIn() {
             THINNR Operations
           </h1>
           <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-            Sign in to your workspace. HQ admins land on the umbrella overview; office teams land on
-            today’s desk.
+            Sign in with your work email — we’ll send a one-time code. HQ admins land on the
+            umbrella overview; office teams land on today’s desk.
           </p>
         </header>
 
@@ -227,96 +164,29 @@ export default function SignIn() {
             </p>
           )}
 
-          {phase === 'credentials' && (
-            <form onSubmit={submitCredentials} noValidate>
-              <div
-                role="group"
-                aria-label="Sign-in method"
-                className="grid grid-cols-2 gap-1 rounded-md border border-border bg-background p-1"
-              >
-                {methodButton('email', 'Email', 'tab-auth-email')}
-                {methodButton('phone', 'Phone', 'tab-auth-phone')}
-              </div>
-
-              <div className="mt-5 space-y-4">
-                {mode === 'sign-up' && (
-                  <div>
-                    <Label htmlFor="auth-name" className="text-xs font-semibold text-navy">
-                      Name <span className="font-normal text-muted-foreground">(optional)</span>
-                    </Label>
-                    <Input
-                      id="auth-name"
-                      data-testid="input-auth-name"
-                      className="mt-1.5"
-                      autoComplete="name"
-                      value={displayName}
-                      onChange={(event) => setDisplayName(event.target.value)}
-                      disabled={busy || !supabaseEnabled}
-                    />
-                  </div>
-                )}
-
-                {method === 'email' ? (
-                  <div>
-                    <Label htmlFor="auth-email" className="text-xs font-semibold text-navy">
-                      Email
-                    </Label>
-                    <Input
-                      id="auth-email"
-                      data-testid="input-auth-email"
-                      className="mt-1.5"
-                      type="email"
-                      inputMode="email"
-                      autoComplete="email"
-                      placeholder="you@yourclinic.com"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      disabled={busy || !supabaseEnabled}
-                      autoFocus
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <Label htmlFor="auth-phone" className="text-xs font-semibold text-navy">
-                      Mobile number
-                    </Label>
-                    <Input
-                      id="auth-phone"
-                      data-testid="input-auth-phone"
-                      className="mt-1.5"
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="tel"
-                      placeholder="+1 555 123 4567"
-                      value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
-                      disabled={busy || !supabaseEnabled}
-                      autoFocus
-                    />
-                    <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                      Include the country code — ten digits are treated as US.
-                      {mode === 'sign-up' && ' We’ll text you a 6-digit code.'}
-                    </p>
-                  </div>
-                )}
-
+          {phase === 'email' && (
+            <form onSubmit={submitEmail} noValidate>
+              <div className="space-y-4">
                 <div>
-                  <Label htmlFor="auth-password" className="text-xs font-semibold text-navy">
-                    Password
+                  <Label htmlFor="auth-email" className="text-xs font-semibold text-navy">
+                    Work email
                   </Label>
                   <Input
-                    id="auth-password"
-                    data-testid="input-auth-password"
+                    id="auth-email"
+                    data-testid="input-auth-email"
                     className="mt-1.5"
-                    type="password"
-                    autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    placeholder="you@yourclinic.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
                     disabled={busy || !supabaseEnabled}
+                    autoFocus
                   />
-                  {mode === 'sign-up' && (
-                    <p className="mt-1.5 text-[11px] text-muted-foreground">At least 8 characters.</p>
-                  )}
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                    We’ll email you a 6-digit sign-in code. No password needed.
+                  </p>
                 </div>
 
                 {error && (
@@ -335,69 +205,24 @@ export default function SignIn() {
                   className="h-10 w-full"
                   disabled={busy || !supabaseEnabled}
                 >
-                  {busy
-                    ? mode === 'sign-in'
-                      ? 'Signing in…'
-                      : 'Creating account…'
-                    : mode === 'sign-in'
-                      ? 'Sign in'
-                      : 'Create account'}
+                  {busy ? 'Sending code…' : 'Email me a code'}
                 </Button>
-
-                <p className="text-center">
-                  <button
-                    type="button"
-                    data-testid="button-toggle-mode"
-                    onClick={() => {
-                      setMode((current) => (current === 'sign-in' ? 'sign-up' : 'sign-in'));
-                      setError(null);
-                      setNotice(null);
-                    }}
-                    className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
-                  >
-                    {mode === 'sign-in'
-                      ? 'New here? Create an account'
-                      : 'Already have an account? Sign in'}
-                  </button>
-                </p>
-
-                <div className="space-y-2 border-t border-border pt-3 text-center">
-                  <p>
-                    <button
-                      type="button"
-                      data-testid="button-claim-account"
-                      onClick={() => navigate('/claim')}
-                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
-                    >
-                      Already a THINNR member? Claim your account
-                    </button>
-                  </p>
-                  <p>
-                    <button
-                      type="button"
-                      data-testid="button-forgot-password"
-                      onClick={() => navigate('/claim')}
-                      className="text-xs font-semibold text-muted-foreground underline-offset-2 hover:underline"
-                    >
-                      Forgot your password?
-                    </button>
-                  </p>
-                </div>
               </div>
             </form>
           )}
 
-          {phase === 'verify-phone' && (
-            <form onSubmit={submitOtp} noValidate>
+          {phase === 'code' && (
+            <form onSubmit={submitCode} noValidate>
               <h2 className="font-serif text-lg font-bold tracking-[-.01em] text-navy">
-                Enter the code we texted
+                Enter the code we emailed
               </h2>
               <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                A 6-digit code is on its way to {pendingPhone}.
+                If <span className="font-semibold text-foreground">{pendingEmail}</span> has an
+                account, a 6-digit code is on its way. It expires in 10 minutes.
               </p>
               <div className="mt-4">
                 <Label htmlFor="auth-otp" className="sr-only">
-                  6-digit verification code
+                  6-digit sign-in code
                 </Label>
                 <Input
                   id="auth-otp"
@@ -414,6 +239,14 @@ export default function SignIn() {
                 />
               </div>
 
+              {devCode && (
+                <p
+                  data-testid="text-auth-devcode"
+                  className="mt-4 rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-xs font-medium leading-relaxed text-warn"
+                >
+                  Dev delivery mode — your code is {devCode}.
+                </p>
+              )}
               {error && (
                 <p
                   role="alert"
@@ -423,7 +256,7 @@ export default function SignIn() {
                   {error}
                 </p>
               )}
-              {notice && (
+              {notice && !error && (
                 <p
                   data-testid="text-auth-notice"
                   className="mt-4 rounded-md border border-border bg-accent px-3 py-2 text-xs font-medium leading-relaxed text-foreground"
@@ -443,45 +276,18 @@ export default function SignIn() {
                   disabled={busy}
                   className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
                 >
-                  Resend code
+                  Send a fresh code
                 </button>
                 <button
                   type="button"
                   data-testid="button-auth-back"
-                  onClick={backToCredentials}
+                  onClick={backToEmail}
                   className="text-xs font-semibold text-muted-foreground underline-offset-2 hover:underline"
                 >
-                  Back
+                  Use a different email
                 </button>
               </div>
             </form>
-          )}
-
-          {phase === 'check-email' && (
-            <div className="text-center" data-testid="panel-check-email">
-              <span className="mx-auto grid h-10 w-10 place-items-center rounded-md bg-accent text-primary" aria-hidden="true">
-                <MailCheck size={20} />
-              </span>
-              <h2 className="mt-4 font-serif text-lg font-bold tracking-[-.01em] text-navy">
-                Confirm your email
-              </h2>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                We sent a confirmation link to <span className="font-semibold text-foreground">{pendingEmail}</span>.
-                Open it, then come back here and sign in. The demo mailer can take a few minutes.
-              </p>
-              <Button
-                type="button"
-                data-testid="button-auth-back"
-                variant="outline"
-                className="mt-5 h-10 w-full"
-                onClick={() => {
-                  backToCredentials();
-                  setMode('sign-in');
-                }}
-              >
-                Back to sign in
-              </Button>
-            </div>
           )}
         </section>
 
@@ -531,8 +337,8 @@ export default function SignIn() {
         )}
 
         <p className="mt-6 text-center text-[11px] text-muted-foreground">
-          New accounts start as patients unless they’re on the pre-approved staff list. Patients use
-          the THINNR mobile app.
+          Staff sign in with a one-time email code. Patients sign in with their cell phone in the
+          THINNR mobile app.
         </p>
       </main>
 

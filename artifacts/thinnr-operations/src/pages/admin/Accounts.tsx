@@ -70,8 +70,9 @@ export default function Accounts() {
     const officeName = form.officeName.trim();
     const providerName = form.providerName.trim();
     const email = form.email.trim().toLowerCase();
-    if (!officeName || !providerName || !email) {
-      setFormError('Office name, provider name, and a claim email are required.');
+    const phone = form.phone.trim();
+    if (!officeName || !providerName || !email || !phone) {
+      setFormError('Office name, provider name, claim email, and office phone are required.');
       return;
     }
     setSubmitting(true);
@@ -84,7 +85,7 @@ export default function Accounts() {
         state: form.state.trim().toUpperCase().slice(0, 2),
         plan,
         email,
-        phone: form.phone.trim(),
+        phone,
       });
       toast({
         variant: 'success',
@@ -232,8 +233,11 @@ export default function Accounts() {
               <input type="email" required className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.email} onChange={setField('email')} placeholder="frontdesk@office.example.com" data-testid="input-account-email" />
             </label>
             <label className="block sm:col-span-2">
-              <span className={PANEL_LABEL}>Office phone</span>
-              <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.phone} onChange={setField('phone')} placeholder="(555) 000-0000" data-testid="input-account-phone" />
+              <span className={PANEL_LABEL}>Office phone *</span>
+              <input type="tel" className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.phone} onChange={setField('phone')} placeholder="(555) 000-0000" data-testid="input-account-phone" />
+              <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">
+                Contact number only — never used for sign-in, so the provider’s personal cell stays free for their own patient account.
+              </span>
             </label>
           </div>
           {formError && <p role="alert" className="text-xs font-semibold text-destructive" data-testid="text-account-form-error">{formError}</p>}

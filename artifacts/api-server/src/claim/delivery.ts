@@ -161,14 +161,14 @@ export async function sendProviderClaimInvitation(
     body: JSON.stringify({
       from: creds.from,
       to: [to],
-      subject: "Your THINNR provider account is ready to claim",
+      subject: "Your THINNR provider account is ready",
       text: [
         `Hello ${input.providerName},`,
         "",
         `${input.officeName} is now set up in THINNR.`,
         `Your patient onboarding code is ${input.providerCode}.`,
         "",
-        "Use the claim flow in THINNR with this email address to verify your account and choose a password.",
+        "To sign in, open THINNR, enter this email address, and we'll send you a one-time sign-in code. No password needed.",
         "If you did not expect this invitation, contact THINNR support.",
       ].join("\n"),
     }),
@@ -178,24 +178,12 @@ export async function sendProviderClaimInvitation(
 }
 
 /** Sent only after the durable HQ invitation transaction has committed. */
-export async function sendHqSetupInvitation(
+export async function sendHqTeamInvitation(
   to: string,
-  input: { name: string; role: string; setupToken: string },
+  input: { name: string; role: string },
 ): Promise<void> {
   const creds = resendCreds();
   if (!creds) throw new DeliveryNotConfiguredError("email");
-  const configuredUrl = process.env.HQ_SETUP_URL;
-  if (!configuredUrl) throw new Error("HQ_SETUP_URL is not configured");
-  let setupUrl: string;
-  try {
-    const url = new URL(configuredUrl);
-    // Tokens are query parameters: request logging strips query strings,
-    // unlike a path token which is commonly retained in access logs.
-    url.searchParams.set("token", input.setupToken);
-    setupUrl = url.toString();
-  } catch {
-    throw new Error("HQ_SETUP_URL is invalid");
-  }
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -205,18 +193,49 @@ export async function sendHqSetupInvitation(
     body: JSON.stringify({
       from: creds.from,
       to: [to],
-      subject: "Set up your THINNR HQ account",
+      subject: "You're invited to the THINNR HQ team",
       text: [
         `Hello ${input.name},`,
         "",
         `You have been invited to the THINNR HQ team as ${input.role}.`,
-        "Use this one-time secure link to verify your identity and choose a password:",
-        setupUrl,
+        "To sign in, open THINNR operations, enter this email address, and we'll send you a one-time sign-in code. No password needed.",
         "",
+        "This invitation expires in 7 days.",
         "If you did not expect this invitation, contact THINNR support.",
       ].join("\n"),
     }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`Resend HQ invitation failed (${response.status})`);
+}
+
+/** Post-commit invitation for a new office staff sign-in added by HQ. */
+export async function sendStaffLoginInvitation(
+  to: string,
+  input: { name: string; officeName: string },
+): Promise<void> {
+  const creds = resendCreds();
+  if (!creds) throw new DeliveryNotConfiguredError("email");
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: creds.from,
+      to: [to],
+      subject: "Your THINNR office sign-in is ready",
+      text: [
+        `Hello ${input.name},`,
+        "",
+        `You now have access to ${input.officeName} in THINNR.`,
+        "To sign in, open THINNR operations, enter this email address, and we'll send you a one-time sign-in code. No password needed.",
+        "",
+        "If you did not expect this invitation, contact THINNR support.",
+      ].join("\n"),
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Resend staff invitation failed (${response.status})`);
 }

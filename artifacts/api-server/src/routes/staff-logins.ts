@@ -1,33 +1,32 @@
 /**
  * HQ-only staff provisioning — POST /api/staff-logins
  *
- * Creates a real office sign-in from a provider account page. The caller (a
+ * Creates an office sign-in from a provider account page. The caller (a
  * real signed-in HQ admin, verified exactly like the training-media routes)
- * sends first/last name, email, optional phone, the office's account code,
- * and the password they typed. The service-role Supabase calls stay entirely
- * server-side — the key never reaches a browser — and the flow follows the
- * established assignment chain instead of inventing a parallel path:
+ * sends first/last name, email, and the office's account code. There is no
+ * password anywhere: the new staff member signs in with a one-time email
+ * code, and their auth user is created and linked on that first login.
  *
- *   1. Create the CONFIRMED auth user first (no email is ever sent). GoTrue
- *      enforces email uniqueness atomically, so a duplicate add fails here —
- *      before the assignment upsert could silently re-point an existing
- *      person's office.
- *   2. Upsert the pre-approval row (email → provider_staff @ office). The
- *      existing sync trigger elevates the profile and links/creates the
- *      training-viewer row under the office, which is what puts the person
- *      on the office roster and scopes their reads via RLS.
- *   3. Prove the chain converged before reporting success, then carry the
- *      optional phone onto the roster row. On any failure the handler
- *      deletes what this request created (user, assignment) so a retry
- *      starts clean — no silent half-provisioned logins.
+ * What this endpoint does is deliberately small:
  *
- * The password only ever rides the request body: the request serializer logs
- * method + path, and nothing in this handler logs or echoes the body.
+ *   1. Refuse duplicates — the email must not already be a provider, team
+ *      member, HQ member, or existing login. Existing imported rows are
+ *      identities; never create or message a duplicate.
+ *   2. Upsert the pre-approval row (email → provider_staff @ office). At
+ *      first code login the signup trigger reads it, elevates the profile,
+ *      and links/creates the office's training-roster row.
+ *   3. Materialize the canonical team_members row (unlinked — auth_user_id
+ *      lands at first login), then send a best-effort invitation email
+ *      telling the person to sign in with their address.
+ *
+ * On any failure the handler deletes what this request created so a retry
+ * starts clean — no silent half-provisioned logins.
  */
 import crypto from "node:crypto";
 import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { requireHqPermission } from "../lib/staff-auth";
+import { sendStaffLoginInvitation } from "../claim/delivery";
 
 const router: IRouter = Router();
 
@@ -55,11 +54,6 @@ const BodySchema = z.object({
     .trim()
     .email("Enter a valid email address.")
     .max(320, "That email address is too long."),
-  phone: z.string().trim().max(40, "That phone number is too long.").optional(),
-  password: z
-    .string({ required_error: "Password is required." })
-    .min(8, "Passwords need at least 8 characters.")
-    .max(72, "Passwords max out at 72 characters."),
 });
 
 function supabaseBase(): string {
@@ -129,45 +123,47 @@ router.post(STAFF_LOGINS_PATH, requireHqPermission("provider_manage"), async (re
   const accountId = parsed.data.accountId;
   const name = `${parsed.data.firstName} ${parsed.data.lastName}`.replace(/\s+/g, " ").trim();
   const email = parsed.data.email.toLowerCase();
-  const phone = parsed.data.phone ?? "";
-  const phoneDigits = phone.replace(/\D/g, "");
-  const password = parsed.data.password;
 
-  let userId: string | null = null;
   let teamMemberId: string | null = null;
+  let assignmentWritten = false;
   let priorAssignment: { role: string; provider_account_code: string | null } | null = null;
 
   try {
     // Existing imported provider/staff rows are identities, even when they
     // have never completed Auth linkage. Never create or message a duplicate.
-    const [targetProvider, targetLocks, providerMatch, staffMatch, phoneProviders, phoneViewers, authUsers] = await Promise.all([
-      supabaseAdmin(
-        "GET",
-        `/rest/v1/providers?provider_id=eq.${encodeURIComponent(accountId)}&select=provider_id,access_disabled&limit=2`,
-      ),
-      supabaseAdmin(
-        "GET",
-        `/rest/v1/provider_account_locks?or=(account_id.eq.${encodeURIComponent(accountId)},account_id.eq.${encodeURIComponent(`acct-${accountId}`)})&select=account_id&limit=1`,
-      ),
-      supabaseAdmin(
-        "GET",
-        `/rest/v1/providers?email=ilike.${encodeURIComponent(email)}&select=provider_id,auth_user_id&limit=1`,
-      ),
-      supabaseAdmin(
-        "GET",
-        `/rest/v1/team_members?email=ilike.${encodeURIComponent(email)}&select=id,auth_user_id&limit=1`,
-      ),
-      phoneDigits.length >= 10
-        ? supabaseAdmin("GET", "/rest/v1/providers?select=provider_id,phone&phone=not.is.null&limit=5000")
-        : Promise.resolve({ status: 200, json: [] }),
-      phoneDigits.length >= 10
-        ? supabaseAdmin("GET", "/rest/v1/training_viewers?select=id,phone&phone=not.is.null&limit=5000")
-        : Promise.resolve({ status: 200, json: [] }),
-      phoneDigits.length >= 10
-        ? supabaseAdmin("GET", "/auth/v1/admin/users?page=1&per_page=1000")
-        : Promise.resolve({ status: 200, json: { users: [] } }),
-    ]);
-    if ([targetProvider, targetLocks, providerMatch, staffMatch, phoneProviders, phoneViewers, authUsers].some((result) => result.status >= 300)) {
+    const [targetProvider, targetLocks, providerMatch, staffMatch, hqMatch, authUsers, office] =
+      await Promise.all([
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/providers?provider_id=eq.${encodeURIComponent(accountId)}&select=provider_id,access_disabled&limit=2`,
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/provider_account_locks?or=(account_id.eq.${encodeURIComponent(accountId)},account_id.eq.${encodeURIComponent(`acct-${accountId}`)})&select=account_id&limit=1`,
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/providers?email=ilike.${encodeURIComponent(email)}&select=provider_id,auth_user_id&limit=1`,
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/team_members?email=ilike.${encodeURIComponent(email)}&select=id,auth_user_id&limit=1`,
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/hq_memberships?email=ilike.${encodeURIComponent(email)}&select=id,status&limit=3`,
+        ),
+        supabaseAdmin("GET", "/auth/v1/admin/users?page=1&per_page=1000"),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/providers?provider_id=eq.${encodeURIComponent(accountId)}&select=office_name,provider_name&limit=1`,
+        ),
+      ]);
+    if (
+      [targetProvider, targetLocks, providerMatch, staffMatch, hqMatch, authUsers, office].some(
+        (result) => result.status >= 300,
+      )
+    ) {
       throw new Error("identity duplicate lookup failed");
     }
     if (!providerAcceptsNewStaff(targetProvider.json, targetLocks.json)) {
@@ -179,40 +175,43 @@ router.post(STAFF_LOGINS_PATH, requireHqPermission("provider_manage"), async (re
     }
     if (Array.isArray(providerMatch.json) && providerMatch.json.length > 0) {
       res.status(409).json({
-        error: "That person already has a provider record. Existing records must use the normal claim flow.",
+        error: "That person already has a provider record with their own sign-in.",
         field: "email",
       });
       return;
     }
     if (Array.isArray(staffMatch.json) && staffMatch.json.length > 0) {
-      const linked = Boolean(staffMatch.json[0]?.auth_user_id);
       res.status(409).json({
-        error: linked
-          ? "That staff member already has an active login."
-          : "That staff member already exists and currently needs setup.",
+        error: "That staff member already exists — they sign in with their email address.",
         field: "email",
       });
       return;
     }
-    if (phoneDigits.length >= 10) {
-      const normalized = phoneDigits.slice(-10);
-      const phoneTaken = [
-        ...(Array.isArray(phoneProviders.json) ? phoneProviders.json : []),
-        ...(Array.isArray(phoneViewers.json) ? phoneViewers.json : []),
-        ...(Array.isArray(authUsers.json?.users) ? authUsers.json.users : []),
-      ].some((row) => String(row?.phone ?? "").replace(/\D/g, "").slice(-10) === normalized);
-      if (phoneTaken) {
-        res.status(409).json({
-          error: "That phone number already belongs to a provider, staff member, or login.",
-          field: "phone",
-        });
-        return;
-      }
+    const hqRows = Array.isArray(hqMatch.json) ? hqMatch.json : [];
+    if (hqRows.some((m: { status?: string }) => m.status === "active" || m.status === "invited")) {
+      res.status(409).json({
+        error: "That email belongs to an HQ team member — staff sign-ins need their own address.",
+        field: "email",
+      });
+      return;
+    }
+    // Staff sign in by email code, so the email must not already belong to
+    // any login (demo signups included) — first login would collide there.
+    const existingUsers = Array.isArray(authUsers.json?.users) ? authUsers.json.users : [];
+    if (
+      existingUsers.some(
+        (user: { email?: string | null }) => String(user?.email ?? "").toLowerCase() === email,
+      )
+    ) {
+      res.status(409).json({
+        error: "That email already has a login — each staff member needs their own address.",
+        field: "email",
+      });
+      return;
     }
 
     // Remember any pre-existing (dangling) pre-approval for this email so a
-    // failed request can restore it exactly. A LIVE user with this email
-    // cannot exist past step 1, so this row can only be an unclaimed one.
+    // failed request can restore it exactly.
     const prior = await supabaseAdmin(
       "GET",
       `/rest/v1/staff_role_assignments?email=eq.${encodeURIComponent(email)}&select=role,provider_account_code`,
@@ -220,43 +219,8 @@ router.post(STAFF_LOGINS_PATH, requireHqPermission("provider_manage"), async (re
     if (prior.status >= 300) throw new Error(`assignment lookup failed (${prior.status})`);
     priorAssignment = Array.isArray(prior.json) && prior.json.length > 0 ? prior.json[0] : null;
 
-    // 1. The auth user, created confirmed — uniqueness enforced atomically.
-    const created = await supabaseAdmin("POST", "/auth/v1/admin/users", {
-      email,
-      password,
-      email_confirm: true,
-      // Marks the account as server-provisioned. With email autoconfirm on,
-      // role elevation requires this marker — a bare public signup with a
-      // pre-approved email can never become staff.
-      app_metadata: { thinnr_provisioned: true },
-      user_metadata: { display_name: name },
-    });
-    if (created.status === 400 || created.status === 422) {
-      const code = String(created.json?.error_code ?? "");
-      const message = String(created.json?.msg ?? created.json?.message ?? "");
-      if (code === "email_exists" || /already (been )?registered/i.test(message)) {
-        res.status(409).json({
-          error: "That email already has a login — each staff member needs their own address.",
-          field: "email",
-        });
-        return;
-      }
-      if (code === "weak_password" || /password/i.test(message)) {
-        res.status(400).json({
-          error: message ? `That password was rejected: ${message}` : "That password is too weak.",
-          field: "password",
-        });
-        return;
-      }
-      throw new Error(`user create rejected (${created.status}: ${code || message || "unknown"})`);
-    }
-    userId = created.json?.id ?? created.json?.user?.id ?? null;
-    if ((created.status !== 200 && created.status !== 201) || !userId) {
-      throw new Error(`user create failed (${created.status})`);
-    }
-
-    // 2. Pre-approval upsert — the existing sync trigger elevates the
-    // profile and links/creates the office's roster row.
+    // 1. Pre-approval upsert — at first code login the signup trigger reads
+    // this row, elevates the profile, and links the office roster row.
     const assignment = await supabaseAdmin(
       "POST",
       "/rest/v1/staff_role_assignments?on_conflict=email",
@@ -264,28 +228,9 @@ router.post(STAFF_LOGINS_PATH, requireHqPermission("provider_manage"), async (re
       "resolution=merge-duplicates",
     );
     if (assignment.status >= 300) throw new Error(`assignment upsert failed (${assignment.status})`);
+    assignmentWritten = true;
 
-    // 3. Prove the chain converged before reporting success.
-    const [profile, viewer] = await Promise.all([
-      supabaseAdmin("GET", `/rest/v1/profiles?id=eq.${userId}&select=role,provider_account_code`),
-      supabaseAdmin(
-        "GET",
-        `/rest/v1/training_viewers?auth_user_id=eq.${userId}&select=id,name,account_id`,
-      ),
-    ]);
-    const profileRow = Array.isArray(profile.json) ? profile.json[0] : null;
-    const viewerRow = Array.isArray(viewer.json) ? viewer.json[0] : null;
-    if (
-      profileRow?.role !== "provider_staff" ||
-      profileRow?.provider_account_code !== accountId ||
-      !viewerRow ||
-      viewerRow.account_id !== accountId
-    ) {
-      throw new Error("provisioning chain did not converge");
-    }
-
-    // 4. Materialize the canonical live provider-staff row only after Auth
-    // and scope have converged. Existing rows were rejected before step 1.
+    // 2. The canonical live provider-staff row, unlinked until first login.
     teamMemberId = crypto.randomUUID();
     const teamMember = await supabaseAdmin(
       "POST",
@@ -296,8 +241,6 @@ router.post(STAFF_LOGINS_PATH, requireHqPermission("provider_manage"), async (re
         name,
         email,
         activation_status: "activated",
-        auth_user_id: userId,
-        claimed_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
       },
     );
@@ -305,35 +248,33 @@ router.post(STAFF_LOGINS_PATH, requireHqPermission("provider_manage"), async (re
       throw new Error(`provider staff row create failed (${teamMember.status})`);
     }
 
-    // 5. Optional phone onto the training roster row — cosmetic.
-    if (phone) {
-      const patched = await supabaseAdmin("PATCH", `/rest/v1/training_viewers?id=eq.${viewerRow.id}`, {
-        phone,
-      });
-      if (patched.status >= 300) {
-        req.log?.warn(`staff roster phone update failed (${patched.status})`);
-      }
-    }
+    // 3. Best-effort invitation — the sign-in works whether or not this
+    // email lands, so delivery failures only get logged.
+    const officeRow = Array.isArray(office.json) ? office.json[0] : null;
+    const officeName = String(
+      officeRow?.office_name ?? officeRow?.provider_name ?? "your office",
+    );
+    void sendStaffLoginInvitation(email, { name, officeName }).catch((error) => {
+      req.log?.warn({ err: error }, "staff invitation email failed");
+    });
 
     res.status(201).json({
       staff: {
-        viewerId: String(viewerRow.id),
-        name: String(viewerRow.name ?? name),
+        id: teamMemberId,
+        name,
         email,
         accountId,
+        status: "invited",
       },
     });
   } catch (error) {
     req.log?.error({ err: error }, "staff provisioning failed");
-    // Undo what this request created so a retry starts clean. Only runs when
-    // the user was created, which is the only step with lasting side effects
-    // before the assignment write.
+    // Undo what this request created so a retry starts clean.
     try {
-      if (userId) {
-        if (teamMemberId) {
-          await supabaseAdmin("DELETE", `/rest/v1/team_members?id=eq.${teamMemberId}`);
-        }
-        await supabaseAdmin("DELETE", `/auth/v1/admin/users/${userId}`);
+      if (teamMemberId) {
+        await supabaseAdmin("DELETE", `/rest/v1/team_members?id=eq.${teamMemberId}`);
+      }
+      if (assignmentWritten) {
         if (priorAssignment) {
           await supabaseAdmin(
             "POST",

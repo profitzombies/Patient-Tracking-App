@@ -288,7 +288,7 @@ export default function AccountDetail() {
             <div>
               {[
                 { label: 'Email', value: account.email },
-                 { label: 'Phone', value: account.phone ?? '—' },
+                 { label: 'Office phone', value: account.phone ?? '—' },
                  { label: 'Location', value: [account.city, account.state].filter(Boolean).join(', ') || '—' },
                 { label: 'Joined', value: formatDateKey(account.joinedKey, true) },
                  { label: 'Plan', value: account.plan ?? '—' },

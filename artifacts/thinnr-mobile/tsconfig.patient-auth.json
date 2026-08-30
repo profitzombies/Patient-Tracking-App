@@ -1,0 +1,34 @@
+{
+  // tsx config for scripts/verify-patient-auth.ts ONLY (not part of typecheck).
+  //
+  // The suite renders the REAL passwordless screens (app/patient-login.tsx,
+  // app/patient-signup.tsx, app/provider-login.tsx) under Node with
+  // react-test-renderer, so every native-only bare specifier in that import
+  // graph is remapped to a Node stub (shared with the onboarding-gate suite)
+  // and JSX is compiled with the automatic runtime. The one auth-specific
+  // stub replaces @/lib/supabase so verifyOtp is recorded instead of hitting
+  // GoTrue; the stub re-exports the REAL normalizePhone/describeAuthError,
+  // and the real lib/auth-api runs against the suite's scripted fetch.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/supabase": ["./scripts/patient-auth-stubs/supabase.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/onboarding-gate-stubs/expo-router.ts"],
+      "react-native-safe-area-context": [
+        "./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"
+      ],
+      "react-native-keyboard-controller": [
+        "./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"
+      ],
+      "@react-native-async-storage/async-storage": [
+        "./scripts/onboarding-gate-stubs/async-storage.ts"
+      ]
+    }
+  }
+}

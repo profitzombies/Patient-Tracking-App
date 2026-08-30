@@ -89,7 +89,14 @@ try {
     await fetch(`${baseUrl}/auth/v1/admin/users`, {
       method: 'POST',
       headers: adminHeaders,
-      body: JSON.stringify({ email: firstEmail, password, email_confirm: true }),
+      body: JSON.stringify({
+        email: firstEmail,
+        password,
+        email_confirm: true,
+        // Elevation requires the server-provisioned marker; this QA fixture
+        // stands in for an account the API server would provision.
+        app_metadata: { thinnr_provisioned: 'true' },
+      }),
     }),
     'Temporary user creation',
   );

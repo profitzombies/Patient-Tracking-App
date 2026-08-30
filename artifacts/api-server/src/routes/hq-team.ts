@@ -10,9 +10,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { z } from "zod";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
-import { DeliveryNotConfiguredError, sendHqSetupInvitation } from "../claim/delivery";
-import { passwordIssue } from "../claim/normalize";
-import { createLimiter, envLimit } from "../coach/limits";
+import { DeliveryNotConfiguredError, sendHqTeamInvitation } from "../claim/delivery";
 
 const router: IRouter = Router();
 const ROLES = ["super_admin", "admin", "clinical", "support", "content"] as const;
@@ -33,27 +31,6 @@ const UpdateBody = z.object({
   title: z.string().trim().max(160).optional(),
   role: RoleSchema.optional(),
 }).refine((value) => Object.keys(value).length > 0, "Include a field to update.");
-const SetupTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/, "That setup link is invalid or has expired.");
-const SetupCompleteBody = z.object({
-  token: SetupTokenSchema,
-  password: z.string(),
-  passwordConfirm: z.string(),
-});
-const acquireSetupInspectSlot = createLimiter({
-  burst: envLimit("HQ_SETUP_INSPECT_BURST", 8), refillPerMinute: 4, maxConcurrent: 10,
-  dailyBudget: envLimit("HQ_SETUP_INSPECT_DAILY_BUDGET", 500),
-  dailyMessage: "Too many setup attempts today. Please try again tomorrow.",
-  busyMessage: "Setup is busy right now. Please try again in a moment.",
-  rapidMessage: "Too many setup attempts. Please wait a moment and try again.",
-});
-const acquireSetupCompleteSlot = createLimiter({
-  burst: envLimit("HQ_SETUP_COMPLETE_BURST", 5), refillPerMinute: 2, maxConcurrent: 4,
-  dailyBudget: envLimit("HQ_SETUP_COMPLETE_DAILY_BUDGET", 200),
-  dailyMessage: "Too many setup attempts today. Please try again tomorrow.",
-  busyMessage: "Setup is busy right now. Please try again in a moment.",
-  rapidMessage: "Too many setup attempts. Please wait a moment and try again.",
-});
-
 interface HqMember {
   id: string;
   authUserId: string | null;
@@ -70,18 +47,15 @@ function encode(value: string): string {
   return encodeURIComponent(value);
 }
 
-/** 32 random bytes encoded URL-safe; only its SHA-256 digest reaches the DB. */
+/**
+ * 32 random bytes encoded URL-safe; only its SHA-256 digest reaches the DB.
+ * The invitation RPC requires a token pair, but with passwordless login the
+ * plain token never leaves this process — invited members simply sign in
+ * with their email and the pending invitation is accepted at that moment.
+ */
 export function createSetupToken(): { token: string; tokenHash: string } {
   const token = crypto.randomBytes(32).toString("base64url");
   return { token, tokenHash: crypto.createHash("sha256").update(token).digest("hex") };
-}
-
-export function hashSetupToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
-
-function requestIp(req: Request): string {
-  return req.ip || req.socket.remoteAddress || "unknown";
 }
 
 function parseRole(value: unknown): HqRole | null {
@@ -204,23 +178,6 @@ async function duplicateSource(email: string): Promise<string | null> {
   throw new Error("Auth duplicate lookup exceeded the supported directory size");
 }
 
-/** Service-role lookup for the public, possession-authorized setup screen. */
-async function inspectSetupToken(tokenHash: string): Promise<Record<string, unknown> | null> {
-  const now = encodeURIComponent(new Date().toISOString());
-  const result = await supabaseAdmin(
-    "GET",
-    `/rest/v1/hq_invitations?token_hash=eq.${encode(tokenHash)}&status=eq.pending&expires_at=gt.${now}` +
-      "&select=email,hq_memberships!inner(display_name,department_role,status)&hq_memberships.status=eq.invited&limit=1",
-  );
-  if (result.status >= 300 || !Array.isArray(result.json)) {
-    throw new Error(`HQ setup token inspection failed (${result.status})`);
-  }
-  const invitation = result.json[0] as Record<string, unknown> | undefined;
-  const member = invitation?.hq_memberships;
-  if (!invitation || !member || Array.isArray(member)) return null;
-  return { email: invitation.email, name: (member as Record<string, unknown>).display_name, role: (member as Record<string, unknown>).department_role };
-}
-
 function rpcError(json: unknown, fallback: string): string {
   const message = json && typeof json === "object" && typeof (json as { message?: unknown }).message === "string"
     ? (json as { message: string }).message
@@ -276,12 +233,10 @@ router.post(
       const row = Array.isArray(result.json) ? result.json[0] : result.json;
       let invitation: "sent" | "not_configured" | "failed" = "sent";
       try {
-        await sendHqSetupInvitation(email, {
-          name: parsed.data.name, role: parsed.data.role, setupToken: setup.token,
-        });
+        await sendHqTeamInvitation(email, { name: parsed.data.name, role: parsed.data.role });
       } catch (error) {
         invitation = error instanceof DeliveryNotConfiguredError ? "not_configured" : "failed";
-        req.log?.error({ err: error }, "HQ setup invitation delivery failed");
+        req.log?.error({ err: error }, "HQ team invitation delivery failed");
       }
       res.status(201).json({ member: mapMember(row), invitation });
     } catch (error) {
@@ -290,149 +245,6 @@ router.post(
     }
   },
 );
-
-// Both endpoints are intentionally unauthenticated: possession of the
-// high-entropy one-time token is the authorization. Query strings are stripped
-// by the shared request logger, and neither endpoint logs its request body.
-router.get("/hq-team/setup", async (req, res): Promise<void> => {
-  const token = typeof req.query.token === "string" ? req.query.token : "";
-  const valid = SetupTokenSchema.safeParse(token);
-  if (!valid.success) {
-    res.status(400).json({ error: "That setup link is invalid or has expired." });
-    return;
-  }
-  const slot = acquireSetupInspectSlot(requestIp(req));
-  if (!slot.ok) {
-    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
-    return;
-  }
-  try {
-    const row = await inspectSetupToken(hashSetupToken(valid.data));
-    if (!row) {
-      res.status(404).json({ error: "That setup link is invalid or has expired." });
-      return;
-    }
-    res.json({ name: String(row.name ?? ""), email: String(row.email ?? ""), role: parseRole(row.role) });
-  } catch (error) {
-    req.log?.error({ err: error }, "HQ setup inspection failed");
-    res.status(503).json({ error: "Could not verify that setup link right now." });
-  } finally {
-    slot.release();
-  }
-});
-
-router.post("/hq-team/setup/complete", async (req, res): Promise<void> => {
-  const parsed = SetupCompleteBody.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Check the setup form." });
-    return;
-  }
-  const passwordError = passwordIssue(parsed.data.password);
-  if (passwordError) {
-    res.status(400).json({ error: passwordError, field: "password" });
-    return;
-  }
-  if (parsed.data.password !== parsed.data.passwordConfirm) {
-    res.status(400).json({ error: "Both password boxes need to match.", field: "passwordConfirm" });
-    return;
-  }
-  const slot = acquireSetupCompleteSlot(requestIp(req));
-  if (!slot.ok) {
-    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
-    return;
-  }
-  let createdUserId: string | null = null;
-  let activationCommitted = false;
-  try {
-    const tokenHash = hashSetupToken(parsed.data.token);
-    // Validate before Auth creation. The accept RPC repeats this test and
-    // atomically consumes the invitation, closing the inspect/complete race.
-    const invite = await inspectSetupToken(tokenHash);
-    if (!invite) {
-      res.status(404).json({ error: "That setup link is invalid or has expired." });
-      return;
-    }
-    const email = String(invite.email ?? "").trim().toLowerCase();
-    const name = String(invite.name ?? "").trim();
-    if (!email || !name) throw new Error("setup inspection returned incomplete invitation");
-    const created = await supabaseAdmin("POST", "/auth/v1/admin/users", {
-      email,
-      password: parsed.data.password,
-      email_confirm: true,
-      app_metadata: { thinnr_provisioned: true },
-      user_metadata: { display_name: name },
-    });
-    if (created.status === 400 || created.status === 422) {
-      const msg = String(created.json?.msg ?? created.json?.message ?? "");
-      if (String(created.json?.error_code ?? "") === "email_exists" || /already (been )?registered/i.test(msg)) {
-        res.status(409).json({ error: "A login already exists for this invitation. Contact THINNR support." });
-        return;
-      }
-      if (/password|weak_password/i.test(`${created.json?.error_code ?? ""} ${msg}`)) {
-        res.status(400).json({ error: "That password was rejected. Choose a stronger password.", field: "password" });
-        return;
-      }
-    }
-    createdUserId = created.json?.id ?? created.json?.user?.id ?? null;
-    if (created.status >= 300 || !createdUserId) throw new Error(`HQ setup Auth creation failed (${created.status})`);
-    const accepted = await supabaseAdmin("POST", "/rest/v1/rpc/hq_accept_team_invitation", {
-      p_token_hash: tokenHash,
-      p_auth_user_id: createdUserId,
-    });
-    if (accepted.status >= 300 || !accepted.json) {
-      throw new Error(`HQ setup activation failed (${accepted.status})`);
-    }
-    activationCommitted = true;
-    const row = Array.isArray(accepted.json) ? accepted.json[0] : accepted.json;
-    res.status(201).json({ member: mapMember(row) });
-  } catch (error) {
-    // An Auth record without a successfully consumed invitation would be an
-    // orphan, though not an elevated one: the failed activation transaction
-    // leaves the membership invited with no auth_user_id and creates no HQ
-    // profile. Remove only the Auth account created by this request.
-    let cleanupFailed = false;
-    if (createdUserId && !activationCommitted) {
-      try {
-        const cleanup = await supabaseAdmin("DELETE", `/auth/v1/admin/users/${encode(createdUserId)}`);
-        if (cleanup.status >= 300) {
-          cleanupFailed = true;
-          req.log?.error(
-            { userId: createdUserId, status: cleanup.status },
-            "HQ setup orphan cleanup was rejected",
-          );
-        }
-      } catch (cleanupError) {
-        cleanupFailed = true;
-        req.log?.error(
-          { err: cleanupError, userId: createdUserId },
-          "HQ setup orphan cleanup request failed",
-        );
-      }
-    }
-    req.log?.error({ err: error }, "HQ setup completion failed");
-    if (cleanupFailed) {
-      // The still-pending invitation is the durable reconciliation record. It
-      // retains only the setup-token digest and grants no HQ access.
-      res.status(502).json({
-        error: "Critical: account setup failed and the temporary login could not be removed. THINNR support must reconcile this invitation before setup can continue.",
-        code: "HQ_SETUP_RECONCILIATION_REQUIRED",
-        reconciliationRequired: true,
-        invitationState: "pending",
-        hqAccessGranted: false,
-      });
-      return;
-    }
-    if (activationCommitted) {
-      res.status(502).json({
-        error: "Account setup was activated, but the completed HQ account could not be returned. Contact THINNR support before trying again.",
-      });
-      return;
-    }
-    res.status(502).json({ error: "Could not finish account setup. No login was left active." });
-  } finally {
-    slot.release();
-  }
-});
 
 router.patch(
   "/hq-team/:id",

@@ -104,7 +104,7 @@ export default function Accounts() {
       <PageHeader
         kicker="Sub-accounts"
         title="Provider accounts"
-        sub="Each live office links to the program through the six-digit code its patients type during mobile onboarding."
+        sub="Each live office links to the program through the provider code its patients type during mobile onboarding."
         action={
           <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-add-account" onClick={openDialog}>
             <Plus size={14} aria-hidden="true" />

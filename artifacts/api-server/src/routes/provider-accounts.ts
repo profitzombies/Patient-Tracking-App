@@ -17,6 +17,16 @@ export function isActivePatientStatus(value: unknown): boolean {
   return value === "activated" || value === "active";
 }
 
+export function effectiveProviderCode(onboardingCode: unknown, providerId: unknown): string | null {
+  const newCode = typeof onboardingCode === "string" ? onboardingCode.trim() : "";
+  if (/^[0-9]{6}$/.test(newCode)) return newCode;
+
+  const legacyCode = typeof providerId === "string" || typeof providerId === "number"
+    ? String(providerId).trim()
+    : "";
+  return /^[0-9]{5}$/.test(legacyCode) ? legacyCode : null;
+}
+
 const AccountInput = z.object({
   officeName: z.string().trim().min(1).max(200),
   providerName: z.string().trim().min(1).max(160),
@@ -91,7 +101,7 @@ async function loadAccounts() {
       officeName: String(row.office_name ?? row.provider_name ?? "Unnamed office"),
       providerName: row.provider_name ? String(row.provider_name) : "—",
       providerRole: row.provider_role ? String(row.provider_role) : "—",
-      providerCode: row.onboarding_code ? String(row.onboarding_code) : null,
+      providerCode: effectiveProviderCode(row.onboarding_code, row.provider_id),
       status:
         row.access_disabled === true || lockMap.has(id)
           ? "locked"

@@ -282,7 +282,7 @@ export default function AccountDetail() {
                  </button>}
               </div>
               <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                Patients type this six-digit code during mobile onboarding to link their account to this office.
+                Patients type this provider code during mobile onboarding to link their account to this office.
               </p>
             </div>
             <div>

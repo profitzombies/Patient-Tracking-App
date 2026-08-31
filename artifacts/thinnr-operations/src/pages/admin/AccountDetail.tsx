@@ -278,30 +278,10 @@ export default function AccountDetail() {
       />
 
       <div className="mb-5 flex flex-wrap items-center gap-2.5">
-        {hasPatients ? (
-          <Link href={`/admin/accounts/${account.id}/office`} className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-open-office">
-            Open office dashboard
-            <ArrowRight size={14} aria-hidden="true" />
-          </Link>
-        ) : (
-          // aria-disabled + toast instead of a swallowed click: the tap still
-          // answers, it just explains why the door is closed.
-          <button
-            type="button"
-            aria-disabled="true"
-            className={`${BTN_PRIMARY} h-9 cursor-not-allowed px-3.5 opacity-50`}
-            data-testid="button-open-office"
-            onClick={() =>
-              toast({
-                title: 'No office dashboard yet',
-                 description: account.providerCode ? `The dashboard unlocks once patients onboard with code ${account.providerCode}.` : 'This account does not have an onboarding code yet.',
-              })
-            }
-          >
-            Open office dashboard
-            <ArrowRight size={14} aria-hidden="true" />
-          </button>
-        )}
+        <Link href={`/admin/accounts/${account.id}/office`} className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-open-office">
+          Open office dashboard
+          <ArrowRight size={14} aria-hidden="true" />
+        </Link>
          <Link href={`/admin/conversations?account=${account.id}`} className={`${BTN_SECONDARY} h-9 px-3.5`} data-testid="link-view-conversations">
           <MessagesSquare size={14} aria-hidden="true" />
            Coach conversations

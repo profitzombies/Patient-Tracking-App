@@ -24,6 +24,7 @@
     "test:conversations": "TZ=UTC tsx scripts/verify-conversations.ts && TZ=Pacific/Kiritimati tsx scripts/verify-conversations.ts && TZ=America/Anchorage tsx scripts/verify-conversations.ts",
     "test:supabase-roles": "tsx scripts/verify-supabase-role-revocation.ts",
     "test:hq-access": "tsx scripts/verify-hq-access.ts",
+    "test:empty-office-drillin": "tsx scripts/verify-empty-office-drillin.ts",
     "test:email-studio": "tsx scripts/verify-email-studio.ts"
   },
   "devDependencies": {

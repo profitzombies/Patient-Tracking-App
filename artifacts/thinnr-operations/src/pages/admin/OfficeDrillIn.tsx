@@ -25,24 +25,6 @@ export default function OfficeDrillIn() {
   // Stale or hand-typed URL: land back on the accounts list, not a dead end.
   if (!account) return <Redirect to="~/admin/accounts" replace />;
 
-  if ((account.activePatientCount ?? 0) === 0) {
-    return (
-      <div className="grid min-h-[100dvh] place-items-center bg-background px-5 font-sans text-foreground">
-        <div className="max-w-md rounded-lg border border-card-border bg-card px-6 py-10 text-center shadow-soft">
-          <h1 className="font-serif text-lg font-bold text-navy">No office dashboard yet</h1>
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {account.officeName} has no patients linked. The dashboard unlocks once patients onboard in the mobile app
-            with provider code <span className="font-mono tracking-[.08em] text-foreground">{account.providerCode}</span>.
-          </p>
-          <Link href={`~/admin/accounts/${account.id}`} className={`${BTN_SECONDARY} mt-5 h-9 px-3.5`} data-testid="link-back-to-hq">
-            <ArrowLeft size={14} aria-hidden="true" />
-            Back to HQ
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-[100dvh] flex-col bg-background">
       {/* "Viewing as" banner — always visible above the drilled-in office. */}

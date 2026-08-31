@@ -13,6 +13,7 @@
  * asks for a code. No campaigns, no reminders, no password-reset emails.
  */
 import crypto from "node:crypto";
+import { renderEmailTemplate, type EmailTemplateId, type EmailVariables } from "@workspace/email-templates";
 
 export type DeliveryMode = "dev" | "live";
 
@@ -71,6 +72,32 @@ export function generateCode(): string {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
+async function sendTransactionalEmail(
+  to: string,
+  templateId: EmailTemplateId,
+  variables: EmailVariables,
+): Promise<void> {
+  const creds = resendCreds();
+  if (!creds) throw new DeliveryNotConfiguredError("email");
+  const rendered = renderEmailTemplate(templateId, variables);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: creds.from,
+      to: [to],
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Resend send failed (${response.status})`);
+}
+
 /** Live SMS: Twilio Verify creates and remembers the code itself. */
 export async function startTwilioVerification(phoneE164: string): Promise<void> {
   const creds = twilioCreds();
@@ -120,29 +147,7 @@ export async function checkTwilioVerification(
 
 /** Live email: a server-issued code sent through Resend. */
 export async function sendClaimEmail(to: string, code: string): Promise<void> {
-  const creds = resendCreds();
-  if (!creds) throw new DeliveryNotConfiguredError("email");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: creds.from,
-      to: [to],
-      subject: `${code} is your THINNR verification code`,
-      text: [
-        `Your THINNR verification code is ${code}.`,
-        "",
-        "It expires in 10 minutes. If you didn't request it, you can ignore this email.",
-      ].join("\n"),
-    }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Resend send failed (${response.status})`);
-  }
+  await sendTransactionalEmail(to, "verification-code", { code });
 }
 
 /** One post-commit invitation for a genuinely new provider. */
@@ -150,31 +155,7 @@ export async function sendProviderClaimInvitation(
   to: string,
   input: { officeName: string; providerName: string; providerCode: string },
 ): Promise<void> {
-  const creds = resendCreds();
-  if (!creds) throw new DeliveryNotConfiguredError("email");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: creds.from,
-      to: [to],
-      subject: "Your THINNR provider account is ready",
-      text: [
-        `Hello ${input.providerName},`,
-        "",
-        `${input.officeName} is now set up in THINNR.`,
-        `Your patient onboarding code is ${input.providerCode}.`,
-        "",
-        "To sign in, open THINNR, enter this email address, and we'll send you a one-time sign-in code. No password needed.",
-        "If you did not expect this invitation, contact THINNR support.",
-      ].join("\n"),
-    }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Resend provider invitation failed (${response.status})`);
+  await sendTransactionalEmail(to, "provider-account-ready", input);
 }
 
 /** Sent only after the durable HQ invitation transaction has committed. */
@@ -182,31 +163,7 @@ export async function sendHqTeamInvitation(
   to: string,
   input: { name: string; role: string },
 ): Promise<void> {
-  const creds = resendCreds();
-  if (!creds) throw new DeliveryNotConfiguredError("email");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: creds.from,
-      to: [to],
-      subject: "You're invited to the THINNR HQ team",
-      text: [
-        `Hello ${input.name},`,
-        "",
-        `You have been invited to the THINNR HQ team as ${input.role}.`,
-        "To sign in, open THINNR operations, enter this email address, and we'll send you a one-time sign-in code. No password needed.",
-        "",
-        "This invitation expires in 7 days.",
-        "If you did not expect this invitation, contact THINNR support.",
-      ].join("\n"),
-    }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Resend HQ invitation failed (${response.status})`);
+  await sendTransactionalEmail(to, "hq-team-invitation", input);
 }
 
 /** Post-commit invitation for a new office staff sign-in added by HQ. */
@@ -214,28 +171,5 @@ export async function sendStaffLoginInvitation(
   to: string,
   input: { name: string; officeName: string },
 ): Promise<void> {
-  const creds = resendCreds();
-  if (!creds) throw new DeliveryNotConfiguredError("email");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: creds.from,
-      to: [to],
-      subject: "Your THINNR office sign-in is ready",
-      text: [
-        `Hello ${input.name},`,
-        "",
-        `You now have access to ${input.officeName} in THINNR.`,
-        "To sign in, open THINNR operations, enter this email address, and we'll send you a one-time sign-in code. No password needed.",
-        "",
-        "If you did not expect this invitation, contact THINNR support.",
-      ].join("\n"),
-    }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Resend staff invitation failed (${response.status})`);
+  await sendTransactionalEmail(to, "provider-staff-invitation", input);
 }

@@ -23,7 +23,8 @@
     "seed:training": "tsx scripts/seed-training.ts",
     "test:conversations": "TZ=UTC tsx scripts/verify-conversations.ts && TZ=Pacific/Kiritimati tsx scripts/verify-conversations.ts && TZ=America/Anchorage tsx scripts/verify-conversations.ts",
     "test:supabase-roles": "tsx scripts/verify-supabase-role-revocation.ts",
-    "test:hq-access": "tsx scripts/verify-hq-access.ts"
+    "test:hq-access": "tsx scripts/verify-hq-access.ts",
+    "test:email-studio": "tsx scripts/verify-email-studio.ts"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -65,6 +66,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@workspace/api-client-react": "workspace:*",
+    "@workspace/email-templates": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "cmdk": "^1.1.1",

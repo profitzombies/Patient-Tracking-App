@@ -179,6 +179,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/email-templates':
+        specifier: workspace:*
+        version: link:../../lib/email-templates
       '@workspace/integrations-openai-ai-server':
         specifier: workspace:*
         version: link:../../lib/integrations-openai-ai-server
@@ -731,6 +734,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/email-templates':
+        specifier: workspace:*
+        version: link:../../lib/email-templates
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -852,6 +858,8 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+
+  lib/email-templates: {}
 
   lib/integrations-openai-ai-server:
     dependencies:

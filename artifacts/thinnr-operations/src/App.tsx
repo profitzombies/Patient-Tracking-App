@@ -53,6 +53,7 @@ import LearnerPreview from '@/pages/admin/training/LearnerPreview';
 import KnowledgeBase from '@/pages/admin/KnowledgeBase';
 import SupportTestBench from '@/pages/admin/SupportTestBench';
 import Files from '@/pages/admin/Files';
+import EmailStudio from '@/pages/EmailStudio';
 import { PatientSessionProvider } from '@/contexts/patient-session';
 import { DateRangeProvider } from '@/contexts/date-range';
 import { SessionProvider, useSession } from '@/contexts/session';
@@ -219,15 +220,20 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL?.replace(/\/$/, '') || ''}>
-          <SessionProvider>
-            <PatientSessionProvider>
-              <DateRangeProvider>
-                <AccountLocksProvider>
-                  <PersonaRouter />
-                </AccountLocksProvider>
-              </DateRangeProvider>
-            </PatientSessionProvider>
-          </SessionProvider>
+          <Switch>
+            <Route path="/email" component={EmailStudio} />
+            <Route>
+              <SessionProvider>
+                <PatientSessionProvider>
+                  <DateRangeProvider>
+                    <AccountLocksProvider>
+                      <PersonaRouter />
+                    </AccountLocksProvider>
+                  </DateRangeProvider>
+                </PatientSessionProvider>
+              </SessionProvider>
+            </Route>
+          </Switch>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

@@ -16,6 +16,9 @@
     },
     {
       "path": "../../lib/integrations-openai-ai-server"
+    },
+    {
+      "path": "../../lib/email-templates"
     }
   ]
 }

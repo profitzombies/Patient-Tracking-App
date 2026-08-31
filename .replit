@@ -144,6 +144,10 @@ args = "patient-auth"
 task = "workflow.run"
 args = "live-diary"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "library-sync"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -492,6 +496,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:live-diary"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "library-sync"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:library-sync"
 
 [workflows.workflow.metadata]
 isValidation = true

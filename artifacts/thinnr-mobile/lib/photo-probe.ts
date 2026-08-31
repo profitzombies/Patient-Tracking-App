@@ -16,32 +16,11 @@ import type { LumaFrame } from '@/lib/photo-detection';
 /** Probe grid width; height follows the camera's aspect ratio. */
 export const PROBE_WIDTH = 18;
 
-const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const BASE64_LOOKUP = (() => {
-  const table = new Int16Array(128).fill(-1);
-  for (let i = 0; i < BASE64_ALPHABET.length; i++) table[BASE64_ALPHABET.charCodeAt(i)] = i;
-  return table;
-})();
-
-/** Plain base64 → bytes; works identically in Hermes, browsers, and Node. */
-export function decodeBase64(b64: string): Uint8Array {
-  const clean = b64.replace(/[\r\n=]+/g, '');
-  const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
-  let outIndex = 0;
-  let buffer = 0;
-  let bits = 0;
-  for (let i = 0; i < clean.length; i++) {
-    const value = BASE64_LOOKUP[clean.charCodeAt(i)];
-    if (value < 0) continue;
-    buffer = (buffer << 6) | value;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      out[outIndex++] = (buffer >> bits) & 0xff;
-    }
-  }
-  return out.subarray(0, outIndex);
-}
+// Kept as a re-export so existing consumers (photo-detection suites, the
+// guided session) keep their import path; the implementation lives in the
+// dependency-free lib/base64 so non-camera modules can share it.
+export { decodeBase64 } from './base64';
+import { decodeBase64 } from './base64';
 
 function paeth(a: number, b: number, c: number): number {
   const p = a + b - c;

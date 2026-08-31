@@ -181,8 +181,6 @@ function localOnlySlice(state: PersistedState): PersistedState {
     ...EMPTY_STATE,
     addedCheckIns: state.addedCheckIns,
     photos: state.photos,
-    customFoods: state.customFoods,
-    savedRecipes: state.savedRecipes,
     nudgeOptOut: state.nudgeOptOut,
     nudgeEngaged: state.nudgeEngaged,
     nudgeLastSentKey: state.nudgeLastSentKey,
@@ -540,6 +538,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             targetOverrides: server.targets,
             favorites: server.favorites,
             recents: server.recents,
+            customFoods: server.customFoods,
+            savedRecipes: server.savedRecipes,
           });
         } else {
           // Explicit failure: open seedless with the device-local slices and
@@ -993,10 +993,15 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         category: 'My Foods',
       };
       if (!run || !requireWritableAccount(run)) return full;
-      await commit({ ...prev, customFoods: [...prev.customFoods, full] }, run);
+      const next = { ...prev, customFoods: [...prev.customFoods, full] };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return full;
+      }
+      await commitWithServer(run, prev, next, api => api.writeLibrary({ foodUpsert: [full] }));
       return full;
     });
-  }, [beginRun, commit, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
   // Rebuilds the food from the payload (not a merge) so cleared optional
   // fields like brand actually drop. Diary entries are untouched: they
@@ -1009,12 +1014,44 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const run = beginRun(startEpoch);
       if (!run || !requireWritableAccount(run)) return;
       const prev = stateRef.current;
-      await commit({
+      const prevItem = prev.customFoods.find(f => f.id === id);
+      const rebuilt: FoodItem = { ...food, id, category: 'My Foods' };
+      if (run.account.kind === 'real') {
+        if (rebuilt.photoUri && prevItem?.photoPath && rebuilt.photoUri === prevItem.photoUri) {
+          // Unchanged display photo — keep its account reference riding along.
+          rebuilt.photoPath = prevItem.photoPath;
+        } else if (rebuilt.photoUri?.startsWith('data:')) {
+          // A fresh local photo — move it onto the account rail. Best-effort:
+          // the edit itself must not fail because a photo didn't land.
+          try {
+            const uploaded = await run.account.api.uploadLibraryPhoto('food', rebuilt.photoUri);
+            rebuilt.photoPath = uploaded.photoPath;
+            rebuilt.photoUri = uploaded.photoUri;
+          } catch (error) {
+            console.error('Custom food photo upload failed', error);
+            delete rebuilt.photoUri;
+            delete rebuilt.photoPath;
+          }
+        } else {
+          // Photo cleared (or never uploaded) — drop any stale reference so
+          // the server de-references the old object.
+          delete rebuilt.photoPath;
+        }
+      }
+      const next = {
         ...prev,
-        customFoods: prev.customFoods.map(f => (f.id === id ? { ...food, id, category: 'My Foods' } : f)),
-      }, run);
+        customFoods: prev.customFoods.map(f => (f.id === id ? rebuilt : f)),
+      };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return;
+      }
+      // Upserting an id the account doesn't know would CREATE it server-side;
+      // an edit of a vanished food (double-fired form) simply drops.
+      if (!prevItem) return;
+      await commitWithServer(run, prev, next, api => api.writeLibrary({ foodUpsert: [rebuilt] }));
     });
-  }, [beginRun, commit, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
   // Existing diary entries keep their logged values; only the library item
   // (plus any dangling favorite/recent references) goes away. Returns the
@@ -1022,9 +1059,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // positions — so the caller can offer an Undo; the capture happens inside
   // the serialized mutation, so it reflects exactly what this delete
   // stripped. Returns null when the id isn't a custom food (double-tap).
-  // The food itself is device-local even for real accounts, but the
-  // favorite/recents references it strips live on the server there — so the
-  // removal rides the server write and rolls back whole if that write fails.
+  // For real accounts the food row, its photo reference, and any
+  // favorite/recents references all live on the account — the whole removal
+  // is ONE atomic server write and rolls back whole if that write fails.
   const removeCustomFood = useCallback(async (id: string): Promise<RemovedCustomFood | null> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await hydrationGate.current!.promise;
@@ -1039,13 +1076,16 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         return removed;
       }
       const merged = { ...prev, ...next };
-      const prefsChanged = merged.favorites !== prev.favorites || merged.recents !== prev.recents;
-      if (run.account.kind !== 'real' || !prefsChanged) {
+      if (run.account.kind !== 'real') {
         await commit(merged, run);
         return removed;
       }
       const saved = await commitWithServer(run, prev, merged, api =>
-        api.writePrefs({ favorites: merged.favorites, recents: merged.recents }),
+        api.writeLibrary({
+          foodDeleteIds: [id],
+          ...(merged.favorites !== prev.favorites ? { favorites: merged.favorites } : {}),
+          ...(merged.recents !== prev.recents ? { recents: merged.recents } : {}),
+        }),
       );
       return saved ? removed : null;
     });
@@ -1068,34 +1108,62 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         return; // nothing to undo
       }
       const merged = { ...prev, ...next };
-      const prefsChanged = merged.favorites !== prev.favorites || merged.recents !== prev.recents;
-      if (run.account.kind !== 'real' || !prefsChanged) {
+      if (run.account.kind !== 'real') {
         await commit(merged, run);
         return;
       }
+      // removed.food still carries its photoPath, so the account re-registers
+      // the photo alongside the row — Undo restores the photo reference too.
       await commitWithServer(run, prev, merged, api =>
-        api.writePrefs({ favorites: merged.favorites, recents: merged.recents }),
+        api.writeLibrary({
+          foodUpsert: [removed.food],
+          ...(merged.favorites !== prev.favorites ? { favorites: merged.favorites } : {}),
+          ...(merged.recents !== prev.recents ? { recents: merged.recents } : {}),
+        }),
       );
     });
   }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
   // Keeps an AI suggestion permanently (Library > Recipes). Stored whole —
-  // including the generated photo data URI — so it survives restarts exactly
-  // like custom foods do.
+  // demo keeps the generated photo data URI inline; real accounts move the
+  // photo onto the account's media rail first so it follows the patient.
   const addSavedRecipe = useCallback(async (recipe: Omit<SavedRecipe, 'id'>): Promise<SavedRecipe> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
     const startEpoch = epochRef.current;
-    const run = beginRun(startEpoch);
-    const prev = stateRef.current;
-    const full: SavedRecipe = {
-      ...recipe,
-      id: run ? makeId(run, 'airec') : nextId('airec'),
-    };
-    if (!run || !requireWritableAccount(run)) return full;
-    await commit({ ...prev, savedRecipes: [...prev.savedRecipes, full] }, run);
-    return full;
-  }, [beginRun, commit, requireWritableAccount]);
+    return runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      const prev = stateRef.current;
+      const full: SavedRecipe = {
+        ...recipe,
+        id: run ? makeId(run, 'airec') : nextId('airec'),
+      };
+      if (!run || !requireWritableAccount(run)) return full;
+      if (run.account.kind !== 'real') {
+        await commit({ ...prev, savedRecipes: [...prev.savedRecipes, full] }, run);
+        return full;
+      }
+      if (full.photoUri?.startsWith('data:')) {
+        // Best-effort: the recipe itself must not fail because a photo
+        // didn't land — it saves photo-less and the backfill can retry.
+        try {
+          const uploaded = await run.account.api.uploadLibraryPhoto('recipe', full.photoUri);
+          full.photoPath = uploaded.photoPath;
+          full.photoUri = uploaded.photoUri;
+        } catch (error) {
+          console.error('Saved recipe photo upload failed', error);
+          delete full.photoUri;
+        }
+      }
+      await commitWithServer(
+        run,
+        prev,
+        { ...prev, savedRecipes: [...prev.savedRecipes, full] },
+        api => api.writeLibrary({ recipeUpsert: [full] }),
+      );
+      return full;
+    });
+  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
   // Photo backfill for AI suggestions saved while their dish photo was still
   // generating: patch just the photo onto the already-persisted record. No
@@ -1104,28 +1172,78 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const setCustomFoodPhoto = useCallback(async (id: string, photoUri: string): Promise<void> => {
     await hydrationGate.current!.promise;
     const startEpoch = epochRef.current;
-    const run = beginRun(startEpoch);
-    if (!run || run.account.kind === 'unresolved') return;
-    const prev = stateRef.current;
-    if (!prev.customFoods.some(f => f.id === id)) return;
-    await commit({
-      ...prev,
-      customFoods: prev.customFoods.map(f => (f.id === id ? { ...f, photoUri } : f)),
-    }, run);
-  }, [beginRun, commit]);
+    const preRun = beginRun(startEpoch);
+    if (!preRun || preRun.account.kind === 'unresolved') return;
+    if (preRun.account.kind === 'real' && !serverTruthRef.current) return;
+    if (!stateRef.current.customFoods.some(f => f.id === id)) return;
+    let patch: Pick<FoodItem, 'photoUri' | 'photoPath'> = { photoUri };
+    if (preRun.account.kind === 'real') {
+      if (!photoUri.startsWith('data:')) return; // nothing uploadable
+      try {
+        patch = await preRun.account.api.uploadLibraryPhoto('food', photoUri);
+      } catch (error) {
+        // Quiet by design: a background photo patch never pops a snackbar.
+        // The food stays photo-less; the backfill can try again later.
+        console.error('Custom food photo upload failed', error);
+        return;
+      }
+    }
+    await runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      if (!run || run.account.kind === 'unresolved') return;
+      const prev = stateRef.current;
+      const target = prev.customFoods.find(f => f.id === id);
+      if (!target) return;
+      const nextItem = { ...target, ...patch };
+      const next = {
+        ...prev,
+        customFoods: prev.customFoods.map(f => (f.id === id ? nextItem : f)),
+      };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return;
+      }
+      await commitWithServer(run, prev, next, api => api.writeLibrary({ foodUpsert: [nextItem] }));
+    });
+  }, [beginRun, commit, commitWithServer, runSerialized]);
 
   const setSavedRecipePhoto = useCallback(async (id: string, photoUri: string): Promise<void> => {
     await hydrationGate.current!.promise;
     const startEpoch = epochRef.current;
-    const run = beginRun(startEpoch);
-    if (!run || run.account.kind === 'unresolved') return;
-    const prev = stateRef.current;
-    if (!prev.savedRecipes.some(r => r.id === id)) return;
-    await commit({
-      ...prev,
-      savedRecipes: prev.savedRecipes.map(r => (r.id === id ? { ...r, photoUri } : r)),
-    }, run);
-  }, [beginRun, commit]);
+    const preRun = beginRun(startEpoch);
+    if (!preRun || preRun.account.kind === 'unresolved') return;
+    if (preRun.account.kind === 'real' && !serverTruthRef.current) return;
+    if (!stateRef.current.savedRecipes.some(r => r.id === id)) return;
+    let patch: Pick<SavedRecipe, 'photoUri' | 'photoPath'> = { photoUri };
+    if (preRun.account.kind === 'real') {
+      if (!photoUri.startsWith('data:')) return; // nothing uploadable
+      try {
+        patch = await preRun.account.api.uploadLibraryPhoto('recipe', photoUri);
+      } catch (error) {
+        console.error('Saved recipe photo upload failed', error);
+        return;
+      }
+    }
+    await runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      if (!run || run.account.kind === 'unresolved') return;
+      const prev = stateRef.current;
+      const target = prev.savedRecipes.find(r => r.id === id);
+      if (!target) return;
+      const nextItem = { ...target, ...patch };
+      const next = {
+        ...prev,
+        savedRecipes: prev.savedRecipes.map(r => (r.id === id ? nextItem : r)),
+      };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return;
+      }
+      await commitWithServer(run, prev, next, api =>
+        api.writeLibrary({ recipeUpsert: [nextItem] }),
+      );
+    });
+  }, [beginRun, commit, commitWithServer, runSerialized]);
 
   const setTargets = useCallback(async (partial: Partial<DailyTargets>): Promise<void> => {
     await Haptics.selectionAsync();

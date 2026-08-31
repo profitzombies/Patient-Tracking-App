@@ -32,6 +32,8 @@ class FakeBackend {
   failOnce = new Set<string>();
   /** Number of atomic patient_diary_apply RPC calls received. */
   rpcCalls = 0;
+  /** Number of atomic patient_library_apply RPC calls received. */
+  libraryRpcCalls = 0;
   private seq = 0;
 
   reset() {
@@ -41,11 +43,15 @@ class FakeBackend {
       patient_water_days: [],
       patient_target_overrides: [],
       patient_food_prefs: [],
+      patient_custom_foods: [],
+      patient_saved_recipes: [],
+      patient_media: [],
     };
     this.tokens.clear();
     this.authOutage = false;
     this.failOnce.clear();
     this.rpcCalls = 0;
+    this.libraryRpcCalls = 0;
     this.seq = 0;
   }
 
@@ -155,6 +161,116 @@ class FakeBackend {
             patient_id: args.p_patient_id,
             favorites: [],
             recents: args.p_recents,
+          });
+        }
+      }
+      // PostgREST answers a void RPC with 204 and no body.
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === "/rest/v1/rpc/patient_library_apply") {
+      this.libraryRpcCalls += 1;
+      if (this.failOnce.has("RPC patient_library_apply")) {
+        this.failOnce.delete("RPC patient_library_apply");
+        return json(500, { message: "fake upstream failure" });
+      }
+      // Mirrors the SQL function: one transaction — photo-ledger
+      // de-reference on replace, upsert merge that preserves created_at,
+      // ledger re-register (conflict keeps the finalize row), deletes that
+      // drop the ledger rows first, and a coalescing prefs merge.
+      const args = JSON.parse(String(init?.body ?? "{}")) as {
+        p_patient_id: string;
+        p_food_upsert?: Array<Record<string, unknown>>;
+        p_food_delete_ids?: string[];
+        p_recipe_upsert?: Array<Record<string, unknown>>;
+        p_recipe_delete_ids?: string[];
+        p_favorites?: unknown[] | null;
+        p_recents?: unknown[] | null;
+      };
+      const pid = args.p_patient_id;
+      const deref = (path: unknown) => {
+        if (typeof path !== "string" || !path) return;
+        this.tables.patient_media = this.tables.patient_media.filter(
+          row => !(String(row.patient_id) === pid && String(row.object_path) === path),
+        );
+      };
+      const register = (path: unknown, kind: string) => {
+        if (typeof path !== "string" || !path) return;
+        if (this.tables.patient_media.some(row => String(row.object_path) === path)) return;
+        this.tables.patient_media.push({
+          object_path: path,
+          patient_id: pid,
+          kind,
+          content_type: null,
+          size_bytes: null,
+          created_at: stampAt(this.seq++),
+        });
+      };
+      const applyUpserts = (
+        table: string,
+        idCol: string,
+        kind: string,
+        upserts: Array<Record<string, unknown>>,
+      ) => {
+        for (const incoming of upserts) {
+          const existing = this.tables[table].find(
+            row =>
+              String(row.patient_id) === pid && String(row[idCol]) === String(incoming[idCol]),
+          );
+          if (existing) {
+            if (
+              existing.photo_path &&
+              String(existing.photo_path) !== String(incoming.photo_path ?? "")
+            ) {
+              deref(existing.photo_path);
+            }
+            const { patient_id: _pid, created_at: _created, ...rest } = incoming;
+            Object.assign(existing, rest);
+          } else {
+            this.tables[table].push({
+              ...incoming,
+              patient_id: pid,
+              created_at: stampAt(this.seq++),
+            });
+          }
+          register(incoming.photo_path, kind);
+        }
+      };
+      const applyDeletes = (table: string, idCol: string, ids: string[]) => {
+        if (ids.length === 0) return;
+        const doomed = new Set(ids);
+        for (const row of this.tables[table]) {
+          if (String(row.patient_id) === pid && doomed.has(String(row[idCol]))) {
+            deref(row.photo_path);
+          }
+        }
+        this.tables[table] = this.tables[table].filter(
+          row => !(String(row.patient_id) === pid && doomed.has(String(row[idCol]))),
+        );
+      };
+      applyUpserts("patient_custom_foods", "food_id", "food", args.p_food_upsert ?? []);
+      applyUpserts("patient_saved_recipes", "recipe_id", "recipe", args.p_recipe_upsert ?? []);
+      applyDeletes("patient_custom_foods", "food_id", args.p_food_delete_ids ?? []);
+      applyDeletes("patient_saved_recipes", "recipe_id", args.p_recipe_delete_ids ?? []);
+      if (
+        (args.p_favorites !== null && args.p_favorites !== undefined) ||
+        (args.p_recents !== null && args.p_recents !== undefined)
+      ) {
+        const prefs = this.tables.patient_food_prefs.find(
+          row => String(row.patient_id) === pid,
+        );
+        if (prefs) {
+          if (args.p_favorites !== null && args.p_favorites !== undefined) {
+            prefs.favorites = args.p_favorites;
+          }
+          if (args.p_recents !== null && args.p_recents !== undefined) {
+            prefs.recents = args.p_recents;
+          }
+        } else {
+          this.tables.patient_food_prefs.push({
+            patient_id: pid,
+            favorites: args.p_favorites ?? [],
+            recents: args.p_recents ?? [],
           });
         }
       }
@@ -327,6 +443,7 @@ describe("auth ladder", () => {
       ["PUT", "/api/patient-data/water", { dateKey: "2026-08-30", oz: 16 }],
       ["PUT", "/api/patient-data/targets", { calories: 1500 }],
       ["PUT", "/api/patient-data/prefs", { favorites: [] }],
+      ["POST", "/api/patient-data/library", { foodUpsert: [] }],
     ] as const) {
       const res = await api(method, path, { token: "stale-token", body });
       expect(res.status).toBe(401);
@@ -358,7 +475,15 @@ describe("GET /patient-data/state", () => {
       token: "tok-1",
     });
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ entries: [], water: {}, targets: {}, favorites: [], recents: [] });
+    expect(res.json).toEqual({
+      entries: [],
+      water: {},
+      targets: {},
+      favorites: [],
+      recents: [],
+      customFoods: [],
+      savedRecipes: [],
+    });
   });
 
   it("rejects malformed date ranges", async () => {
@@ -469,7 +594,15 @@ describe("GET /patient-data/state", () => {
     });
 
     const other = await api("GET", "/api/patient-data/state", { token: "tok-2" });
-    expect(other.json).toEqual({ entries: [], water: {}, targets: {}, favorites: [], recents: [] });
+    expect(other.json).toEqual({
+      entries: [],
+      water: {},
+      targets: {},
+      favorites: [],
+      recents: [],
+      customFoods: [],
+      savedRecipes: [],
+    });
   });
 
   it("responds 502 with a friendly message when the store is down", async () => {
@@ -747,5 +880,380 @@ describe("PUT /patient-data/prefs", () => {
     });
     expect(bad.status).toBe(400);
     expect(bad.json.error).toBe("Favorites list is invalid.");
+  });
+});
+
+// ── Foods library (custom foods + saved recipes) ────────────────────────────
+
+function mediaPath(patientId: string, rest: string): string {
+  return `/objects/patient-media/${patientId}/${rest}`;
+}
+
+function foodPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "custom-1",
+    name: "Overnight Oats",
+    brand: "Homemade",
+    serving: "1 jar (240 g)",
+    calories: 320,
+    protein: 18,
+    carbs: 45,
+    fat: 8,
+    ...overrides,
+  };
+}
+
+function recipePayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "airec-1",
+    name: "Tuscan Chicken Skillet",
+    meal: "dinner",
+    mode: "recipe",
+    tags: ["High protein", "One pan"],
+    minutes: 25,
+    servings: 2,
+    calories: 410,
+    protein: 38,
+    carbs: 22,
+    fat: 17,
+    description: "A one-pan dinner the coach suggested.",
+    ingredients: [
+      {
+        amount: 8,
+        unit: "oz",
+        name: "Chicken breast",
+        nutrition: { calories: 220, protein: 41, carbs: 0, fat: 5 },
+      },
+      { amount: 1, unit: "cup", name: "Cherry tomatoes" },
+    ],
+    steps: ["Sear the chicken.", "Simmer with tomatoes."],
+    groceryList: ["Chicken breast", "Cherry tomatoes"],
+    savedAt: "2026-08-30T18:04:05.000Z",
+    ...overrides,
+  };
+}
+
+describe("POST /patient-data/library", () => {
+  it("round-trips a custom food through the state read (client shape, category injected)", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const write = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload()] },
+    });
+    expect(write.status).toBe(200);
+
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.customFoods).toEqual([
+      {
+        id: "custom-1",
+        name: "Overnight Oats",
+        brand: "Homemade",
+        serving: "1 jar (240 g)",
+        calories: 320,
+        protein: 18,
+        carbs: 45,
+        fat: 8,
+        category: "My Foods",
+      },
+    ]);
+    // The category is a client constant — never a stored column.
+    expect(backend.tables.patient_custom_foods[0]).not.toHaveProperty("category");
+  });
+
+  it("round-trips a saved recipe verbatim, source injected and savedAt untouched", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const write = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { recipeUpsert: [recipePayload()] },
+    });
+    expect(write.status).toBe(200);
+
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    const { id: _id, ...expected } = recipePayload();
+    expect(state.json.savedRecipes).toEqual([
+      { id: "airec-1", ...expected, source: "coach" },
+    ]);
+    expect(backend.tables.patient_saved_recipes[0]).not.toHaveProperty("source");
+    expect(backend.tables.patient_saved_recipes[0].saved_at).toBe("2026-08-30T18:04:05.000Z");
+  });
+
+  it("omits optional fields (brand, groceryList, photoPath) instead of nulling them", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: {
+        foodUpsert: [foodPayload({ brand: undefined })],
+        recipeUpsert: [recipePayload({ groceryList: undefined, description: undefined })],
+      },
+    });
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.customFoods[0]).not.toHaveProperty("brand");
+    expect(state.json.customFoods[0]).not.toHaveProperty("photoPath");
+    expect(state.json.savedRecipes[0]).not.toHaveProperty("groceryList");
+    expect(state.json.savedRecipes[0]).not.toHaveProperty("photoPath");
+    expect(state.json.savedRecipes[0].description).toBe("");
+  });
+
+  it("keeps insertion order across edits (created_at preserved on merge)", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: {
+        foodUpsert: [
+          foodPayload({ id: "custom-a", name: "First" }),
+          foodPayload({ id: "custom-b", name: "Second" }),
+        ],
+      },
+    });
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload({ id: "custom-a", name: "First Edited" })] },
+    });
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.customFoods.map((f: any) => f.name)).toEqual(["First Edited", "Second"]);
+    expect(backend.tables.patient_custom_foods).toHaveLength(2);
+  });
+
+  it("applies a compound mutation through one atomic upstream call", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const before = backend.libraryRpcCalls;
+    const res = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: {
+        foodUpsert: [foodPayload()],
+        recipeUpsert: [recipePayload()],
+        favorites: ["custom-1"],
+        recents: ["custom-1"],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(backend.libraryRpcCalls - before).toBe(1);
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.customFoods).toHaveLength(1);
+    expect(state.json.savedRecipes).toHaveLength(1);
+    expect(state.json.favorites).toEqual(["custom-1"]);
+    expect(state.json.recents).toEqual(["custom-1"]);
+  });
+
+  it("stores photo paths and keeps the account's media ledger in lockstep", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    const photoA = mediaPath(patientId, "food-aaaaaaaa-1111-4111-8111-111111111111");
+    const photoB = mediaPath(patientId, "food-bbbbbbbb-2222-4222-8222-222222222222");
+
+    // Save with photo A → referenced.
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload({ photoPath: photoA })] },
+    });
+    let state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.customFoods[0].photoPath).toBe(photoA);
+    expect(backend.tables.patient_media.map(r => r.object_path)).toEqual([photoA]);
+
+    // Replace with photo B → A de-referenced, B registered.
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload({ photoPath: photoB })] },
+    });
+    expect(backend.tables.patient_media.map(r => r.object_path)).toEqual([photoB]);
+
+    // Delete the food → nothing referenced any more.
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodDeleteIds: ["custom-1"], favorites: [], recents: [] },
+    });
+    expect(backend.tables.patient_custom_foods).toHaveLength(0);
+    expect(backend.tables.patient_media).toHaveLength(0);
+
+    // Undo restores the same row → its photo is referenced again.
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload({ photoPath: photoB })], favorites: [], recents: [] },
+    });
+    state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.customFoods[0].photoPath).toBe(photoB);
+    expect(backend.tables.patient_media.map(r => r.object_path)).toEqual([photoB]);
+  });
+
+  it("lets favorites/recents ride a delete without clobbering the other list", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload()], favorites: ["custom-1", "oatmeal"], recents: ["custom-1"] },
+    });
+    // Delete strips the food from favorites but says nothing about recents.
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodDeleteIds: ["custom-1"], favorites: ["oatmeal"] },
+    });
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.favorites).toEqual(["oatmeal"]);
+    expect(state.json.recents).toEqual(["custom-1"]);
+  });
+
+  it("rejects photo paths outside the caller's own prefix", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const { patientId: otherId } = backend.seedSignedInPatient("tok-2");
+    for (const path of [
+      mediaPath(otherId, "food-aaaaaaaa-1111-4111-8111-111111111111"),
+      "/objects/progress-photos/front-abc12345",
+      "../escape",
+    ]) {
+      const res = await api("POST", "/api/patient-data/library", {
+        token: "tok-1",
+        body: { foodUpsert: [foodPayload({ photoPath: path })] },
+      });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe("Photo reference is invalid.");
+    }
+    expect(backend.tables.patient_custom_foods).toHaveLength(0);
+  });
+
+  it("rejects malformed foods field by field", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [foodPayload({ id: "bad id" }), "Food id is invalid."],
+      [foodPayload({ name: "x".repeat(201) }), "Food name must be 1-200 characters."],
+      [foodPayload({ name: "   " }), "Food name must be 1-200 characters."],
+      [foodPayload({ brand: "x".repeat(121) }), "Food brand is invalid."],
+      [foodPayload({ serving: "" }), "Food serving is invalid."],
+      [foodPayload({ calories: -1 }), "Food calories are invalid."],
+      [foodPayload({ protein: Number.NaN }), "Food protein is invalid."],
+      [foodPayload({ carbs: "12" }), "Food carbs are invalid."],
+      [foodPayload({ fat: 5001 }), "Food fat is invalid."],
+    ];
+    for (const [food, message] of cases) {
+      const res = await api("POST", "/api/patient-data/library", {
+        token: "tok-1",
+        body: { foodUpsert: [food] },
+      });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe(message);
+    }
+    expect(backend.tables.patient_custom_foods).toHaveLength(0);
+  });
+
+  it("rejects malformed recipes field by field", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [recipePayload({ meal: "brunch" }), "Recipe meal slot is invalid."],
+      [recipePayload({ mode: "improv" }), "Recipe mode is invalid."],
+      [recipePayload({ tags: Array(13).fill("tag") }), "Recipe tags are invalid."],
+      [recipePayload({ minutes: 2001 }), "Recipe minutes are invalid."],
+      [recipePayload({ servings: -1 }), "Recipe servings are invalid."],
+      [recipePayload({ description: "x".repeat(2001) }), "Recipe description is too long."],
+      [recipePayload({ ingredients: [{ amount: 1, unit: "cup" }] }), "Recipe ingredients are invalid."],
+      [
+        recipePayload({
+          ingredients: [{ amount: 1, unit: "cup", name: "Rice", nutrition: { calories: -5, protein: 0, carbs: 0, fat: 0 } }],
+        }),
+        "Recipe ingredients are invalid.",
+      ],
+      [recipePayload({ steps: ["x".repeat(601)] }), "Recipe steps are invalid."],
+      [recipePayload({ groceryList: [42] }), "Recipe grocery list is invalid."],
+      [recipePayload({ savedAt: "x".repeat(41) }), "Recipe save time is invalid."],
+      [recipePayload({ savedAt: "" }), "Recipe save time is invalid."],
+    ];
+    for (const [recipe, message] of cases) {
+      const res = await api("POST", "/api/patient-data/library", {
+        token: "tok-1",
+        body: { recipeUpsert: [recipe] },
+      });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe(message);
+    }
+    expect(backend.tables.patient_saved_recipes).toHaveLength(0);
+  });
+
+  it("rejects oversized batches, bad delete lists, and empty payloads", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const bigFoods = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: Array(41).fill(foodPayload()) },
+    });
+    expect(bigFoods.status).toBe(400);
+    expect(bigFoods.json.error).toBe("Food batch is invalid (at most 40 foods).");
+
+    const bigRecipes = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { recipeUpsert: Array(21).fill(recipePayload()) },
+    });
+    expect(bigRecipes.status).toBe(400);
+    expect(bigRecipes.json.error).toBe("Recipe batch is invalid (at most 20 recipes).");
+
+    const badDeletes = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodDeleteIds: ["ok", "not ok"] },
+    });
+    expect(badDeletes.status).toBe(400);
+    expect(badDeletes.json.error).toBe("Food delete list is invalid.");
+
+    const badRecipeDeletes = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { recipeDeleteIds: [42] },
+    });
+    expect(badRecipeDeletes.status).toBe(400);
+    expect(badRecipeDeletes.json.error).toBe("Recipe delete list is invalid.");
+
+    const empty = await api("POST", "/api/patient-data/library", { token: "tok-1", body: {} });
+    expect(empty.status).toBe(400);
+    expect(empty.json.error).toBe("Nothing to save.");
+  });
+
+  it("commits nothing when the atomic apply fails — and the retry lands", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.failOnce.add("RPC patient_library_apply");
+    const failed = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload()], favorites: ["custom-1"] },
+    });
+    expect(failed.status).toBe(502);
+    expect(failed.json.error).toBe("Couldn't save your library right now. Please try again.");
+    expect(backend.tables.patient_custom_foods).toHaveLength(0);
+    expect(backend.tables.patient_food_prefs).toHaveLength(0);
+
+    const retry = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload()], favorites: ["custom-1"] },
+    });
+    expect(retry.status).toBe(200);
+    expect(backend.tables.patient_custom_foods).toHaveLength(1);
+  });
+
+  it("never mixes two patients' libraries — deletes stay scoped to the caller", async () => {
+    const { patientId: firstId } = backend.seedSignedInPatient("tok-1");
+    backend.seedSignedInPatient("tok-2");
+    const photo = mediaPath(firstId, "food-aaaaaaaa-1111-4111-8111-111111111111");
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: { foodUpsert: [foodPayload({ photoPath: photo })], recipeUpsert: [recipePayload()] },
+    });
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-2",
+      body: { foodUpsert: [foodPayload()] },
+    });
+
+    // The other account sees none of it.
+    const other = await api("GET", "/api/patient-data/state", { token: "tok-2" });
+    expect(other.json.customFoods).toHaveLength(1);
+    expect(other.json.customFoods[0]).not.toHaveProperty("photoPath");
+    expect(other.json.savedRecipes).toEqual([]);
+
+    // A same-id delete from the other account touches only its own rows.
+    await api("POST", "/api/patient-data/library", {
+      token: "tok-2",
+      body: { foodDeleteIds: ["custom-1"] },
+    });
+    const mine = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(mine.json.customFoods).toHaveLength(1);
+    expect(mine.json.customFoods[0].photoPath).toBe(photo);
+    expect(backend.tables.patient_media.map(r => r.object_path)).toEqual([photo]);
+  });
+
+  it("responds 502 with a friendly message when the library read is down", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.failOnce.add("GET patient_custom_foods");
+    const res = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(res.status).toBe(502);
+    expect(res.json.error).toBe("Couldn't load your diary right now. Please try again.");
   });
 });

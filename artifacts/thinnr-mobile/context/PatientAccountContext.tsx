@@ -15,7 +15,7 @@
  * Node suites whose module stub maps know nothing about supabase or fetch.
  */
 import { createContext, useContext } from 'react';
-import type { DailyTargets, MealLogEntry } from '@/data/patient-data';
+import type { DailyTargets, FoodItem, MealLogEntry, SavedRecipe } from '@/data/patient-data';
 
 /** The server-backed slice of a real patient's diary, as hydrated. */
 export interface PatientServerState {
@@ -24,6 +24,21 @@ export interface PatientServerState {
   targets: Partial<DailyTargets>;
   favorites: string[];
   recents: string[];
+  customFoods: FoodItem[];
+  savedRecipes: SavedRecipe[];
+}
+
+/**
+ * One compound library mutation — the server applies every part atomically,
+ * so a delete and the favorites/recents it strips land (or fail) together.
+ */
+export interface LibraryWrite {
+  foodUpsert?: FoodItem[];
+  recipeUpsert?: SavedRecipe[];
+  foodDeleteIds?: string[];
+  recipeDeleteIds?: string[];
+  favorites?: string[];
+  recents?: string[];
 }
 
 /** The live diary rail (implemented by lib/patient-data-api.ts). */
@@ -37,6 +52,15 @@ export interface PatientDataApi {
   writeWater(dateKey: string, oz: number): Promise<void>;
   writeTargets(partial: Partial<DailyTargets>): Promise<void>;
   writePrefs(prefs: { favorites?: string[]; recents?: string[] }): Promise<void>;
+  writeLibrary(input: LibraryWrite): Promise<void>;
+  /**
+   * Moves a library photo (data URI) onto the account's media rail. Returns
+   * the stored object path plus the display URL that serves it.
+   */
+  uploadLibraryPhoto(
+    kind: 'food' | 'recipe',
+    dataUri: string,
+  ): Promise<{ photoPath: string; photoUri: string }>;
 }
 
 export type PatientAccount =

@@ -278,6 +278,29 @@ export class ObjectStorageService {
     return { uploadUrl, objectPath };
   }
 
+  /**
+   * Per-patient media (custom-food / saved-recipe photos, and whatever the
+   * account carries next): every object lives under the owning patient's id,
+   * so OWNERSHIP IS BAKED INTO THE PATH — a finalize or row write can verify
+   * a path belongs to the caller with a prefix check alone.
+   */
+  async patientMediaUploadURL(
+    patientId: string,
+    kind: "food" | "recipe",
+  ): Promise<{ uploadUrl: string; objectPath: string }> {
+    const objectId = `${kind}-${randomUUID()}`;
+    const objectPath = `/objects/patient-media/${patientId}/${objectId}`;
+    const fullPath = `${getTrainingObjectDir()}/patient-media/${patientId}/${objectId}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const uploadUrl = await signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: UPLOAD_URL_TTL_SEC,
+    });
+    return { uploadUrl, objectPath };
+  }
+
   /** Resolve `/objects/...` to the underlying file; throws when absent. */
   async entityFile(objectPath: string): Promise<File> {
     const file = this.fileFor(objectPath);

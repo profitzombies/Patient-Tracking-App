@@ -98,6 +98,12 @@ export interface FoodItem {
   category: string;
   /** Optional photo (data URI) — set on foods saved from AI suggestions. */
   photoUri?: string;
+  /**
+   * Account photo reference (/objects/patient-media/…) — real accounts only.
+   * There, photoUri holds the display URL that serves these stored bytes;
+   * demo items keep local data URIs and never set this.
+   */
+  photoPath?: string;
 }
 
 export interface IngredientNutrition {
@@ -160,6 +166,8 @@ export interface SavedRecipe extends Recipe {
   mode: 'recipe' | 'cravings' | 'meal';
   savedAt: string; // ISO timestamp
   photoUri?: string;
+  /** Account photo reference — same contract as FoodItem.photoPath. */
+  photoPath?: string;
   groceryList?: string[];
 }
 export interface MealLogEntry {

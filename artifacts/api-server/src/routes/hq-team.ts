@@ -8,7 +8,7 @@
 import crypto from "node:crypto";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
+import { requireHqPermission, requireStaff, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { DeliveryNotConfiguredError, sendHqTeamInvitation } from "../claim/delivery";
 
@@ -184,6 +184,27 @@ function rpcError(json: unknown, fallback: string): string {
     : "";
   return message || fallback;
 }
+
+router.get("/hq-session", requireStaff(["hq_admin"]), async (req, res): Promise<void> => {
+  const staff = res.locals.staff as StaffIdentity;
+  res.set("Cache-Control", "private, no-store");
+  try {
+    const result = await supabaseAdmin(
+      "GET",
+      `/rest/v1/hq_memberships?auth_user_id=eq.${encode(staff.userId)}&status=eq.active&select=display_name,job_title&limit=1`,
+    );
+    if (result.status >= 300) throw new Error(`HQ session lookup failed (${result.status})`);
+    const row = Array.isArray(result.json) ? result.json[0] : null;
+    res.json({
+      departmentRole: staff.departmentRole,
+      displayName: row?.display_name ? String(row.display_name) : null,
+      jobTitle: row?.job_title ? String(row.job_title) : null,
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ session lookup failed");
+    res.status(503).json({ error: "Could not verify your HQ session right now." });
+  }
+});
 
 router.get("/hq-team", requireHqPermission("team_manage"), async (req, res): Promise<void> => {
   try {

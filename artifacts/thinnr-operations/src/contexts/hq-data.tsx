@@ -7,8 +7,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ProviderAccount } from '@/data/hq/accounts';
 import {
   createProviderAccount,
+  updateProviderAccount,
   fetchProviderAccounts,
   type NewProviderAccountInput,
+  type UpdateProviderAccountInput,
 } from '@/lib/provider-accounts';
 import type { HqRole, HqTeamMember } from '@/data/hq/team';
 import { canHq } from '@/data/hq/team';
@@ -50,6 +52,8 @@ interface HqDataValue {
   refreshAccounts: () => Promise<void>;
   findAccount: (id: string | undefined) => ProviderAccount | undefined;
   addAccount: (input: NewAccountInput) => ReturnType<typeof createProviderAccount>;
+  updateAccount: (id: string, input: UpdateProviderAccountInput) => Promise<ProviderAccount>;
+  canManageProviderAccounts: boolean;
   team: HqTeamMember[];
   teamStatus: 'loading' | 'ready' | 'error' | 'unauthorized';
   teamError: string | null;
@@ -65,14 +69,15 @@ const HqDataContext = createContext<HqDataValue | null>(null);
 export function HqDataProvider({ children }: { children: ReactNode }) {
   const [stored, setStored] = useState<StoredUiState>(readStoredState);
   const queryClient = useQueryClient();
-  const { authStatus, authRole, hqRole } = useSession();
+  const { authStatus, authRole, authUser, hqRole } = useSession();
   // The API deliberately returns a contact-only DTO to Support. Keep each
   // role in its own cache entry so a previously cached Admin response can
   // never be displayed after a Support sign-in.
   const canReadLiveAccounts = authStatus === 'signed-in' && authRole === 'hq_admin' && canHq(hqRole, 'accounts');
   const canManageProviderAccounts = authStatus === 'signed-in' && authRole === 'hq_admin' &&
     (hqRole === 'Super Admin' || hqRole === 'Admin');
-  const providerAccountsQueryKey = [...PROVIDER_ACCOUNTS_QUERY_KEY, hqRole] as const;
+  const accountScope = hqRole === 'Support' ? 'contact' : hqRole === 'Clinical' ? 'clinical' : 'admin';
+  const providerAccountsQueryKey = [...PROVIDER_ACCOUNTS_QUERY_KEY, authUser?.id ?? 'signed-out', accountScope] as const;
   const query = useQuery({
     queryKey: providerAccountsQueryKey,
     queryFn: fetchProviderAccounts,
@@ -135,6 +140,21 @@ export function HqDataProvider({ children }: { children: ReactNode }) {
     return created;
   }, [canManageProviderAccounts, queryClient, providerAccountsQueryKey]);
 
+  const updateAccount = useCallback(async (id: string, input: UpdateProviderAccountInput) => {
+    if (!canManageProviderAccounts) {
+      throw new Error('Your HQ role cannot manage provider accounts.');
+    }
+    const updated = await updateProviderAccount(id, input);
+    queryClient.setQueryData<ProviderAccount[]>(providerAccountsQueryKey, (current = []) =>
+      current.map((row) => row.id === updated.id ? updated : row)
+    );
+    // Also patch the detail cache if it exists
+    queryClient.setQueryData<any>(['provider-account-detail', id], (current: any) =>
+      current ? { ...current, account: updated } : current
+    );
+    return updated;
+  }, [canManageProviderAccounts, queryClient, providerAccountsQueryKey]);
+
   const inviteTeamMember = useCallback((input: InviteHqTeamMemberInput) => inviteMutation.mutateAsync(input), [inviteMutation]);
   const updateTeamMember = useCallback(
     (id: string, patch: { role: Exclude<HqRole, 'Super Admin'>; title: string }) =>
@@ -152,6 +172,8 @@ export function HqDataProvider({ children }: { children: ReactNode }) {
     refreshAccounts,
     findAccount,
     addAccount,
+    updateAccount,
+    canManageProviderAccounts,
     team: teamQuery.data ?? [],
     teamStatus: !canManageTeam ? 'unauthorized' : teamQuery.isPending ? 'loading' : teamQuery.isError ? 'error' : 'ready',
     teamError: teamQuery.error instanceof Error ? teamQuery.error.message : null,
@@ -161,7 +183,7 @@ export function HqDataProvider({ children }: { children: ReactNode }) {
     teamMutationPending: inviteMutation.isPending || updateMutation.isPending || removeMutation.isPending,
     settingsValues: stored.settingsValues,
     saveSettings,
-  }), [accounts, canReadLiveAccounts, query.isPending, query.isError, query.error, refreshAccounts, findAccount, addAccount, teamQuery.data, teamQuery.isPending, teamQuery.isError, teamQuery.error, canManageTeam, inviteTeamMember, updateTeamMember, removeTeamMember, inviteMutation.isPending, updateMutation.isPending, removeMutation.isPending, stored.settingsValues, saveSettings]);
+  }), [accounts, canReadLiveAccounts, query.isPending, query.isError, query.error, refreshAccounts, findAccount, addAccount, updateAccount, canManageProviderAccounts, teamQuery.data, teamQuery.isPending, teamQuery.isError, teamQuery.error, canManageTeam, inviteTeamMember, updateTeamMember, removeTeamMember, inviteMutation.isPending, updateMutation.isPending, removeMutation.isPending, stored.settingsValues, saveSettings]);
 
   return <HqDataContext.Provider value={value}>{children}</HqDataContext.Provider>;
 }

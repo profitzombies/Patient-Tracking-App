@@ -79,6 +79,38 @@ function normalizeHqRole(value: unknown): HqRole | null {
   return null;
 }
 
+interface HqSessionResult {
+  data: { displayName: string | null; departmentRole: HqRole; jobTitle: string | null } | null;
+  error: boolean;
+}
+
+async function fetchHqSession(client: NonNullable<typeof supabase>): Promise<HqSessionResult> {
+  try {
+    const { data } = await client.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return { data: null, error: false };
+    const response = await fetch('/api/hq-session', {
+      cache: 'no-store',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (response.status === 401 || response.status === 403) return { data: null, error: false };
+    if (!response.ok) return { data: null, error: true };
+    const body = (await response.json()) as Record<string, unknown>;
+    const departmentRole = normalizeHqRole(body.departmentRole);
+    if (!departmentRole) return { data: null, error: true };
+    return {
+      data: {
+        departmentRole,
+        displayName: typeof body.displayName === 'string' ? body.displayName : null,
+        jobTitle: typeof body.jobTitle === 'string' ? body.jobTitle : null,
+      },
+      error: false,
+    };
+  } catch {
+    return { data: null, error: true };
+  }
+}
+
 /** sessionStorage can throw (privacy modes); the demo degrades to in-memory. */
 function readStoredPersona(): Persona | null {
   try {
@@ -265,31 +297,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         .select('role, display_name, provider_account_code')
         .eq('id', userId)
         .maybeSingle(),
-      client
-        .from('hq_memberships')
-        .select('display_name, department_role, job_title')
-        .eq('auth_user_id', userId)
-        .eq('status', 'active')
-        .maybeSingle(),
-    ]).then(([profileResult, membershipResult]) => {
+      fetchHqSession(client),
+    ]).then(([profileResult, hqSessionResult]) => {
       if (cancelled) return;
 
-      // Membership is authorization, so never fall back to a possibly stale
-      // profiles.role when RLS/network failure leaves membership unresolved.
-      if (membershipResult.error) {
+      // The same server-side membership resolver that guards every HQ API
+      // route is authoritative here too. This avoids browser-RLS failures
+      // disagreeing with a valid active HQ session.
+      if (hqSessionResult.error) {
         setRoleStatus('error');
         return;
       }
-      if (membershipResult.data) {
-        const departmentRole = normalizeHqRole(membershipResult.data.department_role);
-        if (departmentRole === null) {
-          setRoleStatus('error');
-          return;
-        }
+      if (hqSessionResult.data) {
+        const { departmentRole, displayName, jobTitle } = hqSessionResult.data;
         setAuthRole('hq_admin');
-        setProfileName((membershipResult.data.display_name as string | null) ?? null);
+        setProfileName(displayName);
         setHqRole(departmentRole);
-        setProfileTitle((membershipResult.data.job_title as string | null) ?? null);
+        setProfileTitle(jobTitle);
         setProviderAccountCode(null);
         setClaimedWorkspace(null);
         setRoleStatus('ready');
@@ -338,40 +362,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let disposed = false;
 
     const refreshActiveStaffRole = async () => {
-      const [profileResult, membershipResult] = await Promise.all([
+      const [profileResult, hqSessionResult] = await Promise.all([
         client
           .from('profiles')
           .select('role, display_name, provider_account_code')
           .eq('id', userId)
           .maybeSingle(),
-        client
-          .from('hq_memberships')
-          .select('display_name, department_role, job_title')
-          .eq('auth_user_id', userId)
-          .eq('status', 'active')
-          .maybeSingle(),
+        fetchHqSession(client),
       ]);
       if (disposed) return;
 
-      if (membershipResult.error) {
+      if (hqSessionResult.error) {
         setRoleStatus('error');
         return;
       }
 
-      if (membershipResult.data) {
-        const nextHqRole = normalizeHqRole(membershipResult.data.department_role);
-        if (nextHqRole === null) {
-          setAuthRole(null);
-          setHqRole(null);
-          setProfileTitle(null);
-          setProviderAccountCode(null);
-          setRoleStatus('error');
-          return;
-        }
+      if (hqSessionResult.data) {
+        const { departmentRole: nextHqRole, displayName, jobTitle } = hqSessionResult.data;
         setAuthRole('hq_admin');
-        setProfileName((membershipResult.data.display_name as string | null) ?? null);
+        setProfileName(displayName);
         setHqRole(nextHqRole);
-        setProfileTitle((membershipResult.data.job_title as string | null) ?? null);
+        setProfileTitle(jobTitle);
         setProviderAccountCode(null);
         setClaimedWorkspace(null);
         setRoleStatus('ready');

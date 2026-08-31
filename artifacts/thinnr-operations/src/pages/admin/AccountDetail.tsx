@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'wouter';
-import { ArrowLeft, ArrowRight, Copy, Lock, MessagesSquare } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronsUpDown, Copy, Edit2, Lock, MessagesSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -22,13 +22,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
+import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
-import { fetchProviderAccountDetail } from '@/lib/provider-accounts';
+import { fetchProviderAccountDetail, ProviderAccountError, type UpdateProviderAccountInput } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
+import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPostalCode, usStateName } from '@/lib/us-contact';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { type AccountPlan } from '@/data/hq/accounts';
+
+const PLANS: AccountPlan[] = ['Core', 'Plus', 'Concierge'];
 
 const fmt = (value: number) => value.toLocaleString('en-US');
 
@@ -45,22 +52,55 @@ function Stat({ label, value, testId }: { label: string; value: React.ReactNode;
 
 export default function AccountDetail() {
   const { id } = useParams<{ id: string }>();
-  const { findAccount, accountsStatus } = useHqData();
+  const { findAccount, accountsStatus, updateAccount, canManageProviderAccounts } = useHqData();
   const { locks, isLocked, setAccountLock } = useAccountLocks();
   const { toast } = useToast();
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [stateOpen, setStateOpen] = useState(false);
+  const [form, setForm] = useState<UpdateProviderAccountInput>({
+    officeName: '', providerName: '', providerRole: '', address1: '', address2: '', city: '', state: '', postalCode: '', plan: null, email: '', phone: ''
+  });
+  const [formError, setFormError] = useState<string | null>(null);
+
   const detailQuery = useQuery({
     queryKey: ['provider-account-detail', id],
     queryFn: () => fetchProviderAccountDetail(id),
-    enabled: accountsStatus === 'ready' && Boolean(id),
+    enabled: accountsStatus !== 'unauthorized' && Boolean(id),
+    retry: 1,
   });
   const account = detailQuery.data?.account ?? findAccount(id);
 
+  if (accountsStatus === 'unauthorized') {
+    return (
+      <AdminPage>
+        <div className="mx-auto max-w-md rounded-lg border border-card-border bg-card px-6 py-10 text-center shadow-soft">
+          <h1 className="font-serif text-lg font-bold text-navy">HQ account required</h1>
+          <p className="mt-2 text-xs text-muted-foreground">Sign in with an active THINNR HQ account to view this provider account.</p>
+        </div>
+      </AdminPage>
+    );
+  }
   if (!account && (accountsStatus === 'loading' || detailQuery.isPending)) {
     return <AdminPage><p className="py-10 text-center text-xs text-muted-foreground">Loading live provider account…</p></AdminPage>;
+  }
+  if (detailQuery.isError && !account) {
+    return (
+      <AdminPage>
+        <div className="mx-auto max-w-md rounded-lg border border-card-border bg-card px-6 py-10 text-center shadow-soft">
+          <h1 className="font-serif text-lg font-bold text-navy">Account details unavailable</h1>
+          <p className="mt-2 text-xs text-muted-foreground">
+            The live provider account could not be loaded. Try again before acting on this account.
+          </p>
+          <button type="button" className={`${BTN_SECONDARY} mt-5 h-9 px-3.5`} onClick={() => detailQuery.refetch()}>
+            Try again
+          </button>
+        </div>
+      </AdminPage>
+    );
   }
   if (!account) {
     return (
@@ -141,6 +181,77 @@ export default function AccountDetail() {
     }
   };
 
+  const openEdit = () => {
+    setForm({
+      officeName: account.officeName,
+      providerName: account.providerName,
+      providerRole: account.providerRole,
+      address1: account.address1 || '',
+      address2: account.address2 || '',
+      city: account.city,
+      state: account.state,
+      postalCode: account.postalCode || '',
+      plan: account.plan,
+      email: account.email,
+      phone: account.phone ? formatUsPhone(account.phone) : '',
+    });
+    setFormError(null);
+    setEditOpen(true);
+  };
+
+  const setField = (key: keyof UpdateProviderAccountInput) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    let value = event.target.value;
+    if (key === 'phone') value = formatUsPhone(value);
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const submitEdit = async () => {
+    if (saving) return;
+    const officeName = form.officeName.trim();
+    const providerName = form.providerName.trim();
+    const address1 = form.address1.trim();
+    const address2 = form.address2.trim();
+    const city = form.city.trim();
+    const state = normalizeUsState(form.state);
+    const postalCode = form.postalCode.trim();
+    const email = form.email.trim().toLowerCase();
+    const phone = form.phone.trim();
+
+    if (!officeName || !providerName || !address1 || !city || !state || !postalCode || !email || !phone) {
+      setFormError('Office name, provider name, Address 1, City, State, ZIP, email, and phone are required.');
+      return;
+    }
+    if (!isValidUsPostalCode(postalCode)) {
+      setFormError('Please enter a valid 5-digit ZIP code.');
+      return;
+    }
+    if (!isValidUsPhone(phone)) {
+      setFormError('Please enter a valid 10-digit phone number.');
+      return;
+    }
+
+    setSaving(true);
+    setFormError(null);
+    try {
+      await updateAccount(account.id, {
+        officeName, providerName,
+        providerRole: form.providerRole.trim() || 'Practitioner',
+        address1, address2, city, state, postalCode, plan: form.plan, email, phone,
+      });
+      toast({
+        variant: 'success',
+        title: 'Office details updated',
+        description: 'Changes have been saved to the live directory.',
+      });
+      setEditOpen(false);
+      detailQuery.refetch();
+    } catch (cause) {
+      setFormError(cause instanceof ProviderAccountError ? cause.message : 'The office details could not be updated.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <AdminPage>
       <Link href="/admin/accounts" className="mb-4 inline-flex items-center gap-1.5 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="link-back-to-accounts">
@@ -153,7 +264,7 @@ export default function AccountDetail() {
         title={account.officeName}
         sub={
           <>
-             {account.providerName} · {account.providerRole} · {[account.city, account.state].filter(Boolean).join(', ') || '—'} · Joined{' '}
+             {account.providerName} · {account.providerRole} · {[account.city, account.state ? usStateName(account.state) : ''].filter(Boolean).join(', ') || '—'} · Joined{' '}
             {formatDateKey(account.joinedKey, true)}
           </>
         }
@@ -262,7 +373,16 @@ export default function AccountDetail() {
 
       {/* Office profile spans the full measure beneath the two columns. */}
       <div className="mt-5">
-        <SectionCard title="Office profile" sub="Contact and linking details">
+        <SectionCard
+          title="Office profile"
+          sub="Contact and linking details"
+          action={canManageProviderAccounts && (
+            <button type="button" className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`} onClick={openEdit} data-testid="button-edit-office">
+              <Edit2 size={12} aria-hidden="true" />
+              Edit details
+            </button>
+          )}
+        >
           <div className="md:grid md:grid-cols-[minmax(0,2fr),minmax(0,3fr)]">
             <div className="border-b border-border px-5 py-4 md:border-b-0 md:border-r">
               <p className={PANEL_LABEL}>Provider code</p>
@@ -289,7 +409,8 @@ export default function AccountDetail() {
               {[
                 { label: 'Email', value: account.email },
                  { label: 'Office phone', value: account.phone ?? '—' },
-                 { label: 'Location', value: [account.city, account.state].filter(Boolean).join(', ') || '—' },
+                 { label: 'Address', value: [account.address1, account.address2].filter(Boolean).join(', ') || '—' },
+                  { label: 'Location', value: [account.city, account.state ? usStateName(account.state) : '', account.postalCode].filter(Boolean).join(', ') || '—' },
                 { label: 'Joined', value: formatDateKey(account.joinedKey, true) },
                  { label: 'Plan', value: account.plan ?? '—' },
               ].map((row) => (
@@ -386,6 +507,126 @@ export default function AccountDetail() {
             >
               <Lock size={12} aria-hidden="true" />
               {saving ? 'Locking…' : 'Lock account'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Edit office profile</DialogTitle>
+            <DialogDescription>
+              Update contact and location details for {account.officeName}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block sm:col-span-2">
+              <span className={PANEL_LABEL}>Office name *</span>
+               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.officeName} onChange={setField('officeName')} placeholder="e.g. Beacon Hill Aesthetics" data-testid="input-edit-office" />
+            </label>
+            <label className="block">
+              <span className={PANEL_LABEL}>Provider name *</span>
+               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.providerName} onChange={setField('providerName')} placeholder="e.g. Dr. Maya Brooks" data-testid="input-edit-provider" />
+            </label>
+            <label className="block">
+              <span className={PANEL_LABEL}>Provider role</span>
+               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.providerRole} onChange={setField('providerRole')} placeholder="e.g. Medical Director" data-testid="input-edit-role" />
+            </label>
+
+            <label className="block sm:col-span-2">
+              <span className={PANEL_LABEL}>Address 1 *</span>
+               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.address1} onChange={setField('address1')} placeholder="e.g. 123 Main St" data-testid="input-edit-address1" />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className={PANEL_LABEL}>Address 2</span>
+               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.address2} onChange={setField('address2')} placeholder="e.g. Suite 200" data-testid="input-edit-address2" />
+            </label>
+
+            <label className="block sm:col-span-2">
+              <span className={PANEL_LABEL}>City *</span>
+               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.city} onChange={setField('city')} placeholder="e.g. Boston" data-testid="input-edit-city" />
+            </label>
+
+            <div className="block">
+              <span className={PANEL_LABEL}>State *</span>
+              <Popover open={stateOpen} onOpenChange={setStateOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    role="combobox"
+                    aria-expanded={stateOpen}
+                     className={`${INPUT_CLASS} mt-1 flex h-9 w-full items-center justify-between px-3 text-xs ${!form.state && 'text-muted-foreground'}`}
+                    data-testid="select-edit-state"
+                  >
+                    {form.state ? US_STATES.find(s => s.abbr === form.state)?.name || form.state : "Select state..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[200px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search state..." className="h-9 text-xs" />
+                    <CommandList>
+                      <CommandEmpty>No state found.</CommandEmpty>
+                      <CommandGroup>
+                        {US_STATES.map((state) => (
+                          <CommandItem
+                            key={state.abbr}
+                            value={`${state.name} ${state.abbr}`}
+                            onSelect={() => {
+                              setForm(c => ({ ...c, state: state.abbr }));
+                              setStateOpen(false);
+                            }}
+                            className="text-xs"
+                          >
+                            {state.name}
+                            <Check
+                              className={`ml-auto h-4 w-4 ${form.state === state.abbr ? "opacity-100" : "opacity-0"}`}
+                            />
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <label className="block">
+              <span className={PANEL_LABEL}>ZIP Code *</span>
+               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.postalCode} onChange={setField('postalCode')} placeholder="e.g. 02108" maxLength={10} data-testid="input-edit-zip" />
+            </label>
+
+            <label className="block">
+              <span className={PANEL_LABEL}>Email *</span>
+               <input type="email" required className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.email} onChange={setField('email')} placeholder="frontdesk@office.example.com" data-testid="input-edit-email" />
+            </label>
+            <label className="block">
+              <span className={PANEL_LABEL}>Office phone *</span>
+               <input type="tel" className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.phone} onChange={setField('phone')} placeholder="(555) 000-0000" data-testid="input-edit-phone" />
+            </label>
+
+            <div className="block sm:col-span-2">
+              <span className={PANEL_LABEL}>Plan</span>
+              <Select value={form.plan || ''} onValueChange={(value) => setForm(c => ({ ...c, plan: value as AccountPlan }))}>
+                <SelectTrigger className="mt-1 h-9 text-xs" data-testid="select-edit-plan">
+                  <SelectValue placeholder="No plan selected" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PLANS.map((option) => (
+                    <SelectItem key={option} value={option} className="text-xs">{option}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {formError && <p role="alert" className="text-xs font-semibold text-destructive" data-testid="text-edit-form-error">{formError}</p>}
+          <DialogFooter>
+            <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setEditOpen(false)}>
+              Cancel
+            </button>
+            <button type="button" disabled={saving} className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-edit-save" onClick={submitEdit}>
+               {saving ? 'Saving…' : 'Save changes'}
             </button>
           </DialogFooter>
         </DialogContent>

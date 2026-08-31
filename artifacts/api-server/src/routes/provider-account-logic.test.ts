@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   effectiveProviderCode,
   isActivePatientStatus,
+  normalizeUsPhone,
+  normalizeUsPostalCode,
+  normalizeUsState,
   supportProviderAccountDto,
 } from "./provider-accounts";
 import { providerAcceptsNewStaff } from "./staff-logins";
@@ -28,6 +31,17 @@ describe("live provider account invariants", () => {
     expect(effectiveProviderCode(null, "live-12345")).toBeNull();
   });
 
+  it("canonicalizes US state names, abbreviations, phone numbers, and ZIP codes", () => {
+    expect(normalizeUsState("Florida")).toBe("FL");
+    expect(normalizeUsState(" fl ")).toBe("FL");
+    expect(normalizeUsState("Not a state")).toBeNull();
+    expect(normalizeUsPhone("1 (813) 541-0653")).toBe("(813) 541-0653");
+    expect(normalizeUsPhone("813-541")).toBeNull();
+    expect(normalizeUsPostalCode("33602")).toBe("33602");
+    expect(normalizeUsPostalCode("33602-1234")).toBe("33602-1234");
+    expect(normalizeUsPostalCode("3360")).toBeNull();
+  });
+
   it("limits the Support provider DTO to contact and status fields", () => {
     const dto = supportProviderAccountDto({
       id: "provider-1",
@@ -38,8 +52,11 @@ describe("live provider account invariants", () => {
       status: "active",
       email: "provider@example.com",
       phone: "555-0100",
+      address1: "123 Main St",
+      address2: "Suite 200",
       city: "Austin",
       state: "TX",
+      postalCode: "78701",
       joinedKey: "2026-08-01",
       providerCode: "123456",
       plan: "Concierge",
@@ -68,8 +85,11 @@ describe("live provider account invariants", () => {
       status: "active",
       email: "provider@example.com",
       phone: "555-0100",
+      address1: "123 Main St",
+      address2: "Suite 200",
       city: "Austin",
       state: "TX",
+      postalCode: "78701",
       joinedKey: "2026-08-01",
     });
     expect(dto).not.toHaveProperty("providerCode");

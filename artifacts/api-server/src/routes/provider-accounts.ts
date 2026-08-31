@@ -27,6 +27,71 @@ export function effectiveProviderCode(onboardingCode: unknown, providerId: unkno
   return /^[0-9]{5}$/.test(legacyCode) ? legacyCode : null;
 }
 
+const US_STATES = new Map<string, string>([
+  ["alabama", "AL"], ["alaska", "AK"], ["arizona", "AZ"], ["arkansas", "AR"],
+  ["california", "CA"], ["colorado", "CO"], ["connecticut", "CT"], ["delaware", "DE"],
+  ["florida", "FL"], ["georgia", "GA"], ["hawaii", "HI"], ["idaho", "ID"],
+  ["illinois", "IL"], ["indiana", "IN"], ["iowa", "IA"], ["kansas", "KS"],
+  ["kentucky", "KY"], ["louisiana", "LA"], ["maine", "ME"], ["maryland", "MD"],
+  ["massachusetts", "MA"], ["michigan", "MI"], ["minnesota", "MN"], ["mississippi", "MS"],
+  ["missouri", "MO"], ["montana", "MT"], ["nebraska", "NE"], ["nevada", "NV"],
+  ["new hampshire", "NH"], ["new jersey", "NJ"], ["new mexico", "NM"], ["new york", "NY"],
+  ["north carolina", "NC"], ["north dakota", "ND"], ["ohio", "OH"], ["oklahoma", "OK"],
+  ["oregon", "OR"], ["pennsylvania", "PA"], ["rhode island", "RI"], ["south carolina", "SC"],
+  ["south dakota", "SD"], ["tennessee", "TN"], ["texas", "TX"], ["utah", "UT"],
+  ["vermont", "VT"], ["virginia", "VA"], ["washington", "WA"], ["west virginia", "WV"],
+  ["wisconsin", "WI"], ["wyoming", "WY"], ["district of columbia", "DC"],
+]);
+
+export function normalizeUsState(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  if (/^[a-z]{2}$/.test(normalized)) {
+    const abbreviation = normalized.toUpperCase();
+    return [...US_STATES.values()].includes(abbreviation) ? abbreviation : null;
+  }
+  return US_STATES.get(normalized) ?? null;
+}
+
+export function normalizeUsPhone(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let digits = value.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+  if (digits.length !== 10) return null;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+export function normalizeUsPostalCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return /^[0-9]{5}(?:-[0-9]{4})?$/.test(normalized) ? normalized : null;
+}
+
+const StateInput = z.string().trim().min(1, "State is required.").max(40).transform((value, context) => {
+  const state = normalizeUsState(value);
+  if (!state) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Choose a valid US state." });
+    return z.NEVER;
+  }
+  return state;
+});
+const PhoneInput = z.string().trim().min(1, "Office phone is required.").max(40).transform((value, context) => {
+  const phone = normalizeUsPhone(value);
+  if (!phone) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid 10-digit US office phone number." });
+    return z.NEVER;
+  }
+  return phone;
+});
+const PostalCodeInput = z.string().trim().min(1, "ZIP code is required.").max(10).transform((value, context) => {
+  const postalCode = normalizeUsPostalCode(value);
+  if (!postalCode) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a five-digit ZIP code or ZIP+4." });
+    return z.NEVER;
+  }
+  return postalCode;
+});
+
 const AccountInput = z.object({
   officeName: z.string().trim().min(1).max(200),
   providerName: z.string().trim().min(1).max(160),
@@ -34,16 +99,19 @@ const AccountInput = z.object({
   email: z.string().trim().email().max(320),
   // Contact-only office line — never used for sign-in, so a provider's
   // personal cell stays free for their own patient account.
-  phone: z.string().trim().min(1, "Office phone is required.").max(40),
-  city: z.string().trim().max(120).optional().default(""),
-  state: z.string().trim().max(2).optional().default(""),
+  phone: PhoneInput,
+  address1: z.string().trim().min(1, "Address 1 is required.").max(200),
+  address2: z.string().trim().max(200).optional().default(""),
+  city: z.string().trim().min(1, "City is required.").max(120),
+  state: StateInput,
+  postalCode: PostalCodeInput,
   plan: z.enum(["Core", "Plus", "Concierge"]).nullable(),
 });
 
 const PROVIDER_SELECT =
-  "provider_id,provider_name,office_name,email,phone,city,state,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location";
+  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location";
 const SUPPORT_PROVIDER_SELECT =
-  "provider_id,provider_name,office_name,email,phone,city,state,provider_role,access_disabled,auth_user_id,created_at";
+  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,access_disabled,auth_user_id,created_at";
 
 function enc(value: string): string {
   return encodeURIComponent(value);
@@ -117,8 +185,11 @@ async function loadAccounts(supportOnly = false) {
             ? "active"
             : "needs_setup",
       plan: row.plan ? String(row.plan) : null,
+      address1: row.address_line_1 ? String(row.address_line_1) : "",
+      address2: row.address_line_2 ? String(row.address_line_2) : "",
       city: row.city ? String(row.city) : "",
       state: row.state ? String(row.state) : "",
+      postalCode: row.postal_code ? String(row.postal_code) : "",
       location: row.provider_location ?? null,
       email: row.email ? String(row.email) : "—",
       phone: row.phone ? String(row.phone) : null,
@@ -156,8 +227,11 @@ export function supportProviderAccountDto(account: Record<string, unknown>) {
     status: account.status,
     email: account.email,
     phone: account.phone,
+    address1: account.address1,
+    address2: account.address2,
     city: account.city,
     state: account.state,
+    postalCode: account.postalCode,
     joinedKey: account.joinedKey,
   };
 }
@@ -244,8 +318,11 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
       p_provider_role: parsed.data.providerRole,
       p_email: parsed.data.email.toLowerCase(),
       p_phone: parsed.data.phone,
+      p_address_line_1: parsed.data.address1,
+      p_address_line_2: parsed.data.address2,
       p_city: parsed.data.city,
-      p_state: parsed.data.state.toUpperCase(),
+      p_state: parsed.data.state,
+      p_postal_code: parsed.data.postalCode,
       p_plan: parsed.data.plan,
     });
     if (result.status === 409 || result.status === 400 || result.status === 422) {
@@ -277,8 +354,11 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
         providerCode: row.onboarding_code ? String(row.onboarding_code) : null,
         status: "needs_setup",
         plan: row.plan ? String(row.plan) : null,
+        address1: row.address_line_1 ? String(row.address_line_1) : "",
+        address2: row.address_line_2 ? String(row.address_line_2) : "",
         city: row.city ? String(row.city) : "",
         state: row.state ? String(row.state) : "",
+        postalCode: row.postal_code ? String(row.postal_code) : "",
         email: String(row.email),
         phone: row.phone ? String(row.phone) : null,
         joinedKey: String(row.created_at).slice(0, 10),
@@ -300,6 +380,58 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
   } catch (error) {
     req.log?.error({ err: error }, "provider account create failed");
     res.status(502).json({ error: "Could not finish creating the provider account." });
+  }
+});
+
+router.patch("/provider-accounts/:id", requireHqPermission("provider_manage"), async (req, res) => {
+  const parsed = AccountInput.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    res.status(400).json({
+      error: issue?.message ?? "Check the account form and try again.",
+      field: typeof issue?.path?.[0] === "string" ? issue.path[0] : undefined,
+    });
+    return;
+  }
+  try {
+    const callerId = (res.locals.staff as StaffIdentity).userId;
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_update_provider_account", {
+      p_updated_by: callerId,
+      p_provider_id: req.params.id,
+      p_office_name: parsed.data.officeName,
+      p_provider_name: parsed.data.providerName,
+      p_provider_role: parsed.data.providerRole,
+      p_email: parsed.data.email.toLowerCase(),
+      p_phone: parsed.data.phone,
+      p_address_line_1: parsed.data.address1,
+      p_address_line_2: parsed.data.address2,
+      p_city: parsed.data.city,
+      p_state: parsed.data.state,
+      p_postal_code: parsed.data.postalCode,
+      p_plan: parsed.data.plan,
+    });
+    if (result.status === 404) {
+      res.status(404).json({ error: "Provider account not found." });
+      return;
+    }
+    if (result.status === 409 || result.status === 400 || result.status === 422) {
+      res.status(409).json({ error: errorMessage(result.json) });
+      return;
+    }
+    if (result.status >= 300 || !result.json) {
+      throw new Error(`provider update failed (${result.status})`);
+    }
+
+    const snapshot = await loadAccounts(false);
+    const account = snapshot.accounts.find((item) => item.id === req.params.id);
+    if (!account) {
+      res.status(404).json({ error: "Provider account not found." });
+      return;
+    }
+    res.json({ account });
+  } catch (error) {
+    req.log?.error({ err: error }, "provider account update failed");
+    res.status(502).json({ error: "Could not save this provider account right now." });
   }
 });
 

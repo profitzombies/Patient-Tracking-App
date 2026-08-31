@@ -8,7 +8,7 @@ import type {
 /** The directory shape returned to Support: contact and access status only. */
 export type SupportProviderAccount = Pick<
   ProviderAccount,
-  'id' | 'providerId' | 'officeName' | 'providerName' | 'providerRole' | 'status' | 'city' | 'state' | 'email' | 'phone' | 'joinedKey'
+  'id' | 'providerId' | 'officeName' | 'providerName' | 'providerRole' | 'status' | 'address1' | 'address2' | 'city' | 'state' | 'postalCode' | 'email' | 'phone' | 'joinedKey'
 >;
 
 type ProviderAccountDto = Partial<ProviderAccount> & SupportProviderAccount;
@@ -17,8 +17,25 @@ export interface NewProviderAccountInput {
   officeName: string;
   providerName: string;
   providerRole: string;
+  address1: string;
+  address2?: string;
   city: string;
   state: string;
+  postalCode: string;
+  plan: AccountPlan | null;
+  email: string;
+  phone: string;
+}
+
+export interface UpdateProviderAccountInput {
+  officeName: string;
+  providerName: string;
+  providerRole: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  postalCode: string;
   plan: AccountPlan | null;
   email: string;
   phone: string;
@@ -44,17 +61,26 @@ async function authToken(): Promise<string> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = await authToken();
+  let token = await authToken();
   let response: Response;
+  const perform = (accessToken: string) => fetch(path, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+      ...(init?.headers ?? {}),
+    },
+  });
   try {
-    response = await fetch(path, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        ...(init?.headers ?? {}),
-      },
-    });
+    response = await perform(token);
+    if (response.status === 401 && supabase) {
+      const { data } = await supabase.auth.refreshSession();
+      const refreshedToken = data.session?.access_token;
+      if (refreshedToken) {
+        token = refreshedToken;
+        response = await perform(token);
+      }
+    }
   } catch {
     throw new ProviderAccountError('Could not reach the account service. Check your connection and try again.', 0);
   }
@@ -80,6 +106,9 @@ function normalizeProviderAccount(account: ProviderAccountDto): ProviderAccount 
   // values so shared account components can safely render that field-safe DTO.
   return {
     ...account,
+    address1: account.address1 ?? null,
+    address2: account.address2 ?? null,
+    postalCode: account.postalCode ?? null,
     providerCode: account.providerCode ?? null,
     plan: account.plan ?? null,
     greetingName: account.greetingName ?? account.providerName.split(/\s+/)[0] ?? 'Provider',
@@ -116,4 +145,12 @@ export async function createProviderAccount(input: NewProviderAccountInput): Pro
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export async function updateProviderAccount(id: string, input: UpdateProviderAccountInput): Promise<ProviderAccount> {
+  const result = await request<{ account: ProviderAccountDto }>(`/api/provider-accounts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return normalizeProviderAccount(result.account);
 }

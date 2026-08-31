@@ -13,8 +13,11 @@ export interface ProviderAccount {
   providerCode: string | null;
   status: AccountStatus;
   plan: AccountPlan | null;
+  address1: string | null;
+  address2: string | null;
   city: string;
   state: string;
+  postalCode: string | null;
   email: string;
   phone: string | null;
   joinedKey: string;

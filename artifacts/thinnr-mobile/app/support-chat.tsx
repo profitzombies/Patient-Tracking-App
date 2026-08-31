@@ -10,10 +10,15 @@
  * Reliability contract mirrors the web client: streamed deltas, a Stop
  * button that keeps the partial text (flagged stopped for the model), errors
  * replace the reply with a retryable notice, and a dropped stream never
- * finalizes as a complete answer. Chats are not persisted — each visit
- * starts fresh by design, exactly like the web page.
+ * finalizes as a complete answer.
+ *
+ * Persistence follows the account seam: demo-persona visits start fresh by
+ * design, exactly like the web page, but a signed-in REAL account keeps its
+ * support thread — finalized messages (user turns, done replies, stopped
+ * ones included; never streaming or error bubbles) append to the account,
+ * and reopening the screen loads the stored transcript back.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -35,6 +40,12 @@ import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
 import { SupportMarkdown } from "@/components/provider/SupportMarkdown";
 import { useColors } from "@/hooks/useColors";
 import { useAppMode } from "@/context/AppModeContext";
+import {
+  usePatientAccount,
+  type ChatThreadSnapshot,
+  type ChatWireMessage,
+} from "@/context/PatientAccountContext";
+import { TODAY_KEY } from "@/data/patient-data";
 import {
   MAX_SUPPORT_QUESTION_LENGTH,
   SUPPORT_HISTORY_WINDOW,
@@ -66,6 +77,17 @@ interface SupportMessage {
   retryable?: boolean;
 }
 
+/**
+ * Account-persistence wire shape for a support message. Ids on screen are
+ * session-local numbers; `clientId` is the durable upsert key the account
+ * stores. Support bubbles are plain text — no cards, photos, or chips.
+ */
+function supportWire(m: SupportMessage, clientId: string): ChatWireMessage {
+  const wire: ChatWireMessage = { id: clientId, role: m.role, text: m.text };
+  if (m.stopped) wire.stopped = true;
+  return wire;
+}
+
 export default function SupportChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -83,12 +105,167 @@ export default function SupportChatScreen() {
   const nearBottomRef = useRef(true);
   const messageCountRef = useRef(0);
 
+  // Account seam: a signed-in real account persists this thread; everyone
+  // else stays session-only. Same append/load pattern as the coach chat,
+  // minus cards and photos.
+  const { account, resolving } = usePatientAccount();
+  const realAccount = !resolving && account.kind === "real" ? account : null;
+  const accountApiRef = useRef(realAccount ? realAccount.api : null);
+  accountApiRef.current = realAccount ? realAccount.api : null;
+  // Session-local numeric id → durable client id (the account's upsert key).
+  const clientIdsRef = useRef(new Map<number, string>());
+  const sessionNonceRef = useRef(
+    `${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`,
+  );
+  // Wire signature of every message the account already stores, keyed by
+  // client id; the persistence effect diffs against it.
+  const persistedRef = useRef(new Map<string, string>());
+  const outboxRef = useRef<number[]>([]);
+  const flushingRef = useRef(false);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushFailuresRef = useRef(0);
+  const hydratedThreadRef = useRef(false);
+
+  const clientIdFor = useCallback((localId: number) => {
+    const existing = clientIdsRef.current.get(localId);
+    if (existing) return existing;
+    const created = `s${sessionNonceRef.current}-${localId}`;
+    clientIdsRef.current.set(localId, created);
+    return created;
+  }, []);
+
+  // Fresh view of the thread for the flush below. Declared BEFORE the
+  // persistence effect so it runs first each commit — by the time an
+  // enqueue triggers a flush, the ref already shows the render that
+  // finalized the message (CoachChatContext orders these the same way; a
+  // stale ref here silently drops just-finalized replies from the outbox).
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Abandoning the screen mid-reply cancels the request.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  /**
+   * Serial outbox flush (see CoachChatContext for the pattern): drains
+   * queued local ids in thread order and appends their wire shapes to the
+   * account, requeueing with a short backoff on failure and parking after
+   * repeated failures until the next finalized message tries again.
+   */
+  const flushOutbox = useCallback(async () => {
+    if (flushingRef.current) return;
+    flushingRef.current = true;
+    try {
+      while (outboxRef.current.length > 0) {
+        const api = accountApiRef.current;
+        if (!api) return;
+        const batch = outboxRef.current.slice(0, 20);
+        outboxRef.current = outboxRef.current.slice(batch.length);
+        const wires: ChatWireMessage[] = [];
+        const sigs: Array<[string, string]> = [];
+        for (const localId of batch) {
+          const m = messagesRef.current.find((x) => x.id === localId);
+          if (!m || m.status !== "done") continue;
+          const wire = supportWire(m, clientIdFor(localId));
+          wires.push(wire);
+          sigs.push([wire.id, JSON.stringify(wire)]);
+        }
+        if (wires.length === 0) continue;
+        try {
+          await api.appendChatMessages("support", wires);
+          for (const [cid, sig] of sigs) persistedRef.current.set(cid, sig);
+          flushFailuresRef.current = 0;
+        } catch {
+          outboxRef.current = [...batch, ...outboxRef.current];
+          flushFailuresRef.current += 1;
+          if (flushFailuresRef.current < 5 && !flushTimerRef.current) {
+            flushTimerRef.current = setTimeout(() => {
+              flushTimerRef.current = null;
+              void flushOutbox();
+            }, 5000);
+          }
+          return;
+        }
+      }
+    } finally {
+      flushingRef.current = false;
+    }
+    if (outboxRef.current.length > 0 && flushFailuresRef.current === 0) {
+      void flushOutbox();
+    }
+  }, [clientIdFor]);
+
+  // Hydration: load the account's stored support thread once per mount.
+  // Failures retry a few times, then leave the screen session-only for this
+  // visit (the next open tries again). Anything typed while the load ran
+  // stays, appended after the stored transcript.
+  useEffect(() => {
+    if (!realAccount || hydratedThreadRef.current) return;
+    const api = realAccount.api;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    const run = async () => {
+      let snapshot: ChatThreadSnapshot;
+      try {
+        snapshot = await api.fetchChatThread("support", TODAY_KEY);
+      } catch {
+        if (cancelled) return;
+        attempts += 1;
+        if (attempts < 4) retryTimer = setTimeout(() => void run(), 4000);
+        return;
+      }
+      if (cancelled) return;
+      hydratedThreadRef.current = true;
+      const restored = snapshot.messages.map((w) => {
+        const localId = ++idRef.current;
+        clientIdsRef.current.set(localId, w.id);
+        const m: SupportMessage = {
+          id: localId,
+          role: w.role,
+          text: w.text,
+          status: "done",
+        };
+        if (w.stopped) m.stopped = true;
+        // Stored rows are persisted by definition: seed the diff baseline.
+        persistedRef.current.set(w.id, JSON.stringify(supportWire(m, w.id)));
+        return m;
+      });
+      if (restored.length === 0) return;
+      setMessages((prev) => (prev.length === 0 ? restored : [...restored, ...prev]));
+    };
+    void run();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [realAccount]);
+
+  // Persistence: enqueue every finalized message whose wire shape the
+  // account does not have yet — user turns at send, replies when they reach
+  // `done` (stopped included). Streaming and error bubbles never persist.
+  // Gated on hydration so nothing writes into a transcript never read.
+  useEffect(() => {
+    if (!realAccount || !hydratedThreadRef.current) return;
+    let queued = false;
+    for (const m of messages) {
+      if (m.status !== "done") continue;
+      const sig = JSON.stringify(supportWire(m, clientIdFor(m.id)));
+      if (persistedRef.current.get(clientIdFor(m.id)) === sig) continue;
+      if (!outboxRef.current.includes(m.id)) {
+        outboxRef.current.push(m.id);
+        queued = true;
+      }
+    }
+    if (queued) void flushOutbox();
+  }, [messages, realAccount, clientIdFor, flushOutbox]);
+
+  // Abandoning the screen mid-reply cancels the request; a parked retry
+  // timer must not outlive the screen either.
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+    },
+    [],
+  );
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   const hasUserMessage = messages.some((m) => m.role === "user");

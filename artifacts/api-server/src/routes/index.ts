@@ -14,6 +14,7 @@ import claimRouter from "./claim";
 import authRouter from "./auth";
 import patientDataRouter from "./patient-data";
 import patientMediaRouter from "./patient-media";
+import patientChatRouter from "./patient-chat";
 import providerAccountsRouter from "./provider-accounts";
 import hqTeamRouter from "./hq-team";
 
@@ -34,6 +35,7 @@ router.use(claimRouter);
 router.use(authRouter);
 router.use(patientDataRouter);
 router.use(patientMediaRouter);
+router.use(patientChatRouter);
 router.use(providerAccountsRouter);
 router.use(hqTeamRouter);
 

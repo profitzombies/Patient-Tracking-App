@@ -15,7 +15,13 @@
  * Node suites whose module stub maps know nothing about supabase or fetch.
  */
 import { createContext, useContext } from 'react';
-import type { DailyTargets, FoodItem, MealLogEntry, SavedRecipe } from '@/data/patient-data';
+import type {
+  DailyTargets,
+  FoodItem,
+  MealLogEntry,
+  MealSlot,
+  SavedRecipe,
+} from '@/data/patient-data';
 
 /** The server-backed slice of a real patient's diary, as hydrated. */
 export interface PatientServerState {
@@ -41,6 +47,48 @@ export interface LibraryWrite {
   recents?: string[];
 }
 
+/** Which durable chat surface a stored transcript belongs to. */
+export type ChatThread = 'coach' | 'support';
+
+/** Stored reference to a chat photo on the account's media rail. */
+export interface ChatWirePhoto {
+  path: string;
+  width: number;
+  height: number;
+  kind?: 'menu' | 'meal' | 'label';
+  mealSlot?: MealSlot;
+  reused?: boolean;
+  /**
+   * Display URL for the stored copy, derived client-side when a transcript
+   * loads (never sent to the server — outbound wires carry only the path).
+   * The chat rebuilds its photo bubbles from this.
+   */
+  uri?: string;
+}
+
+/**
+ * One finalized on-screen chat message as it rides the persistence wire —
+ * exactly the client's display shape (revealed text, card, chip labels,
+ * reply linkage), never the model wire shape.
+ */
+export interface ChatWireMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  stopped?: boolean;
+  hidden?: boolean;
+  card?: { kind: string; payload: unknown };
+  quickReplies?: string[];
+  replyToId?: string;
+  photo?: ChatWirePhoto;
+}
+
+/** A stored transcript plus the greeting facts for brand-new threads. */
+export interface ChatThreadSnapshot {
+  messages: ChatWireMessage[];
+  patient: { firstName: string; programDay: number };
+}
+
 /** The live diary rail (implemented by lib/patient-data-api.ts). */
 export interface PatientDataApi {
   fetchState(fromKey: string, toKey: string): Promise<PatientServerState>;
@@ -61,6 +109,12 @@ export interface PatientDataApi {
     kind: 'food' | 'recipe',
     dataUri: string,
   ): Promise<{ photoPath: string; photoUri: string }>;
+  /** Loads the stored transcript for one chat surface (oldest first). */
+  fetchChatThread(thread: ChatThread, todayKey: string): Promise<ChatThreadSnapshot>;
+  /** Upserts a batch of finalized messages by client id (idempotent). */
+  appendChatMessages(thread: ChatThread, messages: ChatWireMessage[]): Promise<void>;
+  /** Stores a chat photo (data URI) on the account's media rail. */
+  uploadChatPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }>;
 }
 
 export type PatientAccount =
@@ -84,6 +138,12 @@ export interface PatientAccountState {
   accountNotice: string | null;
   /** Re-runs the account lookup after an 'unresolved' failure. */
   retryResolve: () => void;
+  /**
+   * Bearer token supplier for streaming calls that authenticate per turn
+   * (coach chat). Present only when a live session exists — the demo
+   * default omits it, so demo requests stay tokenless and byte-identical.
+   */
+  getAccessToken?: () => Promise<string | null>;
 }
 
 export const DEMO_ACCOUNT_STATE: PatientAccountState = {

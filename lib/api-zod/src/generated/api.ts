@@ -41,6 +41,10 @@ export const coachChatBodyMessagesMax = 30;
 
 export const coachChatBodyLocalTimeMax = 5;
 
+export const coachChatBodyLocalDateMax = 10;
+
+
+export const coachChatBodyLocalDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
 
 
 export const CoachChatBody = zod.object({
@@ -52,7 +56,8 @@ export const CoachChatBody = zod.object({
   "photoKind": zod.enum(['menu', 'meal', 'label']).optional().describe('What the attached photo shows, chosen by the client flow that captured it: \"menu\" runs the restaurant menu scan; \"meal\" runs the meal analysis that identifies visible foods with estimated portions and returns an editable meal card; \"label\" runs the nutrition label reader that transcribes the printed facts and emits a labelDraft event for the client\'s name conversation. When absent, the server inspects the photo and routes it to the fitting pipeline itself. Ignored without an image.')
 })).min(1).max(coachChatBodyMessagesMax),
   "localTime": zod.string().max(coachChatBodyLocalTimeMax).optional().describe('The patient\'s device-local wall clock when this turn was sent, as 24-hour \"HH:MM\" (for example \"14:05\"). Used only to preselect the diary slot on a recipe or meal card generated this turn when the patient names no meal: the server derives a time-of-day default (around 2 pm that is lunch) for the prompts and the missing-slot fallbacks. Unparseable values are ignored, and when the field is absent (older clients) the server keeps its legacy defaults.'),
-  "mealSlot": zod.enum(['breakfast', 'lunch', 'dinner', 'snacks']).optional().describe('Explicit diary slot for any card generated on this turn, sent by entry points that already know which meal is being logged (for example a per-meal camera on a diary row). Wins over both a meal the patient names and the time-of-day default, and flows through to the card payload untouched.')
+  "mealSlot": zod.enum(['breakfast', 'lunch', 'dinner', 'snacks']).optional().describe('Explicit diary slot for any card generated on this turn, sent by entry points that already know which meal is being logged (for example a per-meal camera on a diary row). Wins over both a meal the patient names and the time-of-day default, and flows through to the card payload untouched.'),
+  "localDate": zod.string().max(coachChatBodyLocalDateMax).regex(coachChatBodyLocalDateRegExp).optional().describe('The app\'s own calendar date for this turn as \"YYYY-MM-DD\". Sent only with authenticated (signed-in patient) requests so the server grounds the coach\'s live \"today so far\" context on the same diary day the app is showing. Absent for the demo persona and older clients; invalid values are ignored server-side.')
 })
 
 export const CoachChatResponse = zod.unknown()

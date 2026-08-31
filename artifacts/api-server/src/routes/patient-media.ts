@@ -58,7 +58,7 @@ const MEDIA_DOWNLOAD_TTL_SEC = 3600;
  */
 const HEAD_SNIFF_BYTES = 64 * 1024;
 
-const MEDIA_KINDS = new Set(["food", "recipe"]);
+const MEDIA_KINDS = new Set(["food", "recipe", "chat"]);
 
 /**
  * Only paths this server itself minted pass: a patient-id directory, then
@@ -69,7 +69,7 @@ export function isPatientMediaPath(objectPath: string): boolean {
   if (typeof objectPath !== "string" || objectPath.length > 300) return false;
   if (!objectPath.startsWith(PATIENT_MEDIA_PREFIX)) return false;
   const rest = objectPath.slice(PATIENT_MEDIA_PREFIX.length);
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(food|recipe)-[A-Za-z0-9-]{8,64}$/i.test(
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(food|recipe|chat)-[A-Za-z0-9-]{8,64}$/i.test(
     rest,
   );
 }
@@ -158,7 +158,7 @@ router.post(
       }
       const { uploadUrl, objectPath } = await objectStorage.patientMediaUploadURL(
         auth.patientId,
-        body.kind as "food" | "recipe",
+        body.kind as "food" | "recipe" | "chat",
       );
       res.json({ uploadUrl, objectPath });
     } catch (error) {
@@ -191,9 +191,12 @@ router.post(
         res.status(400).json({ error: "That upload isn't yours to finalize." });
         return;
       }
-      const kind = objectPath.slice(`${PATIENT_MEDIA_PREFIX}${auth.patientId}/`.length).startsWith("recipe-")
+      const objectId = objectPath.slice(`${PATIENT_MEDIA_PREFIX}${auth.patientId}/`.length);
+      const kind = objectId.startsWith("recipe-")
         ? "recipe"
-        : "food";
+        : objectId.startsWith("chat-")
+          ? "chat"
+          : "food";
 
       let file;
       try {

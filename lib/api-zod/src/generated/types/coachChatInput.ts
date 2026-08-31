@@ -21,4 +21,10 @@ export interface CoachChatInput {
   localTime?: string;
   /** Explicit diary slot for any card generated on this turn, sent by entry points that already know which meal is being logged (for example a per-meal camera on a diary row). Wins over both a meal the patient names and the time-of-day default, and flows through to the card payload untouched. */
   mealSlot?: CoachChatInputMealSlot;
+  /**
+     * The app's own calendar date for this turn as "YYYY-MM-DD". Sent only with authenticated (signed-in patient) requests so the server grounds the coach's live "today so far" context on the same diary day the app is showing. Absent for the demo persona and older clients; invalid values are ignored server-side.
+     * @maxLength 10
+     * @pattern ^\d{4}-\d{2}-\d{2}$
+     */
+  localDate?: string;
 }

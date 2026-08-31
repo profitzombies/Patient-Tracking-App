@@ -4,6 +4,8 @@ import { CoachChatBody } from "@workspace/api-zod";
 import { selectCompartments } from "../coach/select";
 import { buildSystemPrompt, toModelMessages } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
+import { realPatientContext } from "../coach/real-patient";
+import { bearerToken, resolvePatient } from "../lib/patient-auth";
 import { detectBackOnTrackFollowUp, generateBackOnTrackTurn } from "../coach/back-on-track";
 import { acquireChatSlot, acquireMenuScanSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
@@ -131,9 +133,48 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       "coach chat compartments selected",
     );
 
-    // Patient context is derived server-side from the fixed demo seed; the
-    // client is never trusted for it.
-    const patientContext = demoPatientContext();
+    // Patient context is derived server-side; the client is never trusted
+    // for it. Unauthenticated requests (the demo persona) keep the fixed
+    // demo seed. A bearer session that resolves to a patients row grounds
+    // the coach on THAT patient's live account instead — name, program day,
+    // and today's diary totals. The ladder runs before the SSE stream opens
+    // so failures stay plain JSON statuses:
+    //   401/503 → the session is bad or auth is down; honest retryable
+    //     error, never demo data for a possibly-real patient.
+    //   403 → a real session that is not a patient (staff browsing the
+    //     persona); the demo seed is exactly what they are looking at.
+    //   502 → the account exists but its data could not be loaded.
+    let patientContext = demoPatientContext();
+    let realPatient = false;
+    if (bearerToken(req) !== null) {
+      let auth;
+      try {
+        auth = await resolvePatient(req);
+      } catch (error) {
+        req.log.error({ err: error }, "coach chat patient resolution failed");
+        res.status(502).json({
+          error: "Couldn't load your account right now. Please try again.",
+          retryable: true,
+        });
+        return;
+      }
+      if (auth.ok) {
+        try {
+          patientContext = await realPatientContext(auth.patientId, parsed.data.localDate);
+          realPatient = true;
+        } catch (error) {
+          req.log.error({ err: error }, "coach chat real patient context failed");
+          res.status(502).json({
+            error: "Couldn't load your account right now. Please try again.",
+            retryable: true,
+          });
+          return;
+        }
+      } else if (auth.status !== 403) {
+        res.status(auth.status).json({ error: auth.error, retryable: true });
+        return;
+      }
+    }
 
     // Replies the patient stopped mid-stream arrive flagged; annotate them
     // once here so ALL model pipelines (plain streaming, recipe turns, menu
@@ -588,7 +629,12 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // reset plan (their own trend, a few days of approved-foods meals,
       // daily logging, the provider check-in as an option). Plain text, no
       // card, no chips — the reply ends on a statement so the thread rests.
-      if (detectBackOnTrackFollowUp(history)) {
+      // Real accounts never take this branch: the outreach bubble and its
+      // reset plan quote the DEMO patient's stall numbers (weights, weeks),
+      // which are not this patient's story. The client only seeds the
+      // outreach for the demo persona, so an authenticated turn that happens
+      // to match the follow-up shape falls through to plain grounded chat.
+      if (!realPatient && detectBackOnTrackFollowUp(history)) {
         pipeline = "back-on-track";
         req.log.info({}, "coach back-on-track turn");
         const turn = await generateBackOnTrackTurn({

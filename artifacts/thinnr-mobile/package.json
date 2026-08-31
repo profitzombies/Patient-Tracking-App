@@ -13,6 +13,7 @@
     "test:claim-flow": "tsx --tsconfig tsconfig.claim-flow.json scripts/verify-claim-flow.ts",
     "test:claim-test": "tsx --tsconfig tsconfig.claim-test.json scripts/verify-claim-test.ts",
     "test:restaurant-guide": "node scripts/check-restaurant-guide-verbatim.mjs",
+    "test:chat-account": "tsx --tsconfig tsconfig.chat-account.json scripts/verify-chat-account.ts",
     "test:coach-stop": "tsx --tsconfig tsconfig.coach-stop.json scripts/verify-coach-stop.ts",
     "test:custom-food-undo": "tsx scripts/verify-custom-food-undo.ts",
     "test:diary-copy": "tsx scripts/verify-diary-copy.ts",

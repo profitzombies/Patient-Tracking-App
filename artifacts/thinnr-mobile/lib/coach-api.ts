@@ -79,6 +79,13 @@ export interface CoachChatRequestBody {
    * and the clock, and lands on the card payload untouched.
    */
   mealSlot?: MealSlot;
+  /**
+   * The app's own calendar date, "YYYY-MM-DD". Sent only on authenticated
+   * turns so the server grounds the coach's live today context on the same
+   * diary day the app is showing. Demo requests omit it — their bodies stay
+   * byte-identical to before accounts existed.
+   */
+  localDate?: string;
 }
 
 export interface CoachCardEvent {
@@ -133,6 +140,15 @@ export interface CoachStreamOptions {
    * invoked — the caller owns the UI transition for a user-initiated stop.
    */
   signal?: AbortSignal;
+  /**
+   * Supplies the signed-in patient's bearer token for this turn. When set,
+   * the request authenticates and the server grounds the coach on the REAL
+   * account (name, program day, live diary totals). A missing or failed
+   * token surfaces the signed-out error instead of sending — a real
+   * patient must never be silently answered with demo grounding. Demo
+   * requests never set this, keeping their wire bytes identical.
+   */
+  getAuthToken?: () => Promise<string | null>;
 }
 
 const FRIENDLY_ERROR = 'The coach is unavailable right now. Please try again.';
@@ -236,13 +252,30 @@ export async function streamCoachChat(
   const { signal } = options;
   const state = { finished: false };
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (options.getAuthToken) {
+      let token: string | null = null;
+      try {
+        token = await options.getAuthToken();
+      } catch {
+        token = null;
+      }
+      if (!token) {
+        state.finished = true;
+        if (!signal?.aborted) {
+          callbacks.onError('You’re signed out. Sign in again to chat with your coach.', true);
+        }
+        return;
+      }
+      headers.Authorization = `Bearer ${token}`;
+    }
     const doFetch =
       Platform.OS === 'web'
         ? globalThis.fetch.bind(globalThis)
         : (expoFetch as unknown as typeof globalThis.fetch);
     const response = await doFetch(`${apiBase()}/coach/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
       signal,
     });

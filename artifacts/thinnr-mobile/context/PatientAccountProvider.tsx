@@ -20,7 +20,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { supabaseConfigured, useSupabaseSession } from '@/lib/supabase';
-import { fetchAccountRole, patientDataApi } from '@/lib/patient-data-api';
+import { fetchAccountRole, getSessionAccessToken, patientDataApi } from '@/lib/patient-data-api';
 import {
   DEMO_ACCOUNT_STATE,
   PatientAccountContext,
@@ -91,13 +91,23 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
       return { resolving: false, account: { kind: 'demo' }, accountNotice: null, retryResolve };
     }
     if (!resolved || resolved.forUserId !== userId) {
-      return { resolving: true, account: { kind: 'demo' }, accountNotice: null, retryResolve };
+      return {
+        resolving: true,
+        account: { kind: 'demo' },
+        accountNotice: null,
+        retryResolve,
+        getAccessToken: getSessionAccessToken,
+      };
     }
     return {
       resolving: false,
       account: resolved.account,
       accountNotice: resolved.notice,
       retryResolve,
+      // A live session exists (real, unresolved, or staff browsing the demo
+      // persona): expose its bearer supplier. Consumers decide per account
+      // kind whether to authenticate a call with it.
+      getAccessToken: getSessionAccessToken,
     };
   }, [sessionLoading, userId, resolved, retryResolve]);
 

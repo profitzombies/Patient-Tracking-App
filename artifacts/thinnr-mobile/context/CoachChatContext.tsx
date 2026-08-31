@@ -1,15 +1,22 @@
 /**
- * Session-only chat state for the THINNR coach.
+ * Chat state for the THINNR coach.
  *
- * History lives in React state on purpose: no database, no AsyncStorage. A
- * fresh app launch always starts a fresh conversation. Message shape carries
- * an optional `card` slot so later work can attach rich cards (recipes,
- * products) to assistant replies without changing this contract.
+ * DEMO persona history lives in React state on purpose: no database, no
+ * AsyncStorage. A fresh app launch always starts a fresh conversation.
+ * REAL patient accounts persist the conversation to the account instead:
+ * on open the stored transcript is loaded back, and every message is
+ * appended once it is FINAL — user turns at send, assistant replies only
+ * when they reach `done` (stopped ones included), never mid-stream and
+ * never error bubbles — so what is stored is exactly what was on screen.
+ * Message shape carries an optional `card` slot so later work can attach
+ * rich cards (recipes, products) to assistant replies without changing this
+ * contract.
  *
- * The thread never opens cold: each session seeds one short, fixed coach
- * greeting as the first assistant message (see buildGreetingMessage), so the
- * chat reads like a conversation already in progress rather than a blank
- * prompt box.
+ * The thread never opens cold: each demo session (and the first-ever open
+ * of a real account) seeds one short, fixed coach greeting as the first
+ * assistant message (see buildGreetingMessage), so the chat reads like a
+ * conversation already in progress rather than a blank prompt box. A real
+ * account with stored history resumes it instead of greeting again.
  *
  * Paced reveal: the reasoning model spends nearly all its latency thinking,
  * then the whole reply bursts out in under a second (recipe turns arrive as
@@ -31,7 +38,13 @@ import React, {
   useState,
 } from 'react';
 import { usePatient } from '@/context/PatientContext';
-import { ENROLLMENT_DAYS, PATIENT_PROFILE, type MealSlot } from '@/data/patient-data';
+import {
+  usePatientAccount,
+  type ChatThreadSnapshot,
+  type ChatWireMessage,
+  type PatientDataApi,
+} from '@/context/PatientAccountContext';
+import { ENROLLMENT_DAYS, PATIENT_PROFILE, TODAY_KEY, type MealSlot } from '@/data/patient-data';
 import { BACK_ON_TRACK_OFFER, type NudgeAssessment } from '@/data/stall-nudge';
 import {
   streamCoachChat,
@@ -129,6 +142,13 @@ export interface CoachMessage {
     kind?: PhotoKind;
     mealSlot?: MealSlot;
     reused?: boolean;
+    /**
+     * Real accounts only: object path of the per-patient stored copy.
+     * Stamped once the background upload lands; hydrated turns arrive with
+     * it (their `uri` is the stored copy's display URL). Persistence sends
+     * this path — never image bytes — so photo bubbles survive reload.
+     */
+    path?: string;
   };
 
   /**
@@ -223,8 +243,9 @@ const CoachChatContext = createContext<CoachChatContextValue | null>(null);
 
 /**
  * Client keeps its request in step with the server-side history cap. Patient
- * program context (name, day, phase) is derived server-side from the same
- * demo seed — the request carries only the messages.
+ * program context (name, day, phase) is derived server-side — from the demo
+ * seed, or from the signed-in account's own data — the request carries only
+ * the messages.
  */
 const MAX_REQUEST_MESSAGES = 12;
 
@@ -418,6 +439,30 @@ function buildGreetingMessage(): CoachMessage {
 }
 
 /**
+ * The greeting for a real account's FIRST-ever conversation, personalized
+ * from the account's own name and program day (loaded with the transcript —
+ * never the demo seed). Under two days in, the commitment line is dropped
+ * rather than praising a start that just happened. Same fixed id as the demo
+ * greeting; the stored row upserts idempotently, and later opens hydrate
+ * this message back instead of rebuilding it.
+ */
+function buildRealGreetingMessage(patient: {
+  firstName: string;
+  programDay: number;
+}): CoachMessage {
+  const commitment =
+    patient.programDay >= 2
+      ? ` ${patient.programDay} days in. That's real commitment, and it shows.`
+      : '';
+  return {
+    id: GREETING_MESSAGE_ID,
+    role: 'assistant',
+    status: 'done',
+    text: `Hey ${patient.firstName}, good to see you.${commitment}\n\nWhat's on your mind today? A meal idea, a craving, the exact wording of a rule. I've got you.`,
+  };
+}
+
+/**
  * Fixed id for the coach-initiated stall outreach, seeded by the provider
  * effect below when the patient context says the trigger is live. Outside
  * the `coach-${n}` space like the greeting id.
@@ -486,6 +531,68 @@ const toRequestMessage = (m: CoachMessage): CoachRequestMessage =>
     ? { role: m.role, content: m.text, stopped: true }
     : { role: m.role, content: m.text };
 
+/**
+ * Serializes a finalized message into the account-persistence wire shape.
+ * `photoPath` is the stored per-patient copy; without one the photo is
+ * omitted entirely (the wire carries object paths, never image bytes), so a
+ * turn whose upload failed still persists as its replay text.
+ */
+/**
+ * Whether a photo bubble still holds the session-local capture (data:,
+ * file:, blob:, ph:, content: — whatever the camera produced) and can
+ * therefore re-attach its image to a request. Hydrated bubbles hold the
+ * stored copy's https display URL instead; replayed history is text-only
+ * per the request contract, so those never re-attach.
+ */
+function isLocalPhotoUri(uri: string): boolean {
+  return !/^https?:/i.test(uri);
+}
+
+function toWireMessage(m: CoachMessage, photoPath?: string): ChatWireMessage {
+  const wire: ChatWireMessage = { id: m.id, role: m.role, text: m.text };
+  if (m.stopped) wire.stopped = true;
+  if (m.hidden) wire.hidden = true;
+  if (m.card) wire.card = { kind: m.card.kind, payload: m.card.payload };
+  if (m.quickReplies && m.quickReplies.length > 0) {
+    wire.quickReplies = m.quickReplies.slice(0, 4);
+  }
+  if (m.replyToId) wire.replyToId = m.replyToId;
+  const path = m.photo?.path ?? photoPath;
+  if (m.photo && path) {
+    wire.photo = {
+      path,
+      width: m.photo.width,
+      height: m.photo.height,
+      ...(m.photo.kind ? { kind: m.photo.kind } : {}),
+      ...(m.photo.mealSlot ? { mealSlot: m.photo.mealSlot } : {}),
+      ...(m.photo.reused ? { reused: true } : {}),
+    };
+  }
+  return wire;
+}
+
+/** Rebuilds a stored message for the thread exactly as it last rendered. */
+function wireToCoachMessage(w: ChatWireMessage): CoachMessage {
+  const m: CoachMessage = { id: w.id, role: w.role, text: w.text, status: 'done' };
+  if (w.stopped) m.stopped = true;
+  if (w.hidden) m.hidden = true;
+  if (w.card) m.card = { kind: w.card.kind, payload: w.card.payload };
+  if (w.quickReplies) m.quickReplies = w.quickReplies;
+  if (w.replyToId) m.replyToId = w.replyToId;
+  if (w.photo?.uri) {
+    m.photo = {
+      uri: w.photo.uri,
+      width: w.photo.width,
+      height: w.photo.height,
+      path: w.photo.path,
+      ...(w.photo.kind ? { kind: w.photo.kind } : {}),
+      ...(w.photo.mealSlot ? { mealSlot: w.photo.mealSlot } : {}),
+      ...(w.photo.reused ? { reused: true } : {}),
+    };
+  }
+  return m;
+}
+
 /** Real clock for the app; suites inject a fixed one via the `now` prop. */
 const systemNow = () => new Date();
 
@@ -513,9 +620,30 @@ export function CoachChatProvider({
     markNudgeEngaged,
     setNudgeOptOut,
   } = usePatient();
-  // Lazy initializer: the greeting is built once per provider mount — i.e.
-  // once per app session, matching the session-only history design.
-  const [messages, setMessages] = useState<CoachMessage[]>(() => [buildGreetingMessage()]);
+  // Account seam. The demo persona stays session-only; a real account
+  // persists the conversation and grounds the coach on its own data.
+  // `accountKey` names the thread's owner — any change (sign-in, sign-out, a
+  // different patient) resets local chat state wholesale.
+  const { account, resolving, getAccessToken } = usePatientAccount();
+  const realAccount = !resolving && account.kind === 'real' ? account : null;
+  const accountKey = resolving
+    ? 'resolving'
+    : account.kind === 'real'
+      ? `real:${account.patientId}`
+      : account.kind;
+  // Render-assigned mirrors so callbacks read the CURRENT account without
+  // carrying it in their dependency lists.
+  const accountRef = useRef({ resolving, kind: account.kind, getAccessToken });
+  accountRef.current = { resolving, kind: account.kind, getAccessToken };
+  const chatApiRef = useRef<PatientDataApi | null>(realAccount ? realAccount.api : null);
+  chatApiRef.current = realAccount ? realAccount.api : null;
+  // Lazy initializer: the demo greeting is built once per provider mount —
+  // one session, one conversation. Real (and still-resolving) accounts start
+  // empty instead: their opener comes from the stored transcript, or is
+  // seeded only when the account has none (see the hydration effect).
+  const [messages, setMessages] = useState<CoachMessage[]>(() =>
+    !resolving && account.kind === 'demo' ? [buildGreetingMessage()] : [],
+  );
   const [isStreaming, setIsStreaming] = useState(false);
   // Photo-turn narration for the waiting bubble (see the interface note).
   // Plain state, not part of the reveal bookkeeping: stages only ever
@@ -549,7 +677,35 @@ export function CoachChatProvider({
   // Reveal bookkeeping for the in-flight reply (null when none). Owned by the
   // same lifecycle as abortRef: stop/error/finalize all clear it.
   const revealRef = useRef<RevealState | null>(null);
-  const nextId = () => `coach-${++idRef.current}`;
+  // Message ids are the persistence upsert key, so a real account's ids get
+  // a per-session nonce: `coach-<nonce>-<n>` can never collide with rows
+  // stored by an earlier app session. Demo ids keep the bare `coach-<n>`
+  // shape the regression suites assert on.
+  const sessionNonceRef = useRef(
+    `${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`,
+  );
+  const nextId = () =>
+    accountRef.current.kind === 'real'
+      ? `coach-${sessionNonceRef.current}-${++idRef.current}`
+      : `coach-${++idRef.current}`;
+  // ─── Account persistence bookkeeping (real accounts only) ─────────────
+  // Wire signature of every message the account already stores, by id: the
+  // persistence effect diffs against it, so a card update or hidden flip
+  // re-upserts its row while untouched messages never re-send.
+  const persistedRef = useRef(new Map<string, string>());
+  // Ids waiting to be appended, in thread order (FIFO outbox).
+  const outboxRef = useRef<string[]>([]);
+  // Local photo uri → stored per-patient object path, so a photo uploads
+  // once even when corrections re-use it or card updates re-upsert its turn.
+  const photoPathsRef = useRef(new Map<string, string>());
+  // Which accountKey's transcript is on screen. Persistence only runs once
+  // hydration for the CURRENT key landed — nothing writes into a transcript
+  // that was never read (and demo accounts never hydrate, so nothing ever
+  // enqueues for them).
+  const hydratedKeyRef = useRef<string | null>(null);
+  const flushingRef = useRef(false);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushFailuresRef = useRef(0);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -565,6 +721,9 @@ export function CoachChatProvider({
   // cooldown window on first seed.
   const outreachSeededRef = useRef(false);
   useEffect(() => {
+    // Demo persona only: the outreach copy is built from the demo seed's
+    // numbers. A real account's proactive outreach is future work.
+    if (accountRef.current.resolving || accountRef.current.kind !== 'demo') return;
     if (outreachSeededRef.current || !shouldSeedNudgeOutreach) return;
     if (inFlightRef.current) return;
     if (!messagesRef.current.every(m => m.id === GREETING_MESSAGE_ID)) return;
@@ -576,12 +735,223 @@ export function CoachChatProvider({
     void recordNudgeSent();
   }, [shouldSeedNudgeOutreach, nudgeAssessment, recordNudgeSent]);
 
+  // Account transitions (sign-in, sign-out, a different patient) drop ALL
+  // local chat state: abort any stream, forget suggestions and flows, clear
+  // persistence bookkeeping, and reseed the thread for the new owner. The
+  // ref-vs-key comparison makes this a no-op on mount, so demo sessions
+  // still render their greeting synchronously exactly as before.
+  const accountKeyRef = useRef(accountKey);
+  useEffect(() => {
+    if (accountKeyRef.current === accountKey) return;
+    accountKeyRef.current = accountKey;
+    abortRef.current?.abort();
+    if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
+    revealRef.current = null;
+    abortRef.current = null;
+    inFlightRef.current = false;
+    suggestionsRef.current.clear();
+    updateLabelFlow(null);
+    setPendingStage(null);
+    setIsStreaming(false);
+    outreachSeededRef.current = false;
+    hydratedKeyRef.current = null;
+    persistedRef.current.clear();
+    outboxRef.current = [];
+    photoPathsRef.current.clear();
+    flushingRef.current = false;
+    flushFailuresRef.current = 0;
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    const seed = accountKey === 'demo' ? [buildGreetingMessage()] : [];
+    messagesRef.current = seed;
+    setMessages(seed);
+  }, [accountKey, updateLabelFlow]);
+
   // A provider unmount mid-reveal must not leave a timer mutating state.
   useEffect(() => {
     return () => {
       if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
   }, []);
+
+  /**
+   * Uploads a turn's photo to the account (once) and returns its stored
+   * path, or undefined when there is nothing uploadable — hydrated photos
+   * already carry their path, and a failed upload persists the turn without
+   * its photo rather than blocking the transcript on image bytes.
+   */
+  const storedPhotoPath = useCallback(async (m: CoachMessage): Promise<string | undefined> => {
+    if (!m.photo) return undefined;
+    if (m.photo.path) return m.photo.path;
+    const known = photoPathsRef.current.get(m.photo.uri);
+    if (known) return known;
+    if (!m.photo.uri.startsWith('data:')) return undefined;
+    const api = chatApiRef.current;
+    if (!api) return undefined;
+    const uri = m.photo.uri;
+    try {
+      const uploaded = await api.uploadChatPhoto(uri);
+      photoPathsRef.current.set(uri, uploaded.photoPath);
+      // Stamp the path onto every message holding this photo (the origin
+      // plus any correction turns that re-used it) so their wire signatures
+      // settle on the stored shape.
+      setMessages(prev =>
+        prev.map(x =>
+          x.photo && x.photo.uri === uri && !x.photo.path
+            ? { ...x, photo: { ...x.photo, path: uploaded.photoPath } }
+            : x,
+        ),
+      );
+      return uploaded.photoPath;
+    } catch {
+      return undefined; // quiet: the turn persists as its replay text
+    }
+  }, []);
+
+  /**
+   * Serial outbox flush: drains queued ids in thread order, uploading any
+   * pending photos first, and appends each wire batch to the account. A
+   * failed append requeues the batch and retries on a short timer, parking
+   * after repeated failures until the next finalized message (or the next
+   * app open) tries again.
+   */
+  const flushOutbox = useCallback(async () => {
+    if (flushingRef.current) return;
+    flushingRef.current = true;
+    try {
+      while (outboxRef.current.length > 0) {
+        const api = chatApiRef.current;
+        if (!api) return;
+        const batchIds = outboxRef.current.slice(0, 20);
+        outboxRef.current = outboxRef.current.slice(batchIds.length);
+        const wires: ChatWireMessage[] = [];
+        const sigs: Array<[string, string]> = [];
+        for (const id of batchIds) {
+          const m = messagesRef.current.find(x => x.id === id);
+          // Gone (a stopped bubble that kept nothing) or no longer final:
+          // nothing to store under this id.
+          if (!m || m.status !== 'done') continue;
+          const wire = toWireMessage(m, await storedPhotoPath(m));
+          wires.push(wire);
+          sigs.push([id, JSON.stringify(wire)]);
+        }
+        if (wires.length === 0) continue;
+        try {
+          await api.appendChatMessages('coach', wires);
+          for (const [id, sig] of sigs) persistedRef.current.set(id, sig);
+          flushFailuresRef.current = 0;
+        } catch {
+          // Requeue in place and back off; the transcript catches up in
+          // order once the API is reachable again.
+          outboxRef.current = [...batchIds, ...outboxRef.current];
+          flushFailuresRef.current += 1;
+          if (flushFailuresRef.current < 5 && !flushTimerRef.current) {
+            flushTimerRef.current = setTimeout(() => {
+              flushTimerRef.current = null;
+              void flushOutbox();
+            }, 5000);
+          }
+          return;
+        }
+      }
+    } finally {
+      flushingRef.current = false;
+    }
+    // A message finalized while the drain above was mid-await re-enters
+    // here rather than waiting for the next thread change.
+    if (outboxRef.current.length > 0 && flushFailuresRef.current === 0) {
+      void flushOutbox();
+    }
+  }, [storedPhotoPath]);
+
+  // Real-account hydration: on open (or account switch) load the stored
+  // transcript and resume it. Runs once per accountKey; a failure retries a
+  // few times, then leaves the thread empty — sends still work, and the
+  // next app open tries again. The greeting seeds ONLY a genuinely new
+  // conversation: no stored rows and nothing typed while the load ran.
+  useEffect(() => {
+    if (!realAccount) return;
+    const key = accountKey;
+    if (hydratedKeyRef.current === key) return;
+    const api = realAccount.api;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    const run = async () => {
+      let snapshot: ChatThreadSnapshot;
+      try {
+        snapshot = await api.fetchChatThread('coach', TODAY_KEY);
+      } catch {
+        if (cancelled) return;
+        attempts += 1;
+        if (attempts < 4) retryTimer = setTimeout(() => void run(), 4000);
+        return;
+      }
+      if (cancelled || accountKeyRef.current !== key) return;
+      hydratedKeyRef.current = key;
+      const stored = snapshot.messages.map(wireToCoachMessage);
+      for (const m of stored) {
+        // Stored rows are persisted by definition: seed the diff baseline so
+        // hydration never re-appends them.
+        persistedRef.current.set(m.id, JSON.stringify(toWireMessage(m)));
+        if (m.photo?.path) photoPathsRef.current.set(m.photo.uri, m.photo.path);
+        // Re-register recipe cards so their preview screens reopen; a stored
+        // meal card keeps the patient's own photo as its picture.
+        if (m.card?.kind === 'recipe') {
+          const suggestion = parseRecipeCardPayload(m.card.payload);
+          if (suggestion) {
+            const origin = m.replyToId ? stored.find(o => o.id === m.replyToId) : undefined;
+            const registered =
+              suggestion.mode === 'meal' && origin?.photo?.uri
+                ? { ...suggestion, photoUri: origin.photo.uri }
+                : suggestion;
+            suggestionsRef.current.set(registered.id, registered);
+          }
+        }
+      }
+      setMessages(prev => {
+        if (stored.length === 0) {
+          // First conversation on this account. Anything already typed this
+          // session stays; the greeting seeds only a truly untouched thread.
+          return prev.length === 0 ? [buildRealGreetingMessage(snapshot.patient)] : prev;
+        }
+        const storedIds = new Set(stored.map(m => m.id));
+        const extras = prev.filter(m => !storedIds.has(m.id));
+        return [...stored, ...extras];
+      });
+    };
+    void run();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [realAccount, accountKey]);
+
+  // Persistence: whenever the thread changes, enqueue every finalized
+  // message whose wire shape differs from what the account already stores —
+  // user turns land at send, assistant replies once the reveal finalizes
+  // them (stopped ones included), and later mutations of a stored message
+  // (card updates, the hidden flip, a photo path landing) re-upsert its row.
+  // Streaming and error bubbles never match `done`, so they never persist.
+  useEffect(() => {
+    if (!realAccount || hydratedKeyRef.current !== accountKey) return;
+    let queued = false;
+    for (const m of messages) {
+      if (m.status !== 'done') continue;
+      const sig = JSON.stringify(
+        toWireMessage(m, m.photo ? photoPathsRef.current.get(m.photo.uri) : undefined),
+      );
+      if (persistedRef.current.get(m.id) === sig) continue;
+      if (!outboxRef.current.includes(m.id)) {
+        outboxRef.current.push(m.id);
+        queued = true;
+      }
+    }
+    if (queued) void flushOutbox();
+  }, [messages, realAccount, accountKey, flushOutbox]);
 
   /**
    * Completes a fully revealed reply: marks it done (trimming whitespace a
@@ -696,8 +1066,12 @@ export function CoachChatProvider({
       };
       revealRef.current = reveal;
 
+      // Demo requests stay byte-identical to the session-only design.
+      // Signed-in requests authenticate and stamp the diary anchor date so
+      // the server grounds "today" on the same day the app is showing.
+      const auth = accountRef.current;
       void streamCoachChat(
-        body,
+        auth.kind === 'demo' ? body : { ...body, localDate: TODAY_KEY },
         {
           onDelta: delta => {
             if (isStale()) return;
@@ -787,7 +1161,16 @@ export function CoachChatProvider({
             setIsStreaming(false);
           },
         },
-        { signal: controller.signal },
+        auth.kind === 'demo'
+          ? { signal: controller.signal }
+          : {
+              signal: controller.signal,
+              // Real (and still-unresolved) accounts authenticate: the
+              // server grounds the coach on the account's own data. A
+              // missing token surfaces as an honest error bubble — never a
+              // silent demo fallback.
+              getAuthToken: auth.getAccessToken ?? (async () => null),
+            },
       );
     },
     [ensureRevealTimer, finalizeReveal],
@@ -883,6 +1266,10 @@ export function CoachChatProvider({
     (rawText: string) => {
       const text = rawText.trim();
       if (!text || inFlightRef.current) return;
+      // While a signed-in account is still resolving, hold sends: the thread
+      // is about to be reseeded for its owner, and a turn fired now would
+      // ground on the wrong patient and then vanish in the reset.
+      if (accountRef.current.resolving) return;
       // An active label flow answers this text client-side — the name
       // conversation is deterministic state, never a model exchange.
       const flow = labelFlowRef.current;
@@ -945,8 +1332,12 @@ export function CoachChatProvider({
       // photo is still in state) and the text reading as a correction.
       // Anything else falls through to the normal chat turn below, so an
       // unrelated question after a meal card still gets a normal answer.
+      // Only a photo still held as local bytes can be re-attached: a turn
+      // hydrated from the account carries a display URL, and the server
+      // takes data URIs only — such a fix falls through to a normal text
+      // turn instead of failing on the photo.
       const correctionPhoto = findMealCorrectionOrigin(messagesRef.current)?.photo;
-      if (correctionPhoto && isMealCorrectionText(text)) {
+      if (correctionPhoto && isLocalPhotoUri(correctionPhoto.uri) && isMealCorrectionText(text)) {
         inFlightRef.current = true;
         const controller = new AbortController();
         abortRef.current = controller;
@@ -1056,6 +1447,7 @@ export function CoachChatProvider({
       options?: SendPhotoOptions,
     ) => {
       if (!photo.uri || inFlightRef.current) return;
+      if (accountRef.current.resolving) return;
       // A photo reply counts as engagement exactly like a text reply.
       if (messagesRef.current.some(m => m.id === OUTREACH_MESSAGE_ID)) {
         void markNudgeEngaged();
@@ -1158,6 +1550,7 @@ export function CoachChatProvider({
   const retry = useCallback(
     (assistantMessageId: string) => {
       if (inFlightRef.current) return;
+      if (accountRef.current.resolving) return;
       const history = messagesRef.current;
       const errored = history.find(m => m.id === assistantMessageId);
       if (
@@ -1188,7 +1581,10 @@ export function CoachChatProvider({
       // along so the retry reaches the same pipeline (meal analysis vs menu
       // scan) as the original send.
       const origin = history[originIndex];
-      if (origin.photo) {
+      // Only session-local captures can re-attach (hydrated turns hold a
+      // display URL — and error bubbles are never persisted, so in practice
+      // a retryable origin always still has its local capture).
+      if (origin.photo && isLocalPhotoUri(origin.photo.uri)) {
         request[request.length - 1] = {
           ...request[request.length - 1],
           image: origin.photo.uri,
@@ -1357,9 +1753,25 @@ export function CoachChatProvider({
     updateLabelFlow(null);
     setPendingStage(null);
     setIsStreaming(false);
-    const greeting = buildGreetingMessage();
-    messagesRef.current = [greeting];
-    setMessages([greeting]);
+    // Drop persistence bookkeeping with the thread. Anything still queued
+    // is abandoned deliberately: this runs on sign-out, and the next open
+    // hydrates whatever HAD landed on the account.
+    hydratedKeyRef.current = null;
+    persistedRef.current.clear();
+    outboxRef.current = [];
+    photoPathsRef.current.clear();
+    flushingRef.current = false;
+    flushFailuresRef.current = 0;
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    const seed =
+      !accountRef.current.resolving && accountRef.current.kind === 'demo'
+        ? [buildGreetingMessage()]
+        : [];
+    messagesRef.current = seed;
+    setMessages(seed);
   }, [updateLabelFlow]);
 
   const value = useMemo(

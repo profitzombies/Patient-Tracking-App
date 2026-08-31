@@ -2,10 +2,35 @@ import type { Compartment } from "./compartments";
 import type { CatalogProduct } from "./products";
 import { QUICK_REPLY_SETS } from "./quick-replies";
 
+export interface PatientDayTargets {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  waterOz: number;
+}
+
+/** Live "today so far" block for a real signed-in patient's account. */
+export interface PatientDayContext {
+  /** The diary day the numbers cover, YYYY-MM-DD (server-validated). */
+  dateKey: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  waterOz: number;
+  targets: PatientDayTargets;
+}
+
 export interface PatientContext {
   firstName: string;
   programDay: number;
   phaseName: string;
+  /**
+   * Present only for real signed-in patients (coach/real-patient.ts). The
+   * demo persona has none, which keeps its prompt byte-identical.
+   */
+  today?: PatientDayContext;
 }
 
 /**
@@ -68,7 +93,15 @@ export function patientContextLine(patient: PatientContext): string {
   const firstName = sanitizeInline(patient.firstName, 60) || "the patient";
   const phaseName = sanitizeInline(patient.phaseName, 80) || "current";
   const programDay = Math.max(0, Math.min(2000, Math.round(patient.programDay)));
-  return `Patient context: ${firstName} is on day ${programDay} of the THINNR program, currently in the ${phaseName} phase. Answer for this day and phase.`;
+  const base = `Patient context: ${firstName} is on day ${programDay} of the THINNR program, currently in the ${phaseName} phase. Answer for this day and phase.`;
+  const today = patient.today;
+  if (!today) return base;
+  // Real signed-in accounts add one live line: the patient's actual day so
+  // far, straight from their diary. Whole numbers read like a coach, not a
+  // spreadsheet. The demo persona never reaches this branch.
+  const n = (value: number) => String(Math.max(0, Math.round(value)));
+  return `${base}
+Today so far (${today.dateKey}): ${firstName} has logged ${n(today.calories)} of ${n(today.targets.calories)} calories, ${n(today.protein)}g of ${n(today.targets.protein)}g protein, ${n(today.carbs)}g of ${n(today.targets.carbs)}g carbs, ${n(today.fat)}g of ${n(today.targets.fat)}g fat, and ${n(today.waterOz)} of ${n(today.targets.waterOz)} oz water. These live diary numbers are the truth for today. Use them when the patient asks about today's meals, totals, or what room is left, and never invent different ones.`;
 }
 
 /**

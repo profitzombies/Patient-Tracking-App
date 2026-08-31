@@ -286,7 +286,7 @@ export class ObjectStorageService {
    */
   async patientMediaUploadURL(
     patientId: string,
-    kind: "food" | "recipe",
+    kind: "food" | "recipe" | "chat",
   ): Promise<{ uploadUrl: string; objectPath: string }> {
     const objectId = `${kind}-${randomUUID()}`;
     const objectPath = `/objects/patient-media/${patientId}/${objectId}`;

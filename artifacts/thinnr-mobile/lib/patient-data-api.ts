@@ -17,10 +17,15 @@ import type {
   IngredientAdjustment,
   IngredientNutrition,
   MealLogEntry,
+  MealSlot,
   RecipeIngredient,
   SavedRecipe,
 } from '@/data/patient-data';
 import type {
+  ChatThread,
+  ChatThreadSnapshot,
+  ChatWireMessage,
+  ChatWirePhoto,
   LibraryWrite,
   PatientDataApi,
   PatientServerState,
@@ -94,6 +99,16 @@ async function authedRequest(method: string, path: string, body?: unknown): Prom
 // ── Account resolution ───────────────────────────────────────────────────────
 
 export type AccountRole = { kind: 'patient'; patientId: string } | { kind: 'other' };
+
+/**
+ * Current session bearer for streaming calls that authenticate per turn
+ * (coach chat SSE). Null when signed out or sign-in isn't configured.
+ */
+export async function getSessionAccessToken(): Promise<string | null> {
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
 
 /**
  * Resolves the signed-in session to an account kind via the claim flow's
@@ -182,8 +197,8 @@ export function patientMediaDisplayUrl(objectPath: string): string {
   return `${apiBase()}/patient-media/file?path=${encodeURIComponent(objectPath)}`;
 }
 
-async function uploadLibraryPhoto(
-  kind: 'food' | 'recipe',
+async function uploadPatientPhoto(
+  kind: 'food' | 'recipe' | 'chat',
   dataUri: string,
 ): Promise<{ photoPath: string; photoUri: string }> {
   const commaAt = dataUri.indexOf(',');
@@ -407,6 +422,70 @@ function recipeWire(recipe: SavedRecipe): Record<string, unknown> {
   };
 }
 
+// ── Chat transcript parsing (account → client wire shapes) ──────────────────
+
+const CHAT_ROLES = new Set(['user', 'assistant']);
+const CHAT_PHOTO_KINDS = new Set(['menu', 'meal', 'label']);
+
+function parseChatMessage(raw: unknown): ChatWireMessage {
+  if (typeof raw !== 'object' || raw === null) throw new PatientDataError(MALFORMED_MESSAGE);
+  const m = raw as Record<string, unknown>;
+  if (
+    typeof m.id !== 'string' ||
+    typeof m.role !== 'string' ||
+    !CHAT_ROLES.has(m.role) ||
+    typeof m.text !== 'string'
+  ) {
+    throw new PatientDataError(MALFORMED_MESSAGE);
+  }
+  const message: ChatWireMessage = {
+    id: m.id,
+    role: m.role as ChatWireMessage['role'],
+    text: m.text,
+  };
+  if (m.stopped === true) message.stopped = true;
+  if (m.hidden === true) message.hidden = true;
+  if (
+    typeof m.card === 'object' &&
+    m.card !== null &&
+    typeof (m.card as { kind?: unknown }).kind === 'string'
+  ) {
+    message.card = m.card as { kind: string; payload: unknown };
+  }
+  if (Array.isArray(m.quickReplies)) {
+    const labels = m.quickReplies.filter((l): l is string => typeof l === 'string' && l.length > 0);
+    if (labels.length > 0) message.quickReplies = labels;
+  }
+  if (typeof m.replyToId === 'string' && m.replyToId.length > 0) message.replyToId = m.replyToId;
+  const p = m.photo as Record<string, unknown> | null | undefined;
+  if (
+    p &&
+    typeof p === 'object' &&
+    typeof p.path === 'string' &&
+    p.path.length > 0 &&
+    typeof p.width === 'number' &&
+    typeof p.height === 'number'
+  ) {
+    const photo: ChatWirePhoto = {
+      path: p.path,
+      width: p.width,
+      height: p.height,
+      // Display URL derived here, at the API seam, so the chat layer never
+      // builds media URLs itself.
+      uri: patientMediaDisplayUrl(p.path),
+    };
+    if (typeof p.kind === 'string' && CHAT_PHOTO_KINDS.has(p.kind)) {
+      photo.kind = p.kind as ChatWirePhoto['kind'];
+    }
+    if (typeof p.mealSlot === 'string' && MEALS.has(p.mealSlot)) {
+      photo.mealSlot = p.mealSlot as MealSlot;
+    }
+    if (p.reused === true) photo.reused = true;
+    message.photo = photo;
+  }
+  return message;
+}
+
 function parseServerState(json: unknown): PatientServerState {
   if (typeof json !== 'object' || json === null) throw new PatientDataError(MALFORMED_MESSAGE);
   const data = json as Record<string, unknown>;
@@ -498,5 +577,36 @@ export const patientDataApi: PatientDataApi = {
     await authedRequest('POST', '/patient-data/library', body);
   },
 
-  uploadLibraryPhoto,
+  uploadLibraryPhoto: uploadPatientPhoto,
+
+  async fetchChatThread(thread: ChatThread, todayKey: string): Promise<ChatThreadSnapshot> {
+    const json = await authedRequest(
+      'GET',
+      `/patient-chat/${thread}?today=${encodeURIComponent(todayKey)}`,
+    );
+    const record = (json ?? {}) as Record<string, unknown>;
+    if (!Array.isArray(record.messages)) throw new PatientDataError(MALFORMED_MESSAGE);
+    const patient = (record.patient ?? {}) as Record<string, unknown>;
+    return {
+      messages: record.messages.map(parseChatMessage),
+      patient: {
+        firstName:
+          typeof patient.firstName === 'string' && patient.firstName.length > 0
+            ? patient.firstName
+            : 'there',
+        programDay:
+          typeof patient.programDay === 'number' && Number.isFinite(patient.programDay)
+            ? patient.programDay
+            : 1,
+      },
+    };
+  },
+
+  async appendChatMessages(thread: ChatThread, messages: ChatWireMessage[]): Promise<void> {
+    await authedRequest('POST', `/patient-chat/${thread}/messages`, { messages });
+  },
+
+  async uploadChatPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }> {
+    return uploadPatientPhoto('chat', dataUri);
+  },
 };

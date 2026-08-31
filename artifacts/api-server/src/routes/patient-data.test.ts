@@ -1,0 +1,751 @@
+/**
+ * Patient-data routes suite — the live per-patient diary rail.
+ *
+ * Runs against an in-memory fake of the Supabase REST + GoTrue surfaces so
+ * the auth ladder (401/403/503), the client-shape mapping, PostgREST merge
+ * semantics (partial target merges, created_at preservation), delete
+ * scoping, and cross-patient isolation can all be exercised
+ * deterministically. The claim/auth suites own the session mechanics; this
+ * file focuses on what the diary rail adds on top.
+ */
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import express from "express";
+import type http from "node:http";
+import type { AddressInfo } from "node:net";
+import crypto from "node:crypto";
+
+const FAKE_SUPABASE = "http://fake.supabase.local";
+
+type Row = Record<string, unknown>;
+
+/** Lexicographically sortable fake created_at stamps. */
+function stampAt(seq: number): string {
+  return `2026-08-01T00:00:${String(seq).padStart(2, "0")}.000Z`;
+}
+
+class FakeBackend {
+  tables: Record<string, Row[]> = {};
+  /** access token → auth user id */
+  tokens = new Map<string, string>();
+  authOutage = false;
+  /** one-shot 500s keyed `${method} ${table}` (or `RPC patient_diary_apply`) */
+  failOnce = new Set<string>();
+  /** Number of atomic patient_diary_apply RPC calls received. */
+  rpcCalls = 0;
+  private seq = 0;
+
+  reset() {
+    this.tables = {
+      patients: [],
+      patient_diary_entries: [],
+      patient_water_days: [],
+      patient_target_overrides: [],
+      patient_food_prefs: [],
+    };
+    this.tokens.clear();
+    this.authOutage = false;
+    this.failOnce.clear();
+    this.rpcCalls = 0;
+    this.seq = 0;
+  }
+
+  seedPatient(overrides: Row = {}): Row {
+    const row: Row = {
+      id: crypto.randomUUID(),
+      auth_user_id: null,
+      name: "Casey Patient",
+      ...overrides,
+    };
+    this.tables.patients.push(row);
+    return row;
+  }
+
+  /** Signed-in patient: auth user + token + linked patients row. */
+  seedSignedInPatient(token: string): { patientId: string; userId: string } {
+    const userId = crypto.randomUUID();
+    this.tokens.set(token, userId);
+    const patient = this.seedPatient({ auth_user_id: userId });
+    return { patientId: String(patient.id), userId };
+  }
+
+  private parseFilters(url: URL): Array<[string, string, string]> {
+    const out: Array<[string, string, string]> = [];
+    url.searchParams.forEach((raw, key) => {
+      if (["select", "order", "limit", "on_conflict"].includes(key)) return;
+      const dot = raw.indexOf(".");
+      out.push([key, raw.slice(0, dot), raw.slice(dot + 1)]);
+    });
+    return out;
+  }
+
+  private matches(row: Row, [col, op, value]: [string, string, string]): boolean {
+    const cell = row[col];
+    if (op === "eq") return String(cell ?? "") === value;
+    if (op === "gte") return typeof cell === "string" && cell >= value;
+    if (op === "lte") return typeof cell === "string" && cell <= value;
+    if (op === "in") {
+      const list = value
+        .replace(/^\(|\)$/g, "")
+        .split(",")
+        .map(item => item.replace(/^"|"$/g, ""));
+      return list.includes(String(cell ?? ""));
+    }
+    throw new Error(`fake: unsupported op ${op}`);
+  }
+
+  handle(href: string, init?: RequestInit): Response {
+    const url = new URL(href);
+    const method = (init?.method ?? "GET").toUpperCase();
+    const headers = new Headers(init?.headers as ConstructorParameters<typeof Headers>[0]);
+
+    if (url.pathname === "/auth/v1/user") {
+      if (this.authOutage) return json(500, { error: "outage" });
+      const token = (headers.get("authorization") ?? "").replace(/^Bearer /i, "");
+      const userId = this.tokens.get(token);
+      if (!userId) return json(401, { message: "invalid token" });
+      return json(200, { id: userId, email: null, phone: null });
+    }
+
+    if (url.pathname === "/rest/v1/rpc/patient_diary_apply") {
+      this.rpcCalls += 1;
+      if (this.failOnce.has("RPC patient_diary_apply")) {
+        this.failOnce.delete("RPC patient_diary_apply");
+        return json(500, { message: "fake upstream failure" });
+      }
+      // Mirrors the SQL function: one transaction — upsert merge that
+      // preserves created_at, patient-scoped deletes, recents bump.
+      const args = JSON.parse(String(init?.body ?? "{}")) as {
+        p_patient_id: string;
+        p_upsert?: Array<Record<string, unknown>>;
+        p_delete_ids?: string[];
+        p_recents?: unknown[] | null;
+      };
+      for (const incoming of args.p_upsert ?? []) {
+        const existing = this.tables.patient_diary_entries.find(
+          row =>
+            String(row.patient_id) === args.p_patient_id &&
+            String(row.entry_id) === String(incoming.entry_id),
+        );
+        if (existing) {
+          const { patient_id: _pid, created_at: _created, ...rest } = incoming;
+          Object.assign(existing, rest);
+        } else {
+          this.tables.patient_diary_entries.push({
+            ...incoming,
+            patient_id: args.p_patient_id,
+            created_at: stampAt(this.seq++),
+          });
+        }
+      }
+      if ((args.p_delete_ids ?? []).length > 0) {
+        const doomed = new Set(args.p_delete_ids);
+        this.tables.patient_diary_entries = this.tables.patient_diary_entries.filter(
+          row =>
+            !(String(row.patient_id) === args.p_patient_id && doomed.has(String(row.entry_id))),
+        );
+      }
+      if (args.p_recents !== null && args.p_recents !== undefined) {
+        const prefs = this.tables.patient_food_prefs.find(
+          row => String(row.patient_id) === args.p_patient_id,
+        );
+        if (prefs) {
+          prefs.recents = args.p_recents;
+        } else {
+          this.tables.patient_food_prefs.push({
+            patient_id: args.p_patient_id,
+            favorites: [],
+            recents: args.p_recents,
+          });
+        }
+      }
+      // PostgREST answers a void RPC with 204 and no body.
+      return new Response(null, { status: 204 });
+    }
+
+    const restMatch = url.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
+    if (!restMatch) return json(404, { message: `fake: no route ${url.pathname}` });
+    const table = restMatch[1];
+    if (!(table in this.tables)) return json(404, { message: `fake: no table ${table}` });
+
+    const failKey = `${method} ${table}`;
+    if (this.failOnce.has(failKey)) {
+      this.failOnce.delete(failKey);
+      return json(500, { message: "fake upstream failure" });
+    }
+
+    const filters = this.parseFilters(url);
+
+    if (method === "GET") {
+      let rows = this.tables[table].filter(row => filters.every(f => this.matches(row, f)));
+      const order = url.searchParams.get("order");
+      if (order) {
+        const keys = order.split(",").map(part => part.split(".")[0]);
+        rows = [...rows].sort((a, b) => {
+          for (const key of keys) {
+            const av = String(a[key] ?? "");
+            const bv = String(b[key] ?? "");
+            if (av !== bv) return av < bv ? -1 : 1;
+          }
+          return 0;
+        });
+      }
+      const limit = url.searchParams.get("limit");
+      if (limit) rows = rows.slice(0, Number(limit));
+      return json(200, rows);
+    }
+
+    if (method === "POST") {
+      const conflictCols = (url.searchParams.get("on_conflict") ?? "").split(",").filter(Boolean);
+      const payload = JSON.parse(String(init?.body ?? "[]")) as Row[];
+      for (const incoming of payload) {
+        const existing = conflictCols.length
+          ? this.tables[table].find(row =>
+              conflictCols.every(col => String(row[col] ?? "") === String(incoming[col] ?? "")),
+            )
+          : undefined;
+        if (existing) {
+          // PostgREST merge-duplicates: update ONLY the payload's columns.
+          Object.assign(existing, incoming);
+        } else {
+          this.tables[table].push({ created_at: stampAt(this.seq++), ...incoming });
+        }
+      }
+      return json(201, []);
+    }
+
+    if (method === "DELETE") {
+      this.tables[table] = this.tables[table].filter(
+        row => !filters.every(f => this.matches(row, f)),
+      );
+      // PostgREST answers DELETE with 204 and no body.
+      return new Response(null, { status: 204 });
+    }
+
+    return json(405, { message: `fake: unsupported ${method}` });
+  }
+}
+
+function json(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+const backend = new FakeBackend();
+const realFetch = globalThis.fetch.bind(globalThis);
+let server: http.Server;
+let base: string;
+
+async function api(
+  method: string,
+  path: string,
+  options: { token?: string; body?: unknown } = {},
+): Promise<{ status: number; json: any }> {
+  const response = await realFetch(`${base}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  const text = await response.text();
+  return { status: response.status, json: text ? JSON.parse(text) : null };
+}
+
+function entryPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "e-1",
+    dateKey: "2026-08-30",
+    meal: "lunch",
+    kind: "food",
+    refId: "grilled-chicken",
+    name: "Grilled Chicken Breast",
+    detail: "1 serving",
+    quantity: 1,
+    calories: 231,
+    protein: 43,
+    carbs: 0,
+    fat: 5,
+    ...overrides,
+  };
+}
+
+beforeAll(async () => {
+  process.env.SUPABASE_URL = FAKE_SUPABASE;
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
+  for (const knob of ["READ", "WRITE"]) {
+    process.env[`PATIENT_DATA_${knob}_BURST`] = "100000";
+    process.env[`PATIENT_DATA_${knob}_DAILY_BUDGET`] = "100000";
+  }
+
+  vi.stubGlobal("fetch", (input: string | URL | Request, init?: RequestInit) => {
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (new URL(href).hostname === "fake.supabase.local") {
+      return Promise.resolve(backend.handle(href, init));
+    }
+    return realFetch(input as string, init);
+  });
+
+  const { default: patientDataRouter } = await import("./patient-data");
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as unknown as { log: unknown }).log = {
+      error: (obj: { err?: Error }, msg: string) =>
+        console.log("ROUTELOG", msg, obj?.err?.message ?? obj),
+    };
+    next();
+  });
+  app.use("/api", patientDataRouter);
+  server = app.listen(0);
+  const address = server.address() as AddressInfo;
+  base = `http://127.0.0.1:${address.port}`;
+});
+
+afterAll(async () => {
+  vi.unstubAllGlobals();
+  await new Promise(resolve => server.close(resolve));
+});
+
+beforeEach(() => {
+  backend.reset();
+});
+
+describe("auth ladder", () => {
+  it("rejects requests without a bearer token", async () => {
+    const res = await api("GET", "/api/patient-data/state");
+    expect(res.status).toBe(401);
+    expect(res.json.error).toBe("Sign in required.");
+  });
+
+  it("rejects unknown/expired tokens on every route", async () => {
+    for (const [method, path, body] of [
+      ["GET", "/api/patient-data/state", undefined],
+      ["POST", "/api/patient-data/entries", { upsert: [entryPayload()] }],
+      ["PUT", "/api/patient-data/water", { dateKey: "2026-08-30", oz: 16 }],
+      ["PUT", "/api/patient-data/targets", { calories: 1500 }],
+      ["PUT", "/api/patient-data/prefs", { favorites: [] }],
+    ] as const) {
+      const res = await api(method, path, { token: "stale-token", body });
+      expect(res.status).toBe(401);
+      expect(res.json.error).toBe("Sign in required.");
+    }
+  });
+
+  it("responds 503 (not 401) when the auth lookup is down", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.authOutage = true;
+    const res = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(res.status).toBe(503);
+    expect(res.json.error).toBe("Account lookup is unavailable right now.");
+  });
+
+  it("rejects signed-in accounts with no linked patient row", async () => {
+    const userId = crypto.randomUUID();
+    backend.tokens.set("tok-staff", userId);
+    const res = await api("GET", "/api/patient-data/state", { token: "tok-staff" });
+    expect(res.status).toBe(403);
+    expect(res.json.error).toBe("This account is not linked to a patient record.");
+  });
+});
+
+describe("GET /patient-data/state", () => {
+  it("returns an empty slice for a fresh account", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const res = await api("GET", "/api/patient-data/state?from=2026-07-01&to=2026-08-31", {
+      token: "tok-1",
+    });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ entries: [], water: {}, targets: {}, favorites: [], recents: [] });
+  });
+
+  it("rejects malformed date ranges", async () => {
+    backend.seedSignedInPatient("tok-1");
+    for (const range of ["from=2026-13-01", "to=2026-02-30", "from=garbage"]) {
+      const res = await api("GET", `/api/patient-data/state?${range}`, { token: "tok-1" });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe("Invalid date range.");
+    }
+  });
+
+  it("maps rows to the client entry shape (id, optional refId/adjustments)", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const write = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: {
+        upsert: [
+          entryPayload({
+            id: "e-recipe",
+            kind: "recipe",
+            refId: "r-tuscan",
+            adjustments: [{ index: 2, amount: 4, unit: "oz" }],
+          }),
+          entryPayload({ id: "e-quick", kind: "quick", refId: null, detail: undefined }),
+        ],
+      },
+    });
+    expect(write.status).toBe(200);
+
+    const res = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(res.status).toBe(200);
+    expect(res.json.entries).toEqual([
+      {
+        id: "e-recipe",
+        dateKey: "2026-08-30",
+        meal: "lunch",
+        kind: "recipe",
+        refId: "r-tuscan",
+        name: "Grilled Chicken Breast",
+        detail: "1 serving",
+        quantity: 1,
+        calories: 231,
+        protein: 43,
+        carbs: 0,
+        fat: 5,
+        adjustments: [{ index: 2, amount: 4, unit: "oz" }],
+      },
+      {
+        id: "e-quick",
+        dateKey: "2026-08-30",
+        meal: "lunch",
+        kind: "quick",
+        name: "Grilled Chicken Breast",
+        detail: "",
+        quantity: 1,
+        calories: 231,
+        protein: 43,
+        carbs: 0,
+        fat: 5,
+      },
+    ]);
+  });
+
+  it("keeps insertion order across merges (created_at asc) and filters by range", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: {
+        upsert: [
+          entryPayload({ id: "e-a", dateKey: "2026-08-28", name: "First" }),
+          entryPayload({ id: "e-b", dateKey: "2026-08-29", name: "Second" }),
+          entryPayload({ id: "e-c", dateKey: "2026-08-30", name: "Third" }),
+        ],
+      },
+    });
+    // Editing the oldest row must not move it to the end.
+    await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ id: "e-a", dateKey: "2026-08-28", name: "First Edited" })] },
+    });
+
+    const all = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(all.json.entries.map((e: any) => e.name)).toEqual([
+      "First Edited",
+      "Second",
+      "Third",
+    ]);
+    expect(backend.tables.patient_diary_entries).toHaveLength(3);
+
+    const ranged = await api(
+      "GET",
+      "/api/patient-data/state?from=2026-08-29&to=2026-08-29",
+      { token: "tok-1" },
+    );
+    expect(ranged.json.entries.map((e: any) => e.id)).toEqual(["e-b"]);
+  });
+
+  it("never mixes two patients' data", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.seedSignedInPatient("tok-2");
+    await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ id: "mine", name: "Mine" })], recents: ["grilled-chicken"] },
+    });
+    await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      body: { dateKey: "2026-08-30", oz: 40 },
+    });
+
+    const other = await api("GET", "/api/patient-data/state", { token: "tok-2" });
+    expect(other.json).toEqual({ entries: [], water: {}, targets: {}, favorites: [], recents: [] });
+  });
+
+  it("responds 502 with a friendly message when the store is down", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.failOnce.add("GET patient_diary_entries");
+    const res = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(res.status).toBe(502);
+    expect(res.json.error).toBe("Couldn't load your diary right now. Please try again.");
+  });
+});
+
+describe("POST /patient-data/entries", () => {
+  it("requires at least one of upsert/deleteIds/recents", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const res = await api("POST", "/api/patient-data/entries", { token: "tok-1", body: {} });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe("Nothing to save.");
+  });
+
+  it("merges an edit into the same row and preserves created_at", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ id: "e-1", quantity: 1 })] },
+    });
+    const created = backend.tables.patient_diary_entries[0].created_at;
+
+    const res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ id: "e-1", quantity: 2.5, calories: 577 })] },
+    });
+    expect(res.status).toBe(200);
+    const rows = backend.tables.patient_diary_entries;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].patient_id).toBe(patientId);
+    expect(rows[0].quantity).toBe(2.5);
+    expect(rows[0].calories).toBe(577);
+    expect(rows[0].created_at).toBe(created);
+  });
+
+  it("deletes only the caller's rows, matching exotic-but-legal ids", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.seedSignedInPatient("tok-2");
+    const sharedId = "p1:copy.2026-08-30_x-7";
+    for (const token of ["tok-1", "tok-2"]) {
+      await api("POST", "/api/patient-data/entries", {
+        token,
+        body: { upsert: [entryPayload({ id: sharedId }), entryPayload({ id: "keep-me" })] },
+      });
+    }
+
+    const res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { deleteIds: [sharedId] },
+    });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ ok: true });
+
+    const mine = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(mine.json.entries.map((e: any) => e.id)).toEqual(["keep-me"]);
+    const theirs = await api("GET", "/api/patient-data/state", { token: "tok-2" });
+    expect(theirs.json.entries.map((e: any) => e.id).sort()).toEqual(["keep-me", sharedId].sort());
+  });
+
+  it("lets a recents bump ride an add", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload()], recents: ["grilled-chicken", "oatmeal"] },
+    });
+    expect(res.status).toBe(200);
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.recents).toEqual(["grilled-chicken", "oatmeal"]);
+    expect(state.json.favorites).toEqual([]);
+  });
+
+  it("applies a compound mutation through one atomic upstream call", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ id: "old-1" })] },
+    });
+
+    const before = backend.rpcCalls;
+    const res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: {
+        upsert: [entryPayload({ id: "new-1", name: "Replacement" })],
+        deleteIds: ["old-1"],
+        recents: ["fd-replacement"],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(backend.rpcCalls - before).toBe(1);
+
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.entries.map((e: any) => e.id)).toEqual(["new-1"]);
+    expect(state.json.recents).toEqual(["fd-replacement"]);
+  });
+
+  it("commits nothing when the atomic apply fails — no partial write can reappear later", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ id: "keep-1" })], recents: ["fd-keep"] },
+    });
+
+    backend.failOnce.add("RPC patient_diary_apply");
+    const res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: {
+        upsert: [entryPayload({ id: "stranded", name: "Stranded" })],
+        deleteIds: ["keep-1"],
+        recents: ["fd-new"],
+      },
+    });
+    expect(res.status).toBe(502);
+    expect(res.json.error).toBe("Couldn't save to your diary right now. Please try again.");
+
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.entries.map((e: any) => e.id)).toEqual(["keep-1"]);
+    expect(state.json.recents).toEqual(["fd-keep"]);
+  });
+
+  it("rejects malformed entries field by field", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [entryPayload({ id: "bad id!" }), "Entry id is invalid."],
+      [entryPayload({ dateKey: "2026-02-30" }), "Entry date is invalid."],
+      [entryPayload({ meal: "brunch" }), "Entry meal slot is invalid."],
+      [entryPayload({ kind: "mystery" }), "Entry kind is invalid."],
+      [entryPayload({ name: "   " }), "Entry name must be 1-200 characters."],
+      [entryPayload({ quantity: 0 }), "Entry quantity is invalid."],
+      [entryPayload({ calories: -5 }), "Entry calories are invalid."],
+      [entryPayload({ adjustments: [{ index: 1.5, amount: 2, unit: "oz" }] }), "Entry adjustments are invalid."],
+      [entryPayload({ adjustments: [{ index: 1, amount: 2, unit: "x".repeat(41) }] }), "Entry adjustments are invalid."],
+    ];
+    for (const [entry, message] of cases) {
+      const res = await api("POST", "/api/patient-data/entries", {
+        token: "tok-1",
+        body: { upsert: [entry] },
+      });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe(message);
+    }
+    expect(backend.tables.patient_diary_entries).toHaveLength(0);
+  });
+
+  it("rejects oversized batches and bad delete lists", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const big = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: Array.from({ length: 81 }, (_, i) => entryPayload({ id: `e-${i}` })) },
+    });
+    expect(big.status).toBe(400);
+    expect(big.json.error).toBe("Entry batch is invalid (at most 80 entries).");
+
+    const badDelete = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { deleteIds: ["ok", "has space"] },
+    });
+    expect(badDelete.status).toBe(400);
+    expect(badDelete.json.error).toBe("Delete list is invalid.");
+  });
+
+  it("responds 502 when the upsert fails upstream", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.failOnce.add("RPC patient_diary_apply");
+    const res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload()] },
+    });
+    expect(res.status).toBe(502);
+    expect(res.json.error).toBe("Couldn't save to your diary right now. Please try again.");
+  });
+});
+
+describe("PUT /patient-data/water", () => {
+  it("upserts one day's ounces and overwrites on repeat", async () => {
+    backend.seedSignedInPatient("tok-1");
+    for (const oz of [16, 48]) {
+      const res = await api("PUT", "/api/patient-data/water", {
+        token: "tok-1",
+        body: { dateKey: "2026-08-30", oz },
+      });
+      expect(res.status).toBe(200);
+    }
+    await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      body: { dateKey: "2026-08-29", oz: 8 },
+    });
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.water).toEqual({ "2026-08-30": 48, "2026-08-29": 8 });
+    expect(backend.tables.patient_water_days).toHaveLength(2);
+  });
+
+  it("rejects bad dates and out-of-range ounces", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const badDate = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      body: { dateKey: "yesterday", oz: 16 },
+    });
+    expect(badDate.status).toBe(400);
+    expect(badDate.json.error).toBe("Water date is invalid.");
+    for (const oz of [-8, 201, 12.5]) {
+      const res = await api("PUT", "/api/patient-data/water", {
+        token: "tok-1",
+        body: { dateKey: "2026-08-30", oz },
+      });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe("Water ounces are invalid.");
+    }
+  });
+});
+
+describe("PUT /patient-data/targets", () => {
+  it("merges partial updates instead of clobbering other fields", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("PUT", "/api/patient-data/targets", { token: "tok-1", body: { calories: 1500 } });
+    await api("PUT", "/api/patient-data/targets", {
+      token: "tok-1",
+      body: { waterOz: 70, protein: 120 },
+    });
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.targets).toEqual({ calories: 1500, protein: 120, waterOz: 70 });
+    expect(backend.tables.patient_target_overrides).toHaveLength(1);
+  });
+
+  it("rejects empty and out-of-range payloads", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const empty = await api("PUT", "/api/patient-data/targets", { token: "tok-1", body: {} });
+    expect(empty.status).toBe(400);
+    expect(empty.json.error).toBe("Nothing to save.");
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ calories: 20001 }, "Calorie target is invalid."],
+      [{ protein: -1 }, "Protein target is invalid."],
+      [{ carbs: 9999 }, "Carb target is invalid."],
+      [{ fat: Number.NaN }, "Fat target is invalid."],
+      [{ waterOz: 500 }, "Water target is invalid."],
+    ];
+    for (const [body, message] of cases) {
+      const res = await api("PUT", "/api/patient-data/targets", { token: "tok-1", body });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe(message);
+    }
+  });
+});
+
+describe("PUT /patient-data/prefs", () => {
+  it("writes favorites and recents, merging partial updates", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("PUT", "/api/patient-data/prefs", {
+      token: "tok-1",
+      body: { favorites: ["oatmeal", "salmon"], recents: ["salmon"] },
+    });
+    // A recents-only follow-up must not wipe favorites.
+    await api("PUT", "/api/patient-data/prefs", {
+      token: "tok-1",
+      body: { recents: ["oatmeal", "salmon"] },
+    });
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.favorites).toEqual(["oatmeal", "salmon"]);
+    expect(state.json.recents).toEqual(["oatmeal", "salmon"]);
+    expect(backend.tables.patient_food_prefs).toHaveLength(1);
+  });
+
+  it("rejects empty payloads and malformed lists", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const empty = await api("PUT", "/api/patient-data/prefs", { token: "tok-1", body: {} });
+    expect(empty.status).toBe(400);
+    expect(empty.json.error).toBe("Nothing to save.");
+    const bad = await api("PUT", "/api/patient-data/prefs", {
+      token: "tok-1",
+      body: { favorites: ["ok", 42] },
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error).toBe("Favorites list is invalid.");
+  });
+});

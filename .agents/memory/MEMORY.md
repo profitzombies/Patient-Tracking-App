@@ -75,3 +75,4 @@
 - [HQ department access](hq-department-access.md) — active HQ membership is authoritative across client, API, and RLS; the coarse profile role must never grant or classify department access alone.
 - [Legacy DB archive-and-reset](legacy-db-reset.md) — CTAS archive + checksum gate + gated wipe; audit manifests must be write-once (mgmt-API applies skip migration history); TRUNCATE fires no triggers.
 - [Passwordless code login](passwordless-login.md) — one shared send-cap pot; atomic claim between proof and reward; ids resolve by id; every staff login provisions a usable workspace atomically.
+- [Live patient-data rail](live-patient-data-rail.md) — account seam defaults to demo (zero suite blast radius); server truth gates real writes; compound mutations = one RPC transaction.

@@ -32,7 +32,9 @@ import { AppModeProvider } from '@/context/AppModeContext';
 import { CoachChatProvider } from '@/context/CoachChatContext';
 import { OnboardingProvider } from '@/context/OnboardingContext';
 import { OperationsProvider } from '@/context/OperationsContext';
+import { PatientAccountProvider } from '@/context/PatientAccountProvider';
 import { PatientProvider } from '@/context/PatientContext';
+import { PatientSyncNotice } from '@/components/patient/PatientSyncNotice';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -284,13 +286,16 @@ export default function RootLayout() {
               <KeyboardProvider>
                 <AppModeProvider>
                   <OperationsProvider>
-                    <PatientProvider>
-                      <OnboardingProvider>
-                        <CoachChatProvider>
-                          <RootLayoutNav />
-                        </CoachChatProvider>
-                      </OnboardingProvider>
-                    </PatientProvider>
+                    <PatientAccountProvider>
+                      <PatientProvider>
+                        <OnboardingProvider>
+                          <CoachChatProvider>
+                            <RootLayoutNav />
+                            <PatientSyncNotice />
+                          </CoachChatProvider>
+                        </OnboardingProvider>
+                      </PatientProvider>
+                    </PatientAccountProvider>
                   </OperationsProvider>
                 </AppModeProvider>
               </KeyboardProvider>

@@ -150,6 +150,13 @@ import { progressPhotoDisplayUrl, uploadGuidedShots } from '../lib/progress-phot
 import { ENROLLMENT_DAYS, TODAY_KEY } from '../data/patient-data';
 import * as SessionModule from '../components/patient/GuidedPhotoSession';
 import { PatientProvider, usePatient } from '../context/PatientContext';
+import {
+  PatientAccountContext,
+  type PatientAccountState,
+  type PatientDataApi,
+  type PatientServerState,
+  type ProgressPhotoWire,
+} from '../context/PatientAccountContext';
 import { AppModeProvider } from '../context/AppModeContext';
 import * as ProgressModule from '../app/(patient)/progress';
 import * as CheckInModule from '../app/check-in';
@@ -443,72 +450,18 @@ function customFrame(
   return { width, height, luma };
 }
 
-// ── Scripted upload endpoints ────────────────────────────────────────────
-const uploadLog = {
-  uploadUrlPosts: [] as Array<{ angle: string; contentType: string; sizeBytes: number }>,
-  puts: [] as Array<{ angle: string; bytes: number }>,
-  finalizes: [] as Array<{ objectPath: string }>,
-};
-const uploadFailures = {
-  uploadUrl: new Set<string>(),
-  put: new Set<string>(),
-  finalize: new Set<string>(),
-};
-
-function resetUploadScript(): void {
-  uploadLog.uploadUrlPosts.length = 0;
-  uploadLog.puts.length = 0;
-  uploadLog.finalizes.length = 0;
-  uploadFailures.uploadUrl.clear();
-  uploadFailures.put.clear();
-  uploadFailures.finalize.clear();
-}
-
-function jsonResponse(status: number, payload: unknown): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
-function angleFromObjectPath(objectPath: string): string {
-  const match = /progress-photos\/(front|side|back)/.exec(objectPath);
-  return match?.[1] ?? 'unknown';
-}
+// ── No-network guard ─────────────────────────────────────────────────────
+// The demo persona never touches the network: guided saves keep their shots
+// on-device, and only a signed-in account uploads — through its own media
+// rail, which section 10 fakes in-process. Any fetch here is a regression,
+// so the guard records it and throws.
+const fetchCalls: string[] = [];
 
 globalThis.fetch = (async (input: unknown, init?: Record<string, any>) => {
   const url =
     typeof input === 'string' ? input : String((input as { url?: unknown })?.url ?? input);
   const method = String(init?.method ?? 'GET').toUpperCase();
-  if (url === 'https://guided-photos.internal/api/progress-photos/upload-url' && method === 'POST') {
-    const body = JSON.parse(String(init?.body ?? '{}'));
-    uploadLog.uploadUrlPosts.push(body);
-    if (uploadFailures.uploadUrl.has(body.angle)) {
-      return jsonResponse(500, { error: 'Storage rejected the request' });
-    }
-    return jsonResponse(200, {
-      uploadUrl: `https://storage.guided.test/put/${body.angle}?sig=abc`,
-      objectPath: `/objects/progress-photos/${body.angle}-fixed`,
-    });
-  }
-  if (url.startsWith('https://storage.guided.test/put/') && method === 'PUT') {
-    const angle = url.slice('https://storage.guided.test/put/'.length).split('?')[0];
-    const body = init?.body;
-    let bytes = 0;
-    if (body instanceof ArrayBuffer) bytes = body.byteLength;
-    else if (ArrayBuffer.isView(body)) bytes = (body as ArrayBufferView).byteLength;
-    else if (typeof body === 'string') bytes = body.length;
-    uploadLog.puts.push({ angle, bytes });
-    if (uploadFailures.put.has(angle)) return jsonResponse(503, { error: 'PUT failed' });
-    return new Response('', { status: 200 });
-  }
-  if (url === 'https://guided-photos.internal/api/progress-photos/finalize' && method === 'POST') {
-    const body = JSON.parse(String(init?.body ?? '{}'));
-    uploadLog.finalizes.push(body);
-    const angle = angleFromObjectPath(String(body.objectPath ?? ''));
-    if (uploadFailures.finalize.has(angle)) return jsonResponse(422, { error: 'Object missing' });
-    return jsonResponse(200, { objectPath: body.objectPath, sizeBytes: 128 });
-  }
+  fetchCalls.push(`${method} ${url}`);
   throw new Error(`Unexpected fetch in guided-photos suite: ${method} ${url}`);
 }) as typeof fetch;
 
@@ -530,7 +483,7 @@ async function resetScenario(platform: 'web' | 'ios'): Promise<void> {
   speechState.reset();
   screenReaderState.reset();
   clearRouterCalls();
-  resetUploadScript();
+  fetchCalls.length = 0;
   openSettingsCalls.count = 0;
   routerState.pathname = '/guided-photos';
   localStore.delete(HIDE_INSTRUCTIONS_KEY);
@@ -555,6 +508,106 @@ async function mountSession(): Promise<MountedSession> {
         null,
         h(PatientProbe),
         h(GuidedPhotoSession, { onSettle: outcome => outcomes.push(outcome) }),
+      ),
+    );
+  });
+  return { renderer, outcomes };
+}
+
+/** Everything the guided flow touches on the account rail, recorded. */
+interface FakeRail {
+  state: PatientAccountState;
+  uploads: string[];
+  photoWrites: ProgressPhotoWire[][];
+  /** 1-based upload call numbers that reject. */
+  failUploadsAt: Set<number>;
+  /** 1-based grid-write call numbers that reject. */
+  failPhotoWritesAt: Set<number>;
+  /** Paths handed to cleanupProgressUploads, one entry per call. */
+  cleanups: string[][];
+}
+
+/**
+ * A signed-in account for the session to save through: a hand-built
+ * PatientDataApi whose rail methods record calls and mint object paths, so
+ * the REAL component + context stack runs with zero network. Methods the
+ * guided flow never touches are absent on purpose — reaching one is a bug
+ * this suite should crash on.
+ */
+function makeFakeRail(): FakeRail {
+  const uploads: string[] = [];
+  const photoWrites: ProgressPhotoWire[][] = [];
+  const failUploadsAt = new Set<number>();
+  const failPhotoWritesAt = new Set<number>();
+  const cleanups: string[][] = [];
+  const emptyState: PatientServerState = {
+    entries: [],
+    water: {},
+    targets: {},
+    favorites: [],
+    recents: [],
+    customFoods: [],
+    savedRecipes: [],
+    photos: [],
+    checkIns: [],
+    flags: {
+      nudgeOptOut: false,
+      nudgeEngaged: false,
+      nudgeLastSentKey: null,
+      nudgeLastCrossingKey: null,
+      onboardingComplete: false,
+    },
+  };
+  const api = {
+    async fetchState() {
+      return emptyState;
+    },
+    async uploadProgressPhoto(dataUri: string) {
+      const call = uploads.push(dataUri);
+      if (failUploadsAt.has(call)) throw new Error('The photo upload was declined.');
+      const photoPath = `/objects/patient-media/p-real/progress-${call}`;
+      return { photoPath, photoUri: progressPhotoDisplayUrl(photoPath) };
+    },
+    async writeProgressPhotos(photos: ProgressPhotoWire[]) {
+      const call = photoWrites.push(photos);
+      if (failPhotoWritesAt.has(call)) {
+        throw new Error('Couldn’t save your photos right now. Please try again.');
+      }
+    },
+    async cleanupProgressUploads(paths: string[]) {
+      cleanups.push(paths);
+    },
+  } as unknown as PatientDataApi;
+  return {
+    state: {
+      resolving: false,
+      account: { kind: 'real', patientId: 'p-real', api },
+      accountNotice: null,
+      retryResolve: () => {},
+    },
+    uploads,
+    photoWrites,
+    failUploadsAt,
+    failPhotoWritesAt,
+    cleanups,
+  };
+}
+
+/** mountSession, but signed in: the fake account rail wraps the tree. */
+async function mountRealSession(rail: FakeRail): Promise<MountedSession> {
+  const outcomes: Array<GuidedSessionOutcome | null> = [];
+  let renderer!: TRenderer;
+  await actSettle(() => {
+    renderer = TestRendererCreate(
+      h(
+        PatientAccountContext.Provider,
+        { value: rail.state },
+        h(
+          PatientProvider,
+          null,
+          h(PatientProbe),
+          h(GuidedPhotoSession, { onSettle: outcome => outcomes.push(outcome) }),
+        ),
       ),
     );
   });
@@ -1125,51 +1178,67 @@ async function main(): Promise<void> {
     assertEqual(
       progressPhotoDisplayUrl('/objects/progress-photos/demo-1'),
       'https://guided-photos.internal/api/progress-photos/file?path=%2Fobjects%2Fprogress-photos%2Fdemo-1',
-      'display url shape',
+      'legacy display url routes through the read-only file route',
+    );
+    assertEqual(
+      progressPhotoDisplayUrl('/objects/patient-media/p-1/progress-abc'),
+      'https://guided-photos.internal/api/patient-media/file?path=%2Fobjects%2Fpatient-media%2Fp-1%2Fprogress-abc',
+      'account display url routes through the patient media rail',
     );
 
-    resetUploadScript();
     const shots = GUIDED_ANGLES.map(angle => ({
       angle,
       uri: `data:image/jpeg;base64,${Buffer.from(`SHOT-${angle}`).toString('base64')}`,
       width: 900,
       height: 1200,
     }));
-    const result = await uploadGuidedShots(shots);
-    assertEqual(result.failed.length, 0, 'all uploads succeed');
-    assertEqual(result.uploaded.length, 3, 'three uploaded refs');
-    assertEqual(
-      result.uploaded.map(ref => ref.objectPath).join(','),
-      '/objects/progress-photos/front-fixed,/objects/progress-photos/side-fixed,/objects/progress-photos/back-fixed',
-      'object paths from presign are preserved',
-    );
-    assertEqual(
-      uploadLog.uploadUrlPosts.map(post => post.angle).join(','),
-      'front,side,back',
-      'presigns requested per angle in order',
-    );
+
+    // Demo persona: no uploader. Shots keep their on-device uris, nothing
+    // can fail, and the network is never touched (any fetch throws here).
+    fetchCalls.length = 0;
+    const demo = await uploadGuidedShots(shots);
+    assertEqual(demo.failed.length, 0, 'demo save cannot fail');
+    assertEqual(demo.uploaded.length, 3, 'three demo refs');
     assert(
-      uploadLog.uploadUrlPosts.every(
-        post => post.contentType === 'image/jpeg' && post.sizeBytes > 0,
+      demo.uploaded.every(
+        (ref, index) => ref.uri === shots[index].uri && ref.objectPath === undefined,
       ),
-      'presign posts carry jpeg content type + size',
+      'demo refs keep the capture uri and mint no object path',
+    );
+    assertEqual(fetchCalls.length, 0, 'demo upload pipeline touches no network');
+
+    // Signed-in account: the injected uploader (the account media rail)
+    // receives PREPARED jpegs and hands back per-photo object paths.
+    const uploaderCalls: string[] = [];
+    const real = await uploadGuidedShots(shots, async dataUri => {
+      uploaderCalls.push(dataUri);
+      return { photoPath: `/objects/patient-media/p-1/progress-${uploaderCalls.length}` };
+    });
+    assertEqual(real.failed.length, 0, 'account upload succeeds');
+    assertEqual(
+      real.uploaded.map(ref => ref.objectPath).join(','),
+      '/objects/patient-media/p-1/progress-1,/objects/patient-media/p-1/progress-2,/objects/patient-media/p-1/progress-3',
+      'account refs carry the rail object paths in angle order',
     );
     assert(
-      uploadLog.puts.length === 3 && uploadLog.puts.every(put => put.bytes > 0),
-      'PUT bodies carry bytes',
+      real.uploaded.every(ref => ref.uri === undefined),
+      'account refs drop the local uri once the object is stored',
     );
-    assertEqual(uploadLog.finalizes.length, 3, 'finalize per angle');
+    assertEqual(
+      uploaderCalls.join('|'),
+      shots.map(shot => shot.uri).join('|'),
+      'uploader receives one prepared jpeg per shot (bytes preserved by the prep stub)',
+    );
 
-    resetUploadScript();
-    uploadFailures.put.add('side');
-    const partial = await uploadGuidedShots(shots);
-    assertEqual(partial.failed.join(','), 'side', 'failed PUT reports its angle');
+    // Per-angle failure: one bad upload reports its angle; the rest land.
+    let uploadCall = 0;
+    const partial = await uploadGuidedShots(shots, async () => {
+      uploadCall += 1;
+      if (uploadCall === 2) throw new Error('rail rejected the upload');
+      return { photoPath: `/objects/patient-media/p-1/progress-retry-${uploadCall}` };
+    });
+    assertEqual(partial.failed.join(','), 'side', 'failed upload reports its angle');
     assertEqual(partial.uploaded.length, 2, 'other angles still land');
-
-    resetUploadScript();
-    uploadFailures.finalize.add('back');
-    const finalizeFail = await uploadGuidedShots(shots);
-    assertEqual(finalizeFail.failed.join(','), 'back', 'failed finalize reports its angle');
   }
 
   // ── 8. Web demo: full auto session ─────────────────────────────────────
@@ -1321,7 +1390,7 @@ async function main(): Promise<void> {
     assertEqual(tickPlayer()?.plays, 28, 'reshoot adds one more full countdown of ticks');
     assertEqual(tonePlayer()?.plays, 4, 'reshoot adds one more capture tone');
 
-    resetUploadScript();
+    fetchCalls.length = 0;
     const photosBefore = patientCtx!.photos.length;
     await tap(renderer, 'guided-review-save', 'tap Save');
     assert(announcements.includes('Saving your photos.'), 'saving announced');
@@ -1331,12 +1400,7 @@ async function main(): Promise<void> {
       'outcome reports 3 saved photos',
       JSON.stringify(outcomes[0]),
     );
-    assertEqual(
-      uploadLog.uploadUrlPosts.map(post => post.angle).join(','),
-      'front,side,back',
-      'save uploads all three angles',
-    );
-    assertEqual(uploadLog.finalizes.length, 3, 'save finalizes all three');
+    assertEqual(fetchCalls.length, 0, 'demo save never touches the network');
     assertEqual(countAnnounced('3 progress photos saved.'), 1, 'save success announced');
 
     const photos = patientCtx!.photos;
@@ -1350,11 +1414,11 @@ async function main(): Promise<void> {
         | undefined;
       assert(entry !== undefined, `grid entry exists for ${angle}`);
       if (!entry) continue;
-      assertEqual(
-        entry.objectPath,
-        `/objects/progress-photos/${angle}-fixed`,
-        `${angle} entry stores object path (not a URL)`,
+      assert(
+        typeof entry.uri === 'string' && (entry.uri as string).length > 0,
+        `${angle} entry keeps its on-device uri`,
       );
+      assertEqual(entry.objectPath, undefined, `${angle} entry mints no object path (demo)`);
       assertEqual(
         entry.label,
         `Week ${week} ${GUIDED_ANGLE_LABELS[angle]}`,
@@ -1365,12 +1429,14 @@ async function main(): Promise<void> {
     await actSettle(() => webSession.renderer.unmount());
   }
 
-  // ── 10. Upload failure → retry only failed angles ──────────────────────
-  section('10. Upload failure keeps shots + retry sends only failed angles');
+  // ── 10. Account save: rail failure → retry only failed angles ──────────
+  section('10. Account save: rail failure keeps shots + retry sends only failed angles');
   {
     await resetScenario('web');
     localStore.set(HIDE_INSTRUCTIONS_KEY, '1'); // also exercises skip-straight-to-capture
-    const { renderer, outcomes } = await mountSession();
+    const rail = makeFakeRail();
+    rail.failUploadsAt.add(2); // shots upload in angle order → call #2 is Side
+    const { renderer, outcomes } = await mountRealSession(rail);
 
     await waitUntil('hidden instructions skip straight to positioning', () =>
       present(renderer, 'guided-angle-banner'),
@@ -1378,8 +1444,7 @@ async function main(): Promise<void> {
     assert(!present(renderer, 'guided-begin'), 'setup card skipped for returning user');
     await waitUntil('auto session reaches review', () => present(renderer, 'guided-review-save'));
 
-    uploadFailures.uploadUrl.add('side');
-    await tap(renderer, 'guided-review-save', 'save with side presign failing');
+    await tap(renderer, 'guided-review-save', 'save with the Side upload failing');
     await waitUntil('inline upload error appears', () => present(renderer, 'guided-upload-error'));
     assertEqual(
       textOf(byTestID(renderer, 'guided-upload-error')).trim(),
@@ -1395,21 +1460,130 @@ async function main(): Promise<void> {
       );
       assert(image.length > 0, `${angle} shot still on review after failure`);
     }
+    assertEqual(rail.uploads.length, 3, 'every shot attempted the account rail');
+    assertEqual(rail.photoWrites.length, 0, 'no grid write until every upload lands');
+    assert(
+      rail.uploads.every(uri => uri.startsWith('data:image/jpeg;base64,')),
+      'the rail receives prepared jpeg data uris',
+    );
 
-    uploadFailures.uploadUrl.clear();
-    uploadLog.uploadUrlPosts.length = 0;
-    uploadLog.puts.length = 0;
-    uploadLog.finalizes.length = 0;
+    rail.failUploadsAt.clear();
     await tap(renderer, 'guided-review-save', 'retry save');
     await waitUntil('retry settles', () => outcomes.length === 1);
-    assertEqual(
-      uploadLog.uploadUrlPosts.map(post => post.angle).join(','),
-      'side',
-      'retry uploads ONLY the failed angle',
-    );
+    assertEqual(rail.uploads.length, 4, 'retry re-uploads ONLY the failed angle');
     assert(
       outcomes[0] !== null && outcomes[0]!.savedCount === 3,
       'retry still saves the full set of three',
+    );
+    assertEqual(rail.photoWrites.length, 1, 'one grid write records all three photos');
+    const write = rail.photoWrites[0] ?? [];
+    assertEqual(
+      write.map(photo => photo.angle).join(','),
+      'front,side,back',
+      'grid write carries all three angles in order',
+    );
+    const railWeek = Math.ceil(ENROLLMENT_DAYS / 7);
+    assert(
+      write.every(
+        photo =>
+          typeof photo.id === 'string' &&
+          photo.id.length > 0 &&
+          photo.dateKey === TODAY_KEY &&
+          photo.label ===
+            `Week ${railWeek} ${GUIDED_ANGLE_LABELS[photo.angle as (typeof GUIDED_ANGLES)[number]]}` &&
+          typeof photo.objectPath === 'string' &&
+          photo.objectPath.startsWith('/objects/patient-media/p-real/progress-'),
+      ),
+      'grid write rows carry ids, labels, dates, and rail object paths',
+    );
+    assert(
+      GUIDED_ANGLES.every(angle =>
+        patientCtx!.photos.some(
+          photo =>
+            (photo as { angle?: string }).angle === angle &&
+            String((photo as { objectPath?: string }).objectPath ?? '').startsWith(
+              '/objects/patient-media/p-real/progress-',
+            ),
+        ),
+      ),
+      'patient grid rows reference the stored objects',
+    );
+    assertEqual(fetchCalls.length, 0, 'the in-process rail means zero raw fetches');
+    await actSettle(() => renderer.unmount());
+  }
+
+  // ── 10b. Account save: grid-write failure → no success, retry completes ─
+  section('10b. Account save: grid-write failure keeps the session; retry completes');
+  {
+    await resetScenario('web');
+    localStore.set(HIDE_INSTRUCTIONS_KEY, '1');
+    const rail = makeFakeRail();
+    rail.failPhotoWritesAt.add(1); // uploads land; the FIRST grid write fails
+    const { renderer, outcomes } = await mountRealSession(rail);
+    await waitUntil('auto session reaches review', () => present(renderer, 'guided-review-save'));
+
+    const savedAnnouncementsBefore = announcements.filter(a =>
+      a.includes('progress photos saved'),
+    ).length;
+    await tap(renderer, 'guided-review-save', 'save with the grid write failing');
+    await waitUntil('inline grid error appears', () => present(renderer, 'guided-upload-error'));
+    assertEqual(
+      textOf(byTestID(renderer, 'guided-upload-error')).trim(),
+      'The photos uploaded but could not be added to your grid. Try Save again.',
+      'error says the uploads are safe but the grid write failed',
+    );
+    assertEqual(outcomes.length, 0, 'no settle while the photos are off the grid');
+    assertEqual(
+      announcements.filter(a => a.includes('progress photos saved')).length,
+      savedAnnouncementsBefore,
+      'no success announcement on a failed grid write',
+    );
+    assert(present(renderer, 'guided-review-save'), 'save stays available for retry');
+    assertEqual(rail.uploads.length, 3, 'all three uploads landed before the failure');
+    assertEqual(rail.photoWrites.length, 1, 'exactly one (failed) grid write was attempted');
+    assertEqual(rail.cleanups.length, 0, 'held uploads are NOT discarded while retry is offered');
+
+    await tap(renderer, 'guided-review-save', 'retry save');
+    await waitUntil('retry settles', () => outcomes.length === 1);
+    assertEqual(rail.uploads.length, 3, 'retry re-sends NO uploads — the held paths are reused');
+    assert(
+      outcomes[0] !== null && outcomes[0]!.savedCount === 3,
+      'retry records the full set of three',
+    );
+    assertEqual(rail.photoWrites.length, 2, 'retry repeats only the grid write');
+    assertEqual(
+      (rail.photoWrites[1] ?? []).map(photo => photo.angle).join(','),
+      'front,side,back',
+      'the retried grid write carries all three angles',
+    );
+    assertEqual(rail.cleanups.length, 0, 'a completed save never discards its own uploads');
+    await actSettle(() => renderer.unmount());
+  }
+
+  // ── 10c. Abandoning a failed grid write discards the uploaded objects ──
+  section('10c. Closing after a failed grid write discards the uploaded objects');
+  {
+    await resetScenario('web');
+    localStore.set(HIDE_INSTRUCTIONS_KEY, '1');
+    const rail = makeFakeRail();
+    rail.failPhotoWritesAt.add(1);
+    rail.failPhotoWritesAt.add(2); // a retry would fail too — the patient gives up
+    const { renderer, outcomes } = await mountRealSession(rail);
+    await waitUntil('auto session reaches review', () => present(renderer, 'guided-review-save'));
+    await tap(renderer, 'guided-review-save', 'save with the grid write failing');
+    await waitUntil('inline grid error appears', () => present(renderer, 'guided-upload-error'));
+
+    await tap(renderer, 'guided-close', 'give up and close the session');
+    await waitUntil('close settles the claim', () => outcomes.length === 1);
+    assert(outcomes[0] === null, 'closing after failure reports no save');
+    assertEqual(rail.cleanups.length, 1, 'close discards the abandoned uploads once');
+    assertEqual(
+      (rail.cleanups[0] ?? []).slice().sort().join(','),
+      [1, 2, 3]
+        .map(n => `/objects/patient-media/p-real/progress-${n}`)
+        .sort()
+        .join(','),
+      'every uploaded-but-unrecorded object path is discarded',
     );
     await actSettle(() => renderer.unmount());
   }
@@ -1550,14 +1724,17 @@ async function main(): Promise<void> {
     assertEqual(tickPlayer()?.plays, 21, 'native ticks 7 × 3');
     assertEqual(tonePlayer()?.plays, 3, 'native capture tones');
 
-    resetUploadScript();
+    fetchCalls.length = 0;
     const photosBefore = patientCtx!.photos.length;
     await tap(renderer, 'guided-review-save', 'native save');
     await waitUntil('native save settles', () => outcomes.length === 1);
     assert(outcomes[0] !== null && outcomes[0]!.savedCount === 3, 'native outcome savedCount 3');
+    assertEqual(fetchCalls.length, 0, 'native demo save touches no network');
     assert(
-      uploadLog.puts.length === 3 && uploadLog.puts.every(put => put.bytes > 0),
-      'native PUTs carry the captured bytes',
+      patientCtx!.photos
+        .slice(-3)
+        .every(photo => typeof (photo as { uri?: string }).uri === 'string'),
+      'native demo grid rows keep their captured uris',
     );
     assertEqual(patientCtx!.photos.length, photosBefore + 3, 'native grid gains 3 photos');
     await actSettle(() => renderer.unmount());

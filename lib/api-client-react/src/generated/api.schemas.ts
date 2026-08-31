@@ -290,67 +290,6 @@ export interface BarcodeLookupResult {
   message?: string;
 }
 
-/**
- * Which posing angle this shot is; used only to name the object
- */
-export type ProgressPhotoUploadUrlInputAngle = typeof ProgressPhotoUploadUrlInputAngle[keyof typeof ProgressPhotoUploadUrlInputAngle];
-
-
-export const ProgressPhotoUploadUrlInputAngle = {
-  front: 'front',
-  side: 'side',
-  back: 'back',
-} as const;
-
-/**
- * MIME type the app will send on the presigned PUT
- */
-export type ProgressPhotoUploadUrlInputContentType = typeof ProgressPhotoUploadUrlInputContentType[keyof typeof ProgressPhotoUploadUrlInputContentType];
-
-
-export const ProgressPhotoUploadUrlInputContentType = {
-  'image/jpeg': 'image/jpeg',
-  'image/png': 'image/png',
-  'image/webp': 'image/webp',
-} as const;
-
-export interface ProgressPhotoUploadUrlInput {
-  /** Which posing angle this shot is; used only to name the object */
-  angle: ProgressPhotoUploadUrlInputAngle;
-  /** MIME type the app will send on the presigned PUT */
-  contentType: ProgressPhotoUploadUrlInputContentType;
-  /**
-     * Compressed file size in bytes; the hard cap is 10 MB
-     * @minimum 1
-     * @maximum 10485760
-     */
-  sizeBytes: number;
-}
-
-export interface ProgressPhotoUploadUrlResult {
-  /** Presigned PUT URL, valid for about 15 minutes */
-  uploadUrl: string;
-  /** Canonical object path to send to finalize; never a URL */
-  objectPath: string;
-}
-
-export interface ProgressPhotoFinalizeInput {
-  /**
-     * The object path returned by upload-url after the PUT succeeded
-     * @maxLength 500
-     */
-  objectPath: string;
-}
-
-export interface ProgressPhotoFinalizeResult {
-  /** Object path the app stores on the photo entry */
-  objectPath: string;
-  /** Verified stored size in bytes */
-  sizeBytes: number;
-  /** Content type detected from the stored bytes */
-  contentType: string;
-}
-
 export interface TrainingUploadUrlInput {
   /**
      * Original file name, for logs and error copy only

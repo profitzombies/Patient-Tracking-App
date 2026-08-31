@@ -101,14 +101,17 @@ export default function CheckInScreen() {
     setError('');
     setSaving(true);
     try {
-      await patient.addCheckIn({
+      const saved = await patient.addCheckIn({
         dateKey: TODAY_KEY,
         weight,
         mood,
         sideEffects,
         notes: notes.trim() || undefined,
       });
-      goBack();
+      // A failed account write rolled back (and posted a sync notice):
+      // keep the filled-in form on screen so a retry is one tap away.
+      if (saved) goBack();
+      else setError('Your check-in could not be saved — please try again.');
     } finally {
       setSaving(false);
     }

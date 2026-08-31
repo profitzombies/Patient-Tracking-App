@@ -25,6 +25,18 @@
  *    the favorites/recents lists that ride a delete. The state read returns
  *    customFoods + savedRecipes alongside the diary slice, so one hydration
  *    fills the whole account-backed store.
+ *  - POST /patient-data/check-ins   → one check-in (weight, mood, side
+ *    effects, notes). One row per day: a same-day re-submit replaces the
+ *    previous answers wholesale, mirroring the app's local behavior.
+ *  - POST /patient-data/photos      → progress-photo GRID writes: upserts
+ *    (rows pointing at objects the patient already uploaded on the
+ *    patient-media rail, kind "progress") and deletes. A delete drops the
+ *    grid row and media-ledger row in one transaction, then deletes the
+ *    stored bytes — the app only calls it after its local undo window
+ *    closes.
+ *  - PUT  /patient-data/flags       → partial account-flag merge: the
+ *    stall-nudge outreach state, onboarding answers/completion, and
+ *    notification preferences.
  *
  * Failures are explicit: bad payloads 400, missing/expired sessions 401,
  * non-patient accounts 403, upstream trouble 502/503. The app rolls back its
@@ -32,10 +44,12 @@
  */
 import { Router, type IRouter } from "express";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { mintPatientMediaToken } from "../lib/media-token";
 import { resolvePatient } from "../lib/patient-auth";
 import { createLimiter, envLimit } from "../coach/limits";
 import { clientIp } from "../auth/ledger";
-import { isOwnPatientMediaPath } from "./patient-media";
+import { isOwnPatientMediaPath, PATIENT_MEDIA_PREFIX } from "./patient-media";
+import { objectStorage } from "../lib/objectStorage";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -97,6 +111,116 @@ function parseIdList(value: unknown, maxItems: number, maxLength = 80): string[]
     out.push(id);
   }
   return out;
+}
+
+const PHOTO_ANGLES = new Set(["front", "side", "back"]);
+
+interface CheckInRow {
+  patient_id: string;
+  date_key: string;
+  check_in_id: string;
+  weight: number | null;
+  mood: number;
+  side_effects: string[];
+  notes: string | null;
+  updated_at: string;
+}
+
+/**
+ * One check-in from the app, checked field by field into a DB row. Every
+ * column rides the payload (weight/notes as explicit nulls when absent) so
+ * the same-day merge REPLACES the previous answers instead of blending two
+ * submissions together.
+ */
+function parseCheckIn(raw: unknown, patientId: string): { row: CheckInRow } | { error: string } {
+  const checkIn = (raw ?? {}) as Record<string, unknown>;
+  if (typeof checkIn.id !== "string" || !ENTRY_ID_RE.test(checkIn.id)) {
+    return { error: "A check-in id is invalid." };
+  }
+  if (!isDateKey(checkIn.dateKey)) {
+    return { error: "A check-in date is invalid." };
+  }
+  if (checkIn.weight !== undefined && !numberIn(checkIn.weight, 1, 1500)) {
+    return { error: "A check-in weight is invalid." };
+  }
+  if (!numberIn(checkIn.mood, 1, 5) || !Number.isInteger(checkIn.mood)) {
+    return { error: "A check-in mood is invalid." };
+  }
+  if (
+    !Array.isArray(checkIn.sideEffects) ||
+    checkIn.sideEffects.length > 12 ||
+    checkIn.sideEffects.some(v => typeof v !== "string" || v.length < 1 || v.length > 60)
+  ) {
+    return { error: "A check-in side-effects list is invalid." };
+  }
+  if (
+    checkIn.notes !== undefined &&
+    (typeof checkIn.notes !== "string" || checkIn.notes.length < 1 || checkIn.notes.length > 2000)
+  ) {
+    return { error: "A check-in note is invalid." };
+  }
+  return {
+    row: {
+      patient_id: patientId,
+      date_key: checkIn.dateKey,
+      check_in_id: checkIn.id,
+      weight: checkIn.weight === undefined ? null : (checkIn.weight as number),
+      mood: checkIn.mood,
+      side_effects: checkIn.sideEffects as string[],
+      notes: checkIn.notes === undefined ? null : (checkIn.notes as string),
+      updated_at: new Date().toISOString(),
+    },
+  };
+}
+
+interface PhotoRow {
+  patient_id: string;
+  photo_id: string;
+  date_key: string;
+  label: string;
+  angle: string | null;
+  object_path: string;
+  updated_at: string;
+}
+
+/**
+ * One progress-photo grid row from the app. The object path must sit inside
+ * THIS patient's media folder with the progress kind prefix — the same
+ * ownership-in-the-path rule the media rail and the DB check enforce — so a
+ * row can never point at another patient's bytes (or a non-progress object).
+ */
+function parseProgressPhoto(raw: unknown, patientId: string): { row: PhotoRow } | { error: string } {
+  const photo = (raw ?? {}) as Record<string, unknown>;
+  if (typeof photo.id !== "string" || !ENTRY_ID_RE.test(photo.id)) {
+    return { error: "A photo id is invalid." };
+  }
+  if (!isDateKey(photo.dateKey)) {
+    return { error: "A photo date is invalid." };
+  }
+  if (typeof photo.label !== "string" || photo.label.length < 1 || photo.label.length > 80) {
+    return { error: "A photo label is invalid." };
+  }
+  if (photo.angle !== undefined && (typeof photo.angle !== "string" || !PHOTO_ANGLES.has(photo.angle))) {
+    return { error: "A photo angle is invalid." };
+  }
+  if (
+    typeof photo.objectPath !== "string" ||
+    !isOwnPatientMediaPath(photo.objectPath, patientId) ||
+    !photo.objectPath.startsWith(`${PATIENT_MEDIA_PREFIX}${patientId}/progress-`)
+  ) {
+    return { error: "A photo isn't on your account's progress rail." };
+  }
+  return {
+    row: {
+      patient_id: patientId,
+      photo_id: photo.id,
+      date_key: photo.dateKey,
+      label: photo.label,
+      angle: photo.angle === undefined ? null : (photo.angle as string),
+      object_path: photo.objectPath,
+      updated_at: new Date().toISOString(),
+    },
+  };
 }
 
 interface EntryRow {
@@ -419,6 +543,8 @@ function parseSavedRecipe(raw: unknown, patientId: string): { row: RecipeRow } |
 const MAX_ENTRIES_RETURNED = 5000;
 const MAX_FOODS_RETURNED = 2000;
 const MAX_RECIPES_RETURNED = 1000;
+const MAX_PHOTOS_RETURNED = 1000;
+const MAX_CHECKINS_RETURNED = 400;
 
 router.get("/patient-data/state", async (req, res) => {
   const slot = acquireReadSlot(clientIp(req));
@@ -445,7 +571,10 @@ router.get("/patient-data/state", async (req, res) => {
       if (to) filters.push(`date_key=lte.${to}`);
       return filters.join("&");
     };
-    const [entries, water, targets, prefs, foods, recipes] = await Promise.all([
+    // Photos, check-ins, and flags are deliberately NOT range-filtered: the
+    // grid shows every photo the account owns, the weight chart wants the
+    // whole weigh-in history, and flags are a singleton.
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags] = await Promise.all([
       supabaseAdmin(
         "GET",
         `/rest/v1/patient_diary_entries?${rangeFilters([`patient_id=eq.${pid}`])}` +
@@ -476,8 +605,25 @@ router.get("/patient-data/state", async (req, res) => {
           `&select=recipe_id,name,meal,mode,tags,minutes,servings,calories,protein,carbs,fat,description,ingredients,steps,grocery_list,saved_at,photo_path` +
           `&order=created_at.asc,recipe_id.asc&limit=${MAX_RECIPES_RETURNED}`,
       ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_progress_photos?patient_id=eq.${pid}` +
+          `&select=photo_id,date_key,label,angle,object_path` +
+          `&order=created_at.asc,photo_id.asc&limit=${MAX_PHOTOS_RETURNED}`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_check_ins?patient_id=eq.${pid}` +
+          `&select=check_in_id,date_key,weight,mood,side_effects,notes` +
+          `&order=date_key.asc&limit=${MAX_CHECKINS_RETURNED}`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_flags?patient_id=eq.${pid}` +
+          `&select=nudge_opt_out,nudge_engaged,nudge_last_sent_key,nudge_last_crossing_key,onboarding_complete,onboarding_answers,notification_prefs`,
+      ),
     ]);
-    for (const r of [entries, water, targets, prefs, foods, recipes]) {
+    for (const r of [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags]) {
       if (r.status >= 300 || !Array.isArray(r.json)) throw new Error(`state fetch failed (${r.status})`);
     }
 
@@ -574,6 +720,47 @@ router.get("/patient-data/state", async (req, res) => {
       return item;
     });
 
+    const photoList = (photos.json as Array<Record<string, unknown>>).map(row => {
+      const item: Record<string, unknown> = {
+        id: row.photo_id,
+        dateKey: String(row.date_key),
+        label: row.label,
+        objectPath: row.object_path,
+      };
+      if (typeof row.angle === "string" && row.angle.length > 0) item.angle = row.angle;
+      return item;
+    });
+
+    const checkInList = (checkIns.json as Array<Record<string, unknown>>).map(row => {
+      const item: Record<string, unknown> = {
+        id: row.check_in_id,
+        dateKey: String(row.date_key),
+        mood: Number(row.mood),
+        sideEffects: Array.isArray(row.side_effects) ? row.side_effects : [],
+      };
+      if (typeof row.weight === "number") item.weight = row.weight;
+      else if (typeof row.weight === "string" && row.weight.length > 0) item.weight = Number(row.weight);
+      if (typeof row.notes === "string" && row.notes.length > 0) item.notes = row.notes;
+      return item;
+    });
+
+    const flagRow = (flags.json as Array<Record<string, unknown>>)[0];
+    const flagsOut: Record<string, unknown> = {
+      nudgeOptOut: flagRow?.nudge_opt_out === true,
+      nudgeEngaged: flagRow?.nudge_engaged === true,
+      nudgeLastSentKey:
+        typeof flagRow?.nudge_last_sent_key === "string" ? flagRow.nudge_last_sent_key : null,
+      nudgeLastCrossingKey:
+        typeof flagRow?.nudge_last_crossing_key === "string" ? flagRow.nudge_last_crossing_key : null,
+      onboardingComplete: flagRow?.onboarding_complete === true,
+    };
+    if (flagRow?.onboarding_answers && typeof flagRow.onboarding_answers === "object") {
+      flagsOut.onboardingAnswers = flagRow.onboarding_answers;
+    }
+    if (flagRow?.notification_prefs && typeof flagRow.notification_prefs === "object") {
+      flagsOut.notificationPrefs = flagRow.notification_prefs;
+    }
+
     res.json({
       entries: entryList,
       water: waterMap,
@@ -582,6 +769,12 @@ router.get("/patient-data/state", async (req, res) => {
       recents,
       customFoods,
       savedRecipes,
+      photos: photoList,
+      checkIns: checkInList,
+      flags: flagsOut,
+      // Read capability for this patient's media: display URLs the client
+      // builds append it, and GET /patient-media/file requires it.
+      mediaToken: mintPatientMediaToken(auth.patientId),
     });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data state fetch failed");
@@ -952,6 +1145,262 @@ router.post("/patient-data/library", async (req, res) => {
   } catch (error) {
     req.log?.error({ err: error }, "patient-data library write failed");
     res.status(502).json({ error: "Couldn't save your library right now. Please try again." });
+  } finally {
+    slot.ok && slot.release();
+  }
+});
+
+router.post("/patient-data/check-ins", async (req, res) => {
+  const slot = acquireWriteSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message });
+    return;
+  }
+  try {
+    const auth = await resolvePatient(req);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const parsed = parseCheckIn(req.body, auth.patientId);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    // One row per day: the merge lands every column, so a same-day
+    // re-submit replaces the previous answers (id included) wholesale.
+    const upsert = await supabaseAdmin(
+      "POST",
+      "/rest/v1/patient_check_ins?on_conflict=patient_id,date_key",
+      [parsed.row],
+      "resolution=merge-duplicates,return=minimal",
+    );
+    if (upsert.status >= 300) throw new Error(`check-in upsert failed (${upsert.status})`);
+    res.json({ ok: true });
+  } catch (error) {
+    req.log?.error({ err: error }, "patient-data check-in write failed");
+    res.status(502).json({ error: "Couldn't save your check-in right now. Please try again." });
+  } finally {
+    slot.ok && slot.release();
+  }
+});
+
+router.post("/patient-data/photos", async (req, res) => {
+  const slot = acquireWriteSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message });
+    return;
+  }
+  try {
+    const auth = await resolvePatient(req);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+
+    const photoRows: PhotoRow[] = [];
+    if (body.upsert !== undefined) {
+      if (!Array.isArray(body.upsert) || body.upsert.length > 20) {
+        res.status(400).json({ error: "Photo batch is invalid (at most 20 photos)." });
+        return;
+      }
+      for (const raw of body.upsert) {
+        const parsed = parseProgressPhoto(raw, auth.patientId);
+        if ("error" in parsed) {
+          res.status(400).json({ error: parsed.error });
+          return;
+        }
+        photoRows.push(parsed.row);
+      }
+    }
+
+    let deleteIds: string[] = [];
+    if (body.deleteIds !== undefined) {
+      const parsed = parseIdList(body.deleteIds, 50, 64);
+      if (parsed === null || parsed.some(id => !ENTRY_ID_RE.test(id))) {
+        res.status(400).json({ error: "Photo delete list is invalid." });
+        return;
+      }
+      deleteIds = parsed;
+    }
+
+    if (photoRows.length === 0 && deleteIds.length === 0) {
+      res.status(400).json({ error: "Nothing to save." });
+      return;
+    }
+
+    if (photoRows.length > 0) {
+      // A stored object backs exactly ONE grid row. Two rows sharing an
+      // object_path would break the delete contract — removing either row
+      // drops the ledger row and the bytes, silently gutting the survivor.
+      // Checked within the batch here, across the account by the ledger
+      // check below plus the unique (patient_id, object_path) index.
+      const batchPaths = new Set<string>();
+      for (const row of photoRows) {
+        if (batchPaths.has(row.object_path)) {
+          res.status(400).json({ error: "Photo batch is invalid (duplicate photo objects)." });
+          return;
+        }
+        batchPaths.add(row.object_path);
+      }
+      // Every grid row must point at an object the patient's media ledger
+      // recorded at finalize: a path that skipped the rail (or whose upload
+      // never finished) has no bytes worth listing — and later deleting.
+      const ledger = await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_media?patient_id=eq.${auth.patientId}&kind=eq.progress&select=object_path`,
+      );
+      if (ledger.status >= 300) throw new Error(`photo ledger read failed (${ledger.status})`);
+      const owned = new Set(
+        (Array.isArray(ledger.json) ? (ledger.json as Array<Record<string, unknown>>) : []).map(
+          row => String(row.object_path ?? ""),
+        ),
+      );
+      for (const row of photoRows) {
+        if (!owned.has(row.object_path)) {
+          res
+            .status(400)
+            .json({ error: "A photo upload didn't finish. Retake it and try again." });
+          return;
+        }
+      }
+      const upsert = await supabaseAdmin(
+        "POST",
+        "/rest/v1/patient_progress_photos?on_conflict=patient_id,photo_id",
+        photoRows,
+        "resolution=merge-duplicates,return=minimal",
+      );
+      if (upsert.status === 409) {
+        // Unique (patient_id, object_path) tripped: the object already
+        // backs a DIFFERENT grid row (same-row updates merge fine above).
+        res.status(400).json({ error: "Photo batch is invalid (photo object already in use)." });
+        return;
+      }
+      if (upsert.status >= 300) throw new Error(`photo upsert failed (${upsert.status})`);
+    }
+
+    if (deleteIds.length > 0) {
+      // Grid row + media-ledger row drop in ONE transaction; the function
+      // hands back the object paths so the bytes can be deleted too. Rows
+      // go first on purpose: if a byte delete fails the object is merely
+      // orphaned (invisible, swept later) — the reverse order could leave
+      // a grid row pointing at nothing.
+      const removed = await supabaseAdmin("POST", "/rest/v1/rpc/patient_progress_photos_remove", {
+        p_patient_id: auth.patientId,
+        p_photo_ids: deleteIds,
+      });
+      if (removed.status >= 300) throw new Error(`photo remove failed (${removed.status})`);
+      const paths = Array.isArray(removed.json)
+        ? (removed.json as unknown[]).filter((p): p is string => typeof p === "string")
+        : [];
+      for (const objectPath of paths) {
+        try {
+          await objectStorage.deleteObjectStrict(objectPath);
+        } catch (error) {
+          req.log?.warn({ err: error, objectPath }, "progress photo byte delete failed");
+        }
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    req.log?.error({ err: error }, "patient-data photos write failed");
+    res.status(502).json({ error: "Couldn't save your photos right now. Please try again." });
+  } finally {
+    slot.ok && slot.release();
+  }
+});
+
+router.put("/patient-data/flags", async (req, res) => {
+  const slot = acquireWriteSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message });
+    return;
+  }
+  try {
+    const auth = await resolvePatient(req);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const row: Record<string, unknown> = { patient_id: auth.patientId };
+    if (body.nudgeOptOut !== undefined) {
+      if (typeof body.nudgeOptOut !== "boolean") {
+        res.status(400).json({ error: "Nudge opt-out flag is invalid." });
+        return;
+      }
+      row.nudge_opt_out = body.nudgeOptOut;
+    }
+    if (body.nudgeEngaged !== undefined) {
+      if (typeof body.nudgeEngaged !== "boolean") {
+        res.status(400).json({ error: "Nudge engagement flag is invalid." });
+        return;
+      }
+      row.nudge_engaged = body.nudgeEngaged;
+    }
+    if (body.nudgeLastSentKey !== undefined) {
+      if (body.nudgeLastSentKey !== null && !isDateKey(body.nudgeLastSentKey)) {
+        res.status(400).json({ error: "Nudge sent date is invalid." });
+        return;
+      }
+      row.nudge_last_sent_key = body.nudgeLastSentKey;
+    }
+    if (body.nudgeLastCrossingKey !== undefined) {
+      if (body.nudgeLastCrossingKey !== null && !isDateKey(body.nudgeLastCrossingKey)) {
+        res.status(400).json({ error: "Nudge crossing date is invalid." });
+        return;
+      }
+      row.nudge_last_crossing_key = body.nudgeLastCrossingKey;
+    }
+    if (body.onboardingComplete !== undefined) {
+      if (typeof body.onboardingComplete !== "boolean") {
+        res.status(400).json({ error: "Onboarding completion flag is invalid." });
+        return;
+      }
+      row.onboarding_complete = body.onboardingComplete;
+    }
+    if (body.onboardingAnswers !== undefined) {
+      if (
+        body.onboardingAnswers === null ||
+        typeof body.onboardingAnswers !== "object" ||
+        Array.isArray(body.onboardingAnswers) ||
+        JSON.stringify(body.onboardingAnswers).length > 16 * 1024
+      ) {
+        res.status(400).json({ error: "Onboarding answers are invalid." });
+        return;
+      }
+      row.onboarding_answers = body.onboardingAnswers;
+    }
+    if (body.notificationPrefs !== undefined) {
+      if (
+        body.notificationPrefs === null ||
+        typeof body.notificationPrefs !== "object" ||
+        Array.isArray(body.notificationPrefs) ||
+        JSON.stringify(body.notificationPrefs).length > 4 * 1024
+      ) {
+        res.status(400).json({ error: "Notification preferences are invalid." });
+        return;
+      }
+      row.notification_prefs = body.notificationPrefs;
+    }
+    if (Object.keys(row).length === 1) {
+      res.status(400).json({ error: "Nothing to save." });
+      return;
+    }
+    row.updated_at = new Date().toISOString();
+    const upsert = await supabaseAdmin(
+      "POST",
+      "/rest/v1/patient_flags?on_conflict=patient_id",
+      [row],
+      "resolution=merge-duplicates,return=minimal",
+    );
+    if (upsert.status >= 300) throw new Error(`flags upsert failed (${upsert.status})`);
+    res.json({ ok: true });
+  } catch (error) {
+    req.log?.error({ err: error }, "patient-data flags write failed");
+    res.status(502).json({ error: "Couldn't save your settings right now. Please try again." });
   } finally {
     slot.ok && slot.release();
   }

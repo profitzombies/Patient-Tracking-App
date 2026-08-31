@@ -12,6 +12,7 @@
 import { fetch as expoFetch } from 'expo/fetch';
 import { Platform } from 'react-native';
 import type {
+  CheckIn,
   DailyTargets,
   FoodItem,
   IngredientAdjustment,
@@ -28,10 +29,17 @@ import type {
   ChatWirePhoto,
   LibraryWrite,
   PatientDataApi,
+  PatientFlags,
+  PatientFlagsWrite,
   PatientServerState,
+  ProgressPhotoWire,
 } from '@/context/PatientAccountContext';
 import { apiBase } from '@/lib/coach-api';
 import { decodeBase64 } from '@/lib/base64';
+import {
+  appendMediaToken,
+  setPatientMediaToken as setMediaTokenDirect,
+} from '@/lib/media-token-holder';
 import { supabase } from '@/lib/supabase';
 
 export class PatientDataError extends Error {
@@ -192,13 +200,17 @@ function parseEntry(raw: unknown): MealLogEntry {
 
 // ── Account photo rail ───────────────────────────────────────────────────────
 
-/** Display URL for a stored library photo — an open 302 to a signed URL. */
+export { setPatientMediaToken } from './media-token-holder';
+
+/** Display URL for a stored photo — a token-authorized 302 to a signed URL. */
 export function patientMediaDisplayUrl(objectPath: string): string {
-  return `${apiBase()}/patient-media/file?path=${encodeURIComponent(objectPath)}`;
+  return appendMediaToken(
+    `${apiBase()}/patient-media/file?path=${encodeURIComponent(objectPath)}`,
+  );
 }
 
 async function uploadPatientPhoto(
-  kind: 'food' | 'recipe' | 'chat',
+  kind: 'food' | 'recipe' | 'chat' | 'progress',
   dataUri: string,
 ): Promise<{ photoPath: string; photoUri: string }> {
   const commaAt = dataUri.indexOf(',');
@@ -486,6 +498,94 @@ function parseChatMessage(raw: unknown): ChatWireMessage {
   return message;
 }
 
+// ── Progress slice parsing (account → client shapes) ────────────────────────
+
+const PHOTO_ANGLES = new Set(['front', 'side', 'back']);
+
+function parseProgressPhoto(raw: unknown): ProgressPhotoWire {
+  if (typeof raw !== 'object' || raw === null) throw new PatientDataError(MALFORMED_MESSAGE);
+  const p = raw as Record<string, unknown>;
+  if (
+    typeof p.id !== 'string' ||
+    typeof p.dateKey !== 'string' ||
+    typeof p.label !== 'string' ||
+    typeof p.objectPath !== 'string' ||
+    p.objectPath.length === 0
+  ) {
+    throw new PatientDataError(MALFORMED_MESSAGE);
+  }
+  const photo: ProgressPhotoWire = {
+    id: p.id,
+    dateKey: p.dateKey,
+    label: p.label,
+    objectPath: p.objectPath,
+  };
+  if (typeof p.angle === 'string' && PHOTO_ANGLES.has(p.angle)) {
+    photo.angle = p.angle as ProgressPhotoWire['angle'];
+  }
+  return photo;
+}
+
+function parseCheckInWire(raw: unknown): CheckIn {
+  if (typeof raw !== 'object' || raw === null) throw new PatientDataError(MALFORMED_MESSAGE);
+  const c = raw as Record<string, unknown>;
+  if (
+    typeof c.id !== 'string' ||
+    typeof c.dateKey !== 'string' ||
+    typeof c.mood !== 'number' ||
+    !Number.isInteger(c.mood) ||
+    c.mood < 1 ||
+    c.mood > 5 ||
+    !Array.isArray(c.sideEffects)
+  ) {
+    throw new PatientDataError(MALFORMED_MESSAGE);
+  }
+  const checkIn: CheckIn = {
+    id: c.id,
+    dateKey: c.dateKey,
+    mood: c.mood as CheckIn['mood'],
+    sideEffects: c.sideEffects.filter((s): s is string => typeof s === 'string'),
+  };
+  if (typeof c.weight === 'number' && Number.isFinite(c.weight)) checkIn.weight = c.weight;
+  if (typeof c.notes === 'string' && c.notes.length > 0) checkIn.notes = c.notes;
+  return checkIn;
+}
+
+/**
+ * Tolerant by design: an absent or partial flags object yields defaults, so
+ * this client keeps working against older in-memory test servers that don't
+ * know the progress slice yet.
+ */
+function parseFlags(raw: unknown): PatientFlags {
+  const f = (typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  const flags: PatientFlags = {
+    nudgeOptOut: f.nudgeOptOut === true,
+    nudgeEngaged: f.nudgeEngaged === true,
+    nudgeLastSentKey: typeof f.nudgeLastSentKey === 'string' ? f.nudgeLastSentKey : null,
+    nudgeLastCrossingKey:
+      typeof f.nudgeLastCrossingKey === 'string' ? f.nudgeLastCrossingKey : null,
+    onboardingComplete: f.onboardingComplete === true,
+  };
+  if (
+    typeof f.onboardingAnswers === 'object' &&
+    f.onboardingAnswers !== null &&
+    !Array.isArray(f.onboardingAnswers)
+  ) {
+    flags.onboardingAnswers = f.onboardingAnswers as Record<string, unknown>;
+  }
+  if (
+    typeof f.notificationPrefs === 'object' &&
+    f.notificationPrefs !== null &&
+    !Array.isArray(f.notificationPrefs)
+  ) {
+    flags.notificationPrefs = f.notificationPrefs as Record<string, unknown>;
+  }
+  return flags;
+}
+
 function parseServerState(json: unknown): PatientServerState {
   if (typeof json !== 'object' || json === null) throw new PatientDataError(MALFORMED_MESSAGE);
   const data = json as Record<string, unknown>;
@@ -526,7 +626,23 @@ function parseServerState(json: unknown): PatientServerState {
     ? data.savedRecipes.map(parseSavedRecipe)
     : [];
 
-  return { entries, water, targets, favorites, recents, customFoods, savedRecipes };
+  // Progress slices tolerate absence (older in-memory test servers).
+  const photos = Array.isArray(data.photos) ? data.photos.map(parseProgressPhoto) : [];
+  const checkIns = Array.isArray(data.checkIns) ? data.checkIns.map(parseCheckInWire) : [];
+  const flags = parseFlags(data.flags);
+
+  return {
+    entries,
+    water,
+    targets,
+    favorites,
+    recents,
+    customFoods,
+    savedRecipes,
+    photos,
+    checkIns,
+    flags,
+  };
 }
 
 export const patientDataApi: PatientDataApi = {
@@ -534,6 +650,14 @@ export const patientDataApi: PatientDataApi = {
     const json = await authedRequest(
       'GET',
       `/patient-data/state?from=${encodeURIComponent(fromKey)}&to=${encodeURIComponent(toKey)}`,
+    );
+    // The media token must land BEFORE row parsing: library and chat
+    // parses build display URLs, and those URLs must carry it.
+    const record = (json ?? {}) as Record<string, unknown>;
+    setMediaTokenDirect(
+      typeof record.mediaToken === 'string' && record.mediaToken.length > 0
+        ? record.mediaToken
+        : null,
     );
     return parseServerState(json);
   },
@@ -608,5 +732,45 @@ export const patientDataApi: PatientDataApi = {
 
   async uploadChatPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }> {
     return uploadPatientPhoto('chat', dataUri);
+  },
+
+  async uploadProgressPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }> {
+    return uploadPatientPhoto('progress', dataUri);
+  },
+
+  async writeProgressPhotos(photos: ProgressPhotoWire[]): Promise<void> {
+    await authedRequest('POST', '/patient-data/photos', {
+      // Built field-by-field so display-only baggage never rides the wire.
+      upsert: photos.map(photo => ({
+        id: photo.id,
+        dateKey: photo.dateKey,
+        label: photo.label,
+        ...(photo.angle ? { angle: photo.angle } : {}),
+        objectPath: photo.objectPath,
+      })),
+    });
+  },
+
+  async removeProgressPhoto(photoId: string): Promise<void> {
+    await authedRequest('POST', '/patient-data/photos', { deleteIds: [photoId] });
+  },
+
+  async cleanupProgressUploads(paths: string[]): Promise<void> {
+    await authedRequest('POST', '/patient-media/cleanup', { paths });
+  },
+
+  async writeCheckIn(checkIn: CheckIn): Promise<void> {
+    await authedRequest('POST', '/patient-data/check-ins', {
+      id: checkIn.id,
+      dateKey: checkIn.dateKey,
+      ...(typeof checkIn.weight === 'number' ? { weight: checkIn.weight } : {}),
+      mood: checkIn.mood,
+      sideEffects: checkIn.sideEffects,
+      ...(checkIn.notes ? { notes: checkIn.notes } : {}),
+    });
+  },
+
+  async writeFlags(flags: Partial<PatientFlagsWrite>): Promise<void> {
+    await authedRequest('PUT', '/patient-data/flags', flags);
   },
 };

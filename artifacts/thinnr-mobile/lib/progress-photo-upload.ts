@@ -1,28 +1,35 @@
 /**
- * Silent compress-and-upload pipeline behind the guided session's Save.
+ * Guided-session Save pipeline — where shots go depends on who is signed in.
  *
- * Each shot is downscaled/re-encoded through the shared photo-prep
- * pipeline (1600px longest edge, JPEG 0.7) — no visible "compressing"
- * step, it simply happens inside Save — then travels the API server's
- * presigned contract: upload-url → PUT the bytes straight to App Storage
- * → finalize verifies the stored object. The app keeps OBJECT PATHS,
- * never URLs; the grid asks progressPhotoDisplayUrl() for a fresh
- * redirect URL at render time.
+ * REAL ACCOUNT: each shot is downscaled/re-encoded through the shared
+ * photo-prep pipeline (1600px longest edge, JPEG 0.7) — no visible
+ * "compressing" step, it simply happens inside Save — then handed to the
+ * account's authenticated uploader (the per-patient media rail: upload-url
+ * → presigned PUT → finalize), which returns the object path the account's
+ * grid row will reference. The app keeps OBJECT PATHS, never URLs; the
+ * grid asks progressPhotoDisplayUrl() for a fresh redirect URL at render
+ * time.
+ *
+ * DEMO PERSONA: zero network and zero prep — the grid entry simply keeps
+ * the on-device capture uri (native camera cache file; on web, the bundled
+ * pose asset), exactly as the demo behaved before accounts existed.
  *
  * Failures are per-shot: the caller learns exactly which angles landed
  * and which didn't, keeps the on-device shots, and retries only the
  * failures.
  */
-import { fetch as expoFetch } from 'expo/fetch';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { apiBase } from './coach-api';
+import { appendMediaToken } from './media-token-holder';
 import { preparePhotoForUpload } from './photo-prep';
-import { decodeBase64 } from './photo-probe';
 import type { GuidedAngle, GuidedShot } from './guided-photos';
 
 export interface UploadedShotRef {
   angle: GuidedAngle;
-  objectPath: string;
+  /** Stored object path — present when the shot uploaded to the account. */
+  objectPath?: string;
+  /** On-device uri — present for the demo persona's local-only grid. */
+  uri?: string;
 }
 
 export interface GuidedUploadResult {
@@ -30,73 +37,54 @@ export interface GuidedUploadResult {
   failed: GuidedAngle[];
 }
 
-/** Grid display URL for a stored shot — resolved at render, never persisted. */
+/** Uploads one prepared photo (data URI) to the signed-in account. */
+export type ProgressPhotoUploader = (dataUri: string) => Promise<{ photoPath: string }>;
+
+/**
+ * Grid display URL for a stored shot — resolved at render, never persisted.
+ * Account photos live on the per-patient media rail; anything else is a
+ * legacy object from the retired anonymous rail, still served read-only.
+ */
 export function progressPhotoDisplayUrl(objectPath: string): string {
+  if (objectPath.startsWith('/objects/patient-media/')) {
+    // Account media reads are token-authorized — append the patient's
+    // media token minted at hydration (absent for demo/seeded content).
+    return appendMediaToken(
+      `${apiBase()}/patient-media/file?path=${encodeURIComponent(objectPath)}`,
+    );
+  }
   return `${apiBase()}/progress-photos/file?path=${encodeURIComponent(objectPath)}`;
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await expoFetch(`${apiBase()}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try {
-      const data = (await response.json()) as { error?: unknown };
-      if (typeof data.error === 'string' && data.error) message = data.error;
-    } catch {
-      // Non-JSON error body — the status alone tells the story.
-    }
-    throw new Error(message);
-  }
-  return (await response.json()) as T;
-}
-
-async function uploadOne(shot: GuidedShot): Promise<UploadedShotRef> {
-  const prepared = await preparePhotoForUpload({
-    uri: shot.uri,
-    width: shot.width,
-    height: shot.height,
-    base64: shot.base64,
-  } as ImagePickerAsset);
-  // photo-prep always returns a JPEG data URI; the upload wants raw bytes.
-  const commaAt = prepared.uri.indexOf(',');
-  const bytes = decodeBase64(prepared.uri.slice(commaAt + 1));
-  const body = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
-  const { uploadUrl, objectPath } = await postJson<{ uploadUrl: string; objectPath: string }>(
-    '/progress-photos/upload-url',
-    { angle: shot.angle, contentType: 'image/jpeg', sizeBytes: bytes.byteLength },
-  );
-  const put = await expoFetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'image/jpeg' },
-    body,
-  });
-  if (!put.ok) {
-    throw new Error(`Storage upload failed (${put.status})`);
-  }
-  await postJson<{ objectPath: string }>('/progress-photos/finalize', { objectPath });
-  return { angle: shot.angle, objectPath };
-}
-
 /**
- * Uploads shots one at a time — three small files, and sequential keeps
+ * Resolves shots one at a time — three small files, and sequential keeps
  * the failure story simple while staying inside the per-IP write burst.
  * Never throws: every shot ends up in `uploaded` or `failed`.
+ *
+ * With an `uploader` (real account) each shot is prepped and uploaded,
+ * yielding an object path. Without one (demo persona) nothing leaves the
+ * device: the ref keeps the capture uri and cannot fail.
  */
 export async function uploadGuidedShots(
   shots: readonly GuidedShot[],
+  uploader?: ProgressPhotoUploader,
 ): Promise<GuidedUploadResult> {
   const uploaded: UploadedShotRef[] = [];
   const failed: GuidedAngle[] = [];
   for (const shot of shots) {
+    if (!uploader) {
+      uploaded.push({ angle: shot.angle, uri: shot.uri });
+      continue;
+    }
     try {
-      uploaded.push(await uploadOne(shot));
+      const prepared = await preparePhotoForUpload({
+        uri: shot.uri,
+        width: shot.width,
+        height: shot.height,
+        base64: shot.base64,
+      } as ImagePickerAsset);
+      const { photoPath } = await uploader(prepared.uri);
+      uploaded.push({ angle: shot.angle, objectPath: photoPath });
     } catch (error) {
       console.error(`Progress photo upload failed (${shot.angle})`, error);
       failed.push(shot.angle);

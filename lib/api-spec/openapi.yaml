@@ -253,81 +253,19 @@ paths:
           description: Rate limited
         "502":
           description: The nutrition database is unreachable right now
-  /progress-photos/upload-url:
-    post:
-      operationId: progressPhotoUploadUrl
-      tags: [progress-photos]
-      summary: Mint a presigned upload URL for a guided progress photo
-      description: >-
-        Returns a short-lived presigned PUT URL so the app uploads the
-        compressed shot straight to App Storage (the API never proxies the
-        body), plus the canonical object path to send back to finalize.
-        Nothing references the object until finalize verifies the bytes.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ProgressPhotoUploadUrlInput"
-      responses:
-        "200":
-          description: Presigned PUT URL and the object path it creates
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProgressPhotoUploadUrlResult"
-        "400":
-          description: Invalid request body
-        "413":
-          description: File exceeds the 10 MB limit
-        "415":
-          description: Not an accepted image type (JPEG/PNG/WebP)
-        "429":
-          description: Rate limited
-  /progress-photos/finalize:
-    post:
-      operationId: progressPhotoFinalize
-      tags: [progress-photos]
-      summary: Verify an uploaded progress photo after the PUT
-      description: >-
-        Confirms the object landed under the progress-photos prefix, checks
-        the STORED bytes really are a JPEG/PNG/WebP within the size cap
-        (magic bytes, not the declared type), stamps the detected content
-        type on the object, and returns the canonical path the app should
-        keep. Any rejection deletes the stray object so nothing orphans.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ProgressPhotoFinalizeInput"
-      responses:
-        "200":
-          description: The stored photo is verified and safe to reference
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProgressPhotoFinalizeResult"
-        "400":
-          description: Invalid body or object path outside the progress-photos prefix
-        "404":
-          description: The uploaded object never arrived
-        "413":
-          description: Stored file exceeds the 10 MB limit
-        "422":
-          description: Stored bytes are not an accepted image
-        "429":
-          description: Rate limited
   /progress-photos/file:
     get:
       operationId: progressPhotoFile
       tags: [progress-photos]
-      summary: Redirect to a short-lived signed URL for a stored photo
+      summary: Redirect to a short-lived signed URL for a legacy stored photo
       description: >-
-        Open read mirroring training playback: the progress grid points
-        image tags here and the server 302-redirects to a signed GET valid
-        for about an hour. Only paths under the progress-photos prefix
-        resolve, so this cannot leak other stored objects.
+        Open read for photos the retired anonymous rail stored under the
+        progress-photos prefix (pre-account demo grids still reference
+        them): the grid points image tags here and the server 302-redirects
+        to a signed GET valid for about an hour. Only paths under the
+        progress-photos prefix resolve, so this cannot leak other stored
+        objects. New progress photos upload authenticated on the
+        per-patient media rail and read via /patient-media/file.
       parameters:
         - name: path
           in: query
@@ -1453,63 +1391,6 @@ components:
           description: Present only for not_found
       required:
         - result
-    ProgressPhotoUploadUrlInput:
-      type: object
-      properties:
-        angle:
-          type: string
-          enum: [front, side, back]
-          description: Which posing angle this shot is; used only to name the object
-        contentType:
-          type: string
-          enum: [image/jpeg, image/png, image/webp]
-          description: MIME type the app will send on the presigned PUT
-        sizeBytes:
-          type: number
-          minimum: 1
-          maximum: 10485760
-          description: Compressed file size in bytes; the hard cap is 10 MB
-      required:
-        - angle
-        - contentType
-        - sizeBytes
-    ProgressPhotoUploadUrlResult:
-      type: object
-      properties:
-        uploadUrl:
-          type: string
-          description: Presigned PUT URL, valid for about 15 minutes
-        objectPath:
-          type: string
-          description: Canonical object path to send to finalize; never a URL
-      required:
-        - uploadUrl
-        - objectPath
-    ProgressPhotoFinalizeInput:
-      type: object
-      properties:
-        objectPath:
-          type: string
-          maxLength: 500
-          description: The object path returned by upload-url after the PUT succeeded
-      required:
-        - objectPath
-    ProgressPhotoFinalizeResult:
-      type: object
-      properties:
-        objectPath:
-          type: string
-          description: Object path the app stores on the photo entry
-        sizeBytes:
-          type: number
-          description: Verified stored size in bytes
-        contentType:
-          type: string
-          description: Content type detected from the stored bytes
-      required:
-        - objectPath
-        - sizeBytes
-        - contentType
     TrainingUploadUrlInput:
       type: object
       properties:

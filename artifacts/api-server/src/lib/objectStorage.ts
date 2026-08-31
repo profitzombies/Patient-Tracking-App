@@ -258,35 +258,15 @@ export class ObjectStorageService {
   }
 
   /**
-   * Same contract for guided progress photos: a presigned PUT bound to a
-   * fresh object under the progress-photos prefix. No row exists anywhere
-   * when the URL is minted — the phone keeps shots on-device and only
-   * stores the object path after finalize verifies the bytes, so a PUT
-   * that never finalizes is just an unreferenced object.
-   */
-  async progressPhotoUploadURL(angle: string): Promise<{ uploadUrl: string; objectPath: string }> {
-    const objectId = `${angle}-${randomUUID()}`;
-    const objectPath = `/objects/progress-photos/${objectId}`;
-    const fullPath = `${getTrainingObjectDir()}/progress-photos/${objectId}`;
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    const uploadUrl = await signObjectURL({
-      bucketName,
-      objectName,
-      method: "PUT",
-      ttlSec: UPLOAD_URL_TTL_SEC,
-    });
-    return { uploadUrl, objectPath };
-  }
-
-  /**
-   * Per-patient media (custom-food / saved-recipe photos, and whatever the
-   * account carries next): every object lives under the owning patient's id,
-   * so OWNERSHIP IS BAKED INTO THE PATH — a finalize or row write can verify
-   * a path belongs to the caller with a prefix check alone.
+   * Per-patient media (custom-food / saved-recipe photos, chat photos,
+   * progress photos, and whatever the account carries next): every object
+   * lives under the owning patient's id, so OWNERSHIP IS BAKED INTO THE
+   * PATH — a finalize or row write can verify a path belongs to the caller
+   * with a prefix check alone.
    */
   async patientMediaUploadURL(
     patientId: string,
-    kind: "food" | "recipe" | "chat",
+    kind: "food" | "recipe" | "chat" | "progress",
   ): Promise<{ uploadUrl: string; objectPath: string }> {
     const objectId = `${kind}-${randomUUID()}`;
     const objectPath = `/objects/patient-media/${patientId}/${objectId}`;

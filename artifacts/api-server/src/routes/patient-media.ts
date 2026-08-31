@@ -18,9 +18,13 @@
  *      account references is queryable server-side; the library RPC
  *      de-references rows when the items pointing at them go away.
  *
- * Reads stay open 302 redirects to short-lived signed GETs (demo posture,
- * same as progress photos / training media): paths carry two unguessable
- * ids, redirects are cheap, and <Image> tags can't send bearer headers.
+ * READS ARE OWNERSHIP-GATED TOO. <Image> tags can't send bearer headers,
+ * so GET /patient-media/file authorizes via a patient-scoped HMAC token
+ * (lib/media-token, minted by the authenticated state hydrate) that must
+ * match the patient id the path is namespaced under, then verifies the
+ * object is still on that patient's media ledger before 302-redirecting
+ * to a short-lived signed URL. A leaked path opens nothing on its own,
+ * and a removed photo's URL dies with its ledger row.
  */
 import {
   Router,
@@ -35,6 +39,7 @@ import {
   objectStorage,
   THUMBNAIL_CONTENT_TYPES,
 } from "../lib/objectStorage";
+import { verifyPatientMediaToken } from "../lib/media-token";
 import { resolvePatient } from "../lib/patient-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { createLimiter, envLimit } from "../coach/limits";
@@ -58,7 +63,7 @@ const MEDIA_DOWNLOAD_TTL_SEC = 3600;
  */
 const HEAD_SNIFF_BYTES = 64 * 1024;
 
-const MEDIA_KINDS = new Set(["food", "recipe", "chat"]);
+const MEDIA_KINDS = new Set(["food", "recipe", "chat", "progress"]);
 
 /**
  * Only paths this server itself minted pass: a patient-id directory, then
@@ -69,7 +74,7 @@ export function isPatientMediaPath(objectPath: string): boolean {
   if (typeof objectPath !== "string" || objectPath.length > 300) return false;
   if (!objectPath.startsWith(PATIENT_MEDIA_PREFIX)) return false;
   const rest = objectPath.slice(PATIENT_MEDIA_PREFIX.length);
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(food|recipe|chat)-[A-Za-z0-9-]{8,64}$/i.test(
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(food|recipe|chat|progress)-[A-Za-z0-9-]{8,64}$/i.test(
     rest,
   );
 }
@@ -158,7 +163,7 @@ router.post(
       }
       const { uploadUrl, objectPath } = await objectStorage.patientMediaUploadURL(
         auth.patientId,
-        body.kind as "food" | "recipe" | "chat",
+        body.kind as "food" | "recipe" | "chat" | "progress",
       );
       res.json({ uploadUrl, objectPath });
     } catch (error) {
@@ -196,7 +201,9 @@ router.post(
         ? "recipe"
         : objectId.startsWith("chat-")
           ? "chat"
-          : "food";
+          : objectId.startsWith("progress-")
+            ? "progress"
+            : "food";
 
       let file;
       try {
@@ -270,14 +277,106 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// Library reads — 302 to a short-lived signed URL
+// Media reads — token-authorized 302 to a short-lived signed URL
 // ---------------------------------------------------------------------------
+
+/** Most orphan-discard paths a client may post at once (one guided set is 3). */
+const MAX_CLEANUP_PATHS = 8;
+
+/**
+ * Discards progress uploads that never became grid rows. The photo save is
+ * upload+finalize first, grid write second: when the grid write fails the
+ * client holds the uploaded paths for retry, and if the patient abandons
+ * instead it posts them here so the account isn't left owning invisible
+ * objects. The RPC only deletes the caller's own progress-kind ledger rows
+ * that NO grid row references — a path that made it into the grid (or any
+ * other media kind) is untouched — and returns what it deleted so the
+ * bytes can go too.
+ */
+router.post(
+  "/patient-media/cleanup",
+  limitWrites,
+  async (req: Request, res: Response) => {
+    try {
+      const auth = await resolvePatient(req);
+      if (!auth.ok) {
+        res.status(auth.status).json({ error: auth.error });
+        return;
+      }
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const paths = Array.isArray(body.paths) ? body.paths : null;
+      if (!paths || paths.length === 0 || paths.length > MAX_CLEANUP_PATHS) {
+        res.status(400).json({ error: "Send between 1 and 8 upload paths to discard." });
+        return;
+      }
+      for (const path of paths) {
+        if (typeof path !== "string" || !isOwnPatientMediaPath(path, auth.patientId)) {
+          res.status(400).json({ error: "Only your own uploads can be discarded." });
+          return;
+        }
+      }
+      const rpc = await supabaseAdmin("POST", "/rest/v1/rpc/patient_media_cleanup_progress", {
+        p_patient_id: auth.patientId,
+        p_paths: paths,
+      });
+      if (rpc.status >= 300) {
+        res.status(502).json({ error: "Could not discard the uploads — try again." });
+        return;
+      }
+      const removed = Array.isArray(rpc.json)
+        ? (rpc.json as unknown[]).filter((p): p is string => typeof p === "string")
+        : [];
+      // Rows first, bytes best-effort: a missed byte delete leaves an
+      // unreferenced object for the storage sweep, not a correctness hole.
+      for (const objectPath of removed) {
+        try {
+          await objectStorage.deleteObjectStrict(objectPath);
+        } catch (error) {
+          req.log?.warn({ err: error, objectPath }, "cleanup byte delete failed");
+        }
+      }
+      res.json({ removed });
+    } catch (error) {
+      req.log?.error({ err: error }, "patient media cleanup failed");
+      res.status(500).json({ error: "Could not discard the uploads — try again." });
+    }
+  },
+);
 
 router.get("/patient-media/file", async (req: Request, res: Response) => {
   try {
     const objectPath = typeof req.query.path === "string" ? req.query.path : "";
     if (!isPatientMediaPath(objectPath)) {
       res.status(400).json({ error: "Not a patient media path." });
+      return;
+    }
+    // Authorization rides the URL because <Image> can't send headers: the
+    // token must verify for the patient id the path is namespaced under.
+    // Knowing a path — even a leaked one — opens nothing by itself.
+    const ownerId = objectPath.slice(PATIENT_MEDIA_PREFIX.length).split("/", 1)[0] ?? "";
+    const token = typeof req.query.mt === "string" ? req.query.mt : "";
+    if (token.length === 0) {
+      res.status(401).json({ error: "Sign in to view this photo." });
+      return;
+    }
+    if (!verifyPatientMediaToken(token, ownerId)) {
+      res.status(403).json({ error: "That photo isn't yours to view." });
+      return;
+    }
+    // The object must still be ON the account: removal deletes the ledger
+    // row in the same RPC, so a removed photo's URL dies immediately even
+    // while its bytes await the storage sweep.
+    const ledger = await supabaseAdmin(
+      "GET",
+      `/rest/v1/patient_media?patient_id=eq.${encodeURIComponent(ownerId)}` +
+        `&object_path=eq.${encodeURIComponent(objectPath)}&select=object_path&limit=1`,
+    );
+    if (ledger.status >= 300 || !Array.isArray(ledger.json)) {
+      res.status(502).json({ error: "Could not open that photo — try again." });
+      return;
+    }
+    if (ledger.json.length === 0) {
+      res.status(404).json({ error: "No such photo." });
       return;
     }
     try {

@@ -7,12 +7,17 @@
  * run against an in-memory fake of the Supabase GoTrue + REST surfaces, so
  * the full contract is exercised: writes authenticate to a patients row,
  * minted paths embed the caller's id, finalize re-validates the STORED
- * bytes and registers the object on the account, and reads stay open 302s.
+ * bytes and registers the object on the account, and reads demand the
+ * owner's media token plus a live ledger row before redirecting.
  */
 import express from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  mintPatientMediaToken,
+  PATIENT_MEDIA_TOKEN_TTL_SEC,
+} from "../lib/media-token";
 
 const FAKE_SUPABASE = "http://fake.supabase.local";
 
@@ -83,6 +88,8 @@ const fake = {
   patients: [] as Array<{ id: string; auth_user_id: string | null }>,
   mediaRows: [] as Array<Record<string, unknown>>,
   failLedger: false,
+  /** Object paths a progress GRID row references (cleanup must skip them). */
+  referencedPaths: new Set<string>(),
 };
 
 function json(status: number, body: unknown): Response {
@@ -111,6 +118,17 @@ function fakeSupabase(href: string, init?: RequestInit): Response {
       fake.patients.filter(p => p.auth_user_id === wanted).map(p => ({ id: p.id })),
     );
   }
+  if (url.pathname === "/rest/v1/patient_media" && method === "GET") {
+    if (fake.failLedger) return json(500, { message: "fake ledger failure" });
+    const pid = (url.searchParams.get("patient_id") ?? "").replace(/^eq\./, "");
+    const path = (url.searchParams.get("object_path") ?? "").replace(/^eq\./, "");
+    return json(
+      200,
+      fake.mediaRows
+        .filter(r => r.patient_id === pid && r.object_path === path)
+        .map(r => ({ object_path: r.object_path })),
+    );
+  }
   if (url.pathname === "/rest/v1/patient_media" && method === "POST") {
     if (fake.failLedger) return json(500, { message: "fake ledger failure" });
     const payload = JSON.parse(String(init?.body ?? "[]")) as Array<Record<string, unknown>>;
@@ -123,6 +141,27 @@ function fakeSupabase(href: string, init?: RequestInit): Response {
       }
     }
     return json(201, []);
+  }
+  if (url.pathname === "/rest/v1/rpc/patient_media_cleanup_progress" && method === "POST") {
+    if (fake.failLedger) return json(500, { message: "fake ledger failure" });
+    const args = JSON.parse(String(init?.body ?? "{}")) as {
+      p_patient_id?: string;
+      p_paths?: string[];
+    };
+    const removed: string[] = [];
+    for (const path of args.p_paths ?? []) {
+      const index = fake.mediaRows.findIndex(
+        r =>
+          r.patient_id === args.p_patient_id &&
+          r.object_path === path &&
+          r.kind === "progress" &&
+          !fake.referencedPaths.has(path),
+      );
+      if (index < 0) continue;
+      fake.mediaRows.splice(index, 1);
+      removed.push(path);
+    }
+    return json(200, removed);
   }
   return json(404, { message: `fake: no route ${url.pathname}` });
 }
@@ -438,11 +477,64 @@ describe("POST /patient-media/finalize", () => {
 });
 
 describe("GET /patient-media/file", () => {
-  it("302-redirects to a short-lived signed URL without caching", async () => {
-    const response = await getRaw(`/patient-media/file?path=${encodeURIComponent(FOOD_PATH)}`);
+  /** The owner's live ledger row — the object is ON the account. */
+  function seedLedger(path = FOOD_PATH, patientId = PATIENT_ID): void {
+    fake.mediaRows.push({ object_path: path, patient_id: patientId, kind: "food" });
+  }
+  const fileUrl = (path: string, token?: string) =>
+    `/patient-media/file?path=${encodeURIComponent(path)}` +
+    (token ? `&mt=${encodeURIComponent(token)}` : "");
+
+  it("302-redirects the owner (valid token + ledger row) without caching", async () => {
+    seedLedger();
+    const response = await getRaw(fileUrl(FOOD_PATH, mintPatientMediaToken(PATIENT_ID)));
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(`https://storage.test${FOOD_PATH}?ttl=3600`);
     expect(response.headers.get("cache-control")).toContain("no-cache");
+  });
+
+  it("401s without a token — a bare path opens nothing", async () => {
+    seedLedger();
+    const response = await getRaw(fileUrl(FOOD_PATH));
+    expect(response.status).toBe(401);
+    expect(state.entityCalls).toBe(0);
+  });
+
+  it("403s another patient's token — cross-patient reads are impossible", async () => {
+    seedLedger();
+    const response = await getRaw(fileUrl(FOOD_PATH, mintPatientMediaToken(OTHER_ID)));
+    expect(response.status).toBe(403);
+    expect(state.entityCalls).toBe(0);
+  });
+
+  it("403s an expired token", async () => {
+    seedLedger();
+    const stale = mintPatientMediaToken(
+      PATIENT_ID,
+      Date.now() - (PATIENT_MEDIA_TOKEN_TTL_SEC + 60) * 1000,
+    );
+    const response = await getRaw(fileUrl(FOOD_PATH, stale));
+    expect(response.status).toBe(403);
+  });
+
+  it("403s a garbage token", async () => {
+    seedLedger();
+    const response = await getRaw(fileUrl(FOOD_PATH, "not.a-real-token"));
+    expect(response.status).toBe(403);
+  });
+
+  it("404s a path that is not on the owner's ledger — removed photos die with their row", async () => {
+    const response = await getRaw(fileUrl(FOOD_PATH, mintPatientMediaToken(PATIENT_ID)));
+    expect(response.status).toBe(404);
+    expect(state.entityCalls).toBe(0);
+  });
+
+  it("502s when the ledger read fails — never an open fallback", async () => {
+    seedLedger();
+    fake.failLedger = true;
+    const response = await getRaw(fileUrl(FOOD_PATH, mintPatientMediaToken(PATIENT_ID)));
+    expect(response.status).toBe(502);
+    expect(state.entityCalls).toBe(0);
   });
 
   it("rejects non-media paths before touching storage", async () => {
@@ -454,13 +546,89 @@ describe("GET /patient-media/file", () => {
   });
 
   it("404s for an object that does not exist", async () => {
+    seedLedger();
     state.entityMissing = true;
-    const response = await getRaw(`/patient-media/file?path=${encodeURIComponent(FOOD_PATH)}`);
+    const response = await getRaw(fileUrl(FOOD_PATH, mintPatientMediaToken(PATIENT_ID)));
     expect(response.status).toBe(404);
   });
 
   it("400s when the path parameter is missing", async () => {
     const response = await getRaw("/patient-media/file");
     expect(response.status).toBe(400);
+  });
+});
+
+describe("POST /patient-media/cleanup", () => {
+  const PROGRESS_A = `/objects/patient-media/${PATIENT_ID}/progress-aaaaaaaa`;
+  const PROGRESS_B = `/objects/patient-media/${PATIENT_ID}/progress-bbbbbbbb`;
+
+  beforeEach(() => {
+    fake.mediaRows.length = 0;
+    fake.referencedPaths.clear();
+    state.deleted.length = 0;
+  });
+
+  function seedProgress(path: string): void {
+    fake.mediaRows.push({ object_path: path, patient_id: PATIENT_ID, kind: "progress" });
+  }
+
+  it("requires a signed-in patient", async () => {
+    const res = await post("/patient-media/cleanup", { paths: [PROGRESS_A] });
+    expect(res.status).toBe(401);
+    expect(state.deleted).toEqual([]);
+  });
+
+  it("refuses paths outside the caller's own namespace", async () => {
+    const res = await post(
+      "/patient-media/cleanup",
+      { paths: [PROGRESS_A, `/objects/patient-media/${OTHER_ID}/progress-zzzzzzzz`] },
+      "tok-1",
+    );
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe("Only your own uploads can be discarded.");
+    expect(state.deleted).toEqual([]);
+  });
+
+  it("rejects an empty or oversized batch", async () => {
+    expect((await post("/patient-media/cleanup", { paths: [] }, "tok-1")).status).toBe(400);
+    const many = Array.from(
+      { length: 9 },
+      (_, i) => `/objects/patient-media/${PATIENT_ID}/progress-${i}`,
+    );
+    expect((await post("/patient-media/cleanup", { paths: many }, "tok-1")).status).toBe(400);
+  });
+
+  it("deletes unreferenced progress uploads — rows AND bytes — but never grid-referenced ones", async () => {
+    seedProgress(PROGRESS_A);
+    seedProgress(PROGRESS_B);
+    fake.referencedPaths.add(PROGRESS_B); // a grid row points at B
+    const res = await post(
+      "/patient-media/cleanup",
+      { paths: [PROGRESS_A, PROGRESS_B] },
+      "tok-1",
+    );
+    expect(res.status).toBe(200);
+    expect(res.json.removed).toEqual([PROGRESS_A]);
+    expect(state.deleted).toEqual([PROGRESS_A]);
+    expect(fake.mediaRows.map(r => r.object_path)).toEqual([PROGRESS_B]);
+  });
+
+  it("reports 502 when the ledger delete fails and touches no bytes", async () => {
+    seedProgress(PROGRESS_A);
+    fake.failLedger = true;
+    const res = await post("/patient-media/cleanup", { paths: [PROGRESS_A] }, "tok-1");
+    expect(res.status).toBe(502);
+    expect(state.deleted).toEqual([]);
+    expect(fake.mediaRows).toHaveLength(1);
+  });
+
+  it("survives a failed byte delete — the ledger row still goes", async () => {
+    seedProgress(PROGRESS_A);
+    state.failDelete = true;
+    const res = await post("/patient-media/cleanup", { paths: [PROGRESS_A] }, "tok-1");
+    state.failDelete = false;
+    expect(res.status).toBe(200);
+    expect(res.json.removed).toEqual([PROGRESS_A]);
+    expect(fake.mediaRows).toHaveLength(0);
   });
 });

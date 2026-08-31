@@ -118,7 +118,8 @@ import {
   simulatedLeanAt,
 } from '@/lib/tilt';
 import { probeCameraFrame } from '@/lib/photo-probe';
-import { uploadGuidedShots } from '@/lib/progress-photo-upload';
+import { uploadGuidedShots, type UploadedShotRef } from '@/lib/progress-photo-upload';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 
 /** Scrim behind floating controls over the live preview. */
 const CONTROL_SCRIM = 'rgba(16, 22, 31, 0.42)';
@@ -284,6 +285,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  const { account } = usePatientAccount();
   const [permission, requestPermission] = useCameraPermissions();
   const { playTick, playTone, playHoldLost } = useSessionSounds();
 
@@ -316,7 +318,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   const cameraRef = useRef<CameraView | null>(null);
   const detectorRef = useRef(createSubjectDetector());
   const queueRef = useRef<GuidedAngle[]>([]);
-  const uploadedRef = useRef(new Map<GuidedAngle, string>());
+  const uploadedRef = useRef(new Map<GuidedAngle, UploadedShotRef>());
   const lastStatusRef = useRef<LineupStatus | null>(null);
   const readingRef = useRef<PositioningReading | null>(null);
   const holdRef = useRef(createSteadyHold());
@@ -938,10 +940,15 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     setStage({ kind: 'saving' });
     announce('Saving your photos.');
     // Compression happens silently inside the upload pipeline; angles that
-    // already landed on a previous attempt are not re-sent.
+    // already landed on a previous attempt are not re-sent. A real account
+    // uploads through its authenticated media rail; the demo persona stays
+    // local-only (no uploader → refs keep the on-device uri, no network).
     const toUpload = all.filter(shot => !uploadedRef.current.has(shot.angle));
-    const result = await uploadGuidedShots(toUpload);
-    for (const ref of result.uploaded) uploadedRef.current.set(ref.angle, ref.objectPath);
+    const result = await uploadGuidedShots(
+      toUpload,
+      account.kind === 'real' ? account.api.uploadProgressPhoto : undefined,
+    );
+    for (const ref of result.uploaded) uploadedRef.current.set(ref.angle, ref);
     if (result.failed.length > 0) {
       const labels = result.failed.map(angle => GUIDED_ANGLE_LABELS[angle]).join(', ');
       setUploadError(
@@ -953,25 +960,57 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     const week = Math.ceil(ENROLLMENT_DAYS / 7);
     const entries = GUIDED_ANGLES.filter(
       angle => shots[angle] && uploadedRef.current.has(angle),
-    ).map(angle => ({
-      dateKey: TODAY_KEY,
-      label: `Week ${week} ${GUIDED_ANGLE_LABELS[angle]}`,
-      angle,
-      objectPath: uploadedRef.current.get(angle)!,
-    }));
+    ).map(angle => {
+      const ref = uploadedRef.current.get(angle)!;
+      return {
+        dateKey: TODAY_KEY,
+        label: `Week ${week} ${GUIDED_ANGLE_LABELS[angle]}`,
+        angle,
+        // Account shots reference their stored object; demo shots keep the
+        // on-device capture uri, exactly as before accounts existed.
+        ...(ref.objectPath ? { objectPath: ref.objectPath } : { uri: ref.uri }),
+      };
+    });
+    // addPhotos resolves false when the account's grid write failed (the
+    // optimistic row was rolled back): the uploads are safe in uploadedRef,
+    // so stay on review and let Save retry ONLY the grid write. Announcing
+    // success here without the grid row would lose the session silently.
+    let gridSaved = false;
     try {
-      await patient.addPhotos(entries);
+      gridSaved = await patient.addPhotos(entries);
     } catch {
+      gridSaved = false;
+    }
+    if (!gridSaved) {
       setUploadError('The photos uploaded but could not be added to your grid. Try Save again.');
       setStage({ kind: 'review' });
       return;
     }
+    // Recorded on the grid — nothing left for close() to discard.
+    uploadedRef.current.clear();
     announce(`${entries.length} progress photos saved.`);
     finish({ savedCount: entries.length });
   };
 
+  // Uploaded objects that never became grid rows (a failed grid write the
+  // patient walked away from) must not stay on the account invisibly:
+  // closing the session discards them server-side, best-effort. A
+  // successful save clears the refs first, and the demo persona's refs
+  // carry no object paths (nothing was uploaded), so this only fires for
+  // abandoned real-account uploads.
+  const discardUnsavedUploads = () => {
+    const paths = Array.from(uploadedRef.current.values())
+      .map(ref => ref.objectPath)
+      .filter((path): path is string => typeof path === 'string');
+    uploadedRef.current.clear();
+    if (paths.length > 0 && account.kind === 'real') {
+      void account.api.cleanupProgressUploads(paths).catch(() => {});
+    }
+  };
+
   const close = () => {
     void Haptics.selectionAsync().catch(() => {});
+    discardUnsavedUploads();
     finish(null);
   };
 

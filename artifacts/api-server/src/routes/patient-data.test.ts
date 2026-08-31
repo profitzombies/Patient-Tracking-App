@@ -46,6 +46,9 @@ class FakeBackend {
       patient_custom_foods: [],
       patient_saved_recipes: [],
       patient_media: [],
+      patient_progress_photos: [],
+      patient_check_ins: [],
+      patient_flags: [],
     };
     this.tokens.clear();
     this.authOutage = false;
@@ -469,6 +472,16 @@ describe("auth ladder", () => {
 });
 
 describe("GET /patient-data/state", () => {
+  it("mints a media read token scoped to the caller only", async () => {
+    const { verifyPatientMediaToken } = await import("../lib/media-token");
+    const seeded = backend.seedSignedInPatient("tok-1");
+    const res = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(res.status).toBe(200);
+    const token = res.json.mediaToken as string;
+    expect(verifyPatientMediaToken(token, seeded.patientId)).toBe(true);
+    expect(verifyPatientMediaToken(token, "someone-else")).toBe(false);
+  });
+
   it("returns an empty slice for a fresh account", async () => {
     backend.seedSignedInPatient("tok-1");
     const res = await api("GET", "/api/patient-data/state?from=2026-07-01&to=2026-08-31", {
@@ -483,6 +496,16 @@ describe("GET /patient-data/state", () => {
       recents: [],
       customFoods: [],
       savedRecipes: [],
+      photos: [],
+      checkIns: [],
+      flags: {
+        nudgeOptOut: false,
+        nudgeEngaged: false,
+        nudgeLastSentKey: null,
+        nudgeLastCrossingKey: null,
+        onboardingComplete: false,
+      },
+      mediaToken: expect.any(String),
     });
   });
 
@@ -602,6 +625,16 @@ describe("GET /patient-data/state", () => {
       recents: [],
       customFoods: [],
       savedRecipes: [],
+      photos: [],
+      checkIns: [],
+      flags: {
+        nudgeOptOut: false,
+        nudgeEngaged: false,
+        nudgeLastSentKey: null,
+        nudgeLastCrossingKey: null,
+        onboardingComplete: false,
+      },
+      mediaToken: expect.any(String),
     });
   });
 

@@ -40,10 +40,6 @@ import type {
   KnowledgeUploadUrlInput,
   KnowledgeUploadUrlResult,
   ProgressPhotoFileParams,
-  ProgressPhotoFinalizeInput,
-  ProgressPhotoFinalizeResult,
-  ProgressPhotoUploadUrlInput,
-  ProgressPhotoUploadUrlResult,
   SupportChatInput,
   TrainingAttachmentDownloadResult,
   TrainingAttachmentFinalizeInput,
@@ -531,150 +527,6 @@ export function useBarcodeLookup<TData = Awaited<ReturnType<typeof barcodeLookup
 
 
 
-export const getProgressPhotoUploadUrlUrl = () => {
-
-
-
-
-  return `/api/progress-photos/upload-url`
-}
-
-/**
- * Returns a short-lived presigned PUT URL so the app uploads the compressed shot straight to App Storage (the API never proxies the body), plus the canonical object path to send back to finalize. Nothing references the object until finalize verifies the bytes.
- * @summary Mint a presigned upload URL for a guided progress photo
- */
-export const progressPhotoUploadUrl = async (progressPhotoUploadUrlInput: ProgressPhotoUploadUrlInput, options?: Parameters<typeof customFetch>[1]): Promise<ProgressPhotoUploadUrlResult> => {
-
-  return customFetch<ProgressPhotoUploadUrlResult>(getProgressPhotoUploadUrlUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(progressPhotoUploadUrlInput)
-  }
-);}
-
-
-
-
-
-export const getProgressPhotoUploadUrlMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof progressPhotoUploadUrl>>, TError,{data: BodyType<ProgressPhotoUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof progressPhotoUploadUrl>>, TError,{data: BodyType<ProgressPhotoUploadUrlInput>}, TContext> => {
-
-const mutationKey = ['progressPhotoUploadUrl'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof progressPhotoUploadUrl>>, {data: BodyType<ProgressPhotoUploadUrlInput>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  progressPhotoUploadUrl(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ProgressPhotoUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof progressPhotoUploadUrl>>>
-    export type ProgressPhotoUploadUrlMutationBody = BodyType<ProgressPhotoUploadUrlInput>
-    export type ProgressPhotoUploadUrlMutationError = ErrorType<void>
-
-    /**
- * @summary Mint a presigned upload URL for a guided progress photo
- */
-export const useProgressPhotoUploadUrl = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof progressPhotoUploadUrl>>, TError,{data: BodyType<ProgressPhotoUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof progressPhotoUploadUrl>>,
-        TError,
-        {data: BodyType<ProgressPhotoUploadUrlInput>},
-        TContext
-      > => {
-      return useMutation(getProgressPhotoUploadUrlMutationOptions(options));
-    }
-
-export const getProgressPhotoFinalizeUrl = () => {
-
-
-
-
-  return `/api/progress-photos/finalize`
-}
-
-/**
- * Confirms the object landed under the progress-photos prefix, checks the STORED bytes really are a JPEG/PNG/WebP within the size cap (magic bytes, not the declared type), stamps the detected content type on the object, and returns the canonical path the app should keep. Any rejection deletes the stray object so nothing orphans.
- * @summary Verify an uploaded progress photo after the PUT
- */
-export const progressPhotoFinalize = async (progressPhotoFinalizeInput: ProgressPhotoFinalizeInput, options?: Parameters<typeof customFetch>[1]): Promise<ProgressPhotoFinalizeResult> => {
-
-  return customFetch<ProgressPhotoFinalizeResult>(getProgressPhotoFinalizeUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(progressPhotoFinalizeInput)
-  }
-);}
-
-
-
-
-
-export const getProgressPhotoFinalizeMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof progressPhotoFinalize>>, TError,{data: BodyType<ProgressPhotoFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof progressPhotoFinalize>>, TError,{data: BodyType<ProgressPhotoFinalizeInput>}, TContext> => {
-
-const mutationKey = ['progressPhotoFinalize'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof progressPhotoFinalize>>, {data: BodyType<ProgressPhotoFinalizeInput>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  progressPhotoFinalize(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ProgressPhotoFinalizeMutationResult = NonNullable<Awaited<ReturnType<typeof progressPhotoFinalize>>>
-    export type ProgressPhotoFinalizeMutationBody = BodyType<ProgressPhotoFinalizeInput>
-    export type ProgressPhotoFinalizeMutationError = ErrorType<void>
-
-    /**
- * @summary Verify an uploaded progress photo after the PUT
- */
-export const useProgressPhotoFinalize = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof progressPhotoFinalize>>, TError,{data: BodyType<ProgressPhotoFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof progressPhotoFinalize>>,
-        TError,
-        {data: BodyType<ProgressPhotoFinalizeInput>},
-        TContext
-      > => {
-      return useMutation(getProgressPhotoFinalizeMutationOptions(options));
-    }
-
 export const getProgressPhotoFileUrl = (params: ProgressPhotoFileParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -691,8 +543,8 @@ export const getProgressPhotoFileUrl = (params: ProgressPhotoFileParams,) => {
 }
 
 /**
- * Open read mirroring training playback: the progress grid points image tags here and the server 302-redirects to a signed GET valid for about an hour. Only paths under the progress-photos prefix resolve, so this cannot leak other stored objects.
- * @summary Redirect to a short-lived signed URL for a stored photo
+ * Open read for photos the retired anonymous rail stored under the progress-photos prefix (pre-account demo grids still reference them): the grid points image tags here and the server 302-redirects to a signed GET valid for about an hour. Only paths under the progress-photos prefix resolve, so this cannot leak other stored objects. New progress photos upload authenticated on the per-patient media rail and read via /patient-media/file.
+ * @summary Redirect to a short-lived signed URL for a legacy stored photo
  */
 export const progressPhotoFile = async (params: ProgressPhotoFileParams, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
 
@@ -739,7 +591,7 @@ export type ProgressPhotoFileQueryError = ErrorType<void>
 
 
 /**
- * @summary Redirect to a short-lived signed URL for a stored photo
+ * @summary Redirect to a short-lived signed URL for a legacy stored photo
  */
 
 export function useProgressPhotoFile<TData = Awaited<ReturnType<typeof progressPhotoFile>>, TError = ErrorType<void>>(

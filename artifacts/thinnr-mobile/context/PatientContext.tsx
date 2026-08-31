@@ -8,13 +8,13 @@
  *    without the account resolver (every Node test suite) land here.
  *
  *  - Real account: a signed-in patient's diary lives on the server. No seed
- *    data at all; entries, water, targets, favorites and recents hydrate from
- *    the patient-data API and every mutation writes through it — optimistic
- *    commit first, rolled back with a visible sync notice if the server
- *    write fails. Slices the live rail doesn't cover yet (custom foods,
- *    saved recipes, photos, check-ins, nudge stamps) stay on this device,
- *    persisted under a per-account storage key so accounts never bleed
- *    together.
+ *    data at all; entries, water, targets, favorites, recents, custom foods,
+ *    saved recipes, progress photos, check-ins, and the nudge/onboarding
+ *    flags hydrate from the patient-data API and every mutation writes
+ *    through it — optimistic commit first, rolled back with a visible sync
+ *    notice if the server write fails. Progress-photo deletes are deferred:
+ *    the grid row drops locally at once, and the server row + stored bytes
+ *    go away only after the undo window closes (commitPhotoRemoval).
  *
  * Follows the same persistence pattern as OperationsContext (ref-backed
  * commits awaited through storage).
@@ -39,6 +39,7 @@ import {
   type RemovedCustomFood,
 } from '@/data/custom-food-state';
 import { buildCopyWithExtras, cloneEntriesForCopy } from '@/data/diary-entries';
+import { setPatientMediaToken } from '@/lib/media-token-holder';
 import {
   applyRemoveEntries,
   applyRemoveEntry,
@@ -81,6 +82,8 @@ import {
   usePatientAccount,
   type PatientAccount,
   type PatientDataApi,
+  type PatientFlagsWrite,
+  type ProgressPhotoWire,
 } from './PatientAccountContext';
 
 const STORAGE_KEY = 'thinnr_patient_state_v1';
@@ -171,20 +174,37 @@ const EMPTY_STATE: PersistedState = {
 };
 
 /**
- * The slices a real account keeps on this device only — everything the live
- * diary rail doesn't cover yet. Server-backed slices are deliberately zeroed
- * before each local write so a stale local copy of them can never resurface
- * into a hydrated account.
+ * The slices a real account keeps on this device only — none, now that the
+ * live rail covers photos, check-ins, and the nudge/onboarding flags too.
+ * The function stays as the single choke point every real-account persist
+ * goes through, so a stale local copy of any server-backed slice can never
+ * resurface into a hydrated account (it also scrubs blobs older installs
+ * wrote here back when these slices were device-local).
  */
-function localOnlySlice(state: PersistedState): PersistedState {
+function localOnlySlice(_state: PersistedState): PersistedState {
+  return { ...EMPTY_STATE };
+}
+
+/** Grid row → wire shape (display-only fields like uri stay behind). */
+function photoWire(photo: ProgressPhoto): ProgressPhotoWire {
   return {
-    ...EMPTY_STATE,
-    addedCheckIns: state.addedCheckIns,
-    photos: state.photos,
-    nudgeOptOut: state.nudgeOptOut,
-    nudgeEngaged: state.nudgeEngaged,
-    nudgeLastSentKey: state.nudgeLastSentKey,
-    nudgeLastCrossingKey: state.nudgeLastCrossingKey,
+    id: photo.id,
+    dateKey: photo.dateKey,
+    label: photo.label,
+    ...(photo.angle ? { angle: photo.angle } : {}),
+    objectPath: photo.objectPath ?? '',
+  };
+}
+
+/** Wire shape → grid row (every account photo is the patient's own). */
+function photoFromWire(wire: ProgressPhotoWire): ProgressPhoto {
+  return {
+    id: wire.id,
+    dateKey: wire.dateKey,
+    label: wire.label,
+    source: 'user',
+    ...(wire.angle ? { angle: wire.angle } : {}),
+    objectPath: wire.objectPath,
   };
 }
 
@@ -233,8 +253,21 @@ interface PatientContextValue {
   removeEntries: (ids: readonly string[]) => Promise<void>;
   updateEntry: (id: string, changes: EntryEditChanges) => Promise<void>;
   setWater: (dateKey: string, oz: number) => Promise<void>;
-  addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<void>;
-  addPhoto: (photo: { dateKey: string; uri: string; label: string }) => Promise<void>;
+  /**
+   * The add-mutations below resolve `true` when the entry is safely
+   * recorded (on the account, or locally for the demo persona) and `false`
+   * when the account write failed — the optimistic state was rolled back
+   * and a sync notice posted. Callers must gate their success UI
+   * (announce / close / clear) on the result rather than assuming an
+   * awaited call landed.
+   */
+  addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<boolean>;
+  addPhoto: (photo: {
+    dateKey: string;
+    label: string;
+    uri?: string;
+    objectPath?: string;
+  }) => Promise<boolean>;
   addPhotos: (
     photos: Array<{
       dateKey: string;
@@ -243,9 +276,15 @@ interface PatientContextValue {
       angle?: 'front' | 'side' | 'back';
       objectPath?: string;
     }>,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   removePhoto: (id: string) => Promise<RemovedProgressPhoto | null>;
   restorePhoto: (removed: RemovedProgressPhoto) => Promise<void>;
+  /**
+   * Second half of a photo removal, called once the undo window closes. For
+   * a real account this deletes the server record and the stored bytes; the
+   * demo persona's local removal was already the whole job (no-op here).
+   */
+  commitPhotoRemoval: (removed: RemovedProgressPhoto) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
@@ -275,8 +314,31 @@ interface PatientContextValue {
   setNudgeOptOut: (optOut: boolean) => Promise<void>;
   /** Stamps the outreach as sent for the current episode (cooldown anchor). */
   recordNudgeSent: () => Promise<void>;
+  /**
+   * Queue an onboarding/notification flag save for the signed-in account.
+   * Honors the hydration gate: writes wait for server truth (a failed
+   * hydration keeps them queued behind its retry notice, never dropped),
+   * and a failed push surfaces a retryable sync notice. Demo persona and
+   * standalone mounts: no-op. Fire-and-forget — onboarding never blocks.
+   */
+  saveOnboardingFlags: (flags: Partial<PatientFlagsWrite>) => void;
   /** Clears only this device's patient companion data before an auth handoff. */
   clearLocalState: () => Promise<void>;
+  /**
+   * Onboarding answers + notification prefs exactly as the account's
+   * hydration delivered them — null before a real hydration and always
+   * null for the demo persona. OnboardingProvider initializes a signed-in
+   * patient's onboarding state from these so answers survive reload,
+   * reinstall, and new devices.
+   */
+  hydratedFlags: HydratedOnboardingFlags | null;
+}
+
+/** Onboarding-owned account flags, exactly as hydration delivered them. */
+export interface HydratedOnboardingFlags {
+  onboardingAnswers: Record<string, unknown> | null;
+  notificationPrefs: Record<string, unknown> | null;
+  onboardingComplete: boolean;
 }
 
 const PatientContext = createContext<PatientContextValue | null>(null);
@@ -304,8 +366,22 @@ const DIARY_BLOCKED_MESSAGE = 'Your diary isn’t loaded yet. Retry loading befo
 
 interface SyncNotice {
   message: string;
-  action: 'dismiss' | 'retry-account' | 'retry-hydration';
+  action: 'dismiss' | 'retry-account' | 'retry-hydration' | 'retry-flags';
 }
+
+/**
+ * How long the Progress screen's Undo snackbar stays actionable after a
+ * photo removal. Exported so the screen and this provider share one clock:
+ * the provider's backstop commit must never fire while an Undo is still
+ * tappable.
+ */
+export const PROGRESS_UNDO_WINDOW_MS = 5000;
+// Provider-owned backstop for deferred photo deletes: fires shortly AFTER
+// the screen's undo window closes, so an unmount mid-window (back gesture,
+// tab switch) still pushes the delete to the server. The grace keeps the
+// normal path — the screen committing exactly at the window — winning the
+// race, and no tappable Undo can exist by the time the backstop runs.
+const PHOTO_REMOVAL_BACKSTOP_MS = PROGRESS_UNDO_WINDOW_MS + 750;
 
 /** The account generation a mutation runs under (see epochRef below). */
 interface MutationRun {
@@ -364,6 +440,28 @@ export function PatientProvider({ children }: { children: ReactNode }) {
    */
   const serverTruthRef = useRef(true);
   const [rehydrateTick, setRehydrateTick] = useState(0);
+
+  // Deferred photo removals awaiting their server commit (real accounts
+  // only), keyed by photo id. Each entry carries the provider-owned
+  // backstop timer that commits the delete if the Progress screen — which
+  // normally drives the commit — goes away mid-undo-window. Whoever commits
+  // first claims the entry; everyone else no-ops. Cleared on account switch.
+  const pendingPhotoRemovalsRef = useRef(
+    new Map<string, { removed: RemovedProgressPhoto; timer: ReturnType<typeof setTimeout> }>(),
+  );
+  const commitPhotoRemovalRef = useRef<((removed: RemovedProgressPhoto) => Promise<void>) | null>(
+    null,
+  );
+  // Onboarding flag saves queue here until server truth allows the push,
+  // and survive a failed push for the notice's RETRY. Cleared on account
+  // switch — queued flags belong to the account that produced them.
+  const pendingFlagsRef = useRef<Partial<PatientFlagsWrite> | null>(null);
+  const flagsFlightRef = useRef(false);
+  // The account key the pending queues currently belong to (hygiene gate).
+  const hygieneKeyRef = useRef<string | null>(null);
+  // Onboarding answers/prefs as hydrated from the account, for
+  // OnboardingProvider to reconcile from (demo persona: always null).
+  const [hydratedFlags, setHydratedFlags] = useState<HydratedOnboardingFlags | null>(null);
 
   // Mutations must wait for hydration: a pre-hydration commit would build on
   // EMPTY_STATE and clobber previously persisted data in storage.
@@ -455,6 +553,60 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     [commit],
   );
 
+  /**
+   * Drains the queued onboarding flag saves once the hydration gate opens
+   * AND server truth is present. Single-flight; the loop picks up anything
+   * queued while a push was in the air. On failure the payload goes back
+   * into the queue (newer fields win) and a retryable notice surfaces — the
+   * answers are never silently dropped.
+   */
+  const flushOnboardingFlags = useCallback(async (): Promise<void> => {
+    if (flagsFlightRef.current) return;
+    flagsFlightRef.current = true;
+    try {
+      while (pendingFlagsRef.current) {
+        await hydrationGate.current!.promise;
+        const run = beginRun(epochRef.current);
+        if (!run) return; // account switching underneath — switch clears the queue
+        if (run.account.kind !== 'real') {
+          // Demo/unresolved: nothing to persist server-side.
+          pendingFlagsRef.current = null;
+          return;
+        }
+        if (!serverTruthRef.current) {
+          // Blocked: hydration failed, its retry notice is already up. The
+          // queue survives; a successful (re)hydration flushes it.
+          return;
+        }
+        const payload = pendingFlagsRef.current;
+        pendingFlagsRef.current = null;
+        try {
+          await run.account.api.writeFlags(payload);
+        } catch (error) {
+          if (epochRef.current === run.epoch) {
+            pendingFlagsRef.current = { ...payload, ...(pendingFlagsRef.current ?? {}) };
+            setSyncNotice({
+              message:
+                error instanceof Error && error.message ? error.message : WRITE_FAILED_MESSAGE,
+              action: 'retry-flags',
+            });
+          }
+          return;
+        }
+      }
+    } finally {
+      flagsFlightRef.current = false;
+    }
+  }, [beginRun]);
+
+  const saveOnboardingFlags = useCallback(
+    (flags: Partial<PatientFlagsWrite>) => {
+      pendingFlagsRef.current = { ...(pendingFlagsRef.current ?? {}), ...flags };
+      void flushOnboardingFlags();
+    },
+    [flushOnboardingFlags],
+  );
+
   // Every read-modify-write mutation runs through a single promise chain, so
   // it reads state only after the previous commit has finished. Without this,
   // two in-flight mutations (e.g. a delete and a fast Undo) could both read
@@ -485,6 +637,20 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     runAccountRef.current = account;
     // A real account has no authoritative state until its hydration lands.
     serverTruthRef.current = account.kind !== 'real';
+    // Cross-account hygiene: pending deferred deletes and queued flag saves
+    // belong to the account that created them — never let them fire into a
+    // different account's data. A same-account rehydrate (the notice's
+    // RETRY) keeps them: queued flags specifically wait out that retry.
+    if (hygieneKeyRef.current !== accountKey) {
+      hygieneKeyRef.current = accountKey;
+      for (const pending of pendingPhotoRemovalsRef.current.values()) clearTimeout(pending.timer);
+      pendingPhotoRemovalsRef.current.clear();
+      pendingFlagsRef.current = null;
+      // The media read token belongs to the previous account; the new
+      // account's own token arrives with its hydration (demo never has one).
+      setPatientMediaToken(null);
+      setHydratedFlags(null);
+    }
 
     if (!isInitialMount) {
       // Account switched (or a hydration retry): drop the previous account's
@@ -530,6 +696,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         if (serverResult.status === 'fulfilled') {
           const server = serverResult.value;
           serverTruthRef.current = true;
+          // Server truth just arrived — release any onboarding flag saves
+          // that queued up while writes were still blocked.
+          if (pendingFlagsRef.current) void flushOnboardingFlags();
           finish({
             ...local,
             addedEntries: server.entries,
@@ -540,6 +709,19 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             recents: server.recents,
             customFoods: server.customFoods,
             savedRecipes: server.savedRecipes,
+            addedCheckIns: server.checkIns,
+            photos: server.photos.map(photoFromWire),
+            nudgeOptOut: server.flags.nudgeOptOut,
+            nudgeEngaged: server.flags.nudgeEngaged,
+            nudgeLastSentKey: server.flags.nudgeLastSentKey,
+            nudgeLastCrossingKey: server.flags.nudgeLastCrossingKey,
+          });
+          // Onboarding truth for OnboardingProvider — answers and prefs
+          // are its state, not the diary's.
+          setHydratedFlags({
+            onboardingAnswers: server.flags.onboardingAnswers ?? null,
+            notificationPrefs: server.flags.notificationPrefs ?? null,
+            onboardingComplete: server.flags.onboardingComplete,
           });
         } else {
           // Explicit failure: open seedless with the device-local slices and
@@ -854,34 +1036,53 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
-  const addCheckIn = useCallback(async (checkIn: Omit<CheckIn, 'id'>): Promise<void> => {
+  const addCheckIn = useCallback(async (checkIn: Omit<CheckIn, 'id'>): Promise<boolean> => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await hydrationGate.current!.promise;
     const startEpoch = epochRef.current;
-    await runSerialized(async () => {
+    return await runSerialized(async () => {
       const run = beginRun(startEpoch);
-      if (!run || !requireWritableAccount(run)) return;
+      if (!run || !requireWritableAccount(run)) return false;
       const prev = stateRef.current;
       const full: CheckIn = { ...checkIn, id: makeId(run, 'ci') };
-      await commit({
+      const next = {
         ...prev,
         addedCheckIns: [...prev.addedCheckIns.filter(c => c.dateKey !== checkIn.dateKey), full],
-      }, run);
+      };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return true;
+      }
+      // The server keys check-ins by day too, so a same-day re-submit
+      // replaces the row there exactly as the filter above replaces it here.
+      return await commitWithServer(run, prev, next, api => api.writeCheckIn(full));
     });
-  }, [beginRun, commit, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
-  const addPhoto = useCallback(async (photo: { dateKey: string; uri: string; label: string }): Promise<void> => {
+  const addPhoto = useCallback(async (photo: {
+    dateKey: string;
+    label: string;
+    uri?: string;
+    objectPath?: string;
+  }): Promise<boolean> => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await hydrationGate.current!.promise;
     const startEpoch = epochRef.current;
-    await runSerialized(async () => {
+    return await runSerialized(async () => {
       const run = beginRun(startEpoch);
-      if (!run || !requireWritableAccount(run)) return;
+      if (!run || !requireWritableAccount(run)) return false;
       const prev = stateRef.current;
       const full: ProgressPhoto = { id: makeId(run, 'photo'), source: 'user', ...photo };
-      await commit({ ...prev, photos: [...prev.photos, full] }, run);
+      const next = { ...prev, photos: [...prev.photos, full] };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return true;
+      }
+      return await commitWithServer(run, prev, next, api =>
+        api.writeProgressPhotos([photoWire(full)]),
+      );
     });
-  }, [beginRun, commit, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
   // Batch insert for the guided photo session: one commit, one haptic —
   // the whole set lands atomically so an interruption mid-save can never
@@ -895,24 +1096,31 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         angle?: 'front' | 'side' | 'back';
         objectPath?: string;
       }>,
-    ): Promise<void> => {
-      if (photos.length === 0) return;
+    ): Promise<boolean> => {
+      if (photos.length === 0) return true;
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await hydrationGate.current!.promise;
       const startEpoch = epochRef.current;
-      await runSerialized(async () => {
+      return await runSerialized(async () => {
         const run = beginRun(startEpoch);
-        if (!run || !requireWritableAccount(run)) return;
+        if (!run || !requireWritableAccount(run)) return false;
         const prev = stateRef.current;
         const full: ProgressPhoto[] = photos.map(photo => ({
           id: makeId(run, 'photo'),
           source: 'user' as const,
           ...photo,
         }));
-        await commit({ ...prev, photos: [...prev.photos, ...full] }, run);
+        const next = { ...prev, photos: [...prev.photos, ...full] };
+        if (run.account.kind !== 'real') {
+          await commit(next, run);
+          return true;
+        }
+        return await commitWithServer(run, prev, next, api =>
+          api.writeProgressPhotos(full.map(photoWire)),
+        );
       });
     },
-    [beginRun, commit, requireWritableAccount, runSerialized],
+    [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized],
   );
 
   // Removes a user-added progress photo. Seed photos are not removable: they
@@ -935,6 +1143,18 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const nextPhotos = applyRemovePhoto(prev.photos, id);
       if (nextPhotos !== prev.photos) {
         await commit({ ...prev, photos: nextPhotos }, run);
+        if (removed && run.account.kind === 'real') {
+          // Provider-owned backstop: the Progress screen normally commits
+          // the server delete when its undo window lapses, but the screen
+          // can unmount mid-window — this timer makes sure expiry still
+          // reaches the server once no Undo can possibly be tappable.
+          // unref (a no-op outside Node) keeps test scripts from hanging.
+          const timer = setTimeout(() => {
+            void commitPhotoRemovalRef.current?.(removed);
+          }, PHOTO_REMOVAL_BACKSTOP_MS);
+          (timer as unknown as { unref?: () => void }).unref?.();
+          pendingPhotoRemovalsRef.current.set(removed.photo.id, { removed, timer });
+        }
       }
       return removed;
     });
@@ -945,6 +1165,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // double-tapped Undo no-ops instead of inserting a duplicate (see
   // applyRestorePhoto).
   const restorePhoto = useCallback(async (removed: RemovedProgressPhoto): Promise<void> => {
+    // Undo won: claim the pending server delete BEFORE anything yields, so
+    // the backstop can no longer race this restore into the mutation chain.
+    const pending = pendingPhotoRemovalsRef.current.get(removed.photo.id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingPhotoRemovalsRef.current.delete(removed.photo.id);
+    }
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
     const startEpoch = epochRef.current;
@@ -959,6 +1186,48 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       await commit({ ...prev, photos: nextPhotos }, run);
     });
   }, [beginRun, commit, requireWritableAccount, runSerialized]);
+
+  // Second half of the deferred delete: the Progress screen calls this once
+  // its undo window closes (or when a newer removal replaces the pending
+  // one). Demo and unresolved accounts no-op — the local removal was the
+  // whole job. For a real account this is the moment the server record and
+  // the stored bytes actually go away; on failure the photo is rolled back
+  // into the grid with a sync notice — better a resurfaced photo than a
+  // grid row whose object is half-deleted.
+  const commitPhotoRemoval = useCallback(async (removed: RemovedProgressPhoto): Promise<void> => {
+    // Single-flight claim: whichever caller gets here first — the screen's
+    // undo-window timer, the screen replacing a pending notice, or the
+    // provider backstop after an unmount — takes the entry; everyone else
+    // returns. Demo and unresolved accounts never register an entry, so
+    // their local removal stays the whole job, exactly as before.
+    const pending = pendingPhotoRemovalsRef.current.get(removed.photo.id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingPhotoRemovalsRef.current.delete(removed.photo.id);
+    await hydrationGate.current!.promise;
+    const startEpoch = epochRef.current;
+    await runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      if (!run || run.account.kind !== 'real') return;
+      // Belt-and-suspenders: a removal can only have committed with server
+      // truth present, but never send a delete built on non-authoritative
+      // state.
+      if (!serverTruthRef.current) return;
+      const current = stateRef.current;
+      // Undone (or already committed) meanwhile — nothing to delete.
+      if (current.photos.some(p => p.id === removed.photo.id)) return;
+      const withPhotoRestored = {
+        ...current,
+        photos: applyRestorePhoto(current.photos, removed),
+      };
+      await commitWithServer(run, withPhotoRestored, current, api =>
+        api.removeProgressPhoto(removed.photo.id),
+      );
+    });
+  }, [beginRun, commitWithServer, runSerialized]);
+  // Latest-callback ref so backstop timers armed by older renders always
+  // invoke the current commit (with its current epoch machinery).
+  commitPhotoRemovalRef.current = commitPhotoRemoval;
 
   const toggleFavorite = useCallback(async (id: string): Promise<void> => {
     await Haptics.selectionAsync();
@@ -1293,11 +1562,19 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     await runSerialized(async () => {
       const run = beginRun(startEpoch);
       if (!run || run.account.kind === 'unresolved') return;
+      // Programmatic (no gesture to block): before server truth arrives,
+      // skip silently rather than surface a notice the patient didn't cause.
+      if (run.account.kind === 'real' && !serverTruthRef.current) return;
       const prev = stateRef.current;
       if (prev.nudgeEngaged) return;
-      await commit({ ...prev, nudgeEngaged: true }, run);
+      const next = { ...prev, nudgeEngaged: true };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return;
+      }
+      await commitWithServer(run, prev, next, api => api.writeFlags({ nudgeEngaged: true }));
     });
-  }, [beginRun, commit, runSerialized]);
+  }, [beginRun, commit, commitWithServer, runSerialized]);
 
   const setNudgeOptOut = useCallback(async (optOut: boolean): Promise<void> => {
     await Haptics.selectionAsync();
@@ -1308,9 +1585,14 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       if (!run || !requireWritableAccount(run)) return;
       const prev = stateRef.current;
       if (prev.nudgeOptOut === optOut) return;
-      await commit({ ...prev, nudgeOptOut: optOut }, run);
+      const next = { ...prev, nudgeOptOut: optOut };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return;
+      }
+      await commitWithServer(run, prev, next, api => api.writeFlags({ nudgeOptOut: optOut }));
     });
-  }, [beginRun, commit, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
   // ─── Merged projections ────────────────────────────────────────────────────
 
@@ -1410,18 +1692,31 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     await runSerialized(async () => {
       const run = beginRun(startEpoch);
       if (!run || run.account.kind === 'unresolved') return;
+      // Programmatic — skip silently before server truth (see markNudgeEngaged).
+      if (run.account.kind === 'real' && !serverTruthRef.current) return;
       const prev = stateRef.current;
       // Idempotent per episode: only the first stamp anchors the cooldown.
       if (prev.nudgeLastCrossingKey === crossing && prev.nudgeLastSentKey !== null) return;
-      await commit({
+      const next = {
         ...prev,
         nudgeLastSentKey: TODAY_KEY,
         nudgeLastCrossingKey: crossing,
         // A fresh episode starts unengaged even if an older one was answered.
         nudgeEngaged: false,
-      }, run);
+      };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return;
+      }
+      await commitWithServer(run, prev, next, api =>
+        api.writeFlags({
+          nudgeLastSentKey: TODAY_KEY,
+          nudgeLastCrossingKey: crossing,
+          nudgeEngaged: false,
+        }),
+      );
     });
-  }, [beginRun, commit, runSerialized, nudgeAssessment]);
+  }, [beginRun, commit, commitWithServer, runSerialized, nudgeAssessment]);
 
   // Stable ascending sort: equal dateKeys keep concatenation order (seeds
   // first, then user photos in add order), so two photos added the same day
@@ -1470,6 +1765,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addPhotos,
       removePhoto,
       restorePhoto,
+      commitPhotoRemoval,
       toggleFavorite,
       addCustomFood,
       updateCustomFood,
@@ -1486,6 +1782,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       markNudgeEngaged,
       setNudgeOptOut,
       recordNudgeSent,
+      saveOnboardingFlags,
+      hydratedFlags,
       clearLocalState,
     }),
     [
@@ -1517,6 +1815,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       addPhotos,
       removePhoto,
       restorePhoto,
+      commitPhotoRemoval,
       toggleFavorite,
       addCustomFood,
       updateCustomFood,
@@ -1533,6 +1832,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       markNudgeEngaged,
       setNudgeOptOut,
       recordNudgeSent,
+      saveOnboardingFlags,
+      hydratedFlags,
       clearLocalState,
     ],
   );
@@ -1547,9 +1848,10 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         setSyncNotice(null);
         if (notice.action === 'retry-account') retryResolve();
         else if (notice.action === 'retry-hydration') rehydrate();
+        else if (notice.action === 'retry-flags') void flushOnboardingFlags();
       },
     };
-  }, [syncNotice, retryResolve, rehydrate]);
+  }, [syncNotice, retryResolve, rehydrate, flushOnboardingFlags]);
 
   return (
     <PatientContext.Provider value={value}>
@@ -1564,6 +1866,16 @@ export function usePatient() {
   const ctx = useContext(PatientContext);
   if (!ctx) throw new Error('usePatient must be used within PatientProvider');
   return ctx;
+}
+
+/**
+ * Like usePatient, but tolerates rendering outside PatientProvider (returns
+ * null there). For contexts that are also mounted standalone in Node suites
+ * — e.g. OnboardingProvider — where a missing patient store simply means
+ * "nowhere to persist", not a wiring bug.
+ */
+export function usePatientOptional() {
+  return useContext(PatientContext);
 }
 
 /** Read by components/patient/PatientSyncNotice.tsx (root layout). */

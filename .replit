@@ -152,6 +152,10 @@ args = "library-sync"
 task = "workflow.run"
 args = "chat-account"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "account-progress"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -522,6 +526,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:chat-account"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "account-progress"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:account-progress"
 
 [workflows.workflow.metadata]
 isValidation = true

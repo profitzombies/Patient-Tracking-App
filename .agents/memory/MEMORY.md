@@ -75,6 +75,6 @@
 - [HQ department access](hq-department-access.md) — active HQ membership is authoritative across client, API, and RLS; the coarse profile role must never grant or classify department access alone.
 - [Legacy DB archive-and-reset](legacy-db-reset.md) — CTAS archive + checksum gate + gated wipe; audit manifests must be write-once (mgmt-API applies skip migration history); TRUNCATE fires no triggers.
 - [Passwordless code login](passwordless-login.md) — one shared send-cap pot; atomic claim between proof and reward; ids resolve by id; every staff login provisions a usable workspace atomically.
-- [Live patient-data rail](live-patient-data-rail.md) — account seam defaults to demo; server truth gates real writes; one-RPC compound mutations; media rail mints path-owned objects, wire carries paths never bytes.
+- [Live patient-data rail](live-patient-data-rail.md) — account seam defaults to demo; server truth gates real writes; one-RPC compound mutations; media rail mints path-owned objects, reads token-gated.
 - [Per-account chat persistence](patient-chat-persistence.md) — finalized-only signature outbox + hydrate-then-persist; ref-sync effect must precede the persistence effect; photos re-attach on `!https?:` not `data:` only.
 - [Coach real-account grounding](coach-real-grounding.md) — auth ladder resolves before SSE; real patients get live-data context or a retryable error, never a silent demo fallback; greeting is client-composed from server facts.

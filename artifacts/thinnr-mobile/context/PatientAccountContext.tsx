@@ -16,12 +16,51 @@
  */
 import { createContext, useContext } from 'react';
 import type {
+  CheckIn,
   DailyTargets,
   FoodItem,
   MealLogEntry,
   MealSlot,
   SavedRecipe,
 } from '@/data/patient-data';
+
+/**
+ * One progress-photo grid row as it rides the wire: always a stored object
+ * path on the account's media rail — the client stamps `source: 'user'` and
+ * derives the display URL at render time.
+ */
+export interface ProgressPhotoWire {
+  id: string;
+  dateKey: string;
+  label: string;
+  angle?: 'front' | 'side' | 'back';
+  objectPath: string;
+}
+
+/**
+ * Account flags as hydrated: the stall-nudge outreach state, onboarding
+ * completion/answers, and notification preferences.
+ */
+export interface PatientFlags {
+  nudgeOptOut: boolean;
+  nudgeEngaged: boolean;
+  nudgeLastSentKey: string | null;
+  nudgeLastCrossingKey: string | null;
+  onboardingComplete: boolean;
+  onboardingAnswers?: Record<string, unknown>;
+  notificationPrefs?: Record<string, unknown>;
+}
+
+/** Partial flag write — only the provided fields merge into the row. */
+export interface PatientFlagsWrite {
+  nudgeOptOut: boolean;
+  nudgeEngaged: boolean;
+  nudgeLastSentKey: string | null;
+  nudgeLastCrossingKey: string | null;
+  onboardingComplete: boolean;
+  onboardingAnswers: object;
+  notificationPrefs: object;
+}
 
 /** The server-backed slice of a real patient's diary, as hydrated. */
 export interface PatientServerState {
@@ -32,6 +71,9 @@ export interface PatientServerState {
   recents: string[];
   customFoods: FoodItem[];
   savedRecipes: SavedRecipe[];
+  photos: ProgressPhotoWire[];
+  checkIns: CheckIn[];
+  flags: PatientFlags;
 }
 
 /**
@@ -115,6 +157,25 @@ export interface PatientDataApi {
   appendChatMessages(thread: ChatThread, messages: ChatWireMessage[]): Promise<void>;
   /** Stores a chat photo (data URI) on the account's media rail. */
   uploadChatPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }>;
+  /** Stores a progress photo (data URI) on the account's media rail. */
+  uploadProgressPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }>;
+  /** Records uploaded progress photos on the account's grid. */
+  writeProgressPhotos(photos: ProgressPhotoWire[]): Promise<void>;
+  /**
+   * Deletes a photo's grid row, media-ledger row, AND stored bytes. The app
+   * only calls this after its local undo window has closed.
+   */
+  removeProgressPhoto(photoId: string): Promise<void>;
+  /**
+   * Discards uploaded progress objects that never became grid rows (a
+   * failed grid write the patient walked away from). The server deletes
+   * only the caller's own unreferenced progress-kind uploads.
+   */
+  cleanupProgressUploads(paths: string[]): Promise<void>;
+  /** Records one check-in (one row per day — a same-day re-submit replaces). */
+  writeCheckIn(checkIn: CheckIn): Promise<void>;
+  /** Merges the provided account flags (stall-nudge / onboarding / prefs). */
+  writeFlags(flags: Partial<PatientFlagsWrite>): Promise<void>;
 }
 
 export type PatientAccount =

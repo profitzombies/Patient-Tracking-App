@@ -18,8 +18,10 @@ import { PatientWeightChart } from '@/components/patient/PatientWeightChart';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
-import { usePatient } from '@/context/PatientContext';
+import { PROGRESS_UNDO_WINDOW_MS, usePatient } from '@/context/PatientContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
+import { preparePhotoForUpload } from '@/lib/photo-prep';
 import { progressPhotoDisplayUrl } from '@/lib/progress-photo-upload';
 import { photoDisplayLabels, type RemovedProgressPhoto } from '@/data/progress-photo-state';
 import {
@@ -36,18 +38,28 @@ export default function ProgressScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  const { account } = usePatientAccount();
+  const { commitPhotoRemoval } = patient; // stable callback, safe as an effect dep
   const [photoError, setPhotoError] = useState('');
   // One snackbar slot for the last removed photo, mirroring the diary's undo
   // notice. A fresh object per removal restarts the auto-dismiss timer; once
-  // the window lapses the snapshot (the only remaining reference to the
-  // image data) is dropped.
+  // the window lapses the removal is committed for good (for a real account
+  // that's when the server record and stored bytes go away) and the snapshot
+  // — the only remaining reference to the image data — is dropped.
   const [removedNotice, setRemovedNotice] = useState<{ removed: RemovedProgressPhoto; label: string } | null>(null);
 
   useEffect(() => {
     if (!removedNotice) return;
-    const timer = setTimeout(() => setRemovedNotice(null), UNDO_WINDOW_MS);
+    const removed = removedNotice.removed;
+    const timer = setTimeout(() => {
+      setRemovedNotice(null);
+      void commitPhotoRemoval(removed);
+    }, UNDO_WINDOW_MS);
+    // An unmount mid-window drops this timer, but not the removal itself:
+    // the provider backstop armed by removePhoto commits it right after the
+    // window, so a real account's server delete still happens.
     return () => clearTimeout(timer);
-  }, [removedNotice]);
+  }, [removedNotice, commitPhotoRemoval]);
 
   // Saved-confirmation snackbar for the guided session; same auto-dismiss
   // window as the undo notice so transient notices feel consistent.
@@ -107,24 +119,52 @@ export default function ProgressScreen() {
       });
       if (result.canceled || result.assets.length === 0) return;
       const asset = result.assets[0];
+      const label = `Week ${Math.ceil(ENROLLMENT_DAYS / 7)}`;
+      if (account.kind === 'real') {
+        // Signed-in patient: compress, upload to the account's media rail,
+        // and record the grid row on the account — reinstall-safe.
+        const prepared = await preparePhotoForUpload(asset);
+        const { photoPath } = await account.api.uploadProgressPhoto(prepared.uri);
+        const saved = await patient.addPhoto({ dateKey: TODAY_KEY, objectPath: photoPath, label });
+        if (!saved) {
+          // The grid write failed and rolled back: discard the now-orphaned
+          // upload (a retry re-picks and re-uploads fresh) and surface the
+          // picker's own inline error alongside the sync notice.
+          void account.api.cleanupProgressUploads([photoPath]).catch(() => {});
+          setPhotoError('The photo uploaded but could not be added to your grid. Please try again.');
+        }
+        return;
+      }
       let uri = asset.uri;
       if (Platform.OS === 'web' && asset.base64 && !uri.startsWith('data:')) {
         uri = `data:${asset.mimeType ?? 'image/jpeg'};base64,${asset.base64}`;
       }
-      await patient.addPhoto({
-        dateKey: TODAY_KEY,
-        uri,
-        label: `Week ${Math.ceil(ENROLLMENT_DAYS / 7)}`,
-      });
-    } catch {
+      await patient.addPhoto({ dateKey: TODAY_KEY, uri, label });
+    } catch (error) {
+      if (account.kind === 'real') {
+        setPhotoError(
+          error instanceof Error && error.message
+            ? error.message
+            : 'Photo could not be uploaded. Please try again.',
+        );
+        return;
+      }
       setPhotoError('Photo could not be saved — it may be too large for browser storage.');
     }
   };
 
   // Arm the Undo only after the removal has committed, so a fast Undo tap
   // always acts on a recorded removal (restorePhoto no-ops otherwise). The
-  // snackbar carries the de-duplicated display label the card showed.
+  // snackbar carries the de-duplicated display label the card showed. A
+  // second removal inside the first one's undo window seals the earlier
+  // removal's fate first — its undo chance is gone the moment its snackbar
+  // is replaced.
   const handleRemovePhoto = async (id: string, label: string) => {
+    const pending = removedNotice;
+    if (pending) {
+      setRemovedNotice(null);
+      void commitPhotoRemoval(pending.removed);
+    }
     const removed = await patient.removePhoto(id);
     if (removed) setRemovedNotice({ removed, label });
   };
@@ -308,7 +348,9 @@ export default function ProgressScreen() {
 
 // Matches the diary snackbar's undo window, so delete/undo feels the same
 // everywhere.
-const UNDO_WINDOW_MS = 5000;
+// One clock shared with PatientContext, whose provider-owned backstop
+// commits a pending removal just after this window closes.
+const UNDO_WINDOW_MS = PROGRESS_UNDO_WINDOW_MS;
 
 const styles = StyleSheet.create({
   container: {

@@ -27,6 +27,7 @@ import {
   deliveryMode,
   DeliveryNotConfiguredError,
   assertLiveChannelReady,
+  holdUntilSmsDeliveryFloor,
   generateCode,
   startTwilioVerification,
   checkTwilioVerification,
@@ -116,26 +117,36 @@ function neutralBody(requestId: string, devCode: string | null, message = NEUTRA
   };
 }
 
-/** Queue live delivery to start strictly after the response is on the wire. */
-function deliverAfterResponse(
+/** SMS is acknowledged before response; email keeps its existing async rail. */
+async function deliverSmsRegistered(
+  row: VerificationRow,
+): Promise<void> {
+  if (row.delivery === "twilio_verify") {
+    await startTwilioVerification(row.identifier);
+  }
+}
+
+function deliverEmailAfterResponse(
   res: { once: (event: "close", handler: () => void) => void },
   log: { error: (obj: unknown, msg: string) => void } | undefined,
   row: VerificationRow,
   localCode: string | null,
 ): void {
-  if (row.delivery === "twilio_verify") {
-    res.once("close", () => {
-      void startTwilioVerification(row.identifier).catch((error) => {
-        log?.error({ err: error }, "auth sms delivery failed");
-      });
+  if (row.delivery !== "resend" || !localCode) return;
+  res.once("close", () => {
+    void sendClaimEmail(row.identifier, localCode).catch((error) => {
+      log?.error({ err: error }, "auth email delivery failed");
     });
-  } else if (row.delivery === "resend" && localCode) {
-    res.once("close", () => {
-      void sendClaimEmail(row.identifier, localCode).catch((error) => {
-        log?.error({ err: error }, "auth email delivery failed");
-      });
-    });
-  }
+  });
+}
+
+async function spendUndelivered(row: VerificationRow): Promise<void> {
+  const spent = await patchRow(
+    row.id,
+    { consumed_at: new Date().toISOString() },
+    "&verified_at=is.null&consumed_at=is.null",
+  );
+  if (spent !== 1) throw new Error("undelivered auth send could not be spent");
 }
 
 interface RegisterSendInput {
@@ -243,7 +254,7 @@ router.post(AUTH_LOGIN_START_PATH, async (req, res) => {
       res.status(400).json({ error: "Unknown sign-in type." });
       return;
     }
-    const identifier = normalizeIdentifier((req.body ?? {}).identifier);
+    let identifier = normalizeIdentifier((req.body ?? {}).identifier);
     if (!identifier || (realm === "staff" && identifier.kind !== "email")) {
       res.status(400).json({
         error:
@@ -272,8 +283,16 @@ router.post(AUTH_LOGIN_START_PATH, async (req, res) => {
     if (realm === "patient") {
       const patients = await lookupPatients(identifier);
       if (patients.length === 1) {
-        candidates = patients;
-        accountType = "patient";
+        const patient = await loadPatientById(patients[0].ref);
+        const authoritative =
+          identifier.kind === "phone" && patient?.phone
+            ? normalizeIdentifier(patient.phone)
+            : identifier;
+        if (patient && authoritative && authoritative.kind === identifier.kind) {
+          identifier = authoritative;
+          candidates = patients;
+          accountType = "patient";
+        }
       }
     } else {
       if (identifier.kind !== "email") {
@@ -304,6 +323,7 @@ router.post(AUTH_LOGIN_START_PATH, async (req, res) => {
       // Same body, same message, decoy dev code, same response time (floor).
       // Nothing stored, nothing sent.
       await holdUntilFloor(started);
+      if (identifier.kind === "phone") await holdUntilSmsDeliveryFloor(started);
       res.json(neutralBody(crypto.randomUUID(), mode === "dev" ? generateCode() : null));
       return;
     }
@@ -316,11 +336,27 @@ router.post(AUTH_LOGIN_START_PATH, async (req, res) => {
     });
     if (!registered) {
       await holdUntilFloor(started);
+      if (identifier.kind === "phone") await holdUntilSmsDeliveryFloor(started);
       res.json(neutralBody(crypto.randomUUID(), mode === "dev" ? generateCode() : null));
       return;
     }
 
-    deliverAfterResponse(res, req.log, registered.row, registered.localCode);
+    if (registered.row.delivery === "twilio_verify") {
+      try {
+        await deliverSmsRegistered(registered.row);
+      } catch (error) {
+        req.log?.error({ err: error }, "auth login sms delivery rejected");
+        // Do not await this best-effort terminal mark: the inserted row already
+        // counts toward quota, Twilio issued no code, and database latency must
+        // not make a matched number slower than a miss.
+        void spendUndelivered(registered.row).catch((spendError) => {
+          req.log?.error({ err: spendError }, "auth login rejected-send ledger update failed");
+        });
+      }
+      await holdUntilSmsDeliveryFloor(started);
+    } else {
+      deliverEmailAfterResponse(res, req.log, registered.row, registered.localCode);
+    }
     await holdUntilFloor(started);
     res.json(neutralBody(registered.row.id, mode === "dev" ? registered.localCode : null));
   } catch (error) {
@@ -487,7 +523,19 @@ router.post(AUTH_SIGNUP_START_PATH, async (req, res) => {
       return;
     }
 
-    deliverAfterResponse(res, req.log, registered.row, registered.localCode);
+    if (registered.row.delivery === "twilio_verify") {
+      try {
+        await deliverSmsRegistered(registered.row);
+      } catch (error) {
+        req.log?.error({ err: error }, "auth signup sms delivery rejected");
+        void spendUndelivered(registered.row).catch((spendError) => {
+          req.log?.error({ err: spendError }, "auth signup rejected-send ledger update failed");
+        });
+      }
+      await holdUntilSmsDeliveryFloor(started);
+    } else {
+      deliverEmailAfterResponse(res, req.log, registered.row, registered.localCode);
+    }
     await holdUntilFloor(started);
     res.json(
       neutralBody(

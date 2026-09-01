@@ -16,6 +16,8 @@ import crypto from "node:crypto";
 import { renderEmailTemplate, type EmailTemplateId, type EmailVariables } from "@workspace/email-templates";
 
 export type DeliveryMode = "dev" | "live";
+const TWILIO_START_TIMEOUT_MS = 3_500;
+const SMS_DELIVERY_FLOOR_MS = 5_000;
 
 export function deliveryMode(channel?: "sms" | "email"): DeliveryMode {
   const channelKey =
@@ -31,6 +33,10 @@ export function deliveryMode(channel?: "sms" | "email"): DeliveryMode {
   )
     .trim()
     .toLowerCase();
+  // A production SMS process must never expose codes inline or skip the
+  // provider because an inherited/shared environment variable says "dev".
+  // Email remains independently configurable for staged environments.
+  if (channel === "sms" && process.env.NODE_ENV === "production") return "live";
   if (raw === "dev" || raw === "live") return raw;
   return process.env.NODE_ENV === "production" ? "live" : "dev";
 }
@@ -66,6 +72,24 @@ export function assertLiveChannelReady(channel: "sms" | "email"): void {
   if (deliveryMode(channel) !== "live") return;
   if (channel === "sms" && !twilioCreds()) throw new DeliveryNotConfiguredError("sms");
   if (channel === "email" && !resendCreds()) throw new DeliveryNotConfiguredError("email");
+}
+
+/**
+ * Live SMS lookup responses share a provider-sized floor whether a patient
+ * matched or not. That prevents Twilio latency/rejection from becoming an
+ * account-existence timing oracle.
+ */
+export async function holdUntilSmsDeliveryFloor(startedAt: number): Promise<void> {
+  if (deliveryMode("sms") !== "live") return;
+  const configured = process.env.AUTH_SMS_DELIVERY_FLOOR_MS;
+  const raw = configured === undefined || configured.trim() === "" ? SMS_DELIVERY_FLOOR_MS : Number(configured);
+  const candidate = Number.isFinite(raw) && raw >= 0 ? raw : SMS_DELIVERY_FLOOR_MS;
+  const floor =
+    process.env.NODE_ENV === "production"
+      ? Math.max(SMS_DELIVERY_FLOOR_MS, candidate)
+      : candidate;
+  const wait = floor - (Date.now() - startedAt);
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 }
 
 export function generateCode(): string {
@@ -112,11 +136,21 @@ export async function startTwilioVerification(phoneE164: string): Promise<void> 
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({ To: phoneE164, Channel: "sms" }).toString(),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(TWILIO_START_TIMEOUT_MS),
     },
   );
-  if (!response.ok) {
-    throw new Error(`Twilio Verify start failed (${response.status})`);
+  let json: { status?: unknown; code?: unknown } = {};
+  try {
+    json = (await response.json()) as { status?: unknown; code?: unknown };
+  } catch {
+    // The HTTP status remains useful and contains no patient information.
+  }
+  if (!response.ok || json.status !== "pending") {
+    const providerCode =
+      typeof json.code === "number" || typeof json.code === "string"
+        ? `, provider code ${String(json.code).replace(/[^0-9A-Za-z_-]/g, "").slice(0, 32)}`
+        : "";
+    throw new Error(`Twilio Verify start rejected (${response.status}${providerCode})`);
   }
 }
 

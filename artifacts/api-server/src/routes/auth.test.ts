@@ -23,9 +23,11 @@ class FakeBackend {
   sentEmails: Array<{ to: string; code: string | null }> = [];
   twilioStarts: string[] = [];
   twilioApprovedCode: string | null = null;
+  twilioStartFailure: { status: number; code?: number } | null = null;
   deletedUsers: string[] = [];
   failHqAccept = false;
   failProvision = false;
+  failRejectedSendSpend = false;
   /** One-shot hook fired right after the signup email pre-check answers —
    *  simulates a rival signup landing between pre-check and insert. */
   onEmailPrecheck: (() => void) | null = null;
@@ -47,9 +49,11 @@ class FakeBackend {
     this.sentEmails = [];
     this.twilioStarts = [];
     this.twilioApprovedCode = null;
+    this.twilioStartFailure = null;
     this.deletedUsers = [];
     this.failHqAccept = false;
     this.failProvision = false;
+    this.failRejectedSendSpend = false;
     this.onEmailPrecheck = null;
     this.pauseOnce = null;
   }
@@ -232,6 +236,13 @@ class FakeBackend {
       if (url.pathname.endsWith("/Verifications")) {
         const params = new URLSearchParams(String(init?.body ?? ""));
         this.twilioStarts.push(params.get("To") ?? "");
+        if (this.twilioStartFailure) {
+          return json(this.twilioStartFailure.status, {
+            status: "failed",
+            code: this.twilioStartFailure.code,
+            message: "sanitized test rejection",
+          });
+        }
         return json(201, { status: "pending" });
       }
       if (url.pathname.endsWith("/VerificationCheck")) {
@@ -384,6 +395,13 @@ class FakeBackend {
         return json(200, []);
       }
       if (method === "PATCH") {
+        if (
+          table === "claim_verifications" &&
+          this.failRejectedSendSpend &&
+          body?.consumed_at
+        ) {
+          return json(500, { message: "simulated rejected-send spend failure" });
+        }
         const rows = this.matchRows(table, conditions, orGroups);
         for (const row of rows) Object.assign(row, body);
         return json(200, rows);
@@ -426,6 +444,7 @@ function json(status: number, body: unknown): Response {
 
 const backend = new FakeBackend();
 const realFetch = globalThis.fetch.bind(globalThis);
+const routeErrors: string[] = [];
 let server: http.Server;
 let base: string;
 
@@ -483,7 +502,7 @@ beforeAll(async () => {
   app.use((req, _res, next) => {
     (req as unknown as { log: unknown }).log = {
       error: (obj: { err?: Error }, msg: string) =>
-        console.log("ROUTELOG", msg, obj?.err?.message ?? obj),
+        routeErrors.push(`${msg}: ${obj?.err?.message ?? String(obj)}`),
     };
     next();
   });
@@ -503,6 +522,8 @@ beforeEach(() => {
   process.env.CLAIM_DELIVERY_MODE = "dev";
   process.env.CLAIM_SMS_DELIVERY_MODE = "dev";
   process.env.CLAIM_EMAIL_DELIVERY_MODE = "dev";
+  process.env.AUTH_SMS_DELIVERY_FLOOR_MS = "0";
+  routeErrors.length = 0;
   delete process.env.TWILIO_ACCOUNT_SID;
   delete process.env.TWILIO_AUTH_TOKEN;
   delete process.env.TWILIO_VERIFY_SERVICE_SID;
@@ -1000,6 +1021,28 @@ describe("patient login", () => {
     expect(patientUser.email).toBe(`pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`);
     expect(patientUser.phone).toBeNull();
     expect(verify.json.tokenHash).toBe(`hashed-${patientUser.email}`);
+
+    // A later login must still use the patient row's verified phone. The
+    // intentionally phone-less patient auth identity is session plumbing,
+    // never the SMS directory.
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.TWILIO_ACCOUNT_SID = "ACtest";
+    process.env.TWILIO_AUTH_TOKEN = "token";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
+    const later = await api("POST", "/api/auth/login/start", {
+      realm: "patient",
+      identifier: "813-514-5141",
+    });
+    expect(later.status).toBe(200);
+    expect(backend.twilioStarts).toEqual(["+18135145141"]);
+    backend.twilioApprovedCode = "864209";
+    const laterVerify = await api("POST", "/api/auth/login/verify", {
+      requestId: later.json.requestId,
+      code: "864209",
+    });
+    expect(laterVerify.status).toBe(200);
+    expect(laterVerify.json.tokenHash).toBe(`hashed-${patientUser.email}`);
+    expect(backend.authUsers.get(String(patient.auth_user_id))?.phone).toBeNull();
   });
 
   it("falls back to email codes for patients", async () => {
@@ -1333,7 +1376,6 @@ describe("live delivery", () => {
     });
     expect(start.status).toBe(200);
     expect(start.json.devCode).toBeUndefined();
-    await settle();
     expect(backend.twilioStarts).toEqual(["+15552013344"]);
 
     backend.twilioApprovedCode = "246810";
@@ -1343,6 +1385,243 @@ describe("live delivery", () => {
     });
     expect(verify.status).toBe(200);
     expect(verify.json.realm).toBe("patient");
+  });
+
+  it("uses the patient-row phone for an invited patient's later login even when auth has no phone", async () => {
+    const auth = backend.seedAuthUser({
+      email: "pt-linked@patients.thinnr.invalid",
+      phone: null,
+    });
+    const patient = seedPatient({
+      phone: "+1 (555) 201-3344",
+      email: "casey@example.com",
+      activation_status: "activated",
+      auth_user_id: auth.id,
+    });
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.TWILIO_ACCOUNT_SID = "ACtest";
+    process.env.TWILIO_AUTH_TOKEN = "token";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
+
+    const start = await api("POST", "/api/auth/login/start", {
+      realm: "patient",
+      identifier: "555-201-3344",
+    });
+    expect(start.status).toBe(200);
+    expect(backend.twilioStarts).toEqual(["+15552013344"]);
+    expect(backend.tables.claim_verifications[0].identifier).toBe("+15552013344");
+
+    backend.twilioApprovedCode = "135790";
+    const verify = await api("POST", "/api/auth/login/verify", {
+      requestId: start.json.requestId,
+      code: "135790",
+    });
+    expect(verify.status).toBe(200);
+    expect(verify.json.tokenHash).toBe(`hashed-${String(auth.email)}`);
+    expect(patient.auth_user_id).toBe(auth.id);
+    expect(backend.authUsers.get(String(auth.id))?.phone).toBeNull();
+  });
+
+  it("records Twilio rejection, spends its quota row, and allows a fresh-code retry", async () => {
+    seedPatient();
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.TWILIO_ACCOUNT_SID = "ACtest";
+    process.env.TWILIO_AUTH_TOKEN = "token";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
+    backend.twilioStartFailure = { status: 400, code: 60200 };
+
+    const rejected = await api("POST", "/api/auth/login/start", {
+      realm: "patient",
+      identifier: "5552013344",
+    });
+    expect(rejected.status).toBe(200);
+    expect(rejected.json.ok).toBe(true);
+    expect(routeErrors).toContain(
+      "auth login sms delivery rejected: Twilio Verify start rejected (400, provider code 60200)",
+    );
+    expect(backend.tables.claim_verifications).toHaveLength(1);
+    expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
+
+    backend.twilioStartFailure = null;
+    const retry = await api("POST", "/api/auth/login/start", {
+      realm: "patient",
+      identifier: "5552013344",
+    });
+    expect(retry.status).toBe(200);
+    expect(backend.tables.claim_verifications).toHaveLength(2);
+    expect(backend.twilioStarts).toHaveLength(2);
+  });
+
+  it("keeps live hit and miss responses neutral when Twilio rejects, including the send cap", async () => {
+    seedPatient();
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.TWILIO_ACCOUNT_SID = "ACtest";
+    process.env.TWILIO_AUTH_TOKEN = "token";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
+    backend.twilioStartFailure = { status: 429, code: 20429 };
+
+    const miss = await api("POST", "/api/auth/login/start", {
+      realm: "patient",
+      identifier: "5559990000",
+    });
+    const hits = [];
+    for (let index = 0; index < 4; index += 1) {
+      hits.push(
+        await api("POST", "/api/auth/login/start", {
+          realm: "patient",
+          identifier: "5552013344",
+        }),
+      );
+    }
+
+    for (const hit of hits) {
+      expect(hit.status).toBe(miss.status);
+      expect(Object.keys(hit.json).sort()).toEqual(Object.keys(miss.json).sort());
+      expect(hit.json.message).toBe(miss.json.message);
+    }
+    expect(backend.twilioStarts).toHaveLength(3);
+    expect(backend.tables.claim_verifications).toHaveLength(3);
+    expect(backend.tables.claim_verifications.every((row) => row.consumed_at)).toBe(true);
+  });
+
+  it("keeps rejection neutral when recording the spent row also fails", async () => {
+    seedPatient();
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.TWILIO_ACCOUNT_SID = "ACtest";
+    process.env.TWILIO_AUTH_TOKEN = "token";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
+    backend.twilioStartFailure = { status: 500 };
+    backend.failRejectedSendSpend = true;
+
+    const miss = await api("POST", "/api/auth/login/start", {
+      realm: "patient",
+      identifier: "5559990000",
+    });
+    const hit = await api("POST", "/api/auth/login/start", {
+      realm: "patient",
+      identifier: "5552013344",
+    });
+    expect(hit.status).toBe(miss.status);
+    expect(hit.json).toMatchObject({ ok: true, message: miss.json.message });
+    expect(Object.keys(hit.json).sort()).toEqual(Object.keys(miss.json).sort());
+    expect(backend.tables.claim_verifications).toHaveLength(1);
+    expect(routeErrors.some((line) => line.includes("ledger update failed"))).toBe(true);
+  });
+
+  it("does not let a stalled rejected-send ledger update delay a matched response", async () => {
+    seedPatient();
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.TWILIO_ACCOUNT_SID = "ACtest";
+    process.env.TWILIO_AUTH_TOKEN = "token";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
+    process.env.AUTH_SMS_DELIVERY_FLOOR_MS = "30";
+    backend.twilioStartFailure = { status: 500 };
+    let release!: () => void;
+    backend.pauseOnce = {
+      pathPrefix: "/rest/v1/claim_verifications",
+      gate: new Promise((resolve) => {
+        release = resolve;
+      }),
+    };
+
+    const started = performance.now();
+    const hit = await api("POST", "/api/auth/login/start", {
+      realm: "patient",
+      identifier: "5552013344",
+    });
+    const elapsed = performance.now() - started;
+    expect(hit.status).toBe(200);
+    expect(elapsed).toBeGreaterThanOrEqual(25);
+    expect(elapsed).toBeLessThan(200);
+    expect(backend.tables.claim_verifications).toHaveLength(1);
+
+    release();
+    await settle();
+    expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
+  });
+
+  it("applies the same live SMS response floor to matched and unknown phones", async () => {
+    seedPatient();
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.TWILIO_ACCOUNT_SID = "ACtest";
+    process.env.TWILIO_AUTH_TOKEN = "token";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
+    process.env.AUTH_SMS_DELIVERY_FLOOR_MS = "30";
+
+    const timed = async (identifier: string) => {
+      const started = performance.now();
+      const response = await api("POST", "/api/auth/login/start", {
+        realm: "patient",
+        identifier,
+      });
+      return { response, elapsed: performance.now() - started };
+    };
+    const hit = await timed("5552013344");
+    const miss = await timed("5559990000");
+    expect(hit.response.status).toBe(200);
+    expect(miss.response.status).toBe(200);
+    expect(hit.elapsed).toBeGreaterThanOrEqual(25);
+    expect(miss.elapsed).toBeGreaterThanOrEqual(25);
+    expect(Math.abs(hit.elapsed - miss.elapsed)).toBeLessThan(25);
+  });
+
+  it("forces production SMS live while leaving the email channel independently configurable", async () => {
+    seedPatient();
+    process.env.NODE_ENV = "production";
+    process.env.CLAIM_DELIVERY_MODE = "dev";
+    process.env.CLAIM_SMS_DELIVERY_MODE = "dev";
+    process.env.CLAIM_EMAIL_DELIVERY_MODE = "dev";
+    try {
+      const sms = await api("POST", "/api/auth/login/start", {
+        realm: "patient",
+        identifier: "5552013344",
+      });
+      expect(sms.status).toBe(503);
+
+      seedProvider();
+      const email = await api("POST", "/api/auth/login/start", {
+        realm: "staff",
+        identifier: "rivera@clinic.example",
+      });
+      expect(email.status).toBe(200);
+      expect(email.json.devCode).toMatch(/^\d{6}$/);
+    } finally {
+      process.env.NODE_ENV = "test";
+    }
+  });
+
+  it("does not apply the SMS floor to known or unknown production email logins", async () => {
+    seedProvider();
+    seedPatient({ email: "casey@example.com" });
+    process.env.NODE_ENV = "production";
+    process.env.CLAIM_SMS_DELIVERY_MODE = "dev";
+    process.env.CLAIM_EMAIL_DELIVERY_MODE = "dev";
+    try {
+      for (const [realm, known, unknown] of [
+        ["staff", "rivera@clinic.example", "missing-staff@example.com"],
+        ["patient", "casey@example.com", "missing-patient@example.com"],
+      ] as const) {
+        const timed = async (identifier: string) => {
+          const started = performance.now();
+          const response = await api("POST", "/api/auth/login/start", {
+            realm,
+            identifier,
+          });
+          return { response, elapsed: performance.now() - started };
+        };
+        const hit = await timed(known);
+        const miss = await timed(unknown);
+        expect(hit.response.status).toBe(200);
+        expect(miss.response.status).toBe(200);
+        expect(Object.keys(hit.response.json).sort()).toEqual(
+          Object.keys(miss.response.json).sort(),
+        );
+        expect(hit.elapsed).toBeLessThan(500);
+        expect(miss.elapsed).toBeLessThan(500);
+      }
+    } finally {
+      process.env.NODE_ENV = "test";
+    }
   });
 
   it("emails staff codes through Resend", async () => {

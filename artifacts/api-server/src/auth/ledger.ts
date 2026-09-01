@@ -53,8 +53,8 @@ export const SENDS_PER_IDENTIFIER_PER_HOUR = 3;
  * exists — otherwise response timing becomes an existence oracle even though
  * the response bodies are identical. Every account-dependent outcome (miss,
  * send-capped, hit) is held to this minimum elapsed time. The real work is
- * one database round trip, which fits well inside the floor; live SMS/email
- * delivery is fired after the response and never adds to it.
+ * one database round trip, which fits well inside the floor. Callers that
+ * await a live provider must add a provider-sized neutral floor of their own.
  */
 const IDENTIFY_FLOOR_DEFAULT_MS = 350;
 

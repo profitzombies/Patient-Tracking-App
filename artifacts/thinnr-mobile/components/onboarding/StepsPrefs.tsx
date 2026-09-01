@@ -12,6 +12,7 @@ import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useOnboarding, useOnboardingFlow } from '@/context/OnboardingContext';
+import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
 import {
   DIET_NONE_KEY,
   DIET_OPTIONS,
@@ -58,6 +59,7 @@ function BenefitList({ items, icons }: { items: string[]; icons: React.Component
 export function HealthAppStep() {
   const { patch } = useOnboarding();
   const flow = useOnboardingFlow('health-app');
+  const device = useDeviceFeatures();
 
   const choose = (healthApp: 'connected' | 'skipped') => {
     patch({ healthApp });
@@ -74,13 +76,18 @@ export function HealthAppStep() {
       <BenefitList items={HEALTH_APP_BENEFITS} icons={['activity', 'trending-down', 'zap', 'heart']} />
       <PrimaryButton
         testID="ob-health-connect"
-        label="Connect health app"
-        onPress={() => choose('connected')}
+        label={device.busy ? 'Requesting access…' : 'Connect and import last 30 days'}
+        disabled={device.busy || device.health === 'web' || device.health === 'expo-go' || device.health === 'unsupported'}
+        onPress={() => void device.connectAndImportHealth().then(ok => { if (ok) choose('connected'); })}
         style={styles.btnGap}
       />
       <GhostButton testID="ob-health-skip" label="Skip for now" onPress={() => choose('skipped')} />
       <View style={styles.noteGap}>
-        <NoteText center text="Connection is simulated in this demo — no real health data is accessed." />
+        <NoteText center text={device.message ?? (
+          device.health === 'web' ? 'Apple Health and Health Connect are unavailable on web.' :
+          device.health === 'expo-go' ? 'Health access requires a development build and is unavailable in Expo Go.' :
+          'THINNR requests read-only access to weight and steps. No other health categories are imported.'
+        )} />
       </View>
     </OnboardingFrame>
   );
@@ -91,6 +98,8 @@ export function HealthAppStep() {
 export function NotificationsStep() {
   const { patch } = useOnboarding();
   const flow = useOnboardingFlow('notifications');
+  const device = useDeviceFeatures();
+  const { answers } = useOnboarding();
 
   const choose = (notifications: 'enabled' | 'later') => {
     patch({ notifications });
@@ -108,12 +117,24 @@ export function NotificationsStep() {
       <PrimaryButton
         testID="ob-notif-enable"
         label="Enable notifications"
-        onPress={() => choose('enabled')}
+        disabled={device.busy || device.notification === 'web'}
+        onPress={() => void device.enableNotifications({
+          enabled: true,
+          times: {
+            morning: answers.reminderMorning,
+            afternoon: answers.reminderAfternoon,
+            evening: answers.reminderEvening,
+          },
+        }).then(ok => { if (ok) choose('enabled'); })}
         style={styles.btnGap}
       />
       <GhostButton testID="ob-notif-later" label="Maybe later" onPress={() => choose('later')} />
       <View style={styles.noteGap}>
-        <NoteText center text="Simulated — you can change this anytime in settings." />
+        <NoteText center text={device.message ?? (
+          device.notification === 'web'
+            ? 'Local medication reminders are unavailable on web.'
+            : 'Your phone will ask for notification permission. You can change this anytime in settings.'
+        )} />
       </View>
     </OnboardingFrame>
   );
@@ -255,7 +276,7 @@ export function CompleteStep() {
     { label: 'PROVIDER', value: 'Linked to your care team' },
     {
       label: 'SECURITY',
-      value: `Password set${answers.faceId === 'enabled' ? ' · Face ID on (simulated)' : ''}`,
+      value: `Password set${answers.faceId === 'enabled' ? ' · Device biometrics on' : ''}`,
     },
     { label: 'PROFILE', value: `${height} · ${answers.currentWeight} ${unit} · ${gender}` },
     { label: 'BIRTHDAY', value: birthday },
@@ -280,7 +301,7 @@ export function CompleteStep() {
   rows.push(
     {
       label: 'HEALTH APP',
-      value: answers.healthApp === 'connected' ? 'Connected (simulated)' : 'Skipped',
+      value: answers.healthApp === 'connected' ? 'Connected · weight and steps only' : 'Skipped',
     },
     {
       label: 'NOTIFICATIONS',

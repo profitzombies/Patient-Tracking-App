@@ -48,6 +48,7 @@ class FakeBackend {
       patient_media: [],
       patient_progress_photos: [],
       patient_check_ins: [],
+      patient_health_measurements: [],
       patient_flags: [],
       claim_verifications: [],
     };
@@ -537,6 +538,7 @@ describe("auth ladder", () => {
       ["PUT", "/api/patient-data/targets", { calories: 1500 }],
       ["PUT", "/api/patient-data/prefs", { favorites: [] }],
       ["POST", "/api/patient-data/library", { foodUpsert: [] }],
+      ["POST", "/api/patient-data/health-measurements", { measurements: [] }],
     ] as const) {
       const res = await api(method, path, { token: "stale-token", body });
       expect(res.status).toBe(401);
@@ -960,6 +962,72 @@ describe("GET /patient-data/state", () => {
     const res = await api("GET", "/api/patient-data/state", { token: "tok-1" });
     expect(res.status).toBe(502);
     expect(res.json.error).toBe("Couldn't load your diary right now. Please try again.");
+  });
+});
+
+describe("POST /patient-data/health-measurements", () => {
+  const measurement = (overrides: Row = {}): Row => ({
+    sourceId: "apple-weight-1",
+    source: "apple_health",
+    kind: "weight_lb",
+    value: 180.5,
+    measuredAt: new Date().toISOString(),
+    ...overrides,
+  });
+
+  it("requires a bearer-resolved patient and scopes accepted rows to that patient", async () => {
+    const mine = backend.seedSignedInPatient("health-mine");
+    const other = backend.seedSignedInPatient("health-other");
+    expect((await api("POST", "/api/patient-data/health-measurements", { body: { measurements: [] } })).status).toBe(401);
+    backend.tokens.set("health-unlinked", crypto.randomUUID());
+    expect((await api("POST", "/api/patient-data/health-measurements", {
+      token: "health-unlinked", body: { measurements: [] },
+    })).status).toBe(403);
+    const accepted = await api("POST", "/api/patient-data/health-measurements", {
+      token: "health-mine",
+      body: { measurements: [measurement(), measurement({ sourceId: "hc-steps-1", source: "health_connect", kind: "steps", value: 8321 })] },
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.json).toEqual({ imported: 2 });
+    expect(backend.tables.patient_health_measurements).toHaveLength(2);
+    expect(backend.tables.patient_health_measurements.every(row => row.patient_id === mine.patientId)).toBe(true);
+    expect(backend.tables.patient_health_measurements.some(row => row.patient_id === other.patientId)).toBe(false);
+  });
+
+  it("rejects malformed batches and all disallowed measurement fields", async () => {
+    backend.seedSignedInPatient("health-invalid");
+    const invalid = [
+      { measurements: {} },
+      { measurements: new Array(501).fill(measurement()) },
+      { measurements: [measurement({ source: "other" })] },
+      { measurements: [measurement({ kind: "heart_rate" })] },
+      { measurements: [measurement({ value: -1 })] },
+      { measurements: [measurement({ sourceId: "" })] },
+      { measurements: [measurement({ measuredAt: "not-a-date" })] },
+      { measurements: [measurement({ measuredAt: new Date(Date.now() - 32 * 86400000).toISOString() })] },
+      { measurements: [measurement({ measuredAt: new Date(Date.now() + 6 * 60000).toISOString() })] },
+    ];
+    for (const body of invalid) {
+      expect((await api("POST", "/api/patient-data/health-measurements", { token: "health-invalid", body })).status).toBe(400);
+    }
+  });
+
+  it("uses the per-account source key as an idempotent upsert contract", async () => {
+    const mine = backend.seedSignedInPatient("health-repeat");
+    const body = { measurements: [measurement()] };
+    expect((await api("POST", "/api/patient-data/health-measurements", { token: "health-repeat", body })).status).toBe(200);
+    expect((await api("POST", "/api/patient-data/health-measurements", { token: "health-repeat", body })).status).toBe(200);
+    expect(backend.tables.patient_health_measurements.filter(row => row.patient_id === mine.patientId)).toHaveLength(1);
+  });
+
+  it("returns a friendly failure when the health upsert upstream fails", async () => {
+    backend.seedSignedInPatient("health-fail");
+    backend.failOnce.add("POST patient_health_measurements");
+    const res = await api("POST", "/api/patient-data/health-measurements", {
+      token: "health-fail", body: { measurements: [measurement()] },
+    });
+    expect(res.status).toBe(503);
+    expect(res.json.error).toBeTruthy();
   });
 });
 

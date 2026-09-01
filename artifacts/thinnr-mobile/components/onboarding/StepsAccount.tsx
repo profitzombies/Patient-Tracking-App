@@ -11,6 +11,7 @@ import { LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useOnboarding, useOnboardingFlow } from '@/context/OnboardingContext';
 import { usePatient } from '@/context/PatientContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
+import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
 import {
   allPasswordChecksPass,
   formatPhoneNumber,
@@ -396,12 +397,19 @@ export function ProviderCodeStep() {
   );
 }
 
-// ─── Face ID (simulated) ─────────────────────────────────────────────────────
+// ─── Device biometrics ────────────────────────────────────────────────────────
 
 export function FaceIdStep() {
   const colors = useColors();
   const { patch } = useOnboarding();
   const flow = useOnboardingFlow('face-id');
+  const device = useDeviceFeatures();
+  const unavailable = device.biometric === 'web' || device.biometric === 'expo-go' || device.biometric === 'unsupported';
+  const availabilityMessage =
+    device.biometric === 'web' ? 'Biometrics are unavailable on web.' :
+    device.biometric === 'expo-go' ? 'Biometric unlock on iPhone requires a development or production build and is unavailable in Expo Go.' :
+    device.biometric === 'unsupported' ? 'This device has no supported enrolled biometric. Check Face ID, Touch ID, or biometric setup in system Settings.' :
+    'You must first enroll biometrics in your device settings.';
 
   const choose = (faceId: 'enabled' | 'skipped') => {
     patch({ faceId });
@@ -419,17 +427,19 @@ export function FaceIdStep() {
         <Feather name="smile" size={26} color={colors.cobalt} />
       </View>
       <Text style={[styles.faceBody, { color: colors.bodyText }]}>
-        Use Face ID to skip typing your password every time you open THINNR.
+        Use enrolled device biometrics as a convenient local app unlock. Your server session,
+        password, and any two-factor checks remain required.
       </Text>
       <PrimaryButton
         testID="ob-face-enable"
-        label="Enable Face ID (simulated)"
-        onPress={() => choose('enabled')}
+        label={device.busy ? 'Checking device…' : 'Enable device biometrics'}
+        disabled={device.busy || unavailable}
+        onPress={() => void device.enableBiometrics().then(ok => { if (ok) choose('enabled'); })}
         style={styles.blockGap}
       />
       <GhostButton testID="ob-face-skip" label="Skip for now" onPress={() => choose('skipped')} />
       <View style={styles.blockGapTop}>
-        <NoteText center text="Biometric setup is simulated in this demo — nothing is enrolled on your device." />
+        <NoteText center text={device.message ?? availabilityMessage} />
       </View>
     </OnboardingFrame>
   );

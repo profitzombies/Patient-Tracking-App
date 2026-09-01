@@ -14,9 +14,23 @@
       "backgroundColor": "#eef1f6"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "THINNR uses Face ID only to unlock the signed-in app on this device.",
+        "NSHealthShareUsageDescription": "THINNR reads only the weight and step measurements you approve for your patient account.",
+        "NSHealthUpdateUsageDescription": "THINNR does not write health data."
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true
+      }
     },
-    "android": {},
+    "android": {
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.health.READ_WEIGHT",
+        "android.permission.health.READ_STEPS"
+      ]
+    },
     "web": {
       "favicon": "./assets/images/icon_2.png"
     },
@@ -49,7 +63,26 @@
         }
       ],
       "expo-audio",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "medication-reminders"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow THINNR to use Face ID only as a convenient local app unlock."
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ],
+      "react-native-health-connect"
     ],
     "experiments": {
       "typedRoutes": true,

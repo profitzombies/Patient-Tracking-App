@@ -81,3 +81,4 @@
 - [Env knob parsing](env-knob-parsing.md) — Number("") is 0: unset numeric knobs silently zero limits; blank-check before Number; import-time knobs need vi.hoisted in tests.
 - [Onboarding route admission](onboarding-route-admission.md) — protected patient routes unlock only after server-confirmed completion; optimistic flags create bypasses and reload reversals.
 - [Patient identity write barrier](patient-identity-write-barrier.md) — every new patient-owned table must join the reconciliation advisory-lock trigger protocol or late writes can strand data.
+- [Account-scoped native operations](account-scoped-native-operations.md) — bind long native prompts to an account epoch and captured bearer; version reminder intent so stale lifecycle work cannot undo edits.

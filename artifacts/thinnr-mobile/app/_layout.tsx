@@ -34,6 +34,7 @@ import { OnboardingProvider } from '@/context/OnboardingContext';
 import { OperationsProvider } from '@/context/OperationsContext';
 import { PatientAccountProvider } from '@/context/PatientAccountProvider';
 import { PatientProvider } from '@/context/PatientContext';
+import { DeviceBiometricGate, DeviceFeaturesProvider } from '@/context/DeviceFeaturesContext';
 import { PatientSyncNotice } from '@/components/patient/PatientSyncNotice';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
@@ -316,14 +317,18 @@ export default function RootLayout() {
                   <OperationsProvider>
                     <PatientAccountProvider>
                       <PatientProvider>
-                        <OnboardingProvider>
+                        <DeviceFeaturesProvider>
+                         <OnboardingProvider>
+                          <DeviceBiometricGate>
                           <CoachChatProvider>
                             <LivePatientEntryGuard>
                               <RootLayoutNav />
                             </LivePatientEntryGuard>
                             <PatientSyncNotice />
                           </CoachChatProvider>
-                        </OnboardingProvider>
+                          </DeviceBiometricGate>
+                         </OnboardingProvider>
+                        </DeviceFeaturesProvider>
                       </PatientProvider>
                     </PatientAccountProvider>
                   </OperationsProvider>

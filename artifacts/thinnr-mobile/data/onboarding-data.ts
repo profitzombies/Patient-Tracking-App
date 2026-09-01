@@ -371,10 +371,10 @@ export const VALUE_PROPS = [
 ];
 
 export const HEALTH_APP_BENEFITS = [
-  'Steps and activity sync automatically',
-  'Weight entries flow into your trend line',
-  'Workouts count toward your energy budget',
-  'One place for your whole health picture',
+  'Approved daily step counts can be imported',
+  'Approved weight measurements can be imported',
+  'Your measurements stay scoped to your patient account',
+  'Only the categories you approve are requested',
 ];
 
 export const NOTIFICATION_ITEMS = [

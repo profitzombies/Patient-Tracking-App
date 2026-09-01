@@ -1713,6 +1713,75 @@ router.post("/patient-data/check-ins", async (req, res) => {
   }
 });
 
+router.post("/patient-data/health-measurements", async (req, res) => {
+  const release = acquireWriteSlot(clientIp(req));
+  if (!release.ok) {
+    res.status(release.status).json({ error: release.message });
+    return;
+  }
+  try {
+    const patient = await resolvePatient(req);
+    if (!patient.ok) {
+      res.status(patient.status).json({ error: patient.error });
+      return;
+    }
+    const raw = (req.body as { measurements?: unknown } | null)?.measurements;
+    if (!Array.isArray(raw) || raw.length > 500) {
+      res.status(400).json({ error: "Health measurements are invalid." });
+      return;
+    }
+    const rows: Record<string, unknown>[] = [];
+    const now = Date.now();
+    const earliest = now - 31 * 24 * 60 * 60 * 1000;
+    const latest = now + 5 * 60 * 1000;
+    for (const item of raw) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        res.status(400).json({ error: "Health measurements are invalid." });
+        return;
+      }
+      const m = item as Record<string, unknown>;
+      const time = typeof m.measuredAt === "string" ? Date.parse(m.measuredAt) : NaN;
+      const validKind = m.kind === "weight_lb" || m.kind === "steps";
+      const validSource = m.source === "apple_health" || m.source === "health_connect";
+      const validValue =
+        typeof m.value === "number" && Number.isFinite(m.value) &&
+        (m.kind === "weight_lb"
+          ? m.value >= 40 && m.value <= 1500
+          : Number.isInteger(m.value) && m.value >= 0 && m.value <= 250000);
+      if (
+        typeof m.sourceId !== "string" || m.sourceId.length < 1 || m.sourceId.length > 300 ||
+        !validKind || !validSource || !validValue || !Number.isFinite(time) || time < earliest || time > latest
+      ) {
+        res.status(400).json({ error: "A health measurement is invalid." });
+        return;
+      }
+      rows.push({
+        patient_id: patient.patientId,
+        source: m.source,
+        source_id: m.sourceId,
+        kind: m.kind,
+        value: m.value,
+        measured_at: new Date(time).toISOString(),
+        imported_at: new Date().toISOString(),
+      });
+    }
+    if (rows.length > 0) {
+      const upsert = await supabaseAdmin(
+        "POST",
+        "/rest/v1/patient_health_measurements?on_conflict=patient_id,source,source_id",
+        rows,
+        "resolution=ignore-duplicates,return=minimal",
+      );
+      if (upsert.status >= 300) throw new Error(`health measurement upsert failed (${upsert.status})`);
+    }
+    res.json({ imported: rows.length });
+  } catch {
+    res.status(503).json({ error: BUSY_MESSAGE });
+  } finally {
+    release.ok && release.release();
+  }
+});
+
 router.post("/patient-data/photos", async (req, res) => {
   const slot = acquireWriteSlot(clientIp(req));
   if (!slot.ok) {

@@ -35,7 +35,8 @@
     "test:photo-remove": "tsx scripts/verify-photo-remove.ts",
     "test:recipe-nutrition": "tsx scripts/verify-recipe-nutrition.ts",
     "test:stall-nudge": "tsx scripts/verify-stall-nudge.ts",
-    "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts"
+    "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
+    "test:device-features": "tsx scripts/verify-device-features.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -94,8 +95,13 @@
     "expo-camera": "~17.0.10",
     "expo-image-manipulator": "~14.0.8",
     "expo-media-library": "~18.2.1",
+    "expo-notifications": "~0.32.16",
+    "expo-local-authentication": "~17.0.8",
+    "expo-secure-store": "~15.0.8",
     "expo-sensors": "~15.0.8",
     "expo-speech": "~14.0.8",
-    "pako": "^3.0.1"
+    "pako": "^3.0.1",
+    "react-native-health": "^1.19.0",
+    "react-native-health-connect": "^3.3.2"
   }
 }

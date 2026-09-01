@@ -23,6 +23,7 @@ import type {
   MealSlot,
   SavedRecipe,
 } from '@/data/patient-data';
+import type { HealthMeasurement } from '@/lib/device-feature-core';
 
 /**
  * One progress-photo grid row as it rides the wire: always a stored object
@@ -237,6 +238,8 @@ export interface PatientDataApi {
   cleanupProgressUploads(paths: string[]): Promise<void>;
   /** Records one check-in (one row per day — a same-day re-submit replaces). */
   writeCheckIn(checkIn: CheckIn): Promise<void>;
+  /** Idempotently imports only the approved device-health measurement kinds. */
+  importHealthMeasurements(measurements: HealthMeasurement[], accessToken?: string): Promise<{ imported: number }>;
   /** Merges the provided account flags (stall-nudge / onboarding / prefs). */
   writeFlags(flags: Partial<PatientFlagsWrite>): Promise<void>;
   /** Safely commits a resumable onboarding checkpoint. */

@@ -46,6 +46,7 @@ import {
   setPatientMediaToken as setMediaTokenDirect,
 } from '@/lib/media-token-holder';
 import { supabase } from '@/lib/supabase';
+import type { HealthMeasurement } from '@/lib/device-feature-core';
 
 export class PatientDataError extends Error {
   constructor(message: string) {
@@ -60,7 +61,7 @@ const SIGNED_OUT_MESSAGE = 'You’re signed out. Sign in again to sync your diar
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
-async function authedRequest(method: string, path: string, body?: unknown): Promise<unknown> {
+async function authedRequest(method: string, path: string, body?: unknown, accessToken?: string): Promise<unknown> {
   let base: string;
   try {
     base = apiBase();
@@ -70,8 +71,7 @@ async function authedRequest(method: string, path: string, body?: unknown): Prom
   if (!supabase) {
     throw new PatientDataError('Sign-in isn’t configured in this build.');
   }
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  const token = accessToken ?? (await supabase.auth.getSession()).data.session?.access_token;
   if (!token) throw new PatientDataError(SIGNED_OUT_MESSAGE);
 
   const controller = new AbortController();
@@ -827,6 +827,13 @@ export const patientDataApi: PatientDataApi = {
       sideEffects: checkIn.sideEffects,
       ...(checkIn.notes ? { notes: checkIn.notes } : {}),
     });
+  },
+
+  async importHealthMeasurements(measurements: HealthMeasurement[], accessToken?: string): Promise<{ imported: number }> {
+    const json = await authedRequest('POST', '/patient-data/health-measurements', { measurements }, accessToken);
+    const imported = (json as { imported?: unknown } | null)?.imported;
+    if (typeof imported !== 'number') throw new PatientDataError(MALFORMED_MESSAGE);
+    return { imported };
   },
 
   async writeFlags(flags: Partial<PatientFlagsWrite>): Promise<void> {

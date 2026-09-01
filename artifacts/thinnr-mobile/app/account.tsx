@@ -12,6 +12,7 @@ import { usePatient } from '@/context/PatientContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { formatPhoneNumber, isValidContact, isValidDateKey } from '@/data/onboarding-data';
 import { supabase } from '@/lib/supabase';
+import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
 
 type VerifyKind = 'email' | 'phone';
 
@@ -21,6 +22,19 @@ export default function AccountScreen() {
   const patient = usePatient();
   const { account } = usePatientAccount();
   const profile = patient.profile;
+  const device = useDeviceFeatures();
+  const biometricDescription =
+    device.biometric === 'enabled' ? 'Biometric unlock is on for this account on this device. It never replaces account sign-in or two-factor security.' :
+    device.biometric === 'web' ? 'Biometric unlock is unavailable on web.' :
+    device.biometric === 'expo-go' ? 'Biometric unlock on iPhone requires a development or production build and is unavailable in Expo Go.' :
+    device.biometric === 'unsupported' ? 'No supported enrolled biometric is available. Check Face ID, Touch ID, or biometric setup in system Settings.' :
+    'Use an enrolled device biometric as a local convenience unlock. Account sign-in and two-factor security still apply.';
+  const healthDescription =
+    device.health === 'connected' ? 'Health data is connected. Only approved weight and step measurements from the last 30 days are imported.' :
+    device.health === 'web' ? 'Apple Health and Health Connect are unavailable on web.' :
+    device.health === 'expo-go' ? 'Health access requires a development or production build and is unavailable in Expo Go.' :
+    device.health === 'unsupported' ? 'This device does not provide supported Apple Health or Health Connect access.' :
+    'Connect Apple Health or Health Connect to import only approved weight and step measurements from the last 30 days.';
   const [name, setName] = useState(
     profile ? [profile.firstName, profile.lastName].filter(Boolean).join(' ') : '',
   );
@@ -53,6 +67,16 @@ export default function AccountScreen() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const notificationPrefs = patient.hydratedFlags?.notificationPrefs;
+  const [reminderMorning, setReminderMorning] = useState(
+    typeof notificationPrefs?.reminderMorning === 'string' ? notificationPrefs.reminderMorning : '8:00 AM',
+  );
+  const [reminderAfternoon, setReminderAfternoon] = useState(
+    typeof notificationPrefs?.reminderAfternoon === 'string' ? notificationPrefs.reminderAfternoon : '3:00 PM',
+  );
+  const [reminderEvening, setReminderEvening] = useState(
+    typeof notificationPrefs?.reminderEvening === 'string' ? notificationPrefs.reminderEvening : '9:00 PM',
+  );
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
   if (account.kind !== 'real' || !profile) {
@@ -291,6 +315,78 @@ export default function AccountScreen() {
               />
             </View>
           ) : null}
+        </LedgerCard>
+
+        <Text style={[styles.section, { color: colors.labelText }]}>DEVICE FEATURES</Text>
+        <LedgerCard style={styles.card}>
+          <Text style={[styles.body, { color: colors.bodyText }]}>
+            Medication reminders: {device.notification}. Schedules stay on this phone and are
+            removed when you sign out or switch accounts.
+          </Text>
+          <PrimaryButton
+            testID="account-notifications-toggle"
+            label={device.notification === 'enabled' ? 'Turn off medication reminders' : 'Enable medication reminders'}
+            disabled={device.busy || device.notification === 'web'}
+            onPress={() => void (device.notification === 'enabled'
+              ? device.disableNotifications()
+              : device.enableNotifications({
+                enabled: true,
+                times: { morning: reminderMorning, afternoon: reminderAfternoon, evening: reminderEvening },
+              }))}
+            style={styles.smallGap}
+          />
+          <View style={styles.row}>
+            <View style={styles.rowItem}>
+              <FieldLabel text="Morning" />
+              <LedgerInput testID="account-reminder-morning" value={reminderMorning} onChangeText={setReminderMorning} placeholder="8:00 AM" />
+            </View>
+            <View style={styles.rowItem}>
+              <FieldLabel text="Afternoon" />
+              <LedgerInput testID="account-reminder-afternoon" value={reminderAfternoon} onChangeText={setReminderAfternoon} placeholder="3:00 PM" />
+            </View>
+          </View>
+          <View style={styles.gap}>
+            <FieldLabel text="Evening" />
+            <LedgerInput testID="account-reminder-evening" value={reminderEvening} onChangeText={setReminderEvening} placeholder="9:00 PM" />
+            <PrimaryButton
+              testID="account-save-reminders"
+              label="Save reminder times"
+              disabled={device.busy || device.notification === 'web'}
+              onPress={() => void device.enableNotifications({
+                enabled: true,
+                times: { morning: reminderMorning, afternoon: reminderAfternoon, evening: reminderEvening },
+              })}
+              style={styles.smallGap}
+            />
+          </View>
+          {device.notification === 'denied' ? (
+            <PrimaryButton testID="account-open-settings" label="Open device Settings" onPress={device.openSettings} style={styles.smallGap} />
+          ) : null}
+          <View style={styles.gap}>
+            <Text style={[styles.body, { color: colors.bodyText }]}>
+              {biometricDescription}
+            </Text>
+            <PrimaryButton
+              testID="account-biometrics-toggle"
+              label={device.biometric === 'enabled' ? 'Disable biometric unlock' : 'Enable biometric unlock'}
+              disabled={device.busy || device.biometric === 'web' || device.biometric === 'expo-go' || device.biometric === 'unsupported'}
+              onPress={() => void (device.biometric === 'enabled' ? device.disableBiometrics() : device.enableBiometrics())}
+              style={styles.smallGap}
+            />
+          </View>
+          <View style={styles.gap}>
+            <Text style={[styles.body, { color: colors.bodyText }]}>
+              {healthDescription}
+            </Text>
+            <PrimaryButton
+              testID="account-health-import"
+              label={device.health === 'connected' ? 'Import new health measurements' : 'Connect health data'}
+              disabled={device.busy || device.health === 'web' || device.health === 'expo-go' || device.health === 'unsupported'}
+              onPress={() => void device.connectAndImportHealth()}
+              style={styles.smallGap}
+            />
+          </View>
+          {device.message ? <View style={styles.gap}><Text style={[styles.body, { color: colors.subtleText }]}>{device.message}</Text></View> : null}
         </LedgerCard>
 
         <Pressable

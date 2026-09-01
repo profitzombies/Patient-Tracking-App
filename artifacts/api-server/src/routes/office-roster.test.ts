@@ -399,11 +399,11 @@ describe("live patient records", () => {
     patientTables.patient_diary_entries.push(
       {
         patient_id: ownId, entry_id: "e-1", date_key: "2026-01-05", meal: "breakfast",
-        kind: "food", name: "Eggs", quantity: 1, calories: 200, protein: 20, carbs: 2, fat: 12,
+        kind: "food", ref_id: "eggs", name: "Eggs", quantity: 1, calories: 200, protein: 20, carbs: 2, fat: 12,
       },
       {
         patient_id: ownId, entry_id: "e-2", date_key: "2026-01-05", meal: "dinner",
-        kind: "food", name: "Chicken", quantity: 1, calories: 300, protein: 40, carbs: 3, fat: 10,
+        kind: "food", ref_id: "chicken", name: "Chicken", quantity: 1, calories: 300, protein: 40, carbs: 3, fat: 10,
       },
     );
     patientTables.patient_water_days.push({ patient_id: ownId, date_key: "2026-01-05", oz: 72 });
@@ -415,7 +415,19 @@ describe("live patient records", () => {
       patient_id: ownId, calories: 1400, protein: 100, carbs: null, fat: 50, water_oz: 80,
     });
     patientTables.patient_food_prefs.push({
-      patient_id: ownId, favorites: ["eggs"], recents: ["chicken"],
+      patient_id: ownId, favorites: ["eggs"], recents: ["custom-1", "chicken"],
+    });
+    patientTables.patient_custom_foods.push({
+      patient_id: ownId,
+      food_id: "custom-1",
+      name: "Vanilla protein shake",
+      brand: "Test dairy",
+      serving: "1 bottle",
+      calories: 230,
+      protein: 42,
+      carbs: 9,
+      fat: 3.5,
+      photo_path: null,
     });
     patientTables.patient_flags.push({
       patient_id: ownId, nudge_opt_out: true, onboarding_complete: true,
@@ -447,6 +459,23 @@ describe("live patient records", () => {
       onboardingComplete: true,
       onboardingAnswers: { medication: "semaglutide" },
     });
+    expect(body.account.favorites).toEqual([
+      { id: "eggs", name: "Eggs", detail: "" },
+    ]);
+    expect(body.account.recents).toEqual([
+      {
+        id: "custom-1",
+        name: "Vanilla protein shake",
+        brand: "Test dairy",
+        serving: "1 bottle",
+        calories: 230,
+        protein: 42,
+        carbs: 9,
+        fat: 3.5,
+        photoUrl: null,
+      },
+      { id: "chicken", name: "Chicken", detail: "" },
+    ]);
     expect(body.progressPhotos[0].url).toEqual(expect.stringMatching(/^https:\/\/signed\.test\//));
     expect(body.progressPhotos[1].url).toBeNull();
     expect(JSON.stringify(body)).not.toContain("objectPath");

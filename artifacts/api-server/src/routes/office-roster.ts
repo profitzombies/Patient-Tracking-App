@@ -438,6 +438,23 @@ router.get("/office/patients/:id", async (req, res) => {
         photoUrl: await authorizedPhotoUrl(patientId, row.photo_path),
       })),
     );
+    const customFoodById = new Map(customFoods.map((food) => [food.id, food]));
+    const diaryFoodById = new Map<string, { id: string; name: string; detail: string }>();
+    for (const entry of entryList) {
+      if (!entry.refId || diaryFoodById.has(entry.refId)) continue;
+      diaryFoodById.set(entry.refId, {
+        id: entry.refId,
+        name: typeof entry.name === "string" && entry.name.trim() ? entry.name : "Saved food",
+        detail: entry.detail,
+      });
+    }
+    const preferenceFoods = (value: unknown) =>
+      (Array.isArray(value) ? value : [])
+        .filter((id): id is string => typeof id === "string")
+        .map((id) => customFoodById.get(id) ?? diaryFoodById.get(id) ?? {
+          id,
+          name: "Food details unavailable",
+        });
 
     res.json({
       office: {
@@ -471,8 +488,8 @@ router.get("/office/patients/:id", async (req, res) => {
           fat: numericOrNull(target?.fat),
           waterOz: numericOrNull(target?.water_oz),
         },
-        favorites: Array.isArray(pref?.favorites) ? pref.favorites : [],
-        recents: Array.isArray(pref?.recents) ? pref.recents : [],
+        favorites: preferenceFoods(pref?.favorites),
+        recents: preferenceFoods(pref?.recents),
         customFoods,
         savedRecipes,
         flags: {

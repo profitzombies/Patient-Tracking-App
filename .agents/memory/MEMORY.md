@@ -80,3 +80,4 @@
 - [Coach real-account grounding](coach-real-grounding.md) — auth ladder resolves before SSE; real patients get live-data context or a retryable error, never a silent demo fallback; greeting is client-composed from server facts.
 - [Env knob parsing](env-knob-parsing.md) — Number("") is 0: unset numeric knobs silently zero limits; blank-check before Number; import-time knobs need vi.hoisted in tests.
 - [Onboarding route admission](onboarding-route-admission.md) — protected patient routes unlock only after server-confirmed completion; optimistic flags create bypasses and reload reversals.
+- [Patient identity write barrier](patient-identity-write-barrier.md) — every new patient-owned table must join the reconciliation advisory-lock trigger protocol or late writes can strand data.

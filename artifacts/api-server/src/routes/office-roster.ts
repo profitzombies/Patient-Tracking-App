@@ -44,6 +44,12 @@ const SERVER_ERROR = "Something went wrong on our side. Please try again.";
 const EMAIL_TAKEN = "That email is already on a patient account. Use a different email.";
 const PHONE_TAKEN = "That phone number is already on a patient account. Use a different number.";
 
+function patientUniqueConflict(message: string): "email" | "phone" | null {
+  if (/patients_email_(?:normalized_)?unique_idx/.test(message)) return "email";
+  if (/patients_phone_(?:normalized_)?unique_idx/.test(message)) return "phone";
+  return null;
+}
+
 /** Resend cooldown; env knob exists so tests can stage the limit deterministically. */
 function resendCooldownSeconds(): number {
   // NB: Number("") is 0 — an unset/blank knob must fall through to the
@@ -566,11 +572,12 @@ router.post("/office/invitations", async (req, res) => {
     );
     if (inserted.status >= 300) {
       const message = String((inserted.json as { message?: unknown })?.message ?? "");
-      if (message.includes("patients_email_unique_idx")) {
+      const conflict = patientUniqueConflict(message);
+      if (conflict === "email") {
         res.status(409).json({ error: EMAIL_TAKEN, field: "email" });
         return;
       }
-      if (message.includes("patients_phone_unique_idx")) {
+      if (conflict === "phone") {
         res.status(409).json({ error: PHONE_TAKEN, field: "phone" });
         return;
       }

@@ -1191,6 +1191,64 @@ describe("patient signup", () => {
     expect(backend.tables.patients).toHaveLength(1);
   });
 
+  it("maps the hardened normalized index names and removes the orphan login", async () => {
+    seedSignupOffice();
+    for (const [indexName, field] of [
+      ["patients_email_normalized_unique_idx", "email"],
+      ["patients_phone_normalized_unique_idx", undefined],
+    ] as const) {
+      const token = await signupToDetails(
+        indexName.includes("email") ? "813-555-0101" : "813-555-0102",
+      );
+      const originalHandle = backend.handle.bind(backend);
+      let intercepted = false;
+      backend.handle = ((input: string, init?: RequestInit) => {
+        const url = new URL(input);
+        if (
+          !intercepted &&
+          url.pathname === "/rest/v1/patients" &&
+          init?.method === "POST"
+        ) {
+          intercepted = true;
+          return json(409, {
+            message: `duplicate key value violates unique constraint "${indexName}"`,
+          });
+        }
+        return originalHandle(input, init);
+      }) as typeof backend.handle;
+      const complete = await api("POST", "/api/auth/signup/complete", {
+        signupToken: token,
+        name: "Riley Newcomer",
+        email: `${indexName}@example.com`,
+      });
+      backend.handle = originalHandle;
+      expect(complete.status).toBe(409);
+      expect(complete.json.field).toBe(field);
+    }
+    expect(backend.tables.patients).toHaveLength(0);
+    expect(backend.authUsers.size).toBe(0);
+    expect(backend.deletedUsers).toHaveLength(2);
+  });
+
+  it("lands exactly one patient when the same verified signup completes in parallel", async () => {
+    seedSignupOffice();
+    const firstToken = await signupToDetails("813-555-0101");
+    const secondToken = await signupToDetails("813-555-0101");
+    const finish = (signupToken: string) =>
+      api("POST", "/api/auth/signup/complete", {
+        signupToken,
+        name: "Riley Newcomer",
+        email: "riley@example.com",
+      });
+    const responses = await Promise.all([finish(firstToken), finish(secondToken)]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(backend.tables.patients).toHaveLength(1);
+    expect(backend.authUsers.size).toBe(1);
+    expect(backend.tables.patients[0].auth_user_id).toBe(
+      [...backend.authUsers.keys()][0],
+    );
+  });
+
   it("refuses signup completion when the phone already holds a login", async () => {
     seedSignupOffice();
     backend.seedAuthUser({ email: "someone@else.example", phone: "+18135550101" });

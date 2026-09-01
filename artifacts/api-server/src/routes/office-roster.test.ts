@@ -213,6 +213,37 @@ beforeEach(() => {
       if (init.method === "POST") {
         if (insertFailsWith) return response({ message: insertFailsWith }, 409);
         const row = JSON.parse(String(init.body)) as Row;
+        const emailKey = String(row.email ?? "").trim().toLowerCase();
+        if (
+          emailKey &&
+          patients.some(
+            (patient) => String(patient.email ?? "").trim().toLowerCase() === emailKey,
+          )
+        ) {
+          return response(
+            {
+              message:
+                'duplicate key value violates unique constraint "patients_email_normalized_unique_idx"',
+            },
+            409,
+          );
+        }
+        const phoneKey = String(row.phone ?? "").replace(/\D/g, "").slice(-10);
+        if (
+          phoneKey.length === 10 &&
+          patients.some(
+            (patient) =>
+              String(patient.phone ?? "").replace(/\D/g, "").slice(-10) === phoneKey,
+          )
+        ) {
+          return response(
+            {
+              message:
+                'duplicate key value violates unique constraint "patients_phone_normalized_unique_idx"',
+            },
+            409,
+          );
+        }
         patients.push(row);
         return response([row], 201);
       }
@@ -528,6 +559,39 @@ describe("creating invitations", () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ field: "phone" });
     expect(resendCalls).toHaveLength(0);
+  });
+
+  it("maps the hardened normalized index names to the same neutral 409s", async () => {
+    for (const [indexName, field] of [
+      ["patients_email_normalized_unique_idx", "email"],
+      ["patients_phone_normalized_unique_idx", "phone"],
+    ] as const) {
+      insertFailsWith = `duplicate key value violates unique constraint "${indexName}"`;
+      const res = await api("/office/invitations", "provider-token", {
+        method: "POST",
+        body: JSON.stringify(INVITE),
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ field });
+      expect(resendCalls).toHaveLength(0);
+    }
+  });
+
+  it("lands exactly one patient under parallel identical invitations", async () => {
+    const fire = () =>
+      api("/office/invitations", "provider-token", {
+        method: "POST",
+        body: JSON.stringify(INVITE),
+      });
+    const responses = await Promise.all([fire(), fire()]);
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+    expect(
+      patients.filter(
+        (patient) =>
+          String(patient.email ?? "").toLowerCase() === "jordan.ellis@example.com",
+      ),
+    ).toHaveLength(1);
+    expect(resendCalls).toHaveLength(1);
   });
 
   it("keeps the patient and reports a durable failed state when the email bounces", async () => {

@@ -100,6 +100,12 @@ const OFFICE_CODE_ERROR =
 const SESSION_EXPIRED = "That session has expired. Please start over.";
 const SERVER_ERROR = "We couldn't process that just now. Please try again in a moment.";
 
+function patientUniqueConflict(message: string): "email" | "phone" | null {
+  if (/patients_email_(?:normalized_)?unique_idx/.test(message)) return "email";
+  if (/patients_phone_(?:normalized_)?unique_idx/.test(message)) return "phone";
+  return null;
+}
+
 /** Signup sends per office per hour — a safety valve, not a bottleneck. */
 const SIGNUP_SENDS_PER_OFFICE_PER_HOUR = 30;
 const SIGNUP_SCOPE_PREFIX = "signup:";
@@ -746,14 +752,15 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     if (inserted.status >= 300) {
       await deleteAuthUserQuietly(userId);
       const message = String((inserted.json as { message?: unknown })?.message ?? "");
-      if (message.includes("patients_email_unique_idx")) {
+      const conflict = patientUniqueConflict(message);
+      if (conflict === "email") {
         res.status(409).json({
           error: "That email is already on a patient account. Use a different email, or sign in with it instead.",
           field: "email",
         });
         return;
       }
-      if (message.includes("patients_phone_unique_idx")) {
+      if (conflict === "phone") {
         res.status(409).json({
           error: "That phone number is already on a patient account. Go back and sign in instead.",
         });

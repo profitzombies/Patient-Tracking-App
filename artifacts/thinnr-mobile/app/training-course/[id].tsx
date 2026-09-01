@@ -24,6 +24,7 @@ import { useAppMode } from '@/context/AppModeContext';
 import { useTrainingData } from '@/hooks/useTrainingData';
 import {
   countVideos,
+  completionsFor,
   courseDuration,
   EMPTY_COMPLETION_MAP,
   formatClock,
@@ -43,7 +44,7 @@ export default function TrainingCourseScreen() {
   const pathname = usePathname();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { status, errorMessage, refresh, findCourse, viewers, completionIndex } = useTrainingData();
+  const { status, errorMessage, refresh, findCourse, viewers, completionIndex, accountId, myViewer } = useTrainingData();
 
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 32 : insets.bottom + 24;
@@ -118,11 +119,10 @@ export default function TrainingCourseScreen() {
     );
   }
 
-  // Demo persona: empty personal map — the frontier is the first lesson.
   const order = getOrderedVideos(course, true);
-  const myMap = EMPTY_COMPLETION_MAP;
+  const myMap = myViewer ? completionsFor(completionIndex, myViewer.id) : EMPTY_COMPLETION_MAP;
   const frontier = frontierIndex(myMap, order);
-  const roster = officeRoster(viewers, null, order, completionIndex, null);
+  const roster = officeRoster(viewers, accountId, order, completionIndex, myViewer?.id ?? null);
   const stats = officeCourseStats(roster);
   const videos = countVideos(course, true);
 
@@ -238,8 +238,8 @@ export default function TrainingCourseScreen() {
       {/* Footnotes */}
       <View style={styles.noteWrap}>
         <Text style={[styles.noteText, { color: colors.subtleText }]}>
-          Video files aren't hosted in this demo — each lesson's chapters step through its workbook
-          slides. Browsing is read-only; progress comes from the live demo team.
+           Video files aren't streamed here — each lesson's chapters step through its workbook slides.
+           Signed-in staff progress persists to their own linked learner.
         </Text>
       </View>
 

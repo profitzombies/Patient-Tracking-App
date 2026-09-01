@@ -6,7 +6,8 @@
  * Availability is derived with the same lessonState rules as the course
  * outline, so a deep link to a locked lesson renders the locked explanation
  * (with the blocking lesson named) instead of the content. Everything is
- * read-only: no mark-complete exists on mobile.
+ * Signed-in provider staff can mark their own available lesson complete;
+ * signed-out demo browsing remains read-only.
  */
 import React, { useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -24,6 +25,7 @@ import { useAppMode } from '@/context/AppModeContext';
 import { useTrainingData } from '@/hooks/useTrainingData';
 import {
   EMPTY_COMPLETION_MAP,
+  completionsFor,
   formatClock,
   lessonState,
   type LessonState,
@@ -36,7 +38,10 @@ export default function TrainingLessonScreen() {
   const pathname = usePathname();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const { courseId, videoId } = useLocalSearchParams<{ courseId: string; videoId: string }>();
-  const { status, errorMessage, refresh, findCourse } = useTrainingData();
+  const {
+    status, errorMessage, refresh, findCourse, completionIndex,
+    myViewer, isLiveStaff, markMyVideoComplete,
+  } = useTrainingData();
 
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 32 : insets.bottom + 24;
@@ -111,8 +116,8 @@ export default function TrainingLessonScreen() {
     );
   }
 
-  // Demo persona: empty personal completion map, same as the web demo view.
-  const state = lessonState(course, videoId ?? '', EMPTY_COMPLETION_MAP);
+  const myMap = myViewer ? completionsFor(completionIndex, myViewer.id) : EMPTY_COMPLETION_MAP;
+  const state = lessonState(course, videoId ?? '', myMap);
 
   if (!state.item) {
     return frame(
@@ -199,6 +204,8 @@ export default function TrainingLessonScreen() {
       course={course}
       state={state}
       bottomPad={bottomPad}
+      canComplete={isLiveStaff && Boolean(myViewer)}
+      onComplete={markMyVideoComplete}
     />,
   );
 }
@@ -207,15 +214,21 @@ function LessonBody({
   course,
   state,
   bottomPad,
+  canComplete,
+  onComplete,
 }: {
   course: TrainingCourse;
   state: LessonState;
   bottomPad: number;
+  canComplete: boolean;
+  onComplete: (videoId: string) => Promise<unknown>;
 }) {
   const colors = useColors();
   const item = state.item!;
   const video = item.video;
   const [chapterIndex, setChapterIndex] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const chapters = video.chapters;
   const currentChapter = chapters[Math.min(chapterIndex, Math.max(0, chapters.length - 1))];
 
@@ -317,6 +330,35 @@ function LessonBody({
           ) : null}
         </View>
       </View>
+
+      {canComplete ? (
+        <View style={styles.sectionWrap}>
+          {state.availability !== 'done' ? (
+            <Pressable
+              testID="lesson-mark-complete"
+              disabled={saving}
+              onPress={async () => {
+                setSaving(true);
+                setSaveMessage(null);
+                try {
+                  await onComplete(video.id);
+                  setSaveMessage('Lesson completed. Your next lesson is now unlocked.');
+                } catch (error) {
+                  setSaveMessage(error instanceof Error ? error.message : 'Could not save completion.');
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              style={[styles.completeButton, { backgroundColor: colors.cobalt }]}
+            >
+              <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
+                {saving ? 'Saving…' : 'Mark complete & continue'}
+              </Text>
+            </Pressable>
+          ) : null}
+          {saveMessage ? <Text testID="lesson-complete-message" style={[styles.saveMessage, { color: colors.bodyText }]}>{saveMessage}</Text> : null}
+        </View>
+      ) : null}
 
       {/* Simulated player */}
       <View style={styles.playerWrap}>
@@ -465,8 +507,8 @@ function LessonBody({
 
       <View style={styles.noteWrap}>
         <Text style={[styles.noteText, { color: colors.subtleText }]}>
-          Browsing read-only as the demo Care Team — progress numbers come from the live demo
-          roster, and lessons can't be marked complete from mobile.
+           Signed-in office staff can save their own progress. Signed-out Care Team demo browsing
+           remains read-only and uses the seeded roster.
         </Text>
       </View>
 
@@ -540,4 +582,6 @@ const styles = StyleSheet.create({
   secondaryLink: { fontSize: 12, fontWeight: '600', fontFamily: 'Inter_600SemiBold', paddingVertical: 4 },
   noteWrap: { paddingHorizontal: 18, paddingTop: 12 },
   noteText: { fontSize: 10, lineHeight: 15, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  completeButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radiusSm },
+  saveMessage: { fontSize: 11, lineHeight: 16, fontFamily: 'Inter_400Regular', marginTop: 7 },
 });

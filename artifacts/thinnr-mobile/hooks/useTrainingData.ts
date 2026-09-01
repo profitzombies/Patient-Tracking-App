@@ -6,9 +6,9 @@
  * assembles them with the same rules (lib/training.ts), so every number a
  * phone shows agrees with the web portal for the same rows.
  *
- * Read-only by design — no authoring, no mark-complete, no roster writes.
- * RLS only exposes the seeded demo viewers and their completions to this
- * anonymous client, which is exactly what the demo Care Team persona shows.
+ * Signed-out Care Team remains a read-only seeded demo. Signed-in provider
+ * staff use the same RLS-backed office rows and narrow self-service RPCs as
+ * web; patients never receive a private training snapshot.
  *
  * States the screens must handle:
  *   'unconfigured' — the EXPO_PUBLIC_SUPABASE_* env vars are absent, so the
@@ -19,9 +19,10 @@
  *   'ready'        — assembled snapshot available.
  */
 import { useCallback, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { supabase, useSupabaseSession } from '@/lib/supabase';
+import { useAppMode } from '@/context/AppModeContext';
 import {
   assembleCourses,
   buildCompletionIndex,
@@ -100,6 +101,13 @@ export interface TrainingData {
   completions: TrainingCompletion[];
   /** viewerId → (videoId → completion row), rebuilt with the snapshot. */
   completionIndex: CompletionIndex;
+  /** null is the deliberately unscoped, signed-out Care Team demo. */
+  accountId: string | null;
+  myViewer: TrainingViewer | null;
+  isLiveStaff: boolean;
+  isOfficeLocked: boolean;
+  addStaffMember: (input: { name: string; email: string }) => Promise<TrainingViewer>;
+  markMyVideoComplete: (videoId: string) => Promise<TrainingCompletion>;
   findCourse: (courseId: string | undefined) => TrainingCourse | undefined;
 }
 
@@ -109,16 +117,60 @@ const EMPTY_COMPLETIONS: TrainingCompletion[] = [];
 
 /**
  * One shared react-query snapshot (Training home, course outline, and lesson
- * pages all read the same cache entry — one fetch per visit, refreshed after
- * 30s like the web portal). The mobile client is always the anonymous demo
- * scope, so a fixed query key is correct here; there is no staff sign-in on
- * mobile to partition by.
+ * pages read one auth-scoped cache entry, refreshed after 30s like the web
+ * portal). Signed-out Care Team mode receives the seeded demo snapshot;
+ * signed-in providers receive only the office rows allowed by RLS.
  */
 export function useTrainingData(): TrainingData {
+  const queryClient = useQueryClient();
+  const { mode, hydrated: modeHydrated } = useAppMode();
+  const { session, sessionLoading } = useSupabaseSession();
+  const userId = session?.user.id ?? null;
+  const profileQuery = useQuery({
+    queryKey: ['mobile-training-profile', userId ?? 'anon'],
+    queryFn: async () => {
+      const result = await (supabase as SupabaseClient)
+        .from('profiles')
+        .select('role, provider_account_code')
+        .eq('id', userId!)
+        .maybeSingle();
+      assertOk(result.error);
+      return result.data as { role: string; provider_account_code: string | null } | null;
+    },
+    enabled: Boolean(supabase && userId),
+    staleTime: 30_000,
+  });
+  const profileSettled = !userId || profileQuery.isSuccess || profileQuery.isError;
+  const role = profileQuery.data?.role ?? null;
+  const accountId = role === 'provider_staff' ? profileQuery.data?.provider_account_code ?? null : null;
+  // This table is intentionally world-readable: lock state gates every
+  // provider surface before its office snapshot can be requested.
+  const lockQuery = useQuery({
+    queryKey: ['mobile-training-office-lock', accountId ?? 'none'],
+    queryFn: async () => {
+      const result = await (supabase as SupabaseClient)
+        .from('provider_account_locks')
+        .select('account_id')
+        .eq('account_id', accountId!)
+        .maybeSingle();
+      assertOk(result.error);
+      return result.data;
+    },
+    enabled: Boolean(supabase && userId && role === 'provider_staff' && accountId),
+    staleTime: 30_000,
+  });
+  const lockSettled = !accountId || lockQuery.isSuccess || lockQuery.isError;
+  const isOfficeLocked = Boolean(lockQuery.data);
+  const isLiveStaff = Boolean(
+    userId && role === 'provider_staff' && accountId && lockQuery.isSuccess && !isOfficeLocked,
+  );
+  const isDemo = modeHydrated && mode === 'staff' && !userId;
+  const permitted = isDemo || isLiveStaff;
+  const authScopeKey = `${userId ?? 'anon'}:${role ?? 'none'}:${accountId ?? ''}:locked=${isOfficeLocked}`;
   const query = useQuery({
-    queryKey: ['mobile-training-data'],
+    queryKey: ['mobile-training-data', authScopeKey],
     queryFn: () => fetchTrainingSnapshot(supabase as SupabaseClient),
-    enabled: supabase !== null,
+    enabled: Boolean(supabase && modeHydrated && !sessionLoading && profileSettled && lockSettled && permitted),
     staleTime: 30_000,
   });
 
@@ -128,25 +180,66 @@ export function useTrainingData(): TrainingData {
 
   const status: TrainingStatus = !supabase
     ? 'unconfigured'
+    : !modeHydrated || sessionLoading || !profileSettled || !lockSettled
+      ? 'loading'
+      : !permitted
+        ? 'error'
     : query.isError
       ? 'error'
       : query.data
         ? 'ready'
         : 'loading';
   const errorMessage =
-    status === 'error'
+    status === 'error' && isOfficeLocked
+      ? 'This office is locked by THINNR. Contact THINNR to restore training access.'
+      : status === 'error' && !permitted
+      ? 'Training is private to signed-in provider staff. Use Care Team demo mode while signed out, or sign in with an office account.'
+      : status === 'error'
       ? query.error instanceof Error
         ? query.error.message
         : 'Could not load training data.'
       : null;
 
   const refresh = useCallback(() => {
-    void query.refetch();
-  }, [query.refetch]);
+    if (userId) void profileQuery.refetch();
+    if (accountId) void lockQuery.refetch();
+    if (permitted) void query.refetch();
+  }, [accountId, lockQuery.refetch, permitted, profileQuery.refetch, query.refetch, userId]);
 
   const completionIndex = useMemo(() => buildCompletionIndex(completions), [completions]);
 
   const liveCourses = useMemo(() => courses.filter(course => course.status === 'live'), [courses]);
+  const myViewer = useMemo(
+    () => (userId ? viewers.find(viewer => viewer.authUserId === userId) ?? null : null),
+    [userId, viewers],
+  );
+
+  const addStaffMember = useCallback(async (input: { name: string; email: string }) => {
+    if (!supabase || !isLiveStaff || !accountId) {
+      throw new Error(isOfficeLocked ? 'This office is locked by THINNR.' : 'Sign in with an office account to add teammates.');
+    }
+    const result = await supabase.rpc('training_add_staff', {
+      p_account_id: accountId,
+      p_name: input.name.trim(),
+      p_email: input.email.trim().toLowerCase(),
+    });
+    assertOk(result.error);
+    const payload = result.data as { viewer: TrainingViewerRow } | null;
+    if (!payload?.viewer) throw new Error('The database returned no teammate.');
+    await queryClient.invalidateQueries({ queryKey: ['mobile-training-data'] });
+    return mapViewerRow(payload.viewer);
+  }, [accountId, isLiveStaff, isOfficeLocked, queryClient]);
+
+  const markMyVideoComplete = useCallback(async (videoId: string) => {
+    if (!supabase || !isLiveStaff || !myViewer) {
+      throw new Error(isOfficeLocked ? 'This office is locked by THINNR.' : 'Your office sign-in is not linked to a training learner.');
+    }
+    const result = await supabase.rpc('training_mark_video_complete_self', { p_video_id: videoId });
+    assertOk(result.error);
+    if (!result.data) throw new Error('The database returned no completion.');
+    await queryClient.invalidateQueries({ queryKey: ['mobile-training-data'] });
+    return mapCompletionRow(result.data as TrainingCompletionRow);
+  }, [isLiveStaff, isOfficeLocked, myViewer, queryClient]);
 
   const findCourse = useCallback(
     (courseId: string | undefined) => courses.find(course => course.id === courseId),
@@ -162,6 +255,12 @@ export function useTrainingData(): TrainingData {
     viewers,
     completions,
     completionIndex,
+    accountId,
+    myViewer,
+    isLiveStaff,
+    isOfficeLocked,
+    addStaffMember,
+    markMyVideoComplete,
     findCourse,
   };
 }

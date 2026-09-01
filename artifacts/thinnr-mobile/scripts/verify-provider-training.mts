@@ -37,11 +37,12 @@ import * as mobile from '../lib/training';
 import * as webT from '../../thinnr-operations/src/data/hq/training';
 import * as webO from '../../thinnr-operations/src/data/office-training';
 import { fetchTrainingSnapshot } from '../hooks/useTrainingData';
-import { setSupabase } from './provider-training-stubs/supabase';
+import { setStubSession, setSupabase } from './provider-training-stubs/supabase';
 import { routerLog, setPathname, setSearchParams } from './provider-training-stubs/expo-router';
 import TrainingScreenModule from '../app/(tabs)/training';
 import TrainingCourseScreenModule from '../app/training-course/[id]';
 import TrainingLessonScreenModule from '../app/training-lesson/[courseId]/[videoId]';
+import TrainingTeammateScreenModule from '../app/training-teammate/[viewerId]';
 
 /**
  * tsx loads the CJS-compiled app modules from this ESM entry as a namespace
@@ -55,6 +56,7 @@ function asComponent(mod: unknown): AnyComponent {
 const TrainingScreen = asComponent(TrainingScreenModule);
 const TrainingCourseScreen = asComponent(TrainingCourseScreenModule);
 const TrainingLessonScreen = asComponent(TrainingLessonScreenModule);
+const TrainingTeammateScreen = asComponent(TrainingTeammateScreenModule);
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -662,6 +664,34 @@ check('officeCourseStats + videoTeamDone parity + pinned values', () => {
   assert.equal(mobile.videoTeamDone('v6', mRoster, mIndex), 1);
 });
 
+check('office scope, self course, and teammate detail helpers match web exactly', () => {
+  const mOrder = mobile.getOrderedVideos(mC1, true);
+  assert.deepEqual(
+    mViewers.map(viewer => mobile.isOfficeTeammate(viewer, 'acct-1', 'viewA')),
+    wViewers.map(viewer => webO.isOfficeTeammate(viewer, 'acct-1', 'viewA')),
+  );
+  assert.deepEqual(
+    mobile.officeRoster(mViewers, 'acct-1', mOrder, mIndex, 'viewA').map(row => row.viewer.id),
+    ['viewA', 'viewB'],
+    'a scoped office cannot include acct-2',
+  );
+  assert.equal(
+    JSON.stringify(mobile.selfCourseState(mC1, mobile.completionsFor(mIndex, 'viewB'))),
+    JSON.stringify(webO.selfCourseState(wC1, webT.completionsFor(wIndex, 'viewB'))),
+  );
+  const mStats = mobile.teammateStats(mViewers, 'acct-1', 'viewB', mCourses, mIndex, 'viewA');
+  const wStats = webO.teammateStats(
+    wViewers as Parameters<typeof webO.teammateStats>[0],
+    'acct-1',
+    'viewB',
+    wCourses,
+    wIndex as Parameters<typeof webO.teammateStats>[4],
+    'viewA',
+  );
+  assert.equal(JSON.stringify(mStats), JSON.stringify(wStats));
+  assert.equal(mobile.teammateStats(mViewers, 'acct-1', 'viewC', mCourses, mIndex, 'viewA'), null);
+});
+
 check('videoAvailability parity: demo (empty) map and partial viewer', () => {
   const mOrder = mobile.getOrderedVideos(mC1, true);
   const wOrder = webT.getOrderedVideos(wC1, true);
@@ -800,10 +830,60 @@ function fakeClient(rows: TableRows, failTable?: string): SupabaseClient {
                 },
               };
             },
+            eq(column: string, value: unknown) {
+              return {
+                maybeSingle() {
+                  const row = (rows[table] ?? []).find(
+                    candidate => (candidate as Record<string, unknown>)[column] === value,
+                  ) ?? null;
+                  return Promise.resolve({ data: row, error: failTable === table ? { message: `boom ${table}` } : null });
+                },
+              };
+            },
           };
         },
       };
     },
+  };
+  return client as unknown as SupabaseClient;
+}
+
+function staffClient(rows: TableRows, calls: { name: string; args: Record<string, unknown> }[]): SupabaseClient {
+  const client = fakeClient(rows) as unknown as {
+    rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: null }>;
+  };
+  client.rpc = async (name, args) => {
+    calls.push({ name, args });
+    if (name === 'training_add_staff') {
+      const viewer = {
+        id: 'added-viewer',
+        name: args.p_name,
+        email: args.p_email,
+        phone: '',
+        account_id: args.p_account_id,
+        staff_of_viewer_id: null,
+        auth_user_id: null,
+        location: '',
+        first_seen_at: '2026-09-01T00:00:00Z',
+        last_seen_at: '2026-09-01T00:00:00Z',
+        sessions: 0,
+      };
+      (rows.training_viewers ??= []).push(viewer);
+      return { data: { viewer }, error: null };
+    }
+    if (name === 'training_mark_video_complete_self') {
+      const existing = (rows.training_completions ?? []).find(
+        row => (row as { viewer_id: string; video_id: string }).viewer_id === 'viewA'
+          && (row as { video_id: string }).video_id === args.p_video_id,
+      );
+      const completion = existing ?? {
+        viewer_id: 'viewA', video_id: args.p_video_id, watch_seconds: 600,
+        first_watched_at: '2026-09-01T00:00:00Z', completed_at: '2026-09-01T00:00:00Z',
+      };
+      if (!existing) (rows.training_completions ??= []).push(completion);
+      return { data: completion, error: null };
+    }
+    throw new Error(`unexpected rpc ${name}`);
   };
   return client as unknown as SupabaseClient;
 }
@@ -877,6 +957,7 @@ function press(instance: ReactTestInstance): void {
 function cleanup(renderer: ReactTestRenderer, client: QueryClientT): void {
   act(() => renderer.unmount());
   client.clear();
+  setStubSession(null);
 }
 
 await checkAsync('Training home: unconfigured state explains missing setup', async () => {
@@ -919,7 +1000,104 @@ await checkAsync('Training home: stats + course meta agree with web math', async
   routerLog.length = 0;
   press(card);
   assert.deepEqual(routerLog.at(-1), { method: 'push', target: '/training-course/c1' });
+  routerLog.length = 0;
+  press(hostsByTestID(renderer, 'training-teammate-viewB')[0]!);
+  assert.deepEqual(routerLog.at(-1), { method: 'push', target: '/training-teammate/viewB' });
   cleanup(renderer, client);
+});
+
+await checkAsync('Teammate deep link shows catalog progress and recent activity', async () => {
+  setSupabase(fakeClient(tableRows));
+  setSearchParams({ viewerId: 'viewB' });
+  setPathname('/training-teammate/viewB');
+  const { renderer, client } = renderWithQuery(React.createElement(TrainingTeammateScreen));
+  await flush();
+  assert.match(textOf(hostsByTestID(renderer, 'teammate-name')[0]!), /Bo Reyes/);
+  const text = textOf(renderer.root as unknown as ReactTestInstance);
+  assert.match(text, /22%/);
+  assert.match(text, /2\/9/);
+  assert.match(text, /Getting started/);
+  cleanup(renderer, client);
+});
+
+await checkAsync('Provider session uses profile/lock scope, RPCs, and a separate signed-out cache', async () => {
+  const rows = structuredClone(tableRows) as TableRows;
+  rows.training_viewers = rows.training_viewers!.filter(row => ['viewA', 'viewB'].includes((row as { id: string }).id));
+  (rows.training_viewers!.find(row => (row as { id: string }).id === 'viewA') as { auth_user_id: string }).auth_user_id = 'staff-a';
+  rows.training_completions = rows.training_completions!.filter(row => (row as { viewer_id: string }).viewer_id === 'viewB');
+  rows.profiles = [{ id: 'staff-a', role: 'provider_staff', provider_account_code: 'acct-1' }];
+  rows.provider_account_locks = [];
+  const calls: { name: string; args: Record<string, unknown> }[] = [];
+  setStubSession('staff-a');
+  setSupabase(staffClient(rows, calls));
+  const { renderer, client } = renderWithQuery(React.createElement(TrainingScreen));
+  await flush();
+  assert.match(textOf(renderer.root as unknown as ReactTestInstance), /0% complete/);
+  assert.equal(hostsByTestID(renderer, 'training-teammate-viewC').length, 0, 'RLS-shaped data stays office scoped');
+  press(hostsByTestID(renderer, 'training-add-teammate')[0]!);
+  const nameInput = hostsByTestID(renderer, 'training-add-name')[0]!;
+  const emailInput = hostsByTestID(renderer, 'training-add-email')[0]!;
+  act(() => {
+    nameInput.props.onChangeText('New Teammate');
+    emailInput.props.onChangeText('NEW@OFFICE.TEST');
+  });
+  await act(async () => {
+    hostsByTestID(renderer, 'training-add-submit')[0]!.props.onPress();
+    await new Promise(resolve => setTimeout(resolve, 20));
+  });
+  assert.deepEqual(calls[0], {
+    name: 'training_add_staff',
+    args: { p_account_id: 'acct-1', p_name: 'New Teammate', p_email: 'new@office.test' },
+  });
+  assert.match(textOf(renderer.root as unknown as ReactTestInstance), /pre-approved.*No invite email/i);
+
+  setSearchParams({ courseId: 'c1', videoId: 'v1' });
+  setPathname('/training-lesson/c1/v1');
+  const lesson = renderWithQuery(React.createElement(TrainingLessonScreen));
+  await flush();
+  await act(async () => {
+    hostsByTestID(lesson.renderer, 'lesson-mark-complete')[0]!.props.onPress();
+    await new Promise(resolve => setTimeout(resolve, 20));
+  });
+  assert.deepEqual(calls[1], { name: 'training_mark_video_complete_self', args: { p_video_id: 'v1' } });
+  assert.equal(
+    (rows.training_completions ?? []).filter(row => (row as { viewer_id: string; video_id: string }).viewer_id === 'viewA' && (row as { video_id: string }).video_id === 'v1').length,
+    1,
+    'completion persists idempotently in the backing snapshot',
+  );
+  cleanup(lesson.renderer, lesson.client);
+
+  const staffKeys = client.getQueryCache().getAll().map(query => JSON.stringify(query.queryKey));
+  assert.ok(staffKeys.some(key => key.includes('staff-a:provider_staff:acct-1:locked=false')));
+  setStubSession(null);
+  act(() => renderer.update(React.createElement(QueryClientProvider, { client }, React.createElement(TrainingScreen))));
+  await flush();
+  const keys = client.getQueryCache().getAll().map(query => JSON.stringify(query.queryKey));
+  assert.ok(keys.some(key => key.includes('anon:none::locked=false')));
+  cleanup(renderer, client);
+});
+
+await checkAsync('Patient and locked provider sessions are denied before private snapshots', async () => {
+  for (const [userId, profile, locked, expected] of [
+    ['patient-1', { id: 'patient-1', role: 'patient', provider_account_code: null }, [], /private to signed-in provider staff/i],
+    ['staff-locked', { id: 'staff-locked', role: 'provider_staff', provider_account_code: 'acct-1' }, [{ account_id: 'acct-1' }], /office is locked/i],
+  ] as const) {
+    const rows = structuredClone(tableRows) as TableRows;
+    rows.profiles = [profile];
+    rows.provider_account_locks = locked;
+    setStubSession(userId);
+    setSupabase(staffClient(rows, []));
+    const { renderer, client } = renderWithQuery(React.createElement(TrainingScreen));
+    await flush();
+    assert.equal(hostsByTestID(renderer, 'training-error').length, 1, userId);
+    assert.match(textOf(renderer.root as unknown as ReactTestInstance), expected);
+    assert.equal(
+      client.getQueryCache().getAll().filter(query => String(query.queryKey[0]) === 'mobile-training-data').length,
+      1,
+      'the disabled scoped query is registered but never fetched',
+    );
+    cleanup(renderer, client);
+  }
 });
 
 await checkAsync('Course outline: rows, module headers, lock presentation, team counts', async () => {

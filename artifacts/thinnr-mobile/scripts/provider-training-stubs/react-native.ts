@@ -7,3 +7,6 @@ export * from '../onboarding-hints-stubs/react-native';
 
 /** Host passthrough — react-test-renderer treats string types as hosts. */
 export const ActivityIndicator = 'ActivityIndicator';
+export const Modal = 'Modal';
+export const TextInput = 'TextInput';
+export const useWindowDimensions = () => ({ width: 393, height: 852, scale: 1, fontScale: 1 });

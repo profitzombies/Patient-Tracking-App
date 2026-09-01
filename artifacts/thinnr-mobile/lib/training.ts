@@ -1,6 +1,6 @@
 /**
- * Mobile training data model — the read-only slice of the web operations
- * app's training layer, ported for the Care Team (provider) persona.
+ * Mobile training data model — the provider-facing slice of the web
+ * operations training layer, ported for the Care Team persona.
  *
  * The provider tabs are otherwise seeded/local; Training is the first LIVE
  * data surface on mobile. It reads the same Supabase rows as the web portal
@@ -18,8 +18,9 @@
  * copies and fails on any drift. If you change a rule here, change the web
  * module too (or vice versa), then run that suite.
  *
- * Mobile is read-only: no authoring transforms, no mark-complete, no roster
- * management. The demo Care Team persona browses with an EMPTY personal
+ * Mobile has no authoring transforms. Signed-in provider staff may complete
+ * their own lessons and add office teammates through protected RPCs. The demo
+ * Care Team persona browses with an EMPTY personal
  * completion map (same as the web's signed-out demo persona), so the
  * sequential-unlock frontier sits at the first lesson; team numbers come
  * from the live demo viewer/completion rows.
@@ -597,6 +598,15 @@ export interface OfficeRosterEntry {
   isSelf: boolean;
 }
 
+export function isOfficeTeammate(
+  viewer: TrainingViewer,
+  accountId: string | null,
+  selfViewerId: string | null,
+): boolean {
+  if (selfViewerId !== null && viewer.id === selfViewerId) return true;
+  return accountId === null ? viewer.accountId !== null : viewer.accountId === accountId;
+}
+
 /**
  * The office's team roster with per-person progress against one course
  * order. Mobile always browses the UNSCOPED demo office (`accountId ===
@@ -609,11 +619,7 @@ export function officeRoster(
   completionIndex: CompletionIndex,
   selfViewerId: string | null = null,
 ): OfficeRosterEntry[] {
-  const members = viewers.filter(viewer =>
-    accountId === null
-      ? viewer.accountId !== null || viewer.id === selfViewerId
-      : viewer.accountId === accountId || viewer.id === selfViewerId,
-  );
+  const members = viewers.filter(viewer => isOfficeTeammate(viewer, accountId, selfViewerId));
   const total = order.length;
   return members
     .map(viewer => {
@@ -633,6 +639,27 @@ export function officeRoster(
       const recency = Date.parse(b.viewer.lastSeenAt) - Date.parse(a.viewer.lastSeenAt);
       return recency !== 0 ? recency : a.viewer.name.localeCompare(b.viewer.name);
     });
+}
+
+export interface SelfCourseState {
+  order: OrderedVideo[];
+  done: number;
+  total: number;
+  pct: number;
+  next: OrderedVideo | null;
+}
+
+export function selfCourseState(course: TrainingCourse, map: ViewerCompletionMap): SelfCourseState {
+  const order = getOrderedVideos(course, true);
+  const done = completedCount(map, order);
+  const frontier = frontierIndex(map, order);
+  return {
+    order,
+    done,
+    total: order.length,
+    pct: order.length > 0 ? Math.min(100, Math.round((done / order.length) * 100)) : 0,
+    next: frontier < order.length ? (order[frontier] ?? null) : null,
+  };
 }
 
 export type VideoAvailability = 'done' | 'available' | 'locked';
@@ -679,6 +706,92 @@ export function officeCourseStats(roster: OfficeRosterEntry[]): OfficeCourseStat
   const avgPct = Math.round(roster.reduce((sum, entry) => sum + entry.pct, 0) / roster.length);
   const finishers = roster.filter(entry => entry.total > 0 && entry.done >= entry.total).length;
   return { avgPct, finishers };
+}
+
+export interface TeammateCourseProgress {
+  course: TrainingCourse;
+  done: number;
+  total: number;
+  pct: number;
+  watchSeconds: number;
+}
+
+export interface TeammateCompletedLesson {
+  courseId: string;
+  courseTitle: string;
+  item: OrderedVideo;
+  completedAt: string;
+}
+
+export interface TeammateStats {
+  viewer: TrainingViewer;
+  isSelf: boolean;
+  done: number;
+  total: number;
+  pct: number;
+  watchSeconds: number;
+  coursesFinished: number;
+  courses: TeammateCourseProgress[];
+  completedLessons: TeammateCompletedLesson[];
+}
+
+export function teammateStats(
+  viewers: TrainingViewer[],
+  accountId: string | null,
+  viewerId: string,
+  courses: TrainingCourse[],
+  completionIndex: CompletionIndex,
+  selfViewerId: string | null = null,
+): TeammateStats | null {
+  const viewer = viewers.find(candidate => candidate.id === viewerId) ?? null;
+  if (!viewer || !isOfficeTeammate(viewer, accountId, selfViewerId)) return null;
+  const map = completionsFor(completionIndex, viewer.id);
+  const perCourse: TeammateCourseProgress[] = [];
+  const completedLessons: TeammateCompletedLesson[] = [];
+  let done = 0;
+  let total = 0;
+  let watchSeconds = 0;
+  let coursesFinished = 0;
+  for (const course of courses) {
+    if (course.status !== 'live') continue;
+    const order = getOrderedVideos(course, true);
+    const courseDone = completedCount(map, order);
+    const courseWatch = viewerWatchSeconds(map, order);
+    perCourse.push({
+      course,
+      done: courseDone,
+      total: order.length,
+      pct: order.length > 0 ? Math.min(100, Math.round((courseDone / order.length) * 100)) : 0,
+      watchSeconds: courseWatch,
+    });
+    done += courseDone;
+    total += order.length;
+    watchSeconds += courseWatch;
+    if (order.length > 0 && courseDone >= order.length) coursesFinished += 1;
+    for (const item of order) {
+      const row = map.get(item.video.id);
+      if (row?.completedAt) {
+        completedLessons.push({ courseId: course.id, courseTitle: course.title, item, completedAt: row.completedAt });
+      }
+    }
+  }
+  completedLessons.sort(
+    (a, b) =>
+      Date.parse(b.completedAt) - Date.parse(a.completedAt) ||
+      a.courseTitle.localeCompare(b.courseTitle) ||
+      a.item.numbering.localeCompare(b.item.numbering),
+  );
+  return {
+    viewer,
+    isSelf: selfViewerId !== null && viewer.id === selfViewerId,
+    done,
+    total,
+    pct: total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0,
+    watchSeconds,
+    coursesFinished,
+    courses: perCourse,
+    completedLessons,
+  };
 }
 
 export interface LessonState {

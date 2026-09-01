@@ -238,6 +238,7 @@ function RootLayoutNav() {
       <Stack.Screen name="phase/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="training-course/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="training-lesson/[courseId]/[videoId]" options={{ headerShown: false }} />
+      <Stack.Screen name="training-teammate/[viewerId]" options={{ headerShown: false }} />
       <Stack.Screen name="create-food" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="barcode-scan" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="log-food" options={{ headerShown: false, presentation: 'modal' }} />

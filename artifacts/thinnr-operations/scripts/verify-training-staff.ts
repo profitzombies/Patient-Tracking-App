@@ -102,6 +102,7 @@ async function main() {
   const emailC = `qa-patient-c-${ts}@thinnr-staff-check.com`;
   const emailT = `qa-teammate-${ts}@thinnr-staff-check.com`;
   const userIds: string[] = [];
+  let qaCourseId: string | null = null;
 
   try {
     // -- Setup: pre-approvals first, then confirmed accounts (no email sent) --
@@ -148,6 +149,32 @@ async function main() {
     );
     check('display name carried onto the roster', viewerA?.name === 'QA Staff A', viewerA?.name);
 
+    // A disposable visible sequential course pins the RPC gate without
+    // depending on whatever editorial seed happens to be live this week.
+    const qaCourse = await svc('POST', '/rest/v1/training_courses', {
+      slug: `qa-self-gate-${ts}`, title: 'QA self-completion gate', description: '',
+      status: 'live', sequential_unlock: true,
+    });
+    qaCourseId = qaCourse.json?.[0]?.id ?? null;
+    if (!qaCourseId) throw new Error(`QA course insert failed: ${JSON.stringify(qaCourse.json)}`);
+    const qaModule = await svc('POST', '/rest/v1/training_modules', {
+      course_id: qaCourseId, title: 'QA module', published: 'published', unlock_mode: 'sequential', position: 0,
+    });
+    const qaModuleId = qaModule.json?.[0]?.id;
+    if (!qaModuleId) throw new Error(`QA module insert failed: ${JSON.stringify(qaModule.json)}`);
+    const makeVideo = (title: string, published: string, position: number) => svc('POST', '/rest/v1/training_videos', {
+      module_id: qaModuleId, subgroup_id: null, title, duration_seconds: 42, published,
+      unlock_mode: 'sequential', add_staff: 'auto', description: [], chapters: [],
+      thumbnail_chapter: 0, attachments: [], position,
+    });
+    const [qaFirst, qaSecond, qaDraft] = await Promise.all([
+      makeVideo('QA first', 'published', 0), makeVideo('QA second', 'published', 1), makeVideo('QA draft', 'draft', 2),
+    ]);
+    const qaFirstId = qaFirst.json?.[0]?.id;
+    const qaSecondId = qaSecond.json?.[0]?.id;
+    const qaDraftId = qaDraft.json?.[0]?.id;
+    if (!qaFirstId || !qaSecondId || !qaDraftId) throw new Error('QA video fixture insert failed');
+
     console.log('2. Office-scoped visibility');
     const tokenA = await signIn(emailA, PASSWORD);
     check('staff password sign-in works', tokenA !== null);
@@ -193,9 +220,12 @@ async function main() {
       `${addCross.status} ${JSON.stringify(addCross.json).slice(0, 120)}`);
 
     console.log('4. Signed-in progress tracking');
-    const videos = await asUser(tokenA, 'GET', '/rest/v1/training_videos?select=id,duration_seconds&limit=1');
-    const video = videos.json?.[0];
-    check('catalog is readable for staff', Boolean(video?.id));
+    const video = { id: qaFirstId, duration_seconds: 42 };
+    check('catalog is readable for staff', Boolean(video.id));
+    const draftMark = await asUser(tokenA, 'POST', '/rest/v1/rpc/training_mark_video_complete_self', { p_video_id: qaDraftId });
+    check('draft lesson refused', draftMark.status >= 400, `${draftMark.status} ${JSON.stringify(draftMark.json)}`);
+    const lockedMark = await asUser(tokenA, 'POST', '/rest/v1/rpc/training_mark_video_complete_self', { p_video_id: qaSecondId });
+    check('locked sequential lesson refused', lockedMark.status >= 400, `${lockedMark.status} ${JSON.stringify(lockedMark.json)}`);
     const mark = await asUser(tokenA, 'POST', '/rest/v1/rpc/training_mark_video_complete_self', {
       p_video_id: video.id,
     });
@@ -208,6 +238,8 @@ async function main() {
       p_video_id: video.id,
     });
     check('repeat mark is idempotent', markAgain.status === 200 && markAgain.json?.completed_at === mark.json?.completed_at);
+    const frontierMark = await asUser(tokenA, 'POST', '/rest/v1/rpc/training_mark_video_complete_self', { p_video_id: qaSecondId });
+    check('current sequential frontier completes after predecessor', frontierMark.status === 200 && frontierMark.json?.viewer_id === viewerA?.id);
     const badMark = await asUser(tokenA, 'POST', '/rest/v1/rpc/training_mark_video_complete_self', {
       p_video_id: '00000000-0000-0000-0000-000000000000',
     });
@@ -256,6 +288,11 @@ async function main() {
       const rowsB: any[] = Array.isArray(viewersB.json) ? viewersB.json : [];
       check('B sees own linked row under acct-p2', rowsB.some((row) => row.email === emailB && row.account_id === 'acct-p2'));
       check('B never sees A or A\'s teammate', !rowsB.some((row) => row.email === emailA || row.email === emailT));
+      const completionsB = await asUser(tokenB, 'GET', '/rest/v1/training_completions?select=viewer_id,video_id&limit=1000');
+      check(
+        'B cannot read A office completion',
+        !(completionsB.json as any[] ?? []).some((row) => row.viewer_id === viewerA?.id && row.video_id === qaFirstId),
+      );
     }
 
     console.log('7. Revoking the assignment revokes training access');
@@ -299,6 +336,7 @@ async function main() {
       await svc('DELETE', `/rest/v1/training_completions?viewer_id=in.(${viewerIds.join(',')})`);
       await svc('DELETE', `/rest/v1/training_viewers?id=in.(${viewerIds.join(',')})`);
     }
+    if (qaCourseId) await svc('DELETE', `/rest/v1/training_courses?id=eq.${qaCourseId}`);
     await svc('DELETE', `/rest/v1/staff_role_assignments?email=in.(${emails})`);
     for (const id of userIds) {
       await svc('DELETE', `/auth/v1/admin/users/${id}`);

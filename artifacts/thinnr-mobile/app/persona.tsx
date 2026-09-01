@@ -80,13 +80,12 @@ export default function PersonaScreen() {
     router.replace('/');
   };
 
-  // Patient taps go to the real sign-in screen; the guided demo (Emma or the
-  // simulated onboarding) stays one tap away from there.
-  const openPatientLogin = () => {
+  // Patient access always starts at the branded front door.
+  const openPatientWelcome = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     // This screen is registered in the root Stack. Cast while Expo's generated
     // typed-route cache catches up with the newly added route file.
-    router.push('/patient-login' as Href);
+    router.push('/patient-welcome' as Href);
   };
 
   const signOutReal = async () => {
@@ -126,9 +125,9 @@ export default function PersonaScreen() {
           icon="user"
           title="Patient"
           person="Your daily companion"
-          body="Sign in with your account, or explore the demo as Emma Smith — diary, check-ins, and coach chat."
+          body="Sign in or create your account, with an optional guided demo available from patient access."
           current={mode === 'patient'}
-          onPress={openPatientLogin}
+          onPress={openPatientWelcome}
         />
 
         {session ? (

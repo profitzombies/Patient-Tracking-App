@@ -35,7 +35,7 @@ export default function PatientTabLayout() {
 
   if (!hydrated || !patientHydrated) return null;
   if (mode !== 'patient') {
-    return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
+    return <Redirect href={mode === 'staff' ? '/' : '/patient-welcome'} />;
   }
 
   // The floating row mounts once here, beside the navigator, so every

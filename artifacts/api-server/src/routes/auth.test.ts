@@ -159,6 +159,13 @@ class FakeBackend {
   }
 
   private authAdmin(method: string, url: URL, body: Row | null): Response {
+    if (method === "POST" && url.pathname === "/auth/v1/token" && url.searchParams.get("grant_type") === "password") {
+      const email = String(body?.email ?? "").toLowerCase();
+      const user = [...this.authUsers.values()].find((u) => String(u.email ?? "").toLowerCase() === email);
+      return user && user.password === body?.password
+        ? json(200, { access_token: "fake-access-token", user })
+        : json(400, { error: "invalid_grant" });
+    }
     if (method === "POST" && url.pathname === "/auth/v1/admin/generate_link") {
       const email = String(body?.email ?? "").toLowerCase();
       const user = [...this.authUsers.values()].find(
@@ -194,6 +201,7 @@ class FakeBackend {
         phone,
         app_metadata: body?.app_metadata ?? {},
         user_metadata: body?.user_metadata ?? {},
+        password: body?.password ?? null,
       };
       this.authUsers.set(id, user);
       return json(200, user);
@@ -202,6 +210,12 @@ class FakeBackend {
     if (idMatch && method === "GET") {
       const user = this.authUsers.get(idMatch[1]);
       if (!user) return json(404, { msg: "User not found" });
+      return json(200, user);
+    }
+    if (idMatch && method === "PUT") {
+      const user = this.authUsers.get(idMatch[1]);
+      if (!user) return json(404, { msg: "User not found" });
+      Object.assign(user, body);
       return json(200, user);
     }
     if (idMatch && method === "DELETE") {
@@ -260,7 +274,7 @@ class FakeBackend {
       return json(200, { id: crypto.randomUUID() });
     }
 
-    if (url.pathname.startsWith("/auth/v1/admin/")) {
+    if (url.pathname.startsWith("/auth/v1/admin/") || url.pathname === "/auth/v1/token") {
       return this.authAdmin(method, url, body);
     }
 
@@ -464,11 +478,56 @@ async function api(
 
 /** POSTs login/start and asserts the one universal response shape. */
 async function startLogin(realm: "staff" | "patient", identifier: string) {
+  if (realm === "patient") {
+    const normalized = identifier.includes("@")
+      ? identifier.trim().toLowerCase()
+      : `+1${identifier.replace(/\D/g, "").slice(-10)}`;
+    const matches = backend.tables.patients.filter((p) =>
+      identifier.includes("@")
+        ? String(p.email ?? "").toLowerCase() === normalized
+        : String(p.phone ?? "").replace(/\D/g, "").slice(-10) === normalized.slice(-10),
+    ).filter((p) => p.activation_status !== "disabled");
+    if (matches.length === 1 && !matches[0].auth_user_id) {
+      const user = backend.seedAuthUser({
+        email: `pt-${String(matches[0].id).toLowerCase()}@patients.thinnr.invalid`,
+        phone: matches[0].phone ?? null,
+        password: "OldStrong!Pass",
+      });
+      matches[0].auth_user_id = user.id;
+    }
+    const res = await api("POST", "/api/auth/patient/password/login", {
+      identifier, password: "OldStrong!Pass",
+    });
+    expect(res.status).toBe(200);
+    expect(res.json.ok).toBe(true);
+    expect(res.json.devCode).toMatch(/^\d{6}$/);
+    return res;
+  }
   const res = await api("POST", "/api/auth/login/start", { realm, identifier });
   expect(res.status).toBe(200);
   expect(res.json.ok).toBe(true);
   expect(res.json.devCode).toMatch(/^\d{6}$/);
   return res;
+}
+
+/** Explicit password rail for live-delivery tests (never hidden in api()). */
+async function livePatientLogin(identifier: string): Promise<{ status: number; json: any }> {
+  const digits = identifier.replace(/\D/g, "").slice(-10);
+  const patient = backend.tables.patients.find(
+    p => String(p.phone ?? "").replace(/\D/g, "").slice(-10) === digits ||
+      String(p.email ?? "").toLowerCase() === identifier.trim().toLowerCase(),
+  );
+  if (patient && !patient.auth_user_id) {
+    const user = backend.seedAuthUser({
+      email: `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`,
+      phone: patient.phone ?? null,
+      password: "OldStrong!Pass",
+    });
+    patient.auth_user_id = user.id;
+  }
+  return api("POST", "/api/auth/patient/password/login", {
+    identifier, password: "OldStrong!Pass",
+  });
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
@@ -510,6 +569,179 @@ beforeAll(async () => {
   server = app.listen(0);
   const address = server.address() as AddressInfo;
   base = `http://127.0.0.1:${address.port}`;
+});
+
+describe("patient password and enrollment rails", () => {
+  function seedPasswordPatient(overrides: Row = {}) {
+    const patient = seedPatient({ activation_status: "activated", ...overrides });
+    const user = backend.seedAuthUser({
+      email: `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`,
+      password: "OldStrong!Pass",
+    });
+    patient.auth_user_id = user.id;
+    return { patient, user };
+  }
+
+  it("uses a valid password only to issue the existing login MFA code", async () => {
+    seedPasswordPatient();
+    const bypass = await api("POST", "/api/auth/login/start", {
+      realm: "patient", identifier: "5552013344",
+    });
+    expect(bypass.status).toBe(400);
+    expect(backend.tables.claim_verifications).toHaveLength(0);
+    const start = await api("POST", "/api/auth/patient/password/login", {
+      identifier: "5552013344", password: "OldStrong!Pass",
+    });
+    expect(start.status).toBe(200);
+    expect(start.json.devCode).toMatch(/^\d{6}$/);
+    expect(backend.tables.claim_verifications[0].purpose).toBe("login");
+    const verify = await api("POST", "/api/auth/login/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    expect(verify.status).toBe(200);
+    expect(verify.json.realm).toBe("patient");
+  });
+
+  it("keeps wrong-password and unknown-account responses neutral", async () => {
+    seedPasswordPatient();
+    const wrong = await api("POST", "/api/auth/patient/password/login", {
+      identifier: "5552013344", password: "WrongStrong!Pass",
+    });
+    const miss = await api("POST", "/api/auth/patient/password/login", {
+      identifier: "5559998888", password: "WrongStrong!Pass",
+    });
+    expect(wrong.status).toBe(200);
+    expect(Object.keys(wrong.json).sort()).toEqual(Object.keys(miss.json).sort());
+    expect(wrong.json.message).toBe(miss.json.message);
+    expect(backend.tables.claim_verifications).toHaveLength(0);
+  });
+
+  it("silently applies the shared per-identifier send cap after password proof", async () => {
+    seedPasswordPatient();
+    for (let i = 0; i < 4; i += 1) {
+      const result = await api("POST", "/api/auth/patient/password/login", {
+        identifier: "5552013344", password: "OldStrong!Pass",
+      });
+      expect(result.status).toBe(200);
+      expect(result.json.devCode).toMatch(/^\d{6}$/);
+    }
+    expect(backend.tables.claim_verifications).toHaveLength(3);
+  });
+
+  it("resets a password once after recovery proof and rejects replay", async () => {
+    const { user } = seedPasswordPatient({ email: "casey@example.com" });
+    const start = await api("POST", "/api/auth/patient/recovery/start", { identifier: "casey@example.com" });
+    const proof = await api("POST", "/api/auth/patient/recovery/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    expect(proof.json.resetToken).toMatch(/^[0-9a-f]{64}$/);
+    const complete = await api("POST", "/api/auth/patient/recovery/complete", {
+      resetToken: proof.json.resetToken, password: "NewStrong!Pass",
+    });
+    expect(complete.status).toBe(200);
+    expect(user.password).toBe("NewStrong!Pass");
+    const replay = await api("POST", "/api/auth/patient/recovery/complete", {
+      resetToken: proof.json.resetToken, password: "OtherStrong!Pass",
+    });
+    expect(replay.status).toBe(400);
+    expect(user.password).toBe("NewStrong!Pass");
+  });
+
+  it("enrolls an invited email while preserving its row and office", async () => {
+    const patient = seedPatient({
+      email: "invitee@example.com", phone: "+15550001111",
+      activation_status: "invited", auth_user_id: null,
+    });
+    const start = await api("POST", "/api/auth/signup/start", {
+      flow: "invited", identifier: "invitee@example.com",
+    });
+    const verify = await api("POST", "/api/auth/signup/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    expect(verify.json.mode).toBe("enroll");
+    const complete = await api("POST", "/api/auth/signup/complete", {
+      signupToken: verify.json.signupToken, password: "InviteStrong!Pass",
+    });
+    expect(complete.status).toBe(200);
+    expect(backend.tables.patients).toHaveLength(1);
+    expect(patient.provider_id).toBe(SIGNUP_OFFICE_ID);
+    expect(patient.activation_status).toBe("activated");
+    expect(backend.authUsers.get(String(patient.auth_user_id))?.password).toBe("InviteStrong!Pass");
+  });
+
+  it("enrolls an invited phone while preserving its row and office", async () => {
+    const patient = seedPatient({
+      email: "phone-invite@example.com", phone: "+15550002222",
+      activation_status: "invited", auth_user_id: null,
+    });
+    const start = await api("POST", "/api/auth/signup/start", {
+      flow: "invited", identifier: "5550002222",
+    });
+    const verify = await api("POST", "/api/auth/signup/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    const complete = await api("POST", "/api/auth/signup/complete", {
+      signupToken: verify.json.signupToken, password: "InviteStrong!Pass",
+    });
+    expect(complete.status).toBe(200);
+    expect(patient.provider_id).toBe(SIGNUP_OFFICE_ID);
+    expect(patient.activation_status).toBe("activated");
+  });
+
+  it("allows only one same-token existing-row completion and preserves its winning password", async () => {
+    const { patient } = seedPasswordPatient({ auth_user_id: null, activation_status: "invited" });
+    const start = await api("POST", "/api/auth/signup/start", {
+      flow: "invited", identifier: "5552013344",
+    });
+    const verify = await api("POST", "/api/auth/signup/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    const token = verify.json.signupToken;
+    const results = await Promise.all([
+      api("POST", "/api/auth/signup/complete", { signupToken: token, password: "WinnerOne!Pass" }),
+      api("POST", "/api/auth/signup/complete", { signupToken: token, password: "WinnerTwo!Pass" }),
+    ]);
+    expect(results.filter(r => r.status === 200)).toHaveLength(1);
+    const user = backend.authUsers.get(String(patient.auth_user_id))!;
+    const winning = results[0].status === 200 ? "WinnerOne!Pass" : "WinnerTwo!Pass";
+    expect(user.password).toBe(winning);
+  });
+
+  it("creates a new signup with both contacts and refuses split contacts", async () => {
+    seedSignupOffice();
+    const start = await api("POST", "/api/auth/signup/start", {
+      flow: "new", code: "654321", phone: "8135550101", email: "new@example.com",
+    });
+    const verify = await api("POST", "/api/auth/signup/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    const complete = await api("POST", "/api/auth/signup/complete", {
+      signupToken: verify.json.signupToken, password: "FreshStrong!Pass", name: "Fresh Patient",
+    });
+    expect(complete.status).toBe(200);
+    expect(backend.tables.patients[0].email).toBe("new@example.com");
+    expect(backend.tables.patients[0].password).toBeUndefined();
+
+    seedPatient({ phone: "+15551112222", email: "first@example.com" });
+    seedPatient({ phone: "+15553334444", email: "second@example.com" });
+    const before = backend.tables.claim_verifications.length;
+    const split = await api("POST", "/api/auth/signup/start", {
+      flow: "new", code: "654321", phone: "5551112222", email: "second@example.com",
+    });
+    expect(split.status).toBe(200);
+    expect(backend.tables.claim_verifications).toHaveLength(before);
+  });
+
+  it("rejects an expired recovery code without issuing a capability", async () => {
+    seedPasswordPatient();
+    const start = await api("POST", "/api/auth/patient/recovery/start", { identifier: "5552013344" });
+    backend.tables.claim_verifications[0].code_expires_at = new Date(Date.now() - 1000).toISOString();
+    const proof = await api("POST", "/api/auth/patient/recovery/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    expect(proof.status).toBe(400);
+    expect(proof.json.resetToken).toBeUndefined();
+  });
 });
 
 afterAll(async () => {
@@ -588,7 +820,7 @@ async function signupToDetails(phone: string): Promise<string> {
     code: start.json.devCode,
   });
   expect(verify.status).toBe(200);
-  expect(verify.json.mode).toBe("new");
+  expect(verify.json.mode).toBe("enroll");
   expect(verify.json.signupToken).toMatch(/^[0-9a-f]{64}$/);
   return verify.json.signupToken as string;
 }
@@ -982,7 +1214,17 @@ describe("staff login verify", () => {
   });
 });
 
-describe("patient login", () => {
+describe("patient password + MFA login", () => {
+  function seedLinkedPasswordPatient(overrides: Row = {}) {
+    const patient = seedPatient({ activation_status: "activated", ...overrides });
+    const user = backend.seedAuthUser({
+      email: `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`,
+      password: "OldStrong!Pass",
+    });
+    patient.auth_user_id = user.id;
+    return { patient, user };
+  }
+
   it("signs a patient in by phone, minting a synthetic-email login", async () => {
     const patient = seedPatient();
     const start = await startLogin("patient", "(555) 201-3344");
@@ -996,53 +1238,7 @@ describe("patient login", () => {
     const user = backend.authUsers.get(String(patient.auth_user_id))!;
     expect(user.email).toBe(`pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`);
     expect(user.phone).toBe("+15552013344");
-    expect((user.app_metadata as Row).thinnr_claim).toBe("patient");
     expect(verify.json.tokenHash).toBe(`hashed-${user.email}`);
-  });
-
-  it("signs an invited patient in when their verified phone also belongs to a staff login", async () => {
-    const patient = seedPatient({ phone: "+18135145141", activation_status: "invited" });
-    const staffUserId = backend.seedAuthUser({
-      email: "owner@thinnr.example",
-      phone: "+18135145141",
-    });
-    const start = await startLogin("patient", "813-514-5141");
-    const verify = await api("POST", "/api/auth/login/verify", {
-      requestId: start.json.requestId,
-      code: start.json.devCode,
-    });
-
-    expect(verify.status).toBe(200);
-    expect(verify.json.realm).toBe("patient");
-    expect(patient.activation_status).toBe("activated");
-    expect(patient.auth_user_id).toBeTruthy();
-    expect(patient.auth_user_id).not.toBe(staffUserId);
-    const patientUser = backend.authUsers.get(String(patient.auth_user_id))!;
-    expect(patientUser.email).toBe(`pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`);
-    expect(patientUser.phone).toBeNull();
-    expect(verify.json.tokenHash).toBe(`hashed-${patientUser.email}`);
-
-    // A later login must still use the patient row's verified phone. The
-    // intentionally phone-less patient auth identity is session plumbing,
-    // never the SMS directory.
-    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
-    process.env.TWILIO_ACCOUNT_SID = "ACtest";
-    process.env.TWILIO_AUTH_TOKEN = "token";
-    process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
-    const later = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "813-514-5141",
-    });
-    expect(later.status).toBe(200);
-    expect(backend.twilioStarts).toEqual(["+18135145141"]);
-    backend.twilioApprovedCode = "864209";
-    const laterVerify = await api("POST", "/api/auth/login/verify", {
-      requestId: later.json.requestId,
-      code: "864209",
-    });
-    expect(laterVerify.status).toBe(200);
-    expect(laterVerify.json.tokenHash).toBe(`hashed-${patientUser.email}`);
-    expect(backend.authUsers.get(String(patient.auth_user_id))?.phone).toBeNull();
   });
 
   it("falls back to email codes for patients", async () => {
@@ -1061,6 +1257,57 @@ describe("patient login", () => {
     seedPatient({ activation_status: "disabled" });
     await startLogin("patient", "5552013344");
     expect(backend.tables.claim_verifications).toHaveLength(0);
+  });
+
+  it("spends a password MFA code when the patient is disabled before verification", async () => {
+    const { patient } = seedLinkedPasswordPatient();
+    const start = await api("POST", "/api/auth/patient/password/login", {
+      identifier: "5552013344", password: "OldStrong!Pass",
+    });
+    patient.activation_status = "disabled";
+
+    const verify = await api("POST", "/api/auth/login/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    expect(verify.status).toBe(409);
+    expect(verify.json.error).toContain("contact your clinic");
+    expect(verify.json.tokenHash).toBeUndefined();
+    expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
+  });
+
+  it("spends a password MFA code when its identifier is reassigned or auth link changes", async () => {
+    const { patient: original, user: originalUser } = seedLinkedPasswordPatient();
+    const start = await api("POST", "/api/auth/patient/password/login", {
+      identifier: "5552013344", password: "OldStrong!Pass",
+    });
+
+    // Model a completed reassignment with no duplicate contacts: the old row
+    // loses the identifier and link while a distinct, linked row receives it.
+    original.phone = "+15559990000";
+    original.auth_user_id = backend.seedAuthUser({
+      email: `pt-${String(original.id).toLowerCase()}-relinked@patients.thinnr.invalid`,
+      password: "OtherStrong!Pass",
+    }).id;
+    const replacementUser = backend.seedAuthUser({
+      email: "pt-reassigned@patients.thinnr.invalid",
+      password: "ReplacementStrong!Pass",
+    });
+    const replacement = seedPatient({
+      phone: "+15552013344",
+      auth_user_id: replacementUser.id,
+    });
+    expect(
+      backend.tables.patients.filter((p) => p.phone === "+15552013344"),
+    ).toEqual([replacement]);
+
+    const verify = await api("POST", "/api/auth/login/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    expect(verify.status).toBe(409);
+    expect(verify.json.error).toContain("contact your clinic");
+    expect(verify.json.tokenHash).toBeUndefined();
+    expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
+    expect(backend.authUsers.get(String(originalUser.id))).toBe(originalUser);
   });
 });
 
@@ -1093,6 +1340,7 @@ describe("patient signup", () => {
     const token = await signupToDetails("813-555-0101");
     const complete = await api("POST", "/api/auth/signup/complete", {
       signupToken: token,
+      password: "Strong!Pass",
       name: "  Riley   Newcomer ",
       email: "Riley@Example.com",
     });
@@ -1115,7 +1363,19 @@ describe("patient signup", () => {
     expect(complete.json.tokenHash).toBe(`hashed-${user.email}`);
   });
 
-  it("signs an existing phone straight in at verify instead of duplicating", async () => {
+  it("requires an explicit password without creating or mutating a patient", async () => {
+    seedSignupOffice();
+    const token = await signupToDetails("813-555-0199");
+    const result = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, name: "No Password", email: "no-password@example.com",
+    });
+    expect(result.status).toBe(400);
+    expect(result.json.field).toBe("password");
+    expect(backend.tables.patients).toHaveLength(0);
+    expect(backend.authUsers.size).toBe(0);
+  });
+
+  it("enrolls an existing phone through completion instead of duplicating", async () => {
     seedSignupOffice();
     const patient = seedPatient({ phone: "+18135550101" });
     const start = await api("POST", "/api/auth/signup/start", {
@@ -1128,9 +1388,15 @@ describe("patient signup", () => {
       code: start.json.devCode,
     });
     expect(verify.status).toBe(200);
-    expect(verify.json.mode).toBe("existing");
-    expect(verify.json.tokenHash).toBeTruthy();
-    expect(verify.json.signupToken).toBeUndefined();
+    expect(verify.json.mode).toBe("enroll");
+    expect(verify.json.signupToken).toMatch(/^[0-9a-f]{64}$/);
+    const complete = await api("POST", "/api/auth/signup/complete", {
+      signupToken: verify.json.signupToken,
+      password: "Strong!Pass",
+      email: "existing@example.com",
+    });
+    expect(complete.status).toBe(200);
+    expect(complete.json.tokenHash).toBeTruthy();
     expect(backend.tables.patients).toHaveLength(1);
     expect(patient.auth_user_id).toBeTruthy();
   });
@@ -1157,6 +1423,7 @@ describe("patient signup", () => {
     const token = await signupToDetails("813-555-0101");
     const complete = await api("POST", "/api/auth/signup/complete", {
       signupToken: token,
+      password: "Strong!Pass",
       name: "Riley Newcomer",
       email: "Taken@Example.com",
     });
@@ -1182,6 +1449,7 @@ describe("patient signup", () => {
     };
     const complete = await api("POST", "/api/auth/signup/complete", {
       signupToken: token,
+      password: "Strong!Pass",
       name: "Riley Newcomer",
       email: "riley@example.com",
     });
@@ -1218,6 +1486,7 @@ describe("patient signup", () => {
       }) as typeof backend.handle;
       const complete = await api("POST", "/api/auth/signup/complete", {
         signupToken: token,
+        password: "Strong!Pass",
         name: "Riley Newcomer",
         email: `${indexName}@example.com`,
       });
@@ -1237,6 +1506,7 @@ describe("patient signup", () => {
     const finish = (signupToken: string) =>
       api("POST", "/api/auth/signup/complete", {
         signupToken,
+        password: "Strong!Pass",
         name: "Riley Newcomer",
         email: "riley@example.com",
       });
@@ -1255,6 +1525,7 @@ describe("patient signup", () => {
     const token = await signupToDetails("813-555-0101");
     const complete = await api("POST", "/api/auth/signup/complete", {
       signupToken: token,
+      password: "Strong!Pass",
       name: "Riley Newcomer",
       email: "riley@example.com",
     });
@@ -1269,6 +1540,7 @@ describe("patient signup", () => {
     backend.tables.provider_account_locks.push({ account_id: SIGNUP_OFFICE_ID });
     const complete = await api("POST", "/api/auth/signup/complete", {
       signupToken: token,
+      password: "Strong!Pass",
       name: "Riley Newcomer",
       email: "riley@example.com",
     });
@@ -1405,10 +1677,7 @@ describe("live delivery", () => {
   it("fails loudly when flipped live without credentials", async () => {
     seedPatient();
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
-    const sms = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "5552013344",
-    });
+    const sms = await livePatientLogin("5552013344");
     expect(sms.status).toBe(503);
 
     process.env.CLAIM_SMS_DELIVERY_MODE = "dev";
@@ -1428,10 +1697,7 @@ describe("live delivery", () => {
     process.env.TWILIO_AUTH_TOKEN = "token";
     process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
 
-    const start = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "5552013344",
-    });
+    const start = await livePatientLogin("5552013344");
     expect(start.status).toBe(200);
     expect(start.json.devCode).toBeUndefined();
     expect(backend.twilioStarts).toEqual(["+15552013344"]);
@@ -1445,10 +1711,11 @@ describe("live delivery", () => {
     expect(verify.json.realm).toBe("patient");
   });
 
-  it("uses the patient-row phone for an invited patient's later login even when auth has no phone", async () => {
+  it("uses the patient-row phone for a linked patient when auth has no phone", async () => {
     const auth = backend.seedAuthUser({
-      email: "pt-linked@patients.thinnr.invalid",
+      email: "placeholder",
       phone: null,
+      password: "OldStrong!Pass",
     });
     const patient = seedPatient({
       phone: "+1 (555) 201-3344",
@@ -1456,15 +1723,13 @@ describe("live delivery", () => {
       activation_status: "activated",
       auth_user_id: auth.id,
     });
+    auth.email = `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`;
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
     process.env.TWILIO_AUTH_TOKEN = "token";
     process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
 
-    const start = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "555-201-3344",
-    });
+    const start = await livePatientLogin("555-201-3344");
     expect(start.status).toBe(200);
     expect(backend.twilioStarts).toEqual(["+15552013344"]);
     expect(backend.tables.claim_verifications[0].identifier).toBe("+15552013344");
@@ -1488,23 +1753,17 @@ describe("live delivery", () => {
     process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
     backend.twilioStartFailure = { status: 400, code: 60200 };
 
-    const rejected = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "5552013344",
-    });
+    const rejected = await livePatientLogin("5552013344");
     expect(rejected.status).toBe(200);
     expect(rejected.json.ok).toBe(true);
     expect(routeErrors).toContain(
-      "auth login sms delivery rejected: Twilio Verify start rejected (400, provider code 60200)",
+      "patient password sms delivery rejected: Twilio Verify start rejected (400, provider code 60200)",
     );
     expect(backend.tables.claim_verifications).toHaveLength(1);
     expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
 
     backend.twilioStartFailure = null;
-    const retry = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "5552013344",
-    });
+    const retry = await livePatientLogin("5552013344");
     expect(retry.status).toBe(200);
     expect(backend.tables.claim_verifications).toHaveLength(2);
     expect(backend.twilioStarts).toHaveLength(2);
@@ -1518,17 +1777,11 @@ describe("live delivery", () => {
     process.env.TWILIO_VERIFY_SERVICE_SID = "VAtest";
     backend.twilioStartFailure = { status: 429, code: 20429 };
 
-    const miss = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "5559990000",
-    });
+    const miss = await livePatientLogin("5559990000");
     const hits = [];
     for (let index = 0; index < 4; index += 1) {
       hits.push(
-        await api("POST", "/api/auth/login/start", {
-          realm: "patient",
-          identifier: "5552013344",
-        }),
+        await livePatientLogin("5552013344"),
       );
     }
 
@@ -1551,14 +1804,8 @@ describe("live delivery", () => {
     backend.twilioStartFailure = { status: 500 };
     backend.failRejectedSendSpend = true;
 
-    const miss = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "5559990000",
-    });
-    const hit = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "5552013344",
-    });
+    const miss = await livePatientLogin("5559990000");
+    const hit = await livePatientLogin("5552013344");
     expect(hit.status).toBe(miss.status);
     expect(hit.json).toMatchObject({ ok: true, message: miss.json.message });
     expect(Object.keys(hit.json).sort()).toEqual(Object.keys(miss.json).sort());
@@ -1583,10 +1830,7 @@ describe("live delivery", () => {
     };
 
     const started = performance.now();
-    const hit = await api("POST", "/api/auth/login/start", {
-      realm: "patient",
-      identifier: "5552013344",
-    });
+    const hit = await livePatientLogin("5552013344");
     const elapsed = performance.now() - started;
     expect(hit.status).toBe(200);
     expect(elapsed).toBeGreaterThanOrEqual(25);
@@ -1608,10 +1852,7 @@ describe("live delivery", () => {
 
     const timed = async (identifier: string) => {
       const started = performance.now();
-      const response = await api("POST", "/api/auth/login/start", {
-        realm: "patient",
-        identifier,
-      });
+      const response = await livePatientLogin(identifier);
       return { response, elapsed: performance.now() - started };
     };
     const hit = await timed("5552013344");
@@ -1630,10 +1871,7 @@ describe("live delivery", () => {
     process.env.CLAIM_SMS_DELIVERY_MODE = "dev";
     process.env.CLAIM_EMAIL_DELIVERY_MODE = "dev";
     try {
-      const sms = await api("POST", "/api/auth/login/start", {
-        realm: "patient",
-        identifier: "5552013344",
-      });
+      const sms = await livePatientLogin("5552013344");
       expect(sms.status).toBe(503);
 
       seedProvider();
@@ -1648,7 +1886,7 @@ describe("live delivery", () => {
     }
   });
 
-  it("does not apply the SMS floor to known or unknown production email logins", async () => {
+  it("does not apply the SMS floor to staff or patient email logins", async () => {
     seedProvider();
     seedPatient({ email: "casey@example.com" });
     process.env.NODE_ENV = "production";
@@ -1661,10 +1899,9 @@ describe("live delivery", () => {
       ] as const) {
         const timed = async (identifier: string) => {
           const started = performance.now();
-          const response = await api("POST", "/api/auth/login/start", {
-            realm,
-            identifier,
-          });
+          const response = realm === "staff"
+            ? await api("POST", "/api/auth/login/start", { realm, identifier })
+            : await livePatientLogin(identifier);
           return { response, elapsed: performance.now() - started };
         };
         const hit = await timed(known);

@@ -205,7 +205,8 @@ export function useOnboarding() {
  */
 export function useOnboardingFlow(current: StepKey) {
   const { answers, advance } = useOnboarding();
-  const steps = visibleSteps(answers);
+  const { account } = usePatientAccount();
+  const steps = visibleSteps(answers, account.kind === 'real');
   const index = steps.indexOf(current);
 
   const goNext = useCallback(() => {

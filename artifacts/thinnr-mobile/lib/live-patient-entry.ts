@@ -1,7 +1,7 @@
 export type LiveEntryDecision =
   | { kind: 'hold' }
   | { kind: 'allow' }
-  | { kind: 'redirect'; href: '/onboarding/welcome' };
+  | { kind: 'redirect'; href: '/onboarding/welcome' | '/patient-welcome' | '/today' };
 
 export interface LiveEntryGateInput {
   modeHydrated: boolean;
@@ -11,6 +11,36 @@ export interface LiveEntryGateInput {
   patientHydrated: boolean;
   onboardingComplete: boolean | null;
   pathname: string;
+  demoAdmitted?: boolean;
+}
+
+/** Routes owned by the operations persona, never by the seeded patient demo. */
+function isStaffRoute(pathname: string): boolean {
+  return pathname === '/' || [
+    '/patients',
+    '/outcomes',
+    '/leaderboard',
+    '/subscriptions',
+    '/training',
+    '/training-course/',
+    '/training-lesson/',
+    '/training-teammate/',
+    '/patient/',
+    '/product/',
+    '/claim-account',
+    '/claim-test',
+  ].some(prefix => pathname.startsWith(prefix));
+}
+
+/** Entry routes that remain available while no patient session exists. */
+function isPatientAccessRoute(pathname: string): boolean {
+  return [
+    '/patient-welcome',
+    '/patient-login',
+    '/patient-signup',
+    '/provider-login',
+    '/persona',
+  ].includes(pathname);
 }
 
 /**
@@ -25,13 +55,29 @@ export function liveEntryDecision(input: LiveEntryGateInput): LiveEntryDecision 
   ) {
     return { kind: 'hold' };
   }
+  // Staff has its own protected route model. A patient mode persisted from a
+  // previous visit is not proof that this device is entitled to demo data.
   if (
-    input.mode === 'patient' &&
+    input.accountKind !== 'real' &&
+    !input.demoAdmitted &&
+    !isStaffRoute(input.pathname) &&
+    !isPatientAccessRoute(input.pathname)
+  ) {
+    return { kind: 'redirect', href: '/patient-welcome' };
+  }
+  if (
     input.accountKind === 'real' &&
     input.onboardingComplete !== true &&
     !input.pathname.startsWith('/onboarding')
   ) {
     return { kind: 'redirect', href: '/onboarding/welcome' };
+  }
+  if (
+    input.accountKind === 'real' &&
+    input.onboardingComplete === true &&
+    (input.pathname.startsWith('/onboarding') || input.pathname === '/patient-welcome')
+  ) {
+    return { kind: 'redirect', href: '/today' };
   }
   return { kind: 'allow' };
 }

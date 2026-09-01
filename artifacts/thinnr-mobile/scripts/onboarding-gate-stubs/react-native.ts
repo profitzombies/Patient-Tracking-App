@@ -32,6 +32,7 @@ export const Text = hostComponent('Text');
 export const TextInput = hostComponent('TextInput');
 export const ScrollView = hostComponent('ScrollView');
 export const Pressable = hostComponent('Pressable');
+export const Image = hostComponent('Image');
 
 export const StyleSheet = {
   create<T>(styles: T): T {

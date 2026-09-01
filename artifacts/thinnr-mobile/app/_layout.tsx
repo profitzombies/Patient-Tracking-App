@@ -221,6 +221,7 @@ function RootLayoutNav() {
       <Stack.Screen name="patient/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="persona" options={{ headerShown: false }} />
       <Stack.Screen name="patient-login" options={{ headerShown: false }} />
+      <Stack.Screen name="patient-welcome" options={{ headerShown: false }} />
       <Stack.Screen name="patient-signup" options={{ headerShown: false }} />
       <Stack.Screen name="provider-login" options={{ headerShown: false }} />
       <Stack.Screen name="claim-account" options={{ headerShown: false }} />
@@ -260,7 +261,7 @@ function RootLayoutNav() {
 
 function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { mode, hydrated: modeHydrated } = useAppMode();
+  const { mode, hydrated: modeHydrated, demoAdmitted } = useAppMode();
   const { resolving, account } = usePatientAccount();
   const patient = usePatient();
   const decision = liveEntryDecision({
@@ -271,6 +272,7 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
     patientHydrated: patient.hydrated,
     onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
     pathname,
+    demoAdmitted,
   });
 
   if (decision.kind === 'hold') return null;

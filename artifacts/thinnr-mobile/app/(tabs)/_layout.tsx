@@ -20,7 +20,7 @@ export default function TabLayout() {
 
   if (!hydrated) return null;
   if (mode !== 'staff') {
-    return <Redirect href={mode === 'patient' ? '/today' : '/persona'} />;
+    return <Redirect href={mode === 'patient' ? '/today' : '/patient-welcome'} />;
   }
 
   return (

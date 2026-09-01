@@ -25,7 +25,7 @@ export interface Candidate {
 export interface VerificationRow {
   id: string;
   created_at: string;
-  purpose: "claim" | "add_phone" | "login" | "signup";
+  purpose: "claim" | "add_phone" | "login" | "signup" | "recovery";
   identifier_kind: "phone" | "email";
   identifier: string;
   account_type: AccountType | null;

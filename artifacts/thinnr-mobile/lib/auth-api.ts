@@ -1,5 +1,5 @@
 /**
- * Client for the API server's passwordless auth routes.
+ * Client for patient password + MFA, recovery, signup, and staff OTP routes.
  *
  * Both realms sign in the same way: ask for a one-time code, type it back,
  * and trade the server's reply for a real Supabase session. The server keeps
@@ -28,13 +28,16 @@ export type OfficeLookupResult =
   | { ok: false; error: string };
 
 export type SignupVerifyResult =
-  | { ok: true; mode: 'existing'; tokenHash: string }
-  | { ok: true; mode: 'new'; signupToken: string }
+  | { ok: true; mode: 'enroll'; signupToken: string }
   | { ok: false; error: string };
 
 export type SignupCompleteResult =
   | { ok: true; tokenHash: string }
-  | { ok: false; error: string; field: 'name' | 'email' | null };
+  | { ok: false; error: string; field: 'password' | 'name' | 'email' | null };
+
+export type ResetVerifyResult =
+  | { ok: true; resetToken: string }
+  | { ok: false; error: string };
 
 async function postJson(
   path: string,
@@ -69,11 +72,8 @@ function errorFrom(json: Record<string, unknown> | null, fallback: string): stri
 }
 
 /** Ask the server to send a one-time login code (text or email). */
-export async function requestLoginCode(
-  realm: 'staff' | 'patient',
-  identifier: string,
-): Promise<CodeRequestResult> {
-  const result = await postJson('/auth/login/start', { realm, identifier });
+export async function requestStaffLoginCode(identifier: string): Promise<CodeRequestResult> {
+  const result = await postJson('/auth/login/start', { realm: 'staff', identifier });
   if ('failed' in result) return { ok: false, error: result.failed };
   const { status, json } = result;
   if (status !== 200 || typeof json?.requestId !== 'string') {
@@ -85,6 +85,51 @@ export async function requestLoginCode(
     message: typeof json.message === 'string' ? json.message : null,
     devCode: typeof json.devCode === 'string' ? json.devCode : null,
   };
+}
+
+/** Patient passwords are verified before the neutral MFA code is delivered. */
+export async function requestPatientPasswordLogin(input: {
+  identifier: string;
+  password: string;
+}): Promise<CodeRequestResult> {
+  const result = await postJson('/auth/patient/password/login', input);
+  if ('failed' in result) return { ok: false, error: result.failed };
+  const { status, json } = result;
+  if (status !== 200 || json?.ok !== true || typeof json.requestId !== 'string') {
+    return { ok: false, error: errorFrom(json, 'Could not sign in right now. Try again in a moment.') };
+  }
+  return {
+    ok: true, requestId: json.requestId,
+    message: typeof json.message === 'string' ? json.message : null,
+    devCode: typeof json.devCode === 'string' ? json.devCode : null,
+  };
+}
+
+export async function startRecovery(identifier: string): Promise<CodeRequestResult> {
+  const result = await postJson('/auth/patient/recovery/start', { identifier });
+  if ('failed' in result) return { ok: false, error: result.failed };
+  const { status, json } = result;
+  if (status !== 200 || json?.ok !== true || typeof json.requestId !== 'string') {
+    return { ok: false, error: errorFrom(json, 'Could not start password recovery right now.') };
+  }
+  return { ok: true, requestId: json.requestId, message: typeof json.message === 'string' ? json.message : null, devCode: typeof json.devCode === 'string' ? json.devCode : null };
+}
+
+export async function verifyRecovery(input: { requestId: string; code: string }): Promise<ResetVerifyResult> {
+  const result = await postJson('/auth/patient/recovery/verify', input);
+  if ('failed' in result) return { ok: false, error: result.failed };
+  if (result.status !== 200 || typeof result.json?.resetToken !== 'string') {
+    return { ok: false, error: errorFrom(result.json, 'That code didn’t work. Request a fresh one and try again.') };
+  }
+  return { ok: true, resetToken: result.json.resetToken };
+}
+
+export async function completeRecovery(input: { resetToken: string; password: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const result = await postJson('/auth/patient/recovery/complete', input);
+  if ('failed' in result) return { ok: false, error: result.failed };
+  return result.status === 200 && result.json?.ok === true
+    ? { ok: true }
+    : { ok: false, error: errorFrom(result.json, 'Could not reset your password right now.') };
 }
 
 /** Trade a correct login code for a session token hash. */
@@ -123,11 +168,14 @@ export async function lookupSignupOffice(code: string): Promise<OfficeLookupResu
 }
 
 /** Start signup: sends a text code to the phone being claimed. */
-export async function startSignup(input: { code: string; phone: string }): Promise<CodeRequestResult> {
+export async function startSignup(input:
+  | { flow: 'invited'; identifier: string }
+  | { flow: 'new'; phone: string; email: string; code?: string }
+): Promise<CodeRequestResult> {
   const result = await postJson('/auth/signup/start', input);
   if ('failed' in result) return { ok: false, error: result.failed };
   const { status, json } = result;
-  if (status !== 200 || typeof json?.requestId !== 'string') {
+  if (status !== 200 || json?.ok !== true || typeof json?.requestId !== 'string') {
     return { ok: false, error: errorFrom(json, 'Could not send a code right now. Try again in a moment.') };
   }
   return {
@@ -138,7 +186,7 @@ export async function startSignup(input: { code: string; phone: string }): Promi
   };
 }
 
-/** Verify the signup text code; existing patients sign straight in. */
+/** Verify the signup code and receive the short-lived enrollment token. */
 export async function verifySignupCode(input: {
   requestId: string;
   code: string;
@@ -146,11 +194,8 @@ export async function verifySignupCode(input: {
   const result = await postJson('/auth/signup/verify', input);
   if ('failed' in result) return { ok: false, error: result.failed };
   const { status, json } = result;
-  if (status === 200 && json?.mode === 'existing' && typeof json.tokenHash === 'string') {
-    return { ok: true, mode: 'existing', tokenHash: json.tokenHash };
-  }
-  if (status === 200 && json?.mode === 'new' && typeof json.signupToken === 'string') {
-    return { ok: true, mode: 'new', signupToken: json.signupToken };
+  if (status === 200 && json?.mode === 'enroll' && typeof json.signupToken === 'string') {
+    return { ok: true, mode: 'enroll', signupToken: json.signupToken };
   }
   return {
     ok: false,
@@ -158,17 +203,20 @@ export async function verifySignupCode(input: {
   };
 }
 
-/** Finish signup with name + email; creates the real patient account. */
+/** Finish signup with a password; creates the real patient account. */
 export async function completeSignup(input: {
   signupToken: string;
-  name: string;
-  email: string;
+  password: string;
+  name?: string;
+  email?: string;
 }): Promise<SignupCompleteResult> {
   const result = await postJson('/auth/signup/complete', input);
   if ('failed' in result) return { ok: false, error: result.failed, field: null };
   const { status, json } = result;
   if (status !== 200 || typeof json?.tokenHash !== 'string') {
-    const field = json?.field === 'name' || json?.field === 'email' ? json.field : null;
+    const field = json?.field === 'password' || json?.field === 'name' || json?.field === 'email'
+      ? json.field
+      : null;
     return {
       ok: false,
       error: errorFrom(json, 'Could not finish creating the account. Try again in a moment.'),

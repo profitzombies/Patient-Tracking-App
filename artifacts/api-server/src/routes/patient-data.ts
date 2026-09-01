@@ -90,6 +90,15 @@ const ENTRY_ID_RE = /^[A-Za-z0-9._:-]{1,64}$/;
 const MEALS = new Set(["breakfast", "lunch", "dinner", "snacks"]);
 const KINDS = new Set(["food", "recipe", "quick"]);
 
+/** Credentials are never patient-data.  Keep this at the API boundary as a
+ * defense in depth companion to the database trigger. */
+function stripOnboardingPassword(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const copy = { ...(value as Record<string, unknown>) };
+  delete copy.password;
+  return copy;
+}
+
 /** Real calendar date in a sane window, formatted exactly YYYY-MM-DD. */
 function isDateKey(value: unknown): value is string {
   if (typeof value !== "string" || !DATE_KEY_RE.test(value)) return false;
@@ -765,7 +774,7 @@ router.get("/patient-data/state", async (req, res) => {
       onboardingComplete: flagRow?.onboarding_complete === true,
     };
     if (flagRow?.onboarding_answers && typeof flagRow.onboarding_answers === "object") {
-      flagsOut.onboardingAnswers = flagRow.onboarding_answers;
+      flagsOut.onboardingAnswers = stripOnboardingPassword(flagRow.onboarding_answers);
     }
     if (flagRow?.notification_prefs && typeof flagRow.notification_prefs === "object") {
       flagsOut.notificationPrefs = flagRow.notification_prefs;
@@ -1393,7 +1402,7 @@ router.put("/patient-data/flags", async (req, res) => {
         res.status(400).json({ error: "Onboarding answers are invalid." });
         return;
       }
-      row.onboarding_answers = body.onboardingAnswers;
+      row.onboarding_answers = stripOnboardingPassword(body.onboardingAnswers);
     }
     if (body.notificationPrefs !== undefined) {
       if (

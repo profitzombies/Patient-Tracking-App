@@ -28,7 +28,6 @@ export interface OnboardingAnswers {
   verified: boolean;
   providerLinked: boolean;
   faceId: 'enabled' | 'skipped' | null;
-  password: string;
   heightUnit: HeightUnit;
   heightFt: number;
   heightIn: number;
@@ -56,7 +55,6 @@ export const DEFAULT_ANSWERS: OnboardingAnswers = {
   verified: false,
   providerLinked: false,
   faceId: null,
-  password: '',
   heightUnit: 'imperial',
   heightFt: 5,
   heightIn: 6,
@@ -135,8 +133,9 @@ export const STEP_FLOW: StepDef[] = [
   { key: 'complete' },
 ];
 
-export function visibleSteps(a: OnboardingAnswers): StepKey[] {
-  return STEP_FLOW.filter(s => !s.when || s.when(a)).map(s => s.key);
+export function visibleSteps(a: OnboardingAnswers, realAccount = false): StepKey[] {
+  const accountSetup = new Set<StepKey>(['contact', 'verify', 'provider-code', 'face-id', 'password']);
+  return STEP_FLOW.filter(s => (!realAccount || !accountSetup.has(s.key)) && (!s.when || s.when(a))).map(s => s.key);
 }
 
 /** Position of a step in the full (unconditional) flow order. */
@@ -151,14 +150,14 @@ export function stepOrderIndex(key: StepKey): number {
  * later answer change (e.g. switching program to "none" after picking a
  * start date).
  */
-export function isStepAccessible(a: OnboardingAnswers, furthest: StepKey, key: StepKey): boolean {
-  return visibleSteps(a).includes(key) && stepOrderIndex(key) <= stepOrderIndex(furthest);
+export function isStepAccessible(a: OnboardingAnswers, furthest: StepKey, key: StepKey, realAccount = false): boolean {
+  return visibleSteps(a, realAccount).includes(key) && stepOrderIndex(key) <= stepOrderIndex(furthest);
 }
 
 /** Where to send a guarded-off route: the latest visible step not beyond `furthest`. */
-export function guardTarget(a: OnboardingAnswers, furthest: StepKey): StepKey {
+export function guardTarget(a: OnboardingAnswers, furthest: StepKey, realAccount = false): StepKey {
   const limit = stepOrderIndex(furthest);
-  const visible = visibleSteps(a);
+  const visible = visibleSteps(a, realAccount);
   for (let i = visible.length - 1; i >= 0; i--) {
     if (stepOrderIndex(visible[i]) <= limit) return visible[i];
   }

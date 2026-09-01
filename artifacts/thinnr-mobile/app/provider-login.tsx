@@ -23,7 +23,7 @@ import {
 } from '@/components/onboarding/OnboardingFields';
 import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
-import { requestLoginCode, signInWithTokenHash, verifyLoginCode } from '@/lib/auth-api';
+import { requestStaffLoginCode, signInWithTokenHash, verifyLoginCode } from '@/lib/auth-api';
 import { supabaseConfigured } from '@/lib/supabase';
 
 type Phase = 'email' | 'code';
@@ -55,7 +55,7 @@ export default function ProviderLoginScreen() {
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
   const sendCode = async (address: string) => {
-    const result = await requestLoginCode('staff', address);
+    const result = await requestStaffLoginCode(address);
     if (!result.ok) {
       setError(result.error);
       return false;

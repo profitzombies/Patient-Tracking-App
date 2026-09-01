@@ -518,7 +518,7 @@ describe("GET /patient-data/state", () => {
   it("returns live identity and elapsed program facts, falling back to row creation day", async () => {
     const current = backend.seedSignedInPatient("tok-1");
     Object.assign(
-      backend.tables.patients.find(row => row.id === current.patientId),
+      backend.tables.patients.find(row => row.id === current.patientId)!,
       {
         name: "Riley Chen",
         program_start_date: "2026-08-10",
@@ -536,7 +536,7 @@ describe("GET /patient-data/state", () => {
 
     const legacy = backend.seedSignedInPatient("tok-2");
     Object.assign(
-      backend.tables.patients.find(row => row.id === legacy.patientId),
+      backend.tables.patients.find(row => row.id === legacy.patientId)!,
       {
         name: "Legacy Patient",
         program_start_date: null,

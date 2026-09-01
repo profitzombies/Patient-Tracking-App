@@ -1,5 +1,5 @@
 /**
- * Patient entry chooser — restyled take on the real app's welcome screen.
+ * Explicitly admitted guided-demo chooser.
  * Existing patient: one-tap prefilled sign-in as Emma Smith.
  * New patient: starts the simulated onboarding flow (mock data, repeatable).
  */
@@ -41,7 +41,7 @@ function SignInFormWrap({ children }: { children: React.ReactNode }) {
 export default function PatientEntryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { setMode } = useAppMode();
+  const { admitDemo } = useAppMode();
   const { reset } = useOnboarding();
   const [email, setEmail] = useState('emma.smith@example.com');
   const [password, setPassword] = useState('Demo123!');
@@ -50,12 +50,13 @@ export default function PatientEntryScreen() {
 
   const signInAsEmma = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await setMode('patient');
+    await admitDemo();
     router.replace('/today');
   };
 
-  const startOnboarding = () => {
+  const startOnboarding = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await admitDemo();
     reset();
     router.push('/onboarding/welcome');
   };

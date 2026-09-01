@@ -76,6 +76,7 @@ export async function deleteAuthUserQuietly(userId: string): Promise<void> {
 interface CreateUserInput {
   email: string;
   phone?: string | null;
+  password?: string | null;
   displayName?: string | null;
   appMetadata: Record<string, unknown>;
 }
@@ -86,6 +87,7 @@ async function createConfirmedUser(input: CreateUserInput): Promise<string> {
       email: input.email,
       email_confirm: true,
       ...(withPhone && input.phone ? { phone: input.phone, phone_confirm: true } : {}),
+      ...(input.password ? { password: input.password } : {}),
       ...(input.displayName ? { user_metadata: { display_name: input.displayName } } : {}),
       app_metadata: input.appMetadata,
     });
@@ -100,6 +102,36 @@ async function createConfirmedUser(input: CreateUserInput): Promise<string> {
   const id = res.json?.id as string | undefined;
   if (!id) throw new Error("auth user creation returned no id");
   return id;
+}
+
+/** Create a confirmed synthetic patient identity.  Passwords only ever cross
+ * this boundary to GoTrue; no application table receives them. */
+export async function createConfirmedPatientUser(
+  patient: Pick<PatientRow, "id" | "phone" | "name">,
+  password?: string,
+): Promise<string> {
+  return createConfirmedUser({
+    email: patientSyntheticEmail(patient.id),
+    phone: patient.phone,
+    password,
+    displayName: patient.name,
+    appMetadata: { thinnr_claim: "patient", thinnr_claim_ref: patient.id },
+  });
+}
+
+export async function updatePatientPassword(userId: string, password: string): Promise<void> {
+  const res = await supabaseAdmin("PUT", `/auth/v1/admin/users/${enc(userId)}`, { password });
+  if (res.status >= 300) throw new Error(`patient password update failed (${res.status})`);
+}
+
+/** Password grant is deliberately performed against the unguessable synthetic
+ * address, never the patient-facing email. */
+export async function verifyPatientPassword(patientId: string, password: string): Promise<boolean> {
+  const res = await supabaseAdmin("POST", "/auth/v1/token?grant_type=password", {
+    email: patientSyntheticEmail(patientId),
+    password,
+  });
+  return res.status < 300;
 }
 
 /**

@@ -1,7 +1,8 @@
 /**
  * App mode: which persona is using the device — staff (care team) or patient.
- * Persisted so the app reopens in the same mode. `null` means not chosen yet,
- * which routes to the persona picker.
+ * Persisted so the app reopens in the same mode. Patient demo admission is
+ * deliberately separate and session-only: persisted patient mode alone can
+ * never expose seeded health screens to a signed-out user.
  */
 import React, {
   createContext,
@@ -42,6 +43,10 @@ interface AppModeContextValue {
   hydrated: boolean;
   mode: AppMode | null;
   setMode: (mode: AppMode) => Promise<void>;
+  /** Deliberate, session-only admission to seeded patient data. */
+  demoAdmitted: boolean;
+  admitDemo: () => Promise<void>;
+  leaveDemo: () => void;
 }
 
 const AppModeContext = createContext<AppModeContextValue | null>(null);
@@ -49,6 +54,7 @@ const AppModeContext = createContext<AppModeContextValue | null>(null);
 export function AppModeProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [mode, setModeState] = useState<AppMode | null>(null);
+  const [demoAdmitted, setDemoAdmitted] = useState(false);
 
   useEffect(() => {
     readPersistedMode()
@@ -60,12 +66,19 @@ export function AppModeProvider({ children }: { children: ReactNode }) {
 
   const setMode = useCallback(async (next: AppMode): Promise<void> => {
     setModeState(next);
+    if (next !== 'patient') setDemoAdmitted(false);
     await writePersistedMode(next);
   }, []);
+  const admitDemo = useCallback(async () => {
+    setDemoAdmitted(true);
+    setModeState('patient');
+    await writePersistedMode('patient');
+  }, []);
+  const leaveDemo = useCallback(() => setDemoAdmitted(false), []);
 
   const value = useMemo<AppModeContextValue>(
-    () => ({ hydrated, mode, setMode }),
-    [hydrated, mode, setMode],
+    () => ({ hydrated, mode, setMode, demoAdmitted, admitDemo, leaveDemo }),
+    [hydrated, mode, setMode, demoAdmitted, admitDemo, leaveDemo],
   );
 
   return <AppModeContext.Provider value={value}>{children}</AppModeContext.Provider>;

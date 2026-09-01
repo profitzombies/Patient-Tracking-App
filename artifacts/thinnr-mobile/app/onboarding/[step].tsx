@@ -6,6 +6,7 @@
 import React from 'react';
 import { Redirect, useLocalSearchParams, usePathname, type Href } from 'expo-router';
 import { useOnboarding } from '@/context/OnboardingContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { guardTarget, isStepAccessible, type StepKey } from '@/data/onboarding-data';
 import {
   ContactStep,
@@ -62,6 +63,7 @@ const REGISTRY: Record<StepKey, React.ComponentType> = {
 export default function OnboardingStepScreen() {
   const { step } = useLocalSearchParams<{ step: string }>();
   const { begun, answers, furthest } = useOnboarding();
+  const { account } = usePatientAccount();
   const pathname = usePathname();
 
   const key = (Array.isArray(step) ? step[0] : step) as StepKey | undefined;
@@ -80,9 +82,9 @@ export default function OnboardingStepScreen() {
     return isActive ? <Redirect href="/onboarding/welcome" /> : null;
   }
   // Block deep links that skip ahead and stale routes hidden by answer changes.
-  if (begun && !isStepAccessible(answers, furthest, key!)) {
+  if (begun && !isStepAccessible(answers, furthest, key!, account.kind === 'real')) {
     if (!isActive) return null;
-    return <Redirect href={`/onboarding/${guardTarget(answers, furthest)}` as Href} />;
+    return <Redirect href={`/onboarding/${guardTarget(answers, furthest, account.kind === 'real')}` as Href} />;
   }
 
   return <StepComponent />;

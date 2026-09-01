@@ -316,7 +316,6 @@ function SecureInput({
 }
 
 export function PasswordStep() {
-  const { patch } = useOnboarding();
   const flow = useOnboardingFlow('password');
   const [pw, setPw] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -346,7 +345,6 @@ export function PasswordStep() {
       nextDisabled={!canNext}
       nextBlockedHint={blockedHint}
       onNext={() => {
-        patch({ password: pw });
         flow.goNext();
       }}
     >

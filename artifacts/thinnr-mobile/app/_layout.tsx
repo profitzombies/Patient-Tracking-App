@@ -25,7 +25,7 @@ import {
   PlayfairDisplay_700Bold,
 } from '@expo-google-fonts/playfair-display';
 import * as Font from 'expo-font';
-import { Stack } from 'expo-router';
+import { Redirect, Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useColors } from '@/hooks/useColors';
 import { AppModeProvider } from '@/context/AppModeContext';
@@ -35,6 +35,10 @@ import { OperationsProvider } from '@/context/OperationsContext';
 import { PatientAccountProvider } from '@/context/PatientAccountProvider';
 import { PatientProvider } from '@/context/PatientContext';
 import { PatientSyncNotice } from '@/components/patient/PatientSyncNotice';
+import { useAppMode } from '@/context/AppModeContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
+import { usePatient } from '@/context/PatientContext';
+import { liveEntryDecision } from '@/lib/live-patient-entry';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -253,6 +257,26 @@ function RootLayoutNav() {
   );
 }
 
+function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const { mode, hydrated: modeHydrated } = useAppMode();
+  const { resolving, account } = usePatientAccount();
+  const patient = usePatient();
+  const decision = liveEntryDecision({
+    modeHydrated,
+    mode,
+    accountResolving: resolving,
+    accountKind: account.kind,
+    patientHydrated: patient.hydrated,
+    onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
+    pathname,
+  });
+
+  if (decision.kind === 'hold') return null;
+  if (decision.kind === 'redirect') return <Redirect href={decision.href} />;
+  return <>{children}</>;
+}
+
 export default function RootLayout() {
   const { status, retry } = useAppFonts();
 
@@ -290,7 +314,9 @@ export default function RootLayout() {
                       <PatientProvider>
                         <OnboardingProvider>
                           <CoachChatProvider>
-                            <RootLayoutNav />
+                            <LivePatientEntryGuard>
+                              <RootLayoutNav />
+                            </LivePatientEntryGuard>
                             <PatientSyncNotice />
                           </CoachChatProvider>
                         </OnboardingProvider>

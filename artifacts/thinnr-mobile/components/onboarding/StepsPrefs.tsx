@@ -1,6 +1,6 @@
 /**
- * Simulated onboarding — preference steps: health app, notifications,
- * medication reminders (morning / afternoon / evening), diets, completion.
+ * Patient onboarding preference steps: health app, notifications, medication
+ * reminders (morning / afternoon / evening), diets, and completion.
  */
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -10,6 +10,7 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useOnboarding, useOnboardingFlow } from '@/context/OnboardingContext';
 import {
   DIET_NONE_KEY,
@@ -236,6 +237,7 @@ export function CompleteStep() {
   const colors = useColors();
   const { answers, endRun } = useOnboarding();
   const { setMode } = useAppMode();
+  const { account } = usePatientAccount();
 
   const unit = weightUnitFor(answers.heightUnit);
   const onMeds = answers.program === 'thinnr' || answers.program === 'glp1';
@@ -295,12 +297,11 @@ export function CompleteStep() {
   );
 
   const finish = async () => {
+    const saved = await endRun();
+    if (!saved) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await setMode('patient');
     router.replace('/today');
-    // End the run after navigating: stale onboarding history now redirects to
-    // a fresh welcome instead of re-opening the finished wizard.
-    endRun();
   };
 
   return (
@@ -328,7 +329,13 @@ export function CompleteStep() {
           </View>
         ))}
       </LedgerCard>
-      <NoteText text="Simulation complete — nothing was saved. You'll enter the demo patient account (Emma Smith) to explore the app." />
+      <NoteText
+        text={
+          account.kind === 'real'
+            ? 'Your setup is saved to your patient account and will be here when you return.'
+            : "Simulation complete — nothing was saved. You'll enter the demo patient account (Emma Smith) to explore the app."
+        }
+      />
     </OnboardingFrame>
   );
 }

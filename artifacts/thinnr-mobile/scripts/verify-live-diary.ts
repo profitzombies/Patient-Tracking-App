@@ -48,7 +48,8 @@ import { create, type ReactTestRenderer } from 'react-test-renderer';
 import { PatientProvider, usePatient, usePatientSyncNotice, type PatientSyncNoticeValue } from '../context/PatientContext';
 import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
-import { DIARY_MIN_KEY, TODAY_KEY, shiftDateKey, type DailyTargets, type MealLogEntry } from '../data/patient-data';
+import { TODAY_KEY, shiftDateKey, type DailyTargets, type MealLogEntry } from '../data/patient-data';
+import { localTodayKey } from '../lib/live-patient-entry';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
 
 let checks = 0;
@@ -144,6 +145,7 @@ function routeCall(call: ApiCall): Scripted {
   if (key === 'GET patient-data/state') {
     const from = call.query.get('from');
     const to = call.query.get('to');
+    const todayKey = call.query.get('today') ?? localTodayKey();
     const entries = store.entries.filter(
       e => (!from || e.dateKey >= from) && (!to || e.dateKey <= to),
     );
@@ -155,6 +157,12 @@ function routeCall(call: ApiCall): Scripted {
         targets: store.targets,
         favorites: store.favorites,
         recents: store.recents,
+        entry: {
+          firstName: role.patientId === 'p-1' ? 'Invited' : 'Signup',
+          programStartDate: role.patientId === 'p-1' ? '2026-08-20' : todayKey,
+          todayKey,
+          programDay: role.patientId === 'p-1' ? 12 : 1,
+        },
       },
     };
   }
@@ -366,9 +374,12 @@ async function main() {
   assert('recents start empty', ctx.recents.length === 0);
   assert('targets are the app defaults', JSON.stringify(ctx.targets) === JSON.stringify(demoTargets));
   const stateCall = lastCallTo('patient-data/state');
-  assert('hydration fetches the full diary window', stateCall !== undefined
-    && stateCall.query.get('from') === DIARY_MIN_KEY
-    && stateCall.query.get('to') === TODAY_KEY);
+  const localDay = localTodayKey();
+  assert('hydration fetches the full live diary history without demo date bounds',
+    stateCall !== undefined
+    && stateCall.query.get('from') === null
+    && stateCall.query.get('to') === null
+    && stateCall.query.get('today') === localDay);
   assert('no notice on clean hydration', notice === null);
 
   // ── 4 · Every logging path writes through the server ───────────────────────

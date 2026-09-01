@@ -63,11 +63,6 @@ const MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
 // diary's notice window).
 const LOGGED_NOTICE_WINDOW_MS = 5000;
 
-const FIRST_NAME = PATIENT_PROFILE.name.split(' ')[0];
-
-// Where the patient is in the THINNR protocol — drives the instructions card.
-const CURRENT_PHASE = phaseForDay(ENROLLMENT_DAYS);
-
 // How far the floating focus bar hangs below the hero artwork.
 const FOCUS_OVERLAP = 16;
 
@@ -140,7 +135,11 @@ export default function TodayScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
-  const [dateKey, setDateKey] = useState(TODAY_KEY);
+  const liveTodayKey = patient.entryFacts?.todayKey ?? TODAY_KEY;
+  const programDay = patient.entryFacts?.programDay ?? ENROLLMENT_DAYS;
+  const currentPhase = phaseForDay(programDay);
+  const firstName = patient.entryFacts?.firstName ?? PATIENT_PROFILE.name.split(' ')[0];
+  const [dateKey, setDateKey] = useState(liveTodayKey);
   // The "Yesterday's [meal]" review (reached through this screen's Add Food
   // shortcuts) commits its batch, parks it, and dismisses back here; pick it
   // up on focus and offer the same Undo the diary's copy actions get.
@@ -182,8 +181,8 @@ export default function TodayScreen() {
   const heroNarrow = windowWidth > 0 && windowWidth < 390;
   const chipsStacked = windowWidth > 0 && windowWidth < 350;
 
-  const isToday = dateKey === TODAY_KEY;
-  const atMin = dateKey <= MIN_KEY;
+  const isToday = dateKey === liveTodayKey;
+  const atMin = dateKey <= (patient.entryFacts?.programStartDate ?? MIN_KEY);
 
   const entries = patient.entriesForDate(dateKey);
   const totals = useMemo(
@@ -237,7 +236,7 @@ export default function TodayScreen() {
   const gaugeFrac = Math.min(1, Math.max(0, totals.calories / Math.max(1, goal)));
 
   const dayCheckIn = patient.checkInFor(dateKey);
-  const todayCheckIn = patient.checkInFor(TODAY_KEY);
+  const todayCheckIn = patient.checkInFor(liveTodayKey);
 
   // Focus-bar message, phrased to always read whole. The checked-in state
   // leans on the check glyph instead of spelling out "Checked in — ", which
@@ -361,12 +360,12 @@ export default function TodayScreen() {
             </View>
 
             <Text style={[styles.heroGreeting, { color: colors.navy }]}>
-              Welcome back, {FIRST_NAME}
+              Welcome back, {firstName}
             </Text>
             {!isToday && (
               <Pressable
                 testID="today-jump-today"
-                onPress={() => setDateKey(TODAY_KEY)}
+                onPress={() => setDateKey(liveTodayKey)}
                 hitSlop={6}
                 style={({ pressed }) => [styles.jumpToday, pressed && { opacity: 0.7 }]}
               >
@@ -543,7 +542,7 @@ export default function TodayScreen() {
                   style={[styles.instructionsTitle, { color: colors.navyLight }]}
                   numberOfLines={1}
                 >
-                  Day {ENROLLMENT_DAYS} · {CURRENT_PHASE.name}
+                  Day {programDay} · {currentPhase.name}
                 </Text>
               </View>
               <Feather name="chevron-right" size={17} color={colors.subtleText} />

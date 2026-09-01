@@ -50,6 +50,7 @@ import { createLimiter, envLimit } from "../coach/limits";
 import { clientIp } from "../auth/ledger";
 import { isOwnPatientMediaPath, PATIENT_MEDIA_PREFIX } from "./patient-media";
 import { objectStorage } from "../lib/objectStorage";
+import { fetchPatientProfile, firstNameOf, programDayFor } from "../coach/real-patient";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -560,7 +561,15 @@ router.get("/patient-data/state", async (req, res) => {
     }
     const from = typeof req.query.from === "string" ? req.query.from : null;
     const to = typeof req.query.to === "string" ? req.query.to : null;
-    if ((from !== null && !isDateKey(from)) || (to !== null && !isDateKey(to))) {
+    const today =
+      typeof req.query.today === "string"
+        ? req.query.today
+        : new Date().toISOString().slice(0, 10);
+    if (
+      (from !== null && !isDateKey(from)) ||
+      (to !== null && !isDateKey(to)) ||
+      !isDateKey(today)
+    ) {
       res.status(400).json({ error: "Invalid date range." });
       return;
     }
@@ -574,7 +583,7 @@ router.get("/patient-data/state", async (req, res) => {
     // Photos, check-ins, and flags are deliberately NOT range-filtered: the
     // grid shows every photo the account owns, the weight chart wants the
     // whole weigh-in history, and flags are a singleton.
-    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags] = await Promise.all([
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, profile] = await Promise.all([
       supabaseAdmin(
         "GET",
         `/rest/v1/patient_diary_entries?${rangeFilters([`patient_id=eq.${pid}`])}` +
@@ -622,6 +631,7 @@ router.get("/patient-data/state", async (req, res) => {
         `/rest/v1/patient_flags?patient_id=eq.${pid}` +
           `&select=nudge_opt_out,nudge_engaged,nudge_last_sent_key,nudge_last_crossing_key,onboarding_complete,onboarding_answers,notification_prefs`,
       ),
+      fetchPatientProfile(auth.patientId),
     ]);
     for (const r of [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags]) {
       if (r.status >= 300 || !Array.isArray(r.json)) throw new Error(`state fetch failed (${r.status})`);
@@ -760,6 +770,12 @@ router.get("/patient-data/state", async (req, res) => {
     if (flagRow?.notification_prefs && typeof flagRow.notification_prefs === "object") {
       flagsOut.notificationPrefs = flagRow.notification_prefs;
     }
+    // Legacy records may not have a program_start_date. Their clinical-row
+    // created_at is the documented anchor fallback, matching coach grounding.
+    const startRaw = profile.program_start_date ?? profile.created_at ?? today;
+    const programStartDate = isDateKey(String(startRaw).slice(0, 10))
+      ? String(startRaw).slice(0, 10)
+      : today;
 
     res.json({
       entries: entryList,
@@ -772,6 +788,12 @@ router.get("/patient-data/state", async (req, res) => {
       photos: photoList,
       checkIns: checkInList,
       flags: flagsOut,
+      entry: {
+        firstName: firstNameOf(profile.name),
+        programStartDate,
+        todayKey: today,
+        programDay: programDayFor(profile, today),
+      },
       // Read capability for this patient's media: display URLs the client
       // builds append it, and GET /patient-media/file requires it.
       mediaToken: mintPatientMediaToken(auth.patientId),

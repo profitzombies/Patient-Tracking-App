@@ -62,6 +62,14 @@ export interface PatientFlagsWrite {
   notificationPrefs: object;
 }
 
+/** Server-authoritative facts that define a real patient's app entry. */
+export interface PatientEntryFacts {
+  firstName: string;
+  programStartDate: string;
+  todayKey: string;
+  programDay: number;
+}
+
 /** The server-backed slice of a real patient's diary, as hydrated. */
 export interface PatientServerState {
   entries: MealLogEntry[];
@@ -74,6 +82,7 @@ export interface PatientServerState {
   photos: ProgressPhotoWire[];
   checkIns: CheckIn[];
   flags: PatientFlags;
+  entry: PatientEntryFacts;
 }
 
 /**
@@ -133,7 +142,7 @@ export interface ChatThreadSnapshot {
 
 /** The live diary rail (implemented by lib/patient-data-api.ts). */
 export interface PatientDataApi {
-  fetchState(fromKey: string, toKey: string): Promise<PatientServerState>;
+  fetchState(fromKey?: string, toKey?: string, todayKey?: string): Promise<PatientServerState>;
   writeEntries(input: {
     upsert?: MealLogEntry[];
     deleteIds?: string[];

@@ -484,7 +484,7 @@ describe("GET /patient-data/state", () => {
 
   it("returns an empty slice for a fresh account", async () => {
     backend.seedSignedInPatient("tok-1");
-    const res = await api("GET", "/api/patient-data/state?from=2026-07-01&to=2026-08-31", {
+    const res = await api("GET", "/api/patient-data/state?from=2026-07-01&to=2026-08-31&today=2026-08-31", {
       token: "tok-1",
     });
     expect(res.status).toBe(200);
@@ -505,13 +505,62 @@ describe("GET /patient-data/state", () => {
         nudgeLastCrossingKey: null,
         onboardingComplete: false,
       },
+      entry: {
+        firstName: "Casey",
+        programStartDate: "2026-08-31",
+        todayKey: "2026-08-31",
+        programDay: 1,
+      },
       mediaToken: expect.any(String),
+    });
+  });
+
+  it("returns live identity and elapsed program facts, falling back to row creation day", async () => {
+    const current = backend.seedSignedInPatient("tok-1");
+    Object.assign(
+      backend.tables.patients.find(row => row.id === current.patientId),
+      {
+        name: "Riley Chen",
+        program_start_date: "2026-08-10",
+        created_at: "2026-08-01T10:00:00Z",
+      },
+    );
+    const live = await api("GET", "/api/patient-data/state?today=2026-08-22", { token: "tok-1" });
+    expect(live.status).toBe(200);
+    expect(live.json.entry).toEqual({
+      firstName: "Riley",
+      programStartDate: "2026-08-10",
+      todayKey: "2026-08-22",
+      programDay: 12,
+    });
+
+    const legacy = backend.seedSignedInPatient("tok-2");
+    Object.assign(
+      backend.tables.patients.find(row => row.id === legacy.patientId),
+      {
+        name: "Legacy Patient",
+        program_start_date: null,
+        created_at: "2026-08-01T10:00:00Z",
+      },
+    );
+    const fallback = await api("GET", "/api/patient-data/state?today=2026-08-22", { token: "tok-2" });
+    expect(fallback.status).toBe(200);
+    expect(fallback.json.entry).toEqual({
+      firstName: "Legacy",
+      programStartDate: "2026-08-01",
+      todayKey: "2026-08-22",
+      programDay: 21,
     });
   });
 
   it("rejects malformed date ranges", async () => {
     backend.seedSignedInPatient("tok-1");
-    for (const range of ["from=2026-13-01", "to=2026-02-30", "from=garbage"]) {
+    for (const range of [
+      "from=2026-13-01",
+      "to=2026-02-30",
+      "from=garbage",
+      "today=2026-02-30",
+    ]) {
       const res = await api("GET", `/api/patient-data/state?${range}`, { token: "tok-1" });
       expect(res.status).toBe(400);
       expect(res.json.error).toBe("Invalid date range.");
@@ -616,7 +665,7 @@ describe("GET /patient-data/state", () => {
       body: { dateKey: "2026-08-30", oz: 40 },
     });
 
-    const other = await api("GET", "/api/patient-data/state", { token: "tok-2" });
+    const other = await api("GET", "/api/patient-data/state?today=2026-08-31", { token: "tok-2" });
     expect(other.json).toEqual({
       entries: [],
       water: {},
@@ -633,6 +682,12 @@ describe("GET /patient-data/state", () => {
         nudgeLastSentKey: null,
         nudgeLastCrossingKey: null,
         onboardingComplete: false,
+      },
+      entry: {
+        firstName: "Casey",
+        programStartDate: "2026-08-31",
+        todayKey: "2026-08-31",
+        programDay: 1,
       },
       mediaToken: expect.any(String),
     });

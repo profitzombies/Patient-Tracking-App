@@ -13,8 +13,9 @@
  * Saves go through the patient store's gated flag queue: they wait for the
  * account's server truth (never racing hydration), newer answers coalesce
  * over older ones while a push is in flight, and a failed push surfaces a
- * retryable sync notice instead of being dropped. Onboarding itself still
- * never blocks on the network.
+ * retryable sync notice instead of being dropped. Intermediate steps stay
+ * non-blocking; final completion waits for server confirmation before Today
+ * is allowed to open.
  */
 import React, {
   createContext,
@@ -49,7 +50,7 @@ interface OnboardingContextValue {
   /** Record that the user advanced to `key` through the flow. */
   advance: (key: StepKey) => void;
   /** End the run after completion so stale history redirects to a fresh start. */
-  endRun: () => void;
+  endRun: () => Promise<boolean>;
 }
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -100,7 +101,11 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   // the app the root layout always nests this provider inside it.
   const patient = usePatientOptional();
   const saveFlagsRef = useRef<((flags: Partial<PatientFlagsWrite>) => void) | null>(null);
+  const completeRef = useRef<(
+    (flags: Partial<PatientFlagsWrite> & { onboardingComplete: true }) => Promise<boolean>
+  ) | null>(null);
   saveFlagsRef.current = patient?.saveOnboardingFlags ?? null;
+  completeRef.current = patient?.completeOnboarding ?? null;
 
   const pushFlags = useCallback((flags: Partial<PatientFlagsWrite>) => {
     if (accountRef.current.kind !== 'real') return;
@@ -159,10 +164,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     [pushFlags],
   );
 
-  const endRun = useCallback(() => {
-    setBegun(false);
+  const endRun = useCallback(async (): Promise<boolean> => {
     const final = answersRef.current;
-    pushFlags({
+    const payload: Partial<PatientFlagsWrite> & { onboardingComplete: true } = {
       onboardingAnswers: final,
       onboardingComplete: true,
       notificationPrefs: {
@@ -171,8 +175,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         reminderAfternoon: final.reminderAfternoon,
         reminderEvening: final.reminderEvening,
       },
-    });
-  }, [pushFlags]);
+    };
+    if (accountRef.current.kind !== 'real') {
+      setBegun(false);
+      return true;
+    }
+    const saved = await (completeRef.current?.(payload) ?? Promise.resolve(false));
+    if (saved) setBegun(false);
+    return saved;
+  }, []);
 
   const value = useMemo<OnboardingContextValue>(
     () => ({ begun, answers, furthest, patch, reset, advance, endRun }),

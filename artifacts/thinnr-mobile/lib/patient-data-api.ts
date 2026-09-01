@@ -31,6 +31,7 @@ import type {
   PatientDataApi,
   PatientFlags,
   PatientFlagsWrite,
+  PatientEntryFacts,
   PatientServerState,
   ProgressPhotoWire,
 } from '@/context/PatientAccountContext';
@@ -586,6 +587,32 @@ function parseFlags(raw: unknown): PatientFlags {
   return flags;
 }
 
+function parseEntryFacts(raw: unknown): PatientEntryFacts {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new PatientDataError(MALFORMED_MESSAGE);
+  }
+  const entry = raw as Record<string, unknown>;
+  if (
+    typeof entry.firstName !== 'string' ||
+    entry.firstName.length < 1 ||
+    typeof entry.programStartDate !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(entry.programStartDate) ||
+    typeof entry.todayKey !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(entry.todayKey) ||
+    typeof entry.programDay !== 'number' ||
+    !Number.isInteger(entry.programDay) ||
+    entry.programDay < 1
+  ) {
+    throw new PatientDataError(MALFORMED_MESSAGE);
+  }
+  return {
+    firstName: entry.firstName,
+    programStartDate: entry.programStartDate,
+    todayKey: entry.todayKey,
+    programDay: entry.programDay,
+  };
+}
+
 function parseServerState(json: unknown): PatientServerState {
   if (typeof json !== 'object' || json === null) throw new PatientDataError(MALFORMED_MESSAGE);
   const data = json as Record<string, unknown>;
@@ -630,6 +657,7 @@ function parseServerState(json: unknown): PatientServerState {
   const photos = Array.isArray(data.photos) ? data.photos.map(parseProgressPhoto) : [];
   const checkIns = Array.isArray(data.checkIns) ? data.checkIns.map(parseCheckInWire) : [];
   const flags = parseFlags(data.flags);
+  const entry = parseEntryFacts(data.entry);
 
   return {
     entries,
@@ -642,14 +670,19 @@ function parseServerState(json: unknown): PatientServerState {
     photos,
     checkIns,
     flags,
+    entry,
   };
 }
 
 export const patientDataApi: PatientDataApi = {
-  async fetchState(fromKey: string, toKey: string): Promise<PatientServerState> {
+  async fetchState(fromKey?: string, toKey?: string, todayKey?: string): Promise<PatientServerState> {
+    const query = new URLSearchParams();
+    if (fromKey) query.set('from', fromKey);
+    if (toKey) query.set('to', toKey);
+    if (todayKey) query.set('today', todayKey);
     const json = await authedRequest(
       'GET',
-      `/patient-data/state?from=${encodeURIComponent(fromKey)}&to=${encodeURIComponent(toKey)}`,
+      `/patient-data/state${query.size > 0 ? `?${query.toString()}` : ''}`,
     );
     // The media token must land BEFORE row parsing: library and chat
     // parses build display URLs, and those URLs must carry it.

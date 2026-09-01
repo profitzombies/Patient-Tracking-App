@@ -40,6 +40,7 @@ import {
 } from '@/data/custom-food-state';
 import { buildCopyWithExtras, cloneEntriesForCopy } from '@/data/diary-entries';
 import { setPatientMediaToken } from '@/lib/media-token-holder';
+import { localTodayKey } from '@/lib/live-patient-entry';
 import {
   applyRemoveEntries,
   applyRemoveEntry,
@@ -58,7 +59,6 @@ import {
   buildSeedEntries,
   buildSeedWater,
   DEFAULT_TARGETS,
-  DIARY_MIN_KEY,
   FOOD_DB,
   PATIENT_PROFILE,
   SEED_PHOTOS,
@@ -83,6 +83,7 @@ import {
   type PatientAccount,
   type PatientDataApi,
   type PatientFlagsWrite,
+  type PatientEntryFacts,
   type ProgressPhotoWire,
 } from './PatientAccountContext';
 
@@ -319,9 +320,13 @@ interface PatientContextValue {
    * Honors the hydration gate: writes wait for server truth (a failed
    * hydration keeps them queued behind its retry notice, never dropped),
    * and a failed push surfaces a retryable sync notice. Demo persona and
-   * standalone mounts: no-op. Fire-and-forget — onboarding never blocks.
+   * standalone mounts: no-op. Routine answer saves are fire-and-forget.
    */
   saveOnboardingFlags: (flags: Partial<PatientFlagsWrite>) => void;
+  /** Persist final onboarding state before protected patient routes unlock. */
+  completeOnboarding: (
+    flags: Partial<PatientFlagsWrite> & { onboardingComplete: true },
+  ) => Promise<boolean>;
   /** Clears only this device's patient companion data before an auth handoff. */
   clearLocalState: () => Promise<void>;
   /**
@@ -332,6 +337,8 @@ interface PatientContextValue {
    * reinstall, and new devices.
    */
   hydratedFlags: HydratedOnboardingFlags | null;
+  /** Live identity/calendar/program facts; null for demo and before hydration. */
+  entryFacts: PatientEntryFacts | null;
 }
 
 /** Onboarding-owned account flags, exactly as hydration delivered them. */
@@ -457,11 +464,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // switch — queued flags belong to the account that produced them.
   const pendingFlagsRef = useRef<Partial<PatientFlagsWrite> | null>(null);
   const flagsFlightRef = useRef(false);
+  const completionWaitersRef = useRef<Array<(saved: boolean) => void>>([]);
   // The account key the pending queues currently belong to (hygiene gate).
   const hygieneKeyRef = useRef<string | null>(null);
   // Onboarding answers/prefs as hydrated from the account, for
   // OnboardingProvider to reconcile from (demo persona: always null).
   const [hydratedFlags, setHydratedFlags] = useState<HydratedOnboardingFlags | null>(null);
+  const [entryFacts, setEntryFacts] = useState<PatientEntryFacts | null>(null);
 
   // Mutations must wait for hydration: a pre-hydration commit would build on
   // EMPTY_STATE and clobber previously persisted data in storage.
@@ -567,21 +576,43 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       while (pendingFlagsRef.current) {
         await hydrationGate.current!.promise;
         const run = beginRun(epochRef.current);
-        if (!run) return; // account switching underneath — switch clears the queue
+        if (!run) {
+          completionWaitersRef.current.splice(0).forEach(resolve => resolve(false));
+          return; // account switching underneath — switch clears the queue
+        }
         if (run.account.kind !== 'real') {
           // Demo/unresolved: nothing to persist server-side.
           pendingFlagsRef.current = null;
+          completionWaitersRef.current.splice(0).forEach(resolve => resolve(false));
           return;
         }
         if (!serverTruthRef.current) {
           // Blocked: hydration failed, its retry notice is already up. The
           // queue survives; a successful (re)hydration flushes it.
+          completionWaitersRef.current.splice(0).forEach(resolve => resolve(false));
           return;
         }
         const payload = pendingFlagsRef.current;
         pendingFlagsRef.current = null;
         try {
           await run.account.api.writeFlags(payload);
+          if (epochRef.current === run.epoch) {
+            setHydratedFlags(previous => {
+              if (!previous) return previous;
+              return {
+                ...previous,
+                ...(payload.onboardingComplete !== undefined
+                  ? { onboardingComplete: payload.onboardingComplete }
+                  : {}),
+                ...(payload.onboardingAnswers !== undefined
+                  ? { onboardingAnswers: payload.onboardingAnswers as Record<string, unknown> }
+                  : {}),
+                ...(payload.notificationPrefs !== undefined
+                  ? { notificationPrefs: payload.notificationPrefs as Record<string, unknown> }
+                  : {}),
+              };
+            });
+          }
         } catch (error) {
           if (epochRef.current === run.epoch) {
             pendingFlagsRef.current = { ...payload, ...(pendingFlagsRef.current ?? {}) };
@@ -591,9 +622,11 @@ export function PatientProvider({ children }: { children: ReactNode }) {
               action: 'retry-flags',
             });
           }
+          completionWaitersRef.current.splice(0).forEach(resolve => resolve(false));
           return;
         }
       }
+      completionWaitersRef.current.splice(0).forEach(resolve => resolve(true));
     } finally {
       flagsFlightRef.current = false;
     }
@@ -603,6 +636,21 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     (flags: Partial<PatientFlagsWrite>) => {
       pendingFlagsRef.current = { ...(pendingFlagsRef.current ?? {}), ...flags };
       void flushOnboardingFlags();
+    },
+    [flushOnboardingFlags],
+  );
+
+  const completeOnboarding = useCallback(
+    (
+      flags: Partial<PatientFlagsWrite> & { onboardingComplete: true },
+    ): Promise<boolean> => {
+      if (runAccountRef.current.kind !== 'real') return Promise.resolve(true);
+      pendingFlagsRef.current = { ...(pendingFlagsRef.current ?? {}), ...flags };
+      const saved = new Promise<boolean>(resolve => {
+        completionWaitersRef.current.push(resolve);
+      });
+      void flushOnboardingFlags();
+      return saved;
     },
     [flushOnboardingFlags],
   );
@@ -646,10 +694,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       for (const pending of pendingPhotoRemovalsRef.current.values()) clearTimeout(pending.timer);
       pendingPhotoRemovalsRef.current.clear();
       pendingFlagsRef.current = null;
+      completionWaitersRef.current.splice(0).forEach(resolve => resolve(false));
       // The media read token belongs to the previous account; the new
       // account's own token arrives with its hydration (demo never has one).
       setPatientMediaToken(null);
       setHydratedFlags(null);
+      setEntryFacts(null);
     }
 
     if (!isInitialMount) {
@@ -677,8 +727,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     if (account.kind === 'real') {
       const acct = account;
       (async () => {
+        const currentLocalDay = localTodayKey();
         const [serverResult, localResult] = await Promise.allSettled([
-          acct.api.fetchState(DIARY_MIN_KEY, TODAY_KEY),
+          // Real accounts are not bounded by the demo seed calendar. The API
+          // caps returned rows, while this unbounded range ensures every
+          // program date Today exposes has its corresponding diary data.
+          acct.api.fetchState(undefined, undefined, currentLocalDay),
           readPersistedState(storageKeyFor(acct)),
         ]);
         if (epochRef.current !== epoch) return;
@@ -723,6 +777,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             notificationPrefs: server.flags.notificationPrefs ?? null,
             onboardingComplete: server.flags.onboardingComplete,
           });
+          setEntryFacts(server.entry);
         } else {
           // Explicit failure: open seedless with the device-local slices and
           // surface the error with a retry. Server truth never arrived, so
@@ -1783,7 +1838,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setNudgeOptOut,
       recordNudgeSent,
       saveOnboardingFlags,
+      completeOnboarding,
       hydratedFlags,
+      entryFacts,
       clearLocalState,
     }),
     [
@@ -1833,7 +1890,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setNudgeOptOut,
       recordNudgeSent,
       saveOnboardingFlags,
+      completeOnboarding,
       hydratedFlags,
+      entryFacts,
       clearLocalState,
     ],
   );

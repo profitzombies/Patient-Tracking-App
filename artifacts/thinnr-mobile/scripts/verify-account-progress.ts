@@ -53,6 +53,7 @@ import { usePatientAccount, type PatientAccountState } from '../context/PatientA
 import { OnboardingProvider, useOnboarding } from '../context/OnboardingContext';
 import { DEFAULT_ANSWERS } from '../data/onboarding-data';
 import { TODAY_KEY } from '../data/patient-data';
+import { liveEntryDecision, localTodayKey } from '../lib/live-patient-entry';
 import { patientMediaDisplayUrl } from '../lib/patient-data-api';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
 
@@ -192,6 +193,8 @@ function routeCall(call: ApiCall): Scripted {
   const store = storeFor(role.patientId);
 
   if (key === 'GET patient-data/state') {
+    const todayKey = call.query.get('today') ?? '2026-09-01';
+    const isInvitedAccount = role.patientId === 'p-1';
     return {
       status: 200,
       body: {
@@ -205,6 +208,12 @@ function routeCall(call: ApiCall): Scripted {
         photos: store.photos,
         checkIns: store.checkIns,
         flags: store.flags,
+        entry: {
+          firstName: isInvitedAccount ? 'Invited' : 'Signup',
+          programStartDate: isInvitedAccount ? '2026-08-20' : todayKey,
+          todayKey,
+          programDay: isInvitedAccount ? 12 : 1,
+        },
         // Patient-scoped media read capability, as the real server mints it.
         mediaToken: `mt-${role.patientId}`,
       },
@@ -446,6 +455,31 @@ async function main() {
   tree = await mountLive();
   assert('account resolves to real', account.account.kind === 'real');
   assert('real hydration completes', ctx.hydrated);
+  assert('invited account hydrates its live entry identity', ctx.entryFacts?.firstName === 'Invited');
+  assert('invited account hydrates elapsed program state', ctx.entryFacts?.programDay === 12);
+  const entryStateCall = lastCallTo('patient-data/state');
+  assert('state request sends the device-local calendar day',
+    entryStateCall?.query.get('today') === localTodayKey());
+  assert('uncompleted invited account is forced from Today into onboarding',
+    liveEntryDecision({
+      modeHydrated: true,
+      mode: 'patient',
+      accountResolving: false,
+      accountKind: 'real',
+      patientHydrated: true,
+      onboardingComplete: ctx.hydratedFlags?.onboardingComplete ?? null,
+      pathname: '/today',
+    }).kind === 'redirect');
+  assert('the onboarding route itself is allowed for an incomplete account',
+    liveEntryDecision({
+      modeHydrated: true,
+      mode: 'patient',
+      accountResolving: false,
+      accountKind: 'real',
+      patientHydrated: true,
+      onboardingComplete: false,
+      pathname: '/onboarding/welcome',
+    }).kind === 'allow');
   assert('no seeded photos', ctx.photos.length === 0);
   assert('no seeded check-ins', ctx.checkIns.length === 0);
   assert('no seeded weight series', ctx.weightSeries.length === 0);
@@ -767,6 +801,7 @@ async function main() {
 
   // ── 9 · Onboarding answers + notification prefs ride the account ──────────
   section('onboarding: answers, completion, and notification prefs persist');
+  storeFor('p-1').flags.onboardingComplete = false;
   tree = await mountOnboarding();
   assert('onboarding sees the real account', account.account.kind === 'real');
   const flagCallsBeforeOnb = callsTo('patient-data/flags').length;
@@ -786,19 +821,54 @@ async function main() {
   assert('server stores the running answers',
     (storeFor('p-1').flags.onboardingAnswers as Record<string, unknown> | undefined)?.notifications === 'enabled');
 
+  failNext.set('PUT patient-data/flags', {
+    status: 502,
+    body: { error: 'Couldn’t save your settings right now. Please try again.' },
+  });
+  let failedCompletion = true;
   await act(async () => {
-    onb.endRun();
+    failedCompletion = await onb.endRun();
+  });
+  await settle();
+  assert('failed completion cannot unlock Today',
+    failedCompletion === false
+    && ctx.hydratedFlags?.onboardingComplete === false
+    && storeFor('p-1').flags.onboardingComplete === false
+    && liveEntryDecision({
+      modeHydrated: true,
+      mode: 'patient',
+      accountResolving: false,
+      accountKind: 'real',
+      patientHydrated: true,
+      onboardingComplete: ctx.hydratedFlags?.onboardingComplete ?? null,
+      pathname: '/today',
+    }).kind === 'redirect');
+
+  let completionSaved = false;
+  await act(async () => {
+    completionSaved = await onb.endRun();
   });
   await settle();
   const endCall = lastCallTo('patient-data/flags');
   const prefs = endCall?.body?.notificationPrefs as Record<string, unknown> | undefined;
-  assert('finishing marks the account complete with prefs', endCall?.body?.onboardingComplete === true
+  assert('finishing marks the account complete with prefs', completionSaved
+    && endCall?.body?.onboardingComplete === true
     && prefs?.notifications === 'enabled'
     && prefs?.reminderMorning === '9:00 AM'
     && typeof prefs?.reminderAfternoon === 'string'
     && typeof prefs?.reminderEvening === 'string');
   assert('server stores completion + prefs', storeFor('p-1').flags.onboardingComplete === true
     && (storeFor('p-1').flags.notificationPrefs as Record<string, unknown> | undefined)?.reminderMorning === '9:00 AM');
+  assert('completion immediately opens patient destinations',
+    liveEntryDecision({
+      modeHydrated: true,
+      mode: 'patient',
+      accountResolving: false,
+      accountKind: 'real',
+      patientHydrated: true,
+      onboardingComplete: ctx.hydratedFlags?.onboardingComplete ?? null,
+      pathname: '/today',
+    }).kind === 'allow');
 
   // A failed push keeps the answers queued behind a RETRY notice — the
   // account never silently loses what the patient already answered.
@@ -839,6 +909,8 @@ async function main() {
     && onb.answers.notifications === 'enabled'
     && Array.isArray(onb.answers.diets));
   assert('a restored account is not dropped into a live run', onb.begun === false);
+  assert('reload preserves onboarding completion for returning login',
+    ctx.hydratedFlags?.onboardingComplete === true);
 
   await signIn(null);
   const flagCallsSignedOut = callsTo('patient-data/flags').length;
@@ -872,6 +944,8 @@ async function main() {
   await signIn(P2);
   assert('second account starts clean', ctx.photos.length === 0 && ctx.checkIns.length === 0
     && !ctx.nudgeOptOut && !ctx.nudgeEngaged);
+  assert('self-signup account hydrates its own live identity and starts on day one',
+    ctx.entryFacts?.firstName === 'Signup' && ctx.entryFacts?.programDay === 1);
   assert('the second account gets its OWN media token',
     patientMediaDisplayUrl('/objects/patient-media/p-2/progress-x').includes('mt=mt-p-2'));
   await act(async () => {

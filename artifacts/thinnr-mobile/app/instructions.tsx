@@ -23,6 +23,8 @@ import { PhaseCard } from '@/components/patient/PhaseCard';
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { useAppMode } from '@/context/AppModeContext';
+import { usePatient } from '@/context/PatientContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { ENROLLMENT_DAYS } from '@/data/patient-data';
 import {
   clampProgramDay,
@@ -49,9 +51,13 @@ export default function InstructionsScreen() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const { mode, hydrated: modeHydrated } = useAppMode();
+  const patient = usePatient();
+  const { account } = usePatientAccount();
+  const realDay = patient.entryFacts?.programDay ?? REAL_DAY;
+  const isDemo = account.kind !== 'real';
 
   // Screen-local demo preview: defaults to the patient's real program day.
-  const [previewDay, setPreviewDay] = useState(REAL_DAY);
+  const [previewDay, setPreviewDay] = useState(realDay);
 
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 32 : insets.bottom + 24;
@@ -64,8 +70,8 @@ export default function InstructionsScreen() {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
 
-  const effectiveDay = clampProgramDay(previewDay);
-  const isPreviewing = effectiveDay !== REAL_DAY;
+  const effectiveDay = clampProgramDay(isDemo ? previewDay : realDay);
+  const isPreviewing = isDemo && effectiveDay !== REAL_DAY;
   const currentPhase = phaseForDay(effectiveDay);
 
   const goBack = () => {
@@ -112,7 +118,7 @@ export default function InstructionsScreen() {
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
         {/* ── Demo-only program day preview ── */}
-        <View
+        {isDemo && <View
           testID="demo-preview-panel"
           style={[
             styles.demoPanel,
@@ -212,7 +218,7 @@ export default function InstructionsScreen() {
               Previewing Day {effectiveDay} — your real program day is Day {REAL_DAY}.
             </Text>
           )}
-        </View>
+        </View>}
 
         {/* ── Current phase ── */}
         <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>

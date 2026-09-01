@@ -157,6 +157,7 @@ function routeCall(call: ApiCall): Scripted {
   const store = storeFor(patientId);
 
   if (key === 'GET patient-data/state') {
+    const todayKey = call.query.get('today') ?? '2026-09-01';
     return {
       status: 200,
       body: {
@@ -168,6 +169,12 @@ function routeCall(call: ApiCall): Scripted {
         // As the server responds: stored wire rows plus injected constants.
         customFoods: store.customFoods.map(row => ({ ...row, category: 'My Foods' })),
         savedRecipes: store.savedRecipes.map(row => ({ ...row, source: 'coach' })),
+        entry: {
+          firstName: patientId === 'p-1' ? 'Invited' : 'Signup',
+          programStartDate: patientId === 'p-1' ? '2026-08-20' : todayKey,
+          todayKey,
+          programDay: patientId === 'p-1' ? 12 : 1,
+        },
       },
     };
   }

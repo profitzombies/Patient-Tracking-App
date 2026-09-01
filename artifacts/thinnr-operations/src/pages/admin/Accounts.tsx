@@ -3,9 +3,16 @@
  *
  * Rows and additions are durable live provider records. Existing imported
  * rows may have intentionally unavailable account fields.
+ *
+ * The All-accounts header carries a URL-persisted directory search (?q=…,
+ * replace-navigation per keystroke — the input's value IS the parsed param,
+ * so reloads and shared links restore the view). Matching is the pure,
+ * punctuation-tolerant matcher in data/hq/accounts. Each row is also a
+ * pointer-only click target for the account detail page; the trailing Open
+ * link stays the row's one announced, keyboard-reachable control.
  */
-import { useState } from 'react';
-import { Link } from 'wouter';
+import { useMemo, useState } from 'react';
+import { Link, useLocation, useSearch } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -18,12 +25,12 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Check, ChevronsUpDown, Plus } from 'lucide-react';
+import { Check, ChevronsUpDown, Plus, Search, X } from 'lucide-react';
 import { BTN_PRIMARY, BTN_SECONDARY, INPUT_CLASS, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader } from '@/components/admin/primitives';
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
-import { monthlyRevenueOf, type AccountPlan } from '@/data/hq/accounts';
+import { accountMatchesQuery, accountSearchHaystack, monthlyRevenueOf, type AccountPlan } from '@/data/hq/accounts';
 import { ProviderAccountError } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
 import { useSession } from '@/contexts/session';
@@ -50,6 +57,32 @@ export default function Accounts() {
   const { authStatus, hqRole } = useSession();
   const { isLocked } = useAccountLocks();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  // ?q= is the single source of truth for the directory search — the input's
+  // value IS the parsed param, so reloads and shared URLs restore the view.
+  const searchString = useSearch();
+  const query = new URLSearchParams(searchString).get('q') ?? '';
+  const setQuery = (next: string) => {
+    const params = new URLSearchParams(searchString);
+    if (next) params.set('q', next);
+    else params.delete('q');
+    const encoded = params.toString();
+    navigate(encoded ? `/admin/accounts?${encoded}` : '/admin/accounts', { replace: true });
+  };
+
+  // Corpora build once per directory load; matching is per keystroke.
+  const searchableAccounts = useMemo(
+    () => accounts.map((account) => ({
+      account,
+      haystack: accountSearchHaystack(account, { locked: isLocked(account.id) }),
+    })),
+    [accounts, isLocked],
+  );
+  const visibleAccounts = useMemo(
+    () => searchableAccounts.filter(({ haystack }) => accountMatchesQuery(haystack, query)).map(({ account }) => account),
+    [searchableAccounts, query],
+  );
 
   const [open, setOpen] = useState(false);
   const [stateOpen, setStateOpen] = useState(false);
@@ -145,7 +178,46 @@ export default function Accounts() {
         ) : undefined}
       />
 
-      <SectionCard title="All accounts" sub={accountsStatus === 'ready' ? `${accounts.length} offices under the umbrella` : 'Live provider directory'}>
+      <SectionCard
+        title="All accounts"
+        sub={
+          accountsStatus === 'ready' ? (
+            <span aria-live="polite" data-testid="text-accounts-count">
+              {query
+                ? `${visibleAccounts.length} of ${accounts.length} offices match`
+                : `${accounts.length} offices under the umbrella`}
+            </span>
+          ) : (
+            'Live provider directory'
+          )
+        }
+        action={
+          <div className="relative w-full sm:w-72">
+            <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search offices, providers, codes"
+              aria-label="Search accounts by office, provider, role, code, phone, email, address, plan, or status"
+              autoComplete="off"
+              data-testid="input-account-search"
+              className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-8 text-xs text-foreground shadow-xs outline-none placeholder:text-muted-foreground/80 focus:ring-2 focus:ring-ring"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Clear account search"
+                data-testid="button-clear-account-search"
+                className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        }
+      >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-left text-xs">
             <thead>
@@ -174,8 +246,40 @@ export default function Accounts() {
                   No provider accounts yet. Add the first provider account to get started.
                 </td></tr>
               )}
-              {accounts.map((account) => (
-                <tr key={account.id} className="border-b border-border transition hover:bg-accent/40 last:border-b-0" data-testid={`row-account-${account.id}`}>
+              {accountsStatus === 'ready' && accounts.length > 0 && visibleAccounts.length === 0 && (
+                <tr><td colSpan={9} className="px-5 py-10 text-center">
+                  <p className="text-xs font-semibold text-navy" data-testid="text-accounts-no-match">
+                    No offices match &ldquo;{query}&rdquo;
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                    Try an office, provider, code, phone, email, address, plan, or status.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setQuery('')}
+                    className={`${BTN_SECONDARY} mt-3 h-8 px-3 text-[11px]`}
+                    data-testid="button-accounts-empty-clear-search"
+                  >
+                    Clear search
+                  </button>
+                </td></tr>
+              )}
+              {visibleAccounts.map((account) => (
+                <tr
+                  key={account.id}
+                  onClick={(event) => {
+                    // Pointer-only convenience: the row duplicates its real,
+                    // announced control (the trailing Open link — the row's
+                    // one keyboard stop). Leave nested controls, modified
+                    // clicks, and text selection alone.
+                    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    if ((event.target as Element).closest('a, button, input, select, textarea')) return;
+                    if (window.getSelection()?.toString()) return;
+                    navigate(`/admin/accounts/${account.id}`);
+                  }}
+                  className="cursor-pointer border-b border-border transition hover:bg-accent/40 has-[a:focus-visible]:bg-accent/60 last:border-b-0"
+                  data-testid={`row-account-${account.id}`}
+                >
                   <td className="px-5 py-3">
                     <b className="block text-xs font-semibold text-navy">{account.officeName}</b>
                      <small className="text-[10px] text-muted-foreground">{[account.city, account.state ? usStateName(account.state) : ''].filter(Boolean).join(', ') || '—'}</small>
@@ -200,6 +304,7 @@ export default function Accounts() {
                   <td className="px-5 py-3 text-right">
                     <Link
                       href={`/admin/accounts/${account.id}`}
+                      aria-label={`Open ${account.officeName}`}
                       className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
                       data-testid={`link-account-${account.id}`}
                     >

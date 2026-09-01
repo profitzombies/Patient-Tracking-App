@@ -1,5 +1,14 @@
-/** Live provider-account shapes shared by HQ screens and scope helpers. */
+/**
+ * Live provider-account shapes shared by HQ screens and scope helpers, plus
+ * the pure, node-testable directory search matcher the All-accounts table
+ * uses. The matcher mirrors the conversations rail search: case-insensitive,
+ * punctuation-tolerant (digit tokens match phones, codes, and ZIPs however
+ * either side is formatted), with every whitespace token required to hit
+ * somewhere across the account's displayed values.
+ */
 import { MOCK_ANALYTICS } from '../mock-data';
+import { formatDateKey } from '../nutrition-data';
+import { usStateName } from '../../lib/us-contact';
 
 export type AccountStatus = 'active' | 'needs_setup' | 'locked';
 export type AccountPlan = 'Core' | 'Plus' | 'Concierge';
@@ -61,6 +70,91 @@ export const monthlyRevenueOf = (account: ProviderAccount): number | null => {
   if (account.recurringRevenue == null || account.enrollmentRevenue == null) return null;
   return account.recurringRevenue + account.enrollmentRevenue;
 };
+
+// ─── Directory search ────────────────────────────────────────────────────────
+
+/** The user-facing chip wording for each account status (AccountStatusChip). */
+export const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = {
+  active: 'Active',
+  needs_setup: 'Needs setup',
+  locked: 'Disabled',
+};
+
+const digitsOf = (value: string) => value.replace(/\D+/g, '');
+const fmtNumber = (value: number) => value.toLocaleString('en-US');
+
+/** Precomputed search corpus for one account (build once, match per keystroke). */
+export interface AccountSearchHaystack {
+  /** Lowercased join of every displayed text value (raw + formatted variants). */
+  text: string;
+  /**
+   * Space-joined digit runs of phone, provider code, and ZIP — space-joined
+   * so a digit token can never falsely match across two fields.
+   */
+  digits: string;
+}
+
+/**
+ * Everything the All-accounts table displays for one account, searchable:
+ * office, provider name and role, code, plan, status wording, email, phone,
+ * full address (both lines, city, state abbreviation and full name, ZIP),
+ * joined date, patient count, and monthly revenue (raw and $-formatted).
+ */
+export function accountSearchHaystack(
+  account: ProviderAccount,
+  options?: { locked?: boolean },
+): AccountSearchHaystack {
+  const revenue = monthlyRevenueOf(account);
+  const text = [
+    account.officeName,
+    account.providerName,
+    account.providerRole,
+    account.providerCode,
+    account.plan,
+    ACCOUNT_STATUS_LABEL[account.status],
+    // Accounts locked through the HQ kill switch wear an extra "Locked"
+    // chip in the table (separate from the persisted status, whose locked
+    // label is "Disabled") — that visible wording must be searchable too.
+    options?.locked ? 'Locked' : null,
+    account.email,
+    account.phone,
+    account.address1,
+    account.address2,
+    account.city,
+    account.state,
+    account.state ? usStateName(account.state) : null,
+    account.postalCode,
+    formatDateKey(account.joinedKey, true),
+    account.activePatientCount == null ? null : `${account.activePatientCount} ${fmtNumber(account.activePatientCount)}`,
+    revenue == null ? null : `${revenue} $${fmtNumber(revenue)}`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  const digits = [account.phone, account.providerCode, account.postalCode]
+    .map((value) => digitsOf(value ?? ''))
+    .filter(Boolean)
+    .join(' ');
+  return { text, digits };
+}
+
+/**
+ * Case-insensitive, format-tolerant directory search. Every whitespace token
+ * must hit either the text corpus or — for tokens carrying digits — the digit
+ * corpus, so "(555) 301" finds the office whose phone is 555-301-4420 however
+ * either side is formatted, and "482-115" finds provider code 482115. Tokens
+ * may land in different fields ("brooks boston" matches provider + city).
+ * An empty query matches everything.
+ */
+export function accountMatchesQuery(haystack: AccountSearchHaystack, query: string): boolean {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  return tokens.every((token) => {
+    if (haystack.text.includes(token)) return true;
+    const tokenDigits = digitsOf(token);
+    return tokenDigits.length > 0 && haystack.digits.includes(tokenDigits);
+  });
+}
 
 /** Legacy office analytics have no authoritative live provider-account source. */
 export function getAccountAnalytics(account: ProviderAccount): typeof MOCK_ANALYTICS {

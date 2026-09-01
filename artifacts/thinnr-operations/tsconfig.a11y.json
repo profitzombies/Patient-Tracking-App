@@ -15,6 +15,8 @@
       "@/contexts/training-data": ["./scripts/a11y-stubs/training-data.ts"],
       "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
       "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
+      "@/contexts/hq-data": ["./scripts/a11y-stubs/hq-data.ts"],
+      "@/contexts/account-locks": ["./scripts/a11y-stubs/account-locks.ts"],
       "@/lib/supabase": ["./scripts/a11y-stubs/supabase.ts"],
       "@/*": ["./src/*"]
     }

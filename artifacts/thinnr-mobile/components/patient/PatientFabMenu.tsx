@@ -23,14 +23,17 @@
  * a permanent seat in the pill bar now.)
  */
 import React from 'react';
+import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FabMenu, type FabMenuSection } from '@/components/ui/FabMenu';
 import { useMealPhotoFlow } from '@/components/patient/MealPhotoButton';
 import { patientFabBottom } from '@/constants/layout';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 
 export function PatientFabMenu() {
   const insets = useSafeAreaInsets();
   const mealPhoto = useMealPhotoFlow();
+  const { account } = usePatientAccount();
 
   const sections: FabMenuSection[] = [
     {
@@ -49,6 +52,19 @@ export function PatientFabMenu() {
           icon: { family: 'feather', name: 'clipboard' },
           action: { kind: 'navigate', href: '/plan' },
         },
+        ...(account.kind === 'real'
+          ? [
+              {
+                key: 'account',
+                label: 'Account & settings',
+                icon: { family: 'feather' as const, name: 'user' as const },
+                action: {
+                  kind: 'run' as const,
+                  run: () => router.push('/account' as Href),
+                },
+              },
+            ]
+          : []),
       ],
     },
     {

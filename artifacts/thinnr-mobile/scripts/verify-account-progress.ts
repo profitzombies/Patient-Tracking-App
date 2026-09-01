@@ -191,10 +191,51 @@ function routeCall(call: ApiCall): Scripted {
     return { status: role ? 403 : 401, body: { error: 'Sign in required.' } };
   }
   const store = storeFor(role.patientId);
+  const isInvitedAccount = role.patientId === 'p-1';
+  const canonicalProfile = {
+    firstName: isInvitedAccount ? 'Invited' : 'Signup',
+    lastName: 'Patient',
+    email: `${role.patientId}@example.com`,
+    phone: '+15550001010',
+    dateOfBirth: '1985-04-03',
+    heightInches: 66,
+    startingWeight: 205,
+    currentWeight: 191,
+    goalWeight: 165,
+    timezone: 'America/New_York',
+    programId: 'glp1',
+    programStartDate: isInvitedAccount ? '2026-08-20' : '2026-09-01',
+    setupComplete: store.flags.onboardingComplete,
+  };
+
+  if (key === 'GET patient-data/profile') {
+    return {
+      status: 200,
+      body: { profile: canonicalProfile },
+    };
+  }
+
+  if (key === 'PUT patient-data/setup' || key === 'POST patient-data/profile/setup') {
+    const input = call.body ?? {};
+    store.flags.onboardingAnswers = input.onboardingAnswers as Record<string, unknown>;
+    if (input.notificationPrefs && typeof input.notificationPrefs === 'object') {
+      store.flags.notificationPrefs = input.notificationPrefs as Record<string, unknown>;
+    }
+    if (key === 'POST patient-data/profile/setup') store.flags.onboardingComplete = true;
+    return {
+      status: 200,
+      body: {
+        profile: {
+          ...canonicalProfile,
+          ...(input.profile as Record<string, unknown> | undefined),
+          setupComplete: store.flags.onboardingComplete,
+        },
+      },
+    };
+  }
 
   if (key === 'GET patient-data/state') {
     const todayKey = call.query.get('today') ?? '2026-09-01';
-    const isInvitedAccount = role.patientId === 'p-1';
     return {
       status: 200,
       body: {
@@ -804,7 +845,7 @@ async function main() {
   storeFor('p-1').flags.onboardingComplete = false;
   tree = await mountOnboarding();
   assert('onboarding sees the real account', account.account.kind === 'real');
-  const flagCallsBeforeOnb = callsTo('patient-data/flags').length;
+  const setupCallsBeforeOnb = callsTo('patient-data/setup').length;
   await act(async () => {
     onb.patch({ notifications: 'enabled', reminderMorning: '9:00 AM' });
   });
@@ -812,16 +853,16 @@ async function main() {
     onb.advance('contact');
   });
   await settle();
-  const advanceCall = lastCallTo('patient-data/flags');
+  const advanceCall = lastCallTo('patient-data/setup');
   const advanceAnswers = advanceCall?.body?.onboardingAnswers as Record<string, unknown> | undefined;
-  assert('advance pushes the running answers', callsTo('patient-data/flags').length === flagCallsBeforeOnb + 1
+  assert('advance pushes the running answers', callsTo('patient-data/setup').length === setupCallsBeforeOnb + 1
     && advanceAnswers?.notifications === 'enabled'
     && advanceAnswers?.reminderMorning === '9:00 AM'
-    && !('onboardingComplete' in (advanceCall?.body ?? {})));
+    && advanceCall?.method === 'PUT');
   assert('server stores the running answers',
     (storeFor('p-1').flags.onboardingAnswers as Record<string, unknown> | undefined)?.notifications === 'enabled');
 
-  failNext.set('PUT patient-data/flags', {
+  failNext.set('POST patient-data/profile/setup', {
     status: 502,
     body: { error: 'Couldn’t save your settings right now. Please try again.' },
   });
@@ -849,10 +890,10 @@ async function main() {
     completionSaved = await onb.endRun();
   });
   await settle();
-  const endCall = lastCallTo('patient-data/flags');
+  const endCall = lastCallTo('patient-data/profile/setup');
   const prefs = endCall?.body?.notificationPrefs as Record<string, unknown> | undefined;
   assert('finishing marks the account complete with prefs', completionSaved
-    && endCall?.body?.onboardingComplete === true
+    && endCall?.method === 'POST'
     && prefs?.notifications === 'enabled'
     && prefs?.reminderMorning === '9:00 AM'
     && typeof prefs?.reminderAfternoon === 'string'
@@ -870,29 +911,29 @@ async function main() {
       pathname: '/today',
     }).kind === 'allow');
 
-  // A failed push keeps the answers queued behind a RETRY notice — the
-  // account never silently loses what the patient already answered.
-  failNext.set('PUT patient-data/flags', {
+  // A failed checkpoint stays on the step with the entered answers intact.
+  // Pressing Next again re-sends the same draft safely.
+  failNext.set('PUT patient-data/setup', {
     status: 502,
     body: { error: 'Couldn’t save your settings right now. Please try again.' },
   });
-  const flagCallsBeforeRetryCase = callsTo('patient-data/flags').length;
+  const setupCallsBeforeRetryCase = callsTo('patient-data/setup').length;
   await act(async () => {
     onb.patch({ notifications: 'later' });
     onb.advance('contact');
   });
   await settle();
-  assert('failed flags push surfaces a retryable notice',
-    callsTo('patient-data/flags').length === flagCallsBeforeRetryCase + 1
-    && notice?.message === 'Couldn’t save your settings right now. Please try again.'
-    && notice?.actionLabel === 'RETRY');
+  assert('failed checkpoint stays visible and retryable',
+    callsTo('patient-data/setup').length === setupCallsBeforeRetryCase + 1
+    && onb.saveError === 'That step didn’t save. Check your connection and try again.'
+    && onb.answers.notifications === 'later');
   await act(async () => {
-    notice!.onAction();
+    await onb.advance('contact');
   });
   await settle();
-  const retriedCall = lastCallTo('patient-data/flags');
+  const retriedCall = lastCallTo('patient-data/setup');
   assert('RETRY re-sends the queued answers',
-    callsTo('patient-data/flags').length === flagCallsBeforeRetryCase + 2
+    callsTo('patient-data/setup').length === setupCallsBeforeRetryCase + 2
     && (retriedCall?.body?.onboardingAnswers as Record<string, unknown> | undefined)?.notifications === 'later'
     && (storeFor('p-1').flags.onboardingAnswers as Record<string, unknown> | undefined)?.notifications === 'later');
 

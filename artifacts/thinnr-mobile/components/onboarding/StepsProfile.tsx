@@ -5,12 +5,16 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { PillSelector } from '@/components/ui/LedgerPrimitives';
+import { LocalDatePicker } from '@/components/ui/LocalDatePicker';
 import { useOnboarding } from '@/context/OnboardingContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import {
   MONTH_LABELS,
   parseWeight,
   PROGRAM_OPTIONS,
   QUICK_START_OFFSETS,
+  isValidDateKey,
+  localStartDateKeyFor,
   quickStartTitle,
   startDateLabelFor,
   validateBirthday,
@@ -170,7 +174,13 @@ export function GenderStep() {
 
 export function BirthdayStep() {
   const { answers, patch } = useOnboarding();
-  const { complete, error } = validateBirthday(answers.birthMonth, answers.birthDay, answers.birthYear);
+  const { account } = usePatientAccount();
+  const { complete, error } = validateBirthday(
+    answers.birthMonth,
+    answers.birthDay,
+    answers.birthYear,
+    account.kind === 'real',
+  );
 
   return (
     <OnboardingFrame
@@ -196,6 +206,7 @@ export function BirthdayStep() {
             value={answers.birthDay}
             onChangeText={v => patch({ birthDay: v.replace(/\D/g, '').slice(0, 2) })}
             keyboardType="number-pad"
+            autoFocus
             maxLength={2}
             placeholder="DD"
           />
@@ -257,6 +268,12 @@ export function ProgramStep() {
 
 export function StartedStep() {
   const { answers, patch } = useOnboarding();
+  const { account } = usePatientAccount();
+  const choose = (started: YesNo) =>
+    patch({
+      started,
+      ...(account.kind === 'real' ? { programStartDate: localStartDateKeyFor(0) } : {}),
+    });
 
   return (
     <OnboardingFrame
@@ -271,14 +288,14 @@ export function StartedStep() {
         title="Yes"
         body="I've already taken my first dose."
         selected={answers.started === 'yes'}
-        onPress={() => patch({ started: 'yes' as YesNo })}
+        onPress={() => choose('yes')}
       />
       <ChoiceCard
         testID="ob-started-no"
         title="Not yet"
         body="I'm getting ready to begin."
         selected={answers.started === 'no'}
-        onPress={() => patch({ started: 'no' as YesNo })}
+        onPress={() => choose('no')}
       />
       {answers.started === 'no' ? (
         <View style={styles.blockGapTop}>
@@ -293,34 +310,88 @@ export function StartedStep() {
 
 export function StartDateStep() {
   const { answers, patch } = useOnboarding();
+  const { account } = usePatientAccount();
+  const real = account.kind === 'real';
+  const selectedKey = real
+    ? answers.programStartDate || localStartDateKeyFor(0)
+    : startDateLabelFor(answers.startOffsetDays);
+  const chooseOffset = (offset: number) =>
+    patch(
+      real
+        ? { startOffsetDays: offset, programStartDate: localStartDateKeyFor(offset) }
+        : { startOffsetDays: offset },
+    );
+  const valid = !real || isValidDateKey(answers.programStartDate);
+  const todayKey = localStartDateKeyFor(0);
+  const minDate = answers.started === 'yes' ? '2020-01-01' : todayKey;
+  const maxDate = answers.started === 'yes' ? todayKey : localStartDateKeyFor(365);
+  const labelForKey = (key: string) =>
+    new Date(`${key}T12:00:00`).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
 
   return (
     <OnboardingFrame
       stepKey="start-date"
-      title="When will you start?"
-      coach="Pick a day — we'll time your reminders around it."
+      title={real && answers.started === 'yes' ? 'When did you start?' : 'When will you start?'}
+      coach="Pick the calendar day so your program timing stays accurate."
     >
-      {QUICK_START_OFFSETS.map(offset => (
+      {(real && answers.started === 'yes' ? [0, -1, -7, -14] : QUICK_START_OFFSETS).map(offset => (
         <CheckRow
           key={offset}
           testID={`ob-date-row-${offset}`}
-          label={quickStartTitle(offset)}
-          sub={startDateLabelFor(offset)}
-          checked={answers.startOffsetDays === offset}
-          onPress={() => patch({ startOffsetDays: offset })}
+          label={
+            real && answers.started === 'yes'
+              ? offset === 0
+                ? 'Today'
+                : offset === -1
+                  ? 'Yesterday'
+                  : `${Math.abs(offset)} days ago`
+              : quickStartTitle(offset)
+          }
+          sub={real ? labelForKey(localStartDateKeyFor(offset)) : startDateLabelFor(offset)}
+          checked={
+            real
+              ? selectedKey === localStartDateKeyFor(offset)
+              : answers.startOffsetDays === offset
+          }
+          onPress={() => chooseOffset(offset)}
         />
       ))}
       <View style={styles.blockGapTop}>
-        <StepperRow
-          testID="ob-date-step"
-          label="Or pick any day"
-          display={`+${answers.startOffsetDays}d`}
-          onDec={() => patch({ startOffsetDays: answers.startOffsetDays - 1 })}
-          onInc={() => patch({ startOffsetDays: answers.startOffsetDays + 1 })}
-          decDisabled={answers.startOffsetDays <= 0}
-          incDisabled={answers.startOffsetDays >= 60}
-        />
-        <InfoCard label="Planned start" body={startDateLabelFor(answers.startOffsetDays, true)} />
+        {real ? (
+          <>
+            <FieldLabel text="Or choose any date" />
+            <LocalDatePicker
+              testID="ob-start-date-calendar"
+              value={answers.programStartDate}
+              onChange={programStartDate => patch({ programStartDate })}
+              minDate={minDate}
+              maxDate={maxDate}
+            />
+            <View style={styles.blockGapTop}>
+              <InfoCard
+                label="Planned start"
+                body={valid ? labelForKey(answers.programStartDate) : 'Choose a calendar date above.'}
+              />
+            </View>
+          </>
+        ) : (
+          <>
+            <StepperRow
+              testID="ob-date-step"
+              label="Or pick any day"
+              display={`+${answers.startOffsetDays}d`}
+              onDec={() => patch({ startOffsetDays: answers.startOffsetDays - 1 })}
+              onInc={() => patch({ startOffsetDays: answers.startOffsetDays + 1 })}
+              decDisabled={answers.startOffsetDays <= 0}
+              incDisabled={answers.startOffsetDays >= 60}
+            />
+            <InfoCard label="Planned start" body={startDateLabelFor(answers.startOffsetDays, true)} />
+          </>
+        )}
       </View>
     </OnboardingFrame>
   );

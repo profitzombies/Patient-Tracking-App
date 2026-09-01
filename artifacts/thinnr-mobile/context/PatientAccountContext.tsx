@@ -70,6 +70,52 @@ export interface PatientEntryFacts {
   programDay: number;
 }
 
+/** Canonical, server-owned patient identity and care-plan profile. */
+export interface PatientProfile {
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  phone: string | null;
+  dateOfBirth: string | null;
+  heightInches: number | null;
+  startingWeight: number | null;
+  currentWeight: number | null;
+  goalWeight: number | null;
+  timezone: string | null;
+  programId: string | null;
+  programStartDate: string | null;
+  setupComplete: boolean;
+}
+
+export type PatientProfileWrite = Partial<
+  Pick<
+    PatientProfile,
+    | 'firstName'
+    | 'lastName'
+    | 'dateOfBirth'
+    | 'heightInches'
+    | 'startingWeight'
+    | 'currentWeight'
+    | 'goalWeight'
+    | 'timezone'
+    | 'programId'
+    | 'programStartDate'
+  >
+>;
+
+export interface PatientSetupWrite {
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  heightInches: number;
+  startingWeight: number;
+  currentWeight: number;
+  goalWeight: number;
+  timezone: string;
+  programId: string;
+  programStartDate?: string;
+}
+
 /** The server-backed slice of a real patient's diary, as hydrated. */
 export interface PatientServerState {
   entries: MealLogEntry[];
@@ -83,6 +129,8 @@ export interface PatientServerState {
   checkIns: CheckIn[];
   flags: PatientFlags;
   entry: PatientEntryFacts;
+  /** Optional only for compatibility with older test servers during rollout. */
+  profile?: PatientProfile;
 }
 
 /**
@@ -143,6 +191,12 @@ export interface ChatThreadSnapshot {
 /** The live diary rail (implemented by lib/patient-data-api.ts). */
 export interface PatientDataApi {
   fetchState(fromKey?: string, toKey?: string, todayKey?: string): Promise<PatientServerState>;
+  fetchProfile(): Promise<PatientProfile>;
+  writeProfile(input: PatientProfileWrite): Promise<{ profile: PatientProfile }>;
+  saveSetup(input: {
+    profile: PatientProfileWrite;
+    onboardingAnswers: object;
+  }): Promise<{ profile: PatientProfile }>;
   writeEntries(input: {
     upsert?: MealLogEntry[];
     deleteIds?: string[];
@@ -185,6 +239,23 @@ export interface PatientDataApi {
   writeCheckIn(checkIn: CheckIn): Promise<void>;
   /** Merges the provided account flags (stall-nudge / onboarding / prefs). */
   writeFlags(flags: Partial<PatientFlagsWrite>): Promise<void>;
+  /** Safely commits a resumable onboarding checkpoint. */
+  /** Atomically validates and commits every required canonical setup field. */
+  completeSetup(input: {
+    profile: PatientSetupWrite;
+    onboardingAnswers: object;
+    notificationPrefs: object;
+  }): Promise<{ profile: PatientProfile }>;
+  /** Sends a one-time code before changing a canonical contact field. */
+  requestProfileVerification(input: {
+    kind: 'email' | 'phone';
+    value: string;
+  }): Promise<{ requestId: string; message: string; devCode?: string }>;
+  /** Confirms a contact code and returns the updated canonical profile. */
+  verifyProfileContact(input: {
+    requestId: string;
+    code: string;
+  }): Promise<{ profile: PatientProfile }>;
 }
 
 export type PatientAccount =

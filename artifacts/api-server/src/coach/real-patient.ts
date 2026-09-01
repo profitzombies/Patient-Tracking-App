@@ -44,6 +44,8 @@ export function isDateKey(value: unknown): value is string {
 
 export interface PatientProfile {
   name: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   program_start_date: string | null;
   created_at: string | null;
 }
@@ -52,12 +54,17 @@ export interface PatientProfile {
 export async function fetchPatientProfile(patientId: string): Promise<PatientProfile> {
   const lookup = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${enc(patientId)}&select=name,program_start_date,created_at`,
+    `/rest/v1/patients?id=eq.${enc(patientId)}&select=first_name,last_name,name,program_start_date,created_at`,
   );
   if (lookup.status >= 300 || !Array.isArray(lookup.json) || lookup.json.length === 0) {
     throw new Error(`patient profile lookup failed (${lookup.status})`);
   }
-  return lookup.json[0] as PatientProfile;
+  const row = lookup.json[0] as PatientProfile;
+  const canonicalName = [row.first_name, row.last_name]
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+    .map(part => part.trim())
+    .join(" ");
+  return { ...row, name: canonicalName || row.name };
 }
 
 /** First word of the clinical name; "there" when the row has none. */

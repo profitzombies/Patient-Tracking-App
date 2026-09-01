@@ -23,6 +23,9 @@ export type YesNo = 'yes' | 'no';
 export type ReminderSlot = 'morning' | 'afternoon' | 'evening';
 
 export interface OnboardingAnswers {
+  name: string;
+  email: string;
+  phone: string;
   contactMethod: ContactMethod;
   contactValue: string;
   verified: boolean;
@@ -40,6 +43,8 @@ export interface OnboardingAnswers {
   program: ProgramChoice | null;
   started: YesNo | null;
   startOffsetDays: number; // days after the demo anchor date
+  /** Canonical local calendar date used by real accounts. */
+  programStartDate: string;
   goalWeight: string;
   healthApp: 'connected' | 'skipped' | null;
   notifications: 'enabled' | 'later' | null;
@@ -50,6 +55,9 @@ export interface OnboardingAnswers {
 }
 
 export const DEFAULT_ANSWERS: OnboardingAnswers = {
+  name: '',
+  email: '',
+  phone: '',
   contactMethod: 'phone',
   contactValue: '',
   verified: false,
@@ -67,6 +75,7 @@ export const DEFAULT_ANSWERS: OnboardingAnswers = {
   program: null,
   started: null,
   startOffsetDays: 0,
+  programStartDate: '',
   goalWeight: '',
   healthApp: null,
   notifications: null,
@@ -80,6 +89,7 @@ export const DEFAULT_ANSWERS: OnboardingAnswers = {
 
 export type StepKey =
   | 'welcome'
+  | 'identity'
   | 'contact'
   | 'verify'
   | 'provider-code'
@@ -111,6 +121,7 @@ interface StepDef {
 
 export const STEP_FLOW: StepDef[] = [
   { key: 'welcome' },
+  { key: 'identity' },
   { key: 'contact' },
   { key: 'verify' },
   { key: 'provider-code' },
@@ -122,7 +133,9 @@ export const STEP_FLOW: StepDef[] = [
   { key: 'birthday' },
   { key: 'program' },
   { key: 'started', when: onMedication },
-  { key: 'start-date', when: a => onMedication(a) && a.started === 'no' },
+  // Real accounts always confirm the authoritative start date; visibleSteps
+  // preserves the demo's original "not yet" branch.
+  { key: 'start-date', when: onMedication },
   { key: 'goal-weight' },
   { key: 'health-app' },
   { key: 'notifications' },
@@ -135,7 +148,13 @@ export const STEP_FLOW: StepDef[] = [
 
 export function visibleSteps(a: OnboardingAnswers, realAccount = false): StepKey[] {
   const accountSetup = new Set<StepKey>(['contact', 'verify', 'provider-code', 'face-id', 'password']);
-  return STEP_FLOW.filter(s => (!realAccount || !accountSetup.has(s.key)) && (!s.when || s.when(a))).map(s => s.key);
+  return STEP_FLOW.filter(
+    s =>
+      (realAccount ? !accountSetup.has(s.key) : s.key !== 'identity') &&
+      (s.key !== 'start-date' ||
+        (realAccount ? onMedication(a) : onMedication(a) && a.started === 'no')) &&
+      (!s.when || s.when(a)),
+  ).map(s => s.key);
 }
 
 /** Position of a step in the full (unconditional) flow order. */
@@ -231,6 +250,7 @@ export function validateBirthday(
   month: number | null,
   dayStr: string,
   yearStr: string,
+  useLocalClock = false,
 ): BirthdayValidation {
   if (!month || !dayStr.trim() || !yearStr.trim()) return { complete: false, error: null };
   const day = Number(dayStr);
@@ -245,10 +265,14 @@ export function validateBirthday(
     date.getUTCDate() === day;
   if (!real) return { complete: true, error: 'Enter a valid date.' };
 
-  let age = TODAY.getUTCFullYear() - year;
+  const today = useLocalClock ? new Date() : TODAY;
+  const todayYear = useLocalClock ? today.getFullYear() : today.getUTCFullYear();
+  const todayMonth = (useLocalClock ? today.getMonth() : today.getUTCMonth()) + 1;
+  const todayDay = useLocalClock ? today.getDate() : today.getUTCDate();
+  let age = todayYear - year;
   const hadBirthday =
-    TODAY.getUTCMonth() + 1 > month ||
-    (TODAY.getUTCMonth() + 1 === month && TODAY.getUTCDate() >= day);
+    todayMonth > month ||
+    (todayMonth === month && todayDay >= day);
   if (!hadBirthday) age -= 1;
 
   if (age < 18) return { complete: true, error: 'Members must be at least 18 years old.' };
@@ -277,6 +301,19 @@ export const QUICK_START_OFFSETS = [0, 1, 2, 3, 4];
 
 export function startDateKeyFor(offset: number): string {
   return toDateKey(addDays(TODAY, offset));
+}
+
+/** Real accounts use this device's local calendar, never the demo anchor. */
+export function localStartDateKeyFor(offset: number, now = new Date()): string {
+  const localNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, 12);
+  return `${localNoon.getFullYear()}-${String(localNoon.getMonth() + 1).padStart(2, '0')}-${String(localNoon.getDate()).padStart(2, '0')}`;
+}
+
+export function isValidDateKey(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day, 12);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 }
 
 export function startDateLabelFor(offset: number, includeYear = false): string {

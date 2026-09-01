@@ -50,7 +50,30 @@ import { createLimiter, envLimit } from "../coach/limits";
 import { clientIp } from "../auth/ledger";
 import { isOwnPatientMediaPath, PATIENT_MEDIA_PREFIX } from "./patient-media";
 import { objectStorage } from "../lib/objectStorage";
-import { fetchPatientProfile, firstNameOf, programDayFor } from "../coach/real-patient";
+import { firstNameOf, programDayFor } from "../coach/real-patient";
+import crypto from "node:crypto";
+import { normalizeIdentifier } from "../claim/normalize";
+import {
+  assertLiveChannelReady,
+  checkTwilioVerification,
+  deliveryMode,
+  DeliveryNotConfiguredError,
+  generateCode,
+  sendClaimEmail,
+  startTwilioVerification,
+} from "../claim/delivery";
+import {
+  CODE_TTL_MS,
+  MAX_CODE_ATTEMPTS,
+  SENDS_PER_IDENTIFIER_PER_HOUR,
+  codeMatches,
+  isCodeShaped,
+  isUuid,
+  loadRowById,
+  patchRow,
+  sha256,
+  takeAttempt,
+} from "../auth/ledger";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -89,6 +112,176 @@ const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ENTRY_ID_RE = /^[A-Za-z0-9._:-]{1,64}$/;
 const MEALS = new Set(["breakfast", "lunch", "dinner", "snacks"]);
 const KINDS = new Set(["food", "recipe", "quick"]);
+const PROFILE_CONTACT_SENDS_PER_ACCOUNT_PER_HOUR = 6;
+const PROFILE_CODE_ERROR = "That code didn't match or has expired. Check it and try again.";
+
+function timezoneIsValid(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function profileDto(row: Record<string, unknown>) {
+  const legacyName = String(row.name ?? "").trim();
+  const legacyParts = legacyName.split(/\s+/);
+  const firstName = String(row.first_name ?? legacyParts[0] ?? "").trim();
+  const lastName = String(row.last_name ?? legacyParts.slice(1).join(" ")).trim();
+  return {
+    name: [firstName, lastName].filter(Boolean).join(" "),
+    firstName,
+    lastName,
+    email: typeof row.email === "string" ? row.email : null,
+    phone: typeof row.phone === "string" ? row.phone : null,
+    dateOfBirth: typeof row.date_of_birth === "string" ? row.date_of_birth : null,
+    gender: row.gender === "male" || row.gender === "female" ? row.gender : null,
+    heightUnit: row.height_unit === "metric" ? "metric" : "imperial",
+    heightCm: numericOrNull(row.height_cm),
+    heightInches: numericOrNull(row.height_inches),
+    startingWeight: numericOrNull(row.starting_weight),
+    currentWeight: numericOrNull(row.current_weight),
+    goalWeight: numericOrNull(row.goal_weight),
+    timezone: typeof row.timezone === "string" ? row.timezone : null,
+    programId: typeof row.program_id === "string" ? row.program_id : null,
+    program:
+      row.program_id === "thinnr" || row.program_id === "glp1" || row.program_id === "none"
+        ? row.program_id
+        : null,
+    programStartDate:
+      typeof row.program_start_date === "string" ? row.program_start_date.slice(0, 10) : null,
+    emailVerified: typeof row.email_verified_at === "string",
+    phoneVerified: typeof row.phone_verified_at === "string",
+    setupComplete: typeof row.profile_completed_at === "string",
+  };
+}
+
+function numericOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+function yearsAgoDateKey(years: number): string {
+  const now = new Date();
+  const date = new Date(Date.UTC(now.getUTCFullYear() - years, now.getUTCMonth(), now.getUTCDate()));
+  return date.toISOString().slice(0, 10);
+}
+
+function parseProfilePatch(
+  raw: unknown,
+  setup: boolean,
+): { patch: Record<string, unknown> } | { error: string; field?: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { error: "Profile details are invalid." };
+  const body = raw as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string" || body.name.trim().length < 1 || body.name.trim().length > 161) {
+      return { error: "Name is invalid.", field: "name" };
+    }
+    const parts = body.name.trim().replace(/\s+/g, " ").split(" ");
+    patch.first_name = parts.shift();
+    patch.last_name = parts.join(" ") || null;
+    patch.name = body.name.trim().replace(/\s+/g, " ");
+  }
+  const text = (wire: string, column: string, max: number, required = false) => {
+    const value = body[wire];
+    if (value === undefined && !required) return null;
+    if (typeof value !== "string" || value.trim().length < 1 || value.trim().length > max) {
+      return { error: `${wire === "firstName" ? "First name" : "Last name"} is invalid.`, field: wire };
+    }
+    patch[column] = value.trim().replace(/\s+/g, " ");
+    return null;
+  };
+  let issue = text("firstName", "first_name", 80, setup);
+  if (issue) return issue;
+  issue = text("lastName", "last_name", 80, setup);
+  if (issue) return issue;
+
+  if (body.dateOfBirth !== undefined || setup) {
+    const dob = body.dateOfBirth;
+    const dobTime = typeof dob === "string" && DATE_KEY_RE.test(dob) ? Date.parse(`${dob}T00:00:00Z`) : NaN;
+    if (
+      !Number.isFinite(dobTime) ||
+      new Date(dobTime).toISOString().slice(0, 10) !== dob ||
+      dob < yearsAgoDateKey(120) ||
+      dob > yearsAgoDateKey(18)
+    ) {
+      return { error: "Date of birth is invalid.", field: "dateOfBirth" };
+    }
+    patch.date_of_birth = body.dateOfBirth;
+  }
+  for (const [wire, column, required] of [
+    ["heightInches", "height_inches", setup],
+    ["startingWeight", "starting_weight", setup],
+    ["currentWeight", "current_weight", setup],
+    ["goalWeight", "goal_weight", setup],
+  ] as const) {
+    const value = body[wire];
+    if (value === undefined && !required) continue;
+    const min = wire === "heightInches" ? 24 : 40;
+    const max = wire === "heightInches" ? 96 : 1500;
+    if (!numberIn(value, min, max)) return { error: `${wire} is invalid.`, field: wire };
+    patch[column] = value;
+  }
+  if (body.gender !== undefined) {
+    if (body.gender !== null && body.gender !== "male" && body.gender !== "female") {
+      return { error: "Gender is invalid.", field: "gender" };
+    }
+    patch.gender = body.gender;
+  }
+  if (body.heightUnit !== undefined) {
+    if (body.heightUnit !== "imperial" && body.heightUnit !== "metric") {
+      return { error: "Height unit is invalid.", field: "heightUnit" };
+    }
+    patch.height_unit = body.heightUnit;
+  }
+  if (body.heightCm !== undefined) {
+    if (body.heightCm !== null && !numberIn(body.heightCm, 60, 245)) {
+      return { error: "Height is invalid.", field: "heightCm" };
+    }
+    patch.height_cm = body.heightCm;
+    if (typeof body.heightCm === "number") patch.height_inches = body.heightCm / 2.54;
+  }
+  if (body.timezone !== undefined || setup) {
+    if (typeof body.timezone !== "string" || body.timezone.length > 100 || !timezoneIsValid(body.timezone)) {
+      return { error: "Timezone is invalid.", field: "timezone" };
+    }
+    patch.timezone = body.timezone;
+  }
+  if (body.programId !== undefined || (setup && body.program === undefined)) {
+    if (typeof body.programId !== "string" || !/^[A-Za-z0-9._:-]{1,80}$/.test(body.programId)) {
+      return { error: "Program is invalid.", field: "programId" };
+    }
+    patch.program_id = body.programId;
+  }
+  if (body.program !== undefined) {
+    if (!["thinnr", "glp1", "none", null].includes(body.program as any)) {
+      return { error: "Program is invalid.", field: "program" };
+    }
+    patch.program_id = body.program;
+  }
+  if (body.programStartDate !== undefined) {
+    if (!isDateKey(body.programStartDate)) {
+      return { error: "Program start date is invalid.", field: "programStartDate" };
+    }
+    patch.program_start_date = body.programStartDate;
+  }
+  if (
+    setup &&
+    (patch.program_id === "thinnr" || patch.program_id === "glp1") &&
+    patch.program_start_date === undefined
+  ) {
+    return { error: "Program start date is required.", field: "programStartDate" };
+  }
+  if (Object.keys(patch).length === 0) return { error: "Nothing to save." };
+  if (patch.first_name !== undefined || patch.last_name !== undefined) {
+    // Filled after loading the current row so a partial update cannot erase a name half.
+    patch.__refresh_name = true;
+  }
+  return { patch };
+}
 
 /** Credentials are never patient-data.  Keep this at the API boundary as a
  * defense in depth companion to the database trigger. */
@@ -556,6 +749,298 @@ const MAX_RECIPES_RETURNED = 1000;
 const MAX_PHOTOS_RETURNED = 1000;
 const MAX_CHECKINS_RETURNED = 400;
 
+const PROFILE_SELECT =
+  "id,first_name,last_name,name,email,phone,date_of_birth,gender,height_unit,height_cm,height_inches,starting_weight,current_weight,goal_weight,timezone,program_id,program_start_date,email_verified_at,phone_verified_at,profile_completed_at,created_at";
+
+async function loadCanonicalProfile(patientId: string): Promise<Record<string, unknown>> {
+  const result = await supabaseAdmin(
+    "GET",
+    `/rest/v1/patients?id=eq.${enc(patientId)}&select=${PROFILE_SELECT}&limit=1`,
+  );
+  if (result.status >= 300 || !Array.isArray(result.json) || result.json.length !== 1) {
+    throw new Error(`profile lookup failed (${result.status})`);
+  }
+  return result.json[0] as Record<string, unknown>;
+}
+
+router.get("/patient-data/profile", async (req, res) => {
+  const slot = acquireReadSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message });
+    return;
+  }
+  try {
+    const auth = await resolvePatient(req);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    res.json({ profile: profileDto(await loadCanonicalProfile(auth.patientId)) });
+  } catch (error) {
+    req.log?.error({ err: error }, "patient profile read failed");
+    res.status(502).json({ error: "Couldn't load your profile right now. Please try again." });
+  } finally {
+    slot.ok && slot.release();
+  }
+});
+
+async function saveProfile(req: any, res: any, setup: boolean): Promise<void> {
+  const slot = acquireWriteSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message });
+    return;
+  }
+  try {
+    const auth = await resolvePatient(req);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const profileInput =
+      body.profile && typeof body.profile === "object" && !Array.isArray(body.profile)
+        ? body.profile
+        : body;
+    const parsed = parseProfilePatch(profileInput, setup);
+    if ("error" in parsed) {
+      res.status(400).json(parsed);
+      return;
+    }
+    if (
+      body.profile !== undefined &&
+      (!body.onboardingAnswers ||
+        typeof body.onboardingAnswers !== "object" ||
+        Array.isArray(body.onboardingAnswers))
+    ) {
+      res.status(400).json({ error: "Onboarding answers are invalid.", field: "onboardingAnswers" });
+      return;
+    }
+    if (
+      body.notificationPrefs !== undefined &&
+      (!body.notificationPrefs ||
+        typeof body.notificationPrefs !== "object" ||
+        Array.isArray(body.notificationPrefs))
+    ) {
+      res.status(400).json({ error: "Notification preferences are invalid.", field: "notificationPrefs" });
+      return;
+    }
+    const current = await loadCanonicalProfile(auth.patientId);
+    if (setup && (!String(current.email ?? "").trim() || !String(current.phone ?? "").trim())) {
+      res.status(400).json({
+        error: "A verified email and phone number are required before setup can finish.",
+        field: "contact",
+      });
+      return;
+    }
+    const patch = parsed.patch;
+    if (patch.__refresh_name) {
+      delete patch.__refresh_name;
+      const first = String(patch.first_name ?? current.first_name ?? "").trim();
+      const last = String(patch.last_name ?? current.last_name ?? "").trim();
+      patch.name = [first, last].filter(Boolean).join(" ");
+    }
+    const atomicSetup = setup || body.profile !== undefined;
+    const saved = atomicSetup
+      ? await supabaseAdmin("POST", "/rest/v1/rpc/patient_apply_profile_setup", {
+          p_patient_id: auth.patientId,
+          p_auth_user_id: auth.authUserId,
+          p_profile: patch,
+          p_onboarding_answers: stripOnboardingPassword(body.onboardingAnswers ?? {}),
+          p_notification_prefs: body.notificationPrefs ?? null,
+          p_complete: setup,
+        })
+      : await supabaseAdmin(
+          "PATCH",
+          `/rest/v1/patients?id=eq.${enc(auth.patientId)}&auth_user_id=eq.${enc(auth.authUserId)}&archived_at=is.null`,
+          { ...patch, profile_updated_at: new Date().toISOString() },
+          "return=representation",
+        );
+    const savedRow = Array.isArray(saved.json) ? saved.json[0] : saved.json;
+    if (saved.status >= 300 || !savedRow || typeof savedRow !== "object") {
+      throw new Error(`profile update failed (${saved.status})`);
+    }
+    res.json({ profile: profileDto(savedRow as Record<string, unknown>) });
+  } catch (error) {
+    req.log?.error({ err: error }, "patient profile write failed");
+    res.status(502).json({ error: "Couldn't save your profile right now. Please try again." });
+  } finally {
+    slot.ok && slot.release();
+  }
+}
+
+router.put("/patient-data/profile", (req, res) => void saveProfile(req, res, false));
+router.post("/patient-data/profile/setup", (req, res) => void saveProfile(req, res, true));
+router.put("/patient-data/setup", (req, res) => void saveProfile(req, res, false));
+router.post("/patient-data/setup/complete", (req, res) => void saveProfile(req, res, true));
+
+const contactVerificationStart = async (req: any, res: any) => {
+  const slot = acquireWriteSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message });
+    return;
+  }
+  try {
+    const auth = await resolvePatient(req);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const kind = (req.body ?? {}).kind;
+    const identifier = normalizeIdentifier((req.body ?? {}).value);
+    if (
+      (kind !== "email" && kind !== "phone") ||
+      !identifier ||
+      identifier.kind !== kind
+    ) {
+      res.status(400).json({ error: `Enter a valid ${kind === "phone" ? "mobile number" : "email address"}.`, field: "value" });
+      return;
+    }
+    const channel = kind === "phone" ? "sms" : "email";
+    try {
+      assertLiveChannelReady(channel);
+    } catch (error) {
+      if (error instanceof DeliveryNotConfiguredError) {
+        res.status(503).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+    const stored = identifier.kind === "phone" ? identifier.e164 : identifier.email;
+    const mode = deliveryMode(channel);
+    const delivery = mode === "dev" ? "dev" : kind === "phone" ? "twilio_verify" : "resend";
+    const localCode = delivery === "twilio_verify" ? null : generateCode();
+    const salt = localCode ? crypto.randomBytes(16).toString("hex") : null;
+    const inserted = await supabaseAdmin("POST", "/rest/v1/rpc/claim_register_send", {
+      p_purpose: kind === "phone" ? "profile_phone" : "profile_email",
+      p_identifier_kind: kind,
+      p_identifier: stored,
+      p_account_type: "patient",
+      p_candidates: [],
+      p_delivery: delivery,
+      p_code_salt: salt,
+      p_code_hash: localCode && salt ? sha256(salt + localCode) : null,
+      p_code_expires_at: new Date(Date.now() + CODE_TTL_MS).toISOString(),
+      p_auth_user_id: auth.authUserId,
+      p_scope_key: `profile:${auth.authUserId}`,
+      p_max_per_hour: SENDS_PER_IDENTIFIER_PER_HOUR,
+      p_scope_max_per_hour: PROFILE_CONTACT_SENDS_PER_ACCOUNT_PER_HOUR,
+    });
+    if (inserted.status >= 300 || !Array.isArray(inserted.json)) {
+      throw new Error(`profile contact send registration failed (${inserted.status})`);
+    }
+    if (inserted.json.length === 0) {
+      res.status(429).json({ error: "Too many codes sent just now. Please wait an hour and try again.", retryable: true });
+      return;
+    }
+    const row = inserted.json[0] as { id?: unknown };
+    if (delivery === "twilio_verify") await startTwilioVerification(stored);
+    if (delivery === "resend" && localCode) await sendClaimEmail(stored, localCode);
+    res.json({
+      ok: true,
+      requestId: row.id,
+      message: `We sent a verification code to that ${kind === "phone" ? "number" : "email address"}.`,
+      ...(localCode ? { devCode: localCode } : {}),
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "patient contact verification start failed");
+    res.status(502).json({ error: "Couldn't send a verification code right now. Please try again." });
+  } finally {
+    slot.ok && slot.release();
+  }
+};
+router.post("/patient-data/profile/contact/start", contactVerificationStart);
+router.post("/patient-data/profile/verification/request", contactVerificationStart);
+
+const contactVerificationConfirm = async (req: any, res: any) => {
+  const slot = acquireWriteSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message });
+    return;
+  }
+  try {
+    const auth = await resolvePatient(req);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    let { requestId, code } = req.body ?? {};
+    const requestedKind = (req.body ?? {}).kind;
+    const requestedIdentifier = normalizeIdentifier((req.body ?? {}).value);
+    if (
+      !requestId &&
+      requestedIdentifier &&
+      (requestedKind === "email" || requestedKind === "phone") &&
+      requestedIdentifier.kind === requestedKind
+    ) {
+      const stored =
+        requestedIdentifier.kind === "phone" ? requestedIdentifier.e164 : requestedIdentifier.email;
+      const latest = await supabaseAdmin(
+        "GET",
+        `/rest/v1/claim_verifications?auth_user_id=eq.${enc(auth.authUserId)}` +
+          `&purpose=eq.profile_${requestedKind}&identifier=eq.${enc(stored)}` +
+          "&consumed_at=is.null&select=*&order=created_at.desc&limit=1",
+      );
+      if (latest.status >= 300) throw new Error(`profile verification lookup failed (${latest.status})`);
+      requestId = Array.isArray(latest.json) ? latest.json[0]?.id : null;
+    }
+    if (!isUuid(requestId) || !isCodeShaped(code)) {
+      res.status(400).json({ error: PROFILE_CODE_ERROR });
+      return;
+    }
+    const row = await loadRowById(requestId);
+    if (
+      !row ||
+      !["profile_email", "profile_phone"].includes(row.purpose) ||
+      row.auth_user_id !== auth.authUserId ||
+      row.consumed_at ||
+      row.verified_at ||
+      row.code_attempts >= MAX_CODE_ATTEMPTS ||
+      !row.code_expires_at ||
+      new Date(row.code_expires_at).getTime() < Date.now() ||
+      !(await takeAttempt(row))
+    ) {
+      res.status(400).json({ error: PROFILE_CODE_ERROR });
+      return;
+    }
+    const matched =
+      row.delivery === "twilio_verify"
+        ? await checkTwilioVerification(row.identifier, code)
+        : codeMatches(row, code);
+    if (!matched) {
+      res.status(400).json({ error: PROFILE_CODE_ERROR });
+      return;
+    }
+    const changed = await supabaseAdmin("POST", "/rest/v1/rpc/patient_apply_verified_contact", {
+      p_patient_id: auth.patientId,
+      p_auth_user_id: auth.authUserId,
+      p_verification_id: row.id,
+    });
+    if (changed.status >= 300) {
+      const message = String(changed.json?.message ?? "");
+      if (/unique|duplicate/i.test(message)) {
+        res.status(409).json({
+          error: `That ${row.purpose === "profile_phone" ? "phone number" : "email address"} is already connected to another account.`,
+        });
+        return;
+      }
+      throw new Error(`verified contact transaction failed (${changed.status})`);
+    }
+    const result = Array.isArray(changed.json) ? changed.json[0] : changed.json;
+    res.json({ ok: true, profile: profileDto(result as Record<string, unknown>) });
+  } catch (error) {
+    if (error instanceof DeliveryNotConfiguredError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    req.log?.error({ err: error }, "patient contact verification failed");
+    res.status(502).json({ error: "Couldn't update your contact details right now. Please try again." });
+  } finally {
+    slot.ok && slot.release();
+  }
+};
+router.post("/patient-data/profile/contact/verify", contactVerificationConfirm);
+router.post("/patient-data/profile/verification/confirm", contactVerificationConfirm);
+
 router.get("/patient-data/state", async (req, res) => {
   const slot = acquireReadSlot(clientIp(req));
   if (!slot.ok) {
@@ -640,7 +1125,7 @@ router.get("/patient-data/state", async (req, res) => {
         `/rest/v1/patient_flags?patient_id=eq.${pid}` +
           `&select=nudge_opt_out,nudge_engaged,nudge_last_sent_key,nudge_last_crossing_key,onboarding_complete,onboarding_answers,notification_prefs`,
       ),
-      fetchPatientProfile(auth.patientId),
+      loadCanonicalProfile(auth.patientId),
     ]);
     for (const r of [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags]) {
       if (r.status >= 300 || !Array.isArray(r.json)) throw new Error(`state fetch failed (${r.status})`);
@@ -782,6 +1267,7 @@ router.get("/patient-data/state", async (req, res) => {
     // Legacy records may not have a program_start_date. Their clinical-row
     // created_at is the documented anchor fallback, matching coach grounding.
     const startRaw = profile.program_start_date ?? profile.created_at ?? today;
+    const canonicalProfile = profileDto(profile);
     const programStartDate = isDateKey(String(startRaw).slice(0, 10))
       ? String(startRaw).slice(0, 10)
       : today;
@@ -798,11 +1284,22 @@ router.get("/patient-data/state", async (req, res) => {
       checkIns: checkInList,
       flags: flagsOut,
       entry: {
-        firstName: firstNameOf(profile.name),
+        firstName: firstNameOf(canonicalProfile.name),
         programStartDate,
         todayKey: today,
-        programDay: programDayFor(profile, today),
+        programDay: programDayFor(
+          {
+            name: canonicalProfile.name,
+            program_start_date:
+              typeof profile.program_start_date === "string" ? profile.program_start_date : null,
+            created_at: typeof profile.created_at === "string" ? profile.created_at : null,
+          },
+          today,
+        ),
       },
+      ...(profile.profile_completed_at || profile.first_name
+        ? { profile: canonicalProfile }
+        : {}),
       // Read capability for this patient's media: display URLs the client
       // builds append it, and GET /patient-media/file requires it.
       mediaToken: mintPatientMediaToken(auth.patientId),

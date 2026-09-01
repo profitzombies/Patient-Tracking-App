@@ -27,7 +27,7 @@ export function bearerToken(req: { headers: Record<string, unknown> }): string |
 }
 
 export type ResolvedPatient =
-  | { ok: true; patientId: string }
+  | { ok: true; patientId: string; authUserId: string }
   | { ok: false; status: number; error: string };
 
 export async function resolvePatient(req: {
@@ -53,5 +53,5 @@ export async function resolvePatient(req: {
   if (!row || typeof row.id !== "string" || row.id.length === 0) {
     return { ok: false, status: 403, error: "This account is not linked to a patient record." };
   }
-  return { ok: true, patientId: row.id };
+  return { ok: true, patientId: row.id, authUserId: user.id };
 }

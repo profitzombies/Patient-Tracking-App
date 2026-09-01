@@ -11,6 +11,7 @@ import { guardTarget, isStepAccessible, type StepKey } from '@/data/onboarding-d
 import {
   ContactStep,
   FaceIdStep,
+  IdentityStep,
   PasswordStep,
   ProviderCodeStep,
   VerifyStep,
@@ -38,6 +39,7 @@ import {
 
 const REGISTRY: Record<StepKey, React.ComponentType> = {
   welcome: WelcomeStep,
+  identity: IdentityStep,
   contact: ContactStep,
   verify: VerifyStep,
   'provider-code': ProviderCodeStep,

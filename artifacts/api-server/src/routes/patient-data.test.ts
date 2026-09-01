@@ -49,6 +49,7 @@ class FakeBackend {
       patient_progress_photos: [],
       patient_check_ins: [],
       patient_flags: [],
+      claim_verifications: [],
     };
     this.tokens.clear();
     this.authOutage = false;
@@ -90,6 +91,7 @@ class FakeBackend {
   private matches(row: Row, [col, op, value]: [string, string, string]): boolean {
     const cell = row[col];
     if (op === "eq") return String(cell ?? "") === value;
+    if (op === "is" && value === "null") return cell == null;
     if (op === "gte") return typeof cell === "string" && cell >= value;
     if (op === "lte") return typeof cell === "string" && cell <= value;
     if (op === "in") {
@@ -281,6 +283,85 @@ class FakeBackend {
       return new Response(null, { status: 204 });
     }
 
+    if (url.pathname === "/rest/v1/rpc/claim_register_send") {
+      const args = JSON.parse(String(init?.body ?? "{}")) as Row;
+      const code = "246810";
+      const row: Row = {
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+        purpose: args.p_purpose,
+        identifier_kind: args.p_identifier_kind,
+        identifier: args.p_identifier,
+        account_type: args.p_account_type,
+        candidates: [],
+        delivery: args.p_delivery,
+        code_salt: args.p_code_salt,
+        code_hash: args.p_code_hash,
+        code_expires_at: args.p_code_expires_at,
+        code_attempts: 0,
+        verified_at: null,
+        consumed_at: null,
+        auth_user_id: args.p_auth_user_id,
+        scope_key: args.p_scope_key,
+        _unused_code: code,
+      };
+      this.tables.claim_verifications.push(row);
+      return json(200, [row]);
+    }
+
+    if (url.pathname === "/rest/v1/rpc/patient_apply_verified_contact") {
+      const args = JSON.parse(String(init?.body ?? "{}")) as Row;
+      const verification = this.tables.claim_verifications.find(row => row.id === args.p_verification_id);
+      const patient = this.tables.patients.find(
+        row => row.id === args.p_patient_id && row.auth_user_id === args.p_auth_user_id,
+      );
+      if (!verification || !patient || verification.verified_at || verification.consumed_at) {
+        return json(400, { message: "not eligible" });
+      }
+      const column = verification.purpose === "profile_phone" ? "phone" : "email";
+      const value = String(verification.identifier);
+      const duplicate = this.tables.patients.some(
+        row => row.id !== patient.id && String(row[column] ?? "").toLowerCase() === value.toLowerCase(),
+      );
+      if (duplicate) return json(409, { message: "duplicate key violates unique constraint" });
+      patient[column] = value;
+      verification.verified_at = new Date().toISOString();
+      verification.consumed_at = new Date().toISOString();
+      return json(200, patient);
+    }
+
+    if (url.pathname === "/rest/v1/rpc/patient_apply_profile_setup") {
+      if (this.failOnce.has("RPC patient_apply_profile_setup")) {
+        this.failOnce.delete("RPC patient_apply_profile_setup");
+        return json(500, { message: "atomic setup failed" });
+      }
+      const args = JSON.parse(String(init?.body ?? "{}")) as {
+        p_patient_id: string;
+        p_auth_user_id: string;
+        p_profile: Row;
+        p_onboarding_answers: Row;
+        p_notification_prefs: Row | null;
+        p_complete: boolean;
+      };
+      const patient = this.tables.patients.find(
+        row => row.id === args.p_patient_id && row.auth_user_id === args.p_auth_user_id,
+      );
+      if (!patient) return json(400, { message: "owner mismatch" });
+      Object.assign(patient, args.p_profile, {
+        profile_completed_at: args.p_complete ? new Date().toISOString() : patient.profile_completed_at,
+      });
+      const existing = this.tables.patient_flags.find(row => row.patient_id === args.p_patient_id);
+      const flags = {
+        patient_id: args.p_patient_id,
+        onboarding_answers: args.p_onboarding_answers,
+        ...(args.p_notification_prefs ? { notification_prefs: args.p_notification_prefs } : {}),
+        ...(args.p_complete ? { onboarding_complete: true } : {}),
+      };
+      if (existing) Object.assign(existing, flags);
+      else this.tables.patient_flags.push(flags);
+      return json(200, patient);
+    }
+
     const restMatch = url.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
     if (!restMatch) return json(404, { message: `fake: no route ${url.pathname}` });
     const table = restMatch[1];
@@ -330,6 +411,13 @@ class FakeBackend {
         }
       }
       return json(201, []);
+    }
+
+    if (method === "PATCH") {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as Row;
+      const matched = this.tables[table].filter(row => filters.every(f => this.matches(row, f)));
+      for (const row of matched) Object.assign(row, payload);
+      return json(200, matched);
     }
 
     if (method === "DELETE") {
@@ -394,6 +482,8 @@ function entryPayload(overrides: Record<string, unknown> = {}): Record<string, u
 beforeAll(async () => {
   process.env.SUPABASE_URL = FAKE_SUPABASE;
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
+  process.env.CLAIM_EMAIL_DELIVERY_MODE = "dev";
+  process.env.CLAIM_SMS_DELIVERY_MODE = "dev";
   for (const knob of ["READ", "WRITE"]) {
     process.env[`PATIENT_DATA_${knob}_BURST`] = "100000";
     process.env[`PATIENT_DATA_${knob}_DAILY_BUDGET`] = "100000";
@@ -468,6 +558,177 @@ describe("auth ladder", () => {
     const res = await api("GET", "/api/patient-data/state", { token: "tok-staff" });
     expect(res.status).toBe(403);
     expect(res.json.error).toBe("This account is not linked to a patient record.");
+  });
+});
+
+describe("canonical patient profile", () => {
+  it("sets up, validates, and reads only the signed-in patient's profile", async () => {
+    const mine = backend.seedSignedInPatient("tok-1");
+    const other = backend.seedSignedInPatient("tok-2");
+    Object.assign(backend.tables.patients.find(row => row.id === mine.patientId)!, {
+      email: "casey@example.com",
+      phone: "+15550001010",
+    });
+    const invalid = await api("POST", "/api/patient-data/profile/setup", {
+      token: "tok-1",
+      body: {
+        firstName: "Casey",
+        lastName: "Ortiz",
+        dateOfBirth: "not-a-date",
+        heightInches: 66,
+        startingWeight: 205,
+        goalWeight: 165,
+        timezone: "America/New_York",
+      },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.json.field).toBe("dateOfBirth");
+
+    const underage = await api("POST", "/api/patient-data/profile/setup", {
+      token: "tok-1",
+      body: {
+        firstName: "Casey",
+        lastName: "Ortiz",
+        dateOfBirth: "2015-04-03",
+        heightInches: 66,
+        startingWeight: 205,
+        currentWeight: 191,
+        goalWeight: 165,
+        timezone: "America/New_York",
+        programId: "glp1",
+        programStartDate: "2026-01-05",
+      },
+    });
+    expect(underage.status).toBe(400);
+    expect(underage.json.field).toBe("dateOfBirth");
+
+    const setup = await api("POST", "/api/patient-data/setup/complete", {
+      token: "tok-1",
+      body: {
+        profile: {
+          firstName: "Casey",
+          lastName: "Ortiz",
+          dateOfBirth: "1985-04-03",
+          gender: "female",
+          heightUnit: "imperial",
+          heightInches: 66,
+          heightCm: 167.64,
+          startingWeight: 205,
+          currentWeight: 191,
+          goalWeight: 165,
+          programId: "glp1",
+          programStartDate: "2026-01-05",
+          timezone: "America/New_York",
+        },
+        onboardingAnswers: { medication: "semaglutide", password: "must-not-persist" },
+        notificationPrefs: { reminders: true },
+      },
+    });
+    expect(setup.status).toBe(200);
+    expect(setup.json.profile).toMatchObject({
+      name: "Casey Ortiz",
+      firstName: "Casey",
+      lastName: "Ortiz",
+      dateOfBirth: "1985-04-03",
+      heightInches: 66,
+      startingWeight: 205,
+      currentWeight: 191,
+      timezone: "America/New_York",
+      programId: "glp1",
+      program: "glp1",
+      setupComplete: true,
+    });
+    expect(backend.tables.patients.find(row => row.id === mine.patientId)?.name).toBe("Casey Ortiz");
+    expect(backend.tables.patient_flags[0]).toMatchObject({
+      onboarding_answers: { medication: "semaglutide" },
+      onboarding_complete: true,
+    });
+    expect(backend.tables.patients.find(row => row.id === other.patientId)?.first_name).toBeUndefined();
+
+    const read = await api("GET", "/api/patient-data/profile", { token: "tok-1" });
+    expect(read.status).toBe(200);
+    expect(read.json).toEqual(setup.json);
+  });
+
+  it("changes contact only after an account-bound code and rejects duplicates atomically", async () => {
+    const mine = backend.seedSignedInPatient("tok-1");
+    backend.seedSignedInPatient("tok-2");
+    Object.assign(backend.tables.patients.find(row => row.id === mine.patientId)!, {
+      email: "old@example.com",
+      phone: "+15550001111",
+    });
+    backend.tables.patients.find(row => row.auth_user_id !== mine.userId)!.email = "taken@example.com";
+
+    const started = await api("POST", "/api/patient-data/profile/contact/start", {
+      token: "tok-1",
+      body: { kind: "email", value: "New@Example.com" },
+    });
+    expect(started.status).toBe(200);
+    const wrongOwner = await api("POST", "/api/patient-data/profile/contact/verify", {
+      token: "tok-2",
+      body: { requestId: started.json.requestId, code: started.json.devCode },
+    });
+    expect(wrongOwner.status).toBe(400);
+    expect(backend.tables.patients.find(row => row.id === mine.patientId)?.email).toBe("old@example.com");
+
+    const verified = await api("POST", "/api/patient-data/profile/contact/verify", {
+      token: "tok-1",
+      body: { requestId: started.json.requestId, code: started.json.devCode },
+    });
+    expect(verified.status).toBe(200);
+    expect(verified.json.profile.email).toBe("new@example.com");
+
+    const duplicateStart = await api("POST", "/api/patient-data/profile/verification/request", {
+      token: "tok-1",
+      body: { kind: "email", value: "taken@example.com" },
+    });
+    const duplicate = await api("POST", "/api/patient-data/profile/verification/confirm", {
+      token: "tok-1",
+      body: { kind: "email", value: "taken@example.com", code: duplicateStart.json.devCode },
+    });
+    expect(duplicate.status).toBe(409);
+    expect(backend.tables.patients.find(row => row.id === mine.patientId)?.email).toBe("new@example.com");
+    const duplicateRow = backend.tables.claim_verifications.find(
+      row => row.id === duplicateStart.json.requestId,
+    );
+    expect(duplicateRow).toMatchObject({ verified_at: null, consumed_at: null });
+  });
+
+  it("does not partially save profile data or completion when setup's atomic RPC fails", async () => {
+    const mine = backend.seedSignedInPatient("tok-1");
+    Object.assign(backend.tables.patients.find(row => row.id === mine.patientId)!, {
+      name: "Before Patient",
+      current_weight: 200,
+      email: "before@example.com",
+      phone: "+15550002020",
+    });
+    backend.failOnce.add("RPC patient_apply_profile_setup");
+    const failed = await api("POST", "/api/patient-data/setup/complete", {
+      token: "tok-1",
+      body: {
+        profile: {
+          firstName: "After",
+          lastName: "Patient",
+          dateOfBirth: "1985-04-03",
+          heightInches: 66,
+          startingWeight: 200,
+          currentWeight: 180,
+          goalWeight: 160,
+          timezone: "America/New_York",
+          programId: "glp1",
+          programStartDate: "2026-01-05",
+        },
+        onboardingAnswers: { medication: "glp1" },
+      },
+    });
+    expect(failed.status).toBe(502);
+    const patient = backend.tables.patients.find(row => row.id === mine.patientId)!;
+    expect(patient).toMatchObject({
+      name: "Before Patient",
+      current_weight: 200,
+    });
+    expect(patient).not.toHaveProperty("profile_completed_at");
+    expect(backend.tables.patient_flags).toEqual([]);
   });
 });
 

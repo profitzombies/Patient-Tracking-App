@@ -9,6 +9,8 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useOnboarding, useOnboardingFlow } from '@/context/OnboardingContext';
+import { usePatient } from '@/context/PatientContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import {
   allPasswordChecksPass,
   formatPhoneNumber,
@@ -64,6 +66,179 @@ export function WelcomeStep() {
   );
 }
 
+// ─── Live account identity ────────────────────────────────────────────────────
+
+/** Real-only canonical identity step. The demo keeps its original contact flow. */
+export function IdentityStep() {
+  const { answers, patch } = useOnboarding();
+  const flow = useOnboardingFlow('identity');
+  const patient = usePatient();
+  const { account } = usePatientAccount();
+  const [request, setRequest] = useState<{ kind: ContactMethod; id: string } | null>(null);
+  const [code, setCode] = useState('');
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+  const nameValid = answers.name.trim().split(/\s+/).filter(Boolean).length >= 2;
+  const emailValid = isValidContact('email', answers.email);
+  const phoneValid = isValidContact('phone', answers.phone);
+  const canonicalEmail = patient.profile?.email?.trim().toLowerCase() ?? '';
+  const canonicalPhone = patient.profile?.phone?.replace(/\D/g, '') ?? '';
+  const emailConfirmed = answers.email.trim().toLowerCase() === canonicalEmail;
+  const phoneConfirmed = answers.phone.replace(/\D/g, '') === canonicalPhone;
+  const valid = nameValid && emailValid && phoneValid && emailConfirmed && phoneConfirmed;
+
+  const sendCode = async (kind: ContactMethod) => {
+    if (account.kind !== 'real') return;
+    const value =
+      kind === 'email' ? answers.email.trim().toLowerCase() : answers.phone.replace(/\D/g, '');
+    setBusy(true);
+    setContactError(null);
+    try {
+      const sent = await account.api.requestProfileVerification({ kind, value });
+      setRequest({ kind, id: sent.requestId });
+      setCode(sent.devCode ?? '');
+    } catch (cause) {
+      setContactError(cause instanceof Error ? cause.message : 'Couldn’t send a code.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmCode = async () => {
+    if (account.kind !== 'real' || !request) return;
+    setBusy(true);
+    setContactError(null);
+    try {
+      const result = await account.api.verifyProfileContact({ requestId: request.id, code });
+      patient.applyProfile(result.profile);
+      setRequest(null);
+      setCode('');
+    } catch (cause) {
+      setContactError(cause instanceof Error ? cause.message : 'That code couldn’t be verified.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <OnboardingFrame
+      stepKey="identity"
+      title="Tell us about you"
+      coach="Confirm the details your care team will use to identify and reach you."
+      hideNext
+    >
+      <FieldLabel text="Full name" />
+      <LedgerInput
+        testID="ob-name-input"
+        value={answers.name}
+        onChangeText={name => patch({ name })}
+        placeholder="First and last name"
+        autoCapitalize="words"
+        autoComplete="name"
+        autoFocus
+        returnKeyType="next"
+      />
+      <View style={styles.blockGapTop}>
+        <FieldLabel text="Email address" />
+        <LedgerInput
+          testID="ob-email-input"
+          value={answers.email}
+          onChangeText={email => patch({ email })}
+          placeholder="you@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
+          returnKeyType="next"
+        />
+        {!emailConfirmed ? (
+          <PrimaryButton
+            testID="ob-verify-email"
+            label="Send email code"
+            disabled={busy}
+            onPress={() => sendCode('email')}
+            style={styles.smallButtonGap}
+          />
+        ) : null}
+      </View>
+      <View style={styles.blockGapTop}>
+        <FieldLabel text="Phone number" />
+        <LedgerInput
+          testID="ob-phone-input"
+          value={answers.phone}
+          onChangeText={phone => patch({ phone: formatPhoneNumber(phone) })}
+          placeholder="(555) 123-4567"
+          keyboardType="phone-pad"
+          autoComplete="tel"
+        />
+        {!phoneConfirmed ? (
+          <PrimaryButton
+            testID="ob-verify-phone"
+            label="Send text code"
+            disabled={busy}
+            onPress={() => sendCode('phone')}
+            style={styles.smallButtonGap}
+          />
+        ) : null}
+      </View>
+      {request ? (
+        <View style={styles.blockGapTop}>
+          <FieldLabel text={`Verification code sent by ${request.kind === 'phone' ? 'text' : 'email'}`} />
+          <LedgerInput
+            testID="ob-profile-code"
+            value={code}
+            onChangeText={v => setCode(v.replace(/\D/g, '').slice(0, 6))}
+            keyboardType="number-pad"
+            maxLength={6}
+            autoFocus
+            style={styles.codeInput}
+          />
+          <PrimaryButton
+            testID="ob-confirm-profile-code"
+            label={busy ? 'Verifying…' : 'Confirm code'}
+            disabled={busy || code.length !== 6}
+            onPress={confirmCode}
+            style={styles.smallButtonGap}
+          />
+        </View>
+      ) : null}
+      {contactError ? (
+        <View style={styles.blockGapTop}>
+          <ErrorBox message={contactError} />
+        </View>
+      ) : null}
+      {showHint && !valid ? (
+        <View style={styles.blockGapTop}>
+          <ErrorBox
+            message={
+              !nameValid || !emailValid || !phoneValid
+                ? 'Enter your first and last name, a valid email, and a complete phone number.'
+                : 'Verify each changed contact detail before continuing.'
+            }
+          />
+        </View>
+      ) : null}
+      <View style={styles.blockGapTop}>
+        <NoteText text="Your contact details stay private to you and your care team." />
+      </View>
+      <PrimaryButton
+        testID="ob-identity-next"
+        label={flow.saving ? 'Saving…' : 'Next'}
+        disabled={flow.saving}
+        onPress={() => {
+          if (!valid) {
+            setShowHint(true);
+            return;
+          }
+          void flow.goNext();
+        }}
+        style={styles.blockGapTop}
+      />
+    </OnboardingFrame>
+  );
+}
+
 // ─── Contact method ──────────────────────────────────────────────────────────
 
 export function ContactStep() {
@@ -102,6 +277,7 @@ export function ContactStep() {
         keyboardType={answers.contactMethod === 'phone' ? 'phone-pad' : 'email-address'}
         autoCapitalize="none"
         autoCorrect={false}
+        autoFocus
       />
       <View style={styles.blockGapTop}>
         <NoteText text="We'll send a 6-digit verification code to confirm it's you." />
@@ -146,6 +322,7 @@ export function VerifyStep() {
           setError(null);
         }}
         keyboardType="number-pad"
+        autoFocus
         maxLength={6}
         placeholder="••••••"
         style={styles.codeInput}
@@ -199,6 +376,7 @@ export function ProviderCodeStep() {
           setError(null);
         }}
         keyboardType="number-pad"
+        autoFocus
         maxLength={6}
         placeholder="••••••"
         style={styles.codeInput}
@@ -404,6 +582,9 @@ const styles = StyleSheet.create({
   },
   blockGapTop: {
     marginTop: 16,
+  },
+  smallButtonGap: {
+    marginTop: 8,
   },
   codeInput: {
     textAlign: 'center',

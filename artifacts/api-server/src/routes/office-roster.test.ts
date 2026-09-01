@@ -379,6 +379,8 @@ describe("live patient records", () => {
     const ownId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     Object.assign(patients[0], {
       id: ownId,
+      first_name: "Canonical",
+      last_name: "Ortiz",
       program_id: "metabolic",
       program_start_date: "2026-01-05",
       date_of_birth: "1985-04-03",
@@ -430,6 +432,10 @@ describe("live patient records", () => {
     expect(body.patient.program).toMatchObject({
       id: "metabolic", startingWeight: 205.5, currentWeight: 191, goalWeight: 165,
     });
+    expect(body.patient.identity).toMatchObject({
+      name: "Canonical Ortiz", firstName: "Canonical", lastName: "Ortiz",
+    });
+    expect(body.patient.program.day).toEqual(expect.any(Number));
     expect(body.diary.nutritionTotals).toEqual({
       overall: { calories: 500, protein: 60, carbs: 5, fat: 22 },
       byDate: [{ dateKey: "2026-01-05", calories: 500, protein: 60, carbs: 5, fat: 22 }],

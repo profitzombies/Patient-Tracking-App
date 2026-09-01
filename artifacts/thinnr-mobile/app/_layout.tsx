@@ -227,6 +227,7 @@ function RootLayoutNav() {
       <Stack.Screen name="claim-account" options={{ headerShown: false }} />
       <Stack.Screen name="claim-test" options={{ headerShown: false }} />
       <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
+      <Stack.Screen name="account" options={{ headerShown: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="recipe/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="ai-recipe/[id]" options={{ headerShown: false }} />

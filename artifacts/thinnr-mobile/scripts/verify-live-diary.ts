@@ -142,6 +142,29 @@ function routeCall(call: ApiCall): Scripted {
   }
   const store = storeFor(role.patientId);
 
+  if (key === 'GET patient-data/profile') {
+    return {
+      status: 200,
+      body: {
+        profile: {
+          firstName: role.patientId === 'p-1' ? 'Invited' : 'Signup',
+          lastName: 'Patient',
+          email: 'patient@example.com',
+          phone: '+15551234567',
+          dateOfBirth: '1990-01-15',
+          heightInches: 66,
+          startingWeight: 190,
+          currentWeight: 185,
+          goalWeight: 150,
+          timezone: 'America/New_York',
+          programId: 'thinnr',
+          programStartDate: '2026-08-20',
+          setupComplete: true,
+        },
+      },
+    };
+  }
+
   if (key === 'GET patient-data/state') {
     const from = call.query.get('from');
     const to = call.query.get('to');

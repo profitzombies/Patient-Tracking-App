@@ -84,6 +84,9 @@ import {
   type PatientDataApi,
   type PatientFlagsWrite,
   type PatientEntryFacts,
+  type PatientProfile,
+  type PatientProfileWrite,
+  type PatientSetupWrite,
   type ProgressPhotoWire,
 } from './PatientAccountContext';
 
@@ -339,6 +342,21 @@ interface PatientContextValue {
   hydratedFlags: HydratedOnboardingFlags | null;
   /** Live identity/calendar/program facts; null for demo and before hydration. */
   entryFacts: PatientEntryFacts | null;
+  /** Canonical account profile; null for demo and before live hydration. */
+  profile: PatientProfile | null;
+  /** Saves permitted canonical fields and immediately refreshes downstream facts. */
+  saveProfile: (partial: PatientProfileWrite) => Promise<boolean>;
+  /** Applies a profile returned by a verified-contact/setup mutation. */
+  applyProfile: (profile: PatientProfile) => void;
+  saveSetup: (input: {
+    profile: PatientProfileWrite;
+    onboardingAnswers: object;
+  }) => Promise<boolean>;
+  completeSetup: (input: {
+    profile: PatientSetupWrite;
+    onboardingAnswers: object;
+    notificationPrefs: object;
+  }) => Promise<boolean>;
 }
 
 /** Onboarding-owned account flags, exactly as hydration delivered them. */
@@ -471,6 +489,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // OnboardingProvider to reconcile from (demo persona: always null).
   const [hydratedFlags, setHydratedFlags] = useState<HydratedOnboardingFlags | null>(null);
   const [entryFacts, setEntryFacts] = useState<PatientEntryFacts | null>(null);
+  const [profile, setProfile] = useState<PatientProfile | null>(null);
 
   // Mutations must wait for hydration: a pre-hydration commit would build on
   // EMPTY_STATE and clobber previously persisted data in storage.
@@ -700,6 +719,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setPatientMediaToken(null);
       setHydratedFlags(null);
       setEntryFacts(null);
+      setProfile(null);
     }
 
     if (!isInitialMount) {
@@ -728,11 +748,16 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const acct = account;
       (async () => {
         const currentLocalDay = localTodayKey();
-        const [serverResult, localResult] = await Promise.allSettled([
+        const [serverResult, profileResult, localResult] = await Promise.allSettled([
           // Real accounts are not bounded by the demo seed calendar. The API
           // caps returned rows, while this unbounded range ensures every
           // program date Today exposes has its corresponding diary data.
           acct.api.fetchState(undefined, undefined, currentLocalDay),
+          // Older injected test APIs predate the canonical profile rail.
+          // Production patientDataApi always provides it.
+          typeof acct.api.fetchProfile === 'function'
+            ? acct.api.fetchProfile()
+            : Promise.resolve(null),
           readPersistedState(storageKeyFor(acct)),
         ]);
         if (epochRef.current !== epoch) return;
@@ -747,7 +772,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             // corrupt local cache — start clean
           }
         }
-        if (serverResult.status === 'fulfilled') {
+        if (serverResult.status === 'fulfilled' && profileResult.status === 'fulfilled') {
           const server = serverResult.value;
           serverTruthRef.current = true;
           // Server truth just arrived — release any onboarding flag saves
@@ -778,7 +803,14 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             onboardingComplete: server.flags.onboardingComplete,
           });
           setEntryFacts(server.entry);
+          setProfile(profileResult.value);
         } else {
+          const failure =
+            serverResult.status === 'rejected'
+              ? serverResult.reason
+              : profileResult.status === 'rejected'
+                ? profileResult.reason
+                : undefined;
           // Explicit failure: open seedless with the device-local slices and
           // surface the error with a retry. Server truth never arrived, so
           // writes stay BLOCKED (serverTruthRef) until a retry hydrates —
@@ -786,8 +818,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
           // overwrite the account's real server data.
           setSyncNotice({
             message:
-              serverResult.reason instanceof Error && serverResult.reason.message
-                ? serverResult.reason.message
+              failure instanceof Error && failure.message
+                ? failure.message
                 : HYDRATE_FAILED_MESSAGE,
             action: 'retry-hydration',
           });
@@ -1785,6 +1817,103 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     [state.photos, seedPhotos],
   );
 
+  const applyProfile = useCallback((next: PatientProfile) => {
+    setProfile(next);
+    setEntryFacts(previous => {
+      if (!previous) return previous;
+      const today = new Date(`${previous.todayKey}T12:00:00Z`).getTime();
+      const start = next.programStartDate
+        ? new Date(`${next.programStartDate}T12:00:00Z`).getTime()
+        : Number.NaN;
+      const programDay = Number.isFinite(start)
+        ? Math.max(1, Math.floor((today - start) / 86_400_000) + 1)
+        : previous.programDay;
+      return {
+        ...previous,
+        firstName: next.firstName || previous.firstName,
+        programStartDate: next.programStartDate ?? previous.programStartDate,
+        programDay,
+      };
+    });
+  }, []);
+
+  const saveProfile = useCallback(
+    async (partial: PatientProfileWrite): Promise<boolean> => {
+      const run = runAccountRef.current;
+      if (run.kind !== 'real' || !serverTruthRef.current) {
+        setSyncNotice({
+          message: run.kind === 'unresolved' ? ACCOUNT_BLOCKED_MESSAGE : DIARY_BLOCKED_MESSAGE,
+          action: run.kind === 'unresolved' ? 'retry-account' : 'retry-hydration',
+        });
+        return false;
+      }
+      try {
+        const result = await run.api.writeProfile(partial);
+        applyProfile(result.profile);
+        return true;
+      } catch (error) {
+        setSyncNotice({
+          message: error instanceof Error && error.message ? error.message : WRITE_FAILED_MESSAGE,
+          action: 'dismiss',
+        });
+        return false;
+      }
+    },
+    [hydratedFlags, applyProfile],
+  );
+
+  const saveSetup = useCallback(
+    async (input: { profile: PatientProfileWrite; onboardingAnswers: object }): Promise<boolean> => {
+      const run = runAccountRef.current;
+      if (run.kind !== 'real' || !serverTruthRef.current) return false;
+      try {
+        const result = await run.api.saveSetup(input);
+        applyProfile(result.profile);
+        setHydratedFlags(previous => ({
+          onboardingAnswers: input.onboardingAnswers as Record<string, unknown>,
+          notificationPrefs: previous?.notificationPrefs ?? null,
+          onboardingComplete: previous?.onboardingComplete === true,
+        }));
+        return true;
+      } catch (error) {
+        setSyncNotice({
+          message: error instanceof Error && error.message ? error.message : WRITE_FAILED_MESSAGE,
+          action: 'dismiss',
+        });
+        return false;
+      }
+    },
+    [applyProfile],
+  );
+
+  const completeSetup = useCallback(
+    async (input: {
+      profile: PatientSetupWrite;
+      onboardingAnswers: object;
+      notificationPrefs: object;
+    }): Promise<boolean> => {
+      const run = runAccountRef.current;
+      if (run.kind !== 'real' || !serverTruthRef.current) return false;
+      try {
+        const result = await run.api.completeSetup(input);
+        applyProfile(result.profile);
+        setHydratedFlags({
+          onboardingAnswers: input.onboardingAnswers as Record<string, unknown>,
+          notificationPrefs: input.notificationPrefs as Record<string, unknown>,
+          onboardingComplete: true,
+        });
+        return true;
+      } catch (error) {
+        setSyncNotice({
+          message: error instanceof Error && error.message ? error.message : WRITE_FAILED_MESSAGE,
+          action: 'dismiss',
+        });
+        return false;
+      }
+    },
+    [applyProfile],
+  );
+
   const allFoods = useMemo(
     () => [...state.customFoods, ...FOOD_DB],
     [state.customFoods],
@@ -1841,6 +1970,11 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       completeOnboarding,
       hydratedFlags,
       entryFacts,
+      profile,
+      saveProfile,
+      applyProfile,
+      saveSetup,
+      completeSetup,
       clearLocalState,
     }),
     [
@@ -1893,6 +2027,11 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       completeOnboarding,
       hydratedFlags,
       entryFacts,
+      profile,
+      saveProfile,
+      applyProfile,
+      saveSetup,
+      completeSetup,
       clearLocalState,
     ],
   );

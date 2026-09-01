@@ -24,7 +24,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { useAppWindowDimensions } from '@/hooks/useAppWindowDimensions';
 import { useColors } from '@/hooks/useColors';
@@ -307,7 +307,7 @@ export default function TodayScreen() {
                   testID="patient-avatar-btn"
                   onPress={() => {
                     Haptics.selectionAsync();
-                    router.push('/persona');
+                    router.push((patient.profile ? '/account' : '/persona') as Href);
                   }}
                   style={({ pressed }) => [
                     styles.avatar,
@@ -315,7 +315,14 @@ export default function TodayScreen() {
                     pressed && { opacity: 0.85 },
                   ]}
                 >
-                  <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>ES</Text>
+                  <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>
+                    {[patient.profile?.firstName, patient.profile?.lastName]
+                      .filter((part): part is string => !!part)
+                      .slice(0, 2)
+                      .map(part => part[0])
+                      .join('')
+                      .toUpperCase() || 'ES'}
+                  </Text>
                 </Pressable>
               </View>
             </View>

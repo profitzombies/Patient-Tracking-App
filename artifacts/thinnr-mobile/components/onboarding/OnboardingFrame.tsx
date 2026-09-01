@@ -14,6 +14,7 @@ import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollV
 import { ProgressBar } from '@/components/ui/LedgerPrimitives';
 import { useColors } from '@/hooks/useColors';
 import { useOnboardingFlow } from '@/context/OnboardingContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { type StepKey } from '@/data/onboarding-data';
 import { CoachCallout, ErrorBox, PrimaryButton } from './OnboardingFields';
 
@@ -31,7 +32,7 @@ interface OnboardingFrameProps {
    */
   nextBlockedHint?: string;
   /** Defaults to advancing to the next visible step. */
-  onNext?: () => void;
+  onNext?: () => void | Promise<void>;
   /** For steps with their own CTA buttons (e.g. Connect / Skip). */
   hideNext?: boolean;
 }
@@ -50,6 +51,7 @@ export function OnboardingFrame({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const flow = useOnboardingFlow(stepKey);
+  const { account } = usePatientAccount();
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
   const [showBlockedHint, setShowBlockedHint] = useState(false);
 
@@ -79,7 +81,9 @@ export function OnboardingFrame({
           <Feather name="chevron-left" size={18} color={colors.navy} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerLabel, { color: colors.labelText }]}>NEW PATIENT · SIMULATION</Text>
+            <Text style={[styles.headerLabel, { color: colors.labelText }]}>
+              {account.kind === 'real' ? 'PATIENT ACCOUNT · SETUP' : 'NEW PATIENT · SIMULATION'}
+            </Text>
           <Text style={[styles.headerStep, { color: colors.navy }]}>
             STEP {flow.stepNumber} OF {flow.stepCount}
           </Text>
@@ -111,15 +115,19 @@ export function OnboardingFrame({
               },
             ]}
           >
-            {nextDisabled && showBlockedHint && nextBlockedHint ? (
+            {flow.saveError ? (
+              <View style={styles.footerHint}>
+                <ErrorBox testID="ob-save-error" message={flow.saveError} />
+              </View>
+            ) : nextDisabled && showBlockedHint && nextBlockedHint ? (
               <View style={styles.footerHint}>
                 <ErrorBox testID="ob-next-hint" message={nextBlockedHint} />
               </View>
             ) : null}
             <PrimaryButton
               testID="ob-next"
-              label={nextLabel}
-              disabled={nextDisabled}
+              label={flow.saving ? 'Saving…' : nextLabel}
+              disabled={nextDisabled || flow.saving}
               onPress={onNext ?? flow.goNext}
               onDisabledPress={nextBlockedHint ? () => setShowBlockedHint(true) : undefined}
             />

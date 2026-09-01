@@ -170,6 +170,7 @@ export function BigNumberInput({ value, onChangeText, unit, testID, placeholder 
         placeholder={placeholder ?? '0'}
         placeholderTextColor={colors.subtleText}
         maxLength={5}
+        autoFocus
         style={[styles.bigInput, { color: colors.navy }]}
       />
       <Text style={[styles.bigUnit, { color: colors.labelText }]}>{unit.toUpperCase()}</Text>

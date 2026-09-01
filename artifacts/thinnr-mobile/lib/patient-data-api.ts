@@ -32,9 +32,13 @@ import type {
   PatientFlags,
   PatientFlagsWrite,
   PatientEntryFacts,
+  PatientProfile,
+  PatientProfileWrite,
+  PatientSetupWrite,
   PatientServerState,
   ProgressPhotoWire,
 } from '@/context/PatientAccountContext';
+import { parsePatientProfile } from '@/lib/patient-profile';
 import { apiBase } from '@/lib/coach-api';
 import { decodeBase64 } from '@/lib/base64';
 import {
@@ -613,6 +617,11 @@ function parseEntryFacts(raw: unknown): PatientEntryFacts {
   };
 }
 
+function parseProfileResult(raw: unknown): { profile: PatientProfile } {
+  const record = raw as Record<string, unknown> | null;
+  return { profile: parsePatientProfile(record?.profile ?? raw) };
+}
+
 function parseServerState(json: unknown): PatientServerState {
   if (typeof json !== 'object' || json === null) throw new PatientDataError(MALFORMED_MESSAGE);
   const data = json as Record<string, unknown>;
@@ -658,6 +667,7 @@ function parseServerState(json: unknown): PatientServerState {
   const checkIns = Array.isArray(data.checkIns) ? data.checkIns.map(parseCheckInWire) : [];
   const flags = parseFlags(data.flags);
   const entry = parseEntryFacts(data.entry);
+  const profile = data.profile === undefined ? undefined : parsePatientProfile(data.profile);
 
   return {
     entries,
@@ -671,10 +681,26 @@ function parseServerState(json: unknown): PatientServerState {
     checkIns,
     flags,
     entry,
+    ...(profile ? { profile } : {}),
   };
 }
 
 export const patientDataApi: PatientDataApi = {
+  async fetchProfile(): Promise<PatientProfile> {
+    return parseProfileResult(await authedRequest('GET', '/patient-data/profile')).profile;
+  },
+
+  async writeProfile(input: PatientProfileWrite): Promise<{ profile: PatientProfile }> {
+    return parseProfileResult(await authedRequest('PUT', '/patient-data/profile', input));
+  },
+
+  async saveSetup(input: {
+    profile: PatientProfileWrite;
+    onboardingAnswers: object;
+  }): Promise<{ profile: PatientProfile }> {
+    return parseProfileResult(await authedRequest('PUT', '/patient-data/setup', input));
+  },
+
   async fetchState(fromKey?: string, toKey?: string, todayKey?: string): Promise<PatientServerState> {
     const query = new URLSearchParams();
     if (fromKey) query.set('from', fromKey);
@@ -805,5 +831,41 @@ export const patientDataApi: PatientDataApi = {
 
   async writeFlags(flags: Partial<PatientFlagsWrite>): Promise<void> {
     await authedRequest('PUT', '/patient-data/flags', flags);
+  },
+
+  async completeSetup(input: {
+    profile: PatientSetupWrite;
+    onboardingAnswers: object;
+    notificationPrefs: object;
+  }): Promise<{ profile: PatientProfile }> {
+    return parseProfileResult(await authedRequest('POST', '/patient-data/profile/setup', input));
+  },
+
+  async requestProfileVerification(input: {
+    kind: 'email' | 'phone';
+    value: string;
+  }): Promise<{ requestId: string; message: string; devCode?: string }> {
+    const json = (await authedRequest(
+      'POST',
+      '/patient-data/profile/contact/start',
+      input,
+    )) as Record<string, unknown>;
+    if (typeof json.requestId !== 'string' || typeof json.message !== 'string') {
+      throw new PatientDataError(MALFORMED_MESSAGE);
+    }
+    return {
+      requestId: json.requestId,
+      message: json.message,
+      ...(typeof json.devCode === 'string' ? { devCode: json.devCode } : {}),
+    };
+  },
+
+  async verifyProfileContact(input: {
+    requestId: string;
+    code: string;
+  }): Promise<{ profile: PatientProfile }> {
+    return parseProfileResult(
+      await authedRequest('POST', '/patient-data/profile/contact/verify', input),
+    );
   },
 };

@@ -33,6 +33,7 @@ import {
 import { effectiveProviderCode, normalizeUsPhone } from "./provider-accounts";
 import { objectStorage } from "../lib/objectStorage";
 import { isOwnPatientMediaPath } from "./patient-media";
+import { programDayFor } from "../coach/real-patient";
 
 const router: IRouter = Router();
 
@@ -61,7 +62,7 @@ function resendCooldownSeconds(): number {
 }
 
 const PATIENT_SELECT =
-  "id,provider_id,name,email,phone,activation_status,auth_user_id,claimed_at,created_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,last_login_at,last_log_date";
+  "id,provider_id,first_name,last_name,name,email,phone,activation_status,auth_user_id,claimed_at,created_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date";
 
 type PatientRosterRow = Record<string, unknown>;
 
@@ -72,7 +73,9 @@ function patientDto(row: PatientRosterRow) {
   const verified = typeof row.auth_user_id === "string" && row.auth_user_id.length > 0;
   return {
     id: String(row.id),
-    name: row.name ? String(row.name) : "",
+    name: canonicalName(row),
+    firstName: canonicalFirstName(row),
+    lastName: canonicalLastName(row),
     email: row.email ? String(row.email) : null,
     phone: row.phone ? String(row.phone) : null,
     phoneDisplay: normalizeUsPhone(typeof row.phone === "string" ? row.phone : ""),
@@ -87,6 +90,14 @@ function patientDto(row: PatientRosterRow) {
       goalWeight: numericOrNull(row.goal_weight),
       weightChange: numericOrNull(row.weight_gain_lost),
       lastLogDate: row.last_log_date ? String(row.last_log_date) : null,
+      day: programDayFor(
+        {
+          name: canonicalName(row),
+          program_start_date: row.program_start_date ? String(row.program_start_date) : null,
+          created_at: row.created_at ? String(row.created_at) : null,
+        },
+        new Date().toISOString().slice(0, 10),
+      ),
     },
     invitation: invited
       ? {
@@ -110,10 +121,26 @@ function numericOrNull(value: unknown): number | null {
   return null;
 }
 
+function canonicalFirstName(row: PatientRosterRow): string {
+  const stored = typeof row.first_name === "string" ? row.first_name.trim() : "";
+  return stored || String(row.name ?? "").trim().split(/\s+/)[0] || "";
+}
+
+function canonicalLastName(row: PatientRosterRow): string {
+  const stored = typeof row.last_name === "string" ? row.last_name.trim() : "";
+  return stored || String(row.name ?? "").trim().split(/\s+/).slice(1).join(" ");
+}
+
+function canonicalName(row: PatientRosterRow): string {
+  return [canonicalFirstName(row), canonicalLastName(row)].filter(Boolean).join(" ");
+}
+
 function identityDto(row: PatientRosterRow) {
   return {
     id: String(row.id),
-    name: row.name ? String(row.name) : "",
+    name: canonicalName(row),
+    firstName: canonicalFirstName(row),
+    lastName: canonicalLastName(row),
     email: row.email ? String(row.email) : null,
     phone: row.phone ? String(row.phone) : null,
     phoneDisplay: normalizeUsPhone(typeof row.phone === "string" ? row.phone : ""),
@@ -121,6 +148,8 @@ function identityDto(row: PatientRosterRow) {
     verified: typeof row.auth_user_id === "string" && row.auth_user_id.length > 0,
     dateOfBirth: row.date_of_birth ? String(row.date_of_birth) : null,
     height: row.height ? String(row.height) : null,
+    heightInches: numericOrNull(row.height_inches),
+    profileSetupComplete: typeof row.profile_completed_at === "string",
     timezone: row.timezone ? String(row.timezone) : null,
     createdAt: row.created_at ? String(row.created_at) : null,
     claimedAt: row.claimed_at ? String(row.claimed_at) : null,

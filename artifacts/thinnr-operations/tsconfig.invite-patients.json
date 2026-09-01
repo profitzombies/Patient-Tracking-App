@@ -1,0 +1,18 @@
+{
+  // tsx config for scripts/verify-invite-patients.ts ONLY (not part of
+  // typecheck — tsconfig.json includes src/**/* alone).
+  //
+  // The suite exercises the REAL src/lib/office-roster.ts client under Node
+  // with a scripted global fetch, so the one module that reaches
+  // import.meta.env at load (lib/supabase) is remapped to a controllable
+  // stub. Exact path keys win over the '@/*' wildcard; every other '@/…'
+  // import resolves to the real code. Same pattern as tsconfig.a11y.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

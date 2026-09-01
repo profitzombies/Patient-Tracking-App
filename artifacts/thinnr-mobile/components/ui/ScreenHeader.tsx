@@ -18,12 +18,22 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 
+interface ScreenHeaderAction {
+  icon: keyof typeof Feather.glyphMap;
+  /** Accessible name — icon-only buttons MUST carry one. */
+  label: string;
+  onPress: () => void;
+  testID?: string;
+}
+
 interface ScreenHeaderProps {
   title: string;
   onSearch?: (query: string) => void;
+  /** Optional screen-specific action rendered ahead of the shared icons. */
+  action?: ScreenHeaderAction;
 }
 
-export function ScreenHeader({ title, onSearch }: ScreenHeaderProps) {
+export function ScreenHeader({ title, onSearch, action }: ScreenHeaderProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -87,6 +97,23 @@ export function ScreenHeader({ title, onSearch }: ScreenHeaderProps) {
               ]}
               testID="header-search-input"
             />
+          )}
+          {action && !searchOpen && (
+            <Pressable
+              testID={action.testID}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+              onPress={() => {
+                Haptics.selectionAsync();
+                action.onPress();
+              }}
+              style={({ pressed }) => [
+                styles.iconBtn,
+                { borderColor: colors.cobalt, backgroundColor: pressed ? colors.accent : colors.card },
+              ]}
+            >
+              <Feather name={action.icon} size={16} color={colors.cobalt} />
+            </Pressable>
           )}
           <Pressable
             testID="header-search-btn"

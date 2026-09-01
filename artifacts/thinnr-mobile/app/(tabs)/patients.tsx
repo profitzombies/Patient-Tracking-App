@@ -20,6 +20,11 @@ import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader'
 import { Divider, EmptyState, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { MOCK_PROVIDERS, type Status, type Patient } from '@/data/mock-data';
 import { useOperations } from '@/context/OperationsContext';
+import {
+  InvitePatientModal,
+  LiveRosterSection,
+  useOfficeRoster,
+} from '@/components/office/LiveOfficeRoster';
 
 type SortKey = 'name' | 'startDate' | 'weightLoss' | 'status';
 
@@ -46,6 +51,16 @@ export default function PatientsScreen() {
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all');
   const [sortKey, setSortKey] = useState<SortKey>('startDate');
   const [refreshing, setRefreshing] = useState(false);
+  // Live roster is server-gated: it loads only when the signed-in session
+  // resolves to a staff office (demo persona and patient tokens stay hidden).
+  const officeRoster = useOfficeRoster();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const showNotice = useCallback((text: string) => {
+    setNotice(text);
+    setTimeout(() => setNotice((current) => (current === text ? null : current)), 5000);
+  }, []);
 
   const bottomPad = Platform.OS === 'web' ? 84 + 16 : insets.bottom + 84 + 16;
 
@@ -68,8 +83,8 @@ export default function PatientsScreen() {
   const onRefresh = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
-  }, []);
+    void officeRoster.refresh().finally(() => setRefreshing(false));
+  }, [officeRoster.refresh]);
 
   const renderItem = useCallback(({ item: patient }: { item: Patient }) => {
     const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
@@ -121,7 +136,20 @@ export default function PatientsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScreenHeader title="Patients" onSearch={setSearch} />
+      <ScreenHeader
+        title="Patients"
+        onSearch={setSearch}
+        action={
+          officeRoster.status === 'ready'
+            ? {
+                icon: 'user-plus',
+                label: 'Invite patient',
+                onPress: () => setInviteOpen(true),
+                testID: 'header-invite-patient-btn',
+              }
+            : undefined
+        }
+      />
 
       {/* Toolbar */}
       <View style={[styles.toolbar, { borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
@@ -186,10 +214,21 @@ export default function PatientsScreen() {
         <Text style={[styles.countText, { color: colors.labelText }]}>{filtered.length} RECORDS</Text>
       </View>
 
+      {notice && (
+        <View
+          style={[styles.noticeBar, { backgroundColor: colors.activeBg, borderBottomColor: colors.border }]}
+          accessibilityLiveRegion="polite"
+          testID="patients-notice"
+        >
+          <Text style={[styles.noticeText, { color: colors.navy }]}>{notice}</Text>
+        </View>
+      )}
+
       <FlatList
         data={filtered}
         keyExtractor={item => item.id}
         renderItem={renderItem}
+        ListHeaderComponent={<LiveRosterSection state={officeRoster} onNotice={showNotice} />}
         ItemSeparatorComponent={() => <Divider />}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.cobalt} />}
         scrollEnabled={filtered.length > 0}
@@ -203,6 +242,19 @@ export default function PatientsScreen() {
         }
         ListFooterComponent={filtered.length > 0 ? <SyntheticDisclaimer /> : null}
         testID="patients-list"
+      />
+
+      <InvitePatientModal
+        visible={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        onInvited={(patient, outcome) => {
+          void officeRoster.refresh();
+          showNotice(
+            outcome === 'sent'
+              ? `Invitation sent to ${patient.name}. They sign in with the invited phone number.`
+              : `${patient.name} was added, but the email didn’t go out. Use Resend on the live roster.`,
+          );
+        }}
       />
     </View>
   );
@@ -220,6 +272,8 @@ const styles = StyleSheet.create({
   sortOption: { fontSize: 11, fontFamily: 'Inter_500Medium' },
   countBar: { paddingHorizontal: 14, paddingVertical: 6, borderBottomWidth: 1 },
   countText: { fontSize: 9, fontWeight: '700', letterSpacing: 1.2, fontFamily: 'Inter_700Bold' },
+  noticeBar: { paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1 },
+  noticeText: { fontSize: 11, fontFamily: 'Inter_500Medium' },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, gap: 12, borderBottomWidth: 1 },
   rowInitials: { width: 38, height: 38, borderRadius: theme.radiusSm, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   rowInitialsText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },

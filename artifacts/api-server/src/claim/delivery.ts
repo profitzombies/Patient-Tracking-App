@@ -166,6 +166,21 @@ export async function sendHqTeamInvitation(
   await sendTransactionalEmail(to, "hq-team-invitation", input);
 }
 
+/** Post-commit invitation for a patient invited from a provider portal. */
+export async function sendPatientInvitation(
+  to: string,
+  input: {
+    name: string;
+    providerName: string;
+    officeName: string;
+    providerCode: string;
+    phone: string;
+    appLink: string;
+  },
+): Promise<void> {
+  await sendTransactionalEmail(to, "patient-invitation", input);
+}
+
 /** Post-commit invitation for a new office staff sign-in added by HQ. */
 export async function sendStaffLoginInvitation(
   to: string,

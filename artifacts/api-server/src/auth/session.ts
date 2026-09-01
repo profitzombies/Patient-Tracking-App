@@ -137,16 +137,40 @@ async function linkGuarded(
   return winner;
 }
 
+/**
+ * Portal-invited rows become active the moment their login exists: flip
+ * activation_status invited -> activated, guarded on the old value so the
+ * write is idempotent. Failures throw — the verify endpoint answers 502 and
+ * a retried login re-runs the flip (both call paths below reach it), so the
+ * row can never silently stay "invited" while holding a login.
+ */
+async function activateInvitedPatient(patient: PatientRow): Promise<void> {
+  if (patient.activation_status !== "invited") return;
+  const res = await supabaseAdmin(
+    "PATCH",
+    `/rest/v1/patients?id=eq.${enc(patient.id)}&activation_status=eq.invited`,
+    { activation_status: "activated" },
+  );
+  if (res.status >= 300) {
+    throw new Error(`invited patient activation failed (${res.status})`);
+  }
+}
+
 /** Patient: existing link wins; otherwise create + link a synthetic-email user. */
 export async function ensurePatientAuthUser(patient: PatientRow): Promise<string> {
-  if (patient.auth_user_id) return patient.auth_user_id;
+  if (patient.auth_user_id) {
+    await activateInvitedPatient(patient);
+    return patient.auth_user_id;
+  }
   const userId = await createConfirmedUser({
     email: patientSyntheticEmail(patient.id),
     phone: patient.phone,
     displayName: patient.name,
     appMetadata: { thinnr_claim: "patient", thinnr_claim_ref: patient.id },
   });
-  return linkGuarded("patients", "id", patient.id, userId);
+  const linked = await linkGuarded("patients", "id", patient.id, userId);
+  await activateInvitedPatient(patient);
+  return linked;
 }
 
 /** Office account ids are canonically bare — locks and the HQ UI strip `acct-`. */

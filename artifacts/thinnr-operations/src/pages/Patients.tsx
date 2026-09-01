@@ -6,6 +6,9 @@ import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
 import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
 import { getNudgeAssessment } from "@/data/stall-nudge";
 import { usePatientSession } from "@/contexts/patient-session";
+import { useProviderScope } from "@/contexts/provider-scope";
+import { useSession } from "@/contexts/session";
+import { InvitePatientAction, LiveRosterCard } from "@/components/office/LiveRoster";
 
 type SortField = 'name' | 'startDate' | 'status' | 'weightLoss' | 'logging';
 type SortOrder = 'asc' | 'desc';
@@ -67,6 +70,16 @@ export default function Patients() {
   // One office's roster inside the HQ drill-in; the full program otherwise.
   const patients = useScopedPatients();
   const providers = useScopedProviders();
+  // Live invitations only exist for authenticated scopes: a signed-in
+  // provider office (server derives the office from the bearer token) or an
+  // HQ drill-in on an explicitly scoped account. Demo personas never call
+  // the live endpoints, so the seeded demo stays untouched.
+  const { authStatus, authRole } = useSession();
+  const scope = useProviderScope();
+  const liveEnabled =
+    authStatus === 'signed-in' &&
+    (authRole === 'provider_staff' || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
+  const liveOffice = authRole === 'hq_admin' ? scope?.providerId ?? null : null;
   // Base-aware navigate: resolves against the mount point exactly like the
   // roster's <Link>s, so row clicks stay inside the HQ drill-in scope too.
   const [, navigate] = useLocation();
@@ -147,7 +160,10 @@ export default function Patients() {
           <h1 className="font-serif text-[32px] font-bold leading-none tracking-tight text-navy">Patient Roster</h1>
           <p className="mt-2 text-sm text-muted-foreground">Manage and monitor all THINNR protocol participants.</p>
         </div>
+        {liveEnabled && <InvitePatientAction office={liveOffice} />}
       </div>
+
+      {liveEnabled && <LiveRosterCard office={liveOffice} />}
 
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-soft">
         {/* Toolbar */}

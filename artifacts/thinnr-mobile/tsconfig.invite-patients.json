@@ -1,0 +1,18 @@
+{
+  // tsx config for scripts/verify-invite-patients.ts ONLY (not part of
+  // typecheck).
+  //
+  // The suite exercises the REAL lib/office-roster-api.ts client under Node
+  // with a scripted global fetch, so the two modules that reach expo /
+  // AsyncStorage at load (lib/supabase, lib/coach-api) are remapped to
+  // controllable stubs. Exact path keys win over the '@/*' wildcard.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/supabase": ["./scripts/invite-patient-stubs/supabase.ts"],
+      "@/lib/coach-api": ["./scripts/invite-patient-stubs/coach-api.ts"],
+      "@/*": ["./*"]
+    }
+  }
+}

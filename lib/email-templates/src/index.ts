@@ -3,6 +3,7 @@ export const EMAIL_TEMPLATE_IDS = [
   "provider-account-ready",
   "hq-team-invitation",
   "provider-staff-invitation",
+  "patient-invitation",
 ] as const;
 
 export type EmailTemplateId = (typeof EMAIL_TEMPLATE_IDS)[number];
@@ -69,6 +70,29 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
     audience: "A newly added staff member at a provider office.",
     sampleVariables: { name: "Morgan Sample", officeName: "Example Wellness Studio" },
     variableLabels: { name: "Staff name", officeName: "Office name" },
+  },
+  {
+    id: "patient-invitation",
+    name: "Patient invitation",
+    purpose: "Invites a patient to join THINNR under their provider’s office and explains how to sign in with the invited phone number.",
+    trigger: "Office staff — or an HQ administrator working inside that office — invites a patient from the patient roster.",
+    audience: "A patient invited by a provider office.",
+    sampleVariables: {
+      name: "Riley",
+      providerName: "Avery Example",
+      officeName: "Example Wellness Studio",
+      providerCode: "731942",
+      phone: "(555) 014-2890",
+      appLink: "https://example.test/thinnr-app",
+    },
+    variableLabels: {
+      name: "Patient first name",
+      providerName: "Provider name",
+      officeName: "Office name",
+      providerCode: "Provider code",
+      phone: "Invited phone number",
+      appLink: "App link",
+    },
   },
 ] as const;
 
@@ -261,6 +285,52 @@ export function renderEmailTemplate(
           ${paragraph("Open THINNR operations and enter this email address to sign in. We’ll send a one-time code, so there’s no password to create.")}
           ${paragraph("<strong>This invitation expires in 7 days.</strong>")}`,
         closing: "If you did not expect this invitation, contact THINNR support.",
+      }),
+    };
+  }
+
+  if (id === "patient-invitation") {
+    const name = requireVariable(variables, "name");
+    const providerName = requireVariable(variables, "providerName");
+    const officeName = requireVariable(variables, "officeName");
+    const providerCode = requireVariable(variables, "providerCode");
+    const phone = requireVariable(variables, "phone");
+    const appLink = requireVariable(variables, "appLink");
+    const subject = `${providerName} invited you to THINNR`;
+    const previewText = `${officeName} set up your THINNR access. Sign in with your phone number to begin.`;
+    const text = [
+      `Hello ${name},`,
+      "",
+      `${providerName} at ${officeName} invited you to THINNR, the companion app for your program.`,
+      "",
+      `Get the THINNR app: ${appLink}`,
+      `Sign in with your phone number ${phone}. We will text a one-time verification code to that number, so there is no password to create.`,
+      "",
+      `Provider code: ${providerCode}`,
+      `Signing in with the phone number above connects you to ${officeName} automatically, so you should not need to enter the code. Keep it handy in case you are ever asked for it.`,
+      "",
+      "If you were not expecting this invitation, you can safely ignore this email.",
+    ].join("\n");
+    return {
+      subject,
+      previewText,
+      text,
+      html: shell({
+        previewText,
+        eyebrow: "Patient invitation",
+        heading: `${providerName} invited you to THINNR`,
+        greeting: name,
+        bodyHtml: `${paragraph(`<strong>${escapeHtml(providerName)}</strong> at <strong>${escapeHtml(officeName)}</strong> invited you to THINNR, the companion app for your program.`)}
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+            <tr><td style="background:#315eae;border-radius:9px;">
+              <a href="${escapeHtml(appLink)}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;">Open the THINNR app</a>
+            </td></tr>
+          </table>
+          ${infoPanel("Sign in with this phone number", phone)}
+          ${paragraph("Enter the phone number above when you sign in. We’ll text a one-time verification code to that number, so there’s no password to create.")}
+          ${infoPanel("Provider code", providerCode)}
+          ${paragraph(`Signing in with your invited phone number connects you to <strong>${escapeHtml(officeName)}</strong> automatically, so you shouldn’t need to enter the provider code. Keep it handy in case you’re ever asked for it.`)}`,
+        closing: "If you were not expecting this invitation, you can safely ignore this email.",
       }),
     };
   }

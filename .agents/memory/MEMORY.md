@@ -78,3 +78,4 @@
 - [Live patient-data rail](live-patient-data-rail.md) — account seam defaults to demo; server truth gates real writes; one-RPC compound mutations; media rail mints path-owned objects, reads token-gated.
 - [Per-account chat persistence](patient-chat-persistence.md) — finalized-only signature outbox + hydrate-then-persist; ref-sync effect must precede the persistence effect; photos re-attach on `!https?:` not `data:` only.
 - [Coach real-account grounding](coach-real-grounding.md) — auth ladder resolves before SSE; real patients get live-data context or a retryable error, never a silent demo fallback; greeting is client-composed from server facts.
+- [Env knob parsing](env-knob-parsing.md) — Number("") is 0: unset numeric knobs silently zero limits; blank-check before Number; import-time knobs need vi.hoisted in tests.

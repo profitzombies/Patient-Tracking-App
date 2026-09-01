@@ -46,6 +46,17 @@ export const acquireOfficeSlot = createLimiter({
   rapidMessage: WAIT_MESSAGE,
 });
 
+/** Patient invitations from the office portals — creates rows + sends email. */
+export const acquireInviteSlot = createLimiter({
+  burst: envLimit("AUTH_INVITE_BURST", 6),
+  refillPerMinute: 3,
+  maxConcurrent: 4,
+  dailyBudget: envLimit("AUTH_INVITE_DAILY_BUDGET", 200),
+  dailyMessage: DAILY_MESSAGE,
+  busyMessage: BUSY_MESSAGE,
+  rapidMessage: WAIT_MESSAGE,
+});
+
 /** Signup completion — creates accounts, so the tightest budget of the set. */
 export const acquireFinishSlot = createLimiter({
   burst: envLimit("AUTH_FINISH_BURST", 6),

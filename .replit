@@ -160,6 +160,18 @@ args = "account-progress"
 task = "workflow.run"
 args = "account-search"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "invite-patients-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "invite-patients-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "invite-patients-mobile"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -552,6 +564,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:account-search"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "invite-patients-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/office-roster.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "invite-patients-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:invite-patients"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "invite-patients-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:invite-patients"
 
 [workflows.workflow.metadata]
 isValidation = true

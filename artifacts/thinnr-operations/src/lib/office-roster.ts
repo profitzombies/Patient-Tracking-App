@@ -28,6 +28,26 @@ export interface OfficePatient {
   activationStatus: string | null;
   verified: boolean;
   createdAt: string | null;
+  /** Optional summary values supplied by the roster endpoint as they become available. */
+  status?: string | null;
+  providerName?: string | null;
+  startDate?: string | null;
+  stage?: string | null;
+  protocolWeek?: number | null;
+  startingWeight?: number | null;
+  currentWeight?: number | null;
+  goalWeight?: number | null;
+  lastLogAt?: string | null;
+  loggedDays7?: number | null;
+  program?: {
+    id: string | null;
+    startDate: string | null;
+    startingWeight: number | null;
+    currentWeight: number | null;
+    goalWeight: number | null;
+    weightChange: number | null;
+    lastLogDate: string | null;
+  };
   invitation: {
     state: 'pending' | 'verified';
     invitedAt: string;
@@ -39,6 +59,94 @@ export interface OfficePatient {
 export interface OfficeRoster {
   office: { providerId: string; officeName: string; providerCode: string };
   patients: OfficePatient[];
+}
+
+export interface OfficeWeightEntry {
+  dateKey: string;
+  weight: number;
+}
+
+export interface OfficeDiaryEntry {
+  id: string;
+  dateKey: string;
+  meal: string;
+  name: string;
+  kind: string | null;
+  refId?: string;
+  detail: string;
+  quantity: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  adjustments?: unknown[];
+}
+
+export interface OfficeCheckIn {
+  id: string;
+  dateKey: string;
+  mood: number | null;
+  weight?: number | null;
+  sideEffects?: string[];
+  notes: string | null;
+}
+
+export interface OfficeProgressPhoto {
+  id: string;
+  dateKey: string;
+  label: string;
+  angle: string | null;
+  url: string | null;
+}
+
+/** Provider-safe detail contract. It intentionally contains no patient login/auth data. */
+export interface OfficePatientDetail {
+  office: OfficeRoster['office'];
+  patient: {
+    identity: {
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      phoneDisplay: string | null;
+      activationStatus: string | null;
+      verified: boolean;
+      dateOfBirth: string | null;
+      height: string | null;
+      timezone: string | null;
+      createdAt: string | null;
+      claimedAt: string | null;
+      lastLoginAt: string | null;
+    };
+    program: {
+      id: string | null;
+      startDate: string | null;
+      startingWeight: number | null;
+      currentWeight: number | null;
+      goalWeight: number | null;
+      weightChange: number | null;
+      lastLogDate: string | null;
+    };
+  };
+  diary: {
+    entries: OfficeDiaryEntry[];
+    nutritionTotals: {
+      overall: { calories: number; protein: number; carbs: number; fat: number };
+      byDate: Array<{ dateKey: string; calories: number; protein: number; carbs: number; fat: number }>;
+    };
+  };
+  water: Array<{ dateKey: string; oz: number }>;
+  checkIns: OfficeCheckIn[];
+  weights: OfficeWeightEntry[];
+  progressPhotos: OfficeProgressPhoto[];
+  account: {
+    targets: { calories: number | null; protein: number | null; carbs: number | null; fat: number | null; waterOz: number | null };
+    favorites: unknown[];
+    recents: unknown[];
+    customFoods: unknown[];
+    savedRecipes: unknown[];
+    flags: Record<string, unknown>;
+  };
 }
 
 export interface InvitePatientInput {
@@ -104,6 +212,12 @@ function officeQuery(office?: string | null): string {
 
 export async function fetchOfficeRoster(office?: string | null): Promise<OfficeRoster> {
   return request<OfficeRoster>(`/api/office/roster${officeQuery(office)}`);
+}
+
+export async function fetchOfficePatient(patientId: string, office?: string | null): Promise<OfficePatientDetail> {
+  return request<OfficePatientDetail>(
+    `/api/office/patients/${encodeURIComponent(patientId)}${officeQuery(office)}`,
+  );
 }
 
 export async function invitePatient(

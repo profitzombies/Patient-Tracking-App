@@ -2,7 +2,7 @@ import type { WeightEntry } from "@/data/mock-data";
 
 interface WeightTrendProps {
   entries: WeightEntry[];
-  goalWeight: number;
+  goalWeight?: number | null;
   startingWeight: number;
   patientName: string;
 }
@@ -26,14 +26,14 @@ export function WeightTrend({ entries, goalWeight, startingWeight, patientName }
   const top = 20;
   const bottom = 40;
   const lowestEntry = Math.min(...entries.map((entry) => entry.weight));
-  const minWeight = Math.floor(Math.min(lowestEntry - 2, Math.max(goalWeight - 2, lowestEntry - 8)));
+  const minWeight = Math.floor(goalWeight == null ? lowestEntry - 2 : Math.min(lowestEntry - 2, Math.max(goalWeight - 2, lowestEntry - 8)));
   const maxWeight = Math.ceil(Math.max(startingWeight, ...entries.map((entry) => entry.weight)) + 2);
   const range = Math.max(1, maxWeight - minWeight);
   const xFor = (index: number) => left + ((width - left - right) * (entries.length === 1 ? 0.5 : index / (entries.length - 1)));
   const yFor = (weight: number) => top + ((maxWeight - weight) / range) * (height - top - bottom);
   const path = entries.map((entry, index) => `${index === 0 ? 'M' : 'L'} ${xFor(index)} ${yFor(entry.weight)}`).join(' ');
-  const goalIsVisible = goalWeight >= minWeight;
-  const goalY = goalIsVisible ? yFor(goalWeight) : height - bottom;
+  const goalIsVisible = goalWeight != null && goalWeight >= minWeight;
+  const goalY = goalWeight != null && goalIsVisible ? yFor(goalWeight) : height - bottom;
   const midWeight = Math.round((minWeight + maxWeight) / 2);
   const labels = [maxWeight, midWeight, minWeight];
 
@@ -48,7 +48,7 @@ export function WeightTrend({ entries, goalWeight, startingWeight, patientName }
         >
           <title id="weight-trend-title">Weight trend for {patientName}</title>
           <desc id="weight-trend-description">
-            {entries.length} logged weigh-ins. The dashed line is the goal weight of {goalWeight} pounds.
+            {entries.length} logged weigh-ins.{goalWeight != null ? ` The dashed line is the goal weight of ${goalWeight} pounds.` : ''}
           </desc>
           {labels.map((label) => (
             <g key={label}>
@@ -56,12 +56,12 @@ export function WeightTrend({ entries, goalWeight, startingWeight, patientName }
               <text className="fill-muted-foreground" x={left - 8} y={yFor(label) + 4} textAnchor="end" fontSize="10">{label}</text>
             </g>
           ))}
-          <g>
+          {goalWeight != null && <g>
             <line className="stroke-accent-warm" x1={left} x2={width - right} y1={goalY} y2={goalY} strokeDasharray="5 4" strokeWidth="1.5" />
             <text className="fill-[#b65c22]" x={width - right} y={goalY - 6} textAnchor="end" fontSize="10" fontWeight="700">
               Goal {goalWeight} lb{goalIsVisible ? '' : ' · below range'}
             </text>
-          </g>
+          </g>}
           <path className="stroke-primary" d={path} fill="none" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
           {entries.map((entry, index) => (
             <g key={`${entry.date}-${index}`}>
@@ -79,7 +79,7 @@ export function WeightTrend({ entries, goalWeight, startingWeight, patientName }
       </div>
       <figcaption id="weight-trend-caption" className="mt-2 flex flex-wrap justify-between gap-2 text-[10px] text-muted-foreground">
         <span>Each point is a logged weigh-in. Hover or use the list below for exact values.</span>
-        <span className="font-semibold text-[#b65c22]">Goal reference: {goalWeight} lbs</span>
+        {goalWeight != null && <span className="font-semibold text-[#b65c22]">Goal reference: {goalWeight} lbs</span>}
       </figcaption>
     </figure>
   );

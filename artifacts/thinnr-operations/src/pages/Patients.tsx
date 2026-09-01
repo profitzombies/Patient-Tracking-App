@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Search, Filter, ArrowUpDown, ChevronRight, MessageCircleHeart } from "lucide-react";
+import { Search, Filter, ArrowUpDown, ChevronRight, MailWarning, MessageCircleHeart } from "lucide-react";
 import { type Status } from "@/data/mock-data";
 import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
 import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
@@ -8,11 +9,17 @@ import { getNudgeAssessment } from "@/data/stall-nudge";
 import { usePatientSession } from "@/contexts/patient-session";
 import { useProviderScope } from "@/contexts/provider-scope";
 import { useSession } from "@/contexts/session";
-import { InvitePatientAction, LiveRosterCard } from "@/components/office/LiveRoster";
+import { InvitePatientAction, InvitationChip, officeRosterQueryKey } from "@/components/office/LiveRoster";
+import { BTN_SECONDARY } from "@/components/patient/heritage";
+import { fetchOfficeRoster, resendInvitation, type OfficePatient } from "@/lib/office-roster";
+import { useToast } from "@/hooks/use-toast";
 
 type SortField = 'name' | 'startDate' | 'status' | 'weightLoss' | 'logging';
 type SortOrder = 'asc' | 'desc';
 type LoggingFilter = 'all' | 'lapsed';
+
+const formatDate = (date: string) =>
+  new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
 // Heritage status tints — mirrors the mobile StatusBadge (thinnr-mobile
 // constants/colors.ts): healthy stays in the cobalt family, watch and risk
@@ -66,6 +73,8 @@ function NudgeChip() {
 }
 
 export default function Patients() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { getCurrentWeight } = usePatientSession();
   // One office's roster inside the HQ drill-in; the full program otherwise.
   const patients = useScopedPatients();
@@ -90,6 +99,30 @@ export default function Patients() {
   const [loggingFilter, setLoggingFilter] = useState<LoggingFilter>(arrivedLapsed ? 'lapsed' : 'all');
   const [sortField, setSortField] = useState<SortField>(arrivedLapsed ? 'logging' : 'startDate');
   const [sortOrder, setSortOrder] = useState<SortOrder>(arrivedLapsed ? 'asc' : 'desc');
+  const [resending, setResending] = useState<string | null>(null);
+  const liveRoster = useQuery({
+    queryKey: officeRosterQueryKey(liveOffice),
+    queryFn: () => fetchOfficeRoster(liveOffice),
+    enabled: liveEnabled,
+    refetchInterval: liveEnabled ? 30_000 : false,
+  });
+
+  const resend = async (patient: OfficePatient) => {
+    setResending(patient.id);
+    try {
+      const result = await resendInvitation(patient.id, liveOffice);
+      await queryClient.invalidateQueries({ queryKey: officeRosterQueryKey(liveOffice) });
+      toast({
+        variant: result.invitation === 'sent' ? 'success' : 'destructive',
+        title: result.invitation === 'sent' ? `Invitation resent to ${patient.name}` : 'Invitation email not sent',
+        description: result.invitation === 'sent' ? 'The patient can use the invited phone number to connect.' : 'Try resending again once email delivery is available.',
+      });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Invitation not resent', description: error instanceof Error ? error.message : 'Try again.' });
+    } finally {
+      setResending(null);
+    }
+  };
 
   // Landing here from the overview compliance card pre-applies the lapsed view.
   useEffect(() => {
@@ -153,6 +186,67 @@ export default function Patients() {
     }
   };
 
+  if (liveEnabled) {
+    const livePatients = [...(liveRoster.data?.patients ?? [])]
+      .filter((patient) => {
+        const needle = search.trim().toLowerCase();
+        return !needle || patient.name.toLowerCase().includes(needle) || (patient.email ?? '').toLowerCase().includes(needle);
+      })
+      .sort((a, b) => {
+        if (sortField === 'name') return (sortOrder === 'asc' ? 1 : -1) * a.name.localeCompare(b.name);
+        const aDate = a.startDate ?? a.program?.startDate ?? a.createdAt ?? '';
+        const bDate = b.startDate ?? b.program?.startDate ?? b.createdAt ?? '';
+        return (sortOrder === 'asc' ? 1 : -1) * aDate.localeCompare(bDate);
+      });
+    return (
+      <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8">
+        <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <h1 className="font-serif text-[32px] font-bold leading-none tracking-tight text-navy">Patient Roster</h1>
+            <p className="mt-2 text-sm text-muted-foreground">Manage and monitor all THINNR protocol participants.</p>
+          </div>
+          <InvitePatientAction office={liveOffice} />
+        </div>
+        <div className="overflow-hidden rounded-lg border border-border bg-card shadow-soft" data-testid="live-roster">
+          <div className="border-b border-border bg-paper-alt p-4">
+            <div className="relative w-full sm:w-80">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <label htmlFor="patient-search" className="sr-only">Search patients by name or email</label>
+              <input id="patient-search" data-testid="input-patient-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patients..." className="h-9 w-full rounded-md border border-border bg-card pl-9 pr-3 text-xs outline-none focus:ring-2 focus:ring-ring" />
+            </div>
+          </div>
+          {liveRoster.isLoading && <div className="p-10 text-center text-xs text-muted-foreground">Loading patients…</div>}
+          {liveRoster.isError && <div className="p-10 text-center text-xs text-destructive" role="alert">{liveRoster.error instanceof Error ? liveRoster.error.message : 'The roster could not be loaded.'}</div>}
+          {liveRoster.data && (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[840px] text-left text-xs">
+                <thead className="border-b border-border bg-secondary text-[10px] uppercase tracking-[.11em] text-muted-foreground"><tr>
+                  <th className="px-4 py-3"><button data-testid="button-sort-live-name" onClick={() => handleSort('name')}>Patient</button></th>
+                  <th className="px-4 py-3">Status</th><th className="px-4 py-3">Program</th><th className="px-4 py-3">Provider</th><th className="px-4 py-3">Started</th><th className="px-4 py-3">Invitation email</th><th className="px-4 py-3 text-right">Actions</th>
+                </tr></thead>
+                <tbody>
+                  {livePatients.map((patient) => (
+                    <tr key={patient.id} tabIndex={0} data-testid={`live-roster-row-${patient.id}`} onClick={(event) => { if (!(event.target as Element).closest('button,a')) navigate(`/patients/${patient.id}`); }} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); navigate(`/patients/${patient.id}`); } }} className="cursor-pointer border-b border-border transition-colors hover:bg-accent/40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring">
+                      <td className="px-4 py-3"><b className="block font-serif text-sm text-navy">{patient.name}</b><span className="text-[10px] text-muted-foreground">{patient.email ?? 'No email on file'}</span></td>
+                      <td className="px-4 py-3">{patient.invitation ? <InvitationChip patient={patient} /> : <span className="capitalize text-foreground/80">{patient.activationStatus ?? patient.status ?? '—'}</span>}</td>
+                      <td className="px-4 py-3 text-foreground/80">{patient.stage ? (patient.stage === 'protocol' && patient.protocolWeek ? `Week ${patient.protocolWeek}` : patient.stage) : patient.program?.id ? 'Enrolled' : '—'}</td>
+                      <td className="px-4 py-3 text-foreground/80">{patient.providerName ?? '—'}</td>
+                      <td className="px-4 py-3 text-foreground/80">{patient.startDate ?? patient.program?.startDate ?? patient.createdAt ? formatDate(patient.startDate ?? patient.program?.startDate ?? patient.createdAt!) : '—'}</td>
+                      <td className="px-4 py-3">{patient.invitation?.emailStatus === 'failed' ? <span className="inline-flex items-center gap-1 font-semibold text-destructive"><MailWarning size={12} />Delivery failed</span> : <span className="capitalize text-muted-foreground">{patient.invitation?.emailStatus ?? '—'}</span>}</td>
+                      <td className="px-4 py-3 text-right">{patient.invitation?.state === 'pending' && <button type="button" data-testid={`button-resend-invite-${patient.id}`} className={`${BTN_SECONDARY} h-8 px-3`} disabled={resending === patient.id} onClick={() => void resend(patient)}>{resending === patient.id ? 'Resending…' : 'Resend invite'}</button>}</td>
+                    </tr>
+                  ))}
+                  {livePatients.length === 0 && <tr><td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">{search ? 'No patients found matching your search.' : 'No patients yet. Use Invite Patient to add the first one.'}</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="border-t border-border bg-paper-alt px-4 py-3 text-xs text-muted-foreground">Showing <b className="text-foreground">{livePatients.length}</b> records</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8">
       <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -162,8 +256,6 @@ export default function Patients() {
         </div>
         {liveEnabled && <InvitePatientAction office={liveOffice} />}
       </div>
-
-      {liveEnabled && <LiveRosterCard office={liveOffice} />}
 
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-soft">
         {/* Toolbar */}

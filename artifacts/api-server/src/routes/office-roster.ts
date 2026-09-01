@@ -31,6 +31,8 @@ import {
   sendPatientInvitation,
 } from "../claim/delivery";
 import { effectiveProviderCode, normalizeUsPhone } from "./provider-accounts";
+import { objectStorage } from "../lib/objectStorage";
+import { isOwnPatientMediaPath } from "./patient-media";
 
 const router: IRouter = Router();
 
@@ -53,7 +55,7 @@ function resendCooldownSeconds(): number {
 }
 
 const PATIENT_SELECT =
-  "id,provider_id,name,email,phone,activation_status,auth_user_id,claimed_at,created_at,invited_at,invited_by,invite_email_status,invite_email_updated_at";
+  "id,provider_id,name,email,phone,activation_status,auth_user_id,claimed_at,created_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,last_login_at,last_log_date";
 
 type PatientRosterRow = Record<string, unknown>;
 
@@ -71,6 +73,15 @@ function patientDto(row: PatientRosterRow) {
     activationStatus: row.activation_status ? String(row.activation_status) : null,
     verified,
     createdAt: row.created_at ? String(row.created_at) : null,
+    program: {
+      id: row.program_id ? String(row.program_id) : null,
+      startDate: row.program_start_date ? String(row.program_start_date) : null,
+      startingWeight: numericOrNull(row.starting_weight),
+      currentWeight: numericOrNull(row.current_weight),
+      goalWeight: numericOrNull(row.goal_weight),
+      weightChange: numericOrNull(row.weight_gain_lost),
+      lastLogDate: row.last_log_date ? String(row.last_log_date) : null,
+    },
     invitation: invited
       ? {
           state: verified ? ("verified" as const) : ("pending" as const),
@@ -82,6 +93,41 @@ function patientDto(row: PatientRosterRow) {
         }
       : null,
   };
+}
+
+function numericOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function identityDto(row: PatientRosterRow) {
+  return {
+    id: String(row.id),
+    name: row.name ? String(row.name) : "",
+    email: row.email ? String(row.email) : null,
+    phone: row.phone ? String(row.phone) : null,
+    phoneDisplay: normalizeUsPhone(typeof row.phone === "string" ? row.phone : ""),
+    activationStatus: row.activation_status ? String(row.activation_status) : null,
+    verified: typeof row.auth_user_id === "string" && row.auth_user_id.length > 0,
+    dateOfBirth: row.date_of_birth ? String(row.date_of_birth) : null,
+    height: row.height ? String(row.height) : null,
+    timezone: row.timezone ? String(row.timezone) : null,
+    createdAt: row.created_at ? String(row.created_at) : null,
+    claimedAt: row.claimed_at ? String(row.claimed_at) : null,
+    lastLoginAt: row.last_login_at ? String(row.last_login_at) : null,
+  };
+}
+
+const RECORD_NOT_FOUND = "No patient record found for this office.";
+const STAFF_PHOTO_TTL_SEC = 15 * 60;
+
+async function authorizedPhotoUrl(patientId: string, path: unknown): Promise<string | null> {
+  if (typeof path !== "string" || !isOwnPatientMediaPath(path, patientId)) return null;
+  return objectStorage.signedDownloadURL(path, STAFF_PHOTO_TTL_SEC);
 }
 
 export type OfficePatientDto = ReturnType<typeof patientDto>;
@@ -180,6 +226,243 @@ router.get("/office/roster", async (req, res) => {
     });
   } catch (error) {
     req.log?.error({ err: error }, "office roster failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
+
+/**
+ * Complete, read-only patient record for provider/HQ drill-in screens.
+ * The patient lookup is deliberately scoped in the same query: an unknown id
+ * and another office's id produce the identical answer and no history queries.
+ */
+router.get("/office/patients/:id", async (req, res) => {
+  try {
+    const resolved = await resolveOfficeScope({
+      authorization: req.headers.authorization,
+      explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
+      hqPermission: "provider_read",
+      requireUnlocked: false,
+    });
+    if (resolved.kind !== "ok") {
+      res.status(resolved.status).json({ error: resolved.message });
+      return;
+    }
+    const scope = resolved.scope;
+    const patientId = String(req.params.id ?? "");
+    const found = await supabaseAdmin(
+      "GET",
+      `/rest/v1/patients?id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}` +
+        `&select=${PATIENT_SELECT}&limit=1`,
+    );
+    if (found.status >= 300) throw new Error(`patient record lookup failed (${found.status})`);
+    const patient = Array.isArray(found.json)
+      ? (found.json[0] as PatientRosterRow | undefined)
+      : undefined;
+    if (!patient) {
+      res.status(404).json({ error: RECORD_NOT_FOUND });
+      return;
+    }
+
+    const pid = enc(patientId);
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags] =
+      await Promise.all([
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_diary_entries?patient_id=eq.${pid}` +
+            "&select=entry_id,date_key,meal,kind,ref_id,name,detail,quantity,calories,protein,carbs,fat,adjustments" +
+            "&order=date_key.asc,created_at.asc,entry_id.asc&limit=5000",
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_water_days?patient_id=eq.${pid}&select=date_key,oz&order=date_key.asc&limit=2000`,
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_target_overrides?patient_id=eq.${pid}&select=calories,protein,carbs,fat,water_oz&limit=1`,
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_food_prefs?patient_id=eq.${pid}&select=favorites,recents&limit=1`,
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_custom_foods?patient_id=eq.${pid}` +
+            "&select=food_id,name,brand,serving,calories,protein,carbs,fat,photo_path&order=created_at.asc,food_id.asc&limit=1000",
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_saved_recipes?patient_id=eq.${pid}` +
+            "&select=recipe_id,name,meal,mode,tags,minutes,servings,calories,protein,carbs,fat,description,ingredients,steps,grocery_list,saved_at,photo_path" +
+            "&order=created_at.asc,recipe_id.asc&limit=1000",
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_progress_photos?patient_id=eq.${pid}` +
+            "&select=photo_id,date_key,label,angle,object_path&order=created_at.asc,photo_id.asc&limit=1000",
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_check_ins?patient_id=eq.${pid}` +
+            "&select=check_in_id,date_key,weight,mood,side_effects,notes&order=date_key.asc&limit=2000",
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_flags?patient_id=eq.${pid}` +
+            "&select=nudge_opt_out,nudge_engaged,nudge_last_sent_key,nudge_last_crossing_key,onboarding_complete,onboarding_answers,notification_prefs&limit=1",
+        ),
+      ]);
+    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags];
+    if (results.some((result) => result.status >= 300 || !Array.isArray(result.json))) {
+      throw new Error("patient record history load failed");
+    }
+
+    const entryList = (entries.json as PatientRosterRow[]).map((row) => ({
+      id: String(row.entry_id),
+      dateKey: String(row.date_key),
+      meal: row.meal,
+      kind: row.kind,
+      ...(row.ref_id ? { refId: String(row.ref_id) } : {}),
+      name: row.name,
+      detail: typeof row.detail === "string" ? row.detail : "",
+      quantity: Number(row.quantity),
+      calories: Number(row.calories),
+      protein: Number(row.protein),
+      carbs: Number(row.carbs),
+      fat: Number(row.fat),
+      ...(Array.isArray(row.adjustments) && row.adjustments.length
+        ? { adjustments: row.adjustments }
+        : {}),
+    }));
+    type Nutrition = { calories: number; protein: number; carbs: number; fat: number };
+    const overall: Nutrition = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    const byDate: Record<string, Nutrition> = {};
+    for (const entry of entryList) {
+      const day = (byDate[entry.dateKey] ??= { calories: 0, protein: 0, carbs: 0, fat: 0 });
+      for (const nutrient of ["calories", "protein", "carbs", "fat"] as const) {
+        day[nutrient] += entry[nutrient];
+        overall[nutrient] += entry[nutrient];
+      }
+    }
+
+    const waterDays = (water.json as PatientRosterRow[]).map((row) => ({
+      dateKey: String(row.date_key),
+      oz: Number(row.oz),
+    }));
+    const checkInList = (checkIns.json as PatientRosterRow[]).map((row) => ({
+      id: String(row.check_in_id),
+      dateKey: String(row.date_key),
+      weight: numericOrNull(row.weight),
+      mood: numericOrNull(row.mood),
+      sideEffects: Array.isArray(row.side_effects) ? row.side_effects : [],
+      notes: typeof row.notes === "string" ? row.notes : null,
+    }));
+    const target = (targets.json as PatientRosterRow[])[0];
+    const pref = (prefs.json as PatientRosterRow[])[0];
+    const flag = (flags.json as PatientRosterRow[])[0];
+
+    const photoList = await Promise.all(
+      (photos.json as PatientRosterRow[]).map(async (row) => ({
+        id: String(row.photo_id),
+        dateKey: String(row.date_key),
+        label: row.label ? String(row.label) : "",
+        angle: row.angle ? String(row.angle) : null,
+        url: await authorizedPhotoUrl(patientId, row.object_path),
+      })),
+    );
+    const customFoods = await Promise.all(
+      (foods.json as PatientRosterRow[]).map(async (row) => ({
+        id: String(row.food_id),
+        name: String(row.name ?? ""),
+        brand: row.brand ? String(row.brand) : null,
+        serving: String(row.serving ?? ""),
+        calories: Number(row.calories),
+        protein: Number(row.protein),
+        carbs: Number(row.carbs),
+        fat: Number(row.fat),
+        photoUrl: await authorizedPhotoUrl(patientId, row.photo_path),
+      })),
+    );
+    const savedRecipes = await Promise.all(
+      (recipes.json as PatientRosterRow[]).map(async (row) => ({
+        id: String(row.recipe_id),
+        name: String(row.name ?? ""),
+        meal: row.meal,
+        mode: row.mode,
+        tags: Array.isArray(row.tags) ? row.tags : [],
+        minutes: Number(row.minutes),
+        servings: Number(row.servings),
+        calories: Number(row.calories),
+        protein: Number(row.protein),
+        carbs: Number(row.carbs),
+        fat: Number(row.fat),
+        description: typeof row.description === "string" ? row.description : "",
+        ingredients: Array.isArray(row.ingredients) ? row.ingredients : [],
+        steps: Array.isArray(row.steps) ? row.steps : [],
+        groceryList: Array.isArray(row.grocery_list) ? row.grocery_list : [],
+        savedAt: row.saved_at ? String(row.saved_at) : null,
+        photoUrl: await authorizedPhotoUrl(patientId, row.photo_path),
+      })),
+    );
+
+    res.json({
+      office: {
+        providerId: scope.providerId,
+        officeName: scope.officeName,
+        providerCode:
+          effectiveProviderCode(scope.onboardingCode, scope.providerId) ?? scope.providerId,
+      },
+      patient: {
+        identity: identityDto(patient),
+        program: patientDto(patient).program,
+      },
+      diary: {
+        entries: entryList,
+        nutritionTotals: {
+          overall,
+          byDate: Object.entries(byDate).map(([dateKey, totals]) => ({ dateKey, ...totals })),
+        },
+      },
+      water: waterDays,
+      checkIns: checkInList,
+      weights: checkInList
+        .filter((item) => item.weight !== null)
+        .map((item) => ({ dateKey: item.dateKey, weight: item.weight })),
+      progressPhotos: photoList,
+      account: {
+        targets: {
+          calories: numericOrNull(target?.calories),
+          protein: numericOrNull(target?.protein),
+          carbs: numericOrNull(target?.carbs),
+          fat: numericOrNull(target?.fat),
+          waterOz: numericOrNull(target?.water_oz),
+        },
+        favorites: Array.isArray(pref?.favorites) ? pref.favorites : [],
+        recents: Array.isArray(pref?.recents) ? pref.recents : [],
+        customFoods,
+        savedRecipes,
+        flags: {
+          nudgeOptOut: flag?.nudge_opt_out === true,
+          nudgeEngaged: flag?.nudge_engaged === true,
+          nudgeLastSentKey: flag?.nudge_last_sent_key
+            ? String(flag.nudge_last_sent_key)
+            : null,
+          nudgeLastCrossingKey: flag?.nudge_last_crossing_key
+            ? String(flag.nudge_last_crossing_key)
+            : null,
+          onboardingComplete: flag?.onboarding_complete === true,
+          onboardingAnswers:
+            flag?.onboarding_answers && typeof flag.onboarding_answers === "object"
+              ? flag.onboarding_answers
+              : null,
+          notificationPrefs:
+            flag?.notification_prefs && typeof flag.notification_prefs === "object"
+              ? flag.notification_prefs
+              : null,
+        },
+      },
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "office patient record failed");
     res.status(502).json({ error: SERVER_ERROR });
   }
 });

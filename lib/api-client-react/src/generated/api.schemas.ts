@@ -5,6 +5,213 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface OfficeSummary {
+  providerId: string;
+  officeName: string;
+  providerCode: string;
+}
+
+export interface PatientProgram {
+  /** @nullable */
+  id: string | null;
+  /** @nullable */
+  startDate: string | null;
+  /** @nullable */
+  startingWeight: number | null;
+  /** @nullable */
+  currentWeight: number | null;
+  /** @nullable */
+  goalWeight: number | null;
+  /** @nullable */
+  weightChange: number | null;
+  /** @nullable */
+  lastLogDate: string | null;
+}
+
+export type OfficeRosterPatientInvitationState = typeof OfficeRosterPatientInvitationState[keyof typeof OfficeRosterPatientInvitationState];
+
+
+export const OfficeRosterPatientInvitationState = {
+  verified: 'verified',
+  pending: 'pending',
+} as const;
+
+export type OfficeRosterPatientInvitationEmailStatus = typeof OfficeRosterPatientInvitationEmailStatus[keyof typeof OfficeRosterPatientInvitationEmailStatus];
+
+
+export const OfficeRosterPatientInvitationEmailStatus = {
+  pending: 'pending',
+  sent: 'sent',
+  failed: 'failed',
+} as const;
+
+export type OfficeRosterPatientInvitation = {
+  state: OfficeRosterPatientInvitationState;
+  invitedAt: string;
+  emailStatus: OfficeRosterPatientInvitationEmailStatus;
+  /** @nullable */
+  emailUpdatedAt: string | null;
+} | null;
+
+export interface OfficeRosterPatient {
+  id: string;
+  name: string;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  phoneDisplay: string | null;
+  /** @nullable */
+  activationStatus: string | null;
+  verified: boolean;
+  /** @nullable */
+  createdAt: string | null;
+  program: PatientProgram;
+  invitation: OfficeRosterPatientInvitation;
+}
+
+export interface OfficeRosterResult {
+  office: OfficeSummary;
+  patients: OfficeRosterPatient[];
+}
+
+export interface NutritionAmounts {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+export type OfficePatientRecordPatientIdentity = {
+  id: string;
+  name: string;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  phoneDisplay: string | null;
+  /** @nullable */
+  activationStatus: string | null;
+  verified: boolean;
+  /** @nullable */
+  dateOfBirth: string | null;
+  /** @nullable */
+  height: string | null;
+  /** @nullable */
+  timezone: string | null;
+  /** @nullable */
+  createdAt: string | null;
+  /** @nullable */
+  claimedAt: string | null;
+  /** @nullable */
+  lastLoginAt: string | null;
+};
+
+export type OfficePatientRecordPatient = {
+  identity: OfficePatientRecordPatientIdentity;
+  program: PatientProgram;
+};
+
+export type OfficePatientRecordDiaryEntriesItem = {
+  id: string;
+  dateKey: string;
+  meal: unknown;
+  kind: unknown;
+  name: unknown;
+  detail: string;
+  quantity: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  [key: string]: unknown;
+ };
+
+export type OfficePatientRecordDiaryNutritionTotalsByDateItem = NutritionAmounts & {
+  dateKey: string;
+};
+
+export type OfficePatientRecordDiaryNutritionTotals = {
+  overall: NutritionAmounts;
+  byDate: OfficePatientRecordDiaryNutritionTotalsByDateItem[];
+};
+
+export type OfficePatientRecordDiary = {
+  entries: OfficePatientRecordDiaryEntriesItem[];
+  nutritionTotals: OfficePatientRecordDiaryNutritionTotals;
+};
+
+export type OfficePatientRecordWaterItem = {
+  dateKey: string;
+  oz: number;
+};
+
+export type OfficePatientRecordCheckInsItem = {
+  id: string;
+  dateKey: string;
+  /** @nullable */
+  weight: number | null;
+  /** @nullable */
+  mood: number | null;
+  sideEffects: unknown[];
+  /** @nullable */
+  notes: string | null;
+};
+
+export type OfficePatientRecordWeightsItem = {
+  dateKey: string;
+  weight: number;
+};
+
+export type OfficePatientRecordProgressPhotosItem = {
+  id: string;
+  dateKey: string;
+  label: string;
+  /** @nullable */
+  angle: string | null;
+  /** @nullable */
+  url: string | null;
+};
+
+export type OfficePatientRecordAccountTargets = {[key: string]: number | null};
+
+export type OfficePatientRecordAccountCustomFoodsItem = {
+  /** @nullable */
+  photoUrl: string | null;
+  [key: string]: unknown;
+ };
+
+export type OfficePatientRecordAccountSavedRecipesItem = {
+  /** @nullable */
+  photoUrl: string | null;
+  [key: string]: unknown;
+ };
+
+export type OfficePatientRecordAccountFlags = { [key: string]: unknown };
+
+export type OfficePatientRecordAccount = {
+  targets: OfficePatientRecordAccountTargets;
+  favorites: unknown[];
+  recents: unknown[];
+  customFoods: OfficePatientRecordAccountCustomFoodsItem[];
+  savedRecipes: OfficePatientRecordAccountSavedRecipesItem[];
+  flags: OfficePatientRecordAccountFlags;
+  [key: string]: unknown;
+ };
+
+export interface OfficePatientRecord {
+  office: OfficeSummary;
+  patient: OfficePatientRecordPatient;
+  diary: OfficePatientRecordDiary;
+  water: OfficePatientRecordWaterItem[];
+  checkIns: OfficePatientRecordCheckInsItem[];
+  weights: OfficePatientRecordWeightsItem[];
+  progressPhotos: OfficePatientRecordProgressPhotosItem[];
+  account: OfficePatientRecordAccount;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -734,11 +941,30 @@ export interface KnowledgeExtractResult {
   status: KnowledgeExtractResultStatus;
 }
 
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+export type OfficeIdParameter = string;
+
 export type ProgressPhotoFileParams = {
 /**
  * Canonical object path returned by finalize
  * @maxLength 500
  */
 path: string;
+};
+
+export type GetOfficeRosterParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetOfficePatientRecordParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
 };
 

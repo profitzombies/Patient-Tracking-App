@@ -11,8 +11,8 @@
  * durable state on the row and surfaces a Resend action here.
  */
 import { useState, type FormEvent } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { UserPlus, MailWarning, RefreshCw } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { UserPlus } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -24,10 +24,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { BTN_PRIMARY, BTN_SECONDARY, INPUT_CLASS, PANEL_LABEL } from '@/components/patient/heritage';
 import {
-  fetchOfficeRoster,
   formatUsPhoneInput,
   invitePatient,
-  resendInvitation,
   validateInviteForm,
   OfficeRosterError,
   type InvitationEmailOutcome,
@@ -196,7 +194,7 @@ export function InvitePatientAction({ office }: { office: string | null }) {
   );
 }
 
-function InvitationChip({ patient }: { patient: OfficePatient }) {
+export function InvitationChip({ patient }: { patient: OfficePatient }) {
   if (!patient.invitation) return null;
   const pending = patient.invitation.state === 'pending';
   return (
@@ -210,140 +208,5 @@ function InvitationChip({ patient }: { patient: OfficePatient }) {
       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
       {pending ? 'Invite pending' : 'Verified'}
     </span>
-  );
-}
-
-/**
- * The office's live patients, newest first — invited patients appear here
- * the moment the invitation lands, with their verification state.
- */
-export function LiveRosterCard({ office }: { office: string | null }) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [resending, setResending] = useState<string | null>(null);
-  const roster = useQuery({
-    queryKey: officeRosterQueryKey(office),
-    queryFn: () => fetchOfficeRoster(office),
-    refetchInterval: 30_000,
-  });
-
-  const resend = async (patient: OfficePatient) => {
-    setResending(patient.id);
-    try {
-      const result = await resendInvitation(patient.id, office);
-      await queryClient.invalidateQueries({ queryKey: officeRosterQueryKey(office) });
-      emailOutcomeToast(toast, patient.name, result.invitation, 'resent');
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Invitation not resent',
-        description: error instanceof Error ? error.message : 'Try again.',
-      });
-    } finally {
-      setResending(null);
-    }
-  };
-
-  return (
-    <section
-      aria-label="Live roster"
-      className="mb-6 overflow-hidden rounded-lg border border-border bg-card shadow-soft"
-      data-testid="live-roster"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-paper-alt px-4 py-3">
-        <div>
-          <h2 className="font-serif text-lg font-bold leading-tight text-navy">Live roster</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {roster.data
-              ? `${roster.data.office.officeName} — provider code ${roster.data.office.providerCode}`
-              : 'Patients connected to this office, including pending invitations.'}
-          </p>
-        </div>
-        <button
-          type="button"
-          className={`${BTN_SECONDARY} h-8 px-3`}
-          onClick={() => void roster.refetch()}
-          disabled={roster.isFetching}
-          data-testid="button-live-roster-refresh"
-        >
-          <RefreshCw size={12} aria-hidden="true" className={`mr-1.5 ${roster.isFetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
-      {roster.isLoading && (
-        <div className="p-6 text-center text-xs text-muted-foreground">Loading the live roster…</div>
-      )}
-      {roster.isError && (
-        <div className="p-6 text-center text-xs text-destructive" role="alert">
-          {roster.error instanceof Error ? roster.error.message : 'The live roster could not be loaded.'}
-        </div>
-      )}
-      {roster.data && roster.data.patients.length === 0 && (
-        <div className="p-6 text-center text-xs text-muted-foreground">
-          No live patients yet. Use Invite Patient to add the first one.
-        </div>
-      )}
-      {roster.data && roster.data.patients.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-xs">
-            <thead className="border-b border-border bg-secondary text-[10px] uppercase tracking-[.11em] text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2.5 font-semibold">Patient</th>
-                <th className="px-4 py-2.5 font-semibold">Phone</th>
-                <th className="px-4 py-2.5 font-semibold">Status</th>
-                <th className="px-4 py-2.5 font-semibold">Invitation email</th>
-                <th className="px-4 py-2.5 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {roster.data.patients.map((patient) => (
-                <tr key={patient.id} className="border-b border-border last:border-0" data-testid={`live-roster-row-${patient.id}`}>
-                  <td className="px-4 py-3">
-                    <b className="block font-serif text-sm font-semibold leading-tight text-navy">{patient.name}</b>
-                    <span className="text-[10px] text-muted-foreground">{patient.email}</span>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-foreground/80">{patient.phoneDisplay ?? patient.phone ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    {patient.invitation ? (
-                      <InvitationChip patient={patient} />
-                    ) : (
-                      <span className="text-foreground/80 capitalize">{patient.activationStatus ?? '—'}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {patient.invitation ? (
-                      patient.invitation.emailStatus === 'failed' ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-destructive">
-                          <MailWarning size={12} aria-hidden="true" /> Delivery failed
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground capitalize">{patient.invitation.emailStatus}</span>
-                      )
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {patient.invitation?.state === 'pending' ? (
-                      <button
-                        type="button"
-                        className={`${BTN_SECONDARY} h-8 px-3`}
-                        onClick={() => void resend(patient)}
-                        disabled={resending === patient.id}
-                        data-testid={`button-resend-invite-${patient.id}`}
-                      >
-                        {resending === patient.id ? 'Resending…' : 'Resend invite'}
-                      </button>
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
   );
 }

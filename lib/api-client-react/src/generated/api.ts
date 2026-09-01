@@ -28,6 +28,8 @@ import type {
   CoachMenuScanResult,
   CoachRecipeImageInput,
   CoachRecipeImageResult,
+  GetOfficePatientRecordParams,
+  GetOfficeRosterParams,
   HealthStatus,
   KnowledgeCreateInput,
   KnowledgeDeleteResult,
@@ -39,6 +41,8 @@ import type {
   KnowledgeReplaceInput,
   KnowledgeUploadUrlInput,
   KnowledgeUploadUrlResult,
+  OfficePatientRecord,
+  OfficeRosterResult,
   ProgressPhotoFileParams,
   SupportChatInput,
   TrainingAttachmentDownloadResult,
@@ -2379,6 +2383,181 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getHealthCheckQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeRosterUrl = (params?: GetOfficeRosterParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/roster?${stringifiedParams}` : `/api/office/roster`
+}
+
+/**
+ * Provider staff are always scoped to their own office and any office query override is ignored. HQ must name an office and hold provider_read.
+ * @summary Read the live patient roster for one authorized office
+ */
+export const getOfficeRoster = async (params?: GetOfficeRosterParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeRosterResult> => {
+
+  return customFetch<OfficeRosterResult>(getGetOfficeRosterUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeRosterQueryKey = (params?: GetOfficeRosterParams,) => {
+    return [
+    `/api/office/roster`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeRosterQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeRoster>>, TError = ErrorType<void>>(params?: GetOfficeRosterParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeRoster>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeRosterQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeRoster>>> = ({ signal }) => getOfficeRoster(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeRoster>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeRosterQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeRoster>>>
+export type GetOfficeRosterQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read the live patient roster for one authorized office
+ */
+
+export function useGetOfficeRoster<TData = Awaited<ReturnType<typeof getOfficeRoster>>, TError = ErrorType<void>>(
+ params?: GetOfficeRosterParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeRoster>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeRosterQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficePatientRecordUrl = (patientId: string,
+    params?: GetOfficePatientRecordParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}?${stringifiedParams}` : `/api/office/patients/${patientId}`
+}
+
+/**
+ * Includes identity/program fields, complete diary history and computed nutrition totals, water, check-ins/weights, progress photos, targets, food preferences and libraries, and account flags. Photo fields are short-lived server-authorized URLs; raw storage paths are never returned. HQ supplies the same optional office query used by the roster (and must supply it); provider staff remain own-office scoped. Unknown and out-of-office patient ids share one neutral 404.
+ * @summary Read one live patient record in an authorized office
+ */
+export const getOfficePatientRecord = async (patientId: string,
+    params?: GetOfficePatientRecordParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficePatientRecord> => {
+
+  return customFetch<OfficePatientRecord>(getGetOfficePatientRecordUrl(patientId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficePatientRecordQueryKey = (patientId: string,
+    params?: GetOfficePatientRecordParams,) => {
+    return [
+    `/api/office/patients/${patientId}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficePatientRecordQueryOptions = <TData = Awaited<ReturnType<typeof getOfficePatientRecord>>, TError = ErrorType<void>>(patientId: string,
+    params?: GetOfficePatientRecordParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficePatientRecord>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficePatientRecordQueryKey(patientId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficePatientRecord>>> = ({ signal }) => getOfficePatientRecord(patientId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficePatientRecord>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficePatientRecordQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficePatientRecord>>>
+export type GetOfficePatientRecordQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read one live patient record in an authorized office
+ */
+
+export function useGetOfficePatientRecord<TData = Awaited<ReturnType<typeof getOfficePatientRecord>>, TError = ErrorType<void>>(
+ patientId: string,
+    params?: GetOfficePatientRecordParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficePatientRecord>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficePatientRecordQueryOptions(patientId,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

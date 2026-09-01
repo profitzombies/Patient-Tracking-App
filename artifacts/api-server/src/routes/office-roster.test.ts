@@ -12,6 +12,15 @@ import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../lib/objectStorage", () => ({
+  objectStorage: {
+    signedDownloadURL: vi.fn(async (path: string) => `https://signed.test/read?key=${encodeURIComponent(path)}`),
+  },
+  ObjectNotFoundError: class extends Error {},
+  THUMBNAIL_CONTENT_TYPES: new Set(["image/jpeg", "image/png", "image/webp"]),
+  detectThumbnailContentType: () => "image/jpeg",
+}));
+
 // The invite limiter sizes itself from env at module load — pin the knobs
 // BEFORE the router import graph is evaluated.
 vi.hoisted(() => {
@@ -38,6 +47,7 @@ let authUsers: Record<string, string> = {};
 let providers: Row[] = [];
 let teamMembers: Row[] = [];
 let patients: Row[] = [];
+let patientTables: Record<string, Row[]> = {};
 let locks: string[] = [];
 let hqMemberships: Row[] = [];
 let resendFails = false;
@@ -132,6 +142,17 @@ beforeEach(() => {
       invite_email_status: "sent", invite_email_updated_at: "2026-02-01T00:00:00Z",
     },
   ];
+  patientTables = {
+    patient_diary_entries: [],
+    patient_water_days: [],
+    patient_target_overrides: [],
+    patient_food_prefs: [],
+    patient_custom_foods: [],
+    patient_saved_recipes: [],
+    patient_progress_photos: [],
+    patient_check_ins: [],
+    patient_flags: [],
+  };
   locks = [];
   hqMemberships = [{ department_role: "admin", status: "active" }];
   resendFails = false;
@@ -205,6 +226,11 @@ beforeEach(() => {
         for (const row of matched) Object.assign(row, updates);
         return response(matched, 200);
       }
+    }
+    const patientTable = url.pathname.replace("/rest/v1/", "");
+    if (patientTable in patientTables) {
+      const patientId = (url.searchParams.get("patient_id") ?? "").replace("eq.", "");
+      return response(patientTables[patientTable].filter((row) => row.patient_id === patientId));
     }
     throw new Error(`Unexpected fake request: ${init?.method ?? "GET"} ${url}`);
   }) as typeof fetch;
@@ -285,6 +311,129 @@ describe("office scope", () => {
     const disabled = await api("/office/roster?office=office-2", "hq-token");
     expect(disabled.status).toBe(404);
     expect(((await disabled.json()) as Row).error).not.toMatch(/disabled|locked/i);
+  });
+});
+
+describe("live patient records", () => {
+  it("returns a stable empty-history contract", async () => {
+    const res = await api("/office/patients/pat-own", "provider-token");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.patient.identity).toMatchObject({
+      id: "pat-own",
+      name: "Casey Ortiz",
+      verified: true,
+    });
+    expect(body.diary).toEqual({
+      entries: [],
+      nutritionTotals: {
+        overall: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+        byDate: [],
+      },
+    });
+    expect(body.water).toEqual([]);
+    expect(body.checkIns).toEqual([]);
+    expect(body.weights).toEqual([]);
+    expect(body.progressPhotos).toEqual([]);
+    expect(body.account).toMatchObject({
+      favorites: [],
+      recents: [],
+      customFoods: [],
+      savedRecipes: [],
+      flags: { onboardingComplete: false },
+    });
+  });
+
+  it("returns populated diary totals, water, weights, account data, and authorized photos", async () => {
+    const ownId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    Object.assign(patients[0], {
+      id: ownId,
+      program_id: "metabolic",
+      program_start_date: "2026-01-05",
+      date_of_birth: "1985-04-03",
+      height: "5' 6\"",
+      starting_weight: "205.5",
+      current_weight: 191,
+      goal_weight: 165,
+      weight_gain_lost: -14.5,
+      timezone: "America/New_York",
+      last_log_date: "2026-01-06",
+    });
+    const ownPath =
+      `/objects/patient-media/${ownId}/progress-11111111-1111-4111-8111-111111111111`;
+    const otherPath =
+      "/objects/patient-media/pat-other/progress-22222222-2222-4222-8222-222222222222";
+    patientTables.patient_diary_entries.push(
+      {
+        patient_id: ownId, entry_id: "e-1", date_key: "2026-01-05", meal: "breakfast",
+        kind: "food", name: "Eggs", quantity: 1, calories: 200, protein: 20, carbs: 2, fat: 12,
+      },
+      {
+        patient_id: ownId, entry_id: "e-2", date_key: "2026-01-05", meal: "dinner",
+        kind: "food", name: "Chicken", quantity: 1, calories: 300, protein: 40, carbs: 3, fat: 10,
+      },
+    );
+    patientTables.patient_water_days.push({ patient_id: ownId, date_key: "2026-01-05", oz: 72 });
+    patientTables.patient_check_ins.push({
+      patient_id: ownId, check_in_id: "c-1", date_key: "2026-01-05",
+      weight: "191", mood: 4, side_effects: ["nausea"], notes: "Doing well",
+    });
+    patientTables.patient_target_overrides.push({
+      patient_id: ownId, calories: 1400, protein: 100, carbs: null, fat: 50, water_oz: 80,
+    });
+    patientTables.patient_food_prefs.push({
+      patient_id: ownId, favorites: ["eggs"], recents: ["chicken"],
+    });
+    patientTables.patient_flags.push({
+      patient_id: ownId, nudge_opt_out: true, onboarding_complete: true,
+      onboarding_answers: { medication: "semaglutide" }, notification_prefs: { reminders: true },
+    });
+    patientTables.patient_progress_photos.push(
+      { patient_id: ownId, photo_id: "p-1", date_key: "2026-01-05", label: "Start", angle: "front", object_path: ownPath },
+      { patient_id: ownId, photo_id: "p-bad", date_key: "2026-01-05", label: "Bad", angle: "side", object_path: otherPath },
+    );
+
+    const res = await api(`/office/patients/${ownId}`, "provider-token");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.patient.program).toMatchObject({
+      id: "metabolic", startingWeight: 205.5, currentWeight: 191, goalWeight: 165,
+    });
+    expect(body.diary.nutritionTotals).toEqual({
+      overall: { calories: 500, protein: 60, carbs: 5, fat: 22 },
+      byDate: [{ dateKey: "2026-01-05", calories: 500, protein: 60, carbs: 5, fat: 22 }],
+    });
+    expect(body.water).toEqual([{ dateKey: "2026-01-05", oz: 72 }]);
+    expect(body.weights).toEqual([{ dateKey: "2026-01-05", weight: 191 }]);
+    expect(body.account.flags).toMatchObject({
+      nudgeOptOut: true,
+      onboardingComplete: true,
+      onboardingAnswers: { medication: "semaglutide" },
+    });
+    expect(body.progressPhotos[0].url).toEqual(expect.stringMatching(/^https:\/\/signed\.test\//));
+    expect(body.progressPhotos[1].url).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("objectPath");
+    expect(JSON.stringify(body)).not.toContain("object_path");
+  });
+
+  it("enforces office isolation with the same neutral direct-link denial as an unknown id", async () => {
+    const crossOffice = await api("/office/patients/pat-other", "provider-token");
+    const unknown = await api("/office/patients/does-not-exist", "provider-token");
+    expect(crossOffice.status).toBe(404);
+    expect(unknown.status).toBe(404);
+    expect(await crossOffice.json()).toEqual(await unknown.json());
+    expect(JSON.stringify(await api("/office/patients/pat-other", "provider-token").then(r => r.json())))
+      .not.toMatch(/Riley|office-2|Lakeside/i);
+  });
+
+  it("requires explicit provider_read scope for HQ record reads", async () => {
+    const missing = await api("/office/patients/pat-other", "hq-token");
+    expect(missing.status).toBe(400);
+    const allowed = await api("/office/patients/pat-other?office=office-2", "hq-token");
+    expect(allowed.status).toBe(200);
+    hqMemberships = [{ department_role: "support", status: "active" }];
+    const denied = await api("/office/patients/pat-other?office=office-2", "hq-token");
+    expect(denied.status).toBe(403);
   });
 });
 

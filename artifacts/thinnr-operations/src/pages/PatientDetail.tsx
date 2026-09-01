@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import {
   ArrowLeft,
@@ -11,6 +12,7 @@ import {
   Phone,
   Target,
   Truck,
+  Droplets,
 } from "lucide-react";
 import { MOCK_PRODUCTS, type ActivityItem } from "@/data/mock-data";
 import { useScopedPatients, useScopedProviders, useScopedSubscriptions } from "@/data/scoped-data";
@@ -32,6 +34,13 @@ import {
 } from "@/components/patient/heritage";
 import { usePatientSession } from "@/contexts/patient-session";
 import { useToast } from "@/hooks/use-toast";
+import { useSession } from "@/contexts/session";
+import { useProviderScope } from "@/contexts/provider-scope";
+import {
+  fetchOfficePatient,
+  type OfficeDiaryEntry,
+  type OfficePatientDetail,
+} from "@/lib/office-roster";
 
 /**
  * Demo actions (logging a weight, adding a note) are stamped with the fixed
@@ -57,7 +66,7 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={chip}>{status}</span>;
 }
 
-export default function PatientDetail() {
+function DemoPatientDetail() {
   const { id } = useParams();
   const { toast } = useToast();
   const { addWeightEntry, getCurrentWeight, getProgressHistory } = usePatientSession();
@@ -278,4 +287,166 @@ export default function PatientDetail() {
       </main>
     </div>
   );
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-md border border-dashed border-border bg-secondary p-6 text-center text-xs text-muted-foreground">{children}</div>;
+}
+
+const readableKey = (key: string) => key.replace(/([A-Z])/g, ' $1').replace(/^./, (value) => value.toUpperCase());
+const readOnlyValue = (value: unknown) => {
+  if (value == null || value === '') return 'Not recorded';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (Array.isArray(value)) return value.length ? `${value.length} saved item${value.length === 1 ? '' : 's'}` : 'None';
+  return 'Recorded';
+};
+
+function AccountList({ title, items, empty }: { title: string; items: unknown[]; empty: string }) {
+  return (
+    <div className="rounded-md border border-border bg-paper-alt p-3">
+      <p className={MICRO_LABEL}>{title}</p>
+      {items.length ? <ul className="mt-2 space-y-1.5 text-xs text-foreground">{items.map((item, index) => {
+        const record = item && typeof item === 'object' ? item as Record<string, unknown> : null;
+        const name = record?.name ?? record?.title ?? record?.id ?? item;
+        const detail = record ? [record.brand, record.serving, record.meal, record.mode].filter((value) => typeof value === 'string').join(' · ') : '';
+        return <li key={`${String(name)}-${index}`} className="border-l-2 border-accent-border pl-2"><span>{readOnlyValue(name)}</span>{detail && <span className="block text-[10px] text-muted-foreground">{detail}</span>}</li>;
+      })}</ul> : <p className="mt-2 text-xs text-muted-foreground">{empty}</p>}
+    </div>
+  );
+}
+
+function LiveDiaryDay({ day, totals }: { day: { dateKey: string; waterOz?: number; meals: OfficeDiaryEntry[] }; totals?: { calories: number; protein: number; carbs: number; fat: number } }) {
+  return (
+    <div className="rounded-md border border-border">
+      <div className="flex items-center justify-between border-b border-border bg-secondary px-3 py-2">
+        <b className="text-xs text-navy">{formatDate(day.dateKey, true)}</b>
+        <span className="flex items-center gap-1 font-mono text-[11px] text-primary"><Droplets size={13} />{day.waterOz == null ? 'Water not logged' : `${day.waterOz} oz`}</span>
+      </div>
+      {day.meals.length ? <div className="divide-y divide-border">{day.meals.map((meal) => (
+        <div key={meal.id} className="flex justify-between gap-4 px-3 py-2.5">
+          <div><p className="text-xs font-semibold text-foreground">{meal.name}</p><p className="mt-0.5 text-[10px] capitalize text-muted-foreground">{meal.meal}{meal.detail ? ` · ${meal.detail}` : ''}</p></div>
+          <div className="shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+            {`${meal.calories} cal`}
+            <p>{meal.protein}P · {meal.carbs}C · {meal.fat}F</p>
+          </div>
+        </div>
+      ))}</div> : <p className="p-4 text-xs text-muted-foreground">No meal entries recorded for this day.</p>}
+      {totals && <p className="border-t border-border bg-paper-alt px-3 py-2 text-right font-mono text-[10px] text-muted-foreground">Daily total · {totals.calories} cal · {totals.protein}P · {totals.carbs}C · {totals.fat}F</p>}
+    </div>
+  );
+}
+
+function LivePatientDetail({ id, office }: { id: string; office: string | null }) {
+  const detail = useQuery({
+    queryKey: ['office-patient', office ?? 'own-office', id],
+    queryFn: () => fetchOfficePatient(id, office),
+    refetchInterval: 30_000,
+  });
+
+  if (detail.isLoading) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center text-sm text-muted-foreground">Loading patient record…</div>;
+  if (detail.isError) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center"><h2 className="font-serif text-xl font-bold text-navy">Patient record unavailable</h2><p className="mt-2 text-sm text-destructive" role="alert">{detail.error instanceof Error ? detail.error.message : 'The patient record could not be loaded.'}</p><Link href="/patients" className={`mt-4 ${LINK_ACTION}`}>Return to roster</Link></div>;
+  if (!detail.data) return null;
+
+  const record: OfficePatientDetail = detail.data;
+  const identity = record.patient.identity;
+  const program = record.patient.program;
+  const weights = [...record.weights].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+  const checkIns = [...record.checkIns].sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+  const waterByDate = new Map(record.water.map((item) => [item.dateKey, item.oz]));
+  const diaryByDate = new Map<string, OfficeDiaryEntry[]>();
+  record.diary.entries.forEach((entry) => {
+    diaryByDate.set(entry.dateKey, [...(diaryByDate.get(entry.dateKey) ?? []), entry]);
+  });
+  const diary = [...new Set([...diaryByDate.keys(), ...waterByDate.keys()])]
+    .sort((a, b) => b.localeCompare(a))
+    .map((dateKey) => ({ dateKey, waterOz: waterByDate.get(dateKey), meals: diaryByDate.get(dateKey) ?? [] }));
+  const totalsByDate = new Map(record.diary.nutritionTotals.byDate.map((item) => [item.dateKey, item]));
+  const photos = [...record.progressPhotos].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+  const currentWeight = weights.at(-1)?.weight ?? program.currentWeight;
+  const startingWeight = program.startingWeight ?? weights.at(0)?.weight ?? null;
+  const weightLoss = startingWeight != null && currentWeight != null ? startingWeight - currentWeight : null;
+  const initials = identity.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+
+  return (
+    <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8" data-testid={`live-patient-detail-${identity.id}`}>
+      <header className="mb-6 border-b border-border pb-6">
+        <Link href="/patients" data-testid="link-back-to-patients" className="mb-4 inline-flex items-center rounded-sm text-xs font-semibold text-muted-foreground hover:text-navy"><ArrowLeft size={14} className="mr-1" />Back to patients</Link>
+        <div className="flex items-start gap-4">
+          <div className="grid h-16 w-16 shrink-0 place-items-center rounded-lg border border-accent-border bg-accent text-xl font-bold text-primary">{initials}</div>
+          <div>
+            <div className="flex flex-wrap items-center gap-3"><h1 className="font-serif text-[30px] font-bold leading-none text-navy" data-testid="text-live-patient-name">{identity.name}</h1><StatusBadge status={identity.activationStatus ?? (identity.verified ? 'active' : 'pending')} /></div>
+            <p className="mt-2 text-sm text-muted-foreground">Patient record <span className="font-mono">#{identity.id}</span> · {record.office.officeName}</p>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{identity.email ?? 'No email on file'}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{identity.phoneDisplay ?? identity.phone ?? 'No phone on file'}</span></div>
+          </div>
+        </div>
+      </header>
+      <main className="grid gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <SectionCard title="Progress at a glance" sub={program.id ? 'Program enrollment summary' : 'No program enrollment recorded'}>
+            <div className="p-5">
+              <div className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-3">
+                {[['Starting', startingWeight], ['Current', currentWeight], ['Lost to date', weightLoss]].map(([label, value]) => <div key={String(label)} className="bg-card p-4"><p className={MICRO_LABEL}>{label}</p><p className="mt-1 font-mono text-xl text-navy">{typeof value === 'number' ? `${value.toFixed(1)} lbs` : '—'}</p></div>)}
+              </div>
+            </div>
+          </SectionCard>
+          <SectionCard title="Weight trend" sub="Patient-recorded weigh-ins.">
+            <div className="p-5">
+              {weights.length && startingWeight != null ? <><WeightTrend entries={weights.map((entry) => ({ date: entry.dateKey, weight: entry.weight }))} goalWeight={program.goalWeight} startingWeight={startingWeight} patientName={identity.name} /><div className="mt-4 divide-y divide-border rounded-md border border-border">{[...weights].reverse().map((entry) => <div key={`${entry.dateKey}-${entry.weight}`} className="flex justify-between px-3 py-2 text-xs"><span className="text-muted-foreground">{formatDate(entry.dateKey, true)}</span><b className="font-mono text-navy">{entry.weight.toFixed(1)} lbs</b></div>)}</div></> : <EmptyState>No weigh-ins have been recorded.</EmptyState>}
+            </div>
+          </SectionCard>
+          <SectionCard title="Nutrition, water, and diary" sub="Entries recorded in the patient companion app.">
+            <div className="space-y-3 p-5">{diary.length ? <><div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-4">{Object.entries(record.diary.nutritionTotals.overall).map(([name, value]) => <div key={name} className="bg-card p-3"><p className={MICRO_LABEL}>{name}</p><p className="mt-1 font-mono text-sm text-navy">{value}{name === 'calories' ? ' cal' : ' g'}</p></div>)}</div>{diary.map((day) => <LiveDiaryDay key={day.dateKey} day={day} totals={totalsByDate.get(day.dateKey)} />)}</> : <EmptyState>No nutrition or water entries have been recorded.</EmptyState>}</div>
+          </SectionCard>
+        </div>
+        <aside className="space-y-5">
+          <SectionCard title="Program">
+            <div className="p-5">{program.id ? <dl className="space-y-3 text-xs">
+              <div><dt className={MICRO_LABEL}>Program ID</dt><dd className="mt-1 font-mono text-foreground">{program.id}</dd></div>
+              <div><dt className={MICRO_LABEL}>Enrollment</dt><dd className="mt-1 text-foreground">{program.startDate ? formatDate(program.startDate, true) : 'Not recorded'}</dd></div>
+              <div><dt className={MICRO_LABEL}>Goal weight</dt><dd className="mt-1 text-muted-foreground">{program.goalWeight == null ? 'Not recorded' : `${program.goalWeight.toFixed(1)} lbs`}</dd></div>
+              <div><dt className={MICRO_LABEL}>Last diary entry</dt><dd className="mt-1 text-muted-foreground">{program.lastLogDate ? formatDate(program.lastLogDate, true) : 'Not recorded'}</dd></div>
+            </dl> : <EmptyState>No program details have been recorded.</EmptyState>}</div>
+          </SectionCard>
+          <SectionCard title="Check-ins">
+            <div className="p-5">{checkIns.length ? <div className="space-y-4">{checkIns.map((checkIn) => <div key={checkIn.id} className="border-b border-border pb-3 last:border-0 last:pb-0"><div className="flex justify-between text-[10px]"><b className="text-primary">{checkIn.mood == null ? 'Mood not recorded' : `Mood score ${checkIn.mood}/5`}</b><span className="text-muted-foreground">{formatDate(checkIn.dateKey)}</span></div><p className="mt-1 text-xs text-muted-foreground">{checkIn.notes ?? 'No note was included.'}</p>{checkIn.weight != null && <p className="mt-1 font-mono text-[10px] text-muted-foreground">{checkIn.weight.toFixed(1)} lbs</p>}{checkIn.sideEffects?.length ? <p className="mt-1 text-[10px] text-[#b65c22]">Side effects: {checkIn.sideEffects.join(', ')}</p> : null}</div>)}</div> : <EmptyState>No check-ins have been recorded.</EmptyState>}</div>
+          </SectionCard>
+          <SectionCard title="Patient details">
+            <div className="p-5"><dl className="space-y-3 text-xs"><div><dt className={MICRO_LABEL}>Enrollment</dt><dd className="mt-1 text-foreground">{program.startDate ? formatDate(program.startDate, true) : 'Not recorded'}</dd></div><div><dt className={MICRO_LABEL}>Activation</dt><dd className="mt-1 capitalize text-foreground">{identity.activationStatus ?? (identity.verified ? 'Verified' : 'Pending')}</dd></div><div><dt className={MICRO_LABEL}>Date of birth</dt><dd className="mt-1 text-muted-foreground">{identity.dateOfBirth ? formatDate(identity.dateOfBirth, true) : 'Not recorded'}</dd></div><div><dt className={MICRO_LABEL}>Height</dt><dd className="mt-1 text-muted-foreground">{identity.height ?? 'Not recorded'}</dd></div><div><dt className={MICRO_LABEL}>Timezone</dt><dd className="mt-1 text-muted-foreground">{identity.timezone ?? 'Not recorded'}</dd></div><div><dt className={MICRO_LABEL}>Record created</dt><dd className="mt-1 text-muted-foreground">{identity.createdAt ? formatDate(identity.createdAt, true) : 'Not recorded'}</dd></div><div><dt className={MICRO_LABEL}>Account claimed</dt><dd className="mt-1 text-muted-foreground">{identity.claimedAt ? formatDate(identity.claimedAt, true) : 'Not claimed'}</dd></div><div><dt className={MICRO_LABEL}>Last login</dt><dd className="mt-1 text-muted-foreground">{identity.lastLoginAt ? formatDate(identity.lastLoginAt, true) : 'Not recorded'}</dd></div></dl></div>
+          </SectionCard>
+          <SectionCard title="Account targets">
+            <div className="p-5"><div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">{Object.entries(record.account.targets).map(([name, value]) => <div key={name} className="bg-card p-3"><p className={MICRO_LABEL}>{readableKey(name)}</p><p className="mt-1 font-mono text-xs text-navy">{value == null ? 'Not recorded' : `${value}${name === 'calories' ? ' cal' : name === 'waterOz' ? ' oz' : ' g'}`}</p></div>)}</div></div>
+          </SectionCard>
+        </aside>
+        <div className="lg:col-span-3">
+          <SectionCard title="Progress photos" sub="Milestones uploaded by the patient.">
+            <div className="p-5">{photos.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{photos.map((photo) => <figure key={photo.id} className="overflow-hidden rounded-lg border border-border bg-card">{photo.url ? <img src={photo.url} alt={`${photo.label || 'Progress'} photo for ${identity.name}`} className="aspect-square w-full bg-accent object-cover" loading="lazy" /> : <EmptyState>Photo preview unavailable.</EmptyState>}<figcaption className="p-2"><b className="text-xs text-navy">{photo.label || 'Progress photo'}</b><p className="text-[10px] text-muted-foreground">{formatDate(photo.dateKey, true)}{photo.angle ? ` · ${photo.angle}` : ''}</p></figcaption></figure>)}</div> : <EmptyState>No progress photos have been uploaded.</EmptyState>}</div>
+          </SectionCard>
+        </div>
+        <div className="lg:col-span-3">
+          <SectionCard title="Account preferences and saved items" sub="Read-only companion-app account data.">
+            <div className="grid gap-4 p-5 md:grid-cols-2">
+              <AccountList title="Favorites" items={record.account.favorites} empty="No favorite foods have been saved." />
+              <AccountList title="Recent foods" items={record.account.recents} empty="No recent foods have been recorded." />
+              <AccountList title="Custom foods" items={record.account.customFoods} empty="No custom foods have been added." />
+              <AccountList title="Saved recipes" items={record.account.savedRecipes} empty="No recipes have been saved." />
+              <div className="rounded-md border border-border bg-paper-alt p-3 md:col-span-2">
+                <p className={MICRO_LABEL}>Account, onboarding, and notifications</p>
+                {Object.keys(record.account.flags).length ? <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2">{Object.entries(record.account.flags).map(([key, value]) => <div key={key}><dt className="text-muted-foreground">{readableKey(key)}</dt><dd className="mt-0.5 text-foreground">{readOnlyValue(value)}</dd></div>)}</dl> : <p className="mt-2 text-xs text-muted-foreground">No account, onboarding, or notification settings have been recorded.</p>}
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default function PatientDetail() {
+  const { id } = useParams();
+  const { authStatus, authRole } = useSession();
+  const scope = useProviderScope();
+  const liveEnabled = authStatus === 'signed-in' && (authRole === 'provider_staff' || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
+  if (liveEnabled && id) return <LivePatientDetail id={id} office={authRole === 'hq_admin' ? scope?.providerId ?? null : null} />;
+  return <DemoPatientDetail />;
 }

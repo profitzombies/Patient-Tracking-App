@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   fetchOfficeRoster,
+  fetchOfficePatient,
   formatUsPhoneInput,
   invitePatient,
   resendInvitation,
@@ -125,16 +126,19 @@ async function main() {
     reset();
     responses = [
       { status: 200, json: ROSTER },
+      { status: 200, json: { patient: { id: 'pat-1' }, sections: {} } },
       { status: 201, json: { patient: {}, invitation: 'sent' } },
       { status: 200, json: { ok: true, invitation: 'sent', patient: {} } },
     ];
     await fetchOfficeRoster('office-2');
+    await fetchOfficePatient('pat-1', 'office-2');
     await invitePatient(INVITE, 'office-2');
     await resendInvitation('pat-1', 'office-2');
     assert.equal(requests[0].url, '/api/office/roster?office=office-2');
-    assert.equal(requests[1].body.office, 'office-2');
-    assert.equal(requests[2].url, '/api/office/invitations/pat-1/resend');
+    assert.equal(requests[1].url, '/api/office/patients/pat-1?office=office-2');
     assert.equal(requests[2].body.office, 'office-2');
+    assert.equal(requests[3].url, '/api/office/invitations/pat-1/resend');
+    assert.equal(requests[3].body.office, 'office-2');
   });
 
   await check('a provider session sends no office at all — scope stays server-derived', async () => {
@@ -182,13 +186,16 @@ async function main() {
 
   const patientsSource = readFileSync(new URL('../src/pages/Patients.tsx', import.meta.url), 'utf8');
   const rosterSource = readFileSync(new URL('../src/components/office/LiveRoster.tsx', import.meta.url), 'utf8');
+  const detailSource = readFileSync(new URL('../src/pages/PatientDetail.tsx', import.meta.url), 'utf8');
+  const contractSource = readFileSync(new URL('../src/lib/office-roster.ts', import.meta.url), 'utf8');
 
   await check('live UI mounts only for signed-in staff; demo personas stay seeded-only', () => {
     assert.match(patientsSource, /authStatus === 'signed-in'/);
     assert.match(patientsSource, /authRole === 'provider_staff'/);
     assert.match(patientsSource, /authRole === 'hq_admin' && Boolean\(scope\?\.providerId\)/);
     assert.match(patientsSource, /\{liveEnabled && <InvitePatientAction office=\{liveOffice\} \/>\}/);
-    assert.match(patientsSource, /\{liveEnabled && <LiveRosterCard office=\{liveOffice\} \/>\}/);
+    assert.doesNotMatch(patientsSource, /LiveRosterCard/);
+    assert.match(patientsSource, /liveRoster\.data\?\.patients/);
   });
 
   await check('HQ drill-in passes ONLY its explicitly scoped office; staff pass none', () => {
@@ -203,11 +210,48 @@ async function main() {
     assert.match(rosterSource, /formatUsPhoneInput/);
   });
 
-  await check('the live roster refreshes itself and offers a rate-limit-aware resend', () => {
-    assert.match(rosterSource, /refetchInterval: 30_000/);
-    assert.match(rosterSource, /invalidateQueries\(\{ queryKey: officeRosterQueryKey\(office\) \}\)/);
-    assert.match(rosterSource, /data-testid=\{`button-resend-invite-\$\{patient\.id\}`\}/);
-    assert.match(rosterSource, /data-testid="live-roster"/);
+  await check('the unified roster is searchable, navigable, and retains resend status', () => {
+    assert.match(patientsSource, /data-testid="input-patient-search"/);
+    assert.match(patientsSource, /navigate\(`\/patients\/\$\{patient\.id\}`\)/);
+    assert.match(patientsSource, /data-testid=\{`button-resend-invite-\$\{patient\.id\}`\}/);
+    assert.match(patientsSource, /Delivery failed/);
+    assert.match(patientsSource, /No patients found matching your search/);
+  });
+
+  await check('live patient detail loads the provider-safe endpoint and renders populated and empty sections', () => {
+    assert.match(detailSource, /fetchOfficePatient\(id, office\)/);
+    assert.match(detailSource, /Nutrition, water, and diary/);
+    assert.match(detailSource, /No nutrition or water entries have been recorded/);
+    assert.match(detailSource, /No check-ins have been recorded/);
+    assert.match(detailSource, /No progress photos have been uploaded/);
+    assert.doesNotMatch(detailSource.match(/function LivePatientDetail[\s\S]*?export default function PatientDetail/)?.[0] ?? '', /Edit patient|Log weight|Add note/);
+  });
+
+  await check('the live detail contract pins the finalized provider-safe envelope', () => {
+    assert.match(contractSource, /office: OfficeRoster\['office'\]/);
+    assert.match(contractSource, /identity: \{/);
+    assert.match(contractSource, /program: \{/);
+    assert.match(contractSource, /diary: \{[\s\S]*entries: OfficeDiaryEntry\[\][\s\S]*nutritionTotals:/);
+    assert.match(contractSource, /water: Array<\{ dateKey: string; oz: number \}>/);
+    assert.match(contractSource, /checkIns: OfficeCheckIn\[\]/);
+    assert.match(contractSource, /weights: OfficeWeightEntry\[\]/);
+    assert.match(contractSource, /progressPhotos: OfficeProgressPhoto\[\]/);
+    assert.match(contractSource, /account: \{/);
+    assert.match(detailSource, /record\.diary\.entries/);
+    assert.match(detailSource, /record\.water/);
+    assert.match(detailSource, /photo\.url/);
+    assert.match(detailSource, /Mood score \$\{checkIn\.mood\}\/5/);
+    assert.match(detailSource, /Date of birth/);
+    assert.match(detailSource, /Record created/);
+    assert.match(detailSource, /Account claimed/);
+    assert.match(detailSource, /Last login/);
+    assert.match(detailSource, /Account targets/);
+    assert.match(detailSource, /Account preferences and saved items/);
+    assert.match(detailSource, /record\.account\.favorites/);
+    assert.match(detailSource, /record\.account\.recents/);
+    assert.match(detailSource, /record\.account\.customFoods/);
+    assert.match(detailSource, /record\.account\.savedRecipes/);
+    assert.match(detailSource, /record\.account\.flags/);
   });
 
   console.log(`\nInvite-patients (web) checks passed: ${checks}/${checks}.`);

@@ -717,3 +717,158 @@ export const HealthCheckResponse = zod.object({
 })
 
 
+/**
+ * Provider staff are always scoped to their own office and any office query override is ignored. HQ must name an office and hold provider_read.
+ * @summary Read the live patient roster for one authorized office
+ */
+export const GetOfficeRosterQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficeRosterResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "providerCode": zod.string()
+}),
+  "patients": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "phoneDisplay": zod.string().nullable(),
+  "activationStatus": zod.string().nullable(),
+  "verified": zod.boolean(),
+  "createdAt": zod.string().nullable(),
+  "program": zod.object({
+  "id": zod.string().nullable(),
+  "startDate": zod.coerce.date().nullable(),
+  "startingWeight": zod.number().nullable(),
+  "currentWeight": zod.number().nullable(),
+  "goalWeight": zod.number().nullable(),
+  "weightChange": zod.number().nullable(),
+  "lastLogDate": zod.coerce.date().nullable()
+}),
+  "invitation": zod.union([zod.null(),zod.object({
+  "state": zod.enum(['verified', 'pending']),
+  "invitedAt": zod.string(),
+  "emailStatus": zod.enum(['pending', 'sent', 'failed']),
+  "emailUpdatedAt": zod.string().nullable()
+})])
+}))
+})
+
+
+/**
+ * Includes identity/program fields, complete diary history and computed nutrition totals, water, check-ins/weights, progress photos, targets, food preferences and libraries, and account flags. Photo fields are short-lived server-authorized URLs; raw storage paths are never returned. HQ supplies the same optional office query used by the roster (and must supply it); provider staff remain own-office scoped. Unknown and out-of-office patient ids share one neutral 404.
+ * @summary Read one live patient record in an authorized office
+ */
+export const GetOfficePatientRecordParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const GetOfficePatientRecordQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficePatientRecordResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "providerCode": zod.string()
+}),
+  "patient": zod.object({
+  "identity": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "phoneDisplay": zod.string().nullable(),
+  "activationStatus": zod.string().nullable(),
+  "verified": zod.boolean(),
+  "dateOfBirth": zod.coerce.date().nullable(),
+  "height": zod.string().nullable(),
+  "timezone": zod.string().nullable(),
+  "createdAt": zod.string().nullable(),
+  "claimedAt": zod.string().nullable(),
+  "lastLoginAt": zod.string().nullable()
+}),
+  "program": zod.object({
+  "id": zod.string().nullable(),
+  "startDate": zod.coerce.date().nullable(),
+  "startingWeight": zod.number().nullable(),
+  "currentWeight": zod.number().nullable(),
+  "goalWeight": zod.number().nullable(),
+  "weightChange": zod.number().nullable(),
+  "lastLogDate": zod.coerce.date().nullable()
+})
+}),
+  "diary": zod.object({
+  "entries": zod.array(zod.object({
+  "id": zod.string(),
+  "dateKey": zod.coerce.date(),
+  "meal": zod.unknown(),
+  "kind": zod.unknown(),
+  "name": zod.unknown(),
+  "detail": zod.string(),
+  "quantity": zod.number(),
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number()
+})),
+  "nutritionTotals": zod.object({
+  "overall": zod.object({
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number()
+}),
+  "byDate": zod.array(zod.object({
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number()
+}).and(zod.object({
+  "dateKey": zod.coerce.date()
+})))
+})
+}),
+  "water": zod.array(zod.object({
+  "dateKey": zod.coerce.date(),
+  "oz": zod.number()
+})),
+  "checkIns": zod.array(zod.object({
+  "id": zod.string(),
+  "dateKey": zod.coerce.date(),
+  "weight": zod.number().nullable(),
+  "mood": zod.number().nullable(),
+  "sideEffects": zod.array(zod.unknown()),
+  "notes": zod.string().nullable()
+})),
+  "weights": zod.array(zod.object({
+  "dateKey": zod.coerce.date(),
+  "weight": zod.number()
+})),
+  "progressPhotos": zod.array(zod.object({
+  "id": zod.string(),
+  "dateKey": zod.coerce.date(),
+  "label": zod.string(),
+  "angle": zod.string().nullable(),
+  "url": zod.string().nullable()
+})),
+  "account": zod.object({
+  "targets": zod.record(zod.string(), zod.number().nullable()),
+  "favorites": zod.array(zod.unknown()),
+  "recents": zod.array(zod.unknown()),
+  "customFoods": zod.array(zod.object({
+  "photoUrl": zod.string().nullable()
+})),
+  "savedRecipes": zod.array(zod.object({
+  "photoUrl": zod.string().nullable()
+})),
+  "flags": zod.record(zod.string(), zod.unknown())
+})
+})
+
+

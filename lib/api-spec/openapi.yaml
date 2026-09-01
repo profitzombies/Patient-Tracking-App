@@ -1023,8 +1023,243 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /office/roster:
+    get:
+      operationId: getOfficeRoster
+      tags: [office]
+      summary: Read the live patient roster for one authorized office
+      description: >-
+        Provider staff are always scoped to their own office and any office
+        query override is ignored. HQ must name an office and hold
+        provider_read.
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Office identity and its live patients
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OfficeRosterResult"
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not authorized for provider reads }
+        "404": { description: Office unavailable }
+  /office/patients/{patientId}:
+    get:
+      operationId: getOfficePatientRecord
+      tags: [office]
+      summary: Read one live patient record in an authorized office
+      description: >-
+        Includes identity/program fields, complete diary history and computed
+        nutrition totals, water, check-ins/weights, progress photos, targets,
+        food preferences and libraries, and account flags. Photo fields are
+        short-lived server-authorized URLs; raw storage paths are never
+        returned. HQ supplies the same optional office query used by the roster
+        (and must supply it); provider staff remain own-office scoped. Unknown
+        and out-of-office patient ids share one neutral 404.
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Complete live patient record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OfficePatientRecord"
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not authorized for provider reads }
+        "404": { description: No patient record found for this office }
 components:
   schemas:
+    OfficeSummary:
+      type: object
+      required: [providerId, officeName, providerCode]
+      properties:
+        providerId: { type: string }
+        officeName: { type: string }
+        providerCode: { type: string }
+    PatientProgram:
+      type: object
+      required: [id, startDate, startingWeight, currentWeight, goalWeight, weightChange, lastLogDate]
+      properties:
+        id: { type: ["string", "null"] }
+        startDate: { type: ["string", "null"], format: date }
+        startingWeight: { type: ["number", "null"] }
+        currentWeight: { type: ["number", "null"] }
+        goalWeight: { type: ["number", "null"] }
+        weightChange: { type: ["number", "null"] }
+        lastLogDate: { type: ["string", "null"], format: date }
+    OfficeRosterPatient:
+      type: object
+      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, program, invitation]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        phoneDisplay: { type: ["string", "null"] }
+        activationStatus: { type: ["string", "null"] }
+        verified: { type: boolean }
+        createdAt: { type: ["string", "null"] }
+        program: { $ref: "#/components/schemas/PatientProgram" }
+        invitation:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [state, invitedAt, emailStatus, emailUpdatedAt]
+              properties:
+                state: { type: string, enum: [verified, pending] }
+                invitedAt: { type: string }
+                emailStatus: { type: string, enum: [pending, sent, failed] }
+                emailUpdatedAt: { type: ["string", "null"] }
+    OfficeRosterResult:
+      type: object
+      required: [office, patients]
+      properties:
+        office: { $ref: "#/components/schemas/OfficeSummary" }
+        patients:
+          type: array
+          items: { $ref: "#/components/schemas/OfficeRosterPatient" }
+    NutritionAmounts:
+      type: object
+      required: [calories, protein, carbs, fat]
+      properties:
+        calories: { type: number }
+        protein: { type: number }
+        carbs: { type: number }
+        fat: { type: number }
+    OfficePatientRecord:
+      type: object
+      required: [office, patient, diary, water, checkIns, weights, progressPhotos, account]
+      properties:
+        office: { $ref: "#/components/schemas/OfficeSummary" }
+        patient:
+          type: object
+          required: [identity, program]
+          properties:
+            identity:
+              type: object
+              required: [id, name, email, phone, phoneDisplay, activationStatus, verified, dateOfBirth, height, timezone, createdAt, claimedAt, lastLoginAt]
+              properties:
+                id: { type: string }
+                name: { type: string }
+                email: { type: ["string", "null"] }
+                phone: { type: ["string", "null"] }
+                phoneDisplay: { type: ["string", "null"] }
+                activationStatus: { type: ["string", "null"] }
+                verified: { type: boolean }
+                dateOfBirth: { type: ["string", "null"], format: date }
+                height: { type: ["string", "null"] }
+                timezone: { type: ["string", "null"] }
+                createdAt: { type: ["string", "null"] }
+                claimedAt: { type: ["string", "null"] }
+                lastLoginAt: { type: ["string", "null"] }
+            program: { $ref: "#/components/schemas/PatientProgram" }
+        diary:
+          type: object
+          required: [entries, nutritionTotals]
+          properties:
+            entries:
+              type: array
+              items:
+                type: object
+                required: [id, dateKey, meal, kind, name, detail, quantity, calories, protein, carbs, fat]
+                additionalProperties: true
+                properties:
+                  id: { type: string }
+                  dateKey: { type: string, format: date }
+                  meal: {}
+                  kind: {}
+                  name: {}
+                  detail: { type: string }
+                  quantity: { type: number }
+                  calories: { type: number }
+                  protein: { type: number }
+                  carbs: { type: number }
+                  fat: { type: number }
+            nutritionTotals:
+              type: object
+              required: [overall, byDate]
+              properties:
+                overall: { $ref: "#/components/schemas/NutritionAmounts" }
+                byDate:
+                  type: array
+                  items:
+                    allOf:
+                      - $ref: "#/components/schemas/NutritionAmounts"
+                      - type: object
+                        required: [dateKey]
+                        properties:
+                          dateKey: { type: string, format: date }
+        water:
+          type: array
+          items:
+            type: object
+            required: [dateKey, oz]
+            properties:
+              dateKey: { type: string, format: date }
+              oz: { type: number }
+        checkIns:
+          type: array
+          items:
+            type: object
+            required: [id, dateKey, weight, mood, sideEffects, notes]
+            properties:
+              id: { type: string }
+              dateKey: { type: string, format: date }
+              weight: { type: ["number", "null"] }
+              mood: { type: ["number", "null"] }
+              sideEffects: { type: array, items: {} }
+              notes: { type: ["string", "null"] }
+        weights:
+          type: array
+          items:
+            type: object
+            required: [dateKey, weight]
+            properties:
+              dateKey: { type: string, format: date }
+              weight: { type: number }
+        progressPhotos:
+          type: array
+          items:
+            type: object
+            required: [id, dateKey, label, angle, url]
+            properties:
+              id: { type: string }
+              dateKey: { type: string, format: date }
+              label: { type: string }
+              angle: { type: ["string", "null"] }
+              url: { type: ["string", "null"] }
+        account:
+          type: object
+          required: [targets, favorites, recents, customFoods, savedRecipes, flags]
+          additionalProperties: true
+          properties:
+            targets:
+              type: object
+              additionalProperties: { type: ["number", "null"] }
+            favorites: { type: array, items: {} }
+            recents: { type: array, items: {} }
+            customFoods:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+                required: [id, name, brand, serving, calories, protein, carbs, fat, photoUrl]
+                properties:
+                  photoUrl: { type: ["string", "null"] }
+            savedRecipes:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+                required: [id, name, photoUrl]
+                properties:
+                  photoUrl: { type: ["string", "null"] }
+            flags:
+              type: object
+              additionalProperties: true
     HealthStatus:
       type: object
       properties:
@@ -1924,6 +2159,17 @@ components:
       required:
         - status
   parameters:
+    OfficePatientId:
+      name: patientId
+      in: path
+      required: true
+      schema: { type: string }
+    OfficeId:
+      name: office
+      in: query
+      required: false
+      schema: { type: string }
+      description: Required for HQ; ignored for provider staff, who are always own-office scoped
     TrainingVideoId:
       name: videoId
       in: path

@@ -784,7 +784,7 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
       ),
       supabaseAdmin(
         "GET",
-        `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id,name,provider_id`,
+        `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id,name,provider_id,phone`,
       ),
       supabaseAdmin(
         "GET",
@@ -858,7 +858,7 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
       providerId,
       officeName,
       patientId,
-      hasPhone: Boolean(user.phone),
+      hasPhone: Boolean(user.phone || (kind === "patient" && patientRow?.phone)),
       hasEmail: Boolean(user.email),
     });
   } catch (error) {

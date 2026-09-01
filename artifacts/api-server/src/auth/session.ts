@@ -162,12 +162,24 @@ export async function ensurePatientAuthUser(patient: PatientRow): Promise<string
     await activateInvitedPatient(patient);
     return patient.auth_user_id;
   }
-  const userId = await createConfirmedUser({
+  const input: CreateUserInput = {
     email: patientSyntheticEmail(patient.id),
     phone: patient.phone,
     displayName: patient.name,
     appMetadata: { thinnr_claim: "patient", thinnr_claim_ref: patient.id },
-  });
+  };
+  let userId: string;
+  try {
+    userId = await createConfirmedUser(input);
+  } catch (error) {
+    // Staff and patients can legitimately share a household/owner phone.
+    // GoTrue requires phone uniqueness across every realm, while THINNR's
+    // passwordless rail has already proven this exact invited patient's
+    // number. Keep the patient on a separate synthetic-email identity and
+    // leave the verified phone authoritative on the patient row.
+    if (!(error instanceof PhoneExistsError) || patient.activation_status !== "invited") throw error;
+    userId = await createConfirmedUser({ ...input, phone: null });
+  }
   const linked = await linkGuarded("patients", "id", patient.id, userId);
   await activateInvitedPatient(patient);
   return linked;

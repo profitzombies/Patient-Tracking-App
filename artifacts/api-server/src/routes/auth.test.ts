@@ -979,6 +979,29 @@ describe("patient login", () => {
     expect(verify.json.tokenHash).toBe(`hashed-${user.email}`);
   });
 
+  it("signs an invited patient in when their verified phone also belongs to a staff login", async () => {
+    const patient = seedPatient({ phone: "+18135145141", activation_status: "invited" });
+    const staffUserId = backend.seedAuthUser({
+      email: "owner@thinnr.example",
+      phone: "+18135145141",
+    });
+    const start = await startLogin("patient", "813-514-5141");
+    const verify = await api("POST", "/api/auth/login/verify", {
+      requestId: start.json.requestId,
+      code: start.json.devCode,
+    });
+
+    expect(verify.status).toBe(200);
+    expect(verify.json.realm).toBe("patient");
+    expect(patient.activation_status).toBe("activated");
+    expect(patient.auth_user_id).toBeTruthy();
+    expect(patient.auth_user_id).not.toBe(staffUserId);
+    const patientUser = backend.authUsers.get(String(patient.auth_user_id))!;
+    expect(patientUser.email).toBe(`pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`);
+    expect(patientUser.phone).toBeNull();
+    expect(verify.json.tokenHash).toBe(`hashed-${patientUser.email}`);
+  });
+
   it("falls back to email codes for patients", async () => {
     seedPatient({ email: "casey@example.com" });
     const start = await startLogin("patient", "Casey@Example.com");

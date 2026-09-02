@@ -140,6 +140,13 @@ export default function TodayScreen() {
   const currentPhase = phaseForDay(programDay);
   const firstName = patient.entryFacts?.firstName ?? PATIENT_PROFILE.name.split(' ')[0];
   const [dateKey, setDateKey] = useState(liveTodayKey);
+  // Real-account facts arrive after the first render. If this screen mounted
+  // on the demo anchor while they loaded, move it to the server-confirmed
+  // local day once instead of leaving meals and water stranded off-screen.
+  useEffect(() => {
+    if (!patient.entryFacts?.todayKey) return;
+    setDateKey(current => (current === TODAY_KEY ? patient.entryFacts!.todayKey : current));
+  }, [patient.entryFacts?.todayKey]);
   // The "Yesterday's [meal]" review (reached through this screen's Add Food
   // shortcuts) commits its batch, parks it, and dismisses back here; pick it
   // up on focus and offer the same Undo the diary's copy actions get.

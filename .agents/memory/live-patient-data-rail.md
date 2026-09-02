@@ -20,5 +20,6 @@ Rule: Per-patient live data rides ONE seam: an account context defaulting to the
 
 Rules that must hold end-to-end:
 - A hydrated field isn't persistence until a consumer applies it — every account-persisted slice needs an e2e check that a REMOUNT restores it into its owning provider, and that a key change resets it so accounts never bleed.
+- Screens with date-navigation state may mount before live entry facts arrive. Initialize with the demo anchor, then replace only that untouched anchor with the server-confirmed `todayKey`; otherwise current meals and water stay hidden on the demo date.
 - Compound mutations must be atomic on the server: the whole logical mutation in one SQL function (EXECUTE revoked from anon/authenticated, service-role only) called via `/rest/v1/rpc/...`; batch inserts inside need `clock_timestamp()` when created-order matters.
 - No real-account writes before server truth: gate every mutation on a flag only a successful hydration sets — after a failed hydration, writes stay blocked behind the same retry notice.

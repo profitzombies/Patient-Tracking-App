@@ -63,7 +63,9 @@ export default function DiaryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
-  const [dateKey, setDateKey] = useState(TODAY_KEY);
+  const liveTodayKey = patient.entryFacts?.todayKey ?? TODAY_KEY;
+  const diaryMinKey = patient.entryFacts?.programStartDate ?? DIARY_MIN_KEY;
+  const [dateKey, setDateKey] = useState(liveTodayKey);
   const [editingId, setEditingId] = useState<string | null>(null);
   // Guards the copy affordances while a copy commit is in flight, so a rapid
   // double-tap can't clone the same meal twice.
@@ -73,6 +75,13 @@ export default function DiaryScreen() {
   // but a removal that lands while a 'removed' notice is up merges into its
   // batch, so no deletion loses its undo window mid clean-up.
   const [notice, setNotice] = useState<DiaryNotice | null>(null);
+
+  // Match Today's live-day admission: account facts hydrate asynchronously,
+  // so replace only the initial demo anchor and preserve deliberate browsing.
+  useEffect(() => {
+    if (!patient.entryFacts?.todayKey) return;
+    setDateKey(current => (current === TODAY_KEY ? patient.entryFacts!.todayKey : current));
+  }, [patient.entryFacts?.todayKey]);
 
   // Logged recipe rows (curated or coach-saved) open the ingredient
   // breakdown for THAT entry; quick entries have nothing to break down.
@@ -173,8 +182,8 @@ export default function DiaryScreen() {
     [entries],
   );
 
-  const isToday = dateKey === TODAY_KEY;
-  const atMin = dateKey <= DIARY_MIN_KEY;
+  const isToday = dateKey === liveTodayKey;
+  const atMin = dateKey <= diaryMinKey;
   const onPlan = totals.calories <= patient.targets.calories;
 
   // Copy source: the day before the one being viewed. Below the diary horizon
@@ -243,7 +252,7 @@ export default function DiaryScreen() {
                   <Text style={[styles.todayBadgeText, { color: colors.orangeText }]}>TODAY</Text>
                 </View>
               ) : (
-                <Pressable onPress={() => setDateKey(TODAY_KEY)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
+                <Pressable onPress={() => setDateKey(liveTodayKey)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
                   <Text style={[styles.jumpToday, { color: colors.cobalt }]}>Jump to today</Text>
                 </Pressable>
               )}
@@ -303,6 +312,53 @@ export default function DiaryScreen() {
               </Pressable>
             </>
           )}
+        </LedgerCard>
+
+        {/* ── Day totals ── */}
+        <LedgerCard style={styles.mealCard}>
+          <View style={styles.cardTitleRow}>
+            <Text style={[styles.cardTitle, { color: colors.navyLight }]}>Day Totals</Text>
+          </View>
+          <Divider />
+          <View style={styles.totalsRow}>
+            <View style={styles.totalsCol}>
+              <Text style={[styles.totalsValue, { color: colors.navy }]}>{totals.calories.toLocaleString('en-US')}</Text>
+              <Text style={[styles.totalsLabel, { color: colors.labelText }]}>CALORIES</Text>
+            </View>
+            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
+            <View style={styles.totalsCol}>
+              <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.protein)}g</Text>
+              <Text style={[styles.totalsLabel, { color: colors.labelText }]}>PROTEIN</Text>
+            </View>
+            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
+            <View style={styles.totalsCol}>
+              <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.carbs)}g</Text>
+              <Text style={[styles.totalsLabel, { color: colors.labelText }]}>CARBS</Text>
+            </View>
+            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
+            <View style={styles.totalsCol}>
+              <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.fat)}g</Text>
+              <Text style={[styles.totalsLabel, { color: colors.labelText }]}>FAT</Text>
+            </View>
+          </View>
+          <Divider />
+          <Text style={[styles.totalsHint, { color: colors.subtleText }]}>
+            Target {patient.targets.calories.toLocaleString('en-US')} cal ·{' '}
+            <Text style={[styles.totalsStatus, { color: onPlan ? colors.cobalt : colors.orangeText }]}>
+              {onPlan ? 'on plan' : 'over target'}
+            </Text>
+          </Text>
+        </LedgerCard>
+
+        {/* ── Water ── */}
+        <LedgerCard>
+          <View style={styles.cardTitleRow}>
+            <Text style={[styles.cardTitle, { color: colors.navyLight }]}>Water</Text>
+          </View>
+          <Divider />
+          <View style={styles.waterBody}>
+            <WaterTracker dateKey={dateKey} />
+          </View>
         </LedgerCard>
 
         {/* ── Meals — one paper card per slot with a serif title row ── */}
@@ -458,53 +514,6 @@ export default function DiaryScreen() {
             </LedgerCard>
           );
         })}
-
-        {/* ── Day totals ── */}
-        <LedgerCard style={styles.mealCard}>
-          <View style={styles.cardTitleRow}>
-            <Text style={[styles.cardTitle, { color: colors.navyLight }]}>Day Totals</Text>
-          </View>
-          <Divider />
-          <View style={styles.totalsRow}>
-            <View style={styles.totalsCol}>
-              <Text style={[styles.totalsValue, { color: colors.navy }]}>{totals.calories.toLocaleString('en-US')}</Text>
-              <Text style={[styles.totalsLabel, { color: colors.labelText }]}>CALORIES</Text>
-            </View>
-            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
-            <View style={styles.totalsCol}>
-              <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.protein)}g</Text>
-              <Text style={[styles.totalsLabel, { color: colors.labelText }]}>PROTEIN</Text>
-            </View>
-            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
-            <View style={styles.totalsCol}>
-              <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.carbs)}g</Text>
-              <Text style={[styles.totalsLabel, { color: colors.labelText }]}>CARBS</Text>
-            </View>
-            <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
-            <View style={styles.totalsCol}>
-              <Text style={[styles.totalsValue, { color: colors.navyLight }]}>{Math.round(totals.fat)}g</Text>
-              <Text style={[styles.totalsLabel, { color: colors.labelText }]}>FAT</Text>
-            </View>
-          </View>
-          <Divider />
-          <Text style={[styles.totalsHint, { color: colors.subtleText }]}>
-            Target {patient.targets.calories.toLocaleString('en-US')} cal ·{' '}
-            <Text style={[styles.totalsStatus, { color: onPlan ? colors.cobalt : colors.orangeText }]}>
-              {onPlan ? 'on plan' : 'over target'}
-            </Text>
-          </Text>
-        </LedgerCard>
-
-        {/* ── Water ── */}
-        <LedgerCard>
-          <View style={styles.cardTitleRow}>
-            <Text style={[styles.cardTitle, { color: colors.navyLight }]}>Water</Text>
-          </View>
-          <Divider />
-          <View style={styles.waterBody}>
-            <WaterTracker dateKey={dateKey} />
-          </View>
-        </LedgerCard>
 
         <SyntheticDisclaimer />
       </ScrollView>

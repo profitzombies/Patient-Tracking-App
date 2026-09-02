@@ -83,3 +83,4 @@
 - [Patient identity write barrier](patient-identity-write-barrier.md) — every new patient-owned table must join the reconciliation advisory-lock trigger protocol or late writes can strand data.
 - [Account-scoped native operations](account-scoped-native-operations.md) — bind long native prompts to an account epoch and captured bearer; version reminder intent so stale lifecycle work cannot undo edits.
 - [Patient local day](patient-local-day.md) — real accounts ride the device-local day (demo keeps the anchor); server derives from profile tz, plausibility is upper-bound only; suites stub the hydration profile fetch.
+- [Stale async phase guards](stale-phase-guards.md) — phase-machine screens: every navigation bumps a generation ref; submits re-check it after each await (finally too); test via held-fetch gate + un-awaited act press.

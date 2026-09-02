@@ -306,8 +306,17 @@ export function useOnboardingFlow(current: StepKey) {
     else router.replace('/patient-entry' as Href);
   }, []);
 
-  const stepNumber = index + 1;
-  const stepCount = steps.length;
+  // The step counter and progress bar ride the maximal possible path so the
+  // total never changes mid-flow: answers that hide steps make the counter
+  // jump forward past them ("Step 12 of 21" → "Step 14 of 21") instead of
+  // renumbering everything behind you ("of 16" suddenly becoming "of 20").
+  const maxPath = visibleSteps(
+    { ...answers, program: 'glp1', started: 'no' },
+    account.kind === 'real',
+  );
+  const displayIndex = maxPath.indexOf(current);
+  const stepNumber = (displayIndex === -1 ? index : displayIndex) + 1;
+  const stepCount = maxPath.length;
   return {
     stepNumber,
     stepCount,

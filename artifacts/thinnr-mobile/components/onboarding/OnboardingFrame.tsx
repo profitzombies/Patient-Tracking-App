@@ -192,17 +192,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1.4,
     fontFamily: 'Inter_700Bold',
   },
   headerStep: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
     letterSpacing: 0.8,
     fontFamily: 'Inter_700Bold',
-    marginTop: 2,
+    marginTop: 3,
   },
   progress: {
     height: 4,
@@ -217,6 +217,11 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     width: '100%',
     alignSelf: 'center',
+    // Short steps (one question, one control) center vertically instead of
+    // hugging the top with a dead zone above the footer; tall steps overflow
+    // and scroll from the top exactly as before.
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   title: {
     fontSize: 26,

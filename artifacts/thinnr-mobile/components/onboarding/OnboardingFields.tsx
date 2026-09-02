@@ -4,7 +4,7 @@
  * uppercase micro-labels, no native wheel pickers — everything here is
  * RN-web friendly.
  */
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AccessibilityInfo,
   Platform,
@@ -23,6 +23,12 @@ import { useColors } from '@/hooks/useColors';
 
 const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
 const CALLOUT_SHADOW = '0 6px 15px rgba(34, 58, 88, 0.08)';
+
+// Browsers paint their own focus-visible outline (amber in Chromium) around
+// focused inputs, which clashes with the Heritage palette. Internal screens
+// all suppress it; pre-auth fields do the same and show focus with a cobalt
+// border instead (see LedgerInput/BigNumberInput).
+const WEB_NO_OUTLINE: any = Platform.OS === 'web' ? { outlineStyle: 'none' } : null;
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -122,20 +128,61 @@ export function FieldLabel({ text }: { text: string }) {
 
 export function LedgerInput(props: TextInputProps & { testID?: string; ref?: React.Ref<TextInput> }) {
   const colors = useColors();
+  const [focused, setFocused] = useState(false);
   return (
     <TextInput
       placeholderTextColor={colors.subtleText}
       {...props}
+      onFocus={event => { setFocused(true); props.onFocus?.(event); }}
+      onBlur={event => { setFocused(false); props.onBlur?.(event); }}
       style={[
         styles.input,
         {
-          borderColor: colors.border,
+          borderColor: focused ? colors.cobalt : colors.border,
           backgroundColor: colors.card,
           color: colors.navy,
           borderRadius: colors.radiusSm,
         },
+        WEB_NO_OUTLINE,
         props.style,
       ]}
+    />
+  );
+}
+
+/**
+ * Six-digit verification code entry — the one shared look for every place a
+ * patient types a code (sign-in check, password recovery, signup, claiming).
+ */
+export function CodeInput({
+  value,
+  onChangeText,
+  testID,
+  accessibilityLabel = '6-digit verification code',
+  editable,
+  autoFocus,
+}: {
+  value: string;
+  onChangeText: (v: string) => void;
+  testID?: string;
+  accessibilityLabel?: string;
+  editable?: boolean;
+  autoFocus?: boolean;
+}) {
+  return (
+    <LedgerInput
+      testID={testID}
+      accessibilityLabel={accessibilityLabel}
+      value={value}
+      onChangeText={v => onChangeText(v.replace(/\D/g, '').slice(0, 6))}
+      keyboardType="number-pad"
+      autoComplete="sms-otp"
+      textContentType="oneTimeCode"
+      maxLength={6}
+      editable={editable}
+      autoFocus={autoFocus}
+      placeholder="••••••"
+      style={styles.codeInput}
     />
   );
 }
@@ -150,12 +197,13 @@ interface BigNumberInputProps {
 
 export function BigNumberInput({ value, onChangeText, unit, testID, placeholder }: BigNumberInputProps) {
   const colors = useColors();
+  const [focused, setFocused] = useState(false);
   return (
     <View
       style={[
         styles.bigWrap,
         {
-          borderColor: colors.border,
+          borderColor: focused ? colors.cobalt : colors.border,
           backgroundColor: colors.card,
           borderRadius: colors.radius,
           boxShadow: CARD_SHADOW_SOFT,
@@ -171,7 +219,9 @@ export function BigNumberInput({ value, onChangeText, unit, testID, placeholder 
         placeholderTextColor={colors.subtleText}
         maxLength={5}
         autoFocus
-        style={[styles.bigInput, { color: colors.navy }]}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={[styles.bigInput, { color: colors.navy }, WEB_NO_OUTLINE]}
       />
       <Text style={[styles.bigUnit, { color: colors.labelText }]}>{unit.toUpperCase()}</Text>
     </View>
@@ -492,28 +542,36 @@ export function NoteText({ text, center = false }: { text: string; center?: bool
 const styles = StyleSheet.create({
   btn: {
     paddingVertical: 14,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
   btnText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.3,
     fontFamily: 'Inter_700Bold',
   },
   fieldLabel: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '700',
-    letterSpacing: 1.2,
+    letterSpacing: 1.3,
     fontFamily: 'Inter_700Bold',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   input: {
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 15,
+    paddingVertical: 13,
+    fontSize: 16,
     fontFamily: 'Inter_500Medium',
+  },
+  codeInput: {
+    textAlign: 'center',
+    fontSize: 24,
+    letterSpacing: 10,
+    fontFamily: 'Inter_700Bold',
+    paddingVertical: 16,
   },
   bigWrap: {
     borderWidth: 1,
@@ -526,13 +584,15 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     textAlign: 'center',
     minWidth: 140,
+    maxWidth: 240,
+    alignSelf: 'center',
     letterSpacing: -1,
     padding: 0,
   },
   bigUnit: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '700',
-    letterSpacing: 1.2,
+    letterSpacing: 1.3,
     fontFamily: 'Inter_700Bold',
     marginTop: 4,
   },
@@ -558,8 +618,8 @@ const styles = StyleSheet.create({
     fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   choiceText: {
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 12,
+    lineHeight: 17,
     fontFamily: 'Inter_400Regular',
     marginTop: 2,
   },
@@ -583,7 +643,7 @@ const styles = StyleSheet.create({
     fontFamily: 'PlayfairDisplay_600SemiBold',
   },
   checkSub: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontFamily: 'Inter_400Regular',
     marginTop: 1,
   },
@@ -600,7 +660,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   chipText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     fontFamily: 'Inter_600SemiBold',
   },
@@ -637,8 +697,8 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   infoBody: {
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 12.5,
+    lineHeight: 18.5,
     fontFamily: 'Inter_400Regular',
   },
   coachWrap: {
@@ -655,9 +715,9 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   coachLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
     fontFamily: 'Inter_700Bold',
     marginBottom: 4,
   },
@@ -673,7 +733,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   reqText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontFamily: 'Inter_500Medium',
   },
   errorBox: {
@@ -685,13 +745,13 @@ const styles = StyleSheet.create({
   },
   errorText: {
     flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 12.5,
+    lineHeight: 18,
     fontFamily: 'Inter_500Medium',
   },
   note: {
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 12,
+    lineHeight: 17,
     fontFamily: 'Inter_400Regular',
   },
 });

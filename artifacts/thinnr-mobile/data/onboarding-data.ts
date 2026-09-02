@@ -185,25 +185,28 @@ export function guardTarget(a: OnboardingAnswers, furthest: StepKey, realAccount
 
 // ─── Password rules ──────────────────────────────────────────────────────────
 
+// Mirrors the claim-account flow's canonical rule set (8+ chars, upper,
+// lower, symbol) so every surface that teaches password rules teaches the
+// same ones.
 export interface PasswordChecks {
   length: boolean;
   upper: boolean;
-  number: boolean;
+  lower: boolean;
   symbol: boolean;
 }
 
 export function passwordChecks(pw: string): PasswordChecks {
   return {
-    length: pw.length >= 6,
+    length: pw.length >= 8,
     upper: /[A-Z]/.test(pw),
-    number: /\d/.test(pw),
+    lower: /[a-z]/.test(pw),
     symbol: /[^A-Za-z0-9]/.test(pw),
   };
 }
 
 export function allPasswordChecksPass(pw: string): boolean {
   const c = passwordChecks(pw);
-  return c.length && c.upper && c.number && c.symbol;
+  return c.length && c.upper && c.lower && c.symbol;
 }
 
 /** Mirrors the real flow's "this password cannot be used" security rejection. */

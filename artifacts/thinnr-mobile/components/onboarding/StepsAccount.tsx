@@ -474,11 +474,12 @@ function SecureInput({
 }) {
   const colors = useColors();
   const [visible, setVisible] = useState(false);
+  const [focused, setFocused] = useState(false);
   return (
     <View
       style={[
         styles.secureWrap,
-        { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
+        { borderColor: focused ? colors.cobalt : colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
       ]}
     >
       <TextInput
@@ -490,7 +491,11 @@ function SecureInput({
         secureTextEntry={!visible}
         autoCapitalize="none"
         autoCorrect={false}
-        style={[styles.secureInput, { color: colors.navy }]}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        // The wrap paints the focus border; the browser's own outline would
+        // slice between the input and the eye toggle.
+        style={[styles.secureInput, { color: colors.navy }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
       />
       <Pressable
         testID={`${testID}-toggle`}
@@ -558,10 +563,10 @@ export function PasswordStep() {
         </View>
       ) : null}
       <View style={styles.reqList}>
-        <RequirementRow met={checks.length} label="At least 6 characters" />
-        <RequirementRow met={checks.upper} label="1 uppercase letter" />
-        <RequirementRow met={checks.number} label="1 number" />
-        <RequirementRow met={checks.symbol} label="1 symbol" />
+        <RequirementRow met={checks.length} label="At least 8 characters" />
+        <RequirementRow met={checks.upper} label="An uppercase letter" />
+        <RequirementRow met={checks.lower} label="A lowercase letter" />
+        <RequirementRow met={checks.symbol} label="A symbol (like ! or #)" />
         <RequirementRow met={match} label="Passwords match" />
       </View>
     </OnboardingFrame>

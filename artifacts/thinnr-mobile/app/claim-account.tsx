@@ -694,7 +694,9 @@ export default function ClaimAccountScreen() {
                 disabled={busy || !supabaseConfigured}
                 style={styles.blockGap}
               />
-              <NoteText text="For your privacy we never confirm whether an email or number is on file." />
+              <View style={styles.blockGap}>
+                <NoteText text="For your privacy we never confirm whether an email or number is on file." />
+              </View>
             </FormWrap>
           </LedgerCard>
         )}
@@ -1262,7 +1264,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
   },
   footerText: {
-    fontSize: 9,
+    fontSize: 10.5,
     fontWeight: '700',
     letterSpacing: 1.6,
     fontFamily: 'Inter_700Bold',

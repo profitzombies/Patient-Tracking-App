@@ -120,7 +120,7 @@ export function FieldLabel({ text }: { text: string }) {
   return <Text style={[styles.fieldLabel, { color: colors.labelText }]}>{text.toUpperCase()}</Text>;
 }
 
-export function LedgerInput(props: TextInputProps & { testID?: string }) {
+export function LedgerInput(props: TextInputProps & { testID?: string; ref?: React.Ref<TextInput> }) {
   const colors = useColors();
   return (
     <TextInput

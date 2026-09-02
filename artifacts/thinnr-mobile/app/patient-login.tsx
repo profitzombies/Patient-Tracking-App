@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View, type TextInput } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
@@ -18,6 +18,13 @@ export default function PatientLoginScreen() {
   const colors = useColors(); const insets = useSafeAreaInsets(); const { setMode, admitDemo, leaveDemo } = useAppMode();
   const [channel, setChannel] = useState<Channel>('phone');
   const [phase, setPhase] = useState<Phase>('login');
+  // iOS never swaps an already-presented keyboard in place, so the identifier
+  // input gets a fresh mount per channel (key={channel} below) and, after an
+  // explicit switch, this refocuses the new mount so the matching keyboard
+  // (email vs phone pad) presents immediately.
+  const identifierRef = useRef<TextInput>(null);
+  const switchedChannel = useRef(false);
+  useEffect(() => { if (!switchedChannel.current) return; switchedChannel.current = false; identifierRef.current?.focus(); }, [channel]);
   const [phone, setPhone] = useState(''); const [email, setEmail] = useState('');
   const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState('');
   const [code, setCode] = useState(''); const [requestId, setRequestId] = useState<string | null>(null);
@@ -75,9 +82,9 @@ export default function PatientLoginScreen() {
       <LedgerCard style={s.card}>
         {!isCode && phase !== 'recovery-password' ? <>
           <FieldLabel text={channel === 'phone' ? 'Cell phone number' : 'Email address'} />
-          <LedgerInput testID={channel === 'phone' ? 'login-phone' : 'login-email'} accessibilityLabel={channel === 'phone' ? 'Cell phone number' : 'Email address'} value={channel === 'phone' ? phone : email} onChangeText={channel === 'phone' ? setPhone : setEmail} keyboardType={channel === 'phone' ? 'phone-pad' : 'email-address'} autoComplete={channel === 'phone' ? 'tel' : 'email'} textContentType={channel === 'phone' ? 'telephoneNumber' : 'emailAddress'} autoCapitalize="none" />
+          <LedgerInput key={channel} ref={identifierRef} testID={channel === 'phone' ? 'login-phone' : 'login-email'} accessibilityLabel={channel === 'phone' ? 'Cell phone number' : 'Email address'} value={channel === 'phone' ? phone : email} onChangeText={channel === 'phone' ? setPhone : setEmail} keyboardType={channel === 'phone' ? 'phone-pad' : 'email-address'} autoComplete={channel === 'phone' ? 'tel' : 'email'} textContentType={channel === 'phone' ? 'telephoneNumber' : 'emailAddress'} autoCapitalize="none" />
           {!recovery ? <View style={s.gap}><FieldLabel text="Password" /><LedgerInput testID="login-password" accessibilityLabel="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" autoCapitalize="none" /></View> : null}
-          <Pressable testID="login-switch-channel" accessibilityRole="button" onPress={() => setChannel(channel === 'phone' ? 'email' : 'phone')}><Text style={[s.link, { color: colors.cobalt }]}>{channel === 'phone' ? 'Use email instead' : 'Use phone instead'}</Text></Pressable>
+          <Pressable testID="login-switch-channel" accessibilityRole="button" onPress={() => { switchedChannel.current = true; setChannel(channel === 'phone' ? 'email' : 'phone'); }}><Text style={[s.link, { color: colors.cobalt }]}>{channel === 'phone' ? 'Use email instead' : 'Use phone instead'}</Text></Pressable>
           {!recovery ? <Pressable testID="login-forgot" accessibilityRole="button" onPress={() => { clear(); setPhase('recovery-identify'); }}><Text style={[s.link, { color: colors.cobalt }]}>Forgot password?</Text></Pressable> : null}
           <PrimaryButton testID={recovery ? 'recovery-start' : 'login-submit'} label={busy ? 'Please wait…' : recovery ? 'Send recovery code' : 'Continue'} onPress={() => request(recovery)} disabled={busy || !supabaseConfigured} style={s.gap} />
         </> : isCode ? <>

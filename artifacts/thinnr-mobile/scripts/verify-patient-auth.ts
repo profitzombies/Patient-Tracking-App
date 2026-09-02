@@ -18,9 +18,13 @@ let checks=0, failures=0;
 const assert=(label:string,value:boolean)=>{checks++;if(!value){failures++;console.error('  FAIL '+label)}};
 type Call={path:string;body:Record<string,unknown>}; const calls:Call[]=[]; const handlers=new Map<string,(c:Call)=>{status:number;body:unknown}>();
 const on=(path:string,fn:(c:Call)=>{status:number;body:unknown})=>handlers.set(path,fn);
-const reset=()=>{calls.length=0;handlers.clear();clearRouterCalls();clearAuthStub();storage.clear()};
+const reset=()=>{calls.length=0;handlers.clear();clearRouterCalls();clearAuthStub();storage.clear();focusCalls.length=0};
 globalThis.fetch=(async(input:unknown,init?:{body?:string})=>{const path=String(input).split('/api/auth/')[1];const call={path,body:JSON.parse(init?.body??'{}')};calls.push(call);const out=handlers.get(path)?.(call)??{status:500,body:{error:'unscripted '+path}};return{status:out.status,json:async()=>out.body}}) as typeof fetch;
-async function render(Screen:React.ComponentType){let tree!:ReactTestRenderer;await act(async()=>{tree=create(React.createElement(AppModeProvider,null,React.createElement(Screen)))});return tree}
+// Each host mount gets its own node mock (created at ref attach), so focusCalls
+// records WHICH mounted input focus() landed on — a stale pre-switch mount would
+// record the old testID and fail the channel-switch checks.
+const focusCalls:string[]=[];
+async function render(Screen:React.ComponentType){let tree!:ReactTestRenderer;await act(async()=>{tree=create(React.createElement(AppModeProvider,null,React.createElement(Screen)),{createNodeMock:el=>({focus:()=>void focusCalls.push(String(el.props.testID)),blur:()=>{},isFocused:()=>false})})});return tree}
 const hosts=(t:ReactTestRenderer,id:string)=>t.root.findAllByProps({testID:id}).filter(n=>typeof n.type==='string');
 const exists=(t:ReactTestRenderer,id:string)=>hosts(t,id).length>0;
 const label=(t:ReactTestRenderer,id:string)=>hosts(t,id).find(x=>'accessibilityLabel' in x.props)?.props.accessibilityLabel as string|undefined;
@@ -39,6 +43,27 @@ async function loginFlow(){
  t=await render(Login);await type(t,'login-phone','8135551234');await type(t,'login-password','Secret1!');await press(t,'login-submit');
  const c=called('patient/password/login')[0];assert('password login contract',c.body.identifier==='+18135551234'&&c.body.password==='Secret1!');assert('password removed after submit',!exists(t,'login-password'));assert('MFA shown',exists(t,'login-otp'));assert('MFA has a native label',label(t,'login-otp')==='6-digit verification code');
  await type(t,'login-otp','222333');await press(t,'login-verify');assert('MFA token minted',verifyOtpCalls[0]?.token_hash==='hash1');assert('patient destination',routerCalls.some(x=>x.method==='replace'&&x.target==='/today'));t.unmount();
+}
+async function channelSwitch(){
+ console.log('· channel switch remounts + refocuses the identifier input');
+ reset();const t=await render(Login);
+ const input=(id:string)=>hosts(t,id).find(x=>typeof x.props.onChangeText==='function');
+ assert('no focus grab on initial mount',focusCalls.length===0);
+ await type(t,'login-phone','8135551234');
+ await press(t,'login-switch-channel');
+ const email=input('login-email');
+ assert('email mount carries email keyboard + autofill hints',email?.props.keyboardType==='email-address'&&email?.props.autoComplete==='email'&&email?.props.textContentType==='emailAddress');
+ assert('email keeps its own value, not the phone entry',email?.props.value==='');
+ assert('switch focuses the freshly mounted email input',focusCalls.join()==='login-email');
+ await type(t,'login-email','casey@example.com');
+ await press(t,'login-switch-channel');
+ const ph=input('login-phone');
+ assert('phone mount restores phone keyboard + autofill hints',ph?.props.keyboardType==='phone-pad'&&ph?.props.autoComplete==='tel'&&ph?.props.textContentType==='telephoneNumber');
+ assert('phone entry survives the round trip',ph?.props.value==='8135551234');
+ assert('switch back refocuses the fresh phone input',focusCalls.join()==='login-email,login-phone');
+ await press(t,'login-switch-channel');
+ assert('email entry survives the round trip',input('login-email')?.props.value==='casey@example.com');
+ t.unmount();
 }
 async function recovery(){
  console.log('· neutral recovery phases');
@@ -78,5 +103,5 @@ function routing(){
  assert('demo retains simulated account sequence',['contact','verify','provider-code','face-id','password'].every(k=>demo.includes(k as never)));
  assert('real onboarding filters credential/device steps',['contact','verify','provider-code','face-id','password'].every(k=>!real.includes(k as never)));
 }
-async function main(){await loginFlow();await recovery();await signupFlows();await provider();routing();console.log(`\n${checks} checks, ${failures} failures`);process.exit(failures?1:0)}
+async function main(){await loginFlow();await channelSwitch();await recovery();await signupFlows();await provider();routing();console.log(`\n${checks} checks, ${failures} failures`);process.exit(failures?1:0)}
 main().catch(e=>{console.error(e);process.exit(1)});

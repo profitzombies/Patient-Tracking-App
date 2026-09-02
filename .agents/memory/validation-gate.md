@@ -16,4 +16,6 @@ The completion gate runs every registered validation command concurrently in one
 
 **Live-suite prerequisite:** the live suites hit the dev api-server through the local proxy, and merges never restart workflows — start the api-server workflow before the gate or they fail real (unreachable/502). They are also the most load-fragile under the parallel burst: a 134-abort with zero suite output is a startup kill, not a test failure.
 
+**markTaskComplete commits BEFORE validation settles:** the task's work lands on main as a commit the moment the gate starts, even if validation then stalls or fails. Post-hoc "is this failure pre-existing?" checks must therefore diff/run against the pre-task commit (`git checkout <pre-task-rev> -- <files>`, run, restore) — `git stash` finds nothing because the tree is already clean. If baseline suites fail identically there, the gate can never pass in that session; complete with skip_validation_reason citing the baseline proof and the serial green evidence for everything else.
+
 **The command store can come up empty:** a fresh task environment may show `getValidationCommands()` → `[]` even though suites were registered in earlier sessions. Check it before trusting the gate's coverage, and always register the session's new suite yourself — the completion gate only runs what is currently registered.

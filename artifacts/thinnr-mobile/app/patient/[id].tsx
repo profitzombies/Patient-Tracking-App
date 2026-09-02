@@ -6,9 +6,9 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';

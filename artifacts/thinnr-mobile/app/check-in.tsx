@@ -5,7 +5,8 @@
  * cobalt selection states and primary action.
  */
 import React, { useState } from 'react';
-import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, router } from 'expo-router';
 import { Feather } from '@expo/vector-icons';

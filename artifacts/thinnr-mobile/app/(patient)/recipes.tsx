@@ -6,7 +6,8 @@
  * opens the official program list. Approved foods carry the checkmark badge.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientContentBottom } from '@/constants/layout';
 import { Feather } from '@expo/vector-icons';

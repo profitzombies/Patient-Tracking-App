@@ -3,7 +3,8 @@
  * verification code, provider code, Face ID (simulated), password.
  */
 import React, { useEffect, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';

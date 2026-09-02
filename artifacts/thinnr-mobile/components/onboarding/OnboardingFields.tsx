@@ -11,12 +11,13 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
+  TextInput as NativeTextInput,
   View,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
+import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
@@ -126,7 +127,7 @@ export function FieldLabel({ text }: { text: string }) {
   return <Text style={[styles.fieldLabel, { color: colors.labelText }]}>{text.toUpperCase()}</Text>;
 }
 
-export function LedgerInput(props: TextInputProps & { testID?: string; ref?: React.Ref<TextInput> }) {
+export function LedgerInput(props: TextInputProps & { testID?: string; ref?: React.Ref<NativeTextInput> }) {
   const colors = useColors();
   const [focused, setFocused] = useState(false);
   return (
@@ -170,8 +171,10 @@ export function CodeInput({
   editable?: boolean;
   autoFocus?: boolean;
 }) {
+  const colors = useColors();
+  const [focused, setFocused] = useState(false);
   return (
-    <LedgerInput
+    <NativeTextInput
       testID={testID}
       accessibilityLabel={accessibilityLabel}
       value={value}
@@ -183,7 +186,20 @@ export function CodeInput({
       editable={editable}
       autoFocus={autoFocus}
       placeholder="••••••"
-      style={styles.codeInput}
+      placeholderTextColor={colors.subtleText}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={[
+        styles.input,
+        {
+          borderColor: focused ? colors.cobalt : colors.border,
+          backgroundColor: colors.card,
+          color: colors.navy,
+          borderRadius: colors.radiusSm,
+        },
+        WEB_NO_OUTLINE,
+        styles.codeInput,
+      ]}
     />
   );
 }
@@ -211,7 +227,7 @@ export function BigNumberInput({ value, onChangeText, unit, testID, placeholder 
         },
       ]}
     >
-      <TextInput
+      <NativeTextInput
         testID={testID}
         value={value}
         onChangeText={onChangeText}

@@ -1,0 +1,12 @@
+{
+  // Renders only the ordinary editable-text contract under Node. The native
+  // mapping exposes TextInput as a react-test-renderer host component.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"]
+    }
+  }
+}

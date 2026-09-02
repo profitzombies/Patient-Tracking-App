@@ -6,7 +6,12 @@ import {
   localCatalogMatches,
   mergeCatalogResults,
 } from '../hooks/useFoodCatalogSearch';
-import { catalogFoodSnapshot, parseCatalogFood, parseCatalogSearch } from '../lib/food-catalog';
+import {
+  catalogErrorMessage,
+  catalogFoodSnapshot,
+  parseCatalogFood,
+  parseCatalogSearch,
+} from '../lib/food-catalog';
 
 const commonWire = {
   id: 'catalog-rice',
@@ -59,6 +64,11 @@ assert.equal(parsed.branded[0].sourceLabel, 'Open Food Facts');
 assert.equal(parsed.common[0].approved, true, 'approval comes only from explicit relationships');
 assert.equal(parsed.branded[0].approved, false);
 assert.equal(parsed.upstreamUnavailable, true, 'local results survive external failure');
+assert.equal(
+  catalogErrorMessage(new Error('HTTP 404: <!DOCTYPE html><pre>Cannot GET /api/catalog/search</pre>')),
+  'Shared food search is unavailable right now. Please try again.',
+  'raw proxy HTML never reaches the patient',
+);
 assert.equal(
   includeBrandedFallback(false),
   true,

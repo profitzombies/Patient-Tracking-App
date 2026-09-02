@@ -66,6 +66,23 @@ export class FoodCatalogError extends Error {
   }
 }
 
+const CATALOG_UNAVAILABLE_MESSAGE = 'Shared food search is unavailable right now. Please try again.';
+
+/** Never let proxy/server diagnostics become patient-facing food-search copy. */
+export function catalogErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return CATALOG_UNAVAILABLE_MESSAGE;
+  const message = error.message.trim();
+  if (
+    !message ||
+    /^HTTP\s+\d{3}\b/i.test(message) ||
+    /<(?:!doctype|html|head|body|pre)\b/i.test(message) ||
+    /\bCannot\s+(?:GET|POST|PUT|PATCH|DELETE)\b/i.test(message)
+  ) {
+    return CATALOG_UNAVAILABLE_MESSAGE;
+  }
+  return message.slice(0, 300);
+}
+
 const SOURCE_LABELS: Record<CatalogSource, string> = {
   usda: 'USDA FoodData Central',
   thinnr: 'THINNR catalog',
@@ -198,11 +215,7 @@ export async function searchFoodCatalog(
     return result;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error;
-    throw new FoodCatalogError(
-      error instanceof Error && error.message
-        ? error.message
-        : 'Shared foods are unavailable. Showing foods saved on this device.',
-    );
+    throw new FoodCatalogError(catalogErrorMessage(error));
   }
 }
 

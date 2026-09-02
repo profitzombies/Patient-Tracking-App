@@ -52,13 +52,28 @@ export const Platform = {
 };
 
 /** Captured iOS-style announcements (unused on the 'web' platform path). */
-/** No-op app-state handle — lib/supabase.ts wires token auto-refresh to it. */
+/**
+ * App-state handle — lib/supabase.ts wires token auto-refresh to it and
+ * PatientContext re-checks the local day on foreground. Handlers are kept
+ * so suites can emit a transition via emitAppStateChange().
+ */
+const appStateHandlers = new Set<(state: string) => void>();
 export const AppState = {
   currentState: 'active' as const,
-  addEventListener(_type: string, _handler: (state: string) => void) {
-    return { remove() {} };
+  addEventListener(_type: string, handler: (state: string) => void) {
+    appStateHandlers.add(handler);
+    return {
+      remove() {
+        appStateHandlers.delete(handler);
+      },
+    };
   },
 };
+
+/** Test hook: deliver an app-state transition to every live listener. */
+export function emitAppStateChange(state: string): void {
+  for (const handler of [...appStateHandlers]) handler(state);
+}
 
 export const announcements: string[] = [];
 export const AccessibilityInfo = {

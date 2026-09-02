@@ -82,3 +82,4 @@
 - [Onboarding route admission](onboarding-route-admission.md) — protected patient routes unlock only after server-confirmed completion; optimistic flags create bypasses and reload reversals.
 - [Patient identity write barrier](patient-identity-write-barrier.md) — every new patient-owned table must join the reconciliation advisory-lock trigger protocol or late writes can strand data.
 - [Account-scoped native operations](account-scoped-native-operations.md) — bind long native prompts to an account epoch and captured bearer; version reminder intent so stale lifecycle work cannot undo edits.
+- [Patient local day](patient-local-day.md) — real accounts ride the device-local day (demo keeps the anchor); server derives from profile tz, plausibility is upper-bound only; suites stub the hydration profile fetch.

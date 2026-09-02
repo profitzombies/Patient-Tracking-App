@@ -10,6 +10,7 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "paths": {
+      "@/context/DeviceFeaturesContext": ["./scripts/onboarding-gate-stubs/device-features.ts"],
       "@/*": ["./*"],
       "react-native": ["./scripts/onboarding-hints-stubs/react-native.ts"],
       "expo-router": ["./scripts/onboarding-hints-stubs/expo-router.ts"],

@@ -44,7 +44,8 @@ import {
   type ChatWireMessage,
   type PatientDataApi,
 } from '@/context/PatientAccountContext';
-import { ENROLLMENT_DAYS, PATIENT_PROFILE, TODAY_KEY, type MealSlot } from '@/data/patient-data';
+import { ENROLLMENT_DAYS, PATIENT_PROFILE, type MealSlot } from '@/data/patient-data';
+import { localTodayKey } from '@/lib/live-patient-entry';
 import { BACK_ON_TRACK_OFFER, type NudgeAssessment } from '@/data/stall-nudge';
 import {
   streamCoachChat,
@@ -883,7 +884,7 @@ export function CoachChatProvider({
     const run = async () => {
       let snapshot: ChatThreadSnapshot;
       try {
-        snapshot = await api.fetchChatThread('coach', TODAY_KEY);
+        snapshot = await api.fetchChatThread('coach', localTodayKey());
       } catch {
         if (cancelled) return;
         attempts += 1;
@@ -1067,11 +1068,12 @@ export function CoachChatProvider({
       revealRef.current = reveal;
 
       // Demo requests stay byte-identical to the session-only design.
-      // Signed-in requests authenticate and stamp the diary anchor date so
-      // the server grounds "today" on the same day the app is showing.
+      // Signed-in requests authenticate and stamp the device's local
+      // calendar day so the server grounds "today" on the same day the
+      // app is showing.
       const auth = accountRef.current;
       void streamCoachChat(
-        auth.kind === 'demo' ? body : { ...body, localDate: TODAY_KEY },
+        auth.kind === 'demo' ? body : { ...body, localDate: localTodayKey() },
         {
           onDelta: delta => {
             if (isStale()) return;

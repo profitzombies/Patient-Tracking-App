@@ -32,7 +32,6 @@ import { createPhotoBackfill, type PhotoBackfill } from '@/lib/photo-backfill';
 import {
   MEAL_LABELS,
   MEAL_SLOTS,
-  TODAY_KEY,
   type IngredientAdjustment,
   type MealSlot,
 } from '@/data/patient-data';
@@ -179,7 +178,7 @@ export default function AiRecipePreviewScreen() {
       const baseDetail = `${servings} serving${servings === 1 ? '' : 's'} · AI estimate`;
       const totals = totalsForQuantity(perServing, servings);
       await patient.addEntry({
-        dateKey: TODAY_KEY,
+        dateKey: patient.todayKey,
         meal,
         // If the patient saved it first, link the diary row to the saved
         // recipe; otherwise log a stand-alone quick entry.

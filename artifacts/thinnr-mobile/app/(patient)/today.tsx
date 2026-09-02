@@ -9,7 +9,7 @@
  * All numbers stay live-bound to PatientContext — the reference's demo
  * values are never hardcoded.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -49,7 +49,6 @@ import {
   subDays,
   toDateKey,
   TODAY,
-  TODAY_KEY,
   type MealLogEntry,
   type MealSlot,
 } from '@/data/patient-data';
@@ -129,24 +128,30 @@ const CHECKIN_PROMPTS = [
   'Getting enough sleep?',
   "How's your energy?",
 ];
-const CHECKIN_PROMPT = CHECKIN_PROMPTS[Number(TODAY_KEY.slice(8, 10)) % CHECKIN_PROMPTS.length];
-
 export default function TodayScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
-  const liveTodayKey = patient.entryFacts?.todayKey ?? TODAY_KEY;
+  const liveTodayKey = patient.todayKey;
   const programDay = patient.entryFacts?.programDay ?? ENROLLMENT_DAYS;
   const currentPhase = phaseForDay(programDay);
   const firstName = patient.entryFacts?.firstName ?? PATIENT_PROFILE.name.split(' ')[0];
   const [dateKey, setDateKey] = useState(liveTodayKey);
-  // Real-account facts arrive after the first render. If this screen mounted
-  // on the demo anchor while they loaded, move it to the server-confirmed
-  // local day once instead of leaving meals and water stranded off-screen.
+  // Demo picks the same prompt as before (todayKey is the anchor there); a
+  // real account rotates on the device's local day.
+  const checkinPrompt =
+    CHECKIN_PROMPTS[Number(liveTodayKey.slice(8, 10)) % CHECKIN_PROMPTS.length];
+  // "Today" is a moving target: the account resolving to its local day after
+  // mount, or the local day rolling over at midnight. Either way, follow it
+  // only when the screen was already showing the previous "today" —
+  // deliberate date browsing stays put.
+  const prevTodayRef = useRef(liveTodayKey);
   useEffect(() => {
-    if (!patient.entryFacts?.todayKey) return;
-    setDateKey(current => (current === TODAY_KEY ? patient.entryFacts!.todayKey : current));
-  }, [patient.entryFacts?.todayKey]);
+    const previous = prevTodayRef.current;
+    if (previous === liveTodayKey) return;
+    prevTodayRef.current = liveTodayKey;
+    setDateKey(current => (current === previous ? liveTodayKey : current));
+  }, [liveTodayKey]);
   // The "Yesterday's [meal]" review (reached through this screen's Add Food
   // shortcuts) commits its batch, parks it, and dismisses back here; pick it
   // up on focus and offer the same Undo the diary's copy actions get.
@@ -252,10 +257,10 @@ export default function TodayScreen() {
   // context via the pill's accessibilityLabel.
   const focusMessage = todayCheckIn
     ? `Feeling ${MOOD_LABELS[todayCheckIn.mood].toLowerCase()}`
-    : CHECKIN_PROMPT;
+    : checkinPrompt;
   const focusA11yLabel = todayCheckIn
     ? `Today's focus. Checked in, feeling ${MOOD_LABELS[todayCheckIn.mood].toLowerCase()}.`
-    : `Today's focus. ${CHECKIN_PROMPT}`;
+    : `Today's focus. ${checkinPrompt}`;
   const currentWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
   const lost = PATIENT_PROFILE.startingWeight - currentWeight;
 

@@ -20,7 +20,6 @@ import {
   findRecipe,
   MEAL_LABELS,
   MEAL_SLOTS,
-  TODAY_KEY,
   type IngredientAdjustment,
   type MealSlot,
 } from '@/data/patient-data';
@@ -53,7 +52,7 @@ export default function RecipeDetailScreen() {
   const paramDateKey =
     typeof dateParam === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
       ? dateParam
-      : TODAY_KEY;
+      : patient.todayKey;
   const validMealParam = MEAL_SLOTS.includes(mealParam as MealSlot)
     ? (mealParam as MealSlot)
     : undefined;

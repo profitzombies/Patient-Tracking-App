@@ -29,7 +29,6 @@ import {
   formatDateKey,
   MOOD_LABELS,
   PATIENT_PROFILE,
-  TODAY_KEY,
   weightAtDateKey,
 } from '@/data/patient-data';
 import { PROGRESS_IMAGES } from '@/data/recipe-images';
@@ -40,6 +39,9 @@ export default function ProgressScreen() {
   const patient = usePatient();
   const { account } = usePatientAccount();
   const { commitPhotoRemoval } = patient; // stable callback, safe as an effect dep
+  // Live program day for real accounts; the demo persona has no entry facts
+  // and keeps the seeded enrollment figure, byte-identical.
+  const programDay = patient.entryFacts?.programDay ?? ENROLLMENT_DAYS;
   const [photoError, setPhotoError] = useState('');
   // One snackbar slot for the last removed photo, mirroring the diary's undo
   // notice. A fresh object per removal restarts the auto-dismiss timer; once
@@ -119,13 +121,13 @@ export default function ProgressScreen() {
       });
       if (result.canceled || result.assets.length === 0) return;
       const asset = result.assets[0];
-      const label = `Week ${Math.ceil(ENROLLMENT_DAYS / 7)}`;
+      const label = `Week ${Math.ceil(programDay / 7)}`;
       if (account.kind === 'real') {
         // Signed-in patient: compress, upload to the account's media rail,
         // and record the grid row on the account — reinstall-safe.
         const prepared = await preparePhotoForUpload(asset);
         const { photoPath } = await account.api.uploadProgressPhoto(prepared.uri);
-        const saved = await patient.addPhoto({ dateKey: TODAY_KEY, objectPath: photoPath, label });
+        const saved = await patient.addPhoto({ dateKey: patient.todayKey, objectPath: photoPath, label });
         if (!saved) {
           // The grid write failed and rolled back: discard the now-orphaned
           // upload (a retry re-picks and re-uploads fresh) and surface the
@@ -139,7 +141,7 @@ export default function ProgressScreen() {
       if (Platform.OS === 'web' && asset.base64 && !uri.startsWith('data:')) {
         uri = `data:${asset.mimeType ?? 'image/jpeg'};base64,${asset.base64}`;
       }
-      await patient.addPhoto({ dateKey: TODAY_KEY, uri, label });
+      await patient.addPhoto({ dateKey: patient.todayKey, uri, label });
     } catch (error) {
       if (account.kind === 'real') {
         setPhotoError(
@@ -181,7 +183,7 @@ export default function ProgressScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PatientHeader title="Progress" subtitle={`DAY ${ENROLLMENT_DAYS} OF YOUR PROGRAM`} />
+      <PatientHeader title="Progress" subtitle={`DAY ${programDay} OF YOUR PROGRAM`} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
         {/* ── Weight trend ── */}
         <SectionHeader label="Weight Trend" value={`${currentWeight.toFixed(1)} lbs`} style={{ marginBottom: 8 }} />
@@ -300,7 +302,7 @@ export default function ProgressScreen() {
               <View style={styles.checkinRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.checkinDate, { color: colors.navyLight }]}>
-                    {checkIn.dateKey === TODAY_KEY ? 'Today' : formatDateKey(checkIn.dateKey)}
+                    {checkIn.dateKey === patient.todayKey ? 'Today' : formatDateKey(checkIn.dateKey)}
                   </Text>
                   <Text style={[styles.checkinMeta, { color: colors.subtleText }]}>
                     Mood: {MOOD_LABELS[checkIn.mood]}

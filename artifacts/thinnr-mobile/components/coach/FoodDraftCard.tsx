@@ -23,7 +23,7 @@ import * as Haptics from 'expo-haptics';
 import { registerCoachCard } from '@/components/coach/CoachCardSlot';
 import { useCoachChat } from '@/context/CoachChatContext';
 import { usePatient } from '@/context/PatientContext';
-import { MEAL_LABELS, MEAL_SLOTS, TODAY_KEY, type MealSlot } from '@/data/patient-data';
+import { MEAL_LABELS, MEAL_SLOTS, type MealSlot } from '@/data/patient-data';
 import { formatQty } from '@/data/diary-entries';
 import { useColors } from '@/hooks/useColors';
 import {
@@ -85,7 +85,7 @@ export function FoodDraftCard({
       // (always per-serving), then log the stepped number of servings of it
       // to the chosen slot for today.
       const food = await patient.addCustomFood(buildCustomFoodFromLabel(payload));
-      await patient.addEntry(buildLabelDiaryEntry(food, slot, TODAY_KEY, qty));
+      await patient.addEntry(buildLabelDiaryEntry(food, slot, patient.todayKey, qty));
       markLabelFoodAdded(messageId, slot, qty);
     } finally {
       setSaving(false);

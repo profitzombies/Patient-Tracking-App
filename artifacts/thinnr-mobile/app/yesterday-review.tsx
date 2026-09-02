@@ -33,7 +33,6 @@ import {
   MEAL_LABELS,
   MEAL_SLOTS,
   shiftDateKey,
-  TODAY_KEY,
   type MealLogEntry,
   type MealSlot,
 } from '@/data/patient-data';
@@ -57,7 +56,7 @@ export default function YesterdayReviewScreen() {
 
   const dateKey = typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
     ? params.date
-    : TODAY_KEY;
+    : patient.todayKey;
   const meal: MealSlot = MEAL_SLOTS.includes(params.meal as MealSlot)
     ? (params.meal as MealSlot)
     : 'breakfast';
@@ -75,7 +74,7 @@ export default function YesterdayReviewScreen() {
 
   // Same "yesterday" as the diary and Add Food: the day before the date
   // being viewed. Below the diary horizon there is no previous day.
-  const isToday = dateKey === TODAY_KEY;
+  const isToday = dateKey === patient.todayKey;
   const prevKey = shiftDateKey(dateKey, -1);
   const atMin = dateKey <= DIARY_MIN_KEY;
   const preview = atMin ? null : yesterdaySlotPreview(patient.entriesForDate(prevKey), meal);
@@ -105,7 +104,7 @@ export default function YesterdayReviewScreen() {
   const title = isToday
     ? `Yesterday's ${MEAL_LABELS[meal]}`
     : `${MEAL_LABELS[meal]} from ${formatDateKey(prevKey)}`;
-  const targetLabel = dateKey === TODAY_KEY ? 'Today' : formatDateKey(dateKey);
+  const targetLabel = dateKey === patient.todayKey ? 'Today' : formatDateKey(dateKey);
 
   const toggleSource = (id: string) => {
     setUnticked(current => {

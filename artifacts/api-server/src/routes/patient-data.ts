@@ -44,6 +44,7 @@
  */
 import { Router, type IRouter } from "express";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
 import { mintPatientMediaToken } from "../lib/media-token";
 import { resolvePatient } from "../lib/patient-auth";
 import { createLimiter, envLimit } from "../coach/limits";
@@ -301,6 +302,17 @@ function isDateKey(value: unknown): value is string {
   return value >= "2020-01-01" && value <= "2035-12-31";
 }
 
+/**
+ * A day key a real device could honestly stamp on new data: valid, and no
+ * later than "today" anywhere on Earth (UTC+14) plus a day of clock-skew
+ * allowance. Past days stay legal — browsing and deliberate backfill are
+ * how the diary works — but far-future keys would strand rows on days the
+ * patient won't see for years, so they are rejected at the door.
+ */
+function isPlausibleDayKey(value: unknown): value is string {
+  return isDateKey(value) && value <= maxPlausibleDayKey();
+}
+
 function numberIn(value: unknown, min: number, max: number): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
 }
@@ -340,7 +352,7 @@ function parseCheckIn(raw: unknown, patientId: string): { row: CheckInRow } | { 
   if (typeof checkIn.id !== "string" || !ENTRY_ID_RE.test(checkIn.id)) {
     return { error: "A check-in id is invalid." };
   }
-  if (!isDateKey(checkIn.dateKey)) {
+  if (!isPlausibleDayKey(checkIn.dateKey)) {
     return { error: "A check-in date is invalid." };
   }
   if (checkIn.weight !== undefined && !numberIn(checkIn.weight, 1, 1500)) {
@@ -397,7 +409,7 @@ function parseProgressPhoto(raw: unknown, patientId: string): { row: PhotoRow } 
   if (typeof photo.id !== "string" || !ENTRY_ID_RE.test(photo.id)) {
     return { error: "A photo id is invalid." };
   }
-  if (!isDateKey(photo.dateKey)) {
+  if (!isPlausibleDayKey(photo.dateKey)) {
     return { error: "A photo date is invalid." };
   }
   if (typeof photo.label !== "string" || photo.label.length < 1 || photo.label.length > 80) {
@@ -461,7 +473,7 @@ function parseEntry(
   if (typeof e.id !== "string" || !ENTRY_ID_RE.test(e.id)) {
     return { error: "Entry id is invalid." };
   }
-  if (!isDateKey(e.dateKey)) return { error: "Entry date is invalid." };
+  if (!isPlausibleDayKey(e.dateKey)) return { error: "Entry date is invalid." };
   if (typeof e.meal !== "string" || !MEALS.has(e.meal)) {
     return { error: "Entry meal slot is invalid." };
   }
@@ -1055,14 +1067,15 @@ router.get("/patient-data/state", async (req, res) => {
     }
     const from = typeof req.query.from === "string" ? req.query.from : null;
     const to = typeof req.query.to === "string" ? req.query.to : null;
-    const today =
-      typeof req.query.today === "string"
-        ? req.query.today
-        : new Date().toISOString().slice(0, 10);
+    // The app sends its own calendar day; when it doesn't, the patient's
+    // stored timezone decides after the profile row arrives below — the
+    // server's UTC clock never does (it flips to tomorrow mid-evening for
+    // US patients).
+    const todayParam = typeof req.query.today === "string" ? req.query.today : null;
     if (
       (from !== null && !isDateKey(from)) ||
       (to !== null && !isDateKey(to)) ||
-      !isDateKey(today)
+      (todayParam !== null && !isPlausibleDayKey(todayParam))
     ) {
       res.status(400).json({ error: "Invalid date range." });
       return;
@@ -1264,6 +1277,9 @@ router.get("/patient-data/state", async (req, res) => {
     if (flagRow?.notification_prefs && typeof flagRow.notification_prefs === "object") {
       flagsOut.notificationPrefs = flagRow.notification_prefs;
     }
+    const today =
+      todayParam ??
+      dayKeyInTimeZone(typeof profile.timezone === "string" ? profile.timezone : null);
     // Legacy records may not have a program_start_date. Their clinical-row
     // created_at is the documented anchor fallback, matching coach grounding.
     const startRaw = profile.program_start_date ?? profile.created_at ?? today;
@@ -1403,7 +1419,7 @@ router.put("/patient-data/water", async (req, res) => {
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
-    if (!isDateKey(body.dateKey)) {
+    if (!isPlausibleDayKey(body.dateKey)) {
       res.status(400).json({ error: "Water date is invalid." });
       return;
     }

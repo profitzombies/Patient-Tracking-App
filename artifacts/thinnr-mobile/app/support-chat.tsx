@@ -45,7 +45,7 @@ import {
   type ChatThreadSnapshot,
   type ChatWireMessage,
 } from "@/context/PatientAccountContext";
-import { TODAY_KEY } from "@/data/patient-data";
+import { localTodayKey } from "@/lib/live-patient-entry";
 import {
   MAX_SUPPORT_QUESTION_LENGTH,
   SUPPORT_HISTORY_WINDOW,
@@ -205,7 +205,7 @@ export default function SupportChatScreen() {
     const run = async () => {
       let snapshot: ChatThreadSnapshot;
       try {
-        snapshot = await api.fetchChatThread("support", TODAY_KEY);
+        snapshot = await api.fetchChatThread("support", localTodayKey());
       } catch {
         if (cancelled) return;
         attempts += 1;

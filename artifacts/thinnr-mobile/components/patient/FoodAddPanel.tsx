@@ -9,7 +9,7 @@ import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { PillSelector } from '@/components/ui/LedgerPrimitives';
 import { usePatient } from '@/context/PatientContext';
-import { MEAL_LABELS, MEAL_SLOTS, TODAY_KEY, type FoodItem, type MealSlot } from '@/data/patient-data';
+import { MEAL_LABELS, MEAL_SLOTS, type FoodItem, type MealSlot } from '@/data/patient-data';
 
 const MEAL_OPTIONS = MEAL_SLOTS.map(slot => ({ label: MEAL_LABELS[slot], value: slot }));
 
@@ -38,7 +38,7 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded }: FoodAddPanel
     setSaving(true);
     try {
       await patient.addEntry({
-        dateKey: TODAY_KEY,
+        dateKey: patient.todayKey,
         meal,
         kind: 'food',
         refId: food.id,

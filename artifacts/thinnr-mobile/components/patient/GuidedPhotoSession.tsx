@@ -69,7 +69,7 @@ import { PhotoLightbox, type LightboxPhoto } from '@/components/ui/PhotoLightbox
 import { overlayTopPad, screenTopPad } from '@/constants/layout';
 import { GUIDED_POSE_IMAGES } from '@/data/guided-photo-images';
 import { CAPTURE_TONE_SOUND, HOLD_LOST_SOUND, TICK_SOUND } from '@/data/guided-photo-sounds';
-import { ENROLLMENT_DAYS, TODAY_KEY } from '@/data/patient-data';
+import { ENROLLMENT_DAYS } from '@/data/patient-data';
 import {
   COUNTDOWN_SECONDS,
   GUIDED_ANGLES,
@@ -957,13 +957,15 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       setStage({ kind: 'review' });
       return;
     }
-    const week = Math.ceil(ENROLLMENT_DAYS / 7);
+    // Live program week for real accounts; demo keeps the seeded enrollment
+    // figure (no entry facts), byte-identical to before.
+    const week = Math.ceil((patient.entryFacts?.programDay ?? ENROLLMENT_DAYS) / 7);
     const entries = GUIDED_ANGLES.filter(
       angle => shots[angle] && uploadedRef.current.has(angle),
     ).map(angle => {
       const ref = uploadedRef.current.get(angle)!;
       return {
-        dateKey: TODAY_KEY,
+        dateKey: patient.todayKey,
         label: `Week ${week} ${GUIDED_ANGLE_LABELS[angle]}`,
         angle,
         // Account shots reference their stored object; demo shots keep the

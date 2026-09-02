@@ -148,6 +148,7 @@ import { OUTLINE_PATHS } from '../components/patient/BodyOutline';
 import { decodeBase64, decodePngToLuma, probeCameraFrame } from '../lib/photo-probe';
 import { progressPhotoDisplayUrl, uploadGuidedShots } from '../lib/progress-photo-upload';
 import { ENROLLMENT_DAYS, TODAY_KEY } from '../data/patient-data';
+import { localTodayKey } from '../lib/live-patient-entry';
 import * as SessionModule from '../components/patient/GuidedPhotoSession';
 import { PatientProvider, usePatient } from '../context/PatientContext';
 import {
@@ -1424,6 +1425,7 @@ async function main(): Promise<void> {
         `Week ${week} ${GUIDED_ANGLE_LABELS[angle]}`,
         `${angle} entry label`,
       );
+      // Demo persona stays byte-identical on the seeded anchor day.
       assertEqual(entry.dateKey, TODAY_KEY, `${angle} entry dated today`);
     }
     await actSettle(() => webSession.renderer.unmount());
@@ -1488,7 +1490,7 @@ async function main(): Promise<void> {
         photo =>
           typeof photo.id === 'string' &&
           photo.id.length > 0 &&
-          photo.dateKey === TODAY_KEY &&
+          photo.dateKey === localTodayKey() &&
           photo.label ===
             `Week ${railWeek} ${GUIDED_ANGLE_LABELS[photo.angle as (typeof GUIDED_ANGLES)[number]]}` &&
           typeof photo.objectPath === 'string' &&

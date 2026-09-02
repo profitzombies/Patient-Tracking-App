@@ -28,7 +28,6 @@ import {
   subDays,
   toDateKey,
   TODAY,
-  TODAY_KEY,
   type MealSlot,
 } from '@/data/patient-data';
 import { useLoggableItems, type LoggableItem } from '@/hooks/useLoggableItems';
@@ -78,7 +77,7 @@ export default function LogFoodScreen() {
 
   const dateKey = typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
     ? params.date
-    : TODAY_KEY;
+    : patient.todayKey;
   const initialMeal = MEAL_SLOTS.includes(params.meal as MealSlot)
     ? (params.meal as MealSlot)
     : 'breakfast';
@@ -113,7 +112,7 @@ export default function LogFoodScreen() {
   // "Yesterday" follows the diary's meaning (the day before the date being
   // viewed); below the diary horizon there is no previous day, and an empty
   // slot hides the option entirely.
-  const isToday = dateKey === TODAY_KEY;
+  const isToday = dateKey === patient.todayKey;
   const prevKey = shiftDateKey(dateKey, -1);
   const atMin = dateKey <= DIARY_MIN_KEY;
   const yesterdayOption = atMin
@@ -311,7 +310,7 @@ export default function LogFoodScreen() {
         <View style={styles.headerCenter}>
           <Text style={[styles.headerTitle, { color: colors.navy }]}>Add Food</Text>
           <Text style={[styles.headerSub, { color: colors.subtleText }]}>
-            {dateKey === TODAY_KEY ? 'Today' : formatDateKey(dateKey)}
+            {dateKey === patient.todayKey ? 'Today' : formatDateKey(dateKey)}
           </Text>
         </View>
         <View style={styles.headerSpacer} />

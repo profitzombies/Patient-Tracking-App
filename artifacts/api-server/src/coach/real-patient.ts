@@ -14,6 +14,7 @@
  * patient's numbers.
  */
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
 import { phaseNameForDay } from "./demo-patient";
 import type { PatientContext, PatientDayTargets } from "./prompt";
 
@@ -48,13 +49,14 @@ export interface PatientProfile {
   last_name?: string | null;
   program_start_date: string | null;
   created_at: string | null;
+  timezone?: string | null;
 }
 
-/** The clinical row facts the chat surfaces need (name, program dates). */
+/** The clinical row facts the chat surfaces need (name, dates, timezone). */
 export async function fetchPatientProfile(patientId: string): Promise<PatientProfile> {
   const lookup = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${enc(patientId)}&select=first_name,last_name,name,program_start_date,created_at`,
+    `/rest/v1/patients?id=eq.${enc(patientId)}&select=first_name,last_name,name,program_start_date,created_at,timezone`,
   );
   if (lookup.status >= 300 || !Array.isArray(lookup.json) || lookup.json.length === 0) {
     throw new Error(`patient profile lookup failed (${lookup.status})`);
@@ -101,17 +103,22 @@ function sumField(rows: unknown[], field: string): number {
 /**
  * Build the coach's patient context from the live account. `localDate` is
  * the app's own calendar date for the diary day it is showing (the client
- * sends it with authenticated turns); older clients omit it and get the
- * server's UTC date as the honest fallback.
+ * sends it with authenticated turns). When it's missing or implausible
+ * (older client, wrong device clock), the patient's stored timezone decides
+ * the day — never the server's UTC clock, which flips to tomorrow
+ * mid-evening for US patients.
  */
 export async function realPatientContext(
   patientId: string,
   localDate: string | undefined,
 ): Promise<PatientContext> {
-  const dateKey = isDateKey(localDate) ? localDate : new Date().toISOString().slice(0, 10);
+  const profile = await fetchPatientProfile(patientId);
+  const dateKey =
+    isDateKey(localDate) && localDate <= maxPlausibleDayKey()
+      ? localDate
+      : dayKeyInTimeZone(profile.timezone);
 
-  const [profile, entries, water, overrides] = await Promise.all([
-    fetchPatientProfile(patientId),
+  const [entries, water, overrides] = await Promise.all([
     supabaseAdmin(
       "GET",
       `/rest/v1/patient_diary_entries?patient_id=eq.${enc(patientId)}&date_key=eq.${dateKey}&select=calories,protein,carbs,fat`,

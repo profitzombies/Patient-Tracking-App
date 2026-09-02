@@ -58,6 +58,7 @@ import {
 import { AppModeProvider } from '../context/AppModeContext';
 import SupportChatScreen from '../app/support-chat';
 import { TODAY_KEY } from '../data/patient-data';
+import { localTodayKey } from '../lib/live-patient-entry';
 import { patientMediaDisplayUrl } from '../lib/patient-data-api';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
 
@@ -479,7 +480,7 @@ async function main() {
     'Grilled chicken with roasted vegetables would land well tonight, plenty of protein left in your day.';
   if (askStream) {
     assert('real request carries the bearer token', askStream.auth === 'Bearer tok-p1');
-    assert('real request carries the app local date', askStream.body.localDate === TODAY_KEY);
+    assert('real request carries the app local date', askStream.body.localDate === localTodayKey());
     askStream.emit({ content: fullReply });
     askStream.emit({ card: { kind: 'product', payload: { sku: 'kept-product' } } });
     askStream.emit({ quickReplies: ['Yes, please', 'No thanks'] });

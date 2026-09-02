@@ -23,7 +23,6 @@ import {
   MEAL_LABELS,
   MEAL_SLOTS,
   shiftDateKey,
-  TODAY_KEY,
   type MealLogEntry,
   type MealSlot,
 } from '@/data/patient-data';
@@ -48,7 +47,7 @@ export function EntryEditPanel({ entry, onDone }: EntryEditPanelProps) {
   const moved = dateKey !== entry.dateKey;
   const dirty = meal !== entry.meal || qty !== entry.quantity || moved;
   const atMin = dateKey <= DIARY_MIN_KEY;
-  const atMax = dateKey >= TODAY_KEY;
+  const atMax = dateKey >= patient.todayKey;
 
   const save = async () => {
     if (saving || !dirty) return;
@@ -89,7 +88,7 @@ export function EntryEditPanel({ entry, onDone }: EntryEditPanelProps) {
         <View style={styles.dayCenter}>
           <Feather name="calendar" size={11} color={colors.bodyText} />
           <Text testID="entryedit-day" style={[styles.dayValue, { color: moved ? colors.cobalt : colors.navy }]}>
-            {dayLabel(dateKey)}
+            {dayLabel(dateKey, patient.todayKey)}
           </Text>
         </View>
         <Pressable
@@ -161,7 +160,7 @@ export function EntryEditPanel({ entry, onDone }: EntryEditPanelProps) {
       </View>
       <Text style={[styles.hint, { color: colors.bodyText }]}>
         Saves as {preview.detail} · {preview.calories} cal · {MEAL_LABELS[meal]}
-        {moved ? ` · moves to ${dayLabel(dateKey)}` : ''}
+        {moved ? ` · moves to ${dayLabel(dateKey, patient.todayKey)}` : ''}
       </Text>
     </View>
   );

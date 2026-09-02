@@ -29,7 +29,7 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import {
@@ -340,6 +340,14 @@ interface PatientContextValue {
    * reinstall, and new devices.
    */
   hydratedFlags: HydratedOnboardingFlags | null;
+  /**
+   * Canonical "today" for every patient surface. The demo persona pins the
+   * seeded anchor (TODAY_KEY) so seeded suites stay byte-identical; a real
+   * account rides the device's local calendar day, recomputed on foreground
+   * and at local midnight. Screens and mutations must read this instead of
+   * importing TODAY_KEY directly.
+   */
+  todayKey: string;
   /** Live identity/calendar/program facts; null for demo and before hydration. */
   entryFacts: PatientEntryFacts | null;
   /** Canonical account profile; null for demo and before live hydration. */
@@ -490,6 +498,54 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const [hydratedFlags, setHydratedFlags] = useState<HydratedOnboardingFlags | null>(null);
   const [entryFacts, setEntryFacts] = useState<PatientEntryFacts | null>(null);
   const [profile, setProfile] = useState<PatientProfile | null>(null);
+
+  // Device-local calendar day, live for real accounts only. Demo (and the
+  // unresolved in-between) stays pinned to the seeded anchor so every seeded
+  // suite and the persona walkthrough remain byte-identical.
+  const [liveDayKey, setLiveDayKey] = useState(() => localTodayKey());
+  const todayKey = account.kind === 'real' ? liveDayKey : TODAY_KEY;
+
+  // Local-midnight rollover for real accounts: recompute the device-local day
+  // when the app returns to the foreground and at the next local midnight
+  // (self-re-arming: the effect re-runs when liveDayKey advances). Demo stays
+  // pinned to the anchor, so this never runs for seeded suites.
+  useEffect(() => {
+    if (account.kind !== 'real') return;
+    const refresh = () => {
+      const current = localTodayKey();
+      setLiveDayKey(previous => (previous === current ? previous : current));
+    };
+    const subscription = AppState.addEventListener('change', status => {
+      if (status === 'active') refresh();
+    });
+    const nextMidnight = new Date();
+    nextMidnight.setHours(24, 0, 0, 30);
+    const timer = setTimeout(refresh, Math.max(1_000, nextMidnight.getTime() - Date.now()));
+    // Under Node (scripted suites) a pending timer would hold the process
+    // open for hours; unref where available (React Native has no unref).
+    (timer as unknown as { unref?: () => void }).unref?.();
+    return () => {
+      subscription.remove();
+      clearTimeout(timer);
+    };
+  }, [account.kind, liveDayKey]);
+
+  // When the day advances, keep the hydrated calendar facts in step so
+  // program-day labels move with the date without waiting for a refetch.
+  // Program day uses the server's formula (round of whole days, clamped).
+  useEffect(() => {
+    if (account.kind !== 'real') return;
+    setEntryFacts(previous => {
+      if (!previous || previous.todayKey === liveDayKey) return previous;
+      const start = Date.parse(`${previous.programStartDate.slice(0, 10)}T00:00:00Z`);
+      const today = Date.parse(`${liveDayKey}T00:00:00Z`);
+      const programDay =
+        Number.isFinite(start) && Number.isFinite(today)
+          ? Math.max(1, Math.min(2000, Math.round((today - start) / 86_400_000)))
+          : previous.programDay;
+      return { ...previous, todayKey: liveDayKey, programDay };
+    });
+  }, [account.kind, liveDayKey]);
 
   // Mutations must wait for hydration: a pre-hydration commit would build on
   // EMPTY_STATE and clobber previously persisted data in storage.
@@ -1741,11 +1797,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   }, [checkIns, seedsOn]);
 
   // Stall-nudge trigger: classified diary entries plus the weigh-in series,
-  // assessed as of the demo anchor day. Recomputes as the patient logs, so
-  // every surface (chat seeding, check-in note) reads one decision.
+  // assessed as of the canonical today (demo: the anchor; real: the device's
+  // local day). Recomputes as the patient logs, so every surface (chat
+  // seeding, check-in note) reads one decision.
   const nudgeAssessment = useMemo<NudgeAssessment>(
-    () => assessNudge(classifyEntries(allEntries), weightSeries, TODAY_KEY),
-    [allEntries, weightSeries],
+    () => assessNudge(classifyEntries(allEntries), weightSeries, todayKey),
+    [allEntries, weightSeries, todayKey],
   );
 
   const shouldSeedNudgeOutreach = useMemo<boolean>(() => {
@@ -1758,7 +1815,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         lastSentKey: state.nudgeLastSentKey,
         lastCrossingKey: state.nudgeLastCrossingKey,
       },
-      TODAY_KEY,
+      todayKey,
     );
   }, [
     hydrated,
@@ -1767,6 +1824,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     state.nudgeEngaged,
     state.nudgeLastCrossingKey,
     state.nudgeLastSentKey,
+    todayKey,
   ]);
 
   // Below the assessment memo it reads. Fires when the chat seeds the
@@ -1786,7 +1844,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       if (prev.nudgeLastCrossingKey === crossing && prev.nudgeLastSentKey !== null) return;
       const next = {
         ...prev,
-        nudgeLastSentKey: TODAY_KEY,
+        nudgeLastSentKey: todayKey,
         nudgeLastCrossingKey: crossing,
         // A fresh episode starts unengaged even if an older one was answered.
         nudgeEngaged: false,
@@ -1797,13 +1855,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       }
       await commitWithServer(run, prev, next, api =>
         api.writeFlags({
-          nudgeLastSentKey: TODAY_KEY,
+          nudgeLastSentKey: todayKey,
           nudgeLastCrossingKey: crossing,
           nudgeEngaged: false,
         }),
       );
     });
-  }, [beginRun, commit, commitWithServer, runSerialized, nudgeAssessment]);
+  }, [beginRun, commit, commitWithServer, runSerialized, nudgeAssessment, todayKey]);
 
   // Stable ascending sort: equal dateKeys keep concatenation order (seeds
   // first, then user photos in add order), so two photos added the same day
@@ -1969,6 +2027,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       saveOnboardingFlags,
       completeOnboarding,
       hydratedFlags,
+      todayKey,
       entryFacts,
       profile,
       saveProfile,
@@ -2026,6 +2085,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       saveOnboardingFlags,
       completeOnboarding,
       hydratedFlags,
+      todayKey,
       entryFacts,
       profile,
       saveProfile,

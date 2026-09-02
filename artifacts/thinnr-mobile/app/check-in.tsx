@@ -19,18 +19,9 @@ import {
   MOOD_LABELS,
   PATIENT_PROFILE,
   SIDE_EFFECT_OPTIONS,
-  TODAY,
-  TODAY_KEY,
 } from '@/data/patient-data';
 
 const MOODS = [1, 2, 3, 4, 5] as const;
-
-const todayLabel = TODAY.toLocaleDateString('en-US', {
-  weekday: 'long',
-  month: 'long',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
 
 export default function CheckInScreen() {
   const colors = useColors();
@@ -38,7 +29,17 @@ export default function CheckInScreen() {
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
 
-  const existing = patient.checkInFor(TODAY_KEY);
+  // Canonical today: the demo anchor for the demo persona, the device's
+  // local day for a signed-in patient (rolls over at local midnight).
+  const todayKey = patient.todayKey;
+  const todayLabel = new Date(`${todayKey}T12:00:00.000Z`).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+
+  const existing = patient.checkInFor(todayKey);
 
   // Hands-free guided photo session — the outcome resolves when the
   // session settles, so the announcement lands back on this screen.
@@ -102,7 +103,7 @@ export default function CheckInScreen() {
     setSaving(true);
     try {
       const saved = await patient.addCheckIn({
-        dateKey: TODAY_KEY,
+        dateKey: todayKey,
         weight,
         mood,
         sideEffects,

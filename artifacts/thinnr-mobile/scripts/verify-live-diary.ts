@@ -51,6 +51,7 @@ import { usePatientAccount, type PatientAccountState } from '../context/PatientA
 import { TODAY_KEY, shiftDateKey, type DailyTargets, type MealLogEntry } from '../data/patient-data';
 import { localTodayKey } from '../lib/live-patient-entry';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
+import { emitAppStateChange } from './onboarding-gate-stubs/react-native';
 
 let checks = 0;
 let failures = 0;
@@ -80,6 +81,7 @@ interface ServerStore {
   targets: Partial<DailyTargets>;
   favorites: string[];
   recents: string[];
+  checkIns: Array<Record<string, unknown>>;
 }
 
 interface ApiCall {
@@ -102,7 +104,7 @@ const failNext = new Map<string, Scripted | 'network'>();
 function storeFor(patientId: string): ServerStore {
   let store = serverStores.get(patientId);
   if (!store) {
-    store = { entries: [], water: {}, targets: {}, favorites: [], recents: [] };
+    store = { entries: [], water: {}, targets: {}, favorites: [], recents: [], checkIns: [] };
     serverStores.set(patientId, store);
   }
   return store;
@@ -180,11 +182,23 @@ function routeCall(call: ApiCall): Scripted {
         targets: store.targets,
         favorites: store.favorites,
         recents: store.recents,
+        checkIns: store.checkIns,
         entry: {
           firstName: role.patientId === 'p-1' ? 'Invited' : 'Signup',
-          programStartDate: role.patientId === 'p-1' ? '2026-08-20' : todayKey,
+          // p-3 (the evening-in-New-York case) started a week earlier so a
+          // midnight rollover moves its program day by a visible +1.
+          programStartDate:
+            role.patientId === 'p-1' ? '2026-08-20'
+            : role.patientId === 'p-3' ? '2026-08-26'
+            : todayKey,
           todayKey,
-          programDay: role.patientId === 'p-1' ? 12 : 1,
+          programDay:
+            role.patientId === 'p-1' ? 12
+            : role.patientId === 'p-3'
+              ? Math.max(1, Math.round(
+                  (Date.parse(`${todayKey}T00:00:00Z`) - Date.parse('2026-08-26T00:00:00Z')) / 86_400_000,
+                ))
+              : 1,
         },
       },
     };
@@ -202,6 +216,13 @@ function routeCall(call: ApiCall): Scripted {
       store.entries = store.entries.filter(e => !deleteIds.includes(e.id));
     }
     if (body.recents !== undefined) store.recents = body.recents as string[];
+    return { status: 200, body: { ok: true } };
+  }
+  if (key === 'POST patient-data/check-ins') {
+    const body = call.body ?? {};
+    const index = store.checkIns.findIndex(c => c.dateKey === body.dateKey);
+    if (index >= 0) store.checkIns[index] = body;
+    else store.checkIns.push(body);
     return { status: 200, body: { ok: true } };
   }
   if (key === 'PUT patient-data/water') {
@@ -249,10 +270,12 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 
 const P1: StubSession = { access_token: 'tok-p1', user: { id: 'user-p1' } };
 const P2: StubSession = { access_token: 'tok-p2', user: { id: 'user-p2' } };
+const P3: StubSession = { access_token: 'tok-p3', user: { id: 'user-p3' } };
 const STAFF: StubSession = { access_token: 'tok-staff', user: { id: 'user-staff' } };
 
 tokenRoles.set('tok-p1', { kind: 'patient', patientId: 'p-1' });
 tokenRoles.set('tok-p2', { kind: 'patient', patientId: 'p-2' });
+tokenRoles.set('tok-p3', { kind: 'patient', patientId: 'p-3' });
 tokenRoles.set('tok-staff', { kind: 'provider' });
 
 // ─── Probe + render helpers ──────────────────────────────────────────────────
@@ -666,6 +689,79 @@ async function main() {
   await signIn(null);
   await unmount(tree);
   setStubSession(null);
+
+  // ── 9 · Evening in New York: 9:33 PM Sept 1 is still Sept 1 ────────────────
+  section('evening in New York: local day everywhere, rollover at local midnight');
+  const RealDate = Date;
+  const priorTZ = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  // 2026-09-02T01:33Z is 9:33 PM on Sept 1 in New York — past the 8 PM
+  // boundary where a UTC-derived "today" already reads tomorrow.
+  let frozenNow = RealDate.parse('2026-09-02T01:33:00Z');
+  class FrozenDate extends RealDate {
+    constructor(...args: unknown[]) {
+      if (args.length === 0) super(frozenNow);
+      else super(...(args as [string | number | Date]));
+    }
+    static now(): number {
+      return frozenNow;
+    }
+  }
+  (globalThis as { Date: DateConstructor }).Date = FrozenDate as unknown as DateConstructor;
+  try {
+    assert('device-local day is Sept 1 at 9:33 PM New York', localTodayKey() === '2026-09-01');
+    setStubSession(P3);
+    tree = await mountLive();
+    assert('evening account resolves', account.account.kind === 'real' && ctx.hydrated);
+    const eveningState = lastCallTo('patient-data/state');
+    assert('hydration asks the server for the LOCAL day, not the UTC day',
+      eveningState !== undefined && eveningState.query.get('today') === '2026-09-01');
+    assert('the provider live day is Sept 1', ctx.todayKey === '2026-09-01');
+    assert('entry facts ride the local day', ctx.entryFacts?.todayKey === '2026-09-01');
+
+    await act(async () => {
+      await ctx.addEntry(entryInput('Evening Snack', { dateKey: ctx.todayKey, meal: 'snacks' }));
+    });
+    assert('an evening food log lands on Sept 1 on the server',
+      storeFor('p-3').entries.some(e => e.name === 'Evening Snack' && e.dateKey === '2026-09-01'));
+    await act(async () => {
+      await ctx.setWater(ctx.todayKey, 24);
+    });
+    assert('evening water lands on Sept 1 on the server', storeFor('p-3').water['2026-09-01'] === 24);
+    assert('evening water reads back on Sept 1', ctx.waterFor('2026-09-01') === 24);
+    await act(async () => {
+      await ctx.addCheckIn({ dateKey: ctx.todayKey, mood: 4, sideEffects: [] });
+    });
+    assert('an evening check-in lands on Sept 1 on the server',
+      storeFor('p-3').checkIns.some(c => c.dateKey === '2026-09-01'));
+    assert('nothing was written to the UTC day or the demo anchor',
+      !storeFor('p-3').entries.some(e => e.dateKey !== '2026-09-01')
+      && storeFor('p-3').water['2026-09-02'] === undefined
+      && storeFor('p-3').water[TODAY_KEY] === undefined);
+
+    // Left open past local midnight: foregrounding recomputes the day.
+    const dayBeforeRollover = ctx.entryFacts?.programDay ?? 0;
+    frozenNow = RealDate.parse('2026-09-02T04:05:00Z'); // 12:05 AM Sept 2 in NY
+    await act(async () => {
+      emitAppStateChange('active');
+    });
+    await settle();
+    assert('after local midnight the live day rolls to Sept 2', ctx.todayKey === '2026-09-02');
+    assert('entry facts follow the rollover', ctx.entryFacts?.todayKey === '2026-09-02');
+    assert('the program day advances with the local day',
+      (ctx.entryFacts?.programDay ?? 0) === dayBeforeRollover + 1);
+    assert('rollover reads, never writes: Sept 2 has no invented rows',
+      !storeFor('p-3').entries.some(e => e.dateKey === '2026-09-02')
+      && storeFor('p-3').water['2026-09-02'] === undefined);
+
+    await signIn(null);
+    await unmount(tree);
+    setStubSession(null);
+  } finally {
+    (globalThis as { Date: DateConstructor }).Date = RealDate;
+    if (priorTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = priorTZ;
+  }
 
   // ── Verdict ─────────────────────────────────────────────────────────────────
   console.log(`\n${checks} checks, ${failures} failures`);

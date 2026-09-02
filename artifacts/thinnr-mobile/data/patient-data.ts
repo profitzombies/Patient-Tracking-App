@@ -44,10 +44,14 @@ export function shiftDateKey(dateKey: string, days: number): string {
   return toDateKey(addDays(new Date(`${dateKey}T12:00:00.000Z`), days));
 }
 
-/** Diary-relative label for a day key: "Today", "Yesterday", or the short date. */
-export function dayLabel(dateKey: string): string {
-  if (dateKey === TODAY_KEY) return 'Today';
-  if (dateKey === shiftDateKey(TODAY_KEY, -1)) return 'Yesterday';
+/**
+ * Diary-relative label for a day key: "Today", "Yesterday", or the short
+ * date. Callers on a live account pass their canonical today (the device's
+ * local day); the default keeps demo/seeded output on the anchor.
+ */
+export function dayLabel(dateKey: string, todayKey: string = TODAY_KEY): string {
+  if (dateKey === todayKey) return 'Today';
+  if (dateKey === shiftDateKey(todayKey, -1)) return 'Yesterday';
   return formatDateKey(dateKey);
 }
 

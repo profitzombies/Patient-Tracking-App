@@ -32,6 +32,7 @@
  */
 import { Router, type IRouter } from "express";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
 import { resolvePatient } from "../lib/patient-auth";
 import { createLimiter, envLimit } from "../coach/limits";
 import { clientIp } from "../auth/ledger";
@@ -267,10 +268,13 @@ router.get("/patient-chat/:thread", async (req, res) => {
     }
 
     // The app sends its own calendar date so the greeting's program day
-    // matches the diary day it is showing; absent, the server's UTC date.
-    const todayKey = isDateKey(req.query.today)
-      ? req.query.today
-      : new Date().toISOString().slice(0, 10);
+    // matches the diary day it is showing. Absent or implausible (older
+    // client, wrong device clock), the patient's stored timezone decides
+    // below — never the server's UTC clock.
+    const todayParam =
+      isDateKey(req.query.today) && req.query.today <= maxPlausibleDayKey()
+        ? req.query.today
+        : null;
 
     const [profile, conversation] = await Promise.all([
       fetchPatientProfile(auth.patientId),
@@ -282,6 +286,7 @@ router.get("/patient-chat/:thread", async (req, res) => {
     if (conversation.status >= 300 || !Array.isArray(conversation.json)) {
       throw new Error(`chat conversation lookup failed (${conversation.status})`);
     }
+    const todayKey = todayParam ?? dayKeyInTimeZone(profile.timezone);
     const conversationRow = conversation.json[0] as { id?: unknown } | undefined;
 
     let messages: Record<string, unknown>[] = [];

@@ -13,7 +13,7 @@
  * (Playfair) card titles, cobalt primaries, soft radius, and orange kept to
  * small accents (the TODAY badge and the over-target status).
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientContentBottom } from '@/constants/layout';
@@ -39,7 +39,6 @@ import {
   MEAL_LABELS,
   MEAL_SLOTS,
   shiftDateKey,
-  TODAY_KEY,
   type MealLogEntry,
   type MealSlot,
 } from '@/data/patient-data';
@@ -63,7 +62,7 @@ export default function DiaryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
-  const liveTodayKey = patient.entryFacts?.todayKey ?? TODAY_KEY;
+  const liveTodayKey = patient.todayKey;
   const diaryMinKey = patient.entryFacts?.programStartDate ?? DIARY_MIN_KEY;
   const [dateKey, setDateKey] = useState(liveTodayKey);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -76,12 +75,17 @@ export default function DiaryScreen() {
   // batch, so no deletion loses its undo window mid clean-up.
   const [notice, setNotice] = useState<DiaryNotice | null>(null);
 
-  // Match Today's live-day admission: account facts hydrate asynchronously,
-  // so replace only the initial demo anchor and preserve deliberate browsing.
+  // Match Today's live-day admission: follow "today" when it moves (account
+  // resolving after mount, or local midnight rolling the day over) — but only
+  // when the screen was already on the previous "today", so deliberate date
+  // browsing stays put.
+  const prevTodayRef = useRef(liveTodayKey);
   useEffect(() => {
-    if (!patient.entryFacts?.todayKey) return;
-    setDateKey(current => (current === TODAY_KEY ? patient.entryFacts!.todayKey : current));
-  }, [patient.entryFacts?.todayKey]);
+    const previous = prevTodayRef.current;
+    if (previous === liveTodayKey) return;
+    prevTodayRef.current = liveTodayKey;
+    setDateKey(current => (current === previous ? liveTodayKey : current));
+  }, [liveTodayKey]);
 
   // Logged recipe rows (curated or coach-saved) open the ingredient
   // breakdown for THAT entry; quick entries have nothing to break down.
@@ -553,7 +557,7 @@ export default function DiaryScreen() {
       {notice?.kind === 'moved' && (
         <Snackbar
           testID="diary-moved-snackbar"
-          message={`Moved to ${dayLabel(notice.dateKey)}`}
+          message={`Moved to ${dayLabel(notice.dateKey, liveTodayKey)}`}
           actionLabel="VIEW"
           actionTestID="diary-moved-view"
           onAction={handleViewMoved}

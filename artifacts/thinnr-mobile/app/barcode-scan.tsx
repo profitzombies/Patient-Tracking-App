@@ -58,7 +58,7 @@ import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
 import { formatQty } from '@/data/diary-entries';
-import { MEAL_LABELS, MEAL_SLOTS, TODAY_KEY, type MealSlot } from '@/data/patient-data';
+import { MEAL_LABELS, MEAL_SLOTS, type MealSlot } from '@/data/patient-data';
 import {
   BarcodeLookupError,
   buildBarcodeDiaryEntry,
@@ -214,7 +214,7 @@ export default function BarcodeScanScreen() {
   const dateKey =
     typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
       ? params.date
-      : TODAY_KEY;
+      : patient.todayKey;
   const meal: MealSlot = MEAL_SLOTS.includes(params.meal as MealSlot)
     ? (params.meal as MealSlot)
     : 'snacks';

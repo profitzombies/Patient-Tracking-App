@@ -34,6 +34,7 @@ import { effectiveProviderCode, normalizeUsPhone } from "./provider-accounts";
 import { objectStorage } from "../lib/objectStorage";
 import { isOwnPatientMediaPath } from "./patient-media";
 import { programDayFor } from "../coach/real-patient";
+import { dayKeyInTimeZone } from "../lib/local-day";
 
 const router: IRouter = Router();
 
@@ -96,7 +97,9 @@ function patientDto(row: PatientRosterRow) {
           program_start_date: row.program_start_date ? String(row.program_start_date) : null,
           created_at: row.created_at ? String(row.created_at) : null,
         },
-        new Date().toISOString().slice(0, 10),
+        // The patient's own calendar day, not the server's UTC date — a
+        // roster viewed in the evening must not show tomorrow's program day.
+        dayKeyInTimeZone(typeof row.timezone === "string" ? row.timezone : null),
       ),
     },
     invitation: invited

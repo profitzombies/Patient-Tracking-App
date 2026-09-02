@@ -23,6 +23,16 @@ export interface LoggableItem {
   approved: boolean;
   /** Times logged in the most-logged window (set only in that group). */
   loggedCount?: number;
+  /** Growing-catalog metadata; absent for legacy foods and recipes. */
+  catalog?: {
+    catalogId: string;
+    group: 'common' | 'personal' | 'branded';
+    source: 'usda' | 'thinnr' | 'openfoodfacts' | 'personal' | 'catalog';
+    sourceLabel: string;
+    selectionToken?: string;
+    lookupId?: string;
+    persisted?: boolean;
+  };
 }
 
 export function useLoggableItems(): {
@@ -42,7 +52,19 @@ export function useLoggableItems(): {
       protein: food.protein,
       carbs: food.carbs,
       fat: food.fat,
-      approved: isApprovedFood(food.id),
+      approved: food.catalogApproved ?? isApprovedFood(food.id),
+      ...(food.catalogShared
+        ? {
+            catalog: {
+              catalogId: food.id,
+              group: food.category === 'Branded Products' ? 'branded' as const : 'common' as const,
+              source: 'catalog' as const,
+              sourceLabel: food.catalogSourceLabel ?? 'Food catalog',
+              ...(food.catalogLookupId ? { lookupId: food.catalogLookupId } : {}),
+              persisted: true,
+            },
+          }
+        : {}),
     }));
     const recipes: LoggableItem[] = RECIPES.map(recipe => ({
       refId: recipe.id,

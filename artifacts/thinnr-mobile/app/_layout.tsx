@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { setAuthTokenGetter, setBaseUrl } from '@workspace/api-client-react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -40,6 +41,11 @@ import { useAppMode } from '@/context/AppModeContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
 import { liveEntryDecision } from '@/lib/live-patient-entry';
+import { supabase } from '@/lib/supabase';
+
+const publicDomain = process.env.EXPO_PUBLIC_DOMAIN;
+if (publicDomain) setBaseUrl(`https://${publicDomain}`);
+setAuthTokenGetter(async () => (await supabase?.auth.getSession())?.data.session?.access_token ?? null);
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();

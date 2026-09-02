@@ -108,6 +108,14 @@ export interface FoodItem {
    * demo items keep local data URIs and never set this.
    */
   photoPath?: string;
+  /** Device/account-private snapshot of a shared catalog selection. */
+  catalogShared?: boolean;
+  /** Attribution retained when a shared selection is available offline. */
+  catalogSourceLabel?: string;
+  /** Explicit reviewed relationship; never inferred for private foods. */
+  catalogApproved?: boolean;
+  /** Transient search id (for example off:{barcode}) retained for deduping. */
+  catalogLookupId?: string;
 }
 
 export interface IngredientNutrition {

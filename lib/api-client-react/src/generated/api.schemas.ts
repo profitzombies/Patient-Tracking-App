@@ -497,6 +497,105 @@ export interface BarcodeLookupResult {
   message?: string;
 }
 
+/**
+ * Reviewed structured eligibility constraints; null when none apply
+ * @nullable
+ */
+export type CatalogApprovalConstraints = { [key: string]: unknown } | null;
+
+export interface CatalogApproval {
+  id: string;
+  name: string;
+  /**
+     * Verbatim official portion; null when the source does not state one
+     * @nullable
+     */
+  portion: string | null;
+  /**
+     * Verbatim phase guidance; null when the source does not state one
+     * @nullable
+     */
+  phaseGuidance: string | null;
+  /**
+     * Reviewed structured eligibility constraints; null when none apply
+     * @nullable
+     */
+  constraints: CatalogApprovalConstraints;
+}
+
+export type CatalogFoodKind = typeof CatalogFoodKind[keyof typeof CatalogFoodKind];
+
+
+export const CatalogFoodKind = {
+  generic: 'generic',
+  branded: 'branded',
+  personal: 'personal',
+} as const;
+
+export type CatalogFoodMeasuresItem = { [key: string]: unknown };
+
+export type CatalogFoodSource = typeof CatalogFoodSource[keyof typeof CatalogFoodSource];
+
+
+export const CatalogFoodSource = {
+  usda_fdc: 'usda_fdc',
+  openfoodfacts: 'openfoodfacts',
+  patient: 'patient',
+} as const;
+
+export type CatalogFoodQualityStatus = typeof CatalogFoodQualityStatus[keyof typeof CatalogFoodQualityStatus];
+
+
+export const CatalogFoodQualityStatus = {
+  reviewed: 'reviewed',
+  community_verified: 'community_verified',
+  community: 'community',
+  private: 'private',
+} as const;
+
+export interface CatalogFood {
+  id: string;
+  kind: CatalogFoodKind;
+  name: string;
+  /** @nullable */
+  brand: string | null;
+  serving: string;
+  /** @nullable */
+  servingGrams: number | null;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  measures: CatalogFoodMeasuresItem[];
+  source: CatalogFoodSource;
+  sourceId: string;
+  /** @nullable */
+  barcode: string | null;
+  qualityStatus: CatalogFoodQualityStatus;
+  approvals: CatalogApproval[];
+}
+
+export interface CatalogSearchResult {
+  results: CatalogFood[];
+  /** Local results remain valid when branded fallback failed */
+  externalUnavailable: boolean;
+}
+
+export interface CatalogSelectionInput {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  id: string;
+}
+
+export interface CatalogSelectionResult {
+  selectedId: string;
+  /** False only for a patient-private custom food */
+  persisted: boolean;
+  food?: CatalogFood;
+}
+
 export interface TrainingUploadUrlInput {
   /**
      * Original file name, for logs and error copy only
@@ -945,6 +1044,23 @@ export interface KnowledgeExtractResult {
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */
 export type OfficeIdParameter = string;
+
+export type CatalogSearchParams = {
+/**
+ * @minLength 2
+ * @maxLength 100
+ */
+q: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+/**
+ * Explicitly request guarded branded fallback
+ */
+branded?: boolean;
+};
 
 export type ProgressPhotoFileParams = {
 /**

@@ -17,9 +17,11 @@ interface FavoriteStarProps {
   name: string;
   testID?: string;
   style?: StyleProp<ViewStyle>;
+  /** Lets catalog rows atomically promote a snapshot before favoriting. */
+  onToggle?: () => void | Promise<void>;
 }
 
-export function FavoriteStar({ id, name, testID, style }: FavoriteStarProps) {
+export function FavoriteStar({ id, name, testID, style, onToggle }: FavoriteStarProps) {
   const colors = useColors();
   const patient = usePatient();
   const isFav = patient.favorites.includes(id);
@@ -29,7 +31,7 @@ export function FavoriteStar({ id, name, testID, style }: FavoriteStarProps) {
       accessibilityRole="button"
       accessibilityState={{ selected: isFav }}
       accessibilityLabel={isFav ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
-      onPress={() => patient.toggleFavorite(id)}
+      onPress={() => void (onToggle ? onToggle() : patient.toggleFavorite(id))}
       hitSlop={6}
       style={({ pressed }) => [
         styles.btn,

@@ -9,6 +9,7 @@
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:approved-foods": "tsx scripts/verify-approved-foods.ts",
+    "test:usda-essentials": "tsx scripts/verify-usda-essentials.ts",
     "test:barcode-scan": "tsx --tsconfig tsconfig.barcode-scan.json scripts/verify-barcode-scan.ts",
     "test:claim-flow": "tsx --tsconfig tsconfig.claim-flow.json scripts/verify-claim-flow.ts",
     "test:claim-test": "tsx --tsconfig tsconfig.claim-test.json scripts/verify-claim-test.ts",
@@ -37,7 +38,8 @@
     "test:stall-nudge": "tsx scripts/verify-stall-nudge.ts",
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
     "test:device-features": "tsx scripts/verify-device-features.ts",
-    "test:editable-text-typography": "tsx --tsconfig tsconfig.editable-text-typography.json scripts/verify-editable-text-typography.ts"
+    "test:editable-text-typography": "tsx --tsconfig tsconfig.editable-text-typography.json scripts/verify-editable-text-typography.ts",
+    "test:food-catalog": "tsx scripts/verify-food-catalog.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

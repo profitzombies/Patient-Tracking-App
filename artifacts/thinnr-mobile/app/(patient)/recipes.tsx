@@ -26,6 +26,8 @@ import { APPROVED_BADGE_EXPLANATION, isApprovedFood } from '@/data/approved-food
 import { MEAL_LABELS, MEAL_SLOTS, RECIPES, type FoodItem, type MealSlot, type Recipe } from '@/data/patient-data';
 import { RECIPE_IMAGES } from '@/data/recipe-images';
 import { type RemovedCustomFood } from '@/data/custom-food-state';
+import { useFoodCatalogSearch } from '@/hooks/useFoodCatalogSearch';
+import { catalogFoodSnapshot, selectCatalogFood, type CatalogFood } from '@/lib/food-catalog';
 
 type MealFilter = 'all' | MealSlot;
 type LibraryView = 'recipes' | 'foods';
@@ -54,6 +56,7 @@ export default function LibraryScreen() {
   // Foods view state
   const [foodQuery, setFoodQuery] = useState('');
   const [foodFavoritesOnly, setFoodFavoritesOnly] = useState(false);
+  const [foodApprovedOnly, setFoodApprovedOnly] = useState(false);
   // Selection tracks a row key (section + food id) instead of a bare food id:
   // a favorited food appears both in the pinned Favorites section and in its
   // category, and only the tapped copy should expand.
@@ -104,6 +107,12 @@ export default function LibraryScreen() {
   );
 
   const favoriteIds = useMemo(() => new Set(patient.favorites), [patient.favorites]);
+  const catalogSearch = useFoodCatalogSearch(
+    patient.allFoods,
+    patient.customFoods,
+    foodQuery,
+    foodApprovedOnly,
+  );
 
   // Starred recipes lead the grid in browse mode, mirroring the Foods view's
   // pinned Favorites section. With the star filter on, everything shown is a
@@ -118,10 +127,30 @@ export default function LibraryScreen() {
 
   const { foodSections, foodCount } = useMemo(() => {
     const q = foodQuery.trim().toLowerCase();
+    if (q) {
+      const groups: Array<{ key: string; title: string; pinned?: boolean; data: FoodItem[] }> = [
+        { key: 'catalog-common', title: 'Common', data: catalogSearch.common },
+        { key: 'catalog-personal', title: 'Personal', data: catalogSearch.personal },
+        { key: 'catalog-branded', title: 'Branded Products', data: catalogSearch.branded },
+      ];
+      const filteredGroups = groups
+        .map(group => ({
+          ...group,
+          data: foodFavoritesOnly
+            ? group.data.filter(food => favoriteIds.has(food.id))
+            : group.data,
+        }))
+        .filter(group => group.data.length > 0);
+      return {
+        foodSections: filteredGroups,
+        foodCount: filteredGroups.reduce((sum, group) => sum + group.data.length, 0),
+      };
+    }
     // patient.allFoods lists custom foods first, so "My Foods" leads the list.
     const matches = patient.allFoods.filter(food => {
       if (q && !`${food.name} ${food.brand ?? ''} ${food.category}`.toLowerCase().includes(q)) return false;
       if (foodFavoritesOnly && !favoriteIds.has(food.id)) return false;
+      if (foodApprovedOnly && !isApprovedFood(food.id)) return false;
       return true;
     });
     const sections: { key: string; title: string; pinned?: boolean; data: FoodItem[] }[] = [];
@@ -143,7 +172,16 @@ export default function LibraryScreen() {
     }
     // The count line reports distinct foods; the pinned section repeats rows.
     return { foodSections: sections, foodCount: matches.length };
-  }, [patient.allFoods, foodQuery, foodFavoritesOnly, favoriteIds]);
+  }, [
+    patient.allFoods,
+    foodQuery,
+    foodFavoritesOnly,
+    foodApprovedOnly,
+    favoriteIds,
+    catalogSearch.common,
+    catalogSearch.personal,
+    catalogSearch.branded,
+  ]);
 
   // Only foods the patient created can be edited or deleted — membership in
   // customFoods, not the category label, is what makes a row "My Foods".
@@ -166,6 +204,17 @@ export default function LibraryScreen() {
     const removed = lastDeleted;
     void patient.restoreCustomFood(removed);
     showConfirmation(`Restored ${removed.food.name} to My Foods`);
+  };
+
+  const toggleCatalogFavorite = async (food: CatalogFood) => {
+    if (food.group === 'personal' || patient.favorites.includes(food.catalogId)) {
+      await patient.toggleFavorite(food.catalogId);
+      return;
+    }
+    const selected = await selectCatalogFood(food);
+    if (await patient.saveCatalogFood(catalogFoodSnapshot(selected))) {
+      await patient.toggleFavorite(selected.catalogId);
+    }
   };
 
   const renderRecipeCard = (recipe: Recipe) => {
@@ -311,6 +360,27 @@ export default function LibraryScreen() {
                   color={favoritesOnly ? colors.primaryForeground : colors.bodyText}
                 />
               </Pressable>
+              <Pressable
+                testID="foods-approved-toggle"
+                accessibilityRole="button"
+                accessibilityState={{ selected: foodApprovedOnly }}
+                accessibilityLabel={foodApprovedOnly ? 'Show all foods' : 'Show only approved foods'}
+                onPress={() => {
+                  setFoodApprovedOnly(value => !value);
+                  setSelectedRowKey(null);
+                  setPendingDeleteId(null);
+                }}
+                style={({ pressed }) => [
+                  styles.favBtn,
+                  {
+                    borderColor: foodApprovedOnly ? colors.activeGreen : colors.border,
+                    backgroundColor: foodApprovedOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
+                    borderRadius: colors.radiusSm,
+                  },
+                ]}
+              >
+                <Feather name="check" size={15} color={foodApprovedOnly ? colors.activeGreen : colors.bodyText} />
+              </Pressable>
             </View>
 
             <PillSelector
@@ -422,6 +492,17 @@ export default function LibraryScreen() {
               <Text style={[styles.legendText, { color: colors.subtleText }]}>= {APPROVED_BADGE_EXPLANATION}</Text>
             </View>
 
+            {foodQuery.trim().length >= 2 && (catalogSearch.loading || catalogSearch.error || catalogSearch.upstreamUnavailable) && (
+              <View testID="library-catalog-state" style={styles.catalogState}>
+                <Feather name={catalogSearch.loading ? 'loader' : 'wifi-off'} size={12} color={colors.subtleText} />
+                <Text style={[styles.catalogStateText, { color: colors.subtleText }]}>
+                  {catalogSearch.loading
+                    ? 'Searching the shared catalog… Local matches are ready.'
+                    : catalogSearch.error ?? catalogSearch.message ?? 'Branded search is unavailable. Local matches are still shown.'}
+                </Text>
+              </View>
+            )}
+
             {confirmation && (
               <View
                 testID="library-add-confirmation"
@@ -451,6 +532,7 @@ export default function LibraryScreen() {
             <Text style={[styles.countText, { color: colors.labelText }]}>
               {foodCount} FOOD{foodCount === 1 ? '' : 'S'}
               {foodFavoritesOnly ? ' · FAVORITES' : ''}
+              {foodApprovedOnly ? ' · APPROVED' : ''}
             </Text>
 
             {foodCount === 0 ? (
@@ -482,7 +564,8 @@ export default function LibraryScreen() {
                       // their testIDs get a distinct prefix to stay unique.
                       const rowTestId = section.pinned ? `fav-${food.id}` : food.id;
                       const isSelected = selectedRowKey === rowKey;
-                      const approved = isApprovedFood(food.id);
+                       const catalogFood = 'catalogId' in food ? food as CatalogFood : null;
+                       const approved = catalogFood?.approved ?? food.catalogApproved ?? isApprovedFood(food.id);
                       return (
                         <View key={food.id}>
                           {index > 0 && <Divider />}
@@ -509,10 +592,16 @@ export default function LibraryScreen() {
                                 {approved && <ApprovedBadge size="sm" />}
                               </View>
                               <Text style={[styles.foodSub, { color: colors.subtleText }]} numberOfLines={1}>
-                                {food.brand ?? food.category} · {food.serving} · P {food.protein}g
+                                 {food.brand ?? food.category} · {food.serving} · P {food.protein}g
+                                 {catalogFood ? ` · ${catalogFood.sourceLabel}` : food.catalogSourceLabel ? ` · ${food.catalogSourceLabel}` : ''}
                               </Text>
                             </View>
-                            <FavoriteStar id={food.id} name={food.name} testID={`food-fav-${rowTestId}`} />
+                             <FavoriteStar
+                               id={food.id}
+                               name={food.name}
+                               testID={`food-fav-${rowTestId}`}
+                               onToggle={catalogFood ? () => toggleCatalogFavorite(catalogFood) : undefined}
+                             />
                             <Text style={[styles.foodCals, { color: colors.navyLight }]}>{food.calories}</Text>
                             <Feather
                               name={isSelected ? 'chevron-up' : 'plus-square'}
@@ -594,6 +683,15 @@ export default function LibraryScreen() {
                                 <FoodAddPanel
                                   food={food}
                                   testIDPrefix="library"
+                                   prepareFood={
+                                     catalogFood && catalogFood.group !== 'personal'
+                                       ? async () => {
+                                           const selected = await selectCatalogFood(catalogFood);
+                                           await patient.saveCatalogFood(catalogFoodSnapshot(selected));
+                                           return catalogFoodSnapshot(selected);
+                                         }
+                                       : undefined
+                                   }
                                   onAdded={message => {
                                     setSelectedRowKey(null);
                                     showConfirmation(message);
@@ -794,6 +892,18 @@ const styles = StyleSheet.create({
   },
   legendText: {
     fontSize: 10.5,
+    fontFamily: 'Inter_400Regular',
+  },
+  catalogState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 10,
+  },
+  catalogStateText: {
+    flex: 1,
+    fontSize: 10.5,
+    lineHeight: 14,
     fontFamily: 'Inter_400Regular',
   },
   confirmBar: {

@@ -18,6 +18,7 @@ import patientChatRouter from "./patient-chat";
 import providerAccountsRouter from "./provider-accounts";
 import hqTeamRouter from "./hq-team";
 import officeRosterRouter from "./office-roster";
+import catalogRouter from "./catalog";
 
 const router: IRouter = Router();
 
@@ -28,6 +29,7 @@ router.use(recipeImageRouter);
 router.use(menuScanRouter);
 router.use(labelScanRouter);
 router.use(barcodeRouter);
+router.use(catalogRouter);
 router.use(trainingMediaRouter);
 router.use(progressPhotosRouter);
 router.use(knowledgeDocsRouter);

@@ -17,6 +17,10 @@ export type OffLookup =
   | { kind: "not_found" }
   | { kind: "error" };
 
+export type OffSearch =
+  | { kind: "found"; products: unknown[] }
+  | { kind: "error" };
+
 /** Minimal logger surface (pino req.log satisfies it). */
 interface WarnLogger {
   warn(obj: unknown, msg?: string): void;
@@ -32,6 +36,43 @@ const OFF_FIELDS =
 const OFF_TIMEOUT_MS = 8000;
 // Open Food Facts asks API users to identify their app and a contact.
 const OFF_USER_AGENT = "THINNR-MedSpa-Demo/1.0 (Replit demo; contact via replit.com)";
+
+/** Guarded text search. Callers enforce specificity before reaching here. */
+export async function searchOffProducts(
+  query: string,
+  limit: number,
+  log?: WarnLogger,
+): Promise<OffSearch> {
+  const params = new URLSearchParams({
+    search_terms: query,
+    search_simple: "1",
+    action: "process",
+    json: "1",
+    page_size: String(Math.min(Math.max(limit, 1), 20)),
+    fields: `code,${OFF_FIELDS}`,
+  });
+  let response: Response;
+  try {
+    response = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
+      headers: { "User-Agent": OFF_USER_AGENT, Accept: "application/json" },
+      signal: AbortSignal.timeout(OFF_TIMEOUT_MS),
+    });
+  } catch (error) {
+    log?.warn({ err: error }, "open food facts search failed");
+    return { kind: "error" };
+  }
+  if (!response.ok) {
+    log?.warn({ status: response.status }, "open food facts search answered non-ok");
+    return { kind: "error" };
+  }
+  try {
+    const json = await response.json() as { products?: unknown };
+    return { kind: "found", products: Array.isArray(json.products) ? json.products : [] };
+  } catch (error) {
+    log?.warn({ err: error }, "open food facts search response was not json");
+    return { kind: "error" };
+  }
+}
 
 /** Looks up one normalized barcode in Open Food Facts. Never throws. */
 export async function fetchOffProduct(code: string, log?: WarnLogger): Promise<OffLookup> {

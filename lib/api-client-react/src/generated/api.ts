@@ -21,6 +21,10 @@ import type {
 
 import type {
   BarcodeLookupResult,
+  CatalogSearchParams,
+  CatalogSearchResult,
+  CatalogSelectionInput,
+  CatalogSelectionResult,
   CoachChatInput,
   CoachLabelScanInput,
   CoachLabelScanResult,
@@ -530,6 +534,163 @@ export function useBarcodeLookup<TData = Awaited<ReturnType<typeof barcodeLookup
 
 
 
+
+export const getCatalogSearchUrl = (params: CatalogSearchParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/catalog/search?${stringifiedParams}` : `/api/catalog/search`
+}
+
+/**
+ * Ranks the patient's selection history and exact local matches first. Sufficiently specific text (or branded=true) may append validated Open Food Facts products after local results. External products are not persisted until the selection endpoint is called.
+ * @summary Search shared and patient-private foods
+ */
+export const catalogSearch = async (params: CatalogSearchParams, options?: Parameters<typeof customFetch>[1]): Promise<CatalogSearchResult> => {
+
+  return customFetch<CatalogSearchResult>(getCatalogSearchUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogSearchQueryKey = (params?: CatalogSearchParams,) => {
+    return [
+    `/api/catalog/search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCatalogSearchQueryOptions = <TData = Awaited<ReturnType<typeof catalogSearch>>, TError = ErrorType<void>>(params: CatalogSearchParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof catalogSearch>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogSearchQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogSearch>>> = ({ signal }) => catalogSearch(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogSearch>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type CatalogSearchQueryResult = NonNullable<Awaited<ReturnType<typeof catalogSearch>>>
+export type CatalogSearchQueryError = ErrorType<void>
+
+
+/**
+ * @summary Search shared and patient-private foods
+ */
+
+export function useCatalogSearch<TData = Awaited<ReturnType<typeof catalogSearch>>, TError = ErrorType<void>>(
+ params: CatalogSearchParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof catalogSearch>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getCatalogSearchQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCatalogSelectUrl = () => {
+
+
+
+
+  return `/api/catalog/selections`
+}
+
+/**
+ * Records patient-scoped popularity for shared foods. For an external off:{barcode} result, re-fetches and validates the authoritative product, then idempotently upserts both the shared catalog and legacy barcode cache. Private custom foods remain private and are never promoted.
+ * @summary Record a food selection and promote a selected branded product
+ */
+export const catalogSelect = async (catalogSelectionInput: CatalogSelectionInput, options?: Parameters<typeof customFetch>[1]): Promise<CatalogSelectionResult> => {
+
+  return customFetch<CatalogSelectionResult>(getCatalogSelectUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(catalogSelectionInput)
+  }
+);}
+
+
+
+
+
+export const getCatalogSelectMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof catalogSelect>>, TError,{data: BodyType<CatalogSelectionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof catalogSelect>>, TError,{data: BodyType<CatalogSelectionInput>}, TContext> => {
+
+const mutationKey = ['catalogSelect'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof catalogSelect>>, {data: BodyType<CatalogSelectionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  catalogSelect(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CatalogSelectMutationResult = NonNullable<Awaited<ReturnType<typeof catalogSelect>>>
+    export type CatalogSelectMutationBody = BodyType<CatalogSelectionInput>
+    export type CatalogSelectMutationError = ErrorType<void>
+
+    /**
+ * @summary Record a food selection and promote a selected branded product
+ */
+export const useCatalogSelect = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof catalogSelect>>, TError,{data: BodyType<CatalogSelectionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof catalogSelect>>,
+        TError,
+        {data: BodyType<CatalogSelectionInput>},
+        TContext
+      > => {
+      return useMutation(getCatalogSelectMutationOptions(options));
+    }
 
 export const getProgressPhotoFileUrl = (params: ProgressPhotoFileParams,) => {
   const normalizedParams = new URLSearchParams();

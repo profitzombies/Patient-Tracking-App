@@ -18,6 +18,10 @@ tags:
       nutrition-facts table when any earlier scan already saved the product
       and only queries Open Food Facts on a miss, so the provider can be
       swapped without touching the app.
+  - name: catalog
+    description: >-
+      Authenticated food-catalog search and selection. Shared rows are
+      service-role only; a patient's private foods are visible only to them.
   - name: training
     description: >-
       Hosted training-video media. Callers authenticate with their existing
@@ -253,6 +257,70 @@ paths:
           description: Rate limited
         "502":
           description: The nutrition database is unreachable right now
+  /catalog/search:
+    get:
+      operationId: catalogSearch
+      tags: [catalog]
+      summary: Search shared and patient-private foods
+      description: >-
+        Ranks the patient's selection history and exact local matches first.
+        Sufficiently specific text (or branded=true) may append validated Open
+        Food Facts products after local results. External products are not
+        persisted until the selection endpoint is called.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 100 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: branded
+          in: query
+          description: Explicitly request guarded branded fallback
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Ranked local results followed by any external results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogSearchResult" }
+        "400": { description: Invalid query }
+        "401": { description: Missing or expired patient session }
+        "403": { description: Session is not linked to a patient }
+        "429": { description: Rate limited }
+        "502": { description: Local catalog is unavailable }
+  /catalog/selections:
+    post:
+      operationId: catalogSelect
+      tags: [catalog]
+      summary: Record a food selection and promote a selected branded product
+      description: >-
+        Records patient-scoped popularity for shared foods. For an external
+        off:{barcode} result, re-fetches and validates the authoritative
+        product, then idempotently upserts both the shared catalog and legacy
+        barcode cache. Private custom foods remain private and are never
+        promoted.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CatalogSelectionInput" }
+      responses:
+        "200":
+          description: Selected canonical id and food
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogSelectionResult" }
+        "400": { description: Invalid selection id }
+        "401": { description: Missing or expired patient session }
+        "403": { description: Session is not linked to a patient }
+        "404": { description: Product no longer exists }
+        "422": { description: External product has incomplete nutrition }
+        "429": { description: Rate limited }
+        "502": { description: Selection could not be persisted }
   /progress-photos/file:
     get:
       operationId: progressPhotoFile
@@ -1071,6 +1139,10 @@ paths:
         "403": { description: Not authorized for provider reads }
         "404": { description: No patient record found for this office }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
   schemas:
     OfficeSummary:
       type: object
@@ -1626,6 +1698,73 @@ components:
           description: Present only for not_found
       required:
         - result
+    CatalogApproval:
+      type: object
+      required: [id, name, portion, phaseGuidance, constraints]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        portion:
+          type: ["string", "null"]
+          description: Verbatim official portion; null when the source does not state one
+        phaseGuidance:
+          type: ["string", "null"]
+          description: Verbatim phase guidance; null when the source does not state one
+        constraints:
+          type: ["object", "null"]
+          additionalProperties: true
+          description: Reviewed structured eligibility constraints; null when none apply
+    CatalogFood:
+      type: object
+      required: [id, kind, name, brand, serving, servingGrams, calories, protein, carbs, fat, measures, source, sourceId, barcode, qualityStatus, approvals]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [generic, branded, personal] }
+        name: { type: string }
+        brand: { type: ["string", "null"] }
+        serving: { type: string }
+        servingGrams: { type: ["number", "null"] }
+        calories: { type: number }
+        protein: { type: number }
+        carbs: { type: number }
+        fat: { type: number }
+        measures:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        source: { type: string, enum: [usda_fdc, openfoodfacts, patient] }
+        sourceId: { type: string }
+        barcode: { type: ["string", "null"] }
+        qualityStatus: { type: string, enum: [reviewed, community_verified, community, private] }
+        approvals:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogApproval" }
+    CatalogSearchResult:
+      type: object
+      required: [results, externalUnavailable]
+      properties:
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogFood" }
+        externalUnavailable:
+          type: boolean
+          description: Local results remain valid when branded fallback failed
+    CatalogSelectionInput:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 100 }
+    CatalogSelectionResult:
+      type: object
+      required: [selectedId, persisted]
+      properties:
+        selectedId: { type: string }
+        persisted:
+          type: boolean
+          description: False only for a patient-private custom food
+        food: { $ref: "#/components/schemas/CatalogFood" }
     TrainingUploadUrlInput:
       type: object
       properties:

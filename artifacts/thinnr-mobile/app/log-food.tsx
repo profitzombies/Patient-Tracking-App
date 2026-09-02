@@ -18,7 +18,6 @@ import { FavoriteStar } from '@/components/patient/FavoriteStar';
 import { Divider, EmptyState, LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
-import { APPROVED_BADGE_EXPLANATION } from '@/data/approved-foods';
 import { rankMostLogged, yesterdaySlotPreview } from '@/data/diary-entries';
 import {
   DIARY_MIN_KEY,
@@ -32,6 +31,8 @@ import {
   type MealSlot,
 } from '@/data/patient-data';
 import { useLoggableItems, type LoggableItem } from '@/hooks/useLoggableItems';
+import { useFoodCatalogSearch } from '@/hooks/useFoodCatalogSearch';
+import { catalogFoodSnapshot, selectCatalogFood, type CatalogFood } from '@/lib/food-catalog';
 import { toTitleCase } from '@/lib/title-case';
 
 type Scope = 'recent' | 'favorites' | 'all';
@@ -107,6 +108,46 @@ export default function LogFoodScreen() {
   // One catalog shared with the "Yesterday's [meal]" review, so both search
   // the exact same items.
   const { allItems, byId } = useLoggableItems();
+  const catalogSearch = useFoodCatalogSearch(
+    patient.allFoods,
+    patient.customFoods,
+    query,
+    approvedOnly,
+  );
+  const catalogItems = useMemo(() => {
+    const convert = (food: CatalogFood): LoggableItem => ({
+      refId: food.catalogId,
+      kind: 'food',
+      name: food.name,
+      sub: food.brand ?? food.category,
+      serving: food.serving,
+      calories: food.calories,
+      protein: food.protein,
+      carbs: food.carbs,
+      fat: food.fat,
+      approved: food.approved,
+      catalog: {
+        catalogId: food.catalogId,
+        group: food.group,
+        source: food.source,
+        sourceLabel: food.sourceLabel,
+        ...(food.selectionToken ? { selectionToken: food.selectionToken } : {}),
+        ...(food.lookupId ? { lookupId: food.lookupId } : {}),
+      },
+    });
+    return {
+      common: catalogSearch.common.map(convert),
+      personal: catalogSearch.personal.map(convert),
+      branded: catalogSearch.branded.map(convert),
+    };
+  }, [catalogSearch.common, catalogSearch.personal, catalogSearch.branded]);
+  const searchById = useMemo(
+    () => new Map(
+      [...catalogItems.common, ...catalogItems.personal, ...catalogItems.branded]
+        .map(item => [item.refId, item] as const),
+    ),
+    [catalogItems],
+  );
 
   // "Yesterday's [meal]" — the previous day's entries for the selected slot,
   // offered above the most-logged group as a tap-in review-and-log.
@@ -145,11 +186,14 @@ export default function LogFoodScreen() {
     const q = query.trim().toLowerCase();
     let built: ResultGroup[];
     if (q) {
-      built = [{
-        key: 'search',
-        title: null,
-        items: allItems.filter(item => `${item.name} ${item.sub}`.toLowerCase().includes(q)),
-      }];
+      const recipeMatches = allItems.filter(
+        item => item.kind === 'recipe' && `${item.name} ${item.sub}`.toLowerCase().includes(q),
+      );
+      built = [
+        { key: 'common', title: 'COMMON', items: [...catalogItems.common, ...recipeMatches] },
+        { key: 'personal', title: 'PERSONAL', items: catalogItems.personal },
+        { key: 'branded', title: 'BRANDED PRODUCTS', items: catalogItems.branded },
+      ];
     } else if (scope === 'recent') {
       const inMostLogged = new Set(mostLogged.map(item => item.refId));
       const recents = patient.recents
@@ -172,11 +216,11 @@ export default function LogFoodScreen() {
     return built
       .map(group => (approvedOnly ? { ...group, items: group.items.filter(item => item.approved) } : group))
       .filter(group => group.items.length > 0);
-  }, [query, scope, approvedOnly, allItems, byId, mostLogged, patient.recents, patient.favorites]);
+  }, [query, scope, approvedOnly, allItems, byId, mostLogged, patient.recents, patient.favorites, catalogItems]);
 
   const totalVisible = groups.reduce((sum, group) => sum + group.items.length, 0);
 
-  const selected = selectedId ? byId.get(selectedId) : undefined;
+  const selected = selectedId ? (searchById.get(selectedId) ?? byId.get(selectedId)) : undefined;
 
   // Patient-only route: deep links must not bypass the persona flow.
   if (!modeHydrated) return null;
@@ -187,6 +231,32 @@ export default function LogFoodScreen() {
   const goBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/today');
+  };
+
+  const toggleCatalogFavorite = async (item: LoggableItem) => {
+    if (!item.catalog || item.catalog.persisted || item.catalog.group === 'personal' || patient.favorites.includes(item.refId)) {
+      await patient.toggleFavorite(item.refId);
+      return;
+    }
+    const selectedCatalog = await selectCatalogFood({
+      id: item.refId,
+      catalogId: item.catalog.catalogId,
+      group: item.catalog.group,
+      source: item.catalog.source,
+      sourceLabel: item.catalog.sourceLabel,
+      ...(item.catalog.lookupId ? { lookupId: item.catalog.lookupId } : {}),
+      approved: item.approved,
+      name: item.name,
+      category: item.catalog.group === 'branded' ? 'Branded Products' : 'Common Foods',
+      serving: item.serving,
+      calories: item.calories,
+      protein: item.protein,
+      carbs: item.carbs,
+      fat: item.fat,
+    });
+    if (await patient.saveCatalogFood(catalogFoodSnapshot(selectedCatalog))) {
+      await patient.toggleFavorite(selectedCatalog.catalogId);
+    }
   };
 
   /** Navigate to the full recipe page so the patient can review before logging. */
@@ -230,18 +300,52 @@ export default function LogFoodScreen() {
     if (!selected || saving) return;
     setSaving(true);
     try {
+      let selectedForLog = selected;
+      if (selected.catalog && selected.catalog.group !== 'personal') {
+        // Selection telemetry/promotion is best-effort: an upstream outage
+        // must not discard the nutrition snapshot the patient already chose.
+        const persisted = await selectCatalogFood({
+          id: selected.refId,
+          catalogId: selected.catalog.catalogId,
+          group: selected.catalog.group,
+          source: selected.catalog.source,
+          sourceLabel: selected.catalog.sourceLabel,
+          ...(selected.catalog.selectionToken ? { selectionToken: selected.catalog.selectionToken } : {}),
+          approved: selected.approved,
+          name: selected.name,
+          category: selected.catalog.group === 'branded' ? 'Branded Products' : 'Common Foods',
+          serving: selected.serving,
+          calories: selected.calories,
+          protein: selected.protein,
+          carbs: selected.carbs,
+          fat: selected.fat,
+        }).catch(() => undefined);
+        if (persisted && await patient.saveCatalogFood(catalogFoodSnapshot(persisted))) {
+          selectedForLog = {
+            ...selected,
+            refId: persisted.catalogId,
+            name: persisted.name,
+            sub: persisted.brand ?? persisted.category,
+            serving: persisted.serving,
+            calories: persisted.calories,
+            protein: persisted.protein,
+            carbs: persisted.carbs,
+            fat: persisted.fat,
+          };
+        }
+      }
       await patient.addEntry({
         dateKey,
         meal,
-        kind: selected.kind,
-        refId: selected.refId,
-        name: selected.name,
-        detail: `${formatQty(qty)} × ${selected.serving}`,
+        kind: selectedForLog.kind,
+        refId: selectedForLog.refId,
+        name: selectedForLog.name,
+        detail: `${formatQty(qty)} × ${selectedForLog.serving}`,
         quantity: qty,
-        calories: Math.round(selected.calories * qty),
-        protein: Math.round(selected.protein * qty),
-        carbs: Math.round(selected.carbs * qty),
-        fat: Math.round(selected.fat * qty),
+        calories: Math.round(selectedForLog.calories * qty),
+        protein: Math.round(selectedForLog.protein * qty),
+        carbs: Math.round(selectedForLog.carbs * qty),
+        fat: Math.round(selectedForLog.fat * qty),
       });
       goBack();
     } finally {
@@ -367,6 +471,21 @@ export default function LogFoodScreen() {
 
         {query.trim() === '' && (
           <PillSelector options={SCOPE_OPTIONS} selected={scope} onSelect={setScope} style={{ marginTop: 10 }} />
+        )}
+
+        {query.trim().length >= 2 && (catalogSearch.loading || catalogSearch.error || catalogSearch.upstreamUnavailable) && (
+          <View testID="logfood-catalog-state" style={styles.catalogState}>
+            <Feather
+              name={catalogSearch.loading ? 'loader' : 'wifi-off'}
+              size={12}
+              color={colors.subtleText}
+            />
+            <Text style={[styles.catalogStateText, { color: colors.subtleText }]}>
+              {catalogSearch.loading
+                ? 'Searching the shared catalog… Local matches are ready.'
+                : catalogSearch.error ?? catalogSearch.message ?? 'Branded search is unavailable. Local matches are still shown.'}
+            </Text>
+          </View>
         )}
 
         {/* ── Quick add ── */}
@@ -577,9 +696,15 @@ export default function LogFoodScreen() {
                           <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
                             {item.loggedCount ? `${item.loggedCount}× logged · ` : ''}
                             {item.sub} · {item.serving} · P {item.protein}g
+                            {item.catalog ? ` · ${item.catalog.sourceLabel}` : ''}
                           </Text>
                         </View>
-                        <FavoriteStar id={item.refId} name={item.name} testID={`logfood-fav-${item.refId}`} />
+                        <FavoriteStar
+                          id={item.refId}
+                          name={item.name}
+                          testID={`logfood-fav-${item.refId}`}
+                          onToggle={item.catalog ? () => toggleCatalogFavorite(item) : undefined}
+                        />
                         <Text style={[styles.itemCals, { color: colors.navyLight }]}>{item.calories}</Text>
                         {isRecipe ? (
                           /* Separate Pressable so + quick-adds without opening the page */
@@ -741,6 +866,18 @@ const styles = StyleSheet.create({
   },
   legendText: {
     fontSize: 10.5,
+    fontFamily: 'Inter_400Regular',
+  },
+  catalogState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 9,
+  },
+  catalogStateText: {
+    flex: 1,
+    fontSize: 10.5,
+    lineHeight: 14,
     fontFamily: 'Inter_400Regular',
   },
   searchInput: {

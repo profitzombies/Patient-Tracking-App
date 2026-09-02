@@ -174,6 +174,95 @@ export const BarcodeLookupResponse = zod.object({
 
 
 /**
+ * Ranks the patient's selection history and exact local matches first. Sufficiently specific text (or branded=true) may append validated Open Food Facts products after local results. External products are not persisted until the selection endpoint is called.
+ * @summary Search shared and patient-private foods
+ */
+export const catalogSearchQueryQMin = 2;
+export const catalogSearchQueryQMax = 100;
+
+export const catalogSearchQueryLimitDefault = 20;
+export const catalogSearchQueryLimitMax = 50;
+
+export const catalogSearchQueryBrandedDefault = false;
+
+export const CatalogSearchQueryParams = zod.object({
+  "q": zod.coerce.string().min(catalogSearchQueryQMin).max(catalogSearchQueryQMax),
+  "limit": zod.coerce.number().int().min(1).max(catalogSearchQueryLimitMax).default(catalogSearchQueryLimitDefault),
+  "branded": zod.coerce.boolean().default(catalogSearchQueryBrandedDefault).describe('Explicitly request guarded branded fallback')
+})
+
+export const CatalogSearchResponse = zod.object({
+  "results": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['generic', 'branded', 'personal']),
+  "name": zod.string(),
+  "brand": zod.string().nullable(),
+  "serving": zod.string(),
+  "servingGrams": zod.number().nullable(),
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "measures": zod.array(zod.record(zod.string(), zod.unknown())),
+  "source": zod.enum(['usda_fdc', 'openfoodfacts', 'patient']),
+  "sourceId": zod.string(),
+  "barcode": zod.string().nullable(),
+  "qualityStatus": zod.enum(['reviewed', 'community_verified', 'community', 'private']),
+  "approvals": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "portion": zod.string().nullable().describe('Verbatim official portion; null when the source does not state one'),
+  "phaseGuidance": zod.string().nullable().describe('Verbatim phase guidance; null when the source does not state one'),
+  "constraints": zod.record(zod.string(), zod.unknown()).nullable().describe('Reviewed structured eligibility constraints; null when none apply')
+}))
+})),
+  "externalUnavailable": zod.boolean().describe('Local results remain valid when branded fallback failed')
+})
+
+
+/**
+ * Records patient-scoped popularity for shared foods. For an external off:{barcode} result, re-fetches and validates the authoritative product, then idempotently upserts both the shared catalog and legacy barcode cache. Private custom foods remain private and are never promoted.
+ * @summary Record a food selection and promote a selected branded product
+ */
+export const catalogSelectBodyIdMax = 100;
+
+
+
+export const CatalogSelectBody = zod.object({
+  "id": zod.string().min(1).max(catalogSelectBodyIdMax)
+})
+
+export const CatalogSelectResponse = zod.object({
+  "selectedId": zod.string(),
+  "persisted": zod.boolean().describe('False only for a patient-private custom food'),
+  "food": zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['generic', 'branded', 'personal']),
+  "name": zod.string(),
+  "brand": zod.string().nullable(),
+  "serving": zod.string(),
+  "servingGrams": zod.number().nullable(),
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "measures": zod.array(zod.record(zod.string(), zod.unknown())),
+  "source": zod.enum(['usda_fdc', 'openfoodfacts', 'patient']),
+  "sourceId": zod.string(),
+  "barcode": zod.string().nullable(),
+  "qualityStatus": zod.enum(['reviewed', 'community_verified', 'community', 'private']),
+  "approvals": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "portion": zod.string().nullable().describe('Verbatim official portion; null when the source does not state one'),
+  "phaseGuidance": zod.string().nullable().describe('Verbatim phase guidance; null when the source does not state one'),
+  "constraints": zod.record(zod.string(), zod.unknown()).nullable().describe('Reviewed structured eligibility constraints; null when none apply')
+}))
+}).optional()
+})
+
+
+/**
  * Open read for photos the retired anonymous rail stored under the progress-photos prefix (pre-account demo grids still reference them): the grid points image tags here and the server 302-redirects to a signed GET valid for about an hour. Only paths under the progress-photos prefix resolve, so this cannot leak other stored objects. New progress photos upload authenticated on the per-patient media rail and read via /patient-media/file.
  * @summary Redirect to a short-lived signed URL for a legacy stored photo
  */

@@ -24,9 +24,11 @@ interface FoodAddPanelProps {
   /** Prefix for testIDs so multiple screens stay distinguishable. */
   testIDPrefix: string;
   onAdded: (message: string) => void;
+  /** Optional server-owned selection/promotion step; may return a canonical row. */
+  prepareFood?: () => Promise<FoodItem>;
 }
 
-export function FoodAddPanel({ food, note, testIDPrefix, onAdded }: FoodAddPanelProps) {
+export function FoodAddPanel({ food, note, testIDPrefix, onAdded, prepareFood }: FoodAddPanelProps) {
   const colors = useColors();
   const patient = usePatient();
   const [meal, setMeal] = useState<MealSlot>('breakfast');
@@ -37,20 +39,23 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded }: FoodAddPanel
     if (saving) return;
     setSaving(true);
     try {
+      // Logging remains available during a catalog outage; if promotion
+      // succeeds, use its stable canonical id and authoritative snapshot.
+      const logFood = await prepareFood?.().catch(() => undefined) ?? food;
       await patient.addEntry({
         dateKey: patient.todayKey,
         meal,
         kind: 'food',
-        refId: food.id,
-        name: food.name,
-        detail: `${formatQty(qty)} × ${food.serving}`,
+        refId: logFood.id,
+        name: logFood.name,
+        detail: `${formatQty(qty)} × ${logFood.serving}`,
         quantity: qty,
-        calories: Math.round(food.calories * qty),
-        protein: Math.round(food.protein * qty),
-        carbs: Math.round(food.carbs * qty),
-        fat: Math.round(food.fat * qty),
+        calories: Math.round(logFood.calories * qty),
+        protein: Math.round(logFood.protein * qty),
+        carbs: Math.round(logFood.carbs * qty),
+        fat: Math.round(logFood.fat * qty),
       });
-      onAdded(`Added ${food.name} to ${MEAL_LABELS[meal]}`);
+      onAdded(`Added ${logFood.name} to ${MEAL_LABELS[meal]}`);
     } finally {
       setSaving(false);
     }

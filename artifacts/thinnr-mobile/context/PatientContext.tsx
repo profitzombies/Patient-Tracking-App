@@ -147,6 +147,8 @@ interface PersistedState {
   photos: ProgressPhoto[];
   favorites: string[];
   customFoods: FoodItem[];
+  /** Private snapshots of selected shared foods, retained for offline reuse. */
+  catalogFoods: FoodItem[];
   savedRecipes: SavedRecipe[];
   recents: string[];
   targetOverrides: Partial<DailyTargets>;
@@ -168,6 +170,7 @@ const EMPTY_STATE: PersistedState = {
   photos: [],
   favorites: [],
   customFoods: [],
+  catalogFoods: [],
   savedRecipes: [],
   recents: [],
   targetOverrides: {},
@@ -185,8 +188,12 @@ const EMPTY_STATE: PersistedState = {
  * resurface into a hydrated account (it also scrubs blobs older installs
  * wrote here back when these slices were device-local).
  */
-function localOnlySlice(_state: PersistedState): PersistedState {
-  return { ...EMPTY_STATE };
+function localOnlySlice(state: PersistedState): PersistedState {
+  // Shared-food snapshots are a private device cache, not patient-created
+  // library rows. Keep them across live hydration so server-held favorite /
+  // recent ids can still resolve offline, without sending them through the
+  // custom-food API or publishing anything globally.
+  return { ...EMPTY_STATE, catalogFoods: state.catalogFoods };
 }
 
 /** Grid row → wire shape (display-only fields like uri stay behind). */
@@ -236,6 +243,7 @@ interface PatientContextValue {
   targets: DailyTargets;
   favorites: string[];
   customFoods: FoodItem[];
+  catalogFoods: FoodItem[];
   savedRecipes: SavedRecipe[];
   allFoods: FoodItem[];
   recents: string[];
@@ -291,6 +299,8 @@ interface PatientContextValue {
   commitPhotoRemoval: (removed: RemovedProgressPhoto) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
+  /** Persist a private, immutable lookup snapshot for a shared food selection. */
+  saveCatalogFood: (food: FoodItem) => Promise<boolean>;
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
   removeCustomFood: (id: string) => Promise<RemovedCustomFood | null>;
   restoreCustomFood: (removed: RemovedCustomFood) => Promise<void>;
@@ -1415,6 +1425,42 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
 
+  const saveCatalogFood = useCallback(async (food: FoodItem): Promise<boolean> => {
+    await hydrationGate.current!.promise;
+    const startEpoch = epochRef.current;
+    return runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      // This is deliberately a private cache write. Do not use writeLibrary:
+      // catalog rows are shared/server-owned and patient custom foods must
+      // never be globally promoted by this path.
+      if (!run || run.account.kind === 'unresolved') return false;
+      const prev = stateRef.current;
+      const snapshot: FoodItem = {
+        ...food,
+        photoUri: undefined,
+        photoPath: undefined,
+        catalogShared: true,
+      };
+      const next = {
+        ...prev,
+        catalogFoods: [snapshot, ...prev.catalogFoods.filter(item => item.id !== snapshot.id)],
+      };
+      try {
+        await commit(next, run);
+        return true;
+      } catch {
+        // commit updates the optimistic projection before storage; restore it
+        // on a storage failure so favorites/recents never point at a phantom.
+        try {
+          await commit(prev, run);
+        } catch {
+          // The original persistence failure is already reflected by false.
+        }
+        return false;
+      }
+    });
+  }, [beginRun, commit, runSerialized]);
+
   // Rebuilds the food from the payload (not a merge) so cleared optional
   // fields like brand actually drop. Diary entries are untouched: they
   // snapshot name/calories/macros at log time.
@@ -1973,8 +2019,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   );
 
   const allFoods = useMemo(
-    () => [...state.customFoods, ...FOOD_DB],
-    [state.customFoods],
+    () => [...state.customFoods, ...state.catalogFoods, ...FOOD_DB],
+    [state.customFoods, state.catalogFoods],
   );
 
   const value = useMemo<PatientContextValue>(
@@ -1983,6 +2029,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       targets,
       favorites: state.favorites,
       customFoods: state.customFoods,
+      catalogFoods: state.catalogFoods,
       savedRecipes: state.savedRecipes,
       allFoods,
       recents: state.recents,
@@ -2010,6 +2057,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       commitPhotoRemoval,
       toggleFavorite,
       addCustomFood,
+      saveCatalogFood,
       updateCustomFood,
       removeCustomFood,
       restoreCustomFood,
@@ -2041,6 +2089,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       targets,
       state.favorites,
       state.customFoods,
+      state.catalogFoods,
       state.savedRecipes,
       allFoods,
       state.recents,
@@ -2068,6 +2117,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       commitPhotoRemoval,
       toggleFavorite,
       addCustomFood,
+      saveCatalogFood,
       updateCustomFood,
       removeCustomFood,
       restoreCustomFood,

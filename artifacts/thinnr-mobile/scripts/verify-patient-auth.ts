@@ -36,6 +36,7 @@ async function press(t:ReactTestRenderer,id:string){const n=hosts(t,id).find(x=>
 async function pressHeld(t:ReactTestRenderer,id:string){const n=hosts(t,id).find(x=>typeof x.props.onPress==='function');if(!n)throw Error('missing press '+id);let held!:Promise<unknown>;await act(async()=>{held=Promise.resolve(n.props.onPress())});return()=>act(async()=>{await held})}
 const btnLabel=(t:ReactTestRenderer,id:string)=>t.root.findAllByProps({testID:id}).map(n=>n.props.label).find(x=>typeof x==='string');
 const err=(t:ReactTestRenderer)=>t.root.findAllByProps({testID:'login-error'}).map(n=>String(n.props.message??'')).join(' ');
+const inputValue=(t:ReactTestRenderer,id:string)=>hosts(t,id).find(x=>typeof x.props.onChangeText==='function')?.props.value;
 const signupErr=(t:ReactTestRenderer)=>t.root.findAllByProps({testID:'signup-error'}).map(n=>String(n.props.message??'')).join(' ');
 const called=(path:string)=>calls.filter(c=>c.path===path);
 
@@ -48,6 +49,21 @@ async function loginFlow(){
  t=await render(Login);await type(t,'login-phone','8135551234');await type(t,'login-password','Secret1!');await press(t,'login-submit');
  const c=called('patient/password/login')[0];assert('password login contract',c.body.identifier==='+18135551234'&&c.body.password==='Secret1!');assert('password removed after submit',!exists(t,'login-password'));assert('MFA shown',exists(t,'login-otp'));assert('MFA has a native label',label(t,'login-otp')==='6-digit verification code');
  await type(t,'login-otp','222333');await press(t,'login-verify');assert('MFA token minted',verifyOtpCalls[0]?.token_hash==='hash1');assert('patient destination',routerCalls.some(x=>x.method==='replace'&&x.target==='/today'));t.unmount();
+  reset();on('patient/password/login',()=>({status:401,body:{error:"The phone or email and password you entered don't match. Check them and try again, or reset your password."}}));
+  t=await render(Login);await type(t,'login-phone','8135551234');await type(t,'login-password','WrongSecret1!');await press(t,'login-submit');
+  assert('wrong password stays on login',exists(t,'login-password')&&!exists(t,'login-otp'));
+  assert('wrong password remains available to correct',inputValue(t,'login-password')==='WrongSecret1!');
+  assert('wrong password explains the problem',err(t).toLowerCase().includes('password'));
+  assert('wrong password button is ready again',btnLabel(t,'login-submit')==='Continue');
+  t.unmount();
+  for (const [status,message] of [[502,"We couldn't send a verification code right now."],[429,'Too many verification codes were requested.']] as const) {
+    reset();on('patient/password/login',()=>({status,body:{error:message,retryable:true}}));
+    t=await render(Login);await type(t,'login-phone','8135551234');await type(t,'login-password','Secret1!');await press(t,'login-submit');
+    assert(`${status} delivery failure stays on login`,exists(t,'login-password')&&!exists(t,'login-otp'));
+    assert(`${status} delivery failure keeps password`,inputValue(t,'login-password')==='Secret1!');
+    assert(`${status} delivery failure is explained`,err(t).includes(message));
+    t.unmount();
+  }
 }
 async function channelSwitch(){
  console.log('· channel switch remounts + refocuses the identifier input');
@@ -93,10 +109,12 @@ function routing(){
  const welcomeSource=readFileSync(new URL('../app/patient-welcome.tsx',import.meta.url),'utf8');
  const staffTabsLayout=readFileSync(new URL('../app/(tabs)/_layout.tsx',import.meta.url),'utf8');
  const patientTabsLayout=readFileSync(new URL('../app/(patient)/_layout.tsx',import.meta.url),'utf8');
+  const rootLayout=readFileSync(new URL('../app/_layout.tsx',import.meta.url),'utf8');
  assert('welcome exposes primary actions',welcomeSource.includes('testID="welcome-login"')&&welcomeSource.includes('testID="welcome-signup"'));
  assert('welcome preserves subtle demo and provider doors',welcomeSource.includes('testID="welcome-demo"')&&welcomeSource.includes('testID="welcome-provider"'));
  assert('fresh root enters patient welcome',staffTabsLayout.includes("mode === 'patient' ? '/today' : '/patient-welcome'"));
  assert('fresh patient tab enters patient welcome',patientTabsLayout.includes("mode === 'staff' ? '/' : '/patient-welcome'"));
+  assert('root navigator stays mounted while a guard redirects',rootLayout.includes('{children}')&&rootLayout.includes("decision.kind === 'redirect' ? <Redirect"));
  assert('signed-out deep link goes welcome',liveEntryDecision(signedOut).kind==='redirect'&&(liveEntryDecision(signedOut) as {href:string}).href==='/patient-welcome');
  assert('persisted staff cannot open signed-out patient demo',liveEntryDecision({...signedOut,mode:'staff',pathname:'/today'}).kind==='redirect');
  assert('operations staff route remains available',liveEntryDecision({...signedOut,mode:'staff',pathname:'/patients'}).kind==='allow');

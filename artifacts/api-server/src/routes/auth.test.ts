@@ -28,6 +28,8 @@ class FakeBackend {
   failHqAccept = false;
   failProvision = false;
   failRejectedSendSpend = false;
+  resendFailure = false;
+  onPasswordGrant: (() => void) | null = null;
   /** One-shot hook fired right after the signup email pre-check answers —
    *  simulates a rival signup landing between pre-check and insert. */
   onEmailPrecheck: (() => void) | null = null;
@@ -54,6 +56,8 @@ class FakeBackend {
     this.failHqAccept = false;
     this.failProvision = false;
     this.failRejectedSendSpend = false;
+    this.resendFailure = false;
+    this.onPasswordGrant = null;
     this.onEmailPrecheck = null;
     this.pauseOnce = null;
   }
@@ -162,9 +166,14 @@ class FakeBackend {
     if (method === "POST" && url.pathname === "/auth/v1/token" && url.searchParams.get("grant_type") === "password") {
       const email = String(body?.email ?? "").toLowerCase();
       const user = [...this.authUsers.values()].find((u) => String(u.email ?? "").toLowerCase() === email);
-      return user && user.password === body?.password
-        ? json(200, { access_token: "fake-access-token", user })
-        : json(400, { error: "invalid_grant" });
+      if (user && user.password === body?.password) {
+        const response = json(200, { access_token: "fake-access-token", user });
+        const hook = this.onPasswordGrant;
+        this.onPasswordGrant = null;
+        hook?.();
+        return response;
+      }
+      return json(400, { error: "invalid_grant" });
     }
     if (method === "POST" && url.pathname === "/auth/v1/admin/generate_link") {
       const email = String(body?.email ?? "").toLowerCase();
@@ -271,7 +280,9 @@ class FakeBackend {
       const to = Array.isArray(body?.to) ? String(body?.to[0]) : "";
       const code = /code is (\d{6})/.exec(String(body?.text ?? ""))?.[1] ?? null;
       this.sentEmails.push({ to, code });
-      return json(200, { id: crypto.randomUUID() });
+      return this.resendFailure
+        ? json(500, { message: "sanitized test rejection" })
+        : json(200, { id: crypto.randomUUID() });
     }
 
     if (url.pathname.startsWith("/auth/v1/admin/") || url.pathname === "/auth/v1/token") {
@@ -610,10 +621,47 @@ describe("patient password and enrollment rails", () => {
     const miss = await api("POST", "/api/auth/patient/password/login", {
       identifier: "5559998888", password: "WrongStrong!Pass",
     });
-    expect(wrong.status).toBe(200);
+    expect(wrong.status).toBe(401);
+    expect(miss.status).toBe(401);
     expect(Object.keys(wrong.json).sort()).toEqual(Object.keys(miss.json).sort());
-    expect(wrong.json.message).toBe(miss.json.message);
+    expect(wrong.json).toEqual(miss.json);
+    expect(wrong.json.error).toContain("password");
     expect(backend.tables.claim_verifications).toHaveLength(0);
+  });
+
+  it("never transfers password proof across a patient binding change", async () => {
+    const cases = [
+      () => {
+        const { patient } = seedPasswordPatient();
+        backend.onPasswordGrant = () => { patient.activation_status = "disabled"; };
+      },
+      () => {
+        const { patient } = seedPasswordPatient();
+        const replacement = backend.seedAuthUser({ email: "replacement@patients.thinnr.invalid", password: "OtherStrong!Pass" });
+        backend.onPasswordGrant = () => { patient.auth_user_id = replacement.id; };
+      },
+      () => {
+        const { patient } = seedPasswordPatient();
+        const other = seedPatient({ phone: "5558887777", email: "other@example.com", activation_status: "activated" });
+        const otherUser = backend.seedAuthUser({ email: "other@patients.thinnr.invalid", password: "OtherStrong!Pass" });
+        other.auth_user_id = otherUser.id;
+        backend.onPasswordGrant = () => {
+          patient.phone = "5551112222";
+          other.phone = "5552013344";
+        };
+      },
+    ];
+    for (const arrange of cases) {
+      backend.reset();
+      arrange();
+      const result = await api("POST", "/api/auth/patient/password/login", {
+        identifier: "5552013344",
+        password: "OldStrong!Pass",
+      });
+      expect(result.status).toBe(409);
+      expect(result.json.requestId).toBeUndefined();
+      expect(backend.tables.claim_verifications).toHaveLength(0);
+    }
   });
 
   it("silently applies the shared per-identifier send cap after password proof", async () => {
@@ -622,8 +670,9 @@ describe("patient password and enrollment rails", () => {
       const result = await api("POST", "/api/auth/patient/password/login", {
         identifier: "5552013344", password: "OldStrong!Pass",
       });
-      expect(result.status).toBe(200);
-      expect(result.json.devCode).toMatch(/^\d{6}$/);
+      expect(result.status).toBe(i < 3 ? 200 : 429);
+      if (i < 3) expect(result.json.devCode).toMatch(/^\d{6}$/);
+      else expect(result.json.requestId).toBeUndefined();
     }
     expect(backend.tables.claim_verifications).toHaveLength(3);
   });
@@ -1255,7 +1304,9 @@ describe("patient password + MFA login", () => {
 
   it("never surfaces disabled patients", async () => {
     seedPatient({ activation_status: "disabled" });
-    await startLogin("patient", "5552013344");
+    const result = await livePatientLogin("5552013344");
+    expect(result.status).toBe(401);
+    expect(result.json.error).toContain("password");
     expect(backend.tables.claim_verifications).toHaveLength(0);
   });
 
@@ -1572,7 +1623,7 @@ describe("patient signup", () => {
     expect(backend.tables.claim_verifications).toHaveLength(30);
   });
 
-  it("caps total sends per destination across login and signup, silently", async () => {
+  it("caps total sends per destination across login and signup without inventing a patient code", async () => {
     seedSignupOffice();
     seedPatient({ phone: "+18135550101" });
     const loginStart = () => startLogin("patient", "813-555-0101");
@@ -1584,15 +1635,18 @@ describe("patient signup", () => {
     expect((await loginStart()).status).toBe(200); // 3rd stored
     expect(backend.tables.claim_verifications).toHaveLength(3);
 
-    // The 3/hr destination budget is one shared pot across ALL code purposes:
-    // the fourth and fifth sends store nothing whichever rail they ride, while
-    // the responses stay indistinguishable from real sends.
+    // The 3/hr destination budget is one shared pot across ALL code purposes.
+    // Signup stays neutral; password login can safely explain the cap because
+    // the password has already been proven.
     const fourth = await signupStart();
     expect(fourth.status).toBe(200);
     expect(fourth.json.devCode).toMatch(/^\d{6}$/); // decoy
-    const fifth = await loginStart();
-    expect(fifth.status).toBe(200);
-    expect(fifth.json.devCode).toMatch(/^\d{6}$/); // decoy
+    const fifth = await api("POST", "/api/auth/patient/password/login", {
+      identifier: "813-555-0101",
+      password: "OldStrong!Pass",
+    });
+    expect(fifth.status).toBe(429);
+    expect(fifth.json.requestId).toBeUndefined();
     expect(backend.tables.claim_verifications).toHaveLength(3);
   });
 });
@@ -1754,8 +1808,8 @@ describe("live delivery", () => {
     backend.twilioStartFailure = { status: 400, code: 60200 };
 
     const rejected = await livePatientLogin("5552013344");
-    expect(rejected.status).toBe(200);
-    expect(rejected.json.ok).toBe(true);
+    expect(rejected.status).toBe(502);
+    expect(rejected.json.error).toContain("send a verification code");
     expect(routeErrors).toContain(
       "patient password sms delivery rejected: Twilio Verify start rejected (400, provider code 60200)",
     );
@@ -1769,7 +1823,31 @@ describe("live delivery", () => {
     expect(backend.twilioStarts).toHaveLength(2);
   });
 
-  it("keeps live hit and miss responses neutral when Twilio rejects, including the send cap", async () => {
+  it("waits for Resend acceptance before opening the patient code step", async () => {
+    const patient = seedPatient({ email: "casey@example.com", activation_status: "activated" });
+    const user = backend.seedAuthUser({
+      email: `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`,
+      password: "OldStrong!Pass",
+    });
+    patient.auth_user_id = user.id;
+    process.env.CLAIM_EMAIL_DELIVERY_MODE = "live";
+    process.env.RESEND_API_KEY = "re_test";
+    process.env.CLAIM_EMAIL_FROM = "THINNR <no-reply@thinnr.example>";
+    backend.resendFailure = true;
+
+    const rejected = await livePatientLogin("casey@example.com");
+    expect(rejected.status).toBe(502);
+    expect(rejected.json.requestId).toBeUndefined();
+    expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
+
+    backend.resendFailure = false;
+    const accepted = await livePatientLogin("casey@example.com");
+    expect(accepted.status).toBe(200);
+    expect(accepted.json.requestId).toBeTruthy();
+    expect(backend.sentEmails).toHaveLength(2);
+  });
+
+  it("never opens the code step when Twilio rejects or the send cap is reached", async () => {
     seedPatient();
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
@@ -1785,17 +1863,17 @@ describe("live delivery", () => {
       );
     }
 
-    for (const hit of hits) {
-      expect(hit.status).toBe(miss.status);
-      expect(Object.keys(hit.json).sort()).toEqual(Object.keys(miss.json).sort());
-      expect(hit.json.message).toBe(miss.json.message);
-    }
+    expect(miss.status).toBe(401);
+    expect(hits.slice(0, 3).every((hit) => hit.status === 502)).toBe(true);
+    expect(hits.slice(0, 3).every((hit) => !hit.json.requestId)).toBe(true);
+    expect(hits[3].status).toBe(429);
+    expect(hits[3].json.retryable).toBe(true);
     expect(backend.twilioStarts).toHaveLength(3);
     expect(backend.tables.claim_verifications).toHaveLength(3);
     expect(backend.tables.claim_verifications.every((row) => row.consumed_at)).toBe(true);
   });
 
-  it("keeps rejection neutral when recording the spent row also fails", async () => {
+  it("reports delivery rejection even when recording the spent row also fails", async () => {
     seedPatient();
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
@@ -1806,9 +1884,9 @@ describe("live delivery", () => {
 
     const miss = await livePatientLogin("5559990000");
     const hit = await livePatientLogin("5552013344");
-    expect(hit.status).toBe(miss.status);
-    expect(hit.json).toMatchObject({ ok: true, message: miss.json.message });
-    expect(Object.keys(hit.json).sort()).toEqual(Object.keys(miss.json).sort());
+    expect(miss.status).toBe(401);
+    expect(hit.status).toBe(502);
+    expect(hit.json.requestId).toBeUndefined();
     expect(backend.tables.claim_verifications).toHaveLength(1);
     expect(routeErrors.some((line) => line.includes("ledger update failed"))).toBe(true);
   });
@@ -1832,7 +1910,7 @@ describe("live delivery", () => {
     const started = performance.now();
     const hit = await livePatientLogin("5552013344");
     const elapsed = performance.now() - started;
-    expect(hit.status).toBe(200);
+    expect(hit.status).toBe(502);
     expect(elapsed).toBeGreaterThanOrEqual(25);
     expect(elapsed).toBeLessThan(200);
     expect(backend.tables.claim_verifications).toHaveLength(1);
@@ -1858,7 +1936,7 @@ describe("live delivery", () => {
     const hit = await timed("5552013344");
     const miss = await timed("5559990000");
     expect(hit.response.status).toBe(200);
-    expect(miss.response.status).toBe(200);
+    expect(miss.response.status).toBe(401);
     expect(hit.elapsed).toBeGreaterThanOrEqual(25);
     expect(miss.elapsed).toBeGreaterThanOrEqual(25);
     expect(Math.abs(hit.elapsed - miss.elapsed)).toBeLessThan(25);
@@ -1907,10 +1985,14 @@ describe("live delivery", () => {
         const hit = await timed(known);
         const miss = await timed(unknown);
         expect(hit.response.status).toBe(200);
-        expect(miss.response.status).toBe(200);
-        expect(Object.keys(hit.response.json).sort()).toEqual(
-          Object.keys(miss.response.json).sort(),
-        );
+        expect(miss.response.status).toBe(realm === "staff" ? 200 : 401);
+        if (realm === "staff") {
+          expect(Object.keys(hit.response.json).sort()).toEqual(
+            Object.keys(miss.response.json).sort(),
+          );
+        } else {
+          expect(miss.response.json.error).toContain("password");
+        }
         expect(hit.elapsed).toBeLessThan(500);
         expect(miss.elapsed).toBeLessThan(500);
       }

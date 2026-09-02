@@ -56,13 +56,13 @@ export default function PatientLoginScreen() {
     if (!value) { setError(channel === 'phone' ? 'Enter your cell phone number.' : 'Enter the email on your account.'); return; }
     if (!recovery && !password) { setError('Enter your password.'); return; }
     const submittedPassword = password;
-    if (!recovery) setPassword('');
     const gen = ++genRef.current;
     setBusy(true);
     try {
       const result = recovery ? await startRecovery(value) : await requestPatientPasswordLogin({ identifier: value, password: submittedPassword });
       if (genRef.current !== gen) return;
       if (!result.ok) { setError(result.error); return; }
+      if (!recovery) setPassword('');
       setRequestId(result.requestId); setDevCode(result.devCode); setNotice(result.message); setCode('');
       setPhase(recovery ? 'recovery-code' : 'mfa');
     } finally { if (genRef.current === gen) setBusy(false); }
@@ -118,7 +118,7 @@ export default function PatientLoginScreen() {
         {!isCode && phase !== 'recovery-password' ? <>
           {phase === 'recovery-identify' ? <Text style={[s.body, s.introBody, { color: colors.subtleText }]}>Enter the phone or email on your account and we’ll send a 6-digit reset code.</Text> : null}
           <FieldLabel text={channel === 'phone' ? 'Cell phone number' : 'Email address'} />
-          <LedgerInput key={channel} ref={identifierRef} testID={channel === 'phone' ? 'login-phone' : 'login-email'} accessibilityLabel={channel === 'phone' ? 'Cell phone number' : 'Email address'} value={channel === 'phone' ? phone : email} onChangeText={channel === 'phone' ? setPhone : setEmail} keyboardType={channel === 'phone' ? 'phone-pad' : 'email-address'} autoComplete={channel === 'phone' ? 'tel' : 'email'} textContentType={channel === 'phone' ? 'telephoneNumber' : 'emailAddress'} autoCapitalize="none" placeholder={channel === 'phone' ? 'Your cell number' : 'you@example.com'} />
+          <LedgerInput key={channel} ref={identifierRef} testID={channel === 'phone' ? 'login-phone' : 'login-email'} accessibilityLabel={channel === 'phone' ? 'Cell phone number' : 'Email address'} value={channel === 'phone' ? phone : email} onChangeText={channel === 'phone' ? setPhone : setEmail} keyboardType={channel === 'phone' ? 'phone-pad' : 'email-address'} autoComplete={channel === 'phone' ? 'tel' : 'email'} textContentType={channel === 'phone' ? 'telephoneNumber' : 'emailAddress'} autoCapitalize="none" placeholder={channel === 'phone' ? 'Your cell number' : 'you@example.com'} style={channel === 'email' ? s.emailInput : undefined} />
           <View style={s.linkRow}><Pressable testID="login-switch-channel" accessibilityRole="button" onPress={() => { invalidate(); switchedChannel.current = true; setChannel(channel === 'phone' ? 'email' : 'phone'); }} style={s.linkHit}><Text style={[s.inlineLink, { color: colors.cobalt }]}>{channel === 'phone' ? 'Use email instead' : 'Use phone instead'}</Text></Pressable></View>
           {!recovery ? <>
             <FieldLabel text="Password" />
@@ -174,5 +174,6 @@ const s = StyleSheet.create({
   quietLink: { fontSize: 12.5, fontFamily: 'Inter_600SemiBold' },
   quietDot: { fontSize: 13, fontFamily: 'Inter_700Bold' },
   introBody: { marginTop: 0, marginBottom: 14 },
+  emailInput: { fontSize: 15, letterSpacing: 0 },
   body: { fontSize: 13.5, lineHeight: 20, fontFamily: 'Inter_400Regular', marginTop: 12 },
 });

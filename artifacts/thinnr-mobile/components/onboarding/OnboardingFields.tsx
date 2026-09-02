@@ -132,6 +132,7 @@ export function LedgerInput(props: TextInputProps & { testID?: string; ref?: Rea
   return (
     <TextInput
       placeholderTextColor={colors.subtleText}
+      maxFontSizeMultiplier={props.maxFontSizeMultiplier ?? 1.2}
       {...props}
       onFocus={event => { setFocused(true); props.onFocus?.(event); }}
       onBlur={event => { setFocused(false); props.onBlur?.(event); }}
@@ -564,6 +565,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 13,
     fontSize: 16,
+    letterSpacing: 0,
     fontFamily: 'Inter_500Medium',
   },
   codeInput: {

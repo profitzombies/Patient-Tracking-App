@@ -263,6 +263,7 @@ function RootLayoutNav() {
 
 function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const colors = useColors();
   const { mode, hydrated: modeHydrated, demoAdmitted } = useAppMode();
   const { resolving, account } = usePatientAccount();
   const patient = usePatient();
@@ -277,9 +278,20 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
     demoAdmitted,
   });
 
-  if (decision.kind === 'hold') return null;
-  if (decision.kind === 'redirect') return <Redirect href={decision.href} />;
-  return <>{children}</>;
+  // Keep the root Stack mounted while Redirect dispatches. Returning Redirect
+  // instead of the Stack leaves no navigator to receive Expo Router's nested
+  // "(patient) / today" replace action and triggers the development LogBox.
+  return (
+    <>
+      {children}
+      {decision.kind !== 'allow' ? (
+        <View
+          style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.background, pointerEvents: 'auto', zIndex: 1000 }]}
+        />
+      ) : null}
+      {decision.kind === 'redirect' ? <Redirect href={decision.href} /> : null}
+    </>
+  );
 }
 
 export default function RootLayout() {

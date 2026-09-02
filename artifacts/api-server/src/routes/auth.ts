@@ -105,6 +105,12 @@ const CLINIC_MESSAGE =
   "We couldn't verify your account automatically. Please contact your clinic and they'll get you set up.";
 const OFFICE_CODE_ERROR =
   "That provider code doesn't match an active office. Double-check it with your provider.";
+const PATIENT_PASSWORD_ERROR =
+  "The phone or email and password you entered don't match. Check them and try again, or reset your password.";
+const CODE_SEND_ERROR =
+  "We couldn't send a verification code right now. Check your connection and try again in a moment.";
+const CODE_SEND_LIMIT =
+  "Too many verification codes were requested. Wait a little while, then try again.";
 const SESSION_EXPIRED = "That session has expired. Please start over.";
 const SERVER_ERROR = "We couldn't process that just now. Please try again in a moment.";
 
@@ -277,6 +283,7 @@ async function patientCodeStart(
   res: any,
   purpose: "login" | "recovery",
   started = Date.now(),
+  boundPatient: { id: string; authUserId: string } | null = null,
 ): Promise<void> {
   const identifier = normalizeIdentifier((req.body ?? {}).identifier);
   if (!identifier) {
@@ -286,9 +293,20 @@ async function patientCodeStart(
   assertLiveChannelReady(identifier.kind === "phone" ? "sms" : "email");
   const mode = deliveryMode(identifier.kind === "phone" ? "sms" : "email");
   const patient = await resolveEligibleLinkedPatient(identifier);
-  if (!patient) {
+  const requireAcceptedDelivery = boundPatient !== null;
+  const bindingChanged = Boolean(
+    boundPatient &&
+      patient &&
+      (String(patient.id) !== boundPatient.id ||
+        String(patient.auth_user_id) !== boundPatient.authUserId),
+  );
+  if (!patient || bindingChanged) {
     await holdUntilFloor(started);
     if (identifier.kind === "phone") await holdUntilSmsDeliveryFloor(started);
+    if (requireAcceptedDelivery) {
+      res.status(409).json({ error: SERVER_ERROR, retryable: true });
+      return;
+    }
     res.json(neutralBody(crypto.randomUUID(), mode === "dev" ? generateCode() : null));
     return;
   }
@@ -300,19 +318,42 @@ async function patientCodeStart(
   if (!registered) {
     await holdUntilFloor(started);
     if (identifier.kind === "phone") await holdUntilSmsDeliveryFloor(started);
+    if (requireAcceptedDelivery) {
+      res.status(429).json({ error: CODE_SEND_LIMIT, retryable: true });
+      return;
+    }
     res.json(neutralBody(crypto.randomUUID(), mode === "dev" ? generateCode() : null));
     return;
   }
   if (registered.row.delivery === "twilio_verify") {
+    let accepted = true;
     try {
       await deliverSmsRegistered(registered.row);
     } catch (error) {
+      accepted = false;
       req.log?.error({ err: error }, "patient password sms delivery rejected");
       void spendUndelivered(registered.row).catch((spendError) => {
         req.log?.error({ err: spendError }, "patient password rejected-send ledger update failed");
       });
     }
     await holdUntilSmsDeliveryFloor(started);
+    if (requireAcceptedDelivery && !accepted) {
+      await holdUntilFloor(started);
+      res.status(502).json({ error: CODE_SEND_ERROR, retryable: true });
+      return;
+    }
+  } else if (requireAcceptedDelivery && registered.row.delivery === "resend" && registered.localCode) {
+    try {
+      await sendClaimEmail(registered.row.identifier, registered.localCode);
+    } catch (error) {
+      req.log?.error({ err: error }, "patient password email delivery rejected");
+      void spendUndelivered(registered.row).catch((spendError) => {
+        req.log?.error({ err: spendError }, "patient password rejected-send ledger update failed");
+      });
+      await holdUntilFloor(started);
+      res.status(502).json({ error: CODE_SEND_ERROR, retryable: true });
+      return;
+    }
   } else deliverEmailAfterResponse(res, req.log, registered.row, registered.localCode);
   await holdUntilFloor(started);
   res.json(neutralBody(registered.row.id, mode === "dev" ? registered.localCode : null));
@@ -540,10 +581,15 @@ router.post(AUTH_PATIENT_PASSWORD_LOGIN_PATH, async (req, res) => {
     if (!patient || !valid) {
       await holdUntilFloor(started);
       if (identifier.kind === "phone") await holdUntilSmsDeliveryFloor(started);
-      res.json(neutralBody(crypto.randomUUID(), deliveryMode(identifier.kind === "phone" ? "sms" : "email") === "dev" ? generateCode() : null));
+      // Wrong credentials and unknown accounts stay byte-for-byte identical,
+      // but neither can masquerade as a code that was actually delivered.
+      res.status(401).json({ error: PATIENT_PASSWORD_ERROR });
       return;
     }
-    await patientCodeStart(req, res, "login", started);
+    await patientCodeStart(req, res, "login", started, {
+      id: String(patient.id),
+      authUserId: String(patient.auth_user_id),
+    });
   } catch (error) {
     if (error instanceof DeliveryNotConfiguredError) { res.status(503).json({ error: error.message }); return; }
     req.log?.error({ err: error }, "patient password login failed");

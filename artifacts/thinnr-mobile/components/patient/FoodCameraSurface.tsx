@@ -44,7 +44,7 @@ import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { useColors } from '@/hooks/useColors';
 import type { FoodCameraCapture } from '@/lib/food-camera';
 

@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(23, 32, 46, 0.45)',
   },
   menuCard: {

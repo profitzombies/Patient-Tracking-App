@@ -124,12 +124,20 @@ function useAppFonts(): { status: FontStatus; retry: () => void } {
     // not. Keep them until Android tofu reports are confirmed resolved.
     const startedAt = Date.now();
     // Platform.constants.reactNativeVersion is the NATIVE runtime version of
-    // the client binary (Expo Go itself), not the bundled JS. This project is
-    // SDK 54 = RN 0.81; a higher native version means the tester's Expo Go is
-    // built for a newer SDK and silently ignores custom font registration.
+    // the client binary (Expo Go itself), not the bundled JS. A native version
+    // that differs from the project JS RN below means the tester's Expo Go
+    // targets another SDK and may silently ignore custom font registration.
     const nativeRN = JSON.stringify(Platform.constants?.reactNativeVersion ?? 'n/a');
+    let projectRN = 'unknown';
+    try {
+      // Resolved by the bundler, so the log stays truthful across SDK upgrades.
+      projectRN =
+        (require('react-native/package.json') as { version?: string }).version ?? 'unknown';
+    } catch {
+      // Node verify suites stub react-native; the exact version is moot there.
+    }
     console.log(
-      `[fonts] gate v2 ${kind} load starting on ${Platform.OS} | client native RN ${nativeRN} | project JS RN 0.81`,
+      `[fonts] gate v2 ${kind} load starting on ${Platform.OS} | client native RN ${nativeRN} | project JS RN ${projectRN}`,
     );
     try {
       for (let attempt = 1; attempt <= LOAD_ATTEMPTS; attempt += 1) {
@@ -292,7 +300,7 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
       {children}
       {decision.kind !== 'allow' ? (
         <View
-          style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.background, pointerEvents: 'auto', zIndex: 1000 }]}
+          style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, pointerEvents: 'auto', zIndex: 1000 }]}
         />
       ) : null}
       {decision.kind === 'redirect' ? <Redirect href={decision.href} /> : null}

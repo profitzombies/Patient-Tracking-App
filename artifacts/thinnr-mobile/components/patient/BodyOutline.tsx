@@ -180,7 +180,7 @@ export function BodyOutline({ angle, ready, dim = false }: BodyOutlineProps) {
 
 const styles = StyleSheet.create({
   outlineWrap: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

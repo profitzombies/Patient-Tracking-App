@@ -28,6 +28,7 @@
       "expo-router": ["./scripts/meal-photo-stubs/expo-router.ts"],
       "expo-camera": ["./scripts/meal-photo-stubs/expo-camera.ts"],
       "expo-media-library": ["./scripts/meal-photo-stubs/expo-media-library.ts"],
+      "expo-media-library/legacy": ["./scripts/meal-photo-stubs/expo-media-library.ts"],
       "expo-image": ["./scripts/label-scan-stubs/expo-image.ts"],
       "expo-image-picker": ["./scripts/label-scan-stubs/expo-image-picker.ts"],
       "expo-image-manipulator": ["./scripts/label-scan-stubs/expo-image-manipulator.ts"],

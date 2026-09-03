@@ -7,12 +7,6 @@
     "icon": "./assets/images/icon_2.png",
     "scheme": "thinnr-mobile",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/icon_2.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#eef1f6"
-    },
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
@@ -35,6 +29,14 @@
       "favicon": "./assets/images/icon_2.png"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/icon_2.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#eef1f6"
+        }
+      ],
       [
         "expo-router",
         {

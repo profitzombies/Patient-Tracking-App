@@ -263,7 +263,7 @@ function ErrorNote({ text, testID }: { text: string; testID?: string }) {
 /** Web stand-in for the live camera: a quiet, obviously-simulated feed. */
 function DemoFeed() {
   return (
-    <View style={[StyleSheet.absoluteFillObject, { backgroundColor: DEMO_FEED_BG }]}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: DEMO_FEED_BG }]}>
       <View style={styles.demoBadge} pointerEvents="none">
         <Feather name="video" size={11} color="#DDE5EF" />
         <Text style={styles.demoBadgeText}>SIMULATED CAMERA</Text>
@@ -1536,7 +1536,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#10161F',
   },
   sheet: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   sheetHeader: {
     flexDirection: 'row',
@@ -1722,7 +1722,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   countdownWrap: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

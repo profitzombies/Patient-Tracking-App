@@ -86,6 +86,12 @@ function weighInsFor(spanDays: number, stepDays: number, weightAt: (offset: numb
 
 console.log('— Synthetic trigger fixtures —');
 
+eq(
+  'shared USDA catalog UUID stays unknown without a reviewed approved-food citation',
+  classifyEntry({ kind: 'food', refId: '9d040db5-1092-47a8-a8aa-191225e47b4a' }),
+  'unknown',
+);
+
 // Textbook trigger: half the diary off-plan for two weeks while weigh-ins
 // wobble ±0.2 lb around 170 for three weeks. Wobble is normal day-to-day
 // noise, so the stall detector must see through it.

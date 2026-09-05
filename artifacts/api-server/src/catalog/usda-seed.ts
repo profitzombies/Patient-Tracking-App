@@ -15,6 +15,7 @@ import {
   approvedPortion,
 } from "../../../thinnr-mobile/data/approved-foods";
 import { USDA_ESSENTIALS } from "../../../thinnr-mobile/data/usda-essentials";
+import USDA_EXPANDED from "./usda-expanded.json" with { type: "json" };
 
 export const USDA_CATALOG_SEED_ROWS = USDA_ESSENTIALS.map(food => ({
   kind: "generic" as const,
@@ -33,6 +34,8 @@ export const USDA_CATALOG_SEED_ROWS = USDA_ESSENTIALS.map(food => ({
   quality_status: "reviewed" as const,
   provenance: food.provenance,
 }));
+
+export const USDA_CATALOG_EXPANDED_SEED_ROWS = USDA_EXPANDED;
 
 const sourceIdByAlias = new Map<string, string>();
 for (const food of USDA_ESSENTIALS) {

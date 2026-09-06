@@ -1799,7 +1799,7 @@ describe("live delivery", () => {
     expect(backend.authUsers.get(String(auth.id))?.phone).toBeNull();
   });
 
-  it("records Twilio rejection, spends its quota row, and allows a fresh-code retry", async () => {
+  it("opens MFA before Twilio settles, then spends a rejected send so retry stays available", async () => {
     seedPatient();
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
@@ -1808,13 +1808,15 @@ describe("live delivery", () => {
     backend.twilioStartFailure = { status: 400, code: 60200 };
 
     const rejected = await livePatientLogin("5552013344");
-    expect(rejected.status).toBe(502);
-    expect(rejected.json.error).toContain("send a verification code");
+    expect(rejected.status).toBe(200);
+    expect(rejected.json.requestId).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
+    });
     expect(routeErrors).toContain(
       "patient password sms delivery rejected: Twilio Verify start rejected (400, provider code 60200)",
     );
     expect(backend.tables.claim_verifications).toHaveLength(1);
-    expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
 
     backend.twilioStartFailure = null;
     const retry = await livePatientLogin("5552013344");
@@ -1847,7 +1849,7 @@ describe("live delivery", () => {
     expect(backend.sentEmails).toHaveLength(2);
   });
 
-  it("never opens the code step when Twilio rejects or the send cap is reached", async () => {
+  it("opens the code step while Twilio starts, then preserves the send cap", async () => {
     seedPatient();
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
@@ -1864,8 +1866,8 @@ describe("live delivery", () => {
     }
 
     expect(miss.status).toBe(401);
-    expect(hits.slice(0, 3).every((hit) => hit.status === 502)).toBe(true);
-    expect(hits.slice(0, 3).every((hit) => !hit.json.requestId)).toBe(true);
+    expect(hits.slice(0, 3).every((hit) => hit.status === 200)).toBe(true);
+    expect(hits.slice(0, 3).every((hit) => hit.json.requestId)).toBe(true);
     expect(hits[3].status).toBe(429);
     expect(hits[3].json.retryable).toBe(true);
     expect(backend.twilioStarts).toHaveLength(3);
@@ -1873,7 +1875,7 @@ describe("live delivery", () => {
     expect(backend.tables.claim_verifications.every((row) => row.consumed_at)).toBe(true);
   });
 
-  it("reports delivery rejection even when recording the spent row also fails", async () => {
+  it("does not pull the patient back from MFA when rejected-send recording also fails", async () => {
     seedPatient();
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
@@ -1885,13 +1887,13 @@ describe("live delivery", () => {
     const miss = await livePatientLogin("5559990000");
     const hit = await livePatientLogin("5552013344");
     expect(miss.status).toBe(401);
-    expect(hit.status).toBe(502);
-    expect(hit.json.requestId).toBeUndefined();
+    expect(hit.status).toBe(200);
+    expect(hit.json.requestId).toBeTruthy();
     expect(backend.tables.claim_verifications).toHaveLength(1);
     expect(routeErrors.some((line) => line.includes("ledger update failed"))).toBe(true);
   });
 
-  it("does not let a stalled rejected-send ledger update delay a matched response", async () => {
+  it("does not let a stalled rejected-send ledger update delay the MFA screen", async () => {
     seedPatient();
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
@@ -1910,8 +1912,8 @@ describe("live delivery", () => {
     const started = performance.now();
     const hit = await livePatientLogin("5552013344");
     const elapsed = performance.now() - started;
-    expect(hit.status).toBe(502);
-    expect(elapsed).toBeGreaterThanOrEqual(25);
+    expect(hit.status).toBe(200);
+    expect(hit.json.requestId).toBeTruthy();
     expect(elapsed).toBeLessThan(200);
     expect(backend.tables.claim_verifications).toHaveLength(1);
 
@@ -1920,7 +1922,7 @@ describe("live delivery", () => {
     expect(backend.tables.claim_verifications[0].consumed_at).toBeTruthy();
   });
 
-  it("applies the same live SMS response floor to matched and unknown phones", async () => {
+  it("lets a proven password skip the SMS floor while unknown phones keep it", async () => {
     seedPatient();
     process.env.CLAIM_SMS_DELIVERY_MODE = "live";
     process.env.TWILIO_ACCOUNT_SID = "ACtest";
@@ -1937,9 +1939,8 @@ describe("live delivery", () => {
     const miss = await timed("5559990000");
     expect(hit.response.status).toBe(200);
     expect(miss.response.status).toBe(401);
-    expect(hit.elapsed).toBeGreaterThanOrEqual(25);
+    expect(hit.elapsed).toBeLessThan(25);
     expect(miss.elapsed).toBeGreaterThanOrEqual(25);
-    expect(Math.abs(hit.elapsed - miss.elapsed)).toBeLessThan(25);
   });
 
   it("forces production SMS live while leaving the email channel independently configurable", async () => {

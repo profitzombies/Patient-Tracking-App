@@ -129,7 +129,12 @@ export default function PatientLoginScreen() {
         </> : isCode ? <>
           <Text style={[s.body, s.introBody, { color: colors.subtleText }]}>Enter the 6-digit code we sent. If the account details match, a code is on its way.</Text>
           <FieldLabel text="Verification code" />
-          <CodeInput testID={phase === 'mfa' ? 'login-otp' : 'recovery-otp'} value={code} onChangeText={setCode} />
+          <CodeInput
+            testID={phase === 'mfa' ? 'login-otp' : 'recovery-otp'}
+            value={code}
+            onChangeText={setCode}
+            autoFocus
+          />
           <PrimaryButton testID={phase === 'mfa' ? 'login-verify' : 'recovery-verify'} label={busy ? 'Verifying…' : 'Verify'} onPress={verify} disabled={busy} style={s.gap} />
         </> : <>
           <FieldLabel text="New password" />

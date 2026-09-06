@@ -137,13 +137,38 @@ function neutralBody(requestId: string, devCode: string | null, message = NEUTRA
   };
 }
 
-/** SMS is acknowledged before response; email keeps its existing async rail. */
+/** SMS is acknowledged before response on identity-neutral code-start rails. */
 async function deliverSmsRegistered(
   row: VerificationRow,
 ): Promise<void> {
   if (row.delivery === "twilio_verify") {
     await startTwilioVerification(row.identifier);
   }
+}
+
+/**
+ * A patient who has already proved the account password can enter the MFA
+ * screen while Twilio accepts the text. Unknown-account and wrong-password
+ * requests keep the provider-sized timing floor in the route below, so this
+ * faster success path does not create an account-existence oracle.
+ */
+function deliverPatientPasswordSmsAfterResponse(
+  res: { once: (event: "close", handler: () => void) => void },
+  log: { error: (obj: unknown, msg: string) => void } | undefined,
+  row: VerificationRow,
+): void {
+  if (row.delivery !== "twilio_verify") return;
+  res.once("close", () => {
+    void deliverSmsRegistered(row).catch((error) => {
+      log?.error({ err: error }, "patient password sms delivery rejected");
+      void spendUndelivered(row).catch((spendError) => {
+        log?.error(
+          { err: spendError },
+          "patient password rejected-send ledger update failed",
+        );
+      });
+    });
+  });
 }
 
 function deliverEmailAfterResponse(
@@ -292,6 +317,8 @@ async function patientCodeStart(
   }
   assertLiveChannelReady(identifier.kind === "phone" ? "sms" : "email");
   const mode = deliveryMode(identifier.kind === "phone" ? "sms" : "email");
+  // Re-resolve after password proof: if the contact or auth link changed
+  // during that request, do not transfer the proof to a different binding.
   const patient = await resolveEligibleLinkedPatient(identifier);
   const requireAcceptedDelivery = boundPatient !== null;
   const bindingChanged = Boolean(
@@ -325,7 +352,9 @@ async function patientCodeStart(
     res.json(neutralBody(crypto.randomUUID(), mode === "dev" ? generateCode() : null));
     return;
   }
-  if (registered.row.delivery === "twilio_verify") {
+  if (requireAcceptedDelivery && registered.row.delivery === "twilio_verify") {
+    deliverPatientPasswordSmsAfterResponse(res, req.log, registered.row);
+  } else if (registered.row.delivery === "twilio_verify") {
     let accepted = true;
     try {
       await deliverSmsRegistered(registered.row);

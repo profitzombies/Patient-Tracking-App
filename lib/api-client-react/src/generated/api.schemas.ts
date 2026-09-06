@@ -11,6 +11,17 @@ export interface OfficeSummary {
   providerCode: string;
 }
 
+/**
+ * @nullable
+ */
+export type PatientProgramStage = typeof PatientProgramStage[keyof typeof PatientProgramStage] | null;
+
+
+export const PatientProgramStage = {
+  protocol: 'protocol',
+  maintenance: 'maintenance',
+} as const;
+
 export interface PatientProgram {
   /** @nullable */
   id: string | null;
@@ -26,6 +37,12 @@ export interface PatientProgram {
   weightChange: number | null;
   /** @nullable */
   lastLogDate: string | null;
+  /** @nullable */
+  day: number | null;
+  /** @nullable */
+  stage: PatientProgramStage;
+  /** @nullable */
+  week: number | null;
 }
 
 export type OfficeRosterPatientInvitationState = typeof OfficeRosterPatientInvitationState[keyof typeof OfficeRosterPatientInvitationState];
@@ -53,6 +70,44 @@ export type OfficeRosterPatientInvitation = {
   emailUpdatedAt: string | null;
 } | null;
 
+export type OperationalPatientStatus = typeof OperationalPatientStatus[keyof typeof OperationalPatientStatus];
+
+
+export const OperationalPatientStatus = {
+  invited: 'invited',
+  inactive: 'inactive',
+  needs_attention: 'needs_attention',
+  on_track: 'on_track',
+} as const;
+
+export type OperationalPatientReasonsItem = typeof OperationalPatientReasonsItem[keyof typeof OperationalPatientReasonsItem];
+
+
+export const OperationalPatientReasonsItem = {
+  no_activity_14d: 'no_activity_14d',
+  logging_lapsed: 'logging_lapsed',
+  check_in_overdue: 'check_in_overdue',
+} as const;
+
+export interface OperationalPatient {
+  /** @nullable */
+  latestActivityDate: string | null;
+  /** @nullable */
+  latestDiaryDate: string | null;
+  /** @nullable */
+  latestWaterDate: string | null;
+  /** @nullable */
+  latestCheckInDate: string | null;
+  /** @nullable */
+  latestWeightDate: string | null;
+  /** @nullable */
+  latestPhotoDate: string | null;
+  loggedDays7: number;
+  checkIns7: number;
+  status: OperationalPatientStatus;
+  reasons: OperationalPatientReasonsItem[];
+}
+
 export interface OfficeRosterPatient {
   id: string;
   name: string;
@@ -69,11 +124,25 @@ export interface OfficeRosterPatient {
   createdAt: string | null;
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;
+  operational: OperationalPatient;
+}
+
+export interface OfficeRosterOperationalSummary {
+  totalPatients: number;
+  activePatients: number;
+  newEnrollments30d: number;
+  needsAttention: number;
+  inactive: number;
+  invited: number;
+  checkInsOverdue: number;
+  loggingLapsed: number;
+  asOf: string;
 }
 
 export interface OfficeRosterResult {
   office: OfficeSummary;
   patients: OfficeRosterPatient[];
+  summary: OfficeRosterOperationalSummary;
 }
 
 export interface NutritionAmounts {

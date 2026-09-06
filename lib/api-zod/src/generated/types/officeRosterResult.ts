@@ -5,10 +5,12 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { OfficeRosterOperationalSummary } from './officeRosterOperationalSummary';
 import type { OfficeRosterPatient } from './officeRosterPatient';
 import type { OfficeSummary } from './officeSummary';
 
 export interface OfficeRosterResult {
   office: OfficeSummary;
   patients: OfficeRosterPatient[];
+  summary: OfficeRosterOperationalSummary;
 }

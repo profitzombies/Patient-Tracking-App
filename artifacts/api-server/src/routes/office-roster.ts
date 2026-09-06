@@ -35,6 +35,7 @@ import { objectStorage } from "../lib/objectStorage";
 import { isOwnPatientMediaPath } from "./patient-media";
 import { programDayFor } from "../coach/real-patient";
 import { dayKeyInTimeZone } from "../lib/local-day";
+import { recordAdminAuditEvent } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 
@@ -66,12 +67,24 @@ const PATIENT_SELECT =
   "id,provider_id,first_name,last_name,name,email,phone,activation_status,auth_user_id,claimed_at,created_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date";
 
 type PatientRosterRow = Record<string, unknown>;
+type OperationalRow = Record<string, unknown>;
 
 export type InvitationEmailOutcome = "sent" | "failed" | "not_configured";
 
-function patientDto(row: PatientRosterRow) {
+function patientDto(row: PatientRosterRow, asOf?: string) {
   const invited = typeof row.invited_at === "string" && row.invited_at.length > 0;
   const verified = typeof row.auth_user_id === "string" && row.auth_user_id.length > 0;
+  const programStartDate = row.program_start_date ? String(row.program_start_date) : null;
+  const programDay = programStartDate
+    ? programDayFor(
+        {
+          name: canonicalName(row),
+          program_start_date: programStartDate,
+          created_at: row.created_at ? String(row.created_at) : null,
+        },
+        asOf ?? dayKeyInTimeZone(typeof row.timezone === "string" ? row.timezone : null),
+      )
+    : null;
   return {
     id: String(row.id),
     name: canonicalName(row),
@@ -85,22 +98,15 @@ function patientDto(row: PatientRosterRow) {
     createdAt: row.created_at ? String(row.created_at) : null,
     program: {
       id: row.program_id ? String(row.program_id) : null,
-      startDate: row.program_start_date ? String(row.program_start_date) : null,
+      startDate: programStartDate,
       startingWeight: numericOrNull(row.starting_weight),
       currentWeight: numericOrNull(row.current_weight),
       goalWeight: numericOrNull(row.goal_weight),
       weightChange: numericOrNull(row.weight_gain_lost),
       lastLogDate: row.last_log_date ? String(row.last_log_date) : null,
-      day: programDayFor(
-        {
-          name: canonicalName(row),
-          program_start_date: row.program_start_date ? String(row.program_start_date) : null,
-          created_at: row.created_at ? String(row.created_at) : null,
-        },
-        // The patient's own calendar day, not the server's UTC date — a
-        // roster viewed in the evening must not show tomorrow's program day.
-        dayKeyInTimeZone(typeof row.timezone === "string" ? row.timezone : null),
-      ),
+      day: programDay,
+      stage: programDay == null ? null : programDay <= 42 ? "protocol" : "maintenance",
+      week: programDay == null ? null : programDay <= 42 ? Math.ceil(programDay / 7) : null,
     },
     invitation: invited
       ? {
@@ -113,6 +119,36 @@ function patientDto(row: PatientRosterRow) {
         }
       : null,
   };
+}
+
+function dateOrNull(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : null;
+}
+
+function daysOld(date: string | null, asOf: string): number | null {
+  if (!date) return null;
+  return Math.floor((Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000);
+}
+
+function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: OperationalRow | undefined, asOf: string) {
+  const latestActivityDate = dateOrNull(fact?.latest_activity_date);
+  const latestDiaryDate = dateOrNull(fact?.latest_diary_date);
+  const latestWaterDate = dateOrNull(fact?.latest_water_date);
+  const latestCheckInDate = dateOrNull(fact?.latest_check_in_date);
+  const latestWeightDate = dateOrNull(fact?.latest_weight_date);
+  const latestPhotoDate = dateOrNull(fact?.latest_photo_date);
+  const loggedDays7 = numericOrNull(fact?.logged_days_7) ?? 0;
+  const checkIns7 = numericOrNull(fact?.check_ins_7) ?? 0;
+  const activation = patient.activationStatus;
+  const accountAge = daysOld(dateOrNull(patient.createdAt), asOf) ?? 0;
+  const programAge = daysOld(patient.program.startDate, asOf) ?? accountAge;
+  const age = Math.max(accountAge, programAge);
+  const activityAge = daysOld(latestActivityDate, asOf);
+  const mealSilent = activation === "activated" && age >= 3 && (daysOld(latestDiaryDate, asOf) == null || daysOld(latestDiaryDate, asOf)! >= 3);
+  const checkInOverdue = activation === "activated" && age >= 7 && (daysOld(latestCheckInDate, asOf) == null || daysOld(latestCheckInDate, asOf)! >= 7);
+  const inactive = activation === "activated" && ((activityAge == null && accountAge >= 14) || (activityAge != null && activityAge >= 14));
+  const status = patient.invitation?.state === "pending" ? "invited" : inactive ? "inactive" : mealSilent || checkInOverdue ? "needs_attention" : "on_track";
+  return { ...patient, operational: { latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, status, reasons: [inactive ? "no_activity_14d" : null, mealSilent ? "logging_lapsed" : null, checkInOverdue ? "check_in_overdue" : null].filter(Boolean) } };
 }
 
 function numericOrNull(value: unknown): number | null {
@@ -245,14 +281,32 @@ router.get("/office/roster", async (req, res) => {
       return;
     }
     const scope = resolved.scope;
-    const rows = await supabaseAdmin(
+    const asOf = new Date().toISOString().slice(0, 10);
+    const [rows, operational] = await Promise.all([
+      supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
-    );
+      ),
+      supabaseAdmin("POST", "/rest/v1/rpc/provider_patient_operational_summary", {
+        p_provider_id: scope.providerId,
+        p_as_of: asOf,
+      }),
+    ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
-    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map(
-      patientDto,
-    );
+    if (operational.status >= 300) throw new Error(`operational roster load failed (${operational.status})`);
+    const facts = new Map((Array.isArray(operational.json) ? operational.json as OperationalRow[] : []).map((fact) => [String(fact.patient_id), fact]));
+    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => rosterOperationalDto(patientDto(row, asOf), facts.get(String(row.id)), asOf));
+    const activePatients = patients.filter((patient) => patient.activationStatus === "activated").length;
+    const summary = {
+      totalPatients: patients.length, activePatients,
+      newEnrollments30d: patients.filter((patient) => patient.activationStatus === "activated" && (daysOld(dateOrNull(patient.createdAt), asOf) ?? 31) <= 29).length,
+      needsAttention: patients.filter((patient) => patient.operational.status === "needs_attention").length,
+      inactive: patients.filter((patient) => patient.operational.status === "inactive").length,
+      invited: patients.filter((patient) => patient.operational.status === "invited").length,
+      checkInsOverdue: patients.filter((patient) => patient.operational.reasons.includes("check_in_overdue")).length,
+      loggingLapsed: patients.filter((patient) => patient.operational.reasons.includes("logging_lapsed")).length,
+      asOf,
+    };
     res.json({
       office: {
         providerId: scope.providerId,
@@ -261,6 +315,7 @@ router.get("/office/roster", async (req, res) => {
           effectiveProviderCode(scope.onboardingCode, scope.providerId) ?? scope.providerId,
       },
       patients,
+      summary,
     });
   } catch (error) {
     req.log?.error({ err: error }, "office roster failed");
@@ -646,6 +701,7 @@ router.post("/office/invitations", async (req, res) => {
       scope,
       log: req.log,
     });
+    await recordAdminAuditEvent({ action: "patient_invitation_created", actorUserId: scope.actorUserId, actorKind: scope.actorKind, providerId: scope.providerId, targetKind: "patient", targetId: patientId, requestId: req.headers["x-request-id"]?.toString() ?? null }).catch((error) => req.log?.error({ err: error }, "patient invitation audit failed"));
     res.status(201).json({
       patient: patientDto({
         ...row,
@@ -738,6 +794,7 @@ router.post("/office/invitations/:id/resend", async (req, res) => {
       scope,
       log: req.log,
     });
+    await recordAdminAuditEvent({ action: "patient_invitation_resent", actorUserId: scope.actorUserId, actorKind: scope.actorKind, providerId: scope.providerId, targetKind: "patient", targetId: id, requestId: req.headers["x-request-id"]?.toString() ?? null }).catch((error) => req.log?.error({ err: error }, "patient invitation resend audit failed"));
     res.json({
       ok: true,
       invitation,

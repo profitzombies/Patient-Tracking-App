@@ -24,13 +24,9 @@ import {
 } from "@/data/scoped-data";
 import { useToast } from "@/hooks/use-toast";
 import { usePatientSession } from "@/contexts/patient-session";
-import {
-  addDaysToKey,
-  formatRangeLabel,
-  keyToDate,
-  useDateRange,
-  type OperationsDateRange,
-} from "@/contexts/date-range";
+import { useDateRange, type OperationsDateRange, formatRangeLabel, addDaysToKey, keyToDate } from "@/contexts/date-range";
+import { useSession } from "@/contexts/session";
+import { useLiveRoster } from "@/hooks/use-live-roster";
 
 function ActionButton({ label, testId, children, onClick }: { label: string; testId?: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -63,8 +59,8 @@ function Metric({ icon, label, value, change, detail, warning = false }: { icon:
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const isHealthy = status === 'active' || status === 'graduated';
-  const isWatch = status === 'paused';
+  const isHealthy = status === 'active' || status === 'graduated' || status === 'on_track';
+  const isWatch = status === 'paused' || status === 'needs_attention' || status === 'invited';
 
   const styles = isHealthy
     ? "border-accent-border bg-accent text-primary"
@@ -72,10 +68,12 @@ function StatusBadge({ status }: { status: string }) {
     ? "border-warn-border bg-warn-bg text-warn"
     : "border-destructive/40 bg-destructive/10 text-destructive";
 
+  const displayStatus = status.replace('_', ' ');
+
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-[10px] font-bold uppercase tracking-[.05em] ${styles}`}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {status}
+      {displayStatus}
     </span>
   );
 }
@@ -200,6 +198,7 @@ export default function Overview() {
   // HQ drill-in scope: when present, every read below narrows to one office;
   // unscoped, the scoped hooks return the program-wide singletons unchanged.
   const scope = useProviderScope();
+  const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled } = useLiveRoster();
   const analytics = useScopedAnalytics();
   const patients = useScopedPatients();
   const providers = useScopedProviders();
@@ -222,9 +221,65 @@ export default function Overview() {
     [filteredPatients],
   );
   const selectedProvider = providers.find((provider) => provider.id === providerFilter);
-  const averagePoundsLost = filteredPatients.length
-    ? filteredPatients.reduce((total, patient) => total + patient.startingWeight - getCurrentWeight(patient), 0) / filteredPatients.length
-    : 0;
+  const activePatientsValue = liveEnabled
+    ? (liveRosterIsLoading ? '—' : liveRosterIsError ? 'Error' : (liveRosterData?.summary?.activePatients?.toString() ?? '0'))
+    : (selectedProvider?.activePatientCount ?? analytics.activePatients).toString();
+
+  const activePatientsChange = liveEnabled ? (liveRosterData?.summary?.asOf ? formatDateKey(liveRosterData.summary.asOf.split('T')[0], true) : 'Live roster') : badges.patients;
+  const activePatientsDetail = liveEnabled
+    ? (liveRosterIsLoading ? 'Loading…' : liveRosterIsError ? 'Failed to load' : `${liveRosterData?.summary?.newEnrollments30d ?? 0} new this month`)
+    : `${analytics.newEnrollments} new this month`;
+
+  const averagePoundsLostValue = useMemo(() => {
+    if (liveEnabled) {
+      if (!liveRosterData) return null;
+      const valid = liveRosterData.patients.filter(p => p.program?.startingWeight != null && p.program?.currentWeight != null);
+      if (valid.length === 0) return null;
+      return valid.reduce((total, p) => total + (p.program!.startingWeight! - p.program!.currentWeight!), 0) / valid.length;
+    }
+    return filteredPatients.length
+      ? filteredPatients.reduce((total, patient) => total + patient.startingWeight - getCurrentWeight(patient), 0) / filteredPatients.length
+      : 0;
+  }, [liveEnabled, liveRosterData, filteredPatients, getCurrentWeight]);
+
+  const avgLostChange = liveEnabled ? 'Live roster' : badges.avgLost;
+
+  const overduePatientsCount = liveEnabled
+    ? (liveRosterIsLoading || liveRosterIsError ? '—' : (liveRosterData?.summary?.checkInsOverdue ?? 0).toString())
+    : overduePatients.length.toString();
+
+  const overduePatientsList = useMemo(() => {
+    if (liveEnabled && liveRosterData) {
+      return liveRosterData.patients.filter(p => p.operational?.reasons?.includes('check_in_overdue'));
+    }
+    return overduePatients;
+  }, [liveEnabled, liveRosterData, overduePatients]);
+
+  const lapsedLoggersList = useMemo(() => {
+    if (liveEnabled && liveRosterData) {
+      const asOfTime = Date.parse(`${liveRosterData.summary.asOf}T00:00:00Z`);
+      return liveRosterData.patients
+        .filter(p => p.operational?.reasons?.includes('logging_lapsed'))
+        .map(patient => {
+          const daysSince = patient.operational?.latestDiaryDate
+            ? Math.max(0, Math.floor((asOfTime - new Date(patient.operational.latestDiaryDate).getTime()) / (1000 * 3600 * 24)))
+            : null;
+          return {
+            patient: { id: patient.id, initials: shortName(patient), name: patient.name },
+            stats: { daysSinceLastLog: daysSince }
+          };
+        })
+        .sort((a, b) => (b.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER) - (a.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER));
+    }
+    return lapsedLoggers.map(({ patient, stats }) => ({
+      patient: { id: patient.id, initials: patient.initials, name: patient.name },
+      stats: { daysSinceLastLog: stats.daysSinceLastLog }
+    }));
+  }, [liveEnabled, liveRosterData, lapsedLoggers]);
+
+  const lapsedLoggersCount = liveEnabled && liveRosterData
+    ? (liveRosterData.summary?.loggingLapsed ?? 0)
+    : lapsedLoggers.length;
   const filteredMrr = subscriptions
     .filter((subscription) => filteredPatients.some((patient) => patient.id === subscription.patientId))
     .reduce((total, subscription) => total + subscription.monthlyValue, 0);
@@ -232,6 +287,26 @@ export default function Overview() {
   // Stage mix from the analytics counts: unscoped this reproduces the
   // long-standing 65 / 20 / 15 split exactly; scoped it reflects one office.
   const stageRows = useMemo(() => {
+    if (liveEnabled && liveRosterData) {
+      const active = liveRosterData.patients.filter(p => ['on_track', 'needs_attention', 'inactive'].includes(p.operational?.status ?? ''));
+      let maintenance = 0;
+      let early = 0;
+      let late = 0;
+      active.forEach(p => {
+        if (p.program?.stage === 'maintenance') maintenance++;
+        else if (p.program?.stage === 'protocol') {
+          if ((p.program?.week ?? 1) <= 3) early++;
+          else late++;
+        }
+      });
+      const total = maintenance + early + late;
+      const pctOf = (count: number) => (total > 0 ? `${Math.round((count / total) * 100)}%` : '0%');
+      return [
+        ["Maintenance", pctOf(maintenance), maintenance, "bg-chart-1"],
+        ["Protocol Weeks 1-3", pctOf(early), early, "bg-chart-2"],
+        ["Protocol Weeks 4-6", pctOf(late), late, "bg-chart-3"],
+      ] as const;
+    }
     const maintenance = analytics.stageCounts.maintenance;
     const early = analytics.stageCounts.week1 + analytics.stageCounts.week2 + analytics.stageCounts.week3;
     const late = analytics.stageCounts.week4 + analytics.stageCounts.week5 + analytics.stageCounts.week6;
@@ -242,7 +317,7 @@ export default function Overview() {
       ["Protocol Weeks 1-3", pctOf(early), early, "bg-chart-2"],
       ["Protocol Weeks 4-6", pctOf(late), late, "bg-chart-3"],
     ] as const;
-  }, [analytics]);
+  }, [liveEnabled, liveRosterData, analytics]);
 
   // "First name + last initial", mirroring the program literals ("Emma S.").
   const shortName = (patient?: { name: string }) => {
@@ -253,12 +328,45 @@ export default function Overview() {
   };
 
   const failedPayments = subscriptions.filter((subscription) => subscription.paymentStatus === 'failed').length;
-  const graduatedCount = patients.filter((patient) => patient.status === 'graduated').length;
+  const graduatedCount = liveEnabled && liveRosterData
+    ? liveRosterData.patients.filter((p) => p.program?.stage === 'maintenance').length
+    : patients.filter((patient) => patient.status === 'graduated').length;
 
-  // Program literals unscoped (byte-identical office demo); derived from the
-  // scoped office's own roster and subscriptions inside the HQ drill-in.
-  const priorityItems: [string, string, string, string][] = scope
-    ? [
+  const priorityItems: [string, string, string, string][] = useMemo(() => {
+    if (liveEnabled) {
+      if (!liveRosterData) return [];
+      const items: [string, string, string, string][] = [];
+      const overdue = liveRosterData.summary?.checkInsOverdue ?? 0;
+      if (overdue > 0) {
+        items.push([
+          "Missed Check-ins",
+          `${overdue} patient${overdue === 1 ? '' : 's'} missed their scheduled protocol check-in`,
+          "Watch",
+          "watch",
+        ]);
+      }
+      const lapsed = liveRosterData.summary?.loggingLapsed ?? 0;
+      if (lapsed > 0) {
+        items.push([
+          "Logging Lapsed",
+          `${lapsed} patient${lapsed === 1 ? ' has' : 's have'} stopped logging in the companion app`,
+          "Watch",
+          "watch",
+        ]);
+      }
+      const inactive = liveRosterData.summary?.inactive ?? 0;
+      if (inactive > 0) {
+        items.push([
+          "Inactive Patients",
+          `${inactive} patient${inactive === 1 ? ' has' : 's have'} no recent activity`,
+          "High",
+          "risk",
+        ]);
+      }
+      return items;
+    }
+
+    return scope ? [
         ...(failedPayments > 0
           ? [[
               "Failed Subscription Payments",
@@ -269,7 +377,7 @@ export default function Overview() {
           : []),
         [
           "Missed Check-ins",
-          `${overduePatients.length} patient${overduePatients.length === 1 ? '' : 's'} missed their scheduled protocol check-in`,
+          `${overduePatientsCount} patient${overduePatientsCount === '1' ? '' : 's'} missed their scheduled protocol check-in`,
           "Watch",
           "watch",
         ],
@@ -285,6 +393,7 @@ export default function Overview() {
         ["Missed Check-ins", "4 patients missed their scheduled protocol check-in", "Watch", "watch"],
         ["High Adherence Cohort", "24 patients reached goal weight this week", "Positive", "healthy"],
       ];
+  }, [liveEnabled, liveRosterData, scope, failedPayments, overduePatientsCount, graduatedCount]);
 
   const scopedProviderLabel = scope ? scope.providerName.split(',')[0] : '';
   const scopedProviderInitials = scope
@@ -295,17 +404,88 @@ export default function Overview() {
         .slice(0, 2)
         .join('') || 'TH'
     : '';
-  const activityItems: [string, string, string, string, string][] = scope
+
+  const getRecentPatientName = (index: number, fallback: string) => {
+    if (liveEnabled && liveRosterData && liveRosterData.patients.length > index) {
+      return shortName(liveRosterData.patients[index]);
+    }
+    if (filteredPatients.length > index) {
+      return shortName(filteredPatients[index]);
+    }
+    return fallback;
+  };
+
+  const getRecentOverdueName = (index: number, fallback: string) => {
+    if (liveEnabled && liveRosterData && overduePatientsList.length > index) {
+      return shortName(overduePatientsList[index]);
+    }
+    if (overduePatients.length > index) {
+      return shortName(overduePatients[index]);
+    }
+    return fallback;
+  };
+
+  const recentWatchlist = useMemo(() => {
+    if (liveEnabled) {
+      if (!liveRosterData) return [];
+      const sortOrder = { 'inactive': 1, 'needs_attention': 2, 'on_track': 3 };
+      return [...liveRosterData.patients]
+        .filter(p => p.operational?.status && ['inactive', 'needs_attention', 'on_track'].includes(p.operational.status))
+        .sort((a, b) => {
+          const aStatus = a.operational?.status as string;
+          const bStatus = b.operational?.status as string;
+          return (sortOrder[aStatus as keyof typeof sortOrder] ?? 99) - (sortOrder[bStatus as keyof typeof sortOrder] ?? 99);
+        })
+        .slice(0, 5)
+        .map(p => {
+          const lbsLost = (p.program?.startingWeight != null && p.program?.currentWeight != null)
+            ? p.program.startingWeight - p.program.currentWeight
+            : 0;
+          return {
+            id: p.id,
+            name: p.name,
+            providerName: p.providerName?.split(',')[0] ?? '—',
+            stage: p.program?.stage ? (p.program.stage === 'protocol' && p.program.week ? `Wk ${p.program.week}` : 'Maintenance') : (p.program?.id ? 'Enrolled' : '—'),
+            status: p.operational?.status ?? p.status ?? 'invited',
+            lbsLost,
+            lbsLostDisplay: lbsLost ? `${lbsLost.toFixed(1)} lbs` : '—',
+          };
+        });
+    }
+    return filteredPatients.slice(0, 5).map(p => {
+      const provider = providers.find(c => c.id === p.providerId);
+      const lbsLost = p.startingWeight - getCurrentWeight(p);
+      return {
+        id: p.id,
+        name: p.name,
+        providerName: provider?.name.split(',')[0] ?? '—',
+        stage: p.stage === 'protocol' ? `Wk ${p.protocolWeek}` : 'Maintenance',
+        status: p.status,
+        lbsLost,
+        lbsLostDisplay: `${lbsLost.toFixed(1)} lbs`,
+      };
+    });
+  }, [liveEnabled, liveRosterData, filteredPatients, providers, getCurrentWeight]);
+
+  const activityItems: [string, string, string, string, string][] = (scope || liveEnabled)
     ? [
-        [scopedProviderInitials, scopedProviderLabel, `completed week 4 check-in for ${shortName(filteredPatients[0])}`, "12 min ago", "bg-accent text-primary"],
-        [scopedProviderInitials, scopedProviderLabel, `flagged overdue check-in for ${shortName(overduePatients[0] ?? filteredPatients[1])}`, "46 min ago", "bg-warn-bg text-warn"],
-        ["TH", "THINNR HQ", `approved Maintenance Stack for ${shortName(filteredPatients[2])}`, "2 hr ago", "bg-muted text-navy"],
+        [scopedProviderInitials, scopedProviderLabel, `completed week 4 check-in for ${getRecentPatientName(0, 'a patient')}`, "12 min ago", "bg-accent text-primary"],
+        [scopedProviderInitials, scopedProviderLabel, `flagged overdue check-in for ${getRecentOverdueName(0, getRecentPatientName(1, 'a patient'))}`, "46 min ago", "bg-warn-bg text-warn"],
+        ["TH", "THINNR HQ", `approved Maintenance Stack for ${getRecentPatientName(2, 'a patient')}`, "2 hr ago", "bg-muted text-navy"],
       ]
     : [
         ["PS", "Elena Rostova", "completed week 4 check-in for Emma S.", "12 min ago", "bg-accent text-primary"],
         ["MC", "Michael Chen", "flagged overdue check-in for Liam J.", "46 min ago", "bg-warn-bg text-warn"],
         ["SJ", "Sarah Jenkins", "approved Maintenance Stack for Olivia W.", "2 hr ago", "bg-muted text-navy"],
       ];
+
+  const pulseDate = liveEnabled && liveRosterData?.summary?.asOf
+    ? formatDateKey(liveRosterData.summary.asOf.split('T')[0], true)
+    : formatDateKey(TODAY_KEY, true);
+
+  const { authUser } = useSession();
+  const greetingName = liveEnabled ? authUser?.displayName?.split(' ')[0] : (scope ? scope.greetingName : 'Dr. Jenkins');
+  const greetingSubtitle = liveEnabled ? 'Here is your current practice overview.' : 'Here’s what changed since your last login.';
 
   return (
     <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8">
@@ -314,16 +494,16 @@ export default function Overview() {
         <div>
           <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.16em] text-primary">
             <Activity size={14} /> Practice Pulse <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
-            <span data-testid="text-demo-date">{formatDateKey(TODAY_KEY, true)}</span>
+            <span data-testid="text-demo-date">{pulseDate}</span>
           </div>
           <h1 className="font-serif text-[32px] leading-[1.08] tracking-[-.02em] text-navy md:text-[38px]">
-            Good morning, {scope ? scope.greetingName : 'Dr. Jenkins'}.
+            Good morning{greetingName ? `, ${greetingName}` : ''}.
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">Here’s what changed since your last login.</p>
+          <p className="mt-2 text-sm text-muted-foreground">{greetingSubtitle}</p>
         </div>
         {/* The provider filter belongs to the multi-provider office demo; a
             drilled-in office is already a single provider's view. */}
-        {!scope && (
+        {(!scope && !liveEnabled) && (
         <div className="relative flex items-center gap-2">
           {selectedProvider && (
             <span
@@ -366,38 +546,38 @@ export default function Overview() {
           icon={<WalletCards size={14} />}
           label="MRR"
           value={providerFilter === 'all' ? `$${(analytics.recurringRevenue / 1000).toFixed(1)}k` : `$${filteredMrr.toLocaleString()}`}
-          change={badges.mrr}
+          change={liveEnabled ? 'Demo projection' : badges.mrr}
           detail="vs. last month"
         />
         <Metric
           icon={<Users size={14} />}
           label="Active Patients"
-          value={(selectedProvider?.activePatientCount ?? analytics.activePatients).toString()}
-          change={badges.patients}
-          detail={`${analytics.newEnrollments} new this month`}
+          value={activePatientsValue}
+          change={activePatientsChange}
+          detail={activePatientsDetail}
         />
         <Metric
           icon={<Activity size={14} />}
           label="Avg Pounds Lost"
-          value={`${averagePoundsLost.toFixed(1)} lbs`}
-          change={badges.avgLost}
-          detail="Across all active cohorts"
+          value={averagePoundsLostValue === null ? '—' : `${averagePoundsLostValue.toFixed(1)} lbs`}
+          change={avgLostChange}
+          detail={averagePoundsLostValue === null ? "No usable weights" : "Across all active cohorts"}
         />
         <Metric
           icon={<ShieldAlert size={14} />}
           label="Check-ins Overdue"
-          value={overduePatients.length.toString()}
-          change="Needs review"
+          value={overduePatientsCount}
+          change={liveEnabled ? 'Live roster' : 'Needs review'}
           detail="Patients at risk of dropping"
           warning
         />
       </div>
 
       {/* Notice Banner */}
-      {showNotice && overduePatients.length > 0 && (
+      {showNotice && overduePatientsList.length > 0 && (
         <div data-testid="banner-overdue" className="mt-5 flex items-center gap-3 rounded-lg border border-warn-border bg-warn-bg px-4 py-3 text-sm text-foreground shadow-soft">
           <ShieldAlert size={17} className="shrink-0 text-warn" />
-          <span><b className="text-navy">{overduePatients.length} patient{overduePatients.length === 1 ? ' needs' : 's need'} attention.</b> Check-ins or subscription renewals are past due.</span>
+          <span><b className="text-navy">{overduePatientsList.length} patient{overduePatientsList.length === 1 ? ' needs' : 's need'} attention.</b> Check-ins{liveEnabled ? ' are' : ' or subscription renewals are'} past due.</span>
           <Link href="/patients" className="ml-auto whitespace-nowrap text-xs font-bold text-warn underline underline-offset-4 transition-colors hover:text-navy">
             Review patients
           </Link>
@@ -417,7 +597,10 @@ export default function Overview() {
         <section className="rounded-lg border border-card-border bg-card p-5 shadow-soft">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Revenue Trend</p>
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Revenue Trend</p>
+                {liveEnabled && <span className="rounded-sm border border-accent-border bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">Demo model</span>}
+              </div>
               <div className="mt-1 flex items-end gap-3">
                 <h2 className="font-mono text-2xl font-semibold tracking-[-.05em] text-navy" data-testid="text-revenue-total">
                   {formatMoney(revenueView.total)}
@@ -449,7 +632,7 @@ export default function Overview() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Protocol Stages</p>
-              <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">{analytics.activePatients} Active</h2>
+              <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">{activePatientsValue} Active</h2>
             </div>
             <Link href="/analytics" className="text-xs font-semibold text-primary transition-colors hover:text-navy">
               Details <ArrowUpRight size={13} className="inline" />
@@ -508,25 +691,29 @@ export default function Overview() {
               <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Logging compliance</p>
               <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">Companion-app logging</h2>
             </div>
-            <span className={`rounded-sm border px-2 py-1 text-[10px] font-bold ${lapsedLoggers.length > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
-              {lapsedLoggers.length > 0 ? `${lapsedLoggers.length} lapsed` : "All current"}
+            <span className={`rounded-sm border px-2 py-1 text-[10px] font-bold ${lapsedLoggersCount > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
+              {liveRosterIsLoading ? "Loading…" : liveRosterIsError ? "Error" : lapsedLoggersCount > 0 ? `${lapsedLoggersCount} lapsed` : "All current"}
             </span>
           </div>
           <div className="flex items-center gap-3 rounded-md border border-border bg-secondary p-3">
-            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md border ${lapsedLoggers.length > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
+            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md border ${lapsedLoggersCount > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
               <ClipboardList size={16} />
             </span>
             <p className="text-[11px] leading-4 text-foreground">
-              {lapsedLoggers.length > 0 ? (
-                <><b className="font-mono text-base text-navy">{lapsedLoggers.length}</b> patient{lapsedLoggers.length === 1 ? " hasn't" : "s haven't"} logged meals in the companion app for {LAPSED_AFTER_DAYS}+ days.</>
+              {liveRosterIsLoading ? (
+                <>Loading compliance stats…</>
+              ) : liveRosterIsError ? (
+                <>Could not load compliance stats.</>
+              ) : lapsedLoggersCount > 0 ? (
+                <><b className="font-mono text-base text-navy">{lapsedLoggersCount}</b> patient{lapsedLoggersCount === 1 ? " hasn't" : "s haven't"} logged meals in the companion app for {LAPSED_AFTER_DAYS}+ days.</>
               ) : (
                 <>Every patient in this view has logged meals within the last {LAPSED_AFTER_DAYS} days.</>
               )}
             </p>
           </div>
-          {lapsedLoggers.length > 0 && (
+          {!liveRosterIsLoading && !liveRosterIsError && lapsedLoggersList.length > 0 && (
             <div className="mt-1">
-              {lapsedLoggers.slice(0, 3).map(({ patient, stats }) => (
+              {lapsedLoggersList.slice(0, 3).map(({ patient, stats }) => (
                 <Link
                   key={patient.id}
                   href={`/patients/${patient.id}`}
@@ -562,9 +749,9 @@ export default function Overview() {
               View all roster <ArrowUpRight size={13} className="inline" />
             </Link>
           </div>
-          {filteredPatients.length === 0 ? (
+          {recentWatchlist.length === 0 ? (
             <p className="rounded-md border border-border bg-secondary py-6 text-center text-xs text-muted-foreground">
-              No patients in this provider view.
+              {liveRosterIsLoading ? "Loading watchlist…" : liveRosterIsError ? "Error loading watchlist." : "No patients in this provider view."}
             </p>
           ) : (
             <>
@@ -580,21 +767,19 @@ export default function Overview() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPatients.slice(0, 5).map((patient) => {
-                      const provider = providers.find(p => p.id === patient.providerId);
-                      const lbsLost = patient.startingWeight - getCurrentWeight(patient);
+                    {recentWatchlist.map((patient) => {
                       return (
                         <tr key={patient.id} className="group border-b border-border last:border-0 transition-colors hover:bg-secondary">
                           <td className="py-3 font-semibold text-foreground">
                             <Link href={`/patients/${patient.id}`} className="transition-colors hover:text-primary hover:underline">{patient.name}</Link>
                           </td>
-                          <td className="py-3 text-muted-foreground">{provider?.name.split(',')[0]}</td>
-                          <td className="py-3 capitalize text-muted-foreground">{patient.stage === 'protocol' ? `Wk ${patient.protocolWeek}` : 'Maintenance'}</td>
+                          <td className="py-3 text-muted-foreground">{patient.providerName}</td>
+                          <td className="py-3 capitalize text-muted-foreground">{patient.stage}</td>
                           <td className="py-3">
                             <StatusBadge status={patient.status} />
                           </td>
                           <td className="py-3 text-right font-mono text-foreground">
-                            {lbsLost.toFixed(1)} lbs
+                            {patient.lbsLostDisplay}
                           </td>
                         </tr>
                       );
@@ -603,9 +788,7 @@ export default function Overview() {
                 </table>
               </div>
               <div className="divide-y divide-border md:hidden">
-                {filteredPatients.slice(0, 5).map((patient) => {
-                  const provider = providers.find((candidate) => candidate.id === patient.providerId);
-                  const lbsLost = patient.startingWeight - getCurrentWeight(patient);
+                {recentWatchlist.map((patient) => {
                   return (
                     <Link
                       key={patient.id}
@@ -614,11 +797,11 @@ export default function Overview() {
                     >
                       <span className="min-w-0">
                         <b className="block truncate text-xs text-foreground">{patient.name}</b>
-                        <span className="mt-1 block truncate text-[10px] text-muted-foreground">{provider?.name.split(',')[0]} · {patient.stage === 'protocol' ? `Week ${patient.protocolWeek}` : 'Maintenance'}</span>
+                        <span className="mt-1 block truncate text-[10px] text-muted-foreground">{patient.providerName} · {patient.stage}</span>
                       </span>
                       <span className="shrink-0 text-right">
                         <StatusBadge status={patient.status} />
-                        <span className="mt-1 block font-mono text-[10px] text-muted-foreground">{lbsLost.toFixed(1)} lbs lost</span>
+                        <span className="mt-1 block font-mono text-[10px] text-muted-foreground">{patient.lbsLostDisplay} lost</span>
                       </span>
                     </Link>
                   );
@@ -630,6 +813,7 @@ export default function Overview() {
       </div>
 
       {/* Activity Feed */}
+      {!liveEnabled && (
       <section className="mt-5 rounded-lg border border-card-border bg-card p-5 shadow-soft">
         <div className="flex items-center justify-between">
           <div>
@@ -659,6 +843,7 @@ export default function Overview() {
           ))}
         </div>
       </section>
+      )}
     </div>
   );
 }

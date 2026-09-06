@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OfficeRosterPatientInvitation } from './officeRosterPatientInvitation';
+import type { OperationalPatient } from './operationalPatient';
 import type { PatientProgram } from './patientProgram';
 
 export interface OfficeRosterPatient {
@@ -24,4 +25,5 @@ export interface OfficeRosterPatient {
   createdAt: string | null;
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;
+  operational: OperationalPatient;
 }

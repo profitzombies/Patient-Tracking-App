@@ -1153,7 +1153,7 @@ components:
         providerCode: { type: string }
     PatientProgram:
       type: object
-      required: [id, startDate, startingWeight, currentWeight, goalWeight, weightChange, lastLogDate]
+      required: [id, startDate, startingWeight, currentWeight, goalWeight, weightChange, lastLogDate, day, stage, week]
       properties:
         id: { type: ["string", "null"] }
         startDate: { type: ["string", "null"], format: date }
@@ -1162,9 +1162,12 @@ components:
         goalWeight: { type: ["number", "null"] }
         weightChange: { type: ["number", "null"] }
         lastLogDate: { type: ["string", "null"], format: date }
+        day: { type: ["number", "null"] }
+        stage: { type: ["string", "null"], enum: [protocol, maintenance, null] }
+        week: { type: ["number", "null"] }
     OfficeRosterPatient:
       type: object
-      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, program, invitation]
+      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, program, invitation, operational]
       properties:
         id: { type: string }
         name: { type: string }
@@ -1185,14 +1188,46 @@ components:
                 invitedAt: { type: string }
                 emailStatus: { type: string, enum: [pending, sent, failed] }
                 emailUpdatedAt: { type: ["string", "null"] }
+        operational:
+          $ref: "#/components/schemas/OperationalPatient"
+    OperationalPatient:
+      type: object
+      required: [latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, status, reasons]
+      properties:
+        latestActivityDate: { type: ["string", "null"], format: date }
+        latestDiaryDate: { type: ["string", "null"], format: date }
+        latestWaterDate: { type: ["string", "null"], format: date }
+        latestCheckInDate: { type: ["string", "null"], format: date }
+        latestWeightDate: { type: ["string", "null"], format: date }
+        latestPhotoDate: { type: ["string", "null"], format: date }
+        loggedDays7: { type: number }
+        checkIns7: { type: number }
+        status: { type: string, enum: [invited, inactive, needs_attention, on_track] }
+        reasons:
+          type: array
+          items: { type: string, enum: [no_activity_14d, logging_lapsed, check_in_overdue] }
+    OfficeRosterOperationalSummary:
+      type: object
+      required: [totalPatients, activePatients, newEnrollments30d, needsAttention, inactive, invited, checkInsOverdue, loggingLapsed, asOf]
+      properties:
+        totalPatients: { type: number }
+        activePatients: { type: number }
+        newEnrollments30d: { type: number }
+        needsAttention: { type: number }
+        inactive: { type: number }
+        invited: { type: number }
+        checkInsOverdue: { type: number }
+        loggingLapsed: { type: number }
+        asOf: { type: string, format: date }
     OfficeRosterResult:
       type: object
-      required: [office, patients]
+      required: [office, patients, summary]
       properties:
         office: { $ref: "#/components/schemas/OfficeSummary" }
         patients:
           type: array
           items: { $ref: "#/components/schemas/OfficeRosterPatient" }
+        summary: { $ref: "#/components/schemas/OfficeRosterOperationalSummary" }
     NutritionAmounts:
       type: object
       required: [calories, protein, carbs, fat]

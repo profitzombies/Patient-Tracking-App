@@ -32,8 +32,6 @@ export interface OfficePatient {
   status?: string | null;
   providerName?: string | null;
   startDate?: string | null;
-  stage?: string | null;
-  protocolWeek?: number | null;
   startingWeight?: number | null;
   currentWeight?: number | null;
   goalWeight?: number | null;
@@ -41,6 +39,9 @@ export interface OfficePatient {
   loggedDays7?: number | null;
   program?: {
     id: string | null;
+    day?: number;
+    stage?: 'protocol' | 'maintenance' | null;
+    week?: number;
     startDate: string | null;
     startingWeight: number | null;
     currentWeight: number | null;
@@ -54,11 +55,36 @@ export interface OfficePatient {
     emailStatus: 'pending' | 'sent' | 'failed';
     emailUpdatedAt: string | null;
   } | null;
+  operational?: {
+    latestActivityDate: string | null;
+    latestDiaryDate: string | null;
+    latestWaterDate: string | null;
+    latestCheckInDate: string | null;
+    latestWeightDate: string | null;
+    latestPhotoDate: string | null;
+    loggedDays7: number;
+    checkIns7: number;
+    status: 'invited' | 'inactive' | 'needs_attention' | 'on_track';
+    reasons: ('logging_lapsed' | 'check_in_overdue' | 'no_activity_14d')[];
+  };
+}
+
+export interface OfficeRosterSummary {
+  totalPatients: number;
+  activePatients: number;
+  newEnrollments30d: number;
+  needsAttention: number;
+  inactive: number;
+  invited: number;
+  checkInsOverdue: number;
+  loggingLapsed: number;
+  asOf: string;
 }
 
 export interface OfficeRoster {
   office: { providerId: string; officeName: string; providerCode: string };
   patients: OfficePatient[];
+  summary: OfficeRosterSummary;
 }
 
 export interface OfficeWeightEntry {

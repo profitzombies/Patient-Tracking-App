@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PatientProgramStage } from './patientProgramStage';
 
 export interface PatientProgram {
   /** @nullable */
@@ -21,4 +22,10 @@ export interface PatientProgram {
   weightChange: number | null;
   /** @nullable */
   lastLogDate: Date | null;
+  /** @nullable */
+  day: number | null;
+  /** @nullable */
+  stage: PatientProgramStage;
+  /** @nullable */
+  week: number | null;
 }

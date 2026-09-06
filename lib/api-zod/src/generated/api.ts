@@ -836,15 +836,41 @@ export const GetOfficeRosterResponse = zod.object({
   "currentWeight": zod.number().nullable(),
   "goalWeight": zod.number().nullable(),
   "weightChange": zod.number().nullable(),
-  "lastLogDate": zod.coerce.date().nullable()
+  "lastLogDate": zod.coerce.date().nullable(),
+  "day": zod.number().nullable(),
+  "stage": zod.union([zod.literal('protocol'),zod.literal('maintenance'),zod.literal(null)]).nullable(),
+  "week": zod.number().nullable()
 }),
   "invitation": zod.union([zod.null(),zod.object({
   "state": zod.enum(['verified', 'pending']),
   "invitedAt": zod.string(),
   "emailStatus": zod.enum(['pending', 'sent', 'failed']),
   "emailUpdatedAt": zod.string().nullable()
-})])
-}))
+})]),
+  "operational": zod.object({
+  "latestActivityDate": zod.coerce.date().nullable(),
+  "latestDiaryDate": zod.coerce.date().nullable(),
+  "latestWaterDate": zod.coerce.date().nullable(),
+  "latestCheckInDate": zod.coerce.date().nullable(),
+  "latestWeightDate": zod.coerce.date().nullable(),
+  "latestPhotoDate": zod.coerce.date().nullable(),
+  "loggedDays7": zod.number(),
+  "checkIns7": zod.number(),
+  "status": zod.enum(['invited', 'inactive', 'needs_attention', 'on_track']),
+  "reasons": zod.array(zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue']))
+})
+})),
+  "summary": zod.object({
+  "totalPatients": zod.number(),
+  "activePatients": zod.number(),
+  "newEnrollments30d": zod.number(),
+  "needsAttention": zod.number(),
+  "inactive": zod.number(),
+  "invited": zod.number(),
+  "checkInsOverdue": zod.number(),
+  "loggingLapsed": zod.number(),
+  "asOf": zod.coerce.date()
+})
 })
 
 
@@ -889,7 +915,10 @@ export const GetOfficePatientRecordResponse = zod.object({
   "currentWeight": zod.number().nullable(),
   "goalWeight": zod.number().nullable(),
   "weightChange": zod.number().nullable(),
-  "lastLogDate": zod.coerce.date().nullable()
+  "lastLogDate": zod.coerce.date().nullable(),
+  "day": zod.number().nullable(),
+  "stage": zod.union([zod.literal('protocol'),zod.literal('maintenance'),zod.literal(null)]).nullable(),
+  "week": zod.number().nullable()
 })
 }),
   "diary": zod.object({

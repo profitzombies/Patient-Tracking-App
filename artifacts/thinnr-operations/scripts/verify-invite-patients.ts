@@ -186,20 +186,21 @@ async function main() {
 
   const patientsSource = readFileSync(new URL('../src/pages/Patients.tsx', import.meta.url), 'utf8');
   const rosterSource = readFileSync(new URL('../src/components/office/LiveRoster.tsx', import.meta.url), 'utf8');
+  const liveRosterHookSource = readFileSync(new URL('../src/hooks/use-live-roster.ts', import.meta.url), 'utf8');
   const detailSource = readFileSync(new URL('../src/pages/PatientDetail.tsx', import.meta.url), 'utf8');
   const contractSource = readFileSync(new URL('../src/lib/office-roster.ts', import.meta.url), 'utf8');
 
   await check('live UI mounts only for signed-in staff; demo personas stay seeded-only', () => {
-    assert.match(patientsSource, /authStatus === 'signed-in'/);
-    assert.match(patientsSource, /authRole === 'provider_staff'/);
-    assert.match(patientsSource, /authRole === 'hq_admin' && Boolean\(scope\?\.providerId\)/);
+    assert.match(liveRosterHookSource, /authStatus === 'signed-in'/);
+    assert.match(liveRosterHookSource, /authRole === 'provider_staff'/);
+    assert.match(liveRosterHookSource, /authRole === 'hq_admin' && Boolean\(scope\?\.providerId\)/);
     assert.match(patientsSource, /\{liveEnabled && <InvitePatientAction office=\{liveOffice\} \/>\}/);
     assert.doesNotMatch(patientsSource, /LiveRosterCard/);
-    assert.match(patientsSource, /liveRoster\.data\?\.patients/);
+    assert.match(patientsSource, /liveRosterData\.patients/);
   });
 
   await check('HQ drill-in passes ONLY its explicitly scoped office; staff pass none', () => {
-    assert.match(patientsSource, /authRole === 'hq_admin' \? scope\?\.providerId \?\? null : null/);
+    assert.match(liveRosterHookSource, /authRole === 'hq_admin' \? \(scope\?\.providerId \?\? null\) : null/);
   });
 
   await check('the invite action and modal expose stable testids and announced errors', () => {
@@ -214,7 +215,7 @@ async function main() {
     assert.match(patientsSource, /data-testid="input-patient-search"/);
     assert.match(patientsSource, /navigate\(`\/patients\/\$\{patient\.id\}`\)/);
     assert.match(patientsSource, /data-testid=\{`button-resend-invite-\$\{patient\.id\}`\}/);
-    assert.match(patientsSource, /Delivery failed/);
+    assert.match(rosterSource, /Delivery failed/);
     assert.match(patientsSource, /No patients found matching your search/);
   });
 

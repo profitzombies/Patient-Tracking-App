@@ -197,16 +197,19 @@ export function InvitePatientAction({ office }: { office: string | null }) {
 export function InvitationChip({ patient }: { patient: OfficePatient }) {
   if (!patient.invitation) return null;
   const pending = patient.invitation.state === 'pending';
+  const failed = pending && patient.invitation.emailStatus === 'failed';
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${
-        pending
+        failed
+          ? 'border-destructive/40 bg-destructive/10 text-destructive'
+          : pending
           ? 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]'
           : 'border-accent-border bg-accent text-primary'
       }`}
     >
       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
-      {pending ? 'Invite pending' : 'Verified'}
+      {failed ? 'Delivery failed' : pending ? 'Invite pending' : 'Verified'}
     </span>
   );
 }

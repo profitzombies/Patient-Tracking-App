@@ -54,6 +54,7 @@ let resendFails = false;
 let insertFailsWith: string | null = null;
 let resendCalls: Array<{ to: unknown; template: unknown; vars: Row }> = [];
 let patchFailures = 0;
+let operationalFacts: Row[] | null = null;
 
 function response(json: unknown, status = 200): Response {
   return new Response(json == null ? "" : JSON.stringify(json), {
@@ -159,6 +160,7 @@ beforeEach(() => {
   insertFailsWith = null;
   resendCalls = [];
   patchFailures = 0;
+  operationalFacts = null;
 
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -200,12 +202,29 @@ beforeEach(() => {
     if (url.pathname === "/rest/v1/rpc/claim_find_candidates") {
       const body = JSON.parse(String(init?.body)) as { p_kind: string; p_value: string };
       const last10 = body.p_value.replace(/\D/g, "").slice(-10);
-      return response(
-        patients
+      return response(patients
           .filter((row) => String(row.phone ?? "").replace(/\D/g, "").slice(-10) === last10)
           .map((row) => ({ type: "patient", ref: row.id })),
       );
     }
+    if (url.pathname === "/rest/v1/rpc/provider_patient_operational_summary") {
+      const body = JSON.parse(String(init?.body)) as { p_provider_id: string };
+      return response(operationalFacts ?? patients
+          .filter((patient) => patient.provider_id === body.p_provider_id)
+          .map((patient) => ({
+            patient_id: patient.id,
+            latest_activity_date: null,
+            latest_diary_date: null,
+            latest_water_date: null,
+            latest_check_in_date: null,
+            latest_weight_date: null,
+            latest_photo_date: null,
+            logged_days_7: 0,
+            check_ins_7: 0,
+          })),
+      );
+    }
+    if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") return response(null, 204);
     if (url.pathname === "/rest/v1/patients") {
       if (!init?.method || init.method === "GET") {
         return response(patientsMatching(url.searchParams));
@@ -282,6 +301,41 @@ const INVITE = {
 };
 
 describe("office scope", () => {
+  it("merges safe operational facts and derives deterministic roster summary", async () => {
+    const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    patients[0].created_at = `${day(10)}T00:00:00Z`;
+    operationalFacts = [{
+      patient_id: "pat-own", latest_activity_date: day(1), latest_diary_date: day(3),
+      latest_water_date: day(1), latest_check_in_date: day(7), latest_weight_date: day(4),
+      latest_photo_date: day(4), logged_days_7: 3, check_ins_7: 1,
+      notes: "must never be returned", value: 190, object_path: "private/path",
+    }];
+    const res = await api("/office/roster", "provider-token");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { patients: Row[]; summary: Row };
+    expect(body.patients[0].operational).toMatchObject({ loggedDays7: 3, checkIns7: 1, status: "needs_attention", reasons: ["logging_lapsed", "check_in_overdue"] });
+    expect(body.summary).toMatchObject({ totalPatients: 1, activePatients: 1, needsAttention: 1, checkInsOverdue: 1, loggingLapsed: 1 });
+    expect(JSON.stringify(body)).not.toMatch(/private\/path|must never|190/);
+  });
+
+  it("returns a zero operational summary for an empty scoped office", async () => {
+    patients = patients.filter((patient) => patient.provider_id !== "office-2");
+    const res = await api("/office/roster?office=office-2", "hq-token");
+    expect(res.status).toBe(200);
+    expect((await res.json() as { summary: Row }).summary).toMatchObject({
+      totalPatients: 0, activePatients: 0, needsAttention: 0, inactive: 0, invited: 0,
+    });
+  });
+
+  it("marks activated patients with fourteen days of no activity", async () => {
+    patients[0].created_at = new Date(Date.now() - 15 * 86_400_000).toISOString();
+    const res = await api("/office/roster", "provider-token");
+    const body = await res.json() as { patients: Row[] };
+    expect(body.patients[0].operational).toMatchObject({
+      status: "inactive", reasons: ["no_activity_14d", "logging_lapsed", "check_in_overdue"],
+    });
+    expect(body.patients[0].program).toMatchObject({ day: null, stage: null, week: null });
+  });
   it("gives a provider owner exactly their own office, ignoring office overrides", async () => {
     const res = await api("/office/roster?office=office-2", "provider-token");
     expect(res.status).toBe(200);

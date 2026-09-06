@@ -5,6 +5,196 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface OperationalRollup {
+  providerCount: number;
+  totalPatients: number;
+  activePatients: number;
+  enrollments30d: number;
+  engaged7d: number;
+  needsAttention: number;
+  inactive: number;
+  invited: number;
+  watchlist: number;
+  loggingLapsed: number;
+  checkInsOverdue: number;
+  /** @nullable */
+  avgPoundsLost: number | null;
+}
+
+export type OperationalRollupResultScopeKind = typeof OperationalRollupResultScopeKind[keyof typeof OperationalRollupResultScopeKind];
+
+
+export const OperationalRollupResultScopeKind = {
+  office: 'office',
+  hq: 'hq',
+} as const;
+
+export type OperationalRollupResultScope = {
+  kind: OperationalRollupResultScopeKind;
+  /** @nullable */
+  providerId: string | null;
+  /** @nullable */
+  officeName: string | null;
+};
+
+export interface OperationalRollupResult {
+  scope: OperationalRollupResultScope;
+  asOf: string;
+  metrics: OperationalRollup;
+}
+
+export type ConversationSummaryThread = typeof ConversationSummaryThread[keyof typeof ConversationSummaryThread];
+
+
+export const ConversationSummaryThread = {
+  coach: 'coach',
+  support: 'support',
+} as const;
+
+export interface ConversationSummary {
+  id: string;
+  patientId: string;
+  patientName: string;
+  thread: ConversationSummaryThread;
+  messageCount: number;
+  /** @nullable */
+  lastMessageAt: string | null;
+  createdAt: string;
+}
+
+export interface ConversationSummaryResult {
+  conversations: ConversationSummary[];
+  total: number;
+}
+
+export type ConversationEventRole = typeof ConversationEventRole[keyof typeof ConversationEventRole];
+
+
+export const ConversationEventRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface ConversationEvent {
+  seq: number;
+  role: ConversationEventRole;
+  text: string;
+  stopped: boolean;
+  createdAt: string;
+}
+
+export interface ConversationEventsResult {
+  conversation: ConversationSummary;
+  events: ConversationEvent[];
+  /** @nullable */
+  nextBefore: number | null;
+}
+
+export interface HqOrganizationSettings {
+  organizationName: string;
+  /** @nullable */
+  supportEmail: string | null;
+  /** @nullable */
+  supportPhone: string | null;
+  defaultTimezone: string;
+  updatedAt: string;
+}
+
+export interface HqOrganizationSettingsInput {
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  organizationName: string;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  supportEmail: string | null;
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  supportPhone: string | null;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  defaultTimezone: string;
+}
+
+export interface HqFileUploadInput {
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  contentType: string;
+  /**
+     * @minimum 1
+     * @maximum 52428800
+     */
+  size: number;
+}
+
+export interface HqFileUploadResult {
+  fileId: string;
+  uploadUrl: string;
+  objectPath: string;
+  expiresIn: number;
+}
+
+export interface HqFileFinalizeInput {
+  fileId: string;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  contentType: string;
+  /**
+     * @minimum 1
+     * @maximum 52428800
+     */
+  size: number;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  objectPath: string;
+}
+
+export interface HqFile {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HqFileListResult {
+  files: HqFile[];
+}
+
+export interface HqFileDownloadResult {
+  url: string;
+  expiresIn: number;
+  name: string;
+}
+
+export interface HqFileDeleteResult {
+  ok: boolean;
+}
+
 export interface OfficeSummary {
   providerId: string;
   officeName: string;
@@ -1263,6 +1453,54 @@ end: string;
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */
 office?: OfficeIdParameter;
+};
+
+export type GetOfficeOverviewParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetOfficeConversationsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+thread?: GetOfficeConversationsThread;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
+export type GetOfficeConversationsThread = typeof GetOfficeConversationsThread[keyof typeof GetOfficeConversationsThread];
+
+
+export const GetOfficeConversationsThread = {
+  coach: 'coach',
+  support: 'support',
+} as const;
+
+export type GetOfficeConversationEventsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+/**
+ * @minimum 1
+ */
+before?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };
 
 export type GetHqAuditEventsParams = {

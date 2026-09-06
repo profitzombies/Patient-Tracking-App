@@ -1170,6 +1170,146 @@ paths:
         "200":
           description: Aggregate engagement daily trend
           content: { application/json: { schema: { $ref: "#/components/schemas/EngagementTrendResult" } } }
+  /office/overview:
+    get:
+      operationId: getOfficeOverview
+      tags: [office]
+      summary: Read aggregate-only live operational metrics for an authorized office
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Zero-safe office operational rollup
+          content: { application/json: { schema: { $ref: "#/components/schemas/OperationalRollupResult" } } }
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not authorized for provider reads }
+        "404": { description: Office unavailable }
+  /office/conversations:
+    get:
+      operationId: getOfficeConversations
+      tags: [office]
+      summary: List privacy-safe patient conversation summaries for an authorized office
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: thread, in: query, schema: { type: string, enum: [coach, support] } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
+        - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Paginated summaries without message content
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationSummaryResult" } } }
+        "404": { description: Office unavailable }
+  /office/conversations/{conversationId}/events:
+    get:
+      operationId: getOfficeConversationEvents
+      tags: [office]
+      summary: Read a paginated patient transcript in an authorized office
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: before, in: query, schema: { type: number, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200":
+          description: Newest transcript page returned in chronological order
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationEventsResult" } } }
+        "404": { description: Conversation not found }
+  /hq/overview:
+    get:
+      operationId: getHqOverview
+      tags: [hq]
+      summary: Read aggregate-only operational metrics across the HQ umbrella
+      responses:
+        "200":
+          description: Zero-safe umbrella rollup with no raw patient rows
+          content: { application/json: { schema: { $ref: "#/components/schemas/OperationalRollupResult" } } }
+  /hq/settings:
+    get:
+      operationId: getHqSettings
+      tags: [hq]
+      summary: Read persisted organization settings
+      responses:
+        "200":
+          description: Organization settings
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqOrganizationSettings" } } }
+    put:
+      operationId: updateHqSettings
+      tags: [hq]
+      summary: Replace persisted organization settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqOrganizationSettingsInput" }
+      responses:
+        "200":
+          description: Updated organization settings
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqOrganizationSettings" } } }
+        "400": { description: Invalid settings }
+  /hq/files/upload-url:
+    post:
+      operationId: createHqFileUpload
+      tags: [hq]
+      summary: Mint a private App Storage upload URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqFileUploadInput" }
+      responses:
+        "200":
+          description: Short-lived PUT URL and server-owned object path
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileUploadResult" } } }
+        "413": { description: File too large }
+        "415": { description: Content type not accepted }
+  /hq/files:
+    get:
+      operationId: getHqFiles
+      tags: [hq]
+      summary: List persisted private HQ file metadata
+      responses:
+        "200":
+          description: Files newest first
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileListResult" } } }
+    post:
+      operationId: finalizeHqFile
+      tags: [hq]
+      summary: Verify uploaded bytes and persist file metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqFileFinalizeInput" }
+      responses:
+        "200":
+          description: Persisted file
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFile" } } }
+        "404": { description: Uploaded object not found }
+        "422": { description: Stored object metadata does not match }
+  /hq/files/{fileId}/download-url:
+    get:
+      operationId: getHqFileDownload
+      tags: [hq]
+      summary: Mint a short-lived private download URL
+      parameters:
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Signed private download
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileDownloadResult" } } }
+        "404": { description: File not found }
+  /hq/files/{fileId}:
+    delete:
+      operationId: deleteHqFile
+      tags: [hq]
+      summary: Delete private bytes and metadata
+      parameters:
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: File deleted
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileDeleteResult" } } }
+        "404": { description: File not found }
   /hq/audit-events:
     get:
       operationId: getHqAuditEvents
@@ -1191,6 +1331,139 @@ components:
       type: http
       scheme: bearer
   schemas:
+    OperationalRollup:
+      type: object
+      required: [providerCount, totalPatients, activePatients, enrollments30d, engaged7d, needsAttention, inactive, invited, watchlist, loggingLapsed, checkInsOverdue, avgPoundsLost]
+      properties:
+        providerCount: { type: number }
+        totalPatients: { type: number }
+        activePatients: { type: number }
+        enrollments30d: { type: number }
+        engaged7d: { type: number }
+        needsAttention: { type: number }
+        inactive: { type: number }
+        invited: { type: number }
+        watchlist: { type: number }
+        loggingLapsed: { type: number }
+        checkInsOverdue: { type: number }
+        avgPoundsLost: { type: ["number", "null"] }
+    OperationalRollupResult:
+      type: object
+      required: [scope, asOf, metrics]
+      properties:
+        scope:
+          type: object
+          required: [kind, providerId, officeName]
+          properties:
+            kind: { type: string, enum: [office, hq] }
+            providerId: { type: ["string", "null"] }
+            officeName: { type: ["string", "null"] }
+        asOf: { type: string }
+        metrics: { $ref: "#/components/schemas/OperationalRollup" }
+    ConversationSummary:
+      type: object
+      required: [id, patientId, patientName, thread, messageCount, lastMessageAt, createdAt]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        patientName: { type: string }
+        thread: { type: string, enum: [coach, support] }
+        messageCount: { type: number }
+        lastMessageAt: { type: ["string", "null"] }
+        createdAt: { type: string }
+    ConversationSummaryResult:
+      type: object
+      required: [conversations, total]
+      properties:
+        conversations: { type: array, items: { $ref: "#/components/schemas/ConversationSummary" } }
+        total: { type: number }
+    ConversationEvent:
+      type: object
+      required: [seq, role, text, stopped, createdAt]
+      properties:
+        seq: { type: number }
+        role: { type: string, enum: [user, assistant] }
+        text: { type: string }
+        stopped: { type: boolean }
+        createdAt: { type: string }
+    ConversationEventsResult:
+      type: object
+      required: [conversation, events, nextBefore]
+      properties:
+        conversation: { $ref: "#/components/schemas/ConversationSummary" }
+        events: { type: array, items: { $ref: "#/components/schemas/ConversationEvent" } }
+        nextBefore: { type: ["number", "null"] }
+    HqOrganizationSettings:
+      type: object
+      required: [organizationName, supportEmail, supportPhone, defaultTimezone, updatedAt]
+      properties:
+        organizationName: { type: string }
+        supportEmail: { type: ["string", "null"] }
+        supportPhone: { type: ["string", "null"] }
+        defaultTimezone: { type: string }
+        updatedAt: { type: string }
+    HqOrganizationSettingsInput:
+      type: object
+      additionalProperties: false
+      required: [organizationName, supportEmail, supportPhone, defaultTimezone]
+      properties:
+        organizationName: { type: string, minLength: 1, maxLength: 160 }
+        supportEmail: { type: ["string", "null"], maxLength: 320 }
+        supportPhone: { type: ["string", "null"], maxLength: 40 }
+        defaultTimezone: { type: string, minLength: 1, maxLength: 80 }
+    HqFileUploadInput:
+      type: object
+      additionalProperties: false
+      required: [name, contentType, size]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 240 }
+        contentType: { type: string, minLength: 1, maxLength: 120 }
+        size: { type: number, minimum: 1, maximum: 52428800 }
+    HqFileUploadResult:
+      type: object
+      required: [fileId, uploadUrl, objectPath, expiresIn]
+      properties:
+        fileId: { type: string }
+        uploadUrl: { type: string }
+        objectPath: { type: string }
+        expiresIn: { type: number }
+    HqFileFinalizeInput:
+      type: object
+      additionalProperties: false
+      required: [fileId, name, contentType, size, objectPath]
+      properties:
+        fileId: { type: string }
+        name: { type: string, minLength: 1, maxLength: 240 }
+        contentType: { type: string, minLength: 1, maxLength: 120 }
+        size: { type: number, minimum: 1, maximum: 52428800 }
+        objectPath: { type: string, minLength: 1, maxLength: 500 }
+    HqFile:
+      type: object
+      required: [id, name, contentType, size, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        contentType: { type: string }
+        size: { type: number }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    HqFileListResult:
+      type: object
+      required: [files]
+      properties:
+        files: { type: array, items: { $ref: "#/components/schemas/HqFile" } }
+    HqFileDownloadResult:
+      type: object
+      required: [url, expiresIn, name]
+      properties:
+        url: { type: string }
+        expiresIn: { type: number }
+        name: { type: string }
+    HqFileDeleteResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
     OfficeSummary:
       type: object
       required: [providerId, officeName, providerCode]

@@ -21,6 +21,9 @@ import officeRosterRouter from "./office-roster";
 import catalogRouter from "./catalog";
 import officeOperationsRouter from "./office-operations";
 import hqAuditEventsRouter from "./hq-audit-events";
+import operationalRollupsRouter from "./operational-rollups";
+import staffConversationsRouter from "./staff-conversations";
+import hqSettingsFilesRouter from "./hq-settings-files";
 
 const router: IRouter = Router();
 
@@ -46,5 +49,8 @@ router.use(hqTeamRouter);
 router.use(officeRosterRouter);
 router.use(officeOperationsRouter);
 router.use(hqAuditEventsRouter);
+router.use(operationalRollupsRouter);
+router.use(staffConversationsRouter);
+router.use(hqSettingsFilesRouter);
 
 export default router;

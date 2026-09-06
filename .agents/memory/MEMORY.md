@@ -90,3 +90,4 @@
 - [Expo SDK upgrade lessons](expo-sdk-upgrade.md) — 54→57: absoluteFillObject gone, media-library needs /legacy (+stub map), TS6 baseUrl bridge, splash→plugin, blank-screenshot hydration race.
 - [Operational follow-up semantics](operational-followups.md) — staff review state never suppresses the live risk; keep rows structured and free of notes or clinical payloads.
 - [PL/pgSQL table-return traps](plpgsql-table-return-contracts.md) — qualify columns sharing OUT names and cast sum(bigint) to declared bigint before live PostgREST probes.
+- [Live/demo UI isolation](live-demo-ui-isolation.md) — choose demo vs live from auth state, never missing data; propagate loading/errors so outages cannot look like healthy zeroes.

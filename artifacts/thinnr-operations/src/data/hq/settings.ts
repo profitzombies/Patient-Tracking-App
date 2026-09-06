@@ -17,7 +17,7 @@ export interface HqSettingFieldBase {
 export type HqSettingField =
   | (HqSettingFieldBase & { kind: 'text'; defaultValue: string; placeholder?: string })
   | (HqSettingFieldBase & { kind: 'toggle'; defaultValue: boolean })
-  | (HqSettingFieldBase & { kind: 'select'; defaultValue: string; options: string[] });
+  | (HqSettingFieldBase & { kind: 'select'; defaultValue: string; options: (string | { value: string; label: string })[] });
 
 export interface HqSettingsGroup {
   id: string;
@@ -44,7 +44,13 @@ export const HQ_SETTINGS_GROUPS: HqSettingsGroup[] = [
       },
       {
         id: 'reporting-tz', kind: 'select', label: 'Reporting timezone',
-        defaultValue: 'Pacific (PT)', options: ['Eastern (ET)', 'Central (CT)', 'Mountain (MT)', 'Pacific (PT)'],
+        defaultValue: 'America/Los_Angeles', options: [
+          { value: 'America/New_York', label: 'Eastern (ET)' },
+          { value: 'America/Chicago', label: 'Central (CT)' },
+          { value: 'America/Denver', label: 'Mountain (MT)' },
+          { value: 'America/Los_Angeles', label: 'Pacific (PT)' },
+          { value: 'UTC', label: 'UTC' }
+        ],
         help: 'Display label for rollup reports. Demo data stays anchored to its fixed date either way.',
       },
     ],

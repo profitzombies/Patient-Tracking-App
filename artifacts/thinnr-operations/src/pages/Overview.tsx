@@ -27,7 +27,7 @@ import { usePatientSession } from "@/contexts/patient-session";
 import { useDateRange, type OperationsDateRange, formatRangeLabel, addDaysToKey, keyToDate } from "@/contexts/date-range";
 import { useSession } from "@/contexts/session";
 import { useLiveRoster } from "@/hooks/use-live-roster";
-import { useGetOfficeEngagementTrends, getGetOfficeEngagementTrendsQueryKey, type EngagementTrendPoint } from "@workspace/api-client-react";
+import { useGetOfficeEngagementTrends, getGetOfficeEngagementTrendsQueryKey, type EngagementTrendPoint, useGetOfficeOverview, getGetOfficeOverviewQueryKey } from "@workspace/api-client-react";
 
 function ActionButton({ label, testId, children, onClick }: { label: string; testId?: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -258,6 +258,16 @@ export default function Overview() {
   const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster();
   const { authUser } = useSession();
 
+  const { data: overviewData, isLoading: overviewIsLoading, isError: overviewIsError } = useGetOfficeOverview(
+    { office: liveOffice ?? undefined },
+    {
+      query: {
+        enabled: liveEnabled,
+        queryKey: [...getGetOfficeOverviewQueryKey({ office: liveOffice ?? undefined }), authUser?.id]
+      }
+    }
+  );
+
   const { data: engagementData, isLoading: engagementIsLoading, isError: engagementIsError, error: engagementError } = useGetOfficeEngagementTrends(
     { start: range.start, end: range.end, office: liveOffice ?? undefined },
     {
@@ -291,16 +301,17 @@ export default function Overview() {
   );
   const selectedProvider = providers.find((provider) => provider.id === providerFilter);
   const activePatientsValue = liveEnabled
-    ? (liveRosterIsLoading ? '—' : liveRosterIsError ? 'Error' : (liveRosterData?.summary?.activePatients?.toString() ?? '0'))
+    ? (overviewIsLoading ? '—' : overviewIsError ? 'Error' : (overviewData?.metrics.activePatients?.toString() ?? '0'))
     : (selectedProvider?.activePatientCount ?? analytics.activePatients).toString();
 
-  const activePatientsChange = liveEnabled ? (liveRosterData?.summary?.asOf ? formatDateKey(liveRosterData.summary.asOf.split('T')[0], true) : 'Live roster') : badges.patients;
+  const activePatientsChange = liveEnabled ? (overviewData?.asOf ? formatDateKey(overviewData.asOf.split('T')[0], true) : 'Live roster') : badges.patients;
   const activePatientsDetail = liveEnabled
-    ? (liveRosterIsLoading ? 'Loading…' : liveRosterIsError ? 'Failed to load' : `${liveRosterData?.summary?.newEnrollments30d ?? 0} new this month`)
+    ? (overviewIsLoading ? 'Loading…' : overviewIsError ? 'Failed to load' : `${overviewData?.metrics.enrollments30d ?? 0} new this month`)
     : `${analytics.newEnrollments} new this month`;
 
   const averagePoundsLostValue = useMemo(() => {
     if (liveEnabled) {
+      if (overviewData?.metrics.avgPoundsLost != null) return overviewData.metrics.avgPoundsLost;
       if (!liveRosterData) return null;
       const valid = liveRosterData.patients.filter(p => p.program?.startingWeight != null && p.program?.currentWeight != null);
       if (valid.length === 0) return null;
@@ -309,24 +320,26 @@ export default function Overview() {
     return filteredPatients.length
       ? filteredPatients.reduce((total, patient) => total + patient.startingWeight - getCurrentWeight(patient), 0) / filteredPatients.length
       : 0;
-  }, [liveEnabled, liveRosterData, filteredPatients, getCurrentWeight]);
+  }, [liveEnabled, overviewData, liveRosterData, filteredPatients, getCurrentWeight]);
 
   const avgLostChange = liveEnabled ? 'Live roster' : badges.avgLost;
 
   const overduePatientsCount = liveEnabled
-    ? (liveRosterIsLoading || liveRosterIsError ? '—' : (liveRosterData?.summary?.checkInsOverdue ?? 0).toString())
+    ? (overviewIsLoading || overviewIsError ? '—' : (overviewData?.metrics.checkInsOverdue ?? 0).toString())
     : overduePatients.length.toString();
 
   const overduePatientsList = useMemo(() => {
-    if (liveEnabled && liveRosterData) {
+    if (liveEnabled) {
+      if (!liveRosterData) return [];
       return liveRosterData.patients.filter(p => p.operational?.reasons?.includes('check_in_overdue'));
     }
     return overduePatients;
   }, [liveEnabled, liveRosterData, overduePatients]);
 
   const lapsedLoggersList = useMemo(() => {
-    if (liveEnabled && liveRosterData) {
-      const asOfTime = Date.parse(`${liveRosterData.summary.asOf}T00:00:00Z`);
+    if (liveEnabled) {
+      if (!liveRosterData || !overviewData) return [];
+      const asOfTime = Date.parse(`${overviewData.asOf}T00:00:00Z`);
       return liveRosterData.patients
         .filter(p => p.operational?.reasons?.includes('logging_lapsed'))
         .map(patient => {
@@ -344,10 +357,10 @@ export default function Overview() {
       patient: { id: patient.id, initials: patient.initials, name: patient.name },
       stats: { daysSinceLastLog: stats.daysSinceLastLog }
     }));
-  }, [liveEnabled, liveRosterData, lapsedLoggers]);
+  }, [liveEnabled, liveRosterData, overviewData, lapsedLoggers]);
 
-  const lapsedLoggersCount = liveEnabled && liveRosterData
-    ? (liveRosterData.summary?.loggingLapsed ?? 0)
+  const lapsedLoggersCount = liveEnabled
+    ? (overviewData?.metrics.loggingLapsed ?? null)
     : lapsedLoggers.length;
   const filteredMrr = subscriptions
     .filter((subscription) => filteredPatients.some((patient) => patient.id === subscription.patientId))
@@ -356,7 +369,8 @@ export default function Overview() {
   // Stage mix from the analytics counts: unscoped this reproduces the
   // long-standing 65 / 20 / 15 split exactly; scoped it reflects one office.
   const stageRows = useMemo(() => {
-    if (liveEnabled && liveRosterData) {
+    if (liveEnabled) {
+      if (!liveRosterData) return [];
       const active = liveRosterData.patients.filter(p => ['on_track', 'needs_attention', 'inactive'].includes(p.operational?.status ?? ''));
       let maintenance = 0;
       let early = 0;
@@ -401,11 +415,11 @@ export default function Overview() {
     ? liveRosterData.patients.filter((p) => p.program?.stage === 'maintenance').length
     : patients.filter((patient) => patient.status === 'graduated').length;
 
-  const priorityItems: [string, string, string, string, string][] = useMemo(() => {
+  const priorityItems: [string, string, string, string, string][] | null = useMemo(() => {
     if (liveEnabled) {
-      if (!liveRosterData) return [];
+      if (!overviewData) return null;
       const items: [string, string, string, string, string][] = [];
-      const overdue = liveRosterData.summary?.checkInsOverdue ?? 0;
+      const overdue = overviewData.metrics.checkInsOverdue ?? 0;
       if (overdue > 0) {
         items.push([
           "Missed Check-ins",
@@ -415,7 +429,7 @@ export default function Overview() {
           "check_in_overdue"
         ]);
       }
-      const lapsed = liveRosterData.summary?.loggingLapsed ?? 0;
+      const lapsed = overviewData.metrics.loggingLapsed ?? 0;
       if (lapsed > 0) {
         items.push([
           "Logging Lapsed",
@@ -425,7 +439,7 @@ export default function Overview() {
           "logging_lapsed"
         ]);
       }
-      const inactive = liveRosterData.summary?.inactive ?? 0;
+      const inactive = overviewData.metrics.inactive ?? 0;
       if (inactive > 0) {
         items.push([
           "Inactive Patients",
@@ -468,7 +482,7 @@ export default function Overview() {
         ["Missed Check-ins", "4 patients missed their scheduled protocol check-in", "Watch", "watch", ""],
         ["High Adherence Cohort", "24 patients reached goal weight this week", "Positive", "healthy", ""],
       ];
-  }, [liveEnabled, liveRosterData, scope, failedPayments, overduePatientsCount, graduatedCount]);
+  }, [liveEnabled, overviewData, scope, failedPayments, overduePatientsCount, graduatedCount]);
 
   const scopedProviderLabel = scope ? scope.providerName.split(',')[0] : '';
   const scopedProviderInitials = scope
@@ -481,7 +495,8 @@ export default function Overview() {
     : '';
 
   const getRecentPatientName = (index: number, fallback: string) => {
-    if (liveEnabled && liveRosterData && liveRosterData.patients.length > index) {
+    if (liveEnabled) {
+      if (!liveRosterData || liveRosterData.patients.length <= index) return fallback;
       return shortName(liveRosterData.patients[index]);
     }
     if (filteredPatients.length > index) {
@@ -491,7 +506,8 @@ export default function Overview() {
   };
 
   const getRecentOverdueName = (index: number, fallback: string) => {
-    if (liveEnabled && liveRosterData && overduePatientsList.length > index) {
+    if (liveEnabled) {
+      if (!liveRosterData || overduePatientsList.length <= index) return fallback;
       return shortName(overduePatientsList[index]);
     }
     if (overduePatients.length > index) {
@@ -554,8 +570,8 @@ export default function Overview() {
         ["SJ", "Sarah Jenkins", "approved Maintenance Stack for Olivia W.", "2 hr ago", "bg-muted text-navy"],
       ];
 
-  const pulseDate = liveEnabled && liveRosterData?.summary?.asOf
-    ? formatDateKey(liveRosterData.summary.asOf.split('T')[0], true)
+  const pulseDate = liveEnabled && overviewData?.asOf
+    ? formatDateKey(overviewData.asOf.split('T')[0], true)
     : formatDateKey(TODAY_KEY, true);
 
   const greetingName = liveEnabled ? authUser?.displayName?.split(' ')[0] : (scope ? scope.greetingName : 'Dr. Jenkins');
@@ -620,8 +636,8 @@ export default function Overview() {
           icon={<WalletCards size={14} />}
           label="MRR"
           value={providerFilter === 'all' ? `$${(analytics.recurringRevenue / 1000).toFixed(1)}k` : `$${filteredMrr.toLocaleString()}`}
-          change={liveEnabled ? 'Demo projection' : badges.mrr}
-          detail="vs. last month"
+          change="Demo projection"
+          detail="Synthetic finance · not live"
         />
         <Metric
           icon={<Users size={14} />}
@@ -711,7 +727,7 @@ export default function Overview() {
             <div>
               <div className="flex items-center gap-2">
                 <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Revenue Trend</p>
-                {liveEnabled && <span className="rounded-sm border border-accent-border bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">Demo projection</span>}
+                <span className="rounded-sm border border-accent-border bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">Demo projection</span>
               </div>
               <div className="mt-1 flex items-end gap-3">
                 <h2 className="font-mono text-2xl font-semibold tracking-[-.05em] text-navy" data-testid="text-revenue-total">
@@ -751,7 +767,15 @@ export default function Overview() {
             </Link>
           </div>
           <div className="mt-6 space-y-4">
-            {stageRows.map(([name, pct, count, color]) => (
+            {liveEnabled && (liveRosterIsLoading || liveRosterIsError) ? (
+              <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
+                {liveRosterIsLoading ? 'Loading live patients...' : 'Failed to load live patients.'}
+              </div>
+            ) : stageRows.length === 0 ? (
+              <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
+                No active patients.
+              </div>
+            ) : stageRows.map(([name, pct, count, color]) => (
               <div key={name as string}>
                 <div className="mb-1.5 flex justify-between text-xs">
                   <span className="font-medium text-foreground">{name}</span>
@@ -776,10 +800,18 @@ export default function Overview() {
               <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">Worth a closer look</h2>
             </div>
             <span className="rounded-sm border border-warn-border bg-warn-bg px-2 py-1 text-[10px] font-bold text-warn">
-              {priorityItems.length} open
+              {priorityItems === null ? (overviewIsLoading ? "Loading…" : overviewIsError ? "Error" : "...") : `${priorityItems.length} open`}
             </span>
           </div>
-          {priorityItems.map(([title, body, level, tone, reason]) => {
+          {priorityItems === null ? (
+            <div className="flex h-20 items-center justify-center border-t border-border text-xs text-muted-foreground">
+              {overviewIsLoading ? 'Loading priority items...' : overviewIsError ? 'Failed to load priority items.' : 'Loading priority items...'}
+            </div>
+          ) : priorityItems.length === 0 ? (
+            <div className="flex h-20 items-center justify-center border-t border-border text-xs text-muted-foreground">
+              0 open items.
+            </div>
+          ) : priorityItems.map(([title, body, level, tone, reason]) => {
             const innerContent = (
               <>
                 <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${tone === "risk" ? "bg-destructive" : tone === "watch" ? "bg-warn" : "bg-primary"}`} />
@@ -825,27 +857,29 @@ export default function Overview() {
               <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Logging compliance</p>
               <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">Companion-app logging</h2>
             </div>
-            <span className={`rounded-sm border px-2 py-1 text-[10px] font-bold ${lapsedLoggersCount > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
-              {liveRosterIsLoading ? "Loading…" : liveRosterIsError ? "Error" : lapsedLoggersCount > 0 ? `${lapsedLoggersCount} lapsed` : "All current"}
+            <span className={`rounded-sm border px-2 py-1 text-[10px] font-bold ${lapsedLoggersCount !== null && lapsedLoggersCount > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
+              {(liveEnabled && (overviewIsLoading || liveRosterIsLoading)) ? "Loading…" : (liveEnabled && (overviewIsError || liveRosterIsError)) ? "Error" : lapsedLoggersCount === null ? "..." : lapsedLoggersCount > 0 ? `${lapsedLoggersCount} lapsed` : "All current"}
             </span>
           </div>
           <div className="flex items-center gap-3 rounded-md border border-border bg-secondary p-3">
-            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md border ${lapsedLoggersCount > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
+            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md border ${lapsedLoggersCount !== null && lapsedLoggersCount > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
               <ClipboardList size={16} />
             </span>
             <p className="text-[11px] leading-4 text-foreground">
-              {liveRosterIsLoading ? (
+              {(liveEnabled && (overviewIsLoading || liveRosterIsLoading)) ? (
                 <>Loading compliance stats…</>
-              ) : liveRosterIsError ? (
+              ) : (liveEnabled && (overviewIsError || liveRosterIsError)) ? (
                 <>Could not load compliance stats.</>
-              ) : lapsedLoggersCount > 0 ? (
+              ) : lapsedLoggersCount !== null && lapsedLoggersCount > 0 ? (
                 <><b className="font-mono text-base text-navy">{lapsedLoggersCount}</b> patient{lapsedLoggersCount === 1 ? " hasn't" : "s haven't"} logged meals in the companion app for {LAPSED_AFTER_DAYS}+ days.</>
-              ) : (
+              ) : lapsedLoggersCount !== null ? (
                 <>Every patient in this view has logged meals within the last {LAPSED_AFTER_DAYS} days.</>
+              ) : (
+                <>Compliance stats unavailable.</>
               )}
             </p>
           </div>
-          {!liveRosterIsLoading && !liveRosterIsError && lapsedLoggersList.length > 0 && (
+          {!(liveEnabled && (overviewIsLoading || liveRosterIsLoading || overviewIsError || liveRosterIsError)) && lapsedLoggersList.length > 0 && (
             <div className="mt-1">
               {lapsedLoggersList.slice(0, 3).map(({ patient, stats }) => (
                 <Link

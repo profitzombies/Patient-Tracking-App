@@ -1,12 +1,10 @@
 /**
- * Drive-style files preview.
+ * Drive-style files preview and Live file storage.
  *
- * A browsable mockup of the HQ shared drive: nested folders, files with
- * sizes and modified dates, and a "share link" dialog that copies a fake
- * public URL. Nothing is stored or served — the preview banner and the
- * .example.com share domain keep that unmistakable.
+ * A browsable mockup of the HQ shared drive for the demo persona.
+ * Signed-in HQ admins use the live API to interact with real durable storage.
  */
-import { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   ArrowLeft,
   ChevronRight,
@@ -18,8 +16,13 @@ import {
   Link2,
   Plus,
   Presentation,
+  Download,
+  Trash2,
 } from 'lucide-react';
+import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
+import { useSession } from '@/contexts/session';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -28,9 +31,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { BTN_PRIMARY, BTN_SECONDARY, INSET, SectionCard } from '@/components/patient/heritage';
-import { AdminPage, PageHeader, PreviewBanner, copyText } from '@/components/admin/primitives';
+import { AdminPage, PageHeader, PreviewBanner, copyText, UnauthorizedState } from '@/components/admin/primitives';
 import { DRIVE_ROOT, DRIVE_SHARE_BASE, findFolderPath, type DriveFile, type DriveFileKind } from '@/data/hq/files';
+import {
+  useGetHqFiles,
+  getGetHqFilesQueryKey,
+  useCreateHqFileUpload,
+  useFinalizeHqFile,
+  useDeleteHqFile,
+  getHqFileDownload,
+  type HqFile,
+} from '@workspace/api-client-react';
 
 const FILE_ICONS: Record<DriveFileKind, React.ReactNode> = {
   doc: <FileText size={15} />,
@@ -50,10 +72,37 @@ const FILE_KIND_LABELS: Record<DriveFileKind, string> = {
   video: 'Video',
 };
 
-export default function Files() {
+function formatBytes(bytes: number, decimals = 1) {
+  if (!+bytes) return '0 B';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
+function getIconForContentType(contentType: string) {
+  const t = contentType.toLowerCase();
+  if (t.includes('image/')) return <FileImage size={15} />;
+  if (t.includes('video/')) return <FileVideo size={15} />;
+  if (t.includes('pdf')) return <FileText size={15} />;
+  if (t.includes('spreadsheet') || t.includes('excel') || t.includes('csv')) return <FileSpreadsheet size={15} />;
+  if (t.includes('presentation') || t.includes('powerpoint')) return <Presentation size={15} />;
+  return <FileText size={15} />;
+}
+
+function getLabelForContentType(contentType: string) {
+  const t = contentType.toLowerCase();
+  if (t.includes('image/')) return 'Image';
+  if (t.includes('video/')) return 'Video';
+  if (t.includes('pdf')) return 'PDF';
+  if (t.includes('spreadsheet') || t.includes('excel') || t.includes('csv')) return 'Sheet';
+  if (t.includes('presentation') || t.includes('powerpoint')) return 'Slides';
+  return 'Doc';
+}
+
+function DemoFiles() {
   const { toast } = useToast();
-  // Folder ids below the root; [] = at the drive root. State-only navigation
-  // keeps the mockup self-contained (no routes to maintain for a preview).
   const [pathIds, setPathIds] = useState<string[]>([]);
   const [sharing, setSharing] = useState<DriveFile | null>(null);
 
@@ -213,7 +262,6 @@ export default function Files() {
         </div>
       </SectionCard>
 
-      {/* Fake public share link dialog */}
       <Dialog open={sharing !== null} onOpenChange={(open) => !open && setSharing(null)}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
@@ -238,4 +286,256 @@ export default function Files() {
       </Dialog>
     </AdminPage>
   );
+}
+
+function LiveFiles() {
+  const { authUser } = useSession();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [uploadingName, setUploadingName] = useState<string | null>(null);
+  const [fileToDelete, setFileToDelete] = useState<HqFile | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const queryKey = [...getGetHqFilesQueryKey(), authUser?.id] as const;
+  const { data, isLoading, isError } = useGetHqFiles({
+    query: { queryKey }
+  });
+
+  const createUpload = useCreateHqFileUpload();
+  const finalizeUpload = useFinalizeHqFile();
+  const deleteFile = useDeleteHqFile();
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      toast({ variant: 'destructive', title: 'File too large', description: 'Maximum file size is 50 MB.' });
+      return;
+    }
+
+    try {
+      setUploadingName(file.name);
+      const { uploadUrl, fileId, objectPath } = await createUpload.mutateAsync({
+        data: {
+          name: file.name,
+          contentType: file.type || 'application/octet-stream',
+          size: file.size,
+        }
+      });
+
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      });
+
+      if (!putRes.ok) {
+        throw new Error('Upload to storage failed');
+      }
+
+      await finalizeUpload.mutateAsync({
+        data: {
+          fileId,
+          name: file.name,
+          contentType: file.type || 'application/octet-stream',
+          size: file.size,
+          objectPath,
+        }
+      });
+
+      queryClient.invalidateQueries({ queryKey });
+      toast({ variant: 'success', title: 'File uploaded', description: file.name });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Upload failed', description: 'There was a problem uploading your file.' });
+    } finally {
+      setUploadingName(null);
+    }
+  };
+
+  const handleDownload = async (file: HqFile) => {
+    try {
+      setDownloadingId(file.id);
+      const res = await getHqFileDownload(file.id);
+      window.location.assign(res.url);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Download failed', description: 'Could not generate a download link.' });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!fileToDelete) return;
+    try {
+      await deleteFile.mutateAsync({ fileId: fileToDelete.id });
+      queryClient.setQueryData(queryKey, (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          files: old.files.filter((f: HqFile) => f.id !== fileToDelete.id),
+        };
+      });
+      toast({ variant: 'success', title: 'File deleted', description: fileToDelete.name });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the file.' });
+    } finally {
+      setFileToDelete(null);
+    }
+  };
+
+  return (
+    <AdminPage>
+      <PageHeader
+        kicker="Library"
+        title="Files"
+        sub="Durable document storage for HQ administrators."
+        action={
+          <>
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={handleFileChange}
+              data-testid="input-file-upload"
+            />
+            <button
+              type="button"
+              className={`${BTN_PRIMARY} h-9 px-3.5`}
+              data-testid="button-new-file"
+              disabled={!!uploadingName}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Plus size={14} aria-hidden="true" />
+              {uploadingName ? 'Uploading...' : 'Upload'}
+            </button>
+          </>
+        }
+      />
+
+      <SectionCard title="Documents">
+        <div className="px-5 py-4">
+          {isLoading ? (
+            <p className="py-6 text-center text-xs text-muted-foreground">Loading files...</p>
+          ) : isError ? (
+            <p className="py-6 text-center text-xs text-destructive">Failed to load files.</p>
+          ) : data?.files.length === 0 && !uploadingName ? (
+            <p className="py-6 text-center text-xs text-muted-foreground">No files uploaded yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                    <th className="py-2.5 pr-3 font-bold">Name</th>
+                    <th className="px-3 py-2.5 font-bold">Type</th>
+                    <th className="px-3 py-2.5 font-bold">Size</th>
+                    <th className="px-3 py-2.5 font-bold">Uploaded</th>
+                    <th className="py-2.5 pl-3 text-right font-bold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uploadingName && (
+                    <tr className="border-b border-border last:border-b-0">
+                      <td className="py-2.5 pr-3">
+                        <span className="flex items-center gap-2.5 opacity-50">
+                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-sm bg-accent text-primary">
+                            <FileText size={15} />
+                          </span>
+                          <span className="truncate font-medium text-foreground">{uploadingName}</span>
+                        </span>
+                      </td>
+                      <td colSpan={4} className="px-3 py-2.5 text-muted-foreground text-right italic">
+                        Uploading...
+                      </td>
+                    </tr>
+                  )}
+                  {data?.files.map((file) => (
+                    <tr key={file.id} className="border-b border-border last:border-b-0" data-testid={`file-${file.id}`}>
+                      <td className="py-2.5 pr-3">
+                        <span className="flex items-center gap-2.5">
+                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-sm bg-accent text-primary" aria-hidden="true">
+                            {getIconForContentType(file.contentType)}
+                          </span>
+                          <span className="truncate font-medium text-foreground">{file.name}</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{getLabelForContentType(file.contentType)}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{formatBytes(file.size)}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{format(new Date(file.createdAt), 'MMM d, yyyy')}</td>
+                      <td className="py-2.5 pl-3 text-right">
+                        <div className="flex justify-end items-center gap-2">
+                          <button
+                            type="button"
+                            className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
+                            data-testid={`button-download-${file.id}`}
+                            disabled={downloadingId === file.id}
+                            onClick={() => handleDownload(file)}
+                          >
+                            <Download size={12} aria-hidden="true" />
+                            {downloadingId === file.id ? 'Starting...' : 'Download'}
+                          </button>
+                          <button
+                            type="button"
+                            className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 hover:border-destructive/30`}
+                            data-testid={`button-delete-${file.id}`}
+                            onClick={() => setFileToDelete(file)}
+                          >
+                            <Trash2 size={12} aria-hidden="true" />
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </SectionCard>
+
+      <AlertDialog open={fileToDelete !== null} onOpenChange={(open) => !open && setFileToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-serif text-navy">Delete file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete “{fileToDelete?.name}”? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDelete}
+              data-testid="button-confirm-delete"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </AdminPage>
+  );
+}
+
+export default function Files() {
+  const { authStatus, hqRole } = useSession();
+  const canManageFiles = hqRole === 'Admin' || hqRole === 'Super Admin';
+
+  if (authStatus === 'signed-in') {
+    if (canManageFiles) {
+      return <LiveFiles />;
+    }
+    return <UnauthorizedState role={hqRole} />;
+  }
+
+  return <DemoFiles />;
 }

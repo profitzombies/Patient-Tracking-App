@@ -9,7 +9,7 @@
  * Anchored to the fixed demo date — no viewer-clock math.
  */
 import { Link } from 'wouter';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 import { SectionCard } from '@/components/patient/heritage';
 import { AccountStatusChip, AdminPage, MetricTile, PageHeader } from '@/components/admin/primitives';
 import { useHqData } from '@/contexts/hq-data';
@@ -18,6 +18,7 @@ import { getConversations } from '@/data/hq/conversations';
 import { MOCK_PATIENTS } from '@/data/mock-data';
 import { TODAY_KEY, formatDateKey } from '@/data/nutrition-data';
 import { useSession } from '@/contexts/session';
+import { useGetHqOverview, getGetHqOverviewQueryKey } from '@workspace/api-client-react';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
 const round1 = (value: number) => Math.round(value * 10) / 10;
@@ -32,11 +33,39 @@ export default function HqOverview() {
     ? authUser?.displayName?.trim().split(/\s+/)[0] ?? null
     : 'HQ guest';
 
-  const totalPatients = accounts.reduce((sum, account) => sum + (account.activePatientCount ?? 0), 0);
-  const totalMonthly: number | null = null;
+  const liveEnabled = authStatus === 'signed-in';
+
+  const { data: hqOverview, isLoading: hqIsLoading, isError: hqIsError } = useGetHqOverview(
+    {
+      query: {
+        enabled: liveEnabled,
+        queryKey: [...getGetHqOverviewQueryKey(), authUser?.id]
+      }
+    }
+  );
 
   const activeAccounts = accounts.filter((account) => account.status === 'active');
   const revenueAccounts = accounts.filter((account) => monthlyRevenueOf(account) != null);
+
+  const totalPatientsValue = liveEnabled
+    ? (hqIsLoading ? '—' : hqIsError ? 'Error' : fmt(hqOverview?.metrics.activePatients ?? 0))
+    : fmt(accounts.reduce((sum, account) => sum + (account.activePatientCount ?? 0), 0));
+
+  const totalPatientsDetail = liveEnabled
+    ? (hqIsLoading ? 'Loading live data...' : hqIsError ? 'Failed to load' : `${hqOverview?.metrics.enrollments30d ?? 0} new enrollments this month`)
+    : 'Active patients from live provider-linked rows';
+
+  const engagementValue = liveEnabled
+    ? (hqIsLoading ? '—' : hqIsError ? 'Error' : (hqOverview?.metrics.activePatients && hqOverview?.metrics.engaged7d != null ? `${Math.round((hqOverview.metrics.engaged7d / hqOverview.metrics.activePatients) * 100)}%` : '—'))
+    : '—';
+
+  const engagementDetail = liveEnabled
+    ? (hqIsLoading ? 'Loading live data...' : hqIsError ? 'Failed to load' : 'Active patients engaging weekly')
+    : 'No confirmed live engagement source';
+
+  const pulseDate = liveEnabled && hqOverview?.asOf
+    ? formatDateKey(hqOverview.asOf.split('T')[0], true)
+    : formatDateKey(TODAY_KEY, true);
 
   const latestConversations = getConversations().slice(0, 3);
 
@@ -46,18 +75,22 @@ export default function HqOverview() {
         kicker="THINNR HQ"
         title={firstName ? `Good morning, ${firstName}.` : 'Good morning.'}
         sub={
-          <>
-            <span data-testid="text-hq-demo-date">{formatDateKey(TODAY_KEY, true)}</span> · Rollup across{' '}
-            {accounts.length} provider accounts ({activeAccounts.length} active).
-          </>
+          liveEnabled ? (
+            <><span data-testid="text-hq-demo-date">{pulseDate}</span> · Operations rollup</>
+          ) : (
+            <>
+              <span data-testid="text-hq-demo-date">{pulseDate}</span> · Rollup across{' '}
+              {accounts.length} provider accounts ({activeAccounts.length} active).
+            </>
+          )
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricTile
           label="Patients across accounts"
-          value={fmt(totalPatients)}
-          detail="Active patients from live provider-linked rows"
+          value={totalPatientsValue}
+          detail={totalPatientsDetail}
           testId="text-hq-patients"
         />
         <MetricTile
@@ -74,137 +107,145 @@ export default function HqOverview() {
         />
         <MetricTile
           label="Avg engagement"
-          value="—"
-          detail="No confirmed live engagement source"
+          value={engagementValue}
+          detail={engagementDetail}
           testId="text-hq-engagement"
         />
       </div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,7fr),minmax(0,5fr)]">
-        <SectionCard
-          title="Monthly program revenue"
-          sub="Across every provider account"
-        >
-          <div className="px-5 py-4">
-            <p className="font-serif text-[30px] font-bold leading-none tracking-[-.01em] text-navy" data-testid="text-hq-revenue">
-              —
-            </p>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              No confirmed live revenue source is available for this directory.
-            </p>
+      {!liveEnabled && (
+        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,7fr),minmax(0,5fr)]">
+          <SectionCard
+            title="Monthly program revenue"
+            sub="Across every provider account"
+          >
+            <div className="px-5 py-4">
+              <p className="font-serif text-[30px] font-bold leading-none tracking-[-.01em] text-navy" data-testid="text-hq-revenue">
+                ${fmt(184200)} <span className="ml-2 rounded border border-accent-border bg-accent px-2 py-1 text-xs font-semibold tracking-normal text-primary align-middle">Demo projection</span>
+              </p>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Revenue is isolated to the guided demo. Live revenue integration is pending.
+              </p>
 
-            {/* Share-of-revenue stacked bar: one segment per revenue-bearing account. */}
-            <div className="mt-4 flex h-3 w-full overflow-hidden rounded-sm" role="img" aria-label="Monthly revenue share by provider account">
-              {revenueAccounts.map((account, index) => (
-                <span
-                  key={account.id}
-                  className={BAR_CLASSES[index % BAR_CLASSES.length]}
-                  style={{ width: `${100 / Math.max(1, revenueAccounts.length)}%` }}
-                />
-              ))}
-            </div>
-            <ul className="mt-3 space-y-1.5">
-              {revenueAccounts.map((account, index) => (
-                <li key={account.id} className="flex items-center gap-2 text-[11px]">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${BAR_CLASSES[index % BAR_CLASSES.length]}`} aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate text-foreground">{account.officeName}</span>
-                  <span className="shrink-0 font-semibold text-navy">${fmt(monthlyRevenueOf(account) ?? 0)}</span>
-                  <span className="w-10 shrink-0 text-right text-muted-foreground">
-                    —
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            <p className="mt-4 border-t border-border pt-3 text-[10px] leading-relaxed text-muted-foreground">
-              Unavailable values stay unavailable until an authoritative live source is connected.
-            </p>
-          </div>
-        </SectionCard>
-
-        <SectionCard
-          title="Latest coach conversations"
-          sub="Across all accounts"
-          action={
-            <Link href="/admin/conversations" className="inline-flex items-center gap-1 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              Open conversations
-              <ArrowRight size={12} aria-hidden="true" />
-            </Link>
-          }
-        >
-          <ul>
-            {latestConversations.map((conv) => {
-              const patient = MOCK_PATIENTS.find((entry) => entry.id === conv.patientId);
-              const account = accounts.find((entry) => entry.id === conv.accountId);
-              return (
-                <li key={conv.id} className="border-b border-border last:border-b-0">
-                  <Link
-                    href={`/admin/conversations?c=${conv.id}`}
-                    className="flex items-center gap-3 px-5 py-3.5 transition hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    data-testid={`link-hq-conversation-${conv.id}`}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <b className="block truncate text-xs font-semibold text-navy">{patient?.name ?? 'Patient'}</b>
-                      <span className="block truncate text-[11px] text-muted-foreground">{conv.topic}</span>
-                      <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-[.12em] text-muted-foreground/80">
-                        {account?.officeName}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">{conv.startedLabel}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </SectionCard>
-      </div>
-
-      <div className="mt-5">
-        <SectionCard
-          title="Provider accounts"
-          sub="Each office under the umbrella, linked by its onboarding code"
-          action={
-            <Link href="/admin/accounts" className="inline-flex items-center gap-1 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              Manage accounts
-              <ArrowRight size={12} aria-hidden="true" />
-            </Link>
-          }
-        >
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-left text-xs">
-              <thead>
-                <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
-                  <th className="px-5 py-3 font-bold">Office</th>
-                  <th className="px-3 py-3 font-bold">Provider</th>
-                  <th className="px-3 py-3 font-bold">Status</th>
-                  <th className="px-3 py-3 text-right font-bold">Patients</th>
-                  <th className="px-3 py-3 text-right font-bold">Monthly revenue</th>
-                  <th className="px-5 py-3 text-right font-bold">Engagement</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((account) => (
-                  <tr key={account.id} className="border-b border-border transition hover:bg-accent/40 last:border-b-0">
-                    <td className="px-5 py-3">
-                      <Link href={`/admin/accounts/${account.id}`} className="block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`row-hq-account-${account.id}`}>
-                        <b className="block text-xs font-semibold text-navy">{account.officeName}</b>
-                        <small className="text-[10px] text-muted-foreground">{account.city}, {account.state}</small>
-                      </Link>
-                    </td>
-                    <td className="px-3 py-3 text-foreground">{account.providerName}</td>
-                    <td className="px-3 py-3"><AccountStatusChip status={account.status} /></td>
-                    <td className="px-3 py-3 text-right font-semibold text-navy">{fmt(account.activePatientCount ?? 0)}</td>
-                    <td className="px-3 py-3 text-right text-foreground">{monthlyRevenueOf(account) == null ? '—' : `$${fmt(monthlyRevenueOf(account)!)}`}</td>
-                    <td className="px-5 py-3 text-right text-foreground">
-                      {account.engagementRate == null ? '—' : `${account.engagementRate}%`}
-                    </td>
-                  </tr>
+              {/* Share-of-revenue stacked bar: one segment per revenue-bearing account. */}
+              <div className="mt-4 flex h-3 w-full overflow-hidden rounded-sm" role="img" aria-label="Monthly revenue share by provider account">
+                {revenueAccounts.map((account, index) => (
+                  <span
+                    key={account.id}
+                    className={BAR_CLASSES[index % BAR_CLASSES.length]}
+                    style={{ width: `${100 / Math.max(1, revenueAccounts.length)}%` }}
+                  />
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
-      </div>
+              </div>
+              <ul className="mt-3 space-y-1.5">
+                {revenueAccounts.map((account, index) => (
+                  <li key={account.id} className="flex items-center gap-2 text-[11px]">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${BAR_CLASSES[index % BAR_CLASSES.length]}`} aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate text-foreground">{account.officeName}</span>
+                    <span className="shrink-0 font-semibold text-navy">${fmt(monthlyRevenueOf(account) ?? 0)}</span>
+                    <span className="w-10 shrink-0 text-right text-muted-foreground">
+                      {Math.round(((monthlyRevenueOf(account) ?? 0) / 184200) * 100)}%
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              <p className="mt-4 border-t border-border pt-3 text-[10px] leading-relaxed text-muted-foreground">
+                Unavailable values stay unavailable until an authoritative live source is connected.
+              </p>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Latest coach conversations"
+            sub="Across all accounts"
+            action={
+              <Link href="/admin/conversations" className="inline-flex items-center gap-1 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Open conversations
+                <ArrowRight size={12} aria-hidden="true" />
+              </Link>
+            }
+          >
+            <ul>
+              {latestConversations.map((conv) => {
+                const patient = MOCK_PATIENTS.find((entry) => entry.id === conv.patientId);
+                const account = accounts.find((entry) => entry.id === conv.accountId);
+                return (
+                  <li key={conv.id} className="border-b border-border last:border-b-0">
+                    <Link
+                      href={`/admin/conversations?c=${conv.id}`}
+                      className="flex items-center gap-3 px-5 py-3.5 transition hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      data-testid={`link-hq-conversation-${conv.id}`}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <b className="block truncate text-xs font-semibold text-navy">{patient?.name ?? 'Patient'}</b>
+                        <span className="block truncate text-[11px] text-muted-foreground">{conv.topic}</span>
+                        <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-[.12em] text-muted-foreground/80">
+                          {account?.officeName}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{conv.startedLabel}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </SectionCard>
+        </div>
+      )}
+
+      {!liveEnabled && (
+        <div className="mt-5">
+          <SectionCard
+            title="Provider accounts"
+            sub="Each office under the umbrella, linked by its onboarding code"
+            action={
+              <Link href="/admin/accounts" className="inline-flex items-center gap-1 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Manage accounts
+                <ArrowRight size={12} aria-hidden="true" />
+              </Link>
+            }
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                    <th className="px-5 py-3 font-bold">Office</th>
+                    <th className="px-3 py-3 font-bold">Provider</th>
+                    <th className="px-3 py-3 font-bold">Status</th>
+                    <th className="px-3 py-3 text-right font-bold">Patients</th>
+                    <th className="px-3 py-3 text-right font-bold">Monthly revenue</th>
+                    <th className="px-5 py-3 text-right font-bold">Engagement</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accounts.map((account) => (
+                    <tr key={account.id} className="border-b border-border transition hover:bg-accent/40 last:border-b-0">
+                      <td className="px-5 py-3">
+                        <Link href={`/admin/accounts/${account.id}`} className="block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`row-hq-account-${account.id}`}>
+                          <b className="block text-xs font-semibold text-navy">{account.officeName}</b>
+                          <small className="text-[10px] text-muted-foreground">{account.city}, {account.state}</small>
+                        </Link>
+                      </td>
+                      <td className="px-3 py-3 text-foreground">{account.providerName}</td>
+                      <td className="px-3 py-3"><AccountStatusChip status={account.status} /></td>
+                      <td className="px-3 py-3 text-right font-semibold text-navy">
+                        {fmt(account.activePatientCount ?? 0)}
+                      </td>
+                      <td className="px-3 py-3 text-right text-foreground">
+                        {monthlyRevenueOf(account) == null ? '—' : `$${fmt(monthlyRevenueOf(account)!)}`}
+                      </td>
+                      <td className="px-5 py-3 text-right text-foreground">
+                        {account.engagementRate == null ? '—' : `${account.engagementRate}%`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+        </div>
+      )}
     </AdminPage>
   );
 }

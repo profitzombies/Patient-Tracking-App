@@ -22,8 +22,12 @@ const allowedActions = new Set([
   "hq_team_invited",
   "hq_team_updated",
   "hq_team_revoked",
+  "hq_settings_updated",
+  "hq_file_uploaded",
+  "hq_file_deleted",
+  "conversation_transcript_read",
 ]);
-const allowedMetadata = new Set(["reason", "role", "status", "field"]);
+const allowedMetadata = new Set(["reason", "role", "status", "field", "size", "contentType", "thread"]);
 const enc = encodeURIComponent;
 function utcDate(value: string | undefined): number | null {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;

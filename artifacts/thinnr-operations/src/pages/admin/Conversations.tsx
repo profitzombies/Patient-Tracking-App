@@ -1,26 +1,7 @@
-/**
- * Cross-account coach conversations viewer — an iMessage-style two-pane
- * messenger in the Heritage skin.
- *
- * Left rail: searchable, filterable list of every mock thread, newest
- * activity first (each thread's latest message, not its start date), with
- * avatar / name / last-message preview / time rows. Right pane: the selected
- * transcript rendered the way the mobile coach chat shows it — user bubbles
- * right, coach bubbles left in blank-line-separated blocks, rich cards
- * (recipe / product) under the reply that offered them, and the one-tap
- * reply chips the patient saw. Everything is read-only — the chips and card
- * buttons are display artifacts of the phone UI, not live controls here,
- * and there is deliberately no composer.
- *
- * URL contract: ?account=<id> filters to one provider account (the account
- * detail page links here with it), ?c=<conversation id> opens a specific
- * thread, and ?q=<text> carries the rail search — all three survive reload
- * and sharing. On phones the rail shows first; opening a thread goes
- * full-screen with a back control.
- */
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import { ArrowLeft, MessagesSquare, Search, X } from 'lucide-react';
+import { format, isToday, isYesterday } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BTN_SECONDARY, CHIP_WARM, WARM_TEXT } from '@/components/patient/heritage';
 import { AccountStatusChip } from '@/components/admin/primitives';
@@ -28,6 +9,7 @@ import { useHqData } from '@/contexts/hq-data';
 import { useSession } from '@/contexts/session';
 import { MOCK_PATIENTS, MOCK_PRODUCTS, type Patient } from '@/data/mock-data';
 import type { ProviderAccount } from '@/data/hq/accounts';
+import type { HqRole } from '@/data/hq/team';
 import {
   conversationMatchesQuery,
   getConversationMessagesForRole,
@@ -37,6 +19,14 @@ import {
   type HqConversationSummary,
   type HqRecipePayload,
 } from '@/data/hq/conversations';
+import {
+  useGetOfficeConversations,
+  useGetOfficeConversationEvents,
+  getGetOfficeConversationsQueryKey,
+  getGetOfficeConversationEventsQueryKey,
+  type GetOfficeConversationsThread,
+  type ConversationEvent,
+} from '@workspace/api-client-react';
 
 /** One rail entry: the thread plus its resolved patient and provider account. */
 interface RailRow {
@@ -64,6 +54,32 @@ function PatientAvatar({ patient }: { patient: Patient | undefined }) {
       {patient?.initials?.slice(0, 2) ?? '?'}
     </span>
   );
+}
+
+function InitialsAvatar({ name }: { name: string | undefined }) {
+  const initials = (name || '')
+    .split(' ')
+    .filter(Boolean)
+    .map((n) => n[0])
+    .join('')
+    .substring(0, 2)
+    .toUpperCase();
+  return (
+    <span
+      aria-hidden="true"
+      className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-accent-border bg-accent text-[11px] font-bold text-primary"
+    >
+      {initials || '?'}
+    </span>
+  );
+}
+
+function formatRelativeTime(dateString: string) {
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return '';
+  if (isToday(d)) return format(d, 'h:mm a');
+  if (isYesterday(d)) return 'Yesterday';
+  return format(d, 'MMM d, yyyy');
 }
 
 function RecipeCardPreview({ payload }: { payload: HqRecipePayload }) {
@@ -156,7 +172,41 @@ function MessageRow({ message }: { message: HqCoachMessage }) {
   );
 }
 
-function SupportConversations() {
+function LiveMessageRow({ message }: { message: ConversationEvent }) {
+  const isUser = message.role === 'user';
+  const timeLabel = format(new Date(message.createdAt), 'h:mm a');
+
+  return (
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-[88%] md:max-w-[72%] ${isUser ? 'items-end' : 'items-start'}`}>
+        <div
+          className={
+            isUser
+              ? 'rounded-lg rounded-br-sm bg-primary px-3.5 py-2.5 text-primary-foreground shadow-xs'
+              : 'rounded-lg rounded-bl-sm border border-card-border bg-card px-3.5 py-2.5 shadow-soft'
+          }
+        >
+          {message.text.split('\n\n').map((block, index) => (
+            <p
+              key={index}
+              className={`text-xs leading-relaxed ${index > 0 ? 'mt-2.5' : ''} ${isUser ? '' : 'text-foreground'}`}
+            >
+              {block}
+            </p>
+          ))}
+          {message.stopped && (
+            <p className="mt-2 text-[10px] italic text-destructive opacity-80">
+              Message stopped by user
+            </p>
+          )}
+        </div>
+        <p className={`mt-1.5 text-[10px] text-muted-foreground ${isUser ? 'text-right' : ''}`}>{timeLabel}</p>
+      </div>
+    </div>
+  );
+}
+
+function DemoSupportConversations() {
   const { accounts, accountsStatus, accountsError } = useHqData();
 
   return (
@@ -217,7 +267,7 @@ function SupportConversations() {
   );
 }
 
-function ClinicalConversations({ role }: { role: 'Super Admin' | 'Admin' | 'Clinical' }) {
+function DemoClinicalConversations({ role }: { role: 'Super Admin' | 'Admin' | 'Clinical' }) {
   const [, navigate] = useLocation();
   const search = useSearch();
   const { accounts, findAccount } = useHqData();
@@ -480,13 +530,327 @@ function ClinicalConversations({ role }: { role: 'Super Admin' | 'Admin' | 'Clin
   );
 }
 
+function LiveConversations({ role }: { role: HqRole }) {
+  const [, navigate] = useLocation();
+  const search = useSearch();
+  const { accounts, findAccount } = useHqData();
+  const { authUser } = useSession();
+
+  const params = new URLSearchParams(search);
+  const rawAccount = params.get('account');
+  const accountFilter = rawAccount && findAccount(rawAccount) ? rawAccount : 'all';
+  const openId = params.get('c');
+
+  const isUnifiedAdmin = role === 'Super Admin' || role === 'Admin';
+
+  const [threadFilter, setThreadFilter] = useState<GetOfficeConversationsThread>(
+    role === 'Support' ? 'support' : 'coach'
+  );
+
+  const [offset, setOffset] = useState(0);
+  const limit = 20;
+
+  const buildUrl = (next: { account?: string; c?: string | null }) => {
+    const url = new URLSearchParams();
+    const account = next.account !== undefined ? next.account : accountFilter;
+    const conversation = next.c !== undefined ? next.c : openId;
+    if (account !== 'all') url.set('account', account);
+    if (conversation) url.set('c', conversation);
+    const encoded = url.toString();
+    return encoded ? `/admin/conversations?${encoded}` : '/admin/conversations';
+  };
+
+  const setAccountFilter = (next: string) => {
+    setOffset(0);
+    navigate(buildUrl({ account: next, c: null }), { replace: true });
+  };
+
+  const handleThreadChange = (next: GetOfficeConversationsThread) => {
+    setOffset(0);
+    setThreadFilter(next);
+    navigate(buildUrl({ c: null }), { replace: true });
+  };
+
+  const openConversation = (id: string) => navigate(buildUrl({ c: id }));
+  const closeThread = () => navigate(buildUrl({ c: null }), { replace: true });
+
+  const resolvedOffice = accountFilter !== 'all' ? accountFilter : undefined;
+
+  const { data: convData, isFetching: isConvFetching, error: convError } = useGetOfficeConversations(
+    { office: resolvedOffice, thread: threadFilter, limit, offset },
+    {
+      query: {
+        enabled: !!resolvedOffice,
+        queryKey: [...getGetOfficeConversationsQueryKey({ office: resolvedOffice, thread: threadFilter, limit, offset }), authUser?.id],
+      }
+    }
+  );
+
+  const conversations = convData?.conversations ?? [];
+  const total = convData?.total ?? 0;
+  const hasMore = offset + limit < total;
+  const hasPrev = offset > 0;
+
+  const [beforeCursor, setBeforeCursor] = useState<number | undefined>(undefined);
+  const [allEvents, setAllEvents] = useState<ConversationEvent[]>([]);
+
+  useEffect(() => {
+    setBeforeCursor(undefined);
+    setAllEvents([]);
+  }, [openId, accountFilter, threadFilter]);
+
+  const { data: eventsData, isFetching: isEventsFetching, error: eventsError } = useGetOfficeConversationEvents(
+    openId ?? '',
+    { office: resolvedOffice, before: beforeCursor, limit: 30 },
+    {
+      query: {
+        enabled: !!openId && !!resolvedOffice,
+        queryKey: [...getGetOfficeConversationEventsQueryKey(openId ?? '', { office: resolvedOffice, before: beforeCursor, limit: 30 }), authUser?.id],
+      }
+    }
+  );
+
+  useEffect(() => {
+    if (eventsData?.events) {
+      setAllEvents(prev => {
+        const newEvents = eventsData.events.filter(e => !prev.some(p => p.seq === e.seq));
+        return [...prev, ...newEvents].sort((a, b) => a.seq - b.seq);
+      });
+    }
+  }, [eventsData?.events]);
+
+  const explicit = openId;
+  const selectedSummary = eventsData?.conversation ?? conversations.find(c => c.id === openId);
+
+  const listPane = (
+    <aside
+      className={`${explicit ? 'hidden md:flex' : 'flex'} w-full min-w-0 flex-col border-r border-border bg-paper-alt md:w-[320px] md:shrink-0 lg:w-[352px]`}
+    >
+      <div className="shrink-0 space-y-2.5 border-b border-border px-4 pb-3.5 pt-4">
+        <div className="flex items-baseline justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">{threadFilter === 'support' ? 'Support' : 'Coach'}</p>
+            <h1 className="font-serif text-lg font-bold leading-tight tracking-[-.01em] text-navy">Live Conversations</h1>
+          </div>
+          {total > 0 && (
+            <span aria-live="polite" className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+              {offset + 1}-{Math.min(offset + limit, total)} of {total}
+            </span>
+          )}
+        </div>
+
+        {isUnifiedAdmin && (
+          <div className="flex rounded-md bg-muted p-1">
+            <button
+              onClick={() => handleThreadChange('coach')}
+              className={`flex-1 rounded-sm py-1.5 text-xs font-medium transition-colors ${threadFilter === 'coach' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              Coach
+            </button>
+            <button
+              onClick={() => handleThreadChange('support')}
+              className={`flex-1 rounded-sm py-1.5 text-xs font-medium transition-colors ${threadFilter === 'support' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              Support
+            </button>
+          </div>
+        )}
+
+        <Select value={accountFilter} onValueChange={setAccountFilter}>
+          <SelectTrigger className="h-9 w-full text-xs">
+            <SelectValue>{accountFilter === 'all' ? 'Select a provider account...' : findAccount(accountFilter)?.officeName}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">
+               Select a provider account...
+            </SelectItem>
+            {accounts.map((account) => (
+              <SelectItem key={account.id} value={account.id} className="text-xs">
+                <span className="block">{account.officeName}</span>
+                <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                  {account.providerName} · Code {account.providerCode}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {!resolvedOffice ? (
+          <div className="px-5 py-10 text-center">
+            <MessagesSquare size={18} className="mx-auto text-muted-foreground" aria-hidden="true" />
+            <p className="mt-2 text-xs font-semibold text-navy">Select an account</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              You must select a provider account to view live {threadFilter} conversations.
+            </p>
+          </div>
+        ) : isConvFetching && conversations.length === 0 ? (
+          <div className="px-5 py-10 text-center text-xs text-muted-foreground">Loading...</div>
+        ) : convError ? (
+          <div className="px-5 py-10 text-center text-xs text-destructive">Failed to load conversations.</div>
+        ) : conversations.length > 0 ? (
+          <div className="flex flex-col h-full">
+            <ul className="divide-y divide-border/60 flex-1">
+              {conversations.map((conv) => {
+                const isActive = openId === conv.id;
+                return (
+                  <li key={conv.id}>
+                    <button
+                      type="button"
+                      onClick={() => openConversation(conv.id)}
+                      className={`flex w-full items-start gap-3 border-l-2 px-3.5 py-3 text-left transition ${isActive ? 'border-primary bg-card shadow-soft' : 'border-transparent hover:bg-card/70'}`}
+                    >
+                      <InitialsAvatar name={conv.patientName} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline justify-between gap-2">
+                          <b className="truncate text-xs font-semibold text-navy">{conv.patientName}</b>
+                          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                            {conv.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : ''}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                          {conv.messageCount} message{conv.messageCount !== 1 ? 's' : ''}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {(hasPrev || hasMore) && (
+              <div className="flex justify-between items-center px-4 py-3 border-t border-border">
+                <button
+                  disabled={!hasPrev || isConvFetching}
+                  onClick={() => setOffset(o => Math.max(0, o - limit))}
+                  className={`${BTN_SECONDARY} h-7 px-3 text-[10px]`}
+                >
+                  Newer
+                </button>
+                <button
+                  disabled={!hasMore || isConvFetching}
+                  onClick={() => setOffset(o => o + limit)}
+                  className={`${BTN_SECONDARY} h-7 px-3 text-[10px]`}
+                >
+                  Older
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="px-5 py-10 text-center">
+            <MessagesSquare size={18} className="mx-auto text-muted-foreground" aria-hidden="true" />
+            <p className="mt-2 text-xs font-semibold text-navy">No conversations</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              No live {threadFilter} transcripts for this account yet.
+            </p>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+
+  const viewerPane = (
+    <section className={`${explicit ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col bg-background`}>
+      {openId ? (
+        <>
+          <header className="shrink-0 border-b border-border bg-card px-4 py-3 md:px-6">
+            {explicit && (
+              <button
+                type="button"
+                className="mb-2 inline-flex items-center gap-1.5 rounded-sm text-xs font-semibold text-primary hover:underline md:hidden"
+                onClick={closeThread}
+              >
+                <ArrowLeft size={12} aria-hidden="true" />
+                All conversations
+              </button>
+            )}
+            <div className="flex items-center gap-3">
+              <InitialsAvatar name={selectedSummary?.patientName ?? 'Patient'} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <h2 className="truncate font-serif text-base font-bold tracking-[.01em] text-navy">
+                    {selectedSummary?.patientName ?? 'Patient'}
+                  </h2>
+                  <span className={CHIP_WARM}>Live transcript</span>
+                </div>
+                <p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground/80">
+                  {findAccount(accountFilter)?.officeName ?? 'Unknown office'}
+                </p>
+              </div>
+            </div>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6 flex flex-col">
+            <div className="mx-auto w-full max-w-[820px] space-y-4 flex flex-col justify-end">
+              {eventsData?.nextBefore && (
+                <div className="text-center pb-4">
+                  <button
+                    onClick={() => setBeforeCursor(eventsData.nextBefore!)}
+                    disabled={isEventsFetching}
+                    className={`${BTN_SECONDARY} h-8 px-4 text-xs`}
+                  >
+                    {isEventsFetching ? 'Loading...' : 'Load older messages'}
+                  </button>
+                </div>
+              )}
+              {isEventsFetching && allEvents.length === 0 ? (
+                <div className="text-center text-xs text-muted-foreground py-10">Loading messages...</div>
+              ) : eventsError ? (
+                <div className="text-center text-xs text-destructive py-10">Failed to load messages.</div>
+              ) : allEvents.length === 0 ? (
+                <div className="text-center text-xs text-muted-foreground py-10">No messages in this conversation.</div>
+              ) : (
+                <>
+                  <p className="text-center text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground/80 mb-2">
+                    Started {selectedSummary?.createdAt ? formatRelativeTime(selectedSummary.createdAt) : ''}
+                  </p>
+                  {allEvents.map((message) => (
+                    <LiveMessageRow key={message.seq} message={message} />
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+
+          <footer className="shrink-0 border-t border-border bg-card px-4 py-2.5 md:px-6">
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              Read-only live transcript. You are viewing real user history. Use carefully.
+            </p>
+          </footer>
+        </>
+      ) : (
+        <div className="grid flex-1 place-items-center px-6 py-10">
+          <div className="text-center">
+            <MessagesSquare size={20} className="mx-auto text-muted-foreground" aria-hidden="true" />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Select a conversation to read it.
+            </p>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+
+  return (
+    <div className="flex h-full min-h-0">
+      {listPane}
+      {viewerPane}
+    </div>
+  );
+}
+
 export default function Conversations() {
   const { authStatus, hqRole } = useSession();
   const effectiveRole = authStatus === 'signed-out' ? 'Super Admin' : hqRole;
 
-  if (effectiveRole === 'Support') return <SupportConversations />;
+  if (authStatus === 'signed-in') {
+    return <LiveConversations role={effectiveRole!} />;
+  }
+
+  if (effectiveRole === 'Support') return <DemoSupportConversations />;
   if (effectiveRole === 'Super Admin' || effectiveRole === 'Admin' || effectiveRole === 'Clinical') {
-    return <ClinicalConversations role={effectiveRole} />;
+    return <DemoClinicalConversations role={effectiveRole} />;
   }
   return null;
 }

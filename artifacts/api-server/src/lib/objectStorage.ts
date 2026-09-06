@@ -281,6 +281,21 @@ export class ObjectStorageService {
     return { uploadUrl, objectPath };
   }
 
+  /** Private HQ document upload, bound to a server-generated metadata id. */
+  async hqFileUploadURL(fileId: string): Promise<{ uploadUrl: string; objectPath: string }> {
+    const objectId = `file-${randomUUID()}`;
+    const objectPath = `/objects/hq-files/${fileId}/${objectId}`;
+    const fullPath = `${getTrainingObjectDir()}/hq-files/${fileId}/${objectId}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const uploadUrl = await signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: UPLOAD_URL_TTL_SEC,
+    });
+    return { uploadUrl, objectPath };
+  }
+
   /** Resolve `/objects/...` to the underlying file; throws when absent. */
   async entityFile(objectPath: string): Promise<File> {
     const file = this.fileFor(objectPath);

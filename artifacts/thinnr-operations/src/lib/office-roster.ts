@@ -13,30 +13,58 @@ export class OfficeRosterError extends Error {
     message: string,
     readonly status: number,
     readonly field: string | null = null,
+    /** Server error code; `record_changed` marks a stale-save conflict (reload, never overwrite). */
+    readonly code: string | null = null,
   ) {
     super(message);
     this.name = 'OfficeRosterError';
+  }
+
+  /** True when the record changed underneath the caller and must be reloaded before retrying. */
+  get isConflict(): boolean {
+    return this.code === 'record_changed';
+  }
+
+  /** True when the signed-in role is not allowed to make this change. */
+  get isForbidden(): boolean {
+    return this.status === 403;
   }
 }
 
 export interface OfficePatient {
   id: string;
+
   name: string;
+
   email: string | null;
+
   phone: string | null;
+
   phoneDisplay: string | null;
+
   activationStatus: string | null;
+
   verified: boolean;
+
   createdAt: string | null;
   /** Optional summary values supplied by the roster endpoint as they become available. */
+
   status?: string | null;
+
   providerName?: string | null;
+
   startDate?: string | null;
+
   startingWeight?: number | null;
+
   currentWeight?: number | null;
+
   goalWeight?: number | null;
+
   lastLogAt?: string | null;
+
   loggedDays7?: number | null;
+
   program?: {
     id: string | null;
     day?: number;
@@ -49,12 +77,15 @@ export interface OfficePatient {
     weightChange: number | null;
     lastLogDate: string | null;
   };
+
   invitation: {
     state: 'pending' | 'verified';
     invitedAt: string;
     emailStatus: 'pending' | 'sent' | 'failed';
     emailUpdatedAt: string | null;
+
   } | null;
+
   operational?: {
     /** Patient-local calendar day the signals were computed for. */
     asOfDate?: string;
@@ -70,7 +101,7 @@ export interface OfficePatient {
     /** Activity signals; null when the office aggregate had no row for the patient (unknown, not zero). */
     activity?: PatientActivitySignals | null;
     /** `unknown` = the aggregate had no row for this patient; never treated as lapsed. */
-    status: 'invited' | 'inactive' | 'needs_attention' | 'on_track' | 'unknown';
+    status: 'invited' | 'inactive' | 'needs_attention' | 'on_track' | 'paused' | 'discharged' | 'unknown';
     reasons: ('logging_lapsed' | 'check_in_overdue' | 'no_activity_14d')[];
     followUps?: {
       reason: 'logging_lapsed' | 'check_in_overdue' | 'no_activity_14d';
@@ -127,8 +158,19 @@ export interface OfficeRoster {
 export interface OfficeWeightEntry {
   dateKey: string;
   weight: number;
+  /** Who recorded the reading: the patient (check-in) or office staff. */
+  source?: 'patient' | 'staff';
+  /** Staff readings carry their row id so they can be corrected or removed. */
+  id?: string;
 }
 
+export interface OfficeProviderNote {
+  id: string;
+  body: string;
+  authorName: string;
+  authorKind: 'provider' | 'team_member' | 'hq';
+  createdAt: string;
+}
 export interface OfficeDiaryEntry {
   id: string;
   dateKey: string;
@@ -169,13 +211,18 @@ export interface OfficePatientDetail {
     identity: {
       id: string;
       name: string;
+      firstName?: string;
+      lastName?: string;
       email: string | null;
       phone: string | null;
       phoneDisplay: string | null;
       activationStatus: string | null;
+      activationReason?: string | null;
+      activationUpdatedAt?: string | null;
       verified: boolean;
       dateOfBirth: string | null;
       height: string | null;
+      heightInches?: number | null;
       timezone: string | null;
       createdAt: string | null;
       claimedAt: string | null;
@@ -190,6 +237,8 @@ export interface OfficePatientDetail {
       weightChange: number | null;
       lastLogDate: string | null;
     };
+    /** Record version for optimistic concurrency (null for never-edited legacy rows). */
+    version: string | null;
   };
   diary: {
     entries: OfficeDiaryEntry[];
@@ -203,6 +252,9 @@ export interface OfficePatientDetail {
   /** Same definitions as the roster's operational.activity, over the rows above. */
   engagement?: PatientActivitySignals;
   weights: OfficeWeightEntry[];
+  /** Staff-only notes — never part of the patient app's own-record contract. */
+  providerNotes: OfficeProviderNote[];
+  staffWeights: OfficeStaffWeight[];
   progressPhotos: OfficeProgressPhoto[];
   account: {
     targets: { calories: number | null; protein: number | null; carbs: number | null; fat: number | null; waterOz: number | null };
@@ -255,7 +307,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new OfficeRosterError('Could not reach the roster service. Check your connection and try again.', 0);
   }
-  let body: { error?: unknown; field?: unknown } & Partial<T> = {};
+  let body: { error?: unknown; field?: unknown; code?: unknown } & Partial<T> = {};
   try {
     body = (await response.json()) as typeof body;
   } catch {
@@ -266,6 +318,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       typeof body.error === 'string' ? body.error : `The roster request failed (${response.status}).`,
       response.status,
       typeof body.field === 'string' ? body.field : null,
+      typeof body.code === 'string' ? body.code : null,
     );
   }
   return body as T;
@@ -305,6 +358,17 @@ export async function resendInvitation(
   });
 }
 
+export interface PatientProfilePatch {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  dateOfBirth?: string | null;
+  heightInches?: number | null;
+  goalWeight?: number | null;
+  programStartDate?: string | null;
+  timezone?: string | null;
+}
 /**
  * Shared US phone formatting — the same 10-digit rule (optional leading 1)
  * the server enforces, rendered as (xxx) xxx-xxxx while typing.
@@ -339,4 +403,106 @@ export function validateInviteForm(input: InvitePatientInput): Partial<Record<ke
   if (!input.phone.trim()) errors.phone = 'Phone number is required.';
   else if (!usPhoneDigits(input.phone)) errors.phone = 'Enter a valid 10-digit US mobile number.';
   return errors;
+}
+
+export async function addProviderNote(
+  patientId: string,
+  body: string,
+  office?: string | null,
+): Promise<{ note: OfficeProviderNote }> {
+  return request(patientPath(patientId, '/notes', office), {
+    method: 'POST',
+    body: JSON.stringify({ body }),
+  });
+}
+
+export async function recordStaffWeight(
+  patientId: string,
+  input: { dateKey: string; weight: number; note?: string },
+  office?: string | null,
+): Promise<{ weight: OfficeStaffWeight } & PatientRecordResponse> {
+  return request(patientPath(patientId, '/weights', office), {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Removal carries the weigh-in's version like a correction: a stale dialog gets the reload conflict, not a silent delete. */
+export async function deleteStaffWeight(
+  patientId: string,
+  weightId: string,
+  expectedVersion: string | null,
+  office?: string | null,
+): Promise<{ deleted: boolean } & PatientRecordResponse> {
+  return request(patientPath(patientId, `/weights/${encodeURIComponent(weightId)}`, office), {
+    method: 'DELETE',
+    body: JSON.stringify({ expectedVersion }),
+  });
+}
+
+export type PatientRecordResponse = { patient: OfficePatientDetail['patient'] };
+
+export async function updateStaffWeight(
+  patientId: string,
+  weightId: string,
+  input: { dateKey?: string; weight?: number; note?: string | null },
+  expectedVersion: string | null,
+  office?: string | null,
+): Promise<{ weight: OfficeStaffWeight } & PatientRecordResponse> {
+  return request(patientPath(patientId, `/weights/${encodeURIComponent(weightId)}`, office), {
+    method: 'PATCH',
+    body: JSON.stringify({ ...input, expectedVersion }),
+  });
+}
+
+export async function deleteProviderNote(
+  patientId: string,
+  noteId: string,
+  office?: string | null,
+): Promise<{ deleted: boolean }> {
+  return request(patientPath(patientId, `/notes/${encodeURIComponent(noteId)}`, office), { method: 'DELETE' });
+}
+
+export interface OfficeStaffWeight {
+  id: string;
+  dateKey: string;
+  weight: number;
+  note: string | null;
+  recordedByName: string;
+  createdAt: string;
+  /** Row version echoed back as expectedVersion when correcting the reading. */
+  version: string | null;
+}
+
+export async function setPatientStatus(
+  patientId: string,
+  input: { status: PatientActivationStatus; reason?: string },
+  expectedVersion: string | null,
+  office?: string | null,
+): Promise<PatientRecordResponse> {
+  return request(patientPath(patientId, '/status', office), {
+    method: 'PATCH',
+    body: JSON.stringify({ ...input, expectedVersion }),
+  });
+}
+
+export type PatientActivationStatus = 'activated' | 'paused' | 'discharged';
+
+export async function updatePatientProfile(
+  patientId: string,
+  patch: PatientProfilePatch,
+  expectedVersion: string | null,
+  office?: string | null,
+): Promise<PatientRecordResponse> {
+  return request(patientPath(patientId, '', office), {
+    method: 'PATCH',
+    body: JSON.stringify({ ...patch, expectedVersion }),
+  });
+}
+
+/** Human wording for the stale-save conflict; shared by every edit surface. */
+export const RECORD_CHANGED_MESSAGE = 'This record changed since you opened it. Reload to see the latest, then try again.';
+
+function patientPath(patientId: string, suffix = '', office?: string | null): string {
+  return `/api/office/patients/${encodeURIComponent(patientId)}${suffix}${officeQuery(office)}`;
 }

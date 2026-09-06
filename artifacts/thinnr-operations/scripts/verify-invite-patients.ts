@@ -225,7 +225,11 @@ async function main() {
     assert.match(detailSource, /No nutrition or water entries have been recorded/);
     assert.match(detailSource, /No check-ins have been recorded/);
     assert.match(detailSource, /No progress photos have been uploaded/);
-    assert.doesNotMatch(detailSource.match(/function LivePatientDetail[\s\S]*?export default function PatientDetail/)?.[0] ?? '', /Edit patient|Log weight|Add note/);
+    // Live write controls exist now, but only behind the shared edit gate —
+    // the live view never touches the demo session or synthetic anchors.
+    const liveSection = detailSource.match(/function LivePatientDetail[\s\S]*?export default function PatientDetail/)?.[0] ?? '';
+    assert.match(liveSection, /useCanEditLiveRecord\(\)/);
+    assert.doesNotMatch(liveSection, /addWeightEntry|usePatientSession|ANCHOR_ISO|Synthetic record/);
   });
 
   await check('the live detail contract pins the finalized provider-safe envelope', () => {

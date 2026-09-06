@@ -245,6 +245,16 @@ function TrendChart({ view }: { view: RevenueView }) {
   );
 }
 
+// "First name + last initial", mirroring the program literals ("Emma S.").
+// Module-level so the live-roster memos above the component's first use can
+// call it during render (a const declared later in the body is in its TDZ).
+function shortName(patient?: { name: string }) {
+  if (!patient) return 'a patient';
+  const [first, ...rest] = patient.name.split(' ');
+  const last = rest[rest.length - 1];
+  return last ? `${first} ${last[0]}.` : first;
+}
+
 export default function Overview() {
   const { getCurrentWeight } = usePatientSession();
   const { range } = useDateRange();
@@ -402,13 +412,6 @@ export default function Overview() {
     ] as const;
   }, [liveEnabled, liveRosterData, analytics]);
 
-  // "First name + last initial", mirroring the program literals ("Emma S.").
-  const shortName = (patient?: { name: string }) => {
-    if (!patient) return 'a patient';
-    const [first, ...rest] = patient.name.split(' ');
-    const last = rest[rest.length - 1];
-    return last ? `${first} ${last[0]}.` : first;
-  };
 
   const failedPayments = subscriptions.filter((subscription) => subscription.paymentStatus === 'failed').length;
   const graduatedCount = liveEnabled && liveRosterData

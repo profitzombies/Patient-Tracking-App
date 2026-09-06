@@ -44,11 +44,11 @@ function enc(value: string): string {
   return encodeURIComponent(value);
 }
 
-const SERVER_ERROR = "Something went wrong on our side. Please try again.";
-const EMAIL_TAKEN = "That email is already on a patient account. Use a different email.";
-const PHONE_TAKEN = "That phone number is already on a patient account. Use a different number.";
+export const SERVER_ERROR = "Something went wrong on our side. Please try again.";
+export const EMAIL_TAKEN = "That email is already on a patient account. Use a different email.";
+export const PHONE_TAKEN = "That phone number is already on a patient account. Use a different number.";
 
-function patientUniqueConflict(message: string): "email" | "phone" | null {
+export function patientUniqueConflict(message: string): "email" | "phone" | null {
   if (/patients_email_(?:normalized_)?unique_idx/.test(message)) return "email";
   if (/patients_phone_(?:normalized_)?unique_idx/.test(message)) return "phone";
   return null;
@@ -64,15 +64,15 @@ function resendCooldownSeconds(): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 60;
 }
 
-const PATIENT_SELECT =
-  "id,provider_id,first_name,last_name,name,email,phone,activation_status,auth_user_id,claimed_at,created_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date";
+export const PATIENT_SELECT =
+  "id,provider_id,first_name,last_name,name,email,phone,activation_status,activation_reason,activation_updated_at,auth_user_id,claimed_at,created_at,updated_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date";
 
-type PatientRosterRow = Record<string, unknown>;
+export type PatientRosterRow = Record<string, unknown>;
 type OperationalRow = Record<string, unknown>;
 
 export type InvitationEmailOutcome = "sent" | "failed" | "not_configured";
 
-function patientDto(row: PatientRosterRow, asOf?: string) {
+export function patientDto(row: PatientRosterRow, asOf?: string) {
   const invited = typeof row.invited_at === "string" && row.invited_at.length > 0;
   const verified = typeof row.auth_user_id === "string" && row.auth_user_id.length > 0;
   const programStartDate = row.program_start_date ? String(row.program_start_date) : null;
@@ -131,7 +131,7 @@ function daysOld(date: string | null, asOf: string): number | null {
   return Math.floor((Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000);
 }
 
-export type RosterStatus = "invited" | "inactive" | "needs_attention" | "on_track" | "unknown";
+export type RosterStatus = "invited" | "paused" | "discharged" | "inactive" | "needs_attention" | "on_track" | "unknown";
 
 /**
  * Operational facts for one roster row.
@@ -165,7 +165,10 @@ function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: Oper
   const mealSilent = known && activation === "activated" && age >= 3 && (daysOld(latestDiaryDate, asOf) == null || daysOld(latestDiaryDate, asOf)! >= 3);
   const checkInOverdue = known && activation === "activated" && age >= 7 && (daysOld(latestCheckInDate, asOf) == null || daysOld(latestCheckInDate, asOf)! >= 7);
   const inactive = known && activation === "activated" && ((activityAge == null && accountAge >= 14) || (activityAge != null && activityAge >= 14));
-  const status: RosterStatus = patient.invitation?.state === "pending" ? "invited" : !known ? "unknown" : inactive ? "inactive" : mealSilent || checkInOverdue ? "needs_attention" : "on_track";
+  // Paused and discharged patients are badged as such and never raise
+  // outreach signals (every reason above already requires an activated row);
+  // that badge wins even when the activity aggregate is unknown.
+  const status: RosterStatus = patient.invitation?.state === "pending" ? "invited" : activation === "paused" ? "paused" : activation === "discharged" ? "discharged" : !known ? "unknown" : inactive ? "inactive" : mealSilent || checkInOverdue ? "needs_attention" : "on_track";
   return { ...patient, operational: { asOfDate: asOf, latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, activity, status, reasons: [inactive ? "no_activity_14d" : null, mealSilent ? "logging_lapsed" : null, checkInOverdue ? "check_in_overdue" : null].filter(Boolean), followUps: followUps.map((row) => ({ reason: String(row.reason), status: String(row.status), createdAt: String(row.created_at), resolvedAt: row.resolved_at ? String(row.resolved_at) : null })) } };
 }
 
@@ -192,7 +195,7 @@ function canonicalName(row: PatientRosterRow): string {
   return [canonicalFirstName(row), canonicalLastName(row)].filter(Boolean).join(" ");
 }
 
-function identityDto(row: PatientRosterRow) {
+export function identityDto(row: PatientRosterRow) {
   return {
     id: String(row.id),
     name: canonicalName(row),
@@ -202,6 +205,8 @@ function identityDto(row: PatientRosterRow) {
     phone: row.phone ? String(row.phone) : null,
     phoneDisplay: normalizeUsPhone(typeof row.phone === "string" ? row.phone : ""),
     activationStatus: row.activation_status ? String(row.activation_status) : null,
+    activationReason: row.activation_reason ? String(row.activation_reason) : null,
+    activationUpdatedAt: row.activation_updated_at ? String(row.activation_updated_at) : null,
     verified: typeof row.auth_user_id === "string" && row.auth_user_id.length > 0,
     dateOfBirth: row.date_of_birth ? String(row.date_of_birth) : null,
     height: row.height ? String(row.height) : null,
@@ -214,7 +219,52 @@ function identityDto(row: PatientRosterRow) {
   };
 }
 
-const RECORD_NOT_FOUND = "No patient record found for this office.";
+export const RECORD_NOT_FOUND = "No patient record found for this office.";
+
+/**
+ * Record version for optimistic concurrency: the patients row's updated_at
+ * (null for legacy rows that were never touched). Clients echo it back as
+ * expectedVersion; a mismatch is a 409 "reload", never a silent overwrite.
+ */
+export function recordVersion(row: PatientRosterRow): string | null {
+  return typeof row.updated_at === "string" && row.updated_at ? row.updated_at : null;
+}
+
+export function providerNoteDto(row: PatientRosterRow) {
+  return {
+    id: String(row.note_id),
+    body: String(row.body ?? ""),
+    authorName: String(row.author_name ?? ""),
+    authorKind: String(row.author_kind ?? ""),
+    createdAt: String(row.created_at ?? ""),
+  };
+}
+
+export function staffWeightDto(row: PatientRosterRow) {
+  return {
+    id: String(row.weight_id),
+    dateKey: String(row.date_key ?? "").slice(0, 10),
+    weight: numericOrNull(row.weight),
+    note: typeof row.note === "string" && row.note ? row.note : null,
+    recordedByName: String(row.recorded_by_name ?? ""),
+    createdAt: String(row.created_at ?? ""),
+    version: typeof row.updated_at === "string" ? row.updated_at : null,
+  };
+}
+
+/** Patient + staff weight series, oldest first; staff entries carry their id so the UI can correct them. */
+export function mergedWeights(
+  checkIns: Array<{ dateKey: string; weight: number | null }>,
+  staff: Array<ReturnType<typeof staffWeightDto>>,
+) {
+  const patient = checkIns
+    .filter((item) => item.weight !== null)
+    .map((item) => ({ dateKey: item.dateKey, weight: item.weight as number, source: "patient" as const }));
+  const office = staff
+    .filter((item) => item.weight !== null)
+    .map((item) => ({ dateKey: item.dateKey, weight: item.weight as number, source: "staff" as const, id: item.id }));
+  return [...patient, ...office].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+}
 const STAFF_PHOTO_TTL_SEC = 15 * 60;
 
 async function authorizedPhotoUrl(patientId: string, path: unknown): Promise<string | null> {
@@ -391,7 +441,7 @@ router.get("/office/patients/:id", async (req, res) => {
     }
 
     const pid = enc(patientId);
-    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags] =
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights] =
       await Promise.all([
         supabaseAdmin(
           "GET",
@@ -437,8 +487,18 @@ router.get("/office/patients/:id", async (req, res) => {
           `/rest/v1/patient_flags?patient_id=eq.${pid}` +
             "&select=nudge_opt_out,nudge_engaged,nudge_last_sent_key,nudge_last_crossing_key,onboarding_complete,onboarding_answers,notification_prefs&limit=1",
         ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_provider_notes?patient_id=eq.${pid}&provider_id=eq.${enc(scope.providerId)}` +
+            "&select=note_id,body,author_name,author_kind,created_at&order=created_at.desc&limit=500",
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_staff_weights?patient_id=eq.${pid}&provider_id=eq.${enc(scope.providerId)}` +
+            "&select=weight_id,date_key,weight,note,recorded_by_name,created_at,updated_at&order=date_key.asc&limit=2000",
+        ),
       ]);
-    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags];
+    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights];
     if (results.some((result) => result.status >= 300 || !Array.isArray(result.json))) {
       throw new Error("patient record history load failed");
     }
@@ -486,6 +546,8 @@ router.get("/office/patients/:id", async (req, res) => {
     const target = (targets.json as PatientRosterRow[])[0];
     const pref = (prefs.json as PatientRosterRow[])[0];
     const flag = (flags.json as PatientRosterRow[])[0];
+    const providerNotes = (notes.json as PatientRosterRow[]).map(providerNoteDto);
+    const staffWeightList = (staffWeights.json as PatientRosterRow[]).map(staffWeightDto);
 
     const photoList = await Promise.all(
       (photos.json as PatientRosterRow[]).map(async (row) => ({
@@ -558,7 +620,10 @@ router.get("/office/patients/:id", async (req, res) => {
       patient: {
         identity: identityDto(patient),
         program: patientDto(patient).program,
+        version: recordVersion(patient),
       },
+      providerNotes,
+      staffWeights: staffWeightList,
       diary: {
         entries: entryList,
         nutritionTotals: {
@@ -574,9 +639,7 @@ router.get("/office/patients/:id", async (req, res) => {
         { diary: entryList, water: waterDays, checkIns: checkInList },
         dayKeyInTimeZone(typeof patient.timezone === "string" ? patient.timezone : null),
       ),
-      weights: checkInList
-        .filter((item) => item.weight !== null)
-        .map((item) => ({ dateKey: item.dateKey, weight: item.weight })),
+      weights: mergedWeights(checkInList, staffWeightList),
       progressPhotos: photoList,
       account: {
         targets: {

@@ -286,13 +286,18 @@ async function checkCode(
   return claimed === 1 ? row : null;
 }
 
+/**
+ * Activation states that keep a patient's login working. Paused and
+ * discharged are office program statuses set by staff, not account locks:
+ * the patient can still sign in and see their own record.
+ */
+const LOGIN_ELIGIBLE_ACTIVATION = ["invited", "active", "activated", "paused", "discharged"];
+
 function eligibleLinkedPatient(patient: Awaited<ReturnType<typeof loadPatientById>>): boolean {
   return Boolean(
     patient &&
       patient.auth_user_id &&
-      (patient.activation_status === "active" ||
-        patient.activation_status === "activated" ||
-        patient.activation_status === "invited"),
+      LOGIN_ELIGIBLE_ACTIVATION.includes(patient.activation_status ?? ""),
   );
 }
 
@@ -760,7 +765,7 @@ router.post(AUTH_SIGNUP_START_PATH, async (req, res) => {
           return;
         }
         const patient = await loadPatientById(phoneHits[0].ref);
-        if (!patient || !["invited", "active", "activated"].includes(patient.activation_status ?? "")) {
+        if (!patient || !LOGIN_ELIGIBLE_ACTIVATION.includes(patient.activation_status ?? "")) {
           await holdUntilFloor(started);
           res.json(neutralBody(crypto.randomUUID(), deliveryMode("sms") === "dev" ? generateCode() : null, SIGNUP_SENT_MESSAGE));
           return;
@@ -945,7 +950,7 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
 
     if (row.resolved_ref) {
       const patient = await loadPatientById(row.resolved_ref);
-      if (!patient || !["invited", "active", "activated"].includes(patient.activation_status ?? "")) {
+      if (!patient || !LOGIN_ELIGIBLE_ACTIVATION.includes(patient.activation_status ?? "")) {
         res.status(400).json({ error: SESSION_EXPIRED });
         return;
       }

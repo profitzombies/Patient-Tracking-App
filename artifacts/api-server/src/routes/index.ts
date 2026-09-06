@@ -25,6 +25,7 @@ import operationalRollupsRouter from "./operational-rollups";
 import staffConversationsRouter from "./staff-conversations";
 import hqSettingsFilesRouter from "./hq-settings-files";
 import exportsRouter from "./exports";
+import officePatientEditsRouter from "./office-patient-edits";
 
 const router: IRouter = Router();
 
@@ -49,6 +50,7 @@ router.use(providerAccountsRouter);
 router.use(hqTeamRouter);
 router.use(officeRosterRouter);
 router.use(officeOperationsRouter);
+router.use(officePatientEditsRouter);
 router.use(hqAuditEventsRouter);
 router.use(operationalRollupsRouter);
 router.use(staffConversationsRouter);

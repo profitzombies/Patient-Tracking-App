@@ -155,6 +155,8 @@ beforeEach(() => {
     patient_progress_photos: [],
     patient_check_ins: [],
     patient_flags: [],
+    patient_provider_notes: [],
+    patient_staff_weights: [],
   };
   locks = [];
   hqMemberships = [{ department_role: "admin", status: "active" }];
@@ -449,6 +451,20 @@ describe("office scope", () => {
     });
     expect(body.patients[0].program).toMatchObject({ day: null, stage: null, week: null });
   });
+  it("badges paused and discharged patients and keeps them out of outreach signals", async () => {
+    patients[0].created_at = new Date(Date.now() - 15 * 86_400_000).toISOString();
+    patients[0].activation_status = "paused";
+    patients[0].activation_reason = "Travelling for a month";
+    patients.push({ ...patients[0], id: "pat-discharged", activation_status: "discharged", email: "d@example.com", phone: "+15550009999" });
+    const res = await api("/office/roster", "provider-token");
+    const body = await res.json() as { patients: Row[]; summary: Row };
+    expect(body.patients.map((patient) => (patient.operational as Row).status)).toEqual(["paused", "discharged"]);
+    expect(body.patients.every((patient) => ((patient.operational as Row).reasons as unknown[]).length === 0)).toBe(true);
+    expect(body.summary).toMatchObject({ totalPatients: 2, activePatients: 0, needsAttention: 0, inactive: 0, loggingLapsed: 0, checkInsOverdue: 0 });
+    const detail = await api("/office/patients/pat-own", "provider-token");
+    expect(((await detail.json()) as any).patient.identity).toMatchObject({ activationStatus: "paused", activationReason: "Travelling for a month" });
+  });
+
   it("gives a provider owner exactly their own office, ignoring office overrides", async () => {
     const res = await api("/office/roster?office=office-2", "provider-token");
     expect(res.status).toBe(200);
@@ -532,6 +548,9 @@ describe("live patient records", () => {
     expect(body.water).toEqual([]);
     expect(body.checkIns).toEqual([]);
     expect(body.weights).toEqual([]);
+    expect(body.providerNotes).toEqual([]);
+    expect(body.staffWeights).toEqual([]);
+    expect(body.patient.version).toBeNull();
     expect(body.progressPhotos).toEqual([]);
     expect(body.account).toMatchObject({
       favorites: [],
@@ -578,6 +597,15 @@ describe("live patient records", () => {
       patient_id: ownId, check_in_id: "c-1", date_key: "2026-01-05",
       weight: "191", mood: 4, side_effects: ["nausea"], notes: "Doing well",
     });
+    patientTables.patient_staff_weights.push({
+      patient_id: ownId, provider_id: "office-1", weight_id: "sw-1", date_key: "2026-01-03", weight: "196.5",
+      note: "Office scale", recorded_by_name: "Dr. Reyes", created_at: "2026-01-03T15:00:00Z", updated_at: "2026-01-03T15:00:00Z",
+    });
+    patientTables.patient_provider_notes.push({
+      patient_id: ownId, provider_id: "office-1", note_id: "n-1", body: "Discussed hydration.",
+      author_name: "Dr. Reyes", author_kind: "provider", created_at: "2026-01-04T12:00:00Z",
+    });
+    patients[0].updated_at = "2026-01-06T08:00:00+00:00";
     patientTables.patient_target_overrides.push({
       patient_id: ownId, calories: 1400, protein: 100, carbs: null, fat: 50, water_oz: 80,
     });
@@ -620,7 +648,20 @@ describe("live patient records", () => {
       byDate: [{ dateKey: "2026-01-05", calories: 500, protein: 60, carbs: 5, fat: 22 }],
     });
     expect(body.water).toEqual([{ dateKey: "2026-01-05", oz: 72 }]);
-    expect(body.weights).toEqual([{ dateKey: "2026-01-05", weight: 191 }]);
+    // Staff weigh-ins merge into the trend with a source marker; the patient
+    // series stays exactly what the check-ins hold.
+    expect(body.weights).toEqual([
+      { dateKey: "2026-01-03", weight: 196.5, source: "staff", id: "sw-1" },
+      { dateKey: "2026-01-05", weight: 191, source: "patient" },
+    ]);
+    expect(body.staffWeights).toEqual([{
+      id: "sw-1", dateKey: "2026-01-03", weight: 196.5, note: "Office scale", recordedByName: "Dr. Reyes",
+      createdAt: "2026-01-03T15:00:00Z", version: "2026-01-03T15:00:00Z",
+    }]);
+    expect(body.providerNotes).toEqual([{
+      id: "n-1", body: "Discussed hydration.", authorName: "Dr. Reyes", authorKind: "provider", createdAt: "2026-01-04T12:00:00Z",
+    }]);
+    expect(body.patient.version).toBe("2026-01-06T08:00:00+00:00");
     // Engagement rides the same rows with the roster's definitions, anchored
     // on the patient's own (America/New_York) day. The 2026-01-05 fixture is
     // long past, so every window is empty but the families are known.

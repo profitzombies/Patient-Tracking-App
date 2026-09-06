@@ -31,13 +31,17 @@ const formatDate = (date: string) =>
 // `unknown` (live only: the activity aggregate had no row for the patient)
 // is deliberately neutral — it is a data gap, not a risk state.
 function StatusChip({ status }: { status: string }) {
+  // Discharged is a closed record, not a risk: it reads in the quiet neutral
+  // tint so it never competes with the outreach signals.
   const tone = status === 'active' || status === 'graduated' || status === 'on_track'
     ? 'border-accent-border bg-accent text-primary'
     : status === 'paused' || status === 'needs_attention' || status === 'invited'
       ? 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]'
-      : status === 'unknown'
-        ? 'border-dashed border-border bg-secondary text-muted-foreground'
-        : 'border-[#d5a7a7] bg-[#fff0f0] text-destructive';
+      : status === 'discharged'
+        ? 'border-border bg-secondary text-muted-foreground'
+        : status === 'unknown'
+          ? 'border-dashed border-border bg-secondary text-muted-foreground'
+          : 'border-[#d5a7a7] bg-[#fff0f0] text-destructive';
   const displayStatus = status === 'unknown' ? 'activity unknown' : status.replace('_', ' ');
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${tone}`} title={status === 'unknown' ? 'Activity signals did not load for this patient' : undefined}>
@@ -278,13 +282,14 @@ export default function Patients() {
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
                             (p.email ?? '').toLowerCase().includes(search.toLowerCase());
       // Live rosters carry an operational status (on_track / needs_attention /
-      // inactive / invited); "active" there means an activated account, the
-      // same definition the office-analytics rollups use for their Active
-      // figure, so drill-ins from those numbers land on the matching list.
+      // inactive / invited / paused / discharged); "active" there means an
+      // activated account, the same definition the office-analytics rollups
+      // use for their Active figure, so drill-ins from those numbers land on
+      // the matching list. Paused and discharged records are not activated.
       const matchesStatus =
         statusFilter === 'all' ||
         p.status === statusFilter ||
-        (statusFilter === 'active' && p.isLive && p.status !== 'invited');
+        (statusFilter === 'active' && p.isLive && p.status !== 'invited' && p.status !== 'paused' && p.status !== 'discharged');
       // Live rows use the server's own lapsed verdict; rows whose activity
       // did not load are never "lapsed". Demo rows keep the seeded stats.
       const matchesLogging = loggingFilter === 'all'
@@ -388,6 +393,8 @@ export default function Patients() {
                   <option value="on_track">On Track</option>
                   <option value="needs_attention">Needs Attention</option>
                   <option value="inactive">Inactive</option>
+                  <option value="paused">Paused</option>
+                  <option value="discharged">Discharged</option>
                   <option value="invited">Invited</option>
                   <option value="unknown">Activity unknown</option>
                 </>

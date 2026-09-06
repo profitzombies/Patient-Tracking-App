@@ -188,6 +188,14 @@ args = "office-comparison"
 task = "workflow.run"
 args = "exports-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-edits-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "live-patient-edits-web"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -657,6 +665,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run src/exports src/routes/exports.test.ts src/routes/operational-rollups.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-edits-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/office-patient-edits.test.ts src/routes/office-roster.test.ts src/routes/hq-audit-events.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "live-patient-edits-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:live-patient-edits"
 
 [workflows.workflow.metadata]
 isValidation = true

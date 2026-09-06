@@ -1,0 +1,10 @@
+---
+name: Live patient record edits
+description: Durable lessons from giving office staff real, audited writes on live patient records (profile, notes, weights, status).
+---
+
+- **Legacy patient rows carry only the combined `name`** (invitation-created rows have null first/last columns). Any write that touches one half of a name must derive the untouched half from the split `name`. **Why:** the first live e2e blanked the last name when only the first name was edited — every unit fake had both columns filled. **How to apply:** seed a name-only fixture in tests of any name-splitting write and mirror the SQL fallback in the fake.
+- **Every live-record write, including deletes, is version-preconditioned and archive-guarded.** **Why:** review rejected an unguarded delete (a stale dialog could remove a just-corrected reading) and a scoped lookup that let writes land on archived rows. **How to apply:** new office write routes reuse the shared scoped lookup (which excludes archived rows) and carry `expectedVersion` even for DELETE; zero affected rows after an existence check = 409 record_changed.
+- **`expectedVersion: null` means "I expect a legacy (never-updated) row", not "skip the check".** The live detail page also polls every 30 s and refetches on focus, so a stale-save demo must open the dialog, patch out-of-band from the same page context, and save within seconds.
+- **Staff weights are their own service-role table, not a source marker on patient check-ins**, with a DB trigger deriving the roster's current weight. **Why:** check-in rows are patient-owned and patient-visible; staff corrections must never appear in the patient app.
+- **Live e2e fixtures with roster activity cannot be deleted through PostgREST** (analytics rows set-null into an append-only trigger; audit is append-only) — clean up through the management API inside one transaction with replication-role bypass. Staff sign-in for the tester needs the dev email-delivery mode override on the API, removed afterwards.

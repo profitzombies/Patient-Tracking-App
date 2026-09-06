@@ -42,6 +42,16 @@ import {
   type OfficePatientDetail,
 } from "@/lib/office-roster";
 import { EngagementSummary } from "@/components/office/RosterActivity";
+import {
+  EditPatientProfile,
+  PatientStatusControl,
+  ProviderNotes,
+  StaffWeightActions,
+  StaffWeightEntry,
+  currentActivation,
+  livePatientQueryKey,
+  useCanEditLiveRecord,
+} from "@/components/office/LivePatientEdits";
 
 /**
  * Demo actions (logging a weight, adding a note) are stamped with the fixed
@@ -339,8 +349,10 @@ function LiveDiaryDay({ day, totals }: { day: { dateKey: string; waterOz?: numbe
 }
 
 function LivePatientDetail({ id, office }: { id: string; office: string | null }) {
+  const canEdit = useCanEditLiveRecord();
+  const [weightEntryOpen, setWeightEntryOpen] = useState(false);
   const detail = useQuery({
-    queryKey: ['office-patient', office ?? 'own-office', id],
+    queryKey: livePatientQueryKey(office, id),
     queryFn: () => fetchOfficePatient(id, office),
     refetchInterval: 30_000,
   });
@@ -353,6 +365,8 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
   const identity = record.patient.identity;
   const program = record.patient.program;
   const weights = [...record.weights].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+  const staffWeightsById = new Map((record.staffWeights ?? []).map((entry) => [entry.id, entry]));
+  const providerNotes = record.providerNotes ?? [];
   const checkIns = [...record.checkIns].sort((a, b) => b.dateKey.localeCompare(a.dateKey));
   const waterByDate = new Map(record.water.map((item) => [item.dateKey, item.oz]));
   const diaryByDate = new Map<string, OfficeDiaryEntry[]>();
@@ -368,18 +382,26 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
   const startingWeight = program.startingWeight ?? weights.at(0)?.weight ?? null;
   const weightLoss = startingWeight != null && currentWeight != null ? startingWeight - currentWeight : null;
   const initials = identity.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+  const activation = currentActivation(identity.activationStatus);
+  const headerStatus = activation ?? identity.activationStatus ?? (identity.verified ? 'active' : 'pending');
+  // Staff weigh-ins only make sense once the patient has connected; the
+  // status control is likewise hidden until then (nothing to pause).
+  const canRecordWeight = canEdit && activation !== null;
 
   return (
     <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8" data-testid={`live-patient-detail-${identity.id}`}>
       <header className="mb-6 border-b border-border pb-6">
         <Link href="/patients" data-testid="link-back-to-patients" className="mb-4 inline-flex items-center rounded-sm text-xs font-semibold text-muted-foreground hover:text-navy"><ArrowLeft size={14} className="mr-1" />Back to patients</Link>
-        <div className="flex items-start gap-4">
-          <div className="grid h-16 w-16 shrink-0 place-items-center rounded-lg border border-accent-border bg-accent text-xl font-bold text-primary">{initials}</div>
-          <div>
-            <div className="flex flex-wrap items-center gap-3"><h1 className="font-serif text-[30px] font-bold leading-none text-navy" data-testid="text-live-patient-name">{identity.name}</h1><StatusBadge status={identity.activationStatus ?? (identity.verified ? 'active' : 'pending')} /></div>
-            <p className="mt-2 text-sm text-muted-foreground">Patient record <span className="font-mono">#{identity.id}</span> · {record.office.officeName}</p>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{identity.email ?? 'No email on file'}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{identity.phoneDisplay ?? identity.phone ?? 'No phone on file'}</span></div>
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+          <div className="flex items-start gap-4">
+            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-lg border border-accent-border bg-accent text-xl font-bold text-primary">{initials}</div>
+            <div>
+              <div className="flex flex-wrap items-center gap-3"><h1 className="font-serif text-[30px] font-bold leading-none text-navy" data-testid="text-live-patient-name">{identity.name}</h1><StatusBadge status={headerStatus === 'activated' ? 'active' : headerStatus} /></div>
+              <p className="mt-2 text-sm text-muted-foreground">Patient record <span className="font-mono">#{identity.id}</span> · {record.office.officeName}</p>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{identity.email ?? 'No email on file'}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{identity.phoneDisplay ?? identity.phone ?? 'No phone on file'}</span></div>
+            </div>
           </div>
+          {canEdit && <div><EditPatientProfile patient={record.patient} office={office} /></div>}
         </div>
       </header>
       <main className="grid gap-5 lg:grid-cols-3">
@@ -391,10 +413,18 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
               </div>
             </div>
           </SectionCard>
-          <SectionCard title="Weight trend" sub="Patient-recorded weigh-ins.">
+          <SectionCard
+            title="Weight trend"
+            sub="Patient check-ins and staff-recorded weigh-ins, oldest to newest."
+            action={canRecordWeight ? <button type="button" onClick={() => setWeightEntryOpen((open) => !open)} className={`${BTN_SECONDARY} h-8 px-3`} data-testid="button-log-weight">{weightEntryOpen ? 'Cancel' : 'Log weight'}</button> : undefined}
+          >
             <div className="p-5">
-              {weights.length && startingWeight != null ? <><WeightTrend entries={weights.map((entry) => ({ date: entry.dateKey, weight: entry.weight }))} goalWeight={program.goalWeight} startingWeight={startingWeight} patientName={identity.name} /><div className="mt-4 divide-y divide-border rounded-md border border-border">{[...weights].reverse().map((entry) => <div key={`${entry.dateKey}-${entry.weight}`} className="flex justify-between px-3 py-2 text-xs"><span className="text-muted-foreground">{formatDate(entry.dateKey, true)}</span><b className="font-mono text-navy">{entry.weight.toFixed(1)} lbs</b></div>)}</div></> : <EmptyState>No weigh-ins have been recorded.</EmptyState>}
+              {canRecordWeight && <StaffWeightEntry patient={record.patient} office={office} open={weightEntryOpen} onClose={() => setWeightEntryOpen(false)} />}
+              {weights.length && startingWeight != null ? <><WeightTrend entries={weights.map((entry) => ({ date: entry.dateKey, weight: entry.weight }))} goalWeight={program.goalWeight} startingWeight={startingWeight} patientName={identity.name} /><ul className="mt-4 divide-y divide-border rounded-md border border-border" data-testid="list-weigh-ins">{[...weights].reverse().map((entry) => { const staff = entry.source === 'staff' && entry.id ? staffWeightsById.get(entry.id) : undefined; return <li key={`${entry.dateKey}-${entry.source ?? 'patient'}-${entry.id ?? entry.weight}`} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3 py-2 text-xs" data-testid={`weigh-in-${entry.dateKey}-${entry.source ?? 'patient'}`}><span className="text-muted-foreground">{formatDate(`${entry.dateKey}T12:00:00Z`, true)}</span><span className="flex items-center gap-3"><span className={`text-[10px] ${entry.source === 'staff' ? 'text-primary' : 'text-muted-foreground'}`}>{entry.source === 'staff' ? `Staff · ${staff?.recordedByName ?? 'office'}${staff?.note ? ` · ${staff.note}` : ''}` : 'Patient check-in'}</span><b className="font-mono text-navy">{entry.weight.toFixed(1)} lbs</b>{canEdit && staff && <StaffWeightActions patient={record.patient} entry={staff} office={office} />}</span></li>; })}</ul></> : <EmptyState>No weigh-ins have been recorded.</EmptyState>}
             </div>
+          </SectionCard>
+          <SectionCard title="Provider notes" sub="Internal care-team notes on this record.">
+            <ProviderNotes patient={record.patient} notes={providerNotes} office={office} canEdit={canEdit} />
           </SectionCard>
           <SectionCard title="Engagement" sub="Logging, check-in, and wellbeing signals — identical to this patient's roster row.">
             <div className="p-5">{record.engagement ? <EngagementSummary signals={record.engagement} /> : <EmptyState>Engagement signals are not available for this record.</EmptyState>}</div>
@@ -404,6 +434,16 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
           </SectionCard>
         </div>
         <aside className="space-y-5">
+          {canEdit && activation && (
+            <SectionCard title="Program status">
+              <div className="p-5"><PatientStatusControl patient={record.patient} office={office} /></div>
+            </SectionCard>
+          )}
+          {!canEdit && activation && activation !== 'activated' && (
+            <SectionCard title="Program status">
+              <div className="p-5 text-xs" data-testid="section-activation-status"><p className="text-sm font-semibold capitalize text-foreground" data-testid="text-activation-status">{activation}</p>{identity.activationReason && <p className="mt-1 leading-5 text-muted-foreground" data-testid="text-activation-reason">{identity.activationReason}</p>}</div>
+            </SectionCard>
+          )}
           <SectionCard title="Program">
             <div className="p-5">{program.id ? <dl className="space-y-3 text-xs">
               <div><dt className={MICRO_LABEL}>Program ID</dt><dd className="mt-1 font-mono text-foreground">{program.id}</dd></div>

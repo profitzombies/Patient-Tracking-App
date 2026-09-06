@@ -1,5 +1,6 @@
 {
-  // tsx config for scripts/verify-invite-patients.ts ONLY (not part of
+  // tsx config for scripts/verify-invite-patients.ts and
+  // scripts/verify-live-patient-edits.ts ONLY (not part of
   // typecheck — tsconfig.json includes src/**/* alone).
   //
   // The suite exercises the REAL src/lib/office-roster.ts client under Node

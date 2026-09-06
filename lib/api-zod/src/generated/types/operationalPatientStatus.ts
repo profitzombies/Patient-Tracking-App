@@ -14,4 +14,5 @@ export const OperationalPatientStatus = {
   inactive: 'inactive',
   needs_attention: 'needs_attention',
   on_track: 'on_track',
+  unknown: 'unknown',
 } as const;

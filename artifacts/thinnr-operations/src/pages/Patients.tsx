@@ -10,6 +10,8 @@ import { useLiveRoster } from "@/hooks/use-live-roster";
 import { InvitePatientAction, InvitationChip, officeRosterQueryKey } from "@/components/office/LiveRoster";
 import { BTN_SECONDARY } from "@/components/patient/heritage";
 import { resendInvitation, type OfficePatient } from "@/lib/office-roster";
+import { compareLiveLogging, isLiveLapsed, rosterActivityFor, type RosterActivity } from "@/lib/roster-activity";
+import { LiveEngagementCell, LiveLoggingCell } from "@/components/office/RosterActivity";
 import {
   useUpdateOfficePatientFollowUp,
   type PatientOperationalFollowUpReason,
@@ -26,15 +28,19 @@ const formatDate = (date: string) =>
 // Heritage status tints — mirrors the mobile StatusBadge (thinnr-mobile
 // constants/colors.ts): healthy stays in the cobalt family, watch and risk
 // use the shared warm/risk tints that have no semantic token equivalents.
+// `unknown` (live only: the activity aggregate had no row for the patient)
+// is deliberately neutral — it is a data gap, not a risk state.
 function StatusChip({ status }: { status: string }) {
   const tone = status === 'active' || status === 'graduated' || status === 'on_track'
     ? 'border-accent-border bg-accent text-primary'
     : status === 'paused' || status === 'needs_attention' || status === 'invited'
       ? 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]'
-      : 'border-[#d5a7a7] bg-[#fff0f0] text-destructive';
-  const displayStatus = status.replace('_', ' ');
+      : status === 'unknown'
+        ? 'border-dashed border-border bg-secondary text-muted-foreground'
+        : 'border-[#d5a7a7] bg-[#fff0f0] text-destructive';
+  const displayStatus = status === 'unknown' ? 'activity unknown' : status.replace('_', ' ');
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${tone}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${tone}`} title={status === 'unknown' ? 'Activity signals did not load for this patient' : undefined}>
       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
       {displayStatus}
     </span>
@@ -91,19 +97,19 @@ function FollowUpAction({ patientId, reason, currentStatus, office }: {
   );
 }
 
-function LoggingSignal({ stats, isLive, align = 'left' }: { stats: LoggingStats; isLive?: boolean; align?: 'left' | 'right' }) {
+// Guided-demo logging cell (seeded LoggingStats). Live rows render
+// components/office/RosterActivity instead.
+function LoggingSignal({ stats, align = 'left' }: { stats: LoggingStats; align?: 'left' | 'right' }) {
   const lapsed = isLapsed(stats);
   return (
     <div className={align === 'right' ? 'flex flex-col items-end' : ''} title={`${stats.loggedDays7} of the last 7 days logged in the companion app`}>
       <div className="flex items-center gap-2">
-        {!isLive && (
-          <span className="flex gap-[3px]" aria-hidden="true">
-            {stats.last7.map((logged, index) => (
-              <span key={index} className={`h-2.5 w-2.5 rounded-[3px] ${logged ? 'bg-primary' : 'border border-border bg-secondary'}`} />
-            ))}
-          </span>
-        )}
-        <b className="font-mono text-xs font-semibold text-navy">{stats.loggedDays7}/7{isLive ? ' days' : ''}</b>
+        <span className="flex gap-[3px]" aria-hidden="true">
+          {stats.last7.map((logged, index) => (
+            <span key={index} className={`h-2.5 w-2.5 rounded-[3px] ${logged ? 'bg-primary' : 'border border-border bg-secondary'}`} />
+          ))}
+        </span>
+        <b className="font-mono text-xs font-semibold text-navy">{stats.loggedDays7}/7</b>
       </div>
       <span className={`mt-1 block text-[10px] ${lapsed ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}>{lastLogLabel(stats)}</span>
     </div>
@@ -204,28 +210,9 @@ export default function Patients() {
           : 0;
         const percentLoss = p.program?.startingWeight ? ((weightLoss / p.program.startingWeight) * 100).toFixed(1) : "0.0";
 
-        const latestDiary = p.operational?.latestDiaryDate;
-        const asOfTime = Date.parse(`${liveRosterData.summary.asOf}T00:00:00Z`);
-        const daysSinceLastLog = latestDiary
-          ? Math.max(0, Math.floor((asOfTime - Date.parse(`${latestDiary}T00:00:00Z`)) / 86_400_000))
-          : null;
-
-        const loggedDays7 = p.operational?.loggedDays7 ?? 0;
-        const stats: LoggingStats = {
-          // The summary exposes a count, not the individual dates.
-          last7: Array<boolean>(7).fill(false),
-          loggedDays7,
-          rate7d: (loggedDays7 / 7) * 100,
-          daysSinceLastLog,
-          mealStreak: 0,
-          checkInStreak: 0,
-          checkInRate30: 0,
-          avgCalories7: 0,
-          avgWater7: 0,
-          moodCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-          topSideEffects: [],
-          lastCheckInDateKey: null,
-        };
+        // Real per-patient signals from the office aggregate; an explicit
+        // unknown state when the aggregate had no row (never zero-filled).
+        const activity = rosterActivityFor(p);
 
         const startDate = p.startDate ?? p.program?.startDate ?? p.createdAt ?? '';
         const stageDisplay = p.program?.stage ? (p.program.stage === 'protocol' && p.program.week ? `Week ${p.program.week}` : 'Maintenance') : p.program?.id ? 'Enrolled' : '—';
@@ -248,9 +235,10 @@ export default function Patients() {
           weightLoss,
           weightLossDisplay: weightLoss ? `${weightLoss.toFixed(1)} lbs` : '—',
           percentLossDisplay: weightLoss ? `${percentLoss}%` : '',
-          stats,
+          stats: null as LoggingStats | null,
+          activity: activity as RosterActivity | null,
           isNudgeDue: false,
-          isLive: true,
+          isLive: true as boolean,
           showResend,
           rawLive: p
         };
@@ -275,9 +263,10 @@ export default function Patients() {
         weightLoss,
         weightLossDisplay: `${weightLoss.toFixed(1)} lbs`,
         percentLossDisplay: `${percentLoss}%`,
-        stats,
+        stats: stats as LoggingStats | null,
+        activity: null as RosterActivity | null,
         isNudgeDue: getNudgeAssessment(p).active,
-        isLive: false,
+        isLive: false as boolean,
         showResend: false,
         rawLive: undefined
       };
@@ -289,7 +278,10 @@ export default function Patients() {
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
                             (p.email ?? '').toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
-      const matchesLogging = loggingFilter === 'all' || isLapsed(p.stats);
+      // Live rows use the server's own lapsed verdict; rows whose activity
+      // did not load are never "lapsed". Demo rows keep the seeded stats.
+      const matchesLogging = loggingFilter === 'all'
+        || (p.activity ? isLiveLapsed(p.activity) : p.stats ? isLapsed(p.stats) : false);
 
       let matchesReason = true;
       if (reasonFilter !== 'all') {
@@ -316,11 +308,17 @@ export default function Patients() {
       } else if (sortField === 'weightLoss') {
         comparison = a.weightLoss - b.weightLoss;
       } else if (sortField === 'logging') {
-        comparison = a.stats.rate7d - b.stats.rate7d;
-        if (comparison === 0) {
-          // Tie-break: the patient silent for longer sorts first when ascending.
-          comparison = (b.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER)
-            - (a.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER);
+        if (a.activity || b.activity) {
+          // Live: unknown rates sink to the bottom in either direction.
+          return compareLiveLogging(a.activity ?? { kind: 'unknown' }, b.activity ?? { kind: 'unknown' }, sortOrder);
+        }
+        if (a.stats && b.stats) {
+          comparison = a.stats.rate7d - b.stats.rate7d;
+          if (comparison === 0) {
+            // Tie-break: the patient silent for longer sorts first when ascending.
+            comparison = (b.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER)
+              - (a.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER);
+          }
         }
       }
       return sortOrder === 'asc' ? comparison : -comparison;
@@ -383,6 +381,7 @@ export default function Patients() {
                   <option value="needs_attention">Needs Attention</option>
                   <option value="inactive">Inactive</option>
                   <option value="invited">Invited</option>
+                  <option value="unknown">Activity unknown</option>
                 </>
               ) : (
                 <>
@@ -489,8 +488,14 @@ export default function Patients() {
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
                   <p className="text-[9px] font-bold uppercase tracking-[.1em] text-muted-foreground">Logging (7d)</p>
-                  <LoggingSignal stats={patient.stats} align="right" />
+                  {patient.activity ? <LiveLoggingCell activity={patient.activity} align="right" /> : patient.stats && <LoggingSignal stats={patient.stats} align="right" />}
                 </div>
+                {patient.activity && (
+                  <div className="mt-3 flex items-start justify-between gap-3 border-t border-border/60 pt-3">
+                    <p className="text-[9px] font-bold uppercase tracking-[.1em] text-muted-foreground">Check-ins</p>
+                    <LiveEngagementCell activity={patient.activity} align="right" />
+                  </div>
+                )}
                 {patient.showResend && (
                   <div className="mt-3 flex justify-end">
                     <button
@@ -525,7 +530,7 @@ export default function Patients() {
 
         {/* Table */}
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-left text-xs min-w-[920px]">
+          <table className={`w-full text-left text-xs ${liveEnabled ? "min-w-[1180px]" : "min-w-[920px]"}`}>
             <thead className="border-b border-border bg-secondary text-[10px] uppercase tracking-[.11em] text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-semibold w-1/4">
@@ -550,6 +555,7 @@ export default function Patients() {
                     Logging (7d) {sortField === 'logging' && <ArrowUpDown size={12} className="text-primary" />}
                   </button>
                 </th>
+                {liveEnabled && <th className="px-4 py-3 font-semibold">Check-ins &amp; wellbeing</th>}
                 <th className="px-4 py-3 font-semibold text-right">
                   <button onClick={() => handleSort('weightLoss')} className="flex items-center justify-end gap-1 w-full rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Weight Loss {sortField === 'weightLoss' && <ArrowUpDown size={12} className="text-primary" />}
@@ -625,8 +631,13 @@ export default function Patients() {
                       {patient.startDateDisplay}
                     </td>
                     <td className="px-4 py-3">
-                      <LoggingSignal stats={patient.stats} isLive={patient.isLive} />
+                      {patient.activity ? <LiveLoggingCell activity={patient.activity} /> : patient.stats && <LoggingSignal stats={patient.stats} />}
                     </td>
+                    {liveEnabled && (
+                      <td className="px-4 py-3 min-w-[240px]">
+                        {patient.activity && <LiveEngagementCell activity={patient.activity} />}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-right">
                       <b className="block font-mono font-semibold text-navy">{patient.weightLossDisplay}</b>
                       <span className="text-[10px] text-muted-foreground">{patient.percentLossDisplay}</span>
@@ -662,21 +673,21 @@ export default function Patients() {
 
               {liveEnabled && liveRosterIsLoading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={liveEnabled ? 9 : 8} className="px-4 py-12 text-center text-muted-foreground">
                     Loading patients…
                   </td>
                 </tr>
               )}
               {liveEnabled && liveRosterIsError && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-destructive">
+                  <td colSpan={liveEnabled ? 9 : 8} className="px-4 py-12 text-center text-destructive">
                     {liveRosterError instanceof Error ? liveRosterError.message : 'The roster could not be loaded.'}
                   </td>
                 </tr>
               )}
               {(!liveEnabled || liveRosterData) && filteredAndSortedPatients.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={liveEnabled ? 9 : 8} className="px-4 py-12 text-center text-muted-foreground">
                     No patients found matching your search.
                   </td>
                 </tr>

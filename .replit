@@ -172,6 +172,14 @@ args = "invite-patients-web"
 task = "workflow.run"
 args = "invite-patients-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "roster-activity"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "activity-sql"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -597,6 +605,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:invite-patients"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "roster-activity"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:roster-activity"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "activity-sql"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/lib/patient-activity.sql.test.ts"
 
 [workflows.workflow.metadata]
 isValidation = true

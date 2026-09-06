@@ -260,6 +260,63 @@ export type OfficeRosterPatientInvitation = {
   emailUpdatedAt: string | null;
 } | null;
 
+export type PatientActivitySignalsMoodCounts = {
+  '1': number;
+  '2': number;
+  '3': number;
+  '4': number;
+  '5': number;
+} | null;
+
+/**
+ * Up to three side effects from the 30-day window, most frequent first (ties alphabetical).
+ */
+export type PatientActivitySignalsTopSideEffects = null | {
+  name: string;
+  count: number;
+}[];
+
+/**
+ * Activity signals over the patient's stored diary, water and check-in rows, bucketed by the stored local day keys and anchored on asOfDate. Each family is null when there is no data of that kind yet: the diary family (loggedLast7, loggedDays7, mealStreak, avgCalories7) when the patient has never logged a diary entry, the check-in family (checkInStreak, checkInRate30, latestCheckInDate, moodCounts, topSideEffects) when they have never checked in. Averages are null when their window holds no qualifying day. Zero is only ever a real zero. The patient detail record's `engagement` uses the identical definitions.
+ */
+export interface PatientActivitySignals {
+  asOfDate: string;
+  /** Seven booleans, oldest first, ending on asOfDate — true when at least one diary entry exists that day. */
+  loggedLast7: null | boolean[];
+  /** @nullable */
+  loggedDays7: number | null;
+  /**
+     * Consecutive logged days ending on asOfDate
+     * @nullable
+     */
+  mealStreak: number | null;
+  /**
+     * Rounded mean of per-day calorie totals over logged days in the 7-day window.
+     * @nullable
+     */
+  avgCalories7: number | null;
+  /**
+     * Rounded mean ounces over 7-day-window days with water logged (oz > 0).
+     * @nullable
+     */
+  avgWater7: number | null;
+  /**
+     * Consecutive check-in days ending on asOfDate or the day before.
+     * @nullable
+     */
+  checkInStreak: number | null;
+  /**
+     * Percent of the 30 days ending on asOfDate with a check-in (0-100).
+     * @nullable
+     */
+  checkInRate30: number | null;
+  /** @nullable */
+  latestCheckInDate: string | null;
+  moodCounts: PatientActivitySignalsMoodCounts;
+  /** Up to three side effects from the 30-day window, most frequent first (ties alphabetical). */
+  topSideEffects: PatientActivitySignalsTopSideEffects;
+}
+
 export type OperationalPatientStatus = typeof OperationalPatientStatus[keyof typeof OperationalPatientStatus];
 
 
@@ -268,6 +325,7 @@ export const OperationalPatientStatus = {
   inactive: 'inactive',
   needs_attention: 'needs_attention',
   on_track: 'on_track',
+  unknown: 'unknown',
 } as const;
 
 export type OperationalPatientReasonsItem = typeof OperationalPatientReasonsItem[keyof typeof OperationalPatientReasonsItem];
@@ -304,7 +362,12 @@ export interface PatientOperationalFollowUp {
   resolvedAt: string | null;
 }
 
+/**
+ * Recency facts and activity signals for one roster row, measured against the patient's own local day (asOfDate). `activity` is null when the office aggregate returned no row for the patient; the status is then `unknown` with no outreach reasons — missing data never reads as zero activity.
+ */
 export interface OperationalPatient {
+  /** Patient-local calendar day the signals were computed for. */
+  asOfDate: string;
   /** @nullable */
   latestActivityDate: string | null;
   /** @nullable */
@@ -317,8 +380,17 @@ export interface OperationalPatient {
   latestWeightDate: string | null;
   /** @nullable */
   latestPhotoDate: string | null;
-  loggedDays7: number;
-  checkIns7: number;
+  /**
+     * Distinct diary days in the 7-day window; null when the patient has no diary data yet or the aggregate is unavailable.
+     * @nullable
+     */
+  loggedDays7: number | null;
+  /**
+     * Check-in days in the 7-day window; null when the patient has no check-ins yet or the aggregate is unavailable.
+     * @nullable
+     */
+  checkIns7: number | null;
+  activity: null | PatientActivitySignals;
   status: OperationalPatientStatus;
   reasons: OperationalPatientReasonsItem[];
   followUps: PatientOperationalFollowUp[];
@@ -556,6 +628,8 @@ export type OfficePatientRecordAccount = {
 
 export interface OfficePatientRecord {
   office: OfficeSummary;
+  /** Activity signals computed over the diary, water and checkIns rows below for the patient's local day — the same definitions as the roster's `operational.activity`. */
+  engagement: PatientActivitySignals;
   patient: OfficePatientRecordPatient;
   diary: OfficePatientRecordDiary;
   water: OfficePatientRecordWaterItem[];
@@ -1511,3 +1585,4 @@ action?: string;
 from?: string;
 to?: string;
 };
+

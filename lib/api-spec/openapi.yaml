@@ -1512,23 +1512,88 @@ components:
           $ref: "#/components/schemas/OperationalPatient"
     OperationalPatient:
       type: object
-      required: [latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, status, reasons, followUps]
+      description: >-
+        Recency facts and activity signals for one roster row, measured
+        against the patient's own local day (asOfDate). `activity` is null
+        when the office aggregate returned no row for the patient; the status
+        is then `unknown` with no outreach reasons — missing data never reads
+        as zero activity.
+      required: [asOfDate, latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, activity, status, reasons, followUps]
       properties:
+        asOfDate: { type: string, format: date, description: Patient-local calendar day the signals were computed for. }
         latestActivityDate: { type: ["string", "null"], format: date }
         latestDiaryDate: { type: ["string", "null"], format: date }
         latestWaterDate: { type: ["string", "null"], format: date }
         latestCheckInDate: { type: ["string", "null"], format: date }
         latestWeightDate: { type: ["string", "null"], format: date }
         latestPhotoDate: { type: ["string", "null"], format: date }
-        loggedDays7: { type: number }
-        checkIns7: { type: number }
-        status: { type: string, enum: [invited, inactive, needs_attention, on_track] }
+        loggedDays7: { type: ["number", "null"], description: Distinct diary days in the 7-day window; null when the patient has no diary data yet or the aggregate is unavailable. }
+        checkIns7: { type: ["number", "null"], description: Check-in days in the 7-day window; null when the patient has no check-ins yet or the aggregate is unavailable. }
+        activity:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/PatientActivitySignals"
+        status: { type: string, enum: [invited, inactive, needs_attention, on_track, unknown] }
         reasons:
           type: array
           items: { type: string, enum: [no_activity_14d, logging_lapsed, check_in_overdue] }
         followUps:
           type: array
           items: { $ref: "#/components/schemas/PatientOperationalFollowUp" }
+    PatientActivitySignals:
+      type: object
+      description: >-
+        Activity signals over the patient's stored diary, water and check-in
+        rows, bucketed by the stored local day keys and anchored on asOfDate.
+        Each family is null when there is no data of that kind yet: the diary
+        family (loggedLast7, loggedDays7, mealStreak, avgCalories7) when the
+        patient has never logged a diary entry, the check-in family
+        (checkInStreak, checkInRate30, latestCheckInDate, moodCounts,
+        topSideEffects) when they have never checked in. Averages are null
+        when their window holds no qualifying day. Zero is only ever a real
+        zero. The patient detail record's `engagement` uses the identical
+        definitions.
+      required: [asOfDate, loggedLast7, loggedDays7, mealStreak, avgCalories7, avgWater7, checkInStreak, checkInRate30, latestCheckInDate, moodCounts, topSideEffects]
+      properties:
+        asOfDate: { type: string, format: date }
+        loggedLast7:
+          description: Seven booleans, oldest first, ending on asOfDate — true when at least one diary entry exists that day.
+          oneOf:
+            - type: "null"
+            - type: array
+              minItems: 7
+              maxItems: 7
+              items: { type: boolean }
+        loggedDays7: { type: ["number", "null"] }
+        mealStreak: { type: ["number", "null"], description: Consecutive logged days ending on asOfDate, or on the day before while today is still open. }
+        avgCalories7: { type: ["number", "null"], description: Rounded mean of per-day calorie totals over logged days in the 7-day window. }
+        avgWater7: { type: ["number", "null"], description: Rounded mean ounces over 7-day-window days with water logged (oz > 0). }
+        checkInStreak: { type: ["number", "null"], description: Consecutive check-in days ending on asOfDate or the day before. }
+        checkInRate30: { type: ["number", "null"], description: Percent of the 30 days ending on asOfDate with a check-in (0-100). }
+        latestCheckInDate: { type: ["string", "null"], format: date }
+        moodCounts:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: ["1", "2", "3", "4", "5"]
+              properties:
+                "1": { type: number }
+                "2": { type: number }
+                "3": { type: number }
+                "4": { type: number }
+                "5": { type: number }
+        topSideEffects:
+          description: Up to three side effects from the 30-day window, most frequent first (ties alphabetical).
+          oneOf:
+            - type: "null"
+            - type: array
+              maxItems: 3
+              items:
+                type: object
+                required: [name, count]
+                properties:
+                  name: { type: string }
+                  count: { type: number }
     PatientOperationalFollowUp:
       type: object
       required: [reason, status, createdAt, resolvedAt]
@@ -1621,9 +1686,12 @@ components:
         fat: { type: number }
     OfficePatientRecord:
       type: object
-      required: [office, patient, diary, water, checkIns, weights, progressPhotos, account]
+      required: [office, patient, diary, water, checkIns, engagement, weights, progressPhotos, account]
       properties:
         office: { $ref: "#/components/schemas/OfficeSummary" }
+        engagement:
+          description: Activity signals computed over the diary, water and checkIns rows below for the patient's local day — the same definitions as the roster's `operational.activity`.
+          $ref: "#/components/schemas/PatientActivitySignals"
         patient:
           type: object
           required: [identity, program]

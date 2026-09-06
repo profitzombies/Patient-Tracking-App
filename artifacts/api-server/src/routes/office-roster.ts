@@ -36,6 +36,7 @@ import { isOwnPatientMediaPath } from "./patient-media";
 import { programDayFor } from "../coach/real-patient";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { activityFromSummaryRow, computePatientActivity } from "../lib/patient-activity";
 
 const router: IRouter = Router();
 
@@ -130,25 +131,42 @@ function daysOld(date: string | null, asOf: string): number | null {
   return Math.floor((Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000);
 }
 
-function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: OperationalRow | undefined, asOf: string, followUps: OperationalRow[] = []) {
+export type RosterStatus = "invited" | "inactive" | "needs_attention" | "on_track" | "unknown";
+
+/**
+ * Operational facts for one roster row.
+ *
+ * `fact` is the patient's row from the office-wide activity aggregate. When
+ * it is missing the row's activity is UNKNOWN — status "unknown", no
+ * outreach reasons and `activity: null` — never a set of zeros that would
+ * flag the patient for outreach on data we did not load. The recency
+ * thresholds themselves are unchanged; they are simply measured against the
+ * patient's own local day (`as_of_date`) instead of the server's UTC date.
+ */
+function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: OperationalRow | undefined, officeAsOf: string, followUps: OperationalRow[] = []) {
+  const activity = activityFromSummaryRow(fact, officeAsOf);
+  const asOf = activity?.asOfDate ?? officeAsOf;
   const latestActivityDate = dateOrNull(fact?.latest_activity_date);
   const latestDiaryDate = dateOrNull(fact?.latest_diary_date);
   const latestWaterDate = dateOrNull(fact?.latest_water_date);
   const latestCheckInDate = dateOrNull(fact?.latest_check_in_date);
   const latestWeightDate = dateOrNull(fact?.latest_weight_date);
   const latestPhotoDate = dateOrNull(fact?.latest_photo_date);
-  const loggedDays7 = numericOrNull(fact?.logged_days_7) ?? 0;
-  const checkIns7 = numericOrNull(fact?.check_ins_7) ?? 0;
+  // Window counts straight from the aggregate: null when the aggregate row is
+  // missing or reports "no data of that kind yet".
+  const loggedDays7 = activity ? numericOrNull(fact?.logged_days_7) : null;
+  const checkIns7 = activity ? numericOrNull(fact?.check_ins_7) : null;
   const activation = patient.activationStatus;
   const accountAge = daysOld(dateOrNull(patient.createdAt), asOf) ?? 0;
   const programAge = daysOld(patient.program.startDate, asOf) ?? accountAge;
   const age = Math.max(accountAge, programAge);
   const activityAge = daysOld(latestActivityDate, asOf);
-  const mealSilent = activation === "activated" && age >= 3 && (daysOld(latestDiaryDate, asOf) == null || daysOld(latestDiaryDate, asOf)! >= 3);
-  const checkInOverdue = activation === "activated" && age >= 7 && (daysOld(latestCheckInDate, asOf) == null || daysOld(latestCheckInDate, asOf)! >= 7);
-  const inactive = activation === "activated" && ((activityAge == null && accountAge >= 14) || (activityAge != null && activityAge >= 14));
-  const status = patient.invitation?.state === "pending" ? "invited" : inactive ? "inactive" : mealSilent || checkInOverdue ? "needs_attention" : "on_track";
-  return { ...patient, operational: { latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, status, reasons: [inactive ? "no_activity_14d" : null, mealSilent ? "logging_lapsed" : null, checkInOverdue ? "check_in_overdue" : null].filter(Boolean), followUps: followUps.map((row) => ({ reason: String(row.reason), status: String(row.status), createdAt: String(row.created_at), resolvedAt: row.resolved_at ? String(row.resolved_at) : null })) } };
+  const known = activity !== null;
+  const mealSilent = known && activation === "activated" && age >= 3 && (daysOld(latestDiaryDate, asOf) == null || daysOld(latestDiaryDate, asOf)! >= 3);
+  const checkInOverdue = known && activation === "activated" && age >= 7 && (daysOld(latestCheckInDate, asOf) == null || daysOld(latestCheckInDate, asOf)! >= 7);
+  const inactive = known && activation === "activated" && ((activityAge == null && accountAge >= 14) || (activityAge != null && activityAge >= 14));
+  const status: RosterStatus = patient.invitation?.state === "pending" ? "invited" : !known ? "unknown" : inactive ? "inactive" : mealSilent || checkInOverdue ? "needs_attention" : "on_track";
+  return { ...patient, operational: { asOfDate: asOf, latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, activity, status, reasons: [inactive ? "no_activity_14d" : null, mealSilent ? "logging_lapsed" : null, checkInOverdue ? "check_in_overdue" : null].filter(Boolean), followUps: followUps.map((row) => ({ reason: String(row.reason), status: String(row.status), createdAt: String(row.created_at), resolvedAt: row.resolved_at ? String(row.resolved_at) : null })) } };
 }
 
 function numericOrNull(value: unknown): number | null {
@@ -281,15 +299,19 @@ router.get("/office/roster", async (req, res) => {
       return;
     }
     const scope = resolved.scope;
-    const asOf = new Date().toISOString().slice(0, 10);
+    // One request moment for the whole office. The aggregate turns it into
+    // each patient's own local day; the office-level asOf stays the server's
+    // UTC date for the summary counters.
+    const now = new Date();
+    const asOf = now.toISOString().slice(0, 10);
     const [rows, operational, followUps] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
       ),
-      supabaseAdmin("POST", "/rest/v1/rpc/provider_patient_operational_summary", {
+      supabaseAdmin("POST", "/rest/v1/rpc/provider_patient_activity_summary", {
         p_provider_id: scope.providerId,
-        p_as_of: asOf,
+        p_at: now.toISOString(),
       }),
       supabaseAdmin("GET", `/rest/v1/patient_operational_follow_ups?provider_id=eq.${enc(scope.providerId)}&select=patient_id,reason,status,created_at,resolved_at&order=created_at.desc&limit=2000`),
     ]);
@@ -546,6 +568,12 @@ router.get("/office/patients/:id", async (req, res) => {
       },
       water: waterDays,
       checkIns: checkInList,
+      // Same definitions as the roster aggregate, computed over the rows
+      // above for the patient's own local day (see lib/patient-activity).
+      engagement: computePatientActivity(
+        { diary: entryList, water: waterDays, checkIns: checkInList },
+        dayKeyInTimeZone(typeof patient.timezone === "string" ? patient.timezone : null),
+      ),
       weights: checkInList
         .filter((item) => item.weight !== null)
         .map((item) => ({ dateKey: item.dateKey, weight: item.weight })),

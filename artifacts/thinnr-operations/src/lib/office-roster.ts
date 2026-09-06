@@ -56,15 +56,21 @@ export interface OfficePatient {
     emailUpdatedAt: string | null;
   } | null;
   operational?: {
+    /** Patient-local calendar day the signals were computed for. */
+    asOfDate?: string;
     latestActivityDate: string | null;
     latestDiaryDate: string | null;
     latestWaterDate: string | null;
     latestCheckInDate: string | null;
     latestWeightDate: string | null;
     latestPhotoDate: string | null;
-    loggedDays7: number;
-    checkIns7: number;
-    status: 'invited' | 'inactive' | 'needs_attention' | 'on_track';
+    /** Window counts; null when there is no data of that kind yet or the aggregate is unavailable. */
+    loggedDays7: number | null;
+    checkIns7: number | null;
+    /** Activity signals; null when the office aggregate had no row for the patient (unknown, not zero). */
+    activity?: PatientActivitySignals | null;
+    /** `unknown` = the aggregate had no row for this patient; never treated as lapsed. */
+    status: 'invited' | 'inactive' | 'needs_attention' | 'on_track' | 'unknown';
     reasons: ('logging_lapsed' | 'check_in_overdue' | 'no_activity_14d')[];
     followUps?: {
       reason: 'logging_lapsed' | 'check_in_overdue' | 'no_activity_14d';
@@ -73,6 +79,31 @@ export interface OfficePatient {
       resolvedAt: string | null;
     }[];
   };
+}
+
+export type MoodKey = '1' | '2' | '3' | '4' | '5';
+
+/**
+ * Activity signals over a patient's stored diary, water and check-in rows.
+ * Families are null while there is no data of that kind yet (diary family:
+ * loggedLast7/loggedDays7/mealStreak/avgCalories7; check-in family:
+ * checkInStreak/checkInRate30/latestCheckInDate/moodCounts/topSideEffects);
+ * averages are null when their window holds no qualifying day. Zero is only
+ * ever a real zero. The patient detail's `engagement` shares the definition.
+ */
+export interface PatientActivitySignals {
+  asOfDate: string;
+  /** Seven booleans, oldest first, ending on asOfDate. */
+  loggedLast7: boolean[] | null;
+  loggedDays7: number | null;
+  mealStreak: number | null;
+  avgCalories7: number | null;
+  avgWater7: number | null;
+  checkInStreak: number | null;
+  checkInRate30: number | null;
+  latestCheckInDate: string | null;
+  moodCounts: Record<MoodKey, number> | null;
+  topSideEffects: Array<{ name: string; count: number }> | null;
 }
 
 export interface OfficeRosterSummary {
@@ -169,6 +200,8 @@ export interface OfficePatientDetail {
   };
   water: Array<{ dateKey: string; oz: number }>;
   checkIns: OfficeCheckIn[];
+  /** Same definitions as the roster's operational.activity, over the rows above. */
+  engagement?: PatientActivitySignals;
   weights: OfficeWeightEntry[];
   progressPhotos: OfficeProgressPhoto[];
   account: {

@@ -13,9 +13,12 @@ import type { OfficePatientRecordProgressPhotosItem } from './officePatientRecor
 import type { OfficePatientRecordWaterItem } from './officePatientRecordWaterItem';
 import type { OfficePatientRecordWeightsItem } from './officePatientRecordWeightsItem';
 import type { OfficeSummary } from './officeSummary';
+import type { PatientActivitySignals } from './patientActivitySignals';
 
 export interface OfficePatientRecord {
   office: OfficeSummary;
+  /** Activity signals computed over the diary, water and checkIns rows below for the patient's local day — the same definitions as the roster's `operational.activity`. */
+  engagement: PatientActivitySignals;
   patient: OfficePatientRecordPatient;
   diary: OfficePatientRecordDiary;
   water: OfficePatientRecordWaterItem[];

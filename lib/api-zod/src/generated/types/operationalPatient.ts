@@ -7,9 +7,15 @@
  */
 import type { OperationalPatientReasonsItem } from './operationalPatientReasonsItem';
 import type { OperationalPatientStatus } from './operationalPatientStatus';
+import type { PatientActivitySignals } from './patientActivitySignals';
 import type { PatientOperationalFollowUp } from './patientOperationalFollowUp';
 
+/**
+ * Recency facts and activity signals for one roster row, measured against the patient's own local day (asOfDate). `activity` is null when the office aggregate returned no row for the patient; the status is then `unknown` with no outreach reasons — missing data never reads as zero activity.
+ */
 export interface OperationalPatient {
+  /** Patient-local calendar day the signals were computed for. */
+  asOfDate: Date;
   /** @nullable */
   latestActivityDate: Date | null;
   /** @nullable */
@@ -22,8 +28,17 @@ export interface OperationalPatient {
   latestWeightDate: Date | null;
   /** @nullable */
   latestPhotoDate: Date | null;
-  loggedDays7: number;
-  checkIns7: number;
+  /**
+     * Distinct diary days in the 7-day window; null when the patient has no diary data yet or the aggregate is unavailable.
+     * @nullable
+     */
+  loggedDays7: number | null;
+  /**
+     * Check-in days in the 7-day window; null when the patient has no check-ins yet or the aggregate is unavailable.
+     * @nullable
+     */
+  checkIns7: number | null;
+  activity: null | PatientActivitySignals;
   status: OperationalPatientStatus;
   reasons: OperationalPatientReasonsItem[];
   followUps: PatientOperationalFollowUp[];

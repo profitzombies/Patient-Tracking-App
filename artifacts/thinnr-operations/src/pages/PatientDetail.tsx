@@ -41,6 +41,7 @@ import {
   type OfficeDiaryEntry,
   type OfficePatientDetail,
 } from "@/lib/office-roster";
+import { EngagementSummary } from "@/components/office/RosterActivity";
 
 /**
  * Demo actions (logging a weight, adding a note) are stamped with the fixed
@@ -394,6 +395,9 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
             <div className="p-5">
               {weights.length && startingWeight != null ? <><WeightTrend entries={weights.map((entry) => ({ date: entry.dateKey, weight: entry.weight }))} goalWeight={program.goalWeight} startingWeight={startingWeight} patientName={identity.name} /><div className="mt-4 divide-y divide-border rounded-md border border-border">{[...weights].reverse().map((entry) => <div key={`${entry.dateKey}-${entry.weight}`} className="flex justify-between px-3 py-2 text-xs"><span className="text-muted-foreground">{formatDate(entry.dateKey, true)}</span><b className="font-mono text-navy">{entry.weight.toFixed(1)} lbs</b></div>)}</div></> : <EmptyState>No weigh-ins have been recorded.</EmptyState>}
             </div>
+          </SectionCard>
+          <SectionCard title="Engagement" sub="Logging, check-in, and wellbeing signals — identical to this patient's roster row.">
+            <div className="p-5">{record.engagement ? <EngagementSummary signals={record.engagement} /> : <EmptyState>Engagement signals are not available for this record.</EmptyState>}</div>
           </SectionCard>
           <SectionCard title="Nutrition, water, and diary" sub="Entries recorded in the patient companion app.">
             <div className="space-y-3 p-5">{diary.length ? <><div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-4">{Object.entries(record.diary.nutritionTotals.overall).map(([name, value]) => <div key={name} className="bg-card p-3"><p className={MICRO_LABEL}>{name}</p><p className="mt-1 font-mono text-sm text-navy">{value}{name === 'calories' ? ' cal' : ' g'}</p></div>)}</div>{diary.map((day) => <LiveDiaryDay key={day.dateKey} day={day} totals={totalsByDate.get(day.dateKey)} />)}</> : <EmptyState>No nutrition or water entries have been recorded.</EmptyState>}</div>

@@ -55,6 +55,7 @@ let insertFailsWith: string | null = null;
 let resendCalls: Array<{ to: unknown; template: unknown; vars: Row }> = [];
 let patchFailures = 0;
 let operationalFacts: Row[] | null = null;
+let activityRequests: Array<{ p_provider_id: string; p_at: string }> = [];
 let operationalFollowUps: Row[] = [];
 
 function response(json: unknown, status = 200): Response {
@@ -162,6 +163,7 @@ beforeEach(() => {
   resendCalls = [];
   patchFailures = 0;
   operationalFacts = null;
+  activityRequests = [];
   operationalFollowUps = [];
 
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -209,8 +211,9 @@ beforeEach(() => {
           .map((row) => ({ type: "patient", ref: row.id })),
       );
     }
-    if (url.pathname === "/rest/v1/rpc/provider_patient_operational_summary") {
-      const body = JSON.parse(String(init?.body)) as { p_provider_id: string };
+    if (url.pathname === "/rest/v1/rpc/provider_patient_activity_summary") {
+      const body = JSON.parse(String(init?.body)) as { p_provider_id: string; p_at: string };
+      activityRequests.push(body);
       return response(operationalFacts ?? patients
           .filter((patient) => patient.provider_id === body.p_provider_id)
           .map((patient) => ({
@@ -322,6 +325,99 @@ describe("office scope", () => {
     expect(body.patients[0].operational).toMatchObject({ loggedDays7: 3, checkIns7: 1, status: "needs_attention", reasons: ["logging_lapsed", "check_in_overdue"] });
     expect(body.summary).toMatchObject({ totalPatients: 1, activePatients: 1, needsAttention: 1, checkInsOverdue: 1, loggingLapsed: 1 });
     expect(JSON.stringify(body)).not.toMatch(/private\/path|must never|190/);
+    // The aggregate is asked once per roster load, for the request moment —
+    // it derives each patient's own local day from that instant.
+    expect(activityRequests).toHaveLength(1);
+    expect(activityRequests[0]).toMatchObject({ p_provider_id: "office-1" });
+    expect(Date.parse(activityRequests[0].p_at)).not.toBeNaN();
+  });
+
+  it("passes the aggregate's activity signals through as explicit nullable families", async () => {
+    const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    operationalFacts = [{
+      patient_id: "pat-own", as_of_date: day(0), latest_activity_date: day(0), latest_diary_date: day(0),
+      latest_water_date: day(1), latest_check_in_date: day(2), latest_weight_date: day(2), latest_photo_date: null,
+      logged_days_7: 4, check_ins_7: 1,
+      logged_last_7: [false, true, true, false, true, false, true], meal_streak: 1,
+      avg_calories_7: "1412", avg_water_7: 58, check_in_streak: 0, check_in_rate_30: 13,
+      mood_counts: { "1": 0, "2": 1, "3": 2, "4": 1, "5": 0 },
+      top_side_effects: [{ name: "Nausea", count: 3 }, { name: "Fatigue", count: 1 }],
+    }];
+    const body = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    expect(body.patients[0].operational).toMatchObject({
+      asOfDate: day(0), loggedDays7: 4, checkIns7: 1, status: "on_track", reasons: [],
+      activity: {
+        asOfDate: day(0), loggedLast7: [false, true, true, false, true, false, true], loggedDays7: 4,
+        mealStreak: 1, avgCalories7: 1412, avgWater7: 58, checkInStreak: 0, checkInRate30: 13,
+        latestCheckInDate: day(2), moodCounts: { "1": 0, "2": 1, "3": 2, "4": 1, "5": 0 },
+        topSideEffects: [{ name: "Nausea", count: 3 }, { name: "Fatigue", count: 1 }],
+      },
+    });
+  });
+
+  it("keeps 'no data yet' families null instead of coining zeros", async () => {
+    const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    // Water only: the diary and check-in families are unknown, water is real.
+    operationalFacts = [{
+      patient_id: "pat-own", as_of_date: day(0), latest_activity_date: day(0), latest_diary_date: null,
+      latest_water_date: day(0), latest_check_in_date: null, latest_weight_date: null, latest_photo_date: null,
+      logged_days_7: null, check_ins_7: null, logged_last_7: null, meal_streak: null,
+      avg_calories_7: null, avg_water_7: 40, check_in_streak: null, check_in_rate_30: null,
+      mood_counts: null, top_side_effects: null,
+    }];
+    const body = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    const operational = body.patients[0].operational as Record<string, unknown>;
+    expect(operational).toMatchObject({
+      loggedDays7: null, checkIns7: null,
+      activity: {
+        loggedLast7: null, loggedDays7: null, mealStreak: null, avgCalories7: null, avgWater7: 40,
+        checkInStreak: null, checkInRate30: null, latestCheckInDate: null, moodCounts: null, topSideEffects: null,
+      },
+    });
+    expect(JSON.stringify(operational.activity)).not.toMatch(/"loggedDays7":0|"checkInRate30":0/);
+  });
+
+  it("reports a patient missing from the aggregate as unknown, never as lapsed", async () => {
+    patients[0].created_at = new Date(Date.now() - 20 * 86_400_000).toISOString();
+    operationalFacts = []; // aggregate answered, but not for this patient
+    const body = await (await api("/office/roster", "provider-token")).json() as { patients: Row[]; summary: Row };
+    expect(body.patients[0].operational).toMatchObject({
+      status: "unknown", reasons: [], activity: null, loggedDays7: null, checkIns7: null,
+    });
+    expect(body.summary).toMatchObject({ needsAttention: 0, inactive: 0, loggingLapsed: 0, checkInsOverdue: 0 });
+  });
+
+  it("measures recency against the patient's own local day", async () => {
+    // Account created 3 UTC-days ago; the patient's local day is one behind
+    // the server's, so they are only 2 local days old — not yet lapsed.
+    const utcDay = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    patients[0].created_at = `${utcDay(3)}T12:00:00Z`;
+    operationalFacts = [{
+      patient_id: "pat-own", as_of_date: utcDay(1), latest_activity_date: null, latest_diary_date: null,
+      latest_water_date: null, latest_check_in_date: null, latest_weight_date: null, latest_photo_date: null,
+      logged_days_7: null, check_ins_7: null, logged_last_7: null, meal_streak: null, avg_calories_7: null,
+      avg_water_7: null, check_in_streak: null, check_in_rate_30: null, mood_counts: null, top_side_effects: null,
+    }];
+    const body = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    expect(body.patients[0].operational).toMatchObject({ asOfDate: utcDay(1), status: "on_track", reasons: [] });
+  });
+
+  it("fails loudly when the aggregate itself is unavailable", async () => {
+    operationalFacts = null;
+    const failing = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if (url.pathname === "/rest/v1/rpc/provider_patient_activity_summary") {
+        return new Response(JSON.stringify({ message: "boom" }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+      return failing(input, init);
+    }) as typeof fetch;
+    try {
+      const res = await api("/office/roster", "provider-token");
+      expect(res.status).toBe(502);
+    } finally {
+      global.fetch = failing;
+    }
   });
 
   it("merges only newest follow-up metadata per reason without clinical fields", async () => {
@@ -525,6 +621,16 @@ describe("live patient records", () => {
     });
     expect(body.water).toEqual([{ dateKey: "2026-01-05", oz: 72 }]);
     expect(body.weights).toEqual([{ dateKey: "2026-01-05", weight: 191 }]);
+    // Engagement rides the same rows with the roster's definitions, anchored
+    // on the patient's own (America/New_York) day. The 2026-01-05 fixture is
+    // long past, so every window is empty but the families are known.
+    expect(body.engagement).toEqual({
+      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      loggedLast7: [false, false, false, false, false, false, false],
+      loggedDays7: 0, mealStreak: 0, avgCalories7: null, avgWater7: null,
+      checkInStreak: 0, checkInRate30: 0, latestCheckInDate: "2026-01-05",
+      moodCounts: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 }, topSideEffects: [],
+    });
     expect(body.account.flags).toMatchObject({
       nudgeOptOut: true,
       onboardingComplete: true,

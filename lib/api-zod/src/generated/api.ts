@@ -816,6 +816,13 @@ export const GetOfficeRosterQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
 })
 
+export const getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast7TwoMin = 7;
+export const getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast7TwoMax = 7;
+
+export const getOfficeRosterResponsePatientsItemOperationalActivityTwoTopSideEffectsTwoMax = 3;
+
+
+
 export const GetOfficeRosterResponse = zod.object({
   "office": zod.object({
   "providerId": zod.string(),
@@ -850,15 +857,38 @@ export const GetOfficeRosterResponse = zod.object({
   "emailUpdatedAt": zod.string().nullable()
 })]),
   "operational": zod.object({
+  "asOfDate": zod.coerce.date().describe('Patient-local calendar day the signals were computed for.'),
   "latestActivityDate": zod.coerce.date().nullable(),
   "latestDiaryDate": zod.coerce.date().nullable(),
   "latestWaterDate": zod.coerce.date().nullable(),
   "latestCheckInDate": zod.coerce.date().nullable(),
   "latestWeightDate": zod.coerce.date().nullable(),
   "latestPhotoDate": zod.coerce.date().nullable(),
-  "loggedDays7": zod.number(),
-  "checkIns7": zod.number(),
-  "status": zod.enum(['invited', 'inactive', 'needs_attention', 'on_track']),
+  "loggedDays7": zod.number().nullable().describe('Distinct diary days in the 7-day window; null when the patient has no diary data yet or the aggregate is unavailable.'),
+  "checkIns7": zod.number().nullable().describe('Check-in days in the 7-day window; null when the patient has no check-ins yet or the aggregate is unavailable.'),
+  "activity": zod.union([zod.null(),zod.object({
+  "asOfDate": zod.coerce.date(),
+  "loggedLast7": zod.union([zod.null(),zod.array(zod.boolean()).min(getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast7TwoMin).max(getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast7TwoMax)]).describe('Seven booleans, oldest first, ending on asOfDate — true when at least one diary entry exists that day.'),
+  "loggedDays7": zod.number().nullable(),
+  "mealStreak": zod.number().nullable().describe('Consecutive logged days ending on asOfDate'),
+  "avgCalories7": zod.number().nullable().describe('Rounded mean of per-day calorie totals over logged days in the 7-day window.'),
+  "avgWater7": zod.number().nullable().describe('Rounded mean ounces over 7-day-window days with water logged (oz > 0).'),
+  "checkInStreak": zod.number().nullable().describe('Consecutive check-in days ending on asOfDate or the day before.'),
+  "checkInRate30": zod.number().nullable().describe('Percent of the 30 days ending on asOfDate with a check-in (0-100).'),
+  "latestCheckInDate": zod.coerce.date().nullable(),
+  "moodCounts": zod.union([zod.null(),zod.object({
+  "1": zod.number(),
+  "2": zod.number(),
+  "3": zod.number(),
+  "4": zod.number(),
+  "5": zod.number()
+})]),
+  "topSideEffects": zod.union([zod.null(),zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})).max(getOfficeRosterResponsePatientsItemOperationalActivityTwoTopSideEffectsTwoMax)]).describe('Up to three side effects from the 30-day window, most frequent first (ties alphabetical).')
+}).describe('Activity signals over the patient\'s stored diary, water and check-in rows, bucketed by the stored local day keys and anchored on asOfDate. Each family is null when there is no data of that kind yet: the diary family (loggedLast7, loggedDays7, mealStreak, avgCalories7) when the patient has never logged a diary entry, the check-in family (checkInStreak, checkInRate30, latestCheckInDate, moodCounts, topSideEffects) when they have never checked in. Averages are null when their window holds no qualifying day. Zero is only ever a real zero. The patient detail record\'s `engagement` uses the identical definitions.')]),
+  "status": zod.enum(['invited', 'inactive', 'needs_attention', 'on_track', 'unknown']),
   "reasons": zod.array(zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue'])),
   "followUps": zod.array(zod.object({
   "reason": zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue']),
@@ -866,7 +896,7 @@ export const GetOfficeRosterResponse = zod.object({
   "createdAt": zod.string(),
   "resolvedAt": zod.string().nullable()
 }))
-})
+}).describe('Recency facts and activity signals for one roster row, measured against the patient\'s own local day (asOfDate). `activity` is null when the office aggregate returned no row for the patient; the status is then `unknown` with no outreach reasons — missing data never reads as zero activity.')
 })),
   "summary": zod.object({
   "totalPatients": zod.number(),
@@ -894,12 +924,41 @@ export const GetOfficePatientRecordQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
 })
 
+export const getOfficePatientRecordResponseEngagementLoggedLast7TwoMin = 7;
+export const getOfficePatientRecordResponseEngagementLoggedLast7TwoMax = 7;
+
+export const getOfficePatientRecordResponseEngagementTopSideEffectsTwoMax = 3;
+
+
+
 export const GetOfficePatientRecordResponse = zod.object({
   "office": zod.object({
   "providerId": zod.string(),
   "officeName": zod.string(),
   "providerCode": zod.string()
 }),
+  "engagement": zod.object({
+  "asOfDate": zod.coerce.date(),
+  "loggedLast7": zod.union([zod.null(),zod.array(zod.boolean()).min(getOfficePatientRecordResponseEngagementLoggedLast7TwoMin).max(getOfficePatientRecordResponseEngagementLoggedLast7TwoMax)]).describe('Seven booleans, oldest first, ending on asOfDate — true when at least one diary entry exists that day.'),
+  "loggedDays7": zod.number().nullable(),
+  "mealStreak": zod.number().nullable().describe('Consecutive logged days ending on asOfDate'),
+  "avgCalories7": zod.number().nullable().describe('Rounded mean of per-day calorie totals over logged days in the 7-day window.'),
+  "avgWater7": zod.number().nullable().describe('Rounded mean ounces over 7-day-window days with water logged (oz > 0).'),
+  "checkInStreak": zod.number().nullable().describe('Consecutive check-in days ending on asOfDate or the day before.'),
+  "checkInRate30": zod.number().nullable().describe('Percent of the 30 days ending on asOfDate with a check-in (0-100).'),
+  "latestCheckInDate": zod.coerce.date().nullable(),
+  "moodCounts": zod.union([zod.null(),zod.object({
+  "1": zod.number(),
+  "2": zod.number(),
+  "3": zod.number(),
+  "4": zod.number(),
+  "5": zod.number()
+})]),
+  "topSideEffects": zod.union([zod.null(),zod.array(zod.object({
+  "name": zod.string(),
+  "count": zod.number()
+})).max(getOfficePatientRecordResponseEngagementTopSideEffectsTwoMax)]).describe('Up to three side effects from the 30-day window, most frequent first (ties alphabetical).')
+}).describe('Activity signals computed over the diary, water and checkIns rows below for the patient\'s local day — the same definitions as the roster\'s `operational.activity`.'),
   "patient": zod.object({
   "identity": zod.object({
   "id": zod.string(),
@@ -1347,3 +1406,5 @@ export const GetHqAuditEventsResponse = zod.object({
   "total": zod.number().optional(),
   "hasMore": zod.boolean().optional()
 })
+
+

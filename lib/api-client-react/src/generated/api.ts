@@ -550,6 +550,13 @@ export function useBarcodeLookup<TData = Awaited<ReturnType<typeof barcodeLookup
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
+
 export const getCatalogSearchUrl = (params: CatalogSearchParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -628,6 +635,8 @@ export function useCatalogSearch<TData = Awaited<ReturnType<typeof catalogSearch
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
 
 
 
@@ -3819,4 +3828,10 @@ export function useGetHqAuditEvents<TData = Awaited<ReturnType<typeof getHqAudit
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
 

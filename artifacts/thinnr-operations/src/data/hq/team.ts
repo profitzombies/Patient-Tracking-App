@@ -27,12 +27,13 @@ export type HqPermission =
   | 'training'
   | 'knowledge'
   | 'files'
-  | 'settings';
+  | 'settings'
+  | 'audit';
 
 /** The UI mirrors the server authorization model; the API remains authoritative. */
 export const HQ_ROLE_PERMISSIONS: Record<HqRole, ReadonlySet<HqPermission>> = {
-  'Super Admin': new Set(['overview', 'accounts', 'conversations', 'team', 'training', 'knowledge', 'files', 'settings']),
-  Admin: new Set(['overview', 'accounts', 'conversations', 'team', 'training', 'knowledge', 'files', 'settings']),
+  'Super Admin': new Set(['overview', 'accounts', 'conversations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit']),
+  Admin: new Set(['overview', 'accounts', 'conversations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit']),
   Clinical: new Set(['accounts', 'conversations']),
   Support: new Set(['accounts', 'conversations']),
   Content: new Set(['training', 'knowledge', 'files']),
@@ -50,6 +51,7 @@ export function permissionForAdminPath(path: string): HqPermission {
   if (path.startsWith('/admin/team')) return 'team';
   if (path.startsWith('/admin/training')) return 'training';
   if (path.startsWith('/admin/knowledge') || path.startsWith('/admin/support-test')) return 'knowledge';
+  if (path.startsWith('/admin/audit')) return 'audit';
   if (path.startsWith('/admin/files')) return 'files';
   if (path.startsWith('/admin/settings')) return 'settings';
   return 'overview';

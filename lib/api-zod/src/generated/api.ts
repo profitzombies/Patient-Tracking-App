@@ -857,7 +857,13 @@ export const GetOfficeRosterResponse = zod.object({
   "loggedDays7": zod.number(),
   "checkIns7": zod.number(),
   "status": zod.enum(['invited', 'inactive', 'needs_attention', 'on_track']),
-  "reasons": zod.array(zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue']))
+  "reasons": zod.array(zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue'])),
+  "followUps": zod.array(zod.object({
+  "reason": zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue']),
+  "status": zod.enum(['open', 'resolved']),
+  "createdAt": zod.string(),
+  "resolvedAt": zod.string().nullable()
+}))
 })
 })),
   "summary": zod.object({
@@ -987,6 +993,89 @@ export const GetOfficePatientRecordResponse = zod.object({
 })),
   "flags": zod.record(zod.string(), zod.unknown())
 })
+})
+
+
+export const UpdateOfficePatientFollowUpParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reason": zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue'])
+})
+
+export const UpdateOfficePatientFollowUpQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const UpdateOfficePatientFollowUpBody = zod.object({
+  "status": zod.enum(['open', 'resolved'])
+})
+
+export const UpdateOfficePatientFollowUpResponse = zod.object({
+  "followUp": zod.object({
+  "reason": zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue']),
+  "status": zod.enum(['open', 'resolved']),
+  "createdAt": zod.string(),
+  "resolvedAt": zod.string().nullable()
+})
+})
+
+
+export const GetOfficeEngagementTrendsQueryParams = zod.object({
+  "start": zod.date(),
+  "end": zod.date(),
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficeEngagementTrendsResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "providerCode": zod.string()
+}),
+  "range": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "asOf": zod.string(),
+  "definition": zod.string(),
+  "points": zod.array(zod.object({
+  "date": zod.coerce.date(),
+  "active_patients": zod.number(),
+  "engaged_patients": zod.number(),
+  "patients_with_meal_log": zod.number(),
+  "patients_with_check_in": zod.number(),
+  "patients_with_water": zod.number(),
+  "patients_with_photo": zod.number(),
+  "patients_with_weight": zod.number(),
+  "meal_logs": zod.number(),
+  "check_ins": zod.number()
+}))
+})
+
+
+export const GetHqAuditEventsQueryParams = zod.object({
+  "limit": zod.coerce.number().optional(),
+  "offset": zod.coerce.number().optional(),
+  "provider": zod.coerce.string().optional(),
+  "action": zod.coerce.string().optional(),
+  "from": zod.date().optional(),
+  "to": zod.date().optional()
+})
+
+export const GetHqAuditEventsResponse = zod.object({
+  "events": zod.array(zod.object({
+  "id": zod.number(),
+  "occurredAt": zod.string(),
+  "action": zod.string(),
+  "actorUserId": zod.string().nullable(),
+  "actorKind": zod.string(),
+  "providerId": zod.string().nullable(),
+  "targetKind": zod.string().nullable(),
+  "targetId": zod.string().nullable(),
+  "requestId": zod.string().nullable(),
+  "metadata": zod.record(zod.string(), zod.unknown())
+})),
+  "total": zod.number().optional(),
+  "hasMore": zod.boolean().optional()
 })
 
 

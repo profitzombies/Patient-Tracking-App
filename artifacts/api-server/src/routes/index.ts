@@ -19,6 +19,8 @@ import providerAccountsRouter from "./provider-accounts";
 import hqTeamRouter from "./hq-team";
 import officeRosterRouter from "./office-roster";
 import catalogRouter from "./catalog";
+import officeOperationsRouter from "./office-operations";
+import hqAuditEventsRouter from "./hq-audit-events";
 
 const router: IRouter = Router();
 
@@ -42,5 +44,7 @@ router.use(patientChatRouter);
 router.use(providerAccountsRouter);
 router.use(hqTeamRouter);
 router.use(officeRosterRouter);
+router.use(officeOperationsRouter);
+router.use(hqAuditEventsRouter);
 
 export default router;

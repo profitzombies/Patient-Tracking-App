@@ -32,7 +32,8 @@ export type HqPermission =
   | "conversation_support"
   | "content_manage"
   | "financial_read"
-  | "account_lock";
+  | "account_lock"
+  | "audit_read";
 
 export interface StaffIdentity {
   userId: string;
@@ -42,8 +43,8 @@ export interface StaffIdentity {
 }
 
 const PERMISSIONS: Record<HqDepartmentRole, readonly HqPermission[]> = {
-  super_admin: ["team_manage", "settings_manage", "provider_manage", "provider_read", "provider_contact_read", "clinical_read", "analytics_read", "conversation_clinical", "conversation_support", "content_manage", "financial_read", "account_lock"],
-  admin: ["team_manage", "settings_manage", "provider_manage", "provider_read", "provider_contact_read", "clinical_read", "analytics_read", "conversation_clinical", "conversation_support", "content_manage", "financial_read", "account_lock"],
+  super_admin: ["team_manage", "settings_manage", "provider_manage", "provider_read", "provider_contact_read", "clinical_read", "analytics_read", "conversation_clinical", "conversation_support", "content_manage", "financial_read", "account_lock", "audit_read"],
+  admin: ["team_manage", "settings_manage", "provider_manage", "provider_read", "provider_contact_read", "clinical_read", "analytics_read", "conversation_clinical", "conversation_support", "content_manage", "financial_read", "account_lock", "audit_read"],
   clinical: ["provider_read", "provider_contact_read", "clinical_read", "analytics_read", "conversation_clinical"],
   support: ["provider_contact_read", "conversation_support"],
   content: ["content_manage"],

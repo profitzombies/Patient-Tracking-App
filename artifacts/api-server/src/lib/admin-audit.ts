@@ -5,10 +5,12 @@ export async function recordAdminAuditEvent(input: {
   action: string;
   actorUserId: string;
   actorKind: "provider" | "team_member" | "hq";
-  providerId: string;
+  providerId: string | null;
   targetKind: string;
-  targetId: string;
+  targetId: string | null;
   requestId: string | null;
+  /** Only small operational facts; credentials, free text, and clinical data are forbidden. */
+  metadata?: Record<string, string | number | boolean | null>;
 }): Promise<void> {
   const result = await supabaseAdmin("POST", "/rest/v1/rpc/record_admin_audit_event", {
     p_action: input.action,
@@ -18,7 +20,7 @@ export async function recordAdminAuditEvent(input: {
     p_target_kind: input.targetKind,
     p_target_id: input.targetId,
     p_request_id: input.requestId,
-    p_metadata: {},
+    p_metadata: input.metadata ?? {},
   });
   if (result.status >= 300) throw new Error(`admin audit write failed (${result.status})`);
 }

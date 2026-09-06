@@ -55,6 +55,7 @@ let insertFailsWith: string | null = null;
 let resendCalls: Array<{ to: unknown; template: unknown; vars: Row }> = [];
 let patchFailures = 0;
 let operationalFacts: Row[] | null = null;
+let operationalFollowUps: Row[] = [];
 
 function response(json: unknown, status = 200): Response {
   return new Response(json == null ? "" : JSON.stringify(json), {
@@ -161,6 +162,7 @@ beforeEach(() => {
   resendCalls = [];
   patchFailures = 0;
   operationalFacts = null;
+  operationalFollowUps = [];
 
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -225,6 +227,10 @@ beforeEach(() => {
       );
     }
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") return response(null, 204);
+    if (url.pathname === "/rest/v1/patient_operational_follow_ups") {
+      const providerId = url.searchParams.get("provider_id")?.replace("eq.", "");
+      return response(operationalFollowUps.filter((row) => !providerId || row.provider_id === providerId));
+    }
     if (url.pathname === "/rest/v1/patients") {
       if (!init?.method || init.method === "GET") {
         return response(patientsMatching(url.searchParams));
@@ -316,6 +322,17 @@ describe("office scope", () => {
     expect(body.patients[0].operational).toMatchObject({ loggedDays7: 3, checkIns7: 1, status: "needs_attention", reasons: ["logging_lapsed", "check_in_overdue"] });
     expect(body.summary).toMatchObject({ totalPatients: 1, activePatients: 1, needsAttention: 1, checkInsOverdue: 1, loggingLapsed: 1 });
     expect(JSON.stringify(body)).not.toMatch(/private\/path|must never|190/);
+  });
+
+  it("merges only newest follow-up metadata per reason without clinical fields", async () => {
+    operationalFollowUps = [
+      { provider_id: "office-1", patient_id: "pat-own", reason: "logging_lapsed", status: "resolved", created_at: "2026-02-02T00:00:00Z", resolved_at: "2026-02-03T00:00:00Z", resolved_by: "staff" },
+      { provider_id: "office-1", patient_id: "pat-own", reason: "logging_lapsed", status: "open", created_at: "2026-02-01T00:00:00Z", notes: "clinical secret" },
+    ];
+    const body = await (await api("/office/roster", "provider-token")).json() as { patients: Array<{ operational: { followUps: unknown[] } }> };
+    const followUps = body.patients[0].operational.followUps;
+    expect(followUps).toEqual([{ reason: "logging_lapsed", status: "resolved", createdAt: "2026-02-02T00:00:00Z", resolvedAt: "2026-02-03T00:00:00Z" }]);
+    expect(JSON.stringify(followUps)).not.toContain("secret");
   });
 
   it("returns a zero operational summary for an empty scoped office", async () => {

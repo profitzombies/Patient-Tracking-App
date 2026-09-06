@@ -20,6 +20,7 @@ export interface AdminResponse {
   status: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   json: any;
+  contentRange: string | null;
 }
 
 export async function supabaseAdmin(
@@ -46,7 +47,7 @@ export async function supabaseAdmin(
   } catch {
     /* empty body */
   }
-  return { status: response.status, json };
+  return { status: response.status, json, contentRange: response.headers.get("content-range") };
 }
 
 /**

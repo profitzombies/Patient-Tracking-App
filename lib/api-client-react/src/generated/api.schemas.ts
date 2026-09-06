@@ -89,6 +89,31 @@ export const OperationalPatientReasonsItem = {
   check_in_overdue: 'check_in_overdue',
 } as const;
 
+export type PatientOperationalFollowUpReason = typeof PatientOperationalFollowUpReason[keyof typeof PatientOperationalFollowUpReason];
+
+
+export const PatientOperationalFollowUpReason = {
+  no_activity_14d: 'no_activity_14d',
+  logging_lapsed: 'logging_lapsed',
+  check_in_overdue: 'check_in_overdue',
+} as const;
+
+export type PatientOperationalFollowUpStatus = typeof PatientOperationalFollowUpStatus[keyof typeof PatientOperationalFollowUpStatus];
+
+
+export const PatientOperationalFollowUpStatus = {
+  open: 'open',
+  resolved: 'resolved',
+} as const;
+
+export interface PatientOperationalFollowUp {
+  reason: PatientOperationalFollowUpReason;
+  status: PatientOperationalFollowUpStatus;
+  createdAt: string;
+  /** @nullable */
+  resolvedAt: string | null;
+}
+
 export interface OperationalPatient {
   /** @nullable */
   latestActivityDate: string | null;
@@ -106,6 +131,7 @@ export interface OperationalPatient {
   checkIns7: number;
   status: OperationalPatientStatus;
   reasons: OperationalPatientReasonsItem[];
+  followUps: PatientOperationalFollowUp[];
 }
 
 export interface OfficeRosterPatient {
@@ -125,6 +151,74 @@ export interface OfficeRosterPatient {
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;
   operational: OperationalPatient;
+}
+
+export type FollowUpUpdateInputStatus = typeof FollowUpUpdateInputStatus[keyof typeof FollowUpUpdateInputStatus];
+
+
+export const FollowUpUpdateInputStatus = {
+  open: 'open',
+  resolved: 'resolved',
+} as const;
+
+export interface FollowUpUpdateInput {
+  status: FollowUpUpdateInputStatus;
+}
+
+export interface FollowUpResult {
+  followUp: PatientOperationalFollowUp;
+}
+
+export interface EngagementTrendPoint {
+  date: string;
+  active_patients: number;
+  engaged_patients: number;
+  patients_with_meal_log: number;
+  patients_with_check_in: number;
+  patients_with_water: number;
+  patients_with_photo: number;
+  patients_with_weight: number;
+  meal_logs: number;
+  check_ins: number;
+}
+
+export type EngagementTrendResultRange = {
+  start: string;
+  end: string;
+};
+
+export interface EngagementTrendResult {
+  office: OfficeSummary;
+  range: EngagementTrendResultRange;
+  asOf: string;
+  definition: string;
+  points: EngagementTrendPoint[];
+}
+
+export type HqAuditEventMetadata = { [key: string]: unknown };
+
+export interface HqAuditEvent {
+  id: number;
+  occurredAt: string;
+  action: string;
+  /** @nullable */
+  actorUserId: string | null;
+  actorKind: string;
+  /** @nullable */
+  providerId: string | null;
+  /** @nullable */
+  targetKind: string | null;
+  /** @nullable */
+  targetId: string | null;
+  /** @nullable */
+  requestId: string | null;
+  metadata: HqAuditEventMetadata;
+}
+
+export interface HqAuditEventsResult {
+  events: HqAuditEvent[];
+  total?: number;
+  hasMore?: boolean;
 }
 
 export interface OfficeRosterOperationalSummary {
@@ -1151,5 +1245,30 @@ export type GetOfficePatientRecordParams = {
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */
 office?: OfficeIdParameter;
+};
+
+export type UpdateOfficePatientFollowUpParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetOfficeEngagementTrendsParams = {
+start: string;
+end: string;
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetHqAuditEventsParams = {
+limit?: number;
+offset?: number;
+provider?: string;
+action?: string;
+from?: string;
+to?: string;
 };
 

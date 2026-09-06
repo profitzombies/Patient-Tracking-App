@@ -32,9 +32,15 @@ import type {
   CoachMenuScanResult,
   CoachRecipeImageInput,
   CoachRecipeImageResult,
+  EngagementTrendResult,
+  FollowUpResult,
+  FollowUpUpdateInput,
+  GetHqAuditEventsParams,
+  GetOfficeEngagementTrendsParams,
   GetOfficePatientRecordParams,
   GetOfficeRosterParams,
   HealthStatus,
+  HqAuditEventsResult,
   KnowledgeCreateInput,
   KnowledgeDeleteResult,
   KnowledgeDocument,
@@ -67,7 +73,8 @@ import type {
   TrainingThumbnailUploadUrlResult,
   TrainingTranscriptResult,
   TrainingUploadUrlInput,
-  TrainingUploadUrlResult
+  TrainingUploadUrlResult,
+  UpdateOfficePatientFollowUpParams
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -2719,6 +2726,239 @@ export function useGetOfficePatientRecord<TData = Awaited<ReturnType<typeof getO
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetOfficePatientRecordQueryOptions(patientId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateOfficePatientFollowUpUrl = (patientId: string,
+    reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue',
+    params?: UpdateOfficePatientFollowUpParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/follow-ups/${reason}?${stringifiedParams}` : `/api/office/patients/${patientId}/follow-ups/${reason}`
+}
+
+export const updateOfficePatientFollowUp = async (patientId: string,
+    reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue',
+    followUpUpdateInput: FollowUpUpdateInput,
+    params?: UpdateOfficePatientFollowUpParams, options?: Parameters<typeof customFetch>[1]): Promise<FollowUpResult> => {
+
+  return customFetch<FollowUpResult>(getUpdateOfficePatientFollowUpUrl(patientId,reason,params),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(followUpUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateOfficePatientFollowUpMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficePatientFollowUp>>, TError,{patientId: string;reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue';data: BodyType<FollowUpUpdateInput>;params?: UpdateOfficePatientFollowUpParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateOfficePatientFollowUp>>, TError,{patientId: string;reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue';data: BodyType<FollowUpUpdateInput>;params?: UpdateOfficePatientFollowUpParams}, TContext> => {
+
+const mutationKey = ['updateOfficePatientFollowUp'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateOfficePatientFollowUp>>, {patientId: string;reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue';data: BodyType<FollowUpUpdateInput>;params?: UpdateOfficePatientFollowUpParams}> = (props) => {
+          const {patientId,reason,data,params} = props ?? {};
+
+          return  updateOfficePatientFollowUp(patientId,reason,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateOfficePatientFollowUpMutationResult = NonNullable<Awaited<ReturnType<typeof updateOfficePatientFollowUp>>>
+    export type UpdateOfficePatientFollowUpMutationBody = BodyType<FollowUpUpdateInput>
+    export type UpdateOfficePatientFollowUpMutationError = ErrorType<void>
+
+    export const useUpdateOfficePatientFollowUp = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficePatientFollowUp>>, TError,{patientId: string;reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue';data: BodyType<FollowUpUpdateInput>;params?: UpdateOfficePatientFollowUpParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateOfficePatientFollowUp>>,
+        TError,
+        {patientId: string;reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue';data: BodyType<FollowUpUpdateInput>;params?: UpdateOfficePatientFollowUpParams},
+        TContext
+      > => {
+      return useMutation(getUpdateOfficePatientFollowUpMutationOptions(options));
+    }
+
+export const getGetOfficeEngagementTrendsUrl = (params: GetOfficeEngagementTrendsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/engagement-trends?${stringifiedParams}` : `/api/office/engagement-trends`
+}
+
+export const getOfficeEngagementTrends = async (params: GetOfficeEngagementTrendsParams, options?: Parameters<typeof customFetch>[1]): Promise<EngagementTrendResult> => {
+
+  return customFetch<EngagementTrendResult>(getGetOfficeEngagementTrendsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeEngagementTrendsQueryKey = (params?: GetOfficeEngagementTrendsParams,) => {
+    return [
+    `/api/office/engagement-trends`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeEngagementTrendsQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeEngagementTrends>>, TError = ErrorType<unknown>>(params: GetOfficeEngagementTrendsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeEngagementTrends>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeEngagementTrendsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeEngagementTrends>>> = ({ signal }) => getOfficeEngagementTrends(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeEngagementTrends>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeEngagementTrendsQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeEngagementTrends>>>
+export type GetOfficeEngagementTrendsQueryError = ErrorType<unknown>
+
+
+
+export function useGetOfficeEngagementTrends<TData = Awaited<ReturnType<typeof getOfficeEngagementTrends>>, TError = ErrorType<unknown>>(
+ params: GetOfficeEngagementTrendsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeEngagementTrends>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeEngagementTrendsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqAuditEventsUrl = (params?: GetHqAuditEventsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/audit-events?${stringifiedParams}` : `/api/hq/audit-events`
+}
+
+export const getHqAuditEvents = async (params?: GetHqAuditEventsParams, options?: Parameters<typeof customFetch>[1]): Promise<HqAuditEventsResult> => {
+
+  return customFetch<HqAuditEventsResult>(getGetHqAuditEventsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqAuditEventsQueryKey = (params?: GetHqAuditEventsParams,) => {
+    return [
+    `/api/hq/audit-events`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqAuditEventsQueryOptions = <TData = Awaited<ReturnType<typeof getHqAuditEvents>>, TError = ErrorType<unknown>>(params?: GetHqAuditEventsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqAuditEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqAuditEventsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqAuditEvents>>> = ({ signal }) => getHqAuditEvents(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqAuditEvents>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqAuditEventsQueryResult = NonNullable<Awaited<ReturnType<typeof getHqAuditEvents>>>
+export type GetHqAuditEventsQueryError = ErrorType<unknown>
+
+
+
+export function useGetHqAuditEvents<TData = Awaited<ReturnType<typeof getHqAuditEvents>>, TError = ErrorType<unknown>>(
+ params?: GetHqAuditEventsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqAuditEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqAuditEventsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

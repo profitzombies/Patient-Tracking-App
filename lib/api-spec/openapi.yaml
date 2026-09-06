@@ -1138,6 +1138,54 @@ paths:
         "401": { description: Missing or invalid staff session }
         "403": { description: Not authorized for provider reads }
         "404": { description: No patient record found for this office }
+  /office/patients/{patientId}/follow-ups/{reason}:
+    put:
+      operationId: updateOfficePatientFollowUp
+      tags: [office]
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - name: reason
+          in: path
+          required: true
+          schema: { type: string, enum: [no_activity_14d, logging_lapsed, check_in_overdue] }
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FollowUpUpdateInput" }
+      responses:
+        "200":
+          description: Follow-up state
+          content: { application/json: { schema: { $ref: "#/components/schemas/FollowUpResult" } } }
+        "404": { description: No patient record found for this office }
+  /office/engagement-trends:
+    get:
+      operationId: getOfficeEngagementTrends
+      tags: [office]
+      parameters:
+        - { name: start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date } }
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Aggregate engagement daily trend
+          content: { application/json: { schema: { $ref: "#/components/schemas/EngagementTrendResult" } } }
+  /hq/audit-events:
+    get:
+      operationId: getHqAuditEvents
+      tags: [hq]
+      parameters:
+        - { name: limit, in: query, schema: { type: number } }
+        - { name: offset, in: query, schema: { type: number } }
+        - { name: provider, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Paginated allowlisted administrative audit events
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqAuditEventsResult" } } }
 components:
   securitySchemes:
     bearerAuth:
@@ -1192,7 +1240,7 @@ components:
           $ref: "#/components/schemas/OperationalPatient"
     OperationalPatient:
       type: object
-      required: [latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, status, reasons]
+      required: [latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, status, reasons, followUps]
       properties:
         latestActivityDate: { type: ["string", "null"], format: date }
         latestDiaryDate: { type: ["string", "null"], format: date }
@@ -1206,6 +1254,69 @@ components:
         reasons:
           type: array
           items: { type: string, enum: [no_activity_14d, logging_lapsed, check_in_overdue] }
+        followUps:
+          type: array
+          items: { $ref: "#/components/schemas/PatientOperationalFollowUp" }
+    PatientOperationalFollowUp:
+      type: object
+      required: [reason, status, createdAt, resolvedAt]
+      properties:
+        reason: { type: string, enum: [no_activity_14d, logging_lapsed, check_in_overdue] }
+        status: { type: string, enum: [open, resolved] }
+        createdAt: { type: string }
+        resolvedAt: { type: ["string", "null"] }
+    FollowUpUpdateInput:
+      type: object
+      required: [status]
+      properties: { status: { type: string, enum: [open, resolved] } }
+    FollowUpResult:
+      type: object
+      required: [followUp]
+      properties: { followUp: { $ref: "#/components/schemas/PatientOperationalFollowUp" } }
+    EngagementTrendPoint:
+      type: object
+      required: [date, active_patients, engaged_patients, patients_with_meal_log, patients_with_check_in, patients_with_water, patients_with_photo, patients_with_weight, meal_logs, check_ins]
+      properties:
+        date: { type: string, format: date }
+        active_patients: { type: number }
+        engaged_patients: { type: number }
+        patients_with_meal_log: { type: number }
+        patients_with_check_in: { type: number }
+        patients_with_water: { type: number }
+        patients_with_photo: { type: number }
+        patients_with_weight: { type: number }
+        meal_logs: { type: number }
+        check_ins: { type: number }
+    EngagementTrendResult:
+      type: object
+      required: [office, range, asOf, definition, points]
+      properties:
+        office: { $ref: "#/components/schemas/OfficeSummary" }
+        range: { type: object, required: [start, end], properties: { start: { type: string, format: date }, end: { type: string, format: date } } }
+        asOf: { type: string }
+        definition: { type: string }
+        points: { type: array, items: { $ref: "#/components/schemas/EngagementTrendPoint" } }
+    HqAuditEvent:
+      type: object
+      required: [id, occurredAt, action, actorUserId, actorKind, providerId, targetKind, targetId, requestId, metadata]
+      properties:
+        id: { type: number }
+        occurredAt: { type: string }
+        action: { type: string }
+        actorUserId: { type: ["string", "null"] }
+        actorKind: { type: string }
+        providerId: { type: ["string", "null"] }
+        targetKind: { type: ["string", "null"] }
+        targetId: { type: ["string", "null"] }
+        requestId: { type: ["string", "null"] }
+        metadata: { type: object, additionalProperties: true }
+    HqAuditEventsResult:
+      type: object
+      required: [events]
+      properties:
+        events: { type: array, items: { $ref: "#/components/schemas/HqAuditEvent" } }
+        total: { type: number }
+        hasMore: { type: boolean }
     OfficeRosterOperationalSummary:
       type: object
       required: [totalPatients, activePatients, newEnrollments30d, needsAttention, inactive, invited, checkInsOverdue, loggingLapsed, asOf]

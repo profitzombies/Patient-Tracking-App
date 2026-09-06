@@ -66,6 +66,12 @@ export interface OfficePatient {
     checkIns7: number;
     status: 'invited' | 'inactive' | 'needs_attention' | 'on_track';
     reasons: ('logging_lapsed' | 'check_in_overdue' | 'no_activity_14d')[];
+    followUps?: {
+      reason: 'logging_lapsed' | 'check_in_overdue' | 'no_activity_14d';
+      status: 'open' | 'resolved';
+      createdAt: string;
+      resolvedAt: string | null;
+    }[];
   };
 }
 

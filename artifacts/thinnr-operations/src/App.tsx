@@ -52,6 +52,7 @@ import TrainingAnalytics from '@/pages/admin/training/TrainingAnalytics';
 import LearnerPreview from '@/pages/admin/training/LearnerPreview';
 import KnowledgeBase from '@/pages/admin/KnowledgeBase';
 import SupportTestBench from '@/pages/admin/SupportTestBench';
+import Audit from '@/pages/admin/Audit';
 import Files from '@/pages/admin/Files';
 import EmailStudio from '@/pages/EmailStudio';
 import { PatientSessionProvider } from '@/contexts/patient-session';
@@ -72,6 +73,8 @@ function AdminArea() {
   const { authStatus, hqRole } = useSession();
   const effectiveRole: HqRole | null = authStatus === 'signed-out' ? 'Super Admin' : hqRole;
   const authorized = canHq(effectiveRole, permissionForAdminPath(location));
+  const canViewAudit =
+    authStatus === 'signed-in' && (hqRole === 'Super Admin' || hqRole === 'Admin');
 
   // Check the concrete URL before Switch resolves its component. AdminShell
   // remains a defensive presentation guard, but it is too late to prevent a
@@ -113,6 +116,9 @@ function AdminArea() {
               <Route path="/admin/training/analytics" component={TrainingAnalytics} />
               <Route path="/admin/knowledge" component={KnowledgeBase} />
               <Route path="/admin/support-test" component={SupportTestBench} />
+              <Route path="/admin/audit">
+                {canViewAudit ? <Audit /> : <Redirect to="/admin" replace />}
+              </Route>
               <Route path="/admin/files" component={Files} />
               {/* Admin persona anywhere else (including office URLs) → HQ. */}
               <Route>

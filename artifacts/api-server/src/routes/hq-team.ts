@@ -11,6 +11,7 @@ import { z } from "zod";
 import { requireHqPermission, requireStaff, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { DeliveryNotConfiguredError, sendHqTeamInvitation } from "../claim/delivery";
+import { recordAdminAuditEvent } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 const ROLES = ["super_admin", "admin", "clinical", "support", "content"] as const;
@@ -259,6 +260,7 @@ router.post(
         invitation = error instanceof DeliveryNotConfiguredError ? "not_configured" : "failed";
         req.log?.error({ err: error }, "HQ team invitation delivery failed");
       }
+      await recordAdminAuditEvent({ action: "hq_team_invited", actorUserId: actor.userId, actorKind: "hq", providerId: null, targetKind: "hq_member", targetId: String(row.id), requestId: req.headers["x-request-id"]?.toString() ?? null, metadata: { role: parsed.data.role } }).catch(error => req.log?.error({ err: error }, "HQ invitation audit failed"));
       res.status(201).json({ member: mapMember(row), invitation });
     } catch (error) {
       req.log?.error({ err: error }, "HQ team invitation failed");
@@ -302,6 +304,7 @@ router.patch(
         return;
       }
       if (result.status >= 300 || !result.json) throw new Error(`HQ update failed (${result.status})`);
+      await recordAdminAuditEvent({ action: "hq_team_updated", actorUserId: (res.locals.staff as StaffIdentity).userId, actorKind: "hq", providerId: null, targetKind: "hq_member", targetId: target.id, requestId: req.headers["x-request-id"]?.toString() ?? null, metadata: parsed.data.role ? { role: parsed.data.role } : {} }).catch(error => req.log?.error({ err: error }, "HQ update audit failed"));
       res.json({ member: mapMember(Array.isArray(result.json) ? result.json[0] : result.json) });
     } catch (error) {
       req.log?.error({ err: error }, "HQ team update failed");
@@ -337,6 +340,7 @@ router.delete(
         return;
       }
       if (result.status >= 300) throw new Error(`HQ revoke failed (${result.status})`);
+      await recordAdminAuditEvent({ action: "hq_team_revoked", actorUserId: (res.locals.staff as StaffIdentity).userId, actorKind: "hq", providerId: null, targetKind: "hq_member", targetId: target.id, requestId: req.headers["x-request-id"]?.toString() ?? null }).catch(error => req.log?.error({ err: error }, "HQ revoke audit failed"));
 
       let sessionInvalidation: "not_applicable" | "complete" | "failed" =
         target.authUserId ? "complete" : "not_applicable";

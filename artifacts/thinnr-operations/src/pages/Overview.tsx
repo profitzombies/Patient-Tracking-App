@@ -27,6 +27,7 @@ import { usePatientSession } from "@/contexts/patient-session";
 import { useDateRange, type OperationsDateRange, formatRangeLabel, addDaysToKey, keyToDate } from "@/contexts/date-range";
 import { useSession } from "@/contexts/session";
 import { useLiveRoster } from "@/hooks/use-live-roster";
+import { useGetOfficeEngagementTrends, getGetOfficeEngagementTrendsQueryKey, type EngagementTrendPoint } from "@workspace/api-client-react";
 
 function ActionButton({ label, testId, children, onClick }: { label: string; testId?: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -139,6 +140,62 @@ function buildRevenueView(range: OperationsDateRange, revenueOf: (dateKey: strin
   return { buckets, total, deltaPct, dayCount, axisMax };
 }
 
+function EngagementTrendChart({ points }: { points: EngagementTrendPoint[] }) {
+  const axisMax = niceCeil(Math.max(10, ...points.map((pt) => pt.active_patients)));
+  const crowdedLabels = points.length > 14;
+
+  return (
+    <div
+      className="relative mt-5"
+      role="img"
+      aria-label={`Engagement trend over ${points.length} days`}
+    >
+      <div className="relative h-[190px]" aria-hidden="true">
+        <div className="absolute inset-0 flex flex-col justify-between text-[10px] text-muted-foreground">
+          {[1, 0.75, 0.5, 0.25, 0].map((step) => (
+            <div key={step} className="flex items-center gap-3">
+              <span className="w-9 text-right font-mono">{Math.round(axisMax * step)}</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          ))}
+        </div>
+        <div className="absolute bottom-0 left-12 right-0 top-1 flex items-end gap-[clamp(2px,0.5vw,8px)]">
+          {points.map((pt) => {
+            const dateStr = dayLabel(pt.date);
+            return (
+              <div key={pt.date} className="group relative flex h-full flex-1 items-end">
+                {/* Background bar for active patients */}
+                <div
+                  className="absolute bottom-0 w-full rounded-t-sm bg-accent transition-colors group-hover:bg-accent/80"
+                  style={{ height: `${Math.max(2, (pt.active_patients / axisMax) * 100)}%` }}
+                />
+                {/* Foreground bar for engaged patients */}
+                <div
+                  className="absolute bottom-0 w-full rounded-t-sm bg-primary transition-colors group-hover:bg-navy"
+                  style={{ height: `${Math.max(2, (pt.engaged_patients / axisMax) * 100)}%` }}
+                />
+                <span className="absolute -top-7 left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-navy px-2 py-1 text-[10px] font-semibold text-primary-foreground shadow-lifted group-hover:block">
+                  {dateStr} · {pt.engaged_patients} engaged ({pt.active_patients} active)
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="mt-2 flex gap-[clamp(2px,0.5vw,8px)] pl-12 text-[10px] text-muted-foreground">
+        {points.map((pt, index) => (
+          <span
+            key={pt.date}
+            className={`min-w-0 flex-1 truncate text-center ${crowdedLabels && index % 3 !== 0 ? "invisible sm:visible" : ""}`}
+          >
+            {keyToDate(pt.date).toLocaleDateString('en-US', { day: 'numeric' })}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TrendChart({ view }: { view: RevenueView }) {
   const { buckets, axisMax } = view;
   const crowdedLabels = buckets.length > 9;
@@ -198,7 +255,19 @@ export default function Overview() {
   // HQ drill-in scope: when present, every read below narrows to one office;
   // unscoped, the scoped hooks return the program-wide singletons unchanged.
   const scope = useProviderScope();
-  const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled } = useLiveRoster();
+  const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster();
+  const { authUser } = useSession();
+
+  const { data: engagementData, isLoading: engagementIsLoading, isError: engagementIsError, error: engagementError } = useGetOfficeEngagementTrends(
+    { start: range.start, end: range.end, office: liveOffice ?? undefined },
+    {
+      query: {
+        enabled: liveEnabled,
+        queryKey: [...getGetOfficeEngagementTrendsQueryKey({ start: range.start, end: range.end, office: liveOffice ?? undefined }), authUser?.id]
+      }
+    }
+  );
+
   const analytics = useScopedAnalytics();
   const patients = useScopedPatients();
   const providers = useScopedProviders();
@@ -332,10 +401,10 @@ export default function Overview() {
     ? liveRosterData.patients.filter((p) => p.program?.stage === 'maintenance').length
     : patients.filter((patient) => patient.status === 'graduated').length;
 
-  const priorityItems: [string, string, string, string][] = useMemo(() => {
+  const priorityItems: [string, string, string, string, string][] = useMemo(() => {
     if (liveEnabled) {
       if (!liveRosterData) return [];
-      const items: [string, string, string, string][] = [];
+      const items: [string, string, string, string, string][] = [];
       const overdue = liveRosterData.summary?.checkInsOverdue ?? 0;
       if (overdue > 0) {
         items.push([
@@ -343,6 +412,7 @@ export default function Overview() {
           `${overdue} patient${overdue === 1 ? '' : 's'} missed their scheduled protocol check-in`,
           "Watch",
           "watch",
+          "check_in_overdue"
         ]);
       }
       const lapsed = liveRosterData.summary?.loggingLapsed ?? 0;
@@ -352,6 +422,7 @@ export default function Overview() {
           `${lapsed} patient${lapsed === 1 ? ' has' : 's have'} stopped logging in the companion app`,
           "Watch",
           "watch",
+          "logging_lapsed"
         ]);
       }
       const inactive = liveRosterData.summary?.inactive ?? 0;
@@ -361,6 +432,7 @@ export default function Overview() {
           `${inactive} patient${inactive === 1 ? ' has' : 's have'} no recent activity`,
           "High",
           "risk",
+          "no_activity_14d"
         ]);
       }
       return items;
@@ -373,25 +445,28 @@ export default function Overview() {
               `${failedPayments} recurring payment${failedPayments === 1 ? '' : 's'} failed this week`,
               "High",
               "risk",
-            ] as [string, string, string, string]]
+              ""
+            ] as [string, string, string, string, string]]
           : []),
         [
           "Missed Check-ins",
           `${overduePatientsCount} patient${overduePatientsCount === '1' ? '' : 's'} missed their scheduled protocol check-in`,
           "Watch",
           "watch",
+          ""
         ],
         [
           "Maintenance Cohort",
           `${graduatedCount} patient${graduatedCount === 1 ? '' : 's'} holding goal weight in maintenance`,
           "Positive",
           "healthy",
+          ""
         ],
       ]
     : [
-        ["Failed Subscription Payments", "2 recurring payments failed this week", "High", "risk"],
-        ["Missed Check-ins", "4 patients missed their scheduled protocol check-in", "Watch", "watch"],
-        ["High Adherence Cohort", "24 patients reached goal weight this week", "Positive", "healthy"],
+        ["Failed Subscription Payments", "2 recurring payments failed this week", "High", "risk", ""],
+        ["Missed Check-ins", "4 patients missed their scheduled protocol check-in", "Watch", "watch", ""],
+        ["High Adherence Cohort", "24 patients reached goal weight this week", "Positive", "healthy", ""],
       ];
   }, [liveEnabled, liveRosterData, scope, failedPayments, overduePatientsCount, graduatedCount]);
 
@@ -483,7 +558,6 @@ export default function Overview() {
     ? formatDateKey(liveRosterData.summary.asOf.split('T')[0], true)
     : formatDateKey(TODAY_KEY, true);
 
-  const { authUser } = useSession();
   const greetingName = liveEnabled ? authUser?.displayName?.split(' ')[0] : (scope ? scope.greetingName : 'Dr. Jenkins');
   const greetingSubtitle = liveEnabled ? 'Here is your current practice overview.' : 'Here’s what changed since your last login.';
 
@@ -578,7 +652,7 @@ export default function Overview() {
         <div data-testid="banner-overdue" className="mt-5 flex items-center gap-3 rounded-lg border border-warn-border bg-warn-bg px-4 py-3 text-sm text-foreground shadow-soft">
           <ShieldAlert size={17} className="shrink-0 text-warn" />
           <span><b className="text-navy">{overduePatientsList.length} patient{overduePatientsList.length === 1 ? ' needs' : 's need'} attention.</b> Check-ins{liveEnabled ? ' are' : ' or subscription renewals are'} past due.</span>
-          <Link href="/patients" className="ml-auto whitespace-nowrap text-xs font-bold text-warn underline underline-offset-4 transition-colors hover:text-navy">
+          <Link href={liveEnabled ? "/patients?reason=check_in_overdue" : "/patients?status=overdue"} className="ml-auto whitespace-nowrap text-xs font-bold text-warn underline underline-offset-4 transition-colors hover:text-navy">
             Review patients
           </Link>
           <button
@@ -593,13 +667,51 @@ export default function Overview() {
       )}
 
       {/* Charts / Mid Section */}
+      {liveEnabled && (
+        <div className="mt-5">
+          <section className="rounded-lg border border-card-border bg-card p-5 shadow-soft">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                  Patient Engagement
+                </p>
+                <div className="mt-1 flex items-end gap-3">
+                  <h2 className="font-mono text-2xl font-semibold tracking-[-.05em] text-navy">
+                    {engagementData?.points.length ? engagementData.points[engagementData.points.length - 1].engaged_patients : "—"}
+                  </h2>
+                  {engagementData?.points.length ? (
+                    <span className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                      patients engaged recently
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {formatRangeLabel(range)} · Daily active vs engaged patients
+                </p>
+              </div>
+            </div>
+            {engagementIsLoading ? (
+              <div className="h-[190px] mt-5 flex items-center justify-center text-xs text-muted-foreground">Loading engagement data...</div>
+            ) : engagementIsError ? (
+              <div className="h-[190px] mt-5 flex items-center justify-center text-xs text-destructive">
+                {engagementError instanceof Error ? engagementError.message : "Failed to load engagement data."}
+              </div>
+            ) : engagementData?.points && engagementData.points.length > 0 ? (
+              <EngagementTrendChart points={engagementData.points} />
+            ) : (
+              <div className="h-[190px] mt-5 flex items-center justify-center text-xs text-muted-foreground">No engagement data available for this range.</div>
+            )}
+          </section>
+        </div>
+      )}
+
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.4fr_1fr]">
         <section className="rounded-lg border border-card-border bg-card p-5 shadow-soft">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
                 <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Revenue Trend</p>
-                {liveEnabled && <span className="rounded-sm border border-accent-border bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">Demo model</span>}
+                {liveEnabled && <span className="rounded-sm border border-accent-border bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">Demo projection</span>}
               </div>
               <div className="mt-1 flex items-end gap-3">
                 <h2 className="font-mono text-2xl font-semibold tracking-[-.05em] text-navy" data-testid="text-revenue-total">
@@ -667,22 +779,44 @@ export default function Overview() {
               {priorityItems.length} open
             </span>
           </div>
-          {priorityItems.map(([title, body, level, tone]) => (
-            <button
-              key={title}
-              onClick={() => toast({ title: `${title} signal opened` })}
-              className="group flex w-full items-start gap-3 border-t border-border py-3 text-left transition first:border-0 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            >
-              <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${tone === "risk" ? "bg-destructive" : tone === "watch" ? "bg-warn" : "bg-primary"}`} />
-              <span className="min-w-0 flex-1">
-                <b className="block text-xs text-foreground">{title}</b>
-                <span className="mt-1 block text-[11px] leading-4 text-muted-foreground">{body}</span>
-              </span>
-              <span className={`text-[10px] font-bold ${tone === "risk" ? "text-destructive" : tone === "watch" ? "text-warn" : "text-primary"}`}>
-                {level}
-              </span>
-            </button>
-          ))}
+          {priorityItems.map(([title, body, level, tone, reason]) => {
+            const innerContent = (
+              <>
+                <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${tone === "risk" ? "bg-destructive" : tone === "watch" ? "bg-warn" : "bg-primary"}`} />
+                <span className="min-w-0 flex-1">
+                  <b className="block text-xs text-foreground group-hover:text-primary transition-colors">{title}</b>
+                  <span className="mt-1 block text-[11px] leading-4 text-muted-foreground">{body}</span>
+                </span>
+                <span className={`text-[10px] font-bold ${tone === "risk" ? "text-destructive" : tone === "watch" ? "text-warn" : "text-primary"}`}>
+                  {level}
+                </span>
+              </>
+            );
+
+            const className = "group flex w-full items-start gap-3 border-t border-border py-3 text-left transition first:border-0 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+
+            if (reason) {
+              return (
+                <Link
+                  key={title}
+                  href={`/patients?reason=${reason}`}
+                  className={className}
+                >
+                  {innerContent}
+                </Link>
+              );
+            }
+
+            return (
+              <button
+                key={title}
+                onClick={() => toast({ title: `${title} signal opened` })}
+                className={className}
+              >
+                {innerContent}
+              </button>
+            );
+          })}
         </section>
 
         <section className="rounded-lg border border-card-border bg-card p-5 shadow-soft">
@@ -731,7 +865,7 @@ export default function Overview() {
             </div>
           )}
           <Link
-            href="/patients?logging=lapsed"
+            href={liveEnabled ? "/patients?reason=logging_lapsed" : "/patients?logging=lapsed"}
             className="mt-3 flex w-full items-center justify-center gap-1 rounded-md border border-border py-2 text-xs font-semibold text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Review lapsed loggers <ArrowUpRight size={13} />

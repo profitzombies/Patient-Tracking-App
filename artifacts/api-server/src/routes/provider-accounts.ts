@@ -10,6 +10,7 @@ import { z } from "zod";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { sendProviderClaimInvitation } from "../claim/delivery";
+import { recordAdminAuditEvent } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 
@@ -344,6 +345,7 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
       invitation = error instanceof Error && error.name === "DeliveryNotConfiguredError" ? "not_configured" : "failed";
       req.log?.error({ err: error }, "new provider claim invitation failed");
     }
+    await recordAdminAuditEvent({ action: "provider_account_created", actorUserId: callerId, actorKind: "hq", providerId: accountId, targetKind: "provider_account", targetId: accountId, requestId: req.headers["x-request-id"]?.toString() ?? null }).catch(error => req.log?.error({ err: error }, "provider account create audit failed"));
     res.status(201).json({
       account: {
         id: accountId,
@@ -428,6 +430,8 @@ router.patch("/provider-accounts/:id", requireHqPermission("provider_manage"), a
       res.status(404).json({ error: "Provider account not found." });
       return;
     }
+    const providerId = String(req.params.id);
+    await recordAdminAuditEvent({ action: "provider_account_updated", actorUserId: callerId, actorKind: "hq", providerId, targetKind: "provider_account", targetId: providerId, requestId: req.headers["x-request-id"]?.toString() ?? null }).catch(error => req.log?.error({ err: error }, "provider account update audit failed"));
     res.json({ account });
   } catch (error) {
     req.log?.error({ err: error }, "provider account update failed");

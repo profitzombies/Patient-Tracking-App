@@ -7,6 +7,7 @@
  */
 import type { OperationalPatientReasonsItem } from './operationalPatientReasonsItem';
 import type { OperationalPatientStatus } from './operationalPatientStatus';
+import type { PatientOperationalFollowUp } from './patientOperationalFollowUp';
 
 export interface OperationalPatient {
   /** @nullable */
@@ -25,4 +26,5 @@ export interface OperationalPatient {
   checkIns7: number;
   status: OperationalPatientStatus;
   reasons: OperationalPatientReasonsItem[];
+  followUps: PatientOperationalFollowUp[];
 }

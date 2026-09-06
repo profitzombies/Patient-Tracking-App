@@ -130,7 +130,7 @@ function daysOld(date: string | null, asOf: string): number | null {
   return Math.floor((Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000);
 }
 
-function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: OperationalRow | undefined, asOf: string) {
+function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: OperationalRow | undefined, asOf: string, followUps: OperationalRow[] = []) {
   const latestActivityDate = dateOrNull(fact?.latest_activity_date);
   const latestDiaryDate = dateOrNull(fact?.latest_diary_date);
   const latestWaterDate = dateOrNull(fact?.latest_water_date);
@@ -148,7 +148,7 @@ function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: Oper
   const checkInOverdue = activation === "activated" && age >= 7 && (daysOld(latestCheckInDate, asOf) == null || daysOld(latestCheckInDate, asOf)! >= 7);
   const inactive = activation === "activated" && ((activityAge == null && accountAge >= 14) || (activityAge != null && activityAge >= 14));
   const status = patient.invitation?.state === "pending" ? "invited" : inactive ? "inactive" : mealSilent || checkInOverdue ? "needs_attention" : "on_track";
-  return { ...patient, operational: { latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, status, reasons: [inactive ? "no_activity_14d" : null, mealSilent ? "logging_lapsed" : null, checkInOverdue ? "check_in_overdue" : null].filter(Boolean) } };
+  return { ...patient, operational: { latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, status, reasons: [inactive ? "no_activity_14d" : null, mealSilent ? "logging_lapsed" : null, checkInOverdue ? "check_in_overdue" : null].filter(Boolean), followUps: followUps.map((row) => ({ reason: String(row.reason), status: String(row.status), createdAt: String(row.created_at), resolvedAt: row.resolved_at ? String(row.resolved_at) : null })) } };
 }
 
 function numericOrNull(value: unknown): number | null {
@@ -282,7 +282,7 @@ router.get("/office/roster", async (req, res) => {
     }
     const scope = resolved.scope;
     const asOf = new Date().toISOString().slice(0, 10);
-    const [rows, operational] = await Promise.all([
+    const [rows, operational, followUps] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
@@ -291,11 +291,23 @@ router.get("/office/roster", async (req, res) => {
         p_provider_id: scope.providerId,
         p_as_of: asOf,
       }),
+      supabaseAdmin("GET", `/rest/v1/patient_operational_follow_ups?provider_id=eq.${enc(scope.providerId)}&select=patient_id,reason,status,created_at,resolved_at&order=created_at.desc&limit=2000`),
     ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
     if (operational.status >= 300) throw new Error(`operational roster load failed (${operational.status})`);
+    if (followUps.status >= 300) throw new Error(`follow-up roster load failed (${followUps.status})`);
     const facts = new Map((Array.isArray(operational.json) ? operational.json as OperationalRow[] : []).map((fact) => [String(fact.patient_id), fact]));
-    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => rosterOperationalDto(patientDto(row, asOf), facts.get(String(row.id)), asOf));
+    const followUpByPatient = new Map<string, OperationalRow[]>();
+    for (const item of (Array.isArray(followUps.json) ? followUps.json as OperationalRow[] : [])) {
+      const id = String(item.patient_id);
+      const prior = followUpByPatient.get(id) ?? [];
+      // The database response is newest-first; retain just the newest
+      // staff-review state for each operational reason.
+      if (!prior.some((existing) => String(existing.reason) === String(item.reason))) {
+        followUpByPatient.set(id, [...prior, item]);
+      }
+    }
+    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => rosterOperationalDto(patientDto(row, asOf), facts.get(String(row.id)), asOf, followUpByPatient.get(String(row.id))));
     const activePatients = patients.filter((patient) => patient.activationStatus === "activated").length;
     const summary = {
       totalPatients: patients.length, activePatients,

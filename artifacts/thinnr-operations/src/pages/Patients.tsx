@@ -10,6 +10,10 @@ import { useLiveRoster } from "@/hooks/use-live-roster";
 import { InvitePatientAction, InvitationChip, officeRosterQueryKey } from "@/components/office/LiveRoster";
 import { BTN_SECONDARY } from "@/components/patient/heritage";
 import { resendInvitation, type OfficePatient } from "@/lib/office-roster";
+import {
+  useUpdateOfficePatientFollowUp,
+  type PatientOperationalFollowUpReason,
+} from '@workspace/api-client-react';
 import { useToast } from "@/hooks/use-toast";
 
 type SortField = 'name' | 'startDate' | 'status' | 'weightLoss' | 'logging';
@@ -34,6 +38,56 @@ function StatusChip({ status }: { status: string }) {
       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
       {displayStatus}
     </span>
+  );
+}
+
+function FollowUpAction({ patientId, reason, currentStatus, office }: {
+  patientId: string;
+  reason: PatientOperationalFollowUpReason;
+  currentStatus: 'open' | 'resolved';
+  office: string | null;
+}) {
+  const updateFollowUp = useUpdateOfficePatientFollowUp();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const isResolved = currentStatus === 'resolved';
+
+  const toggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    updateFollowUp.mutate({
+      patientId,
+      reason,
+      data: { status: isResolved ? 'open' : 'resolved' },
+      params: office ? { office } : undefined
+    }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: officeRosterQueryKey(office) });
+        toast({ title: `Follow-up ${isResolved ? 'reopened' : 'resolved'}` });
+      },
+      onError: (error) => {
+        toast({
+          variant: 'destructive',
+          title: 'Follow-up not saved',
+          description: error instanceof Error ? error.message : 'Try again.',
+        });
+      },
+    });
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={updateFollowUp.isPending}
+      aria-label={`${isResolved ? 'Reopen' : 'Mark'} ${reason.replaceAll('_', ' ')} ${isResolved ? 'follow-up' : 'reviewed'}`}
+      title={`${isResolved ? 'Reopen' : 'Mark'} ${reason.replaceAll('_', ' ')} ${isResolved ? 'follow-up' : 'reviewed'}`}
+      className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm border transition-colors ${
+        isResolved ? 'bg-secondary text-muted-foreground border-border hover:bg-muted' : 'bg-primary text-primary-foreground border-primary hover:bg-navy'
+      }`}
+    >
+      {updateFollowUp.isPending ? 'Saving...' : (isResolved ? 'Reopen' : 'Review')}
+    </button>
   );
 }
 
@@ -89,10 +143,15 @@ export default function Patients() {
   // roster's <Link>s, so row clicks stay inside the HQ drill-in scope too.
   const [, navigate] = useLocation();
   const searchParams = useSearch();
-  const arrivedLapsed = new URLSearchParams(searchParams).get('logging') === 'lapsed';
+  const urlParams = new URLSearchParams(searchParams);
+  const arrivedLapsed = urlParams.get('logging') === 'lapsed';
+  const arrivedStatus = urlParams.get('status');
+  const arrivedReason = urlParams.get('reason');
+
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>(arrivedStatus || 'all');
   const [loggingFilter, setLoggingFilter] = useState<LoggingFilter>(arrivedLapsed ? 'lapsed' : 'all');
+  const [reasonFilter, setReasonFilter] = useState<string>(arrivedReason || 'all');
   const [sortField, setSortField] = useState<SortField>(arrivedLapsed ? 'logging' : 'startDate');
   const [sortOrder, setSortOrder] = useState<SortOrder>(arrivedLapsed ? 'asc' : 'desc');
   const [resending, setResending] = useState<string | null>(null);
@@ -121,7 +180,15 @@ export default function Patients() {
       setSortField('logging');
       setSortOrder('asc');
     }
-  }, [arrivedLapsed]);
+    if (arrivedStatus) {
+      setStatusFilter(arrivedStatus);
+    }
+    if (arrivedReason) {
+      setReasonFilter(arrivedReason);
+      setStatusFilter('all');
+      setLoggingFilter('all');
+    }
+  }, [arrivedLapsed, arrivedStatus, arrivedReason]);
 
   const statsById = useMemo(
     () => new Map(patients.map((patient) => [patient.id, getLoggingStats(patient)])),
@@ -219,11 +286,21 @@ export default function Patients() {
 
   const filteredAndSortedPatients = useMemo(() => {
     let result = unifiedRows.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
+      const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
                             (p.email ?? '').toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
       const matchesLogging = loggingFilter === 'all' || isLapsed(p.stats);
-      return matchesSearch && matchesStatus && matchesLogging;
+
+      let matchesReason = true;
+      if (reasonFilter !== 'all') {
+        if (p.isLive && p.rawLive?.operational?.reasons) {
+          matchesReason = p.rawLive.operational.reasons.includes(reasonFilter as any);
+        } else {
+          matchesReason = false;
+        }
+      }
+
+      return matchesSearch && matchesStatus && matchesLogging && matchesReason;
     });
 
     result.sort((a, b) => {
@@ -250,7 +327,7 @@ export default function Patients() {
     });
 
     return result;
-  }, [unifiedRows, search, statusFilter, loggingFilter, sortField, sortOrder]);
+  }, [unifiedRows, search, statusFilter, loggingFilter, reasonFilter, sortField, sortOrder]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -278,22 +355,22 @@ export default function Patients() {
           <div className="relative w-full sm:w-80">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <label htmlFor="patient-search" className="sr-only">Search patients by name or email</label>
-            <input 
+            <input
               id="patient-search"
               data-testid="input-patient-search"
-              type="text" 
-              placeholder="Search patients..." 
+              type="text"
+              placeholder="Search patients..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full h-9 rounded-md border border-border bg-card pl-9 pr-3 text-xs text-foreground shadow-xs outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
             />
           </div>
-          
+
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
             <div className="flex items-center text-xs font-semibold text-muted-foreground">
               <Filter size={14} className="mr-1.5" /> Filter:
             </div>
-            <select 
+            <select
               aria-label="Filter by status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -325,6 +402,19 @@ export default function Patients() {
               <option value="all">All logging</option>
               <option value="lapsed">Lapsed {LAPSED_AFTER_DAYS}+ days</option>
             </select>
+            {liveEnabled && (
+              <select
+                aria-label="Filter by watchlist reason"
+                value={reasonFilter}
+                onChange={(e) => setReasonFilter(e.target.value)}
+                className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="all">All Risk Reasons</option>
+                <option value="check_in_overdue">Check-in Overdue</option>
+                <option value="logging_lapsed">Logging Lapsed</option>
+                <option value="no_activity_14d">Inactive (14d)</option>
+              </select>
+            )}
             <select
               aria-label="Sort patients"
               value={`${sortField}-${sortOrder}`}
@@ -366,6 +456,20 @@ export default function Patients() {
                   <div className="flex flex-col items-end gap-1.5">
                     {patient.isLive && patient.rawLive?.invitation && <InvitationChip patient={patient.rawLive} />}
                     {!patient.showResend && <StatusChip status={patient.status} />}
+
+                    {patient.isLive && patient.rawLive?.operational?.reasons.map((reason) => {
+                      const followUp = patient.rawLive?.operational?.followUps?.find((item) => item.reason === reason);
+                      const status = followUp?.status ?? 'open';
+                      const displayReason = reason === 'check_in_overdue' ? 'Overdue' :
+                                            reason === 'logging_lapsed' ? 'Lapsed' :
+                                            'Inactive';
+                      return (
+                        <div key={reason} className="mt-0.5 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                          <span className="text-[9px] text-warn font-semibold uppercase tracking-wider">{displayReason}</span>
+                          <FollowUpAction patientId={patient.id} reason={reason} currentStatus={status} office={liveOffice} />
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
@@ -493,6 +597,20 @@ export default function Patients() {
                       <div className="flex flex-col items-start gap-1">
                         {patient.isLive && patient.rawLive?.invitation && <InvitationChip patient={patient.rawLive} />}
                         {!patient.showResend && <StatusChip status={patient.status} />}
+
+                        {patient.isLive && patient.rawLive?.operational?.reasons.map((reason) => {
+                          const followUp = patient.rawLive?.operational?.followUps?.find((item) => item.reason === reason);
+                          const status = followUp?.status ?? 'open';
+                          const displayReason = reason === 'check_in_overdue' ? 'Overdue' :
+                                                reason === 'logging_lapsed' ? 'Lapsed' :
+                                                'Inactive';
+                          return (
+                            <div key={reason} className="mt-1 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                              <span className="text-[9px] text-warn font-semibold uppercase tracking-wider">{displayReason}</span>
+                              <FollowUpAction patientId={patient.id} reason={reason} currentStatus={status} office={liveOffice} />
+                            </div>
+                          );
+                        })}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -541,7 +659,7 @@ export default function Patients() {
                   </tr>
                 );
               })}
-              
+
               {liveEnabled && liveRosterIsLoading && (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
@@ -566,7 +684,7 @@ export default function Patients() {
             </tbody>
           </table>
         </div>
-        
+
         {/* Pagination mock — the roster is a lifetime view, untouched by the header date range */}
         <div className="border-t border-border px-4 py-3 flex items-center justify-between text-xs text-muted-foreground bg-paper-alt">
           <span>Showing <b className="font-semibold text-foreground">{filteredAndSortedPatients.length}</b> lifetime records</span>

@@ -22,6 +22,7 @@ import {
   MessagesSquare,
   Settings2,
   Users,
+  ActivitySquare,
   type LucideIcon,
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
@@ -47,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/training', label: 'Training', icon: GraduationCap },
   { path: '/admin/knowledge', label: 'AI Support', mobileLabel: 'Support', icon: BookOpenText },
   { path: '/admin/support-test', label: 'Test AI Support', mobileLabel: 'Test chat', icon: FlaskConical },
+  { path: '/admin/audit', label: 'Audit Log', mobileLabel: 'Audit', icon: ActivitySquare },
   { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
   { path: '/admin/settings', label: 'Settings', icon: Settings2 },
 ];
@@ -55,7 +57,7 @@ const ADMIN_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/admin'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
-  { label: 'Manage', paths: ['/admin/files', '/admin/settings'] },
+  { label: 'Manage', paths: ['/admin/audit', '/admin/files', '/admin/settings'] },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {
@@ -63,7 +65,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const { signOut, authStatus, authUser, hqRole, profileTitle } = useSession();
   const { accounts } = useHqData();
   const effectiveRole: HqRole | null = authStatus === 'signed-out' ? 'Super Admin' : hqRole;
-  const visibleNavItems = NAV_ITEMS.filter((item) => canHq(effectiveRole, permissionForAdminPath(item.path)));
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) =>
+      canHq(effectiveRole, permissionForAdminPath(item.path)) &&
+      (item.path !== '/admin/audit' || authStatus === 'signed-in'),
+  );
   const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 

@@ -116,6 +116,12 @@ export interface FoodItem {
   catalogApproved?: boolean;
   /** Transient search id (for example off:{barcode}) retained for deduping. */
   catalogLookupId?: string;
+  /** Grams represented by the stored serving nutrition snapshot. */
+  catalogServingGrams?: number;
+  /** Trustworthy source measures available for weight conversion. */
+  catalogMeasures?: Array<{ label: string; grams: number }>;
+  /** Canonical source description retained when a friendlier display name is used. */
+  catalogCanonicalName?: string;
 }
 
 export interface IngredientNutrition {

@@ -35,6 +35,7 @@ import { OnboardingProvider } from '@/context/OnboardingContext';
 import { OperationsProvider } from '@/context/OperationsContext';
 import { PatientAccountProvider } from '@/context/PatientAccountProvider';
 import { PatientProvider } from '@/context/PatientContext';
+import { FoodLoggingProvider } from '@/context/FoodLoggingContext';
 import { DeviceBiometricGate, DeviceFeaturesProvider } from '@/context/DeviceFeaturesContext';
 import { PatientSyncNotice } from '@/components/patient/PatientSyncNotice';
 import { useAppMode } from '@/context/AppModeContext';
@@ -259,6 +260,7 @@ function RootLayoutNav() {
       <Stack.Screen name="create-food" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="barcode-scan" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="log-food" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="food/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="yesterday-review" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="coach-chat" options={{ headerShown: false }} />
@@ -343,6 +345,7 @@ export default function RootLayout() {
                   <OperationsProvider>
                     <PatientAccountProvider>
                       <PatientProvider>
+                        <FoodLoggingProvider>
                         <DeviceFeaturesProvider>
                          <OnboardingProvider>
                           <DeviceBiometricGate>
@@ -355,6 +358,7 @@ export default function RootLayout() {
                           </DeviceBiometricGate>
                          </OnboardingProvider>
                         </DeviceFeaturesProvider>
+                        </FoodLoggingProvider>
                       </PatientProvider>
                     </PatientAccountProvider>
                   </OperationsProvider>

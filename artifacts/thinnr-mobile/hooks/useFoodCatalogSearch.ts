@@ -37,6 +37,9 @@ export function localCatalogMatches(
       source: personal ? 'personal' : food.catalogShared ? 'catalog' : 'thinnr',
       sourceLabel: personal ? 'My Foods' : food.catalogSourceLabel ?? 'THINNR food library',
       approved,
+      measures: food.catalogMeasures ?? [],
+      ...(food.catalogServingGrams ? { servingGrams: food.catalogServingGrams } : {}),
+      ...(food.catalogCanonicalName ? { canonicalName: food.catalogCanonicalName } : {}),
       ...(food.catalogLookupId ? { lookupId: food.catalogLookupId } : {}),
     };
     result[group].push(item);

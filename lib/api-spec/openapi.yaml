@@ -263,11 +263,11 @@ paths:
       tags: [catalog]
       summary: Search shared and patient-private foods
       description: >-
-        Ranks the patient's selection history and exact local matches first.
-        Sufficiently specific text (or branded=true) may append validated Open
-        Food Facts products after local results. External products are not
-        persisted until the selection endpoint is called.
-      security: [{ bearerAuth: [] }]
+        Signed-out callers receive shared local foods only. Authenticated
+        patients also receive private foods ranked with their selection history;
+        sufficiently specific text (or branded=true) may append validated Open
+        Food Facts products. External products are not persisted until selected.
+      security: []
       parameters:
         - name: q
           in: query
@@ -287,7 +287,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/CatalogSearchResult" }
         "400": { description: Invalid query }
-        "401": { description: Missing or expired patient session }
         "403": { description: Session is not linked to a patient }
         "429": { description: Rate limited }
         "502": { description: Local catalog is unavailable }
@@ -1867,6 +1866,9 @@ components:
         id: { type: string }
         kind: { type: string, enum: [generic, branded, personal] }
         name: { type: string }
+        canonicalName:
+          type: string
+          description: Original source description when name is a reviewed patient-friendly label
         brand: { type: ["string", "null"] }
         serving: { type: string }
         servingGrams: { type: ["number", "null"] }

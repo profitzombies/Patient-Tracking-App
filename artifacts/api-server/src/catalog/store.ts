@@ -25,7 +25,7 @@ function assertOk(status: number, operation: string): void {
 }
 
 export async function searchCatalog(
-  patientId: string,
+  patientId: string | null,
   query: string,
   limit: number,
 ): Promise<CatalogItem[]> {

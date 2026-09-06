@@ -15,6 +15,8 @@ export interface CatalogFood {
   id: string;
   kind: CatalogFoodKind;
   name: string;
+  /** Original source description when name is a reviewed patient-friendly label */
+  canonicalName?: string;
   /** @nullable */
   brand: string | null;
   serving: string;

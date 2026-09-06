@@ -10,6 +10,7 @@ import { useColors } from '@/hooks/useColors';
 import { PillSelector } from '@/components/ui/LedgerPrimitives';
 import { usePatient } from '@/context/PatientContext';
 import { MEAL_LABELS, MEAL_SLOTS, type FoodItem, type MealSlot } from '@/data/patient-data';
+import { GRAMS_PER_OUNCE } from '@/context/FoodLoggingContext';
 
 const MEAL_OPTIONS = MEAL_SLOTS.map(slot => ({ label: MEAL_LABELS[slot], value: slot }));
 
@@ -33,6 +34,10 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded, prepareFood }:
   const patient = usePatient();
   const [meal, setMeal] = useState<MealSlot>('breakfast');
   const [qty, setQty] = useState(1);
+  const weightBased = !!food.catalogShared
+    && !!food.catalogServingGrams
+    && food.catalogMeasures?.some(measure => /\boz\b/i.test(measure.label));
+  const [ounces, setOunces] = useState(weightBased ? 5 : undefined);
   const [saving, setSaving] = useState(false);
 
   const add = async () => {
@@ -42,18 +47,23 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded, prepareFood }:
       // Logging remains available during a catalog outage; if promotion
       // succeeds, use its stable canonical id and authoritative snapshot.
       const logFood = await prepareFood?.().catch(() => undefined) ?? food;
+      const scale = ounces !== undefined && logFood.catalogServingGrams
+        ? ounces * GRAMS_PER_OUNCE / logFood.catalogServingGrams
+        : qty;
       await patient.addEntry({
         dateKey: patient.todayKey,
         meal,
         kind: 'food',
         refId: logFood.id,
         name: logFood.name,
-        detail: `${formatQty(qty)} × ${logFood.serving}`,
-        quantity: qty,
-        calories: Math.round(logFood.calories * qty),
-        protein: Math.round(logFood.protein * qty),
-        carbs: Math.round(logFood.carbs * qty),
-        fat: Math.round(logFood.fat * qty),
+        detail: ounces !== undefined
+          ? `${formatQty(ounces)} oz · ${Math.round(ounces * GRAMS_PER_OUNCE)} g`
+          : `${formatQty(qty)} × ${logFood.serving}`,
+        quantity: scale,
+        calories: Math.round(logFood.calories * scale),
+        protein: Math.round(logFood.protein * scale),
+        carbs: Math.round(logFood.carbs * scale),
+        fat: Math.round(logFood.fat * scale),
       });
       onAdded(`Added ${logFood.name} to ${MEAL_LABELS[meal]}`);
     } finally {
@@ -72,27 +82,33 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded, prepareFood }:
       <View style={styles.controls}>
         <Pressable
           testID={`${testIDPrefix}-qty-minus`}
-          onPress={() => setQty(q => Math.max(0.5, Math.round((q - 0.5) * 2) / 2))}
-          disabled={qty <= 0.5}
+          accessibilityLabel={`Decrease ${weightBased ? 'weight by half an ounce' : 'quantity by half a serving'}`}
+          onPress={() => ounces !== undefined
+            ? setOunces(value => Math.max(0.5, (value ?? 5) - 0.5))
+            : setQty(q => Math.max(0.5, Math.round((q - 0.5) * 2) / 2))}
+          disabled={(ounces ?? qty) <= 0.5}
           style={({ pressed }) => [
             styles.stepBtn,
             { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
-            qty <= 0.5 && { opacity: 0.35 },
+            (ounces ?? qty) <= 0.5 && { opacity: 0.35 },
           ]}
         >
           <Feather name="minus" size={13} color={colors.bodyText} />
         </Pressable>
         <Text testID={`${testIDPrefix}-qty`} style={[styles.qtyValue, { color: colors.navy }]}>
-          {formatQty(qty)}
+          {formatQty(ounces ?? qty)}{ounces !== undefined ? ' oz' : ''}
         </Text>
         <Pressable
           testID={`${testIDPrefix}-qty-plus`}
-          onPress={() => setQty(q => Math.min(10, Math.round((q + 0.5) * 2) / 2))}
-          disabled={qty >= 10}
+          accessibilityLabel={`Increase ${weightBased ? 'weight by half an ounce' : 'quantity by half a serving'}`}
+          onPress={() => ounces !== undefined
+            ? setOunces(value => Math.min(32, (value ?? 5) + 0.5))
+            : setQty(q => Math.min(10, Math.round((q + 0.5) * 2) / 2))}
+          disabled={ounces === undefined && qty >= 10}
           style={({ pressed }) => [
             styles.stepBtn,
             { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.card, borderRadius: colors.radiusSm },
-            qty >= 10 && { opacity: 0.35 },
+            ounces === undefined && qty >= 10 && { opacity: 0.35 },
           ]}
         >
           <Feather name="plus" size={13} color={colors.bodyText} />
@@ -113,7 +129,10 @@ export function FoodAddPanel({ food, note, testIDPrefix, onAdded, prepareFood }:
         </Pressable>
       </View>
       <Text style={[styles.hint, { color: colors.subtleText }]}>
-        Logs to today's diary · {formatQty(qty)} × {food.serving} · {Math.round(food.calories * qty)} cal
+        Logs to today's diary · {ounces !== undefined ? `${formatQty(ounces)} oz` : `${formatQty(qty)} × ${food.serving}`} ·{' '}
+        {Math.round(food.calories * (ounces !== undefined && food.catalogServingGrams
+          ? ounces * GRAMS_PER_OUNCE / food.catalogServingGrams
+          : qty))} cal
       </Text>
     </View>
   );

@@ -32,6 +32,9 @@ export interface LoggableItem {
     selectionToken?: string;
     lookupId?: string;
     persisted?: boolean;
+    servingGrams?: number;
+    measures: Array<{ label: string; grams: number }>;
+    canonicalName?: string;
   };
 }
 
@@ -61,6 +64,9 @@ export function useLoggableItems(): {
               source: 'catalog' as const,
               sourceLabel: food.catalogSourceLabel ?? 'Food catalog',
               ...(food.catalogLookupId ? { lookupId: food.catalogLookupId } : {}),
+              ...(food.catalogServingGrams ? { servingGrams: food.catalogServingGrams } : {}),
+              measures: food.catalogMeasures ?? [],
+              ...(food.catalogCanonicalName ? { canonicalName: food.catalogCanonicalName } : {}),
               persisted: true,
             },
           }

@@ -12,6 +12,7 @@ import {
   upsertOffCatalogItem,
   type CatalogItem,
 } from "../catalog/store";
+import { catalogDisplay, patientFriendlyCatalogOrder } from "../catalog/presentation";
 
 const router: IRouter = Router();
 const acquireSlot = createLimiter({
@@ -47,10 +48,12 @@ interface ExternalItem {
 }
 
 function wire(item: CatalogItem) {
+  const display = catalogDisplay(item);
   return {
     id: item.id,
     kind: item.kind,
-    name: item.name,
+    name: display.name,
+    ...(display.canonicalName ? { canonicalName: display.canonicalName } : {}),
     brand: item.brand,
     serving: item.serving,
     servingGrams: item.serving_grams === null ? null : Number(item.serving_grams),
@@ -112,19 +115,28 @@ router.get("/catalog/search", async (req, res) => {
     if (query.length < 2 || query.length > 100) {
       res.status(400).json({ error: "Search must be 2-100 characters." }); return;
     }
+    // Shared catalog reads are safe for the signed-out guided demo. Passing a
+    // null patient id keeps the RPC's private-food and usage joins empty.
     const auth = await resolvePatient(req);
-    if (!auth.ok) { res.status(auth.status).json({ error: auth.error }); return; }
-    const local = await searchCatalog(auth.patientId, query, limit);
+    let patientId: string | null;
+    const anonymous = !auth.ok && auth.status === 401;
+    if (auth.ok) patientId = auth.patientId;
+    else if (anonymous) patientId = null;
+    else { res.status(auth.status).json({ error: auth.error }); return; }
+    const local = await searchCatalog(patientId, query, limit);
     let brandedResults: ExternalItem[] = [];
     let externalUnavailable = false;
-    if (shouldSearchOff(query, branded) && local.length < limit) {
+    if (!anonymous && shouldSearchOff(query, branded) && local.length < limit) {
       const found = await external(query, Math.min(limit - local.length, 10), req.log);
       if (found === null) externalUnavailable = true;
       else brandedResults = found;
     }
     const localCodes = new Set(local.map(row => row.barcode).filter(Boolean));
     brandedResults = brandedResults.filter(row => !localCodes.has(row.barcode));
-    res.json({ results: [...local.map(wire), ...brandedResults].slice(0, limit), externalUnavailable });
+    res.json({
+      results: [...patientFriendlyCatalogOrder(local, query).map(wire), ...brandedResults].slice(0, limit),
+      externalUnavailable,
+    });
   } catch (error) {
     req.log?.error({ err: error }, "catalog search failed");
     res.status(502).json({ error: "Food search is unavailable right now." });

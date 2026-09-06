@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import React from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { FOOD_DB, type FoodItem } from '../data/patient-data';
 import { isApprovedFood } from '../data/approved-foods';
 import {
@@ -12,6 +14,15 @@ import {
   parseCatalogFood,
   parseCatalogSearch,
 } from '../lib/food-catalog';
+import {
+  defaultSelection,
+  buildFoodLogEntry,
+  FoodLoggingProvider,
+  selectionScale,
+  supportsOunces,
+  useFoodLogging,
+  type FoodLoggingContextValue,
+} from '../context/FoodLoggingContext';
 
 const commonWire = {
   id: 'catalog-rice',
@@ -62,6 +73,7 @@ assert.equal(parsed.personal[0].sourceLabel, 'My Foods');
 assert.equal(parsed.personal[0].id, 'mine', 'custom:<id> results normalize to the local custom id');
 assert.equal(parsed.branded[0].sourceLabel, 'Open Food Facts');
 assert.equal(parsed.common[0].approved, true, 'approval comes only from explicit relationships');
+assert.equal(parsed.common[0].servingGrams, 158, 'serving grams survive mobile parsing');
 assert.equal(parsed.branded[0].approved, false);
 assert.equal(parsed.upstreamUnavailable, true, 'local results survive external failure');
 assert.equal(
@@ -101,6 +113,111 @@ assert.equal(
   'the saved UUID snapshot and off: search result render once',
 );
 assert.equal(offlineSnapshot.catalogShared, true, 'snapshot is explicitly private catalog state');
+assert.equal(offlineSnapshot.catalogServingGrams, 158, 'serving grams persist in the private snapshot');
+
+const ounceWire = parseCatalogFood({
+  ...commonWire,
+  canonicalName: 'Chicken, broilers or fryers, wing, meat and skin, cooked, roasted',
+  name: 'Chicken Wings, Roasted (Meat and Skin)',
+  serving: '100 g',
+  servingGrams: 100,
+  calories: 254,
+  protein: 23.8,
+  carbs: 0,
+  fat: 16.9,
+  measures: [{ label: '100 g', grams: 100 }, { label: '1 oz', grams: 28.349523125 }],
+}, 'common');
+assert.ok(ounceWire);
+const ounceItem = {
+  refId: ounceWire.catalogId,
+  kind: 'food' as const,
+  name: ounceWire.name,
+  sub: 'Common Foods',
+  serving: ounceWire.serving,
+  calories: ounceWire.calories,
+  protein: ounceWire.protein,
+  carbs: ounceWire.carbs,
+  fat: ounceWire.fat,
+  approved: false,
+  catalog: {
+    catalogId: ounceWire.catalogId,
+    group: ounceWire.group,
+    source: ounceWire.source,
+    sourceLabel: ounceWire.sourceLabel,
+    servingGrams: ounceWire.servingGrams,
+    measures: ounceWire.measures,
+    canonicalName: ounceWire.canonicalName,
+  },
+};
+assert.equal(supportsOunces(ounceItem), true, 'trusted ounce measure enables weight controls');
+assert.equal(defaultSelection(ounceItem).ounces, 5, 'shared generic foods default to five ounces');
+assert.ok(Math.abs(selectionScale(defaultSelection(ounceItem)) - 1.41747615625) < 0.000001);
+assert.deepEqual(
+  buildFoodLogEntry(defaultSelection(ounceItem), { dateKey: '2026-08-22', meal: 'dinner' }),
+  {
+    dateKey: '2026-08-22',
+    meal: 'dinner',
+    kind: 'food',
+    refId: 'catalog-rice',
+    name: 'Chicken Wings, Roasted (Meat and Skin)',
+    detail: '5 oz · 142 g',
+    quantity: 1.41747615625,
+    calories: 360,
+    protein: 34,
+    carbs: 0,
+    fat: 24,
+  },
+  'weight logging preserves the chosen ounces and recalculated nutrition as one diary snapshot',
+);
+assert.match(ounceWire.canonicalName ?? '', /^Chicken, broilers/, 'canonical USDA wording survives friendly labels');
+
+// Exercise the real basket provider: snapshots survive independent search
+// result lifetimes, can be configured in detail, and toggle independently.
+const riceItem = {
+  refId: 'catalog-rice-2',
+  kind: 'food' as const,
+  name: 'Brown Rice',
+  sub: 'Common Foods',
+  serving: '1 cup',
+  calories: 216,
+  protein: 5,
+  carbs: 45,
+  fat: 1.8,
+  approved: true,
+};
+let basket: FoodLoggingContextValue | undefined;
+function BasketProbe() {
+  basket = useFoodLogging();
+  return null;
+}
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+let renderer: ReactTestRenderer | undefined;
+act(() => {
+  renderer = create(React.createElement(
+    FoodLoggingProvider,
+    null,
+    React.createElement(BasketProbe),
+  ));
+});
+assert.ok(basket);
+act(() => basket!.toggle(ounceItem));
+act(() => basket!.toggle(riceItem));
+assert.deepEqual(
+  basket!.selected.map(entry => entry.item.name),
+  ['Chicken Wings, Roasted (Meat and Skin)', 'Brown Rice'],
+  'foods accumulated from separate searches remain in one stable basket',
+);
+assert.equal(basket!.selected[0].ounces, 5);
+act(() => basket!.configure(ounceItem, { quantity: 1, ounces: 6 }));
+assert.equal(basket!.selected[0].ounces, 6, 'detail changes update only the configured food');
+assert.equal(basket!.selected[1].quantity, 1, 'other selected amounts remain unchanged');
+act(() => {
+  basket!.remember(ounceItem);
+  assert.equal(basket!.recalled(ounceItem.refId)?.name, ounceItem.name, 'detail navigation recall is synchronous');
+});
+act(() => basket!.toggle(riceItem));
+assert.deepEqual(basket!.selected.map(entry => entry.item.refId), [ounceItem.refId]);
+act(() => renderer?.unmount());
 
 const approved = FOOD_DB.find(food => isApprovedFood(food.id));
 assert.ok(approved, 'seed library should retain at least one approved compatibility id');

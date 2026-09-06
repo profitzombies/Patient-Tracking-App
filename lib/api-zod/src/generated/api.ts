@@ -17,7 +17,6 @@ export const supportChatBodyMessagesItemContentMax = 8000;
 export const supportChatBodyMessagesMax = 30;
 
 
-
 export const SupportChatBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant']),
@@ -72,7 +71,6 @@ export const coachRecipeImageBodyNameMax = 80;
 export const coachRecipeImageBodyDescriptionMax = 200;
 
 
-
 export const CoachRecipeImageBody = zod.object({
   "name": zod.string().min(1).max(coachRecipeImageBodyNameMax),
   "description": zod.string().max(coachRecipeImageBodyDescriptionMax).optional()
@@ -88,7 +86,6 @@ export const CoachRecipeImageResponse = zod.object({
  * @summary Scan a restaurant menu photo for THINNR-compatible orders
  */
 export const coachMenuScanBodyImageMax = 8000000;
-
 
 
 export const CoachMenuScanBody = zod.object({
@@ -116,7 +113,6 @@ export const CoachMenuScanResponse = zod.object({
  * @summary Read a Nutrition Facts photo into per-serving values
  */
 export const coachLabelScanBodyImageMax = 8000000;
-
 
 
 export const CoachLabelScanBody = zod.object({
@@ -151,7 +147,6 @@ export const barcodeLookupPathCodeMin = 8;
 export const barcodeLookupPathCodeMax = 24;
 
 
-
 export const BarcodeLookupParams = zod.object({
   "code": zod.coerce.string().min(barcodeLookupPathCodeMin).max(barcodeLookupPathCodeMax).describe('Barcode as typed or scanned - 8, 12, 13, or zero-led 14 digits; spaces and hyphens are tolerated')
 })
@@ -174,7 +169,7 @@ export const BarcodeLookupResponse = zod.object({
 
 
 /**
- * Ranks the patient's selection history and exact local matches first. Sufficiently specific text (or branded=true) may append validated Open Food Facts products after local results. External products are not persisted until the selection endpoint is called.
+ * Signed-out callers receive shared local foods only. Authenticated patients also receive private foods ranked with their selection history; sufficiently specific text (or branded=true) may append validated Open Food Facts products. External products are not persisted until selected.
  * @summary Search shared and patient-private foods
  */
 export const catalogSearchQueryQMin = 2;
@@ -196,6 +191,7 @@ export const CatalogSearchResponse = zod.object({
   "id": zod.string(),
   "kind": zod.enum(['generic', 'branded', 'personal']),
   "name": zod.string(),
+  "canonicalName": zod.string().optional().describe('Original source description when name is a reviewed patient-friendly label'),
   "brand": zod.string().nullable(),
   "serving": zod.string(),
   "servingGrams": zod.number().nullable(),
@@ -227,7 +223,6 @@ export const CatalogSearchResponse = zod.object({
 export const catalogSelectBodyIdMax = 100;
 
 
-
 export const CatalogSelectBody = zod.object({
   "id": zod.string().min(1).max(catalogSelectBodyIdMax)
 })
@@ -239,6 +234,7 @@ export const CatalogSelectResponse = zod.object({
   "id": zod.string(),
   "kind": zod.enum(['generic', 'branded', 'personal']),
   "name": zod.string(),
+  "canonicalName": zod.string().optional().describe('Original source description when name is a reviewed patient-friendly label'),
   "brand": zod.string().nullable(),
   "serving": zod.string(),
   "servingGrams": zod.number().nullable(),
@@ -269,7 +265,6 @@ export const CatalogSelectResponse = zod.object({
 export const progressPhotoFileQueryPathMax = 500;
 
 
-
 export const ProgressPhotoFileQueryParams = zod.object({
   "path": zod.coerce.string().max(progressPhotoFileQueryPathMax).describe('Canonical object path returned by finalize')
 })
@@ -290,7 +285,6 @@ export const trainingVideoUploadUrlBodyFileNameMax = 300;
 export const trainingVideoUploadUrlBodyContentTypeMax = 100;
 
 export const trainingVideoUploadUrlBodySizeBytesMax = 524288000;
-
 
 
 export const TrainingVideoUploadUrlBody = zod.object({
@@ -314,7 +308,6 @@ export const TrainingVideoFinalizeParams = zod.object({
 })
 
 export const trainingVideoFinalizeBodyObjectPathMax = 500;
-
 
 
 export const TrainingVideoFinalizeBody = zod.object({
@@ -354,7 +347,6 @@ export const trainingThumbnailUploadUrlBodyFileNameMax = 300;
 export const trainingThumbnailUploadUrlBodySizeBytesMax = 10485760;
 
 
-
 export const TrainingThumbnailUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingThumbnailUploadUrlBodyFileNameMax).describe('Original file name, for browser metadata only'),
   "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp']).describe('MIME type sent on the presigned PUT'),
@@ -379,7 +371,6 @@ export const TrainingThumbnailUploadParams = zod.object({
 export const trainingThumbnailUploadBodyObjectPathMax = 500;
 
 export const trainingThumbnailUploadBodyVideoSourceMax = 500;
-
 
 
 export const TrainingThumbnailUploadBody = zod.object({
@@ -409,7 +400,6 @@ export const trainingAttachmentUploadUrlBodyContentTypeMax = 100;
 export const trainingAttachmentUploadUrlBodySizeBytesMax = 26214400;
 
 
-
 export const TrainingAttachmentUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingAttachmentUploadUrlBodyFileNameMax).describe('Original file name, for logs and error copy only'),
   "contentType": zod.string().max(trainingAttachmentUploadUrlBodyContentTypeMax).describe('MIME type the browser will send on the PUT (PDF, Word, Excel, PowerPoint, text, CSV, or common image types)'),
@@ -435,7 +425,6 @@ export const trainingAttachmentFinalizeBodyObjectPathMax = 500;
 export const trainingAttachmentFinalizeBodyNameMax = 300;
 
 export const trainingAttachmentFinalizeBodyContentTypeMax = 100;
-
 
 
 export const TrainingAttachmentFinalizeBody = zod.object({
@@ -544,7 +533,6 @@ export const trainingVideoThumbnailBodyAtSecondsMin = 0;
 export const trainingVideoThumbnailBodyAtSecondsMax = 86400;
 
 
-
 export const TrainingVideoThumbnailBody = zod.object({
   "atSeconds": zod.number().min(trainingVideoThumbnailBodyAtSecondsMin).max(trainingVideoThumbnailBodyAtSecondsMax).describe('Video time of the frame to capture, clamped to the duration')
 })
@@ -566,7 +554,6 @@ export const TrainingVideoProcessParams = zod.object({
 export const trainingVideoProcessBodyStepsMax = 4;
 
 
-
 export const TrainingVideoProcessBody = zod.object({
   "steps": zod.array(zod.enum(['transcribe', 'describe', 'chapters', 'thumbnail'])).max(trainingVideoProcessBodyStepsMax).optional().describe('Subset of steps to run, in pipeline order; omit for the full pass. Used by retries to resume from a failed step without re-spending the ones that succeeded.')
 })
@@ -581,7 +568,6 @@ export const TrainingVideoProcessResponse = zod.unknown()
 export const knowledgeUploadUrlBodyFileNameMax = 300;
 
 export const knowledgeUploadUrlBodySizeBytesMax = 26214400;
-
 
 
 export const KnowledgeUploadUrlBody = zod.object({
@@ -628,7 +614,6 @@ export const knowledgeCreateDocumentBodyDocumentIdMax = 60;
 export const knowledgeCreateDocumentBodyObjectPathMax = 500;
 
 export const knowledgeCreateDocumentBodyFileNameMax = 300;
-
 
 
 export const KnowledgeCreateDocumentBody = zod.object({
@@ -688,7 +673,6 @@ export const KnowledgeRenameDocumentParams = zod.object({
 export const knowledgeRenameDocumentBodyTitleMax = 200;
 
 
-
 export const KnowledgeRenameDocumentBody = zod.object({
   "title": zod.string().min(1).max(knowledgeRenameDocumentBodyTitleMax)
 })
@@ -734,7 +718,6 @@ export const knowledgeReplaceUploadUrlBodyFileNameMax = 300;
 export const knowledgeReplaceUploadUrlBodySizeBytesMax = 26214400;
 
 
-
 export const KnowledgeReplaceUploadUrlBody = zod.object({
   "fileName": zod.string().min(1).max(knowledgeReplaceUploadUrlBodyFileNameMax).describe('Original file name; becomes the document title (sans extension)'),
   "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown']).describe('Canonical MIME type the browser will send on the PUT'),
@@ -759,7 +742,6 @@ export const KnowledgeReplaceFileParams = zod.object({
 export const knowledgeReplaceFileBodyObjectPathMax = 500;
 
 export const knowledgeReplaceFileBodyFileNameMax = 300;
-
 
 
 export const KnowledgeReplaceFileBody = zod.object({
@@ -1077,5 +1059,3 @@ export const GetHqAuditEventsResponse = zod.object({
   "total": zod.number().optional(),
   "hasMore": zod.boolean().optional()
 })
-
-

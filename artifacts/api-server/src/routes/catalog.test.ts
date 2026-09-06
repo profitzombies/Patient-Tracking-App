@@ -9,7 +9,10 @@ vi.hoisted(() => {
 });
 
 const auth = vi.hoisted(() => ({
-  resolvePatient: vi.fn(async () => ({ ok: true, patientId: "patient-1", authUserId: "user-1" })),
+  resolvePatient: vi.fn(async (): Promise<
+    | { ok: true; patientId: string; authUserId: string }
+    | { ok: false; status: number; error: string }
+  > => ({ ok: true, patientId: "patient-1", authUserId: "user-1" })),
 }));
 vi.mock("../lib/patient-auth", () => ({ resolvePatient: auth.resolvePatient }));
 
@@ -89,6 +92,48 @@ describe("catalog routes", () => {
     expect(response.status).toBe(200);
     expect((await response.json() as { results: unknown[] }).results).toHaveLength(1);
     expect(off.searchOffProducts).not.toHaveBeenCalled();
+  });
+
+  it("allows the signed-out guided demo to read only the shared catalog", async () => {
+    auth.resolvePatient.mockResolvedValue({ ok: false, status: 401, error: "Sign in required." });
+    store.searchCatalog.mockResolvedValue([]);
+    const response = await fetch(`${base}/catalog/search?q=Nutella%20Ferrero&branded=true`);
+    expect(response.status).toBe(200);
+    expect(store.searchCatalog).toHaveBeenCalledWith(null, "Nutella Ferrero", 20);
+    expect(off.searchOffProducts).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({ results: [], externalUnavailable: false });
+  });
+
+  it("ranks reviewed wing identities first while retaining canonical USDA details and weight measures", async () => {
+    off.searchOffProducts.mockResolvedValue({ kind: "found", products: [] });
+    store.searchCatalog.mockResolvedValue([
+      {
+        id: "technical", kind: "generic", name: "Chicken, broilers, giblets, cooked", brand: null,
+        serving: "100 g", serving_grams: 100, calories: 200, protein: 20, carbs: 0, fat: 12,
+        measures: [{ label: "100 g", grams: 100 }], source: "usda_fdc", source_id: "other",
+        barcode: null, quality_status: "reviewed", approvals: [],
+      },
+      {
+        id: "wing", kind: "generic",
+        name: "Chicken wing, meat and skin, cooked, roasted", brand: null,
+        serving: "100 g", serving_grams: 100, calories: 254, protein: 23.8, carbs: 0, fat: 16.9,
+        measures: [{ label: "100 g", grams: 100 }, { label: "1 oz", grams: 28.349523125 }],
+        source: "usda_fdc", source_id: "173630", barcode: null,
+        quality_status: "reviewed", approvals: [],
+      },
+    ]);
+    const response = await fetch(`${base}/catalog/search?q=chicken%20wings`, {
+      headers: { Authorization: "Bearer test" },
+    });
+    const body = await response.json() as { results: unknown[] };
+    expect(body.results[0]).toMatchObject({
+        id: "wing",
+        name: "Chicken Wings, Roasted (Meat and Skin)",
+        canonicalName: "Chicken wing, meat and skin, cooked, roasted",
+        servingGrams: 100,
+        measures: [{ label: "100 g", grams: 100 }, { label: "1 oz", grams: 28.349523125 }],
+        source: "usda_fdc",
+    });
   });
 
   it("returns an owner-private food under its canonical raw id", async () => {

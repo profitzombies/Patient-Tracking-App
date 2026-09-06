@@ -5,8 +5,8 @@
  * slot — a "Yesterday's [meal]" option above the most-logged group that
  * opens a review-and-log of that whole slot.
  */
-import React, { useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -33,6 +33,7 @@ import {
 import { useLoggableItems, type LoggableItem } from '@/hooks/useLoggableItems';
 import { useFoodCatalogSearch } from '@/hooks/useFoodCatalogSearch';
 import { catalogFoodSnapshot, selectCatalogFood, type CatalogFood } from '@/lib/food-catalog';
+import { buildFoodLogEntry, useFoodLogging } from '@/context/FoodLoggingContext';
 import { toTitleCase } from '@/lib/title-case';
 
 type Scope = 'recent' | 'favorites' | 'all';
@@ -88,9 +89,9 @@ export default function LogFoodScreen() {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>('recent');
   const [approvedOnly, setApprovedOnly] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [qty, setQty] = useState(1);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const basket = useFoodLogging();
 
   // Quick-add form
   const [quickOpen, setQuickOpen] = useState(false);
@@ -133,6 +134,9 @@ export default function LogFoodScreen() {
         sourceLabel: food.sourceLabel,
         ...(food.selectionToken ? { selectionToken: food.selectionToken } : {}),
         ...(food.lookupId ? { lookupId: food.lookupId } : {}),
+        ...(food.servingGrams ? { servingGrams: food.servingGrams } : {}),
+        measures: food.measures,
+        ...(food.canonicalName ? { canonicalName: food.canonicalName } : {}),
       },
     });
     return {
@@ -141,14 +145,6 @@ export default function LogFoodScreen() {
       branded: catalogSearch.branded.map(convert),
     };
   }, [catalogSearch.common, catalogSearch.personal, catalogSearch.branded]);
-  const searchById = useMemo(
-    () => new Map(
-      [...catalogItems.common, ...catalogItems.personal, ...catalogItems.branded]
-        .map(item => [item.refId, item] as const),
-    ),
-    [catalogItems],
-  );
-
   // "Yesterday's [meal]" — the previous day's entries for the selected slot,
   // offered above the most-logged group as a tap-in review-and-log.
   // "Yesterday" follows the diary's meaning (the day before the date being
@@ -220,8 +216,6 @@ export default function LogFoodScreen() {
 
   const totalVisible = groups.reduce((sum, group) => sum + group.items.length, 0);
 
-  const selected = selectedId ? (searchById.get(selectedId) ?? byId.get(selectedId)) : undefined;
-
   // Patient-only route: deep links must not bypass the persona flow.
   if (!modeHydrated) return null;
   if (mode !== 'patient') {
@@ -231,6 +225,10 @@ export default function LogFoodScreen() {
   const goBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/today');
+  };
+  const cancelLogging = () => {
+    basket.clear();
+    goBack();
   };
 
   const toggleCatalogFavorite = async (item: LoggableItem) => {
@@ -253,6 +251,8 @@ export default function LogFoodScreen() {
       protein: item.protein,
       carbs: item.carbs,
       fat: item.fat,
+      measures: item.catalog.measures,
+      ...(item.catalog.servingGrams ? { servingGrams: item.catalog.servingGrams } : {}),
     });
     if (await patient.saveCatalogFood(catalogFoodSnapshot(selectedCatalog))) {
       await patient.toggleFavorite(selectedCatalog.catalogId);
@@ -297,58 +297,34 @@ export default function LogFoodScreen() {
   };
 
   const addSelected = async () => {
-    if (!selected || saving) return;
+    if (basket.selected.length === 0 || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
-      let selectedForLog = selected;
-      if (selected.catalog && selected.catalog.group !== 'personal') {
-        // Selection telemetry/promotion is best-effort: an upstream outage
-        // must not discard the nutrition snapshot the patient already chose.
+      const prepared = await Promise.all(basket.selected.map(async selection => {
+        const item = selection.item;
+        if (!item.catalog || item.catalog.group === 'personal') return selection;
         const persisted = await selectCatalogFood({
-          id: selected.refId,
-          catalogId: selected.catalog.catalogId,
-          group: selected.catalog.group,
-          source: selected.catalog.source,
-          sourceLabel: selected.catalog.sourceLabel,
-          ...(selected.catalog.selectionToken ? { selectionToken: selected.catalog.selectionToken } : {}),
-          approved: selected.approved,
-          name: selected.name,
-          category: selected.catalog.group === 'branded' ? 'Branded Products' : 'Common Foods',
-          serving: selected.serving,
-          calories: selected.calories,
-          protein: selected.protein,
-          carbs: selected.carbs,
-          fat: selected.fat,
+          id: item.refId, catalogId: item.catalog.catalogId, group: item.catalog.group,
+          source: item.catalog.source, sourceLabel: item.catalog.sourceLabel,
+          ...(item.catalog.selectionToken ? { selectionToken: item.catalog.selectionToken } : {}),
+          approved: item.approved, name: item.name,
+          category: item.catalog.group === 'branded' ? 'Branded Products' : 'Common Foods',
+          serving: item.serving, calories: item.calories, protein: item.protein, carbs: item.carbs, fat: item.fat,
+          measures: item.catalog.measures,
+          ...(item.catalog.servingGrams ? { servingGrams: item.catalog.servingGrams } : {}),
         }).catch(() => undefined);
-        if (persisted && await patient.saveCatalogFood(catalogFoodSnapshot(persisted))) {
-          selectedForLog = {
-            ...selected,
-            refId: persisted.catalogId,
-            name: persisted.name,
-            sub: persisted.brand ?? persisted.category,
-            serving: persisted.serving,
-            calories: persisted.calories,
-            protein: persisted.protein,
-            carbs: persisted.carbs,
-            fat: persisted.fat,
-          };
-        }
+        if (!persisted || !(await patient.saveCatalogFood(catalogFoodSnapshot(persisted)))) return selection;
+        return { ...selection, item: { ...item, refId: persisted.catalogId } };
+      }));
+      const entries = prepared.map(selection => buildFoodLogEntry(selection, { dateKey, meal }));
+      const logged = await patient.copyEntriesWithExtras([], entries, { dateKey, meal });
+      if (logged.length > 0) {
+        basket.clear();
+        goBack();
       }
-      await patient.addEntry({
-        dateKey,
-        meal,
-        kind: selectedForLog.kind,
-        refId: selectedForLog.refId,
-        name: selectedForLog.name,
-        detail: `${formatQty(qty)} × ${selectedForLog.serving}`,
-        quantity: qty,
-        calories: Math.round(selectedForLog.calories * qty),
-        protein: Math.round(selectedForLog.protein * qty),
-        carbs: Math.round(selectedForLog.carbs * qty),
-        fat: Math.round(selectedForLog.fat * qty),
-      });
-      goBack();
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -409,7 +385,7 @@ export default function LogFoodScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Header ── */}
       <View style={[styles.header, { paddingTop: topPad, borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
-        <Pressable testID="logfood-cancel" onPress={goBack} hitSlop={8}>
+        <Pressable testID="logfood-cancel" onPress={cancelLogging} hitSlop={8}>
           <Text style={[styles.headerAction, { color: colors.cobalt }]}>Cancel</Text>
         </Pressable>
         <View style={styles.headerCenter}>
@@ -422,7 +398,8 @@ export default function LogFoodScreen() {
       </View>
 
       <KeyboardAwareScrollViewCompat
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPad + (selected ? 120 : 0) }]}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad + (basket.selected.length ? 150 : 0) }]}
       >
         <PillSelector options={MEAL_OPTIONS} selected={meal} onSelect={setMeal} style={{ marginBottom: 12 }} />
 
@@ -471,6 +448,52 @@ export default function LogFoodScreen() {
 
         {query.trim() === '' && (
           <PillSelector options={SCOPE_OPTIONS} selected={scope} onSelect={setScope} style={{ marginTop: 10 }} />
+        )}
+
+        {basket.selected.length > 0 && (
+          <LedgerCard style={{ marginTop: 12 }}>
+            <View style={styles.selectionHeader}>
+              <Text style={[styles.groupHeader, { color: colors.labelText, paddingHorizontal: 0, paddingTop: 0 }]}>
+                SELECTED FOODS · {basket.selected.length}
+              </Text>
+              <Pressable accessibilityLabel="Clear all selected foods" onPress={basket.clear} hitSlop={8}>
+                <Text style={[styles.clearSelection, { color: colors.cobalt }]}>Clear all</Text>
+              </Pressable>
+            </View>
+            {basket.selected.map((selection, index) => (
+              <View key={selection.item.refId}>
+                {index > 0 && <Divider />}
+                <View style={styles.selectedRow}>
+                  <Pressable
+                    testID={`logfood-review-${selection.item.refId}`}
+                    accessibilityLabel={`Review ${selection.item.name}, ${selection.ounces !== undefined ? `${formatQty(selection.ounces)} ounces` : `${formatQty(selection.quantity)} servings`}`}
+                    accessibilityHint="Opens food weight and nutrition details"
+                    onPress={() => {
+                      basket.remember(selection.item);
+                      router.push({ pathname: '/food/[id]', params: { id: selection.item.refId } });
+                    }}
+                    style={{ flex: 1 }}
+                  >
+                    <Text style={[styles.actionName, { color: colors.navyLight }]} numberOfLines={1}>{selection.item.name}</Text>
+                    <Text style={[styles.actionMeta, { color: colors.subtleText }]}>
+                      {selection.ounces !== undefined ? `${formatQty(selection.ounces)} oz` : `${formatQty(selection.quantity)} × ${selection.item.serving}`}
+                      {' · '}{Math.round(selection.item.calories * (selection.ounces !== undefined && selection.item.catalog?.servingGrams
+                        ? selection.ounces * 28.349523125 / selection.item.catalog.servingGrams
+                        : selection.quantity))} cal
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`logfood-remove-${selection.item.refId}`}
+                    accessibilityLabel={`Remove ${selection.item.name} from selected foods`}
+                    onPress={() => basket.remove(selection.item.refId)}
+                    hitSlop={10}
+                  >
+                    <Feather name="x" size={16} color={colors.subtleText} />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </LedgerCard>
         )}
 
         {query.trim().length >= 2 && (catalogSearch.loading || catalogSearch.error || catalogSearch.upstreamUnavailable) && (
@@ -665,47 +688,47 @@ export default function LogFoodScreen() {
                   </Text>
                 )}
                 {group.items.map((item, index) => {
-                  const isSelected = selectedId === item.refId;
+                   const isSelected = basket.selected.some(entry => entry.item.refId === item.refId);
                   const isRecipe = item.kind === 'recipe';
                   return (
                     <View key={`${item.refId}-${index}`}>
                       {index > 0 && <Divider />}
-                      <Pressable
-                        testID={`logfood-item-${item.refId}`}
-                        onPress={() => {
-                          if (isRecipe) {
-                            openRecipe(item);
-                          } else {
-                            setSelectedId(current => (current === item.refId ? null : item.refId));
-                            setQty(1);
-                          }
-                        }}
-                        style={({ pressed }) => [
-                          styles.itemRow,
-                          isSelected && { backgroundColor: colors.sidebarBg },
-                          pressed && !isSelected && { backgroundColor: colors.accent },
-                        ]}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <View style={styles.itemNameRow}>
-                            <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
-                              {item.name}
+                      <View style={[styles.itemRow, isSelected && { backgroundColor: colors.sidebarBg }]}>
+                        <Pressable
+                          testID={`logfood-item-${item.refId}`}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open details for ${item.name}`}
+                          accessibilityHint={isRecipe ? 'Opens recipe details' : 'Opens food weight and nutrition details'}
+                          onPress={() => {
+                            if (isRecipe) openRecipe(item);
+                            else {
+                              basket.remember(item);
+                              router.push({ pathname: '/food/[id]', params: { id: item.refId } });
+                            }
+                          }}
+                          style={({ pressed }) => [styles.itemOpen, pressed && { opacity: 0.65 }]}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.itemNameRow}>
+                              <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
+                                {item.name}
+                              </Text>
+                              {item.approved && <ApprovedBadge size="sm" />}
+                            </View>
+                            <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
+                              {item.loggedCount ? `${item.loggedCount}× logged · ` : ''}
+                              {item.sub} · {item.serving} · P {item.protein}g
+                              {item.catalog ? ` · ${item.catalog.sourceLabel}` : ''}
                             </Text>
-                            {item.approved && <ApprovedBadge size="sm" />}
                           </View>
-                          <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
-                            {item.loggedCount ? `${item.loggedCount}× logged · ` : ''}
-                            {item.sub} · {item.serving} · P {item.protein}g
-                            {item.catalog ? ` · ${item.catalog.sourceLabel}` : ''}
-                          </Text>
-                        </View>
+                          <Text style={[styles.itemCals, { color: colors.navyLight }]}>{item.calories}</Text>
+                        </Pressable>
                         <FavoriteStar
                           id={item.refId}
                           name={item.name}
                           testID={`logfood-fav-${item.refId}`}
                           onToggle={item.catalog ? () => toggleCatalogFavorite(item) : undefined}
                         />
-                        <Text style={[styles.itemCals, { color: colors.navyLight }]}>{item.calories}</Text>
                         {isRecipe ? (
                           /* Separate Pressable so + quick-adds without opening the page */
                           <Pressable
@@ -717,14 +740,22 @@ export default function LogFoodScreen() {
                           >
                             <Feather name="plus-square" size={16} color={colors.subtleText} />
                           </Pressable>
-                        ) : (
-                          <Feather
-                            name={isSelected ? 'check-square' : 'plus-square'}
-                            size={16}
-                            color={isSelected ? colors.cobalt : colors.subtleText}
-                          />
+                         ) : (
+                           <Pressable
+                             testID={`logfood-select-${item.refId}`}
+                             accessibilityRole="checkbox"
+                             accessibilityState={{ checked: isSelected }}
+                             accessibilityLabel={`${isSelected ? 'Remove' : 'Select'} ${item.name}`}
+                             onPress={() => {
+                               Keyboard.dismiss();
+                               basket.toggle(item);
+                             }}
+                             hitSlop={10}
+                           >
+                             <Feather name={isSelected ? 'check-square' : 'plus-square'} size={18} color={isSelected ? colors.cobalt : colors.subtleText} />
+                           </Pressable>
                         )}
-                      </Pressable>
+                      </View>
                     </View>
                   );
                 })}
@@ -735,7 +766,7 @@ export default function LogFoodScreen() {
       </KeyboardAwareScrollViewCompat>
 
       {/* ── Selected item action bar ── */}
-      {selected && (
+      {basket.selected.length > 0 && (
         <View
           style={[
             styles.actionBar,
@@ -746,40 +777,15 @@ export default function LogFoodScreen() {
             },
           ]}
         >
-          <View style={styles.actionInfo}>
-            <Text style={[styles.actionName, { color: colors.navyLight }]} numberOfLines={1}>
-              {selected.name}
+          <View style={styles.actionInfo} accessibilityLabel={`${basket.selected.length} foods selected`}>
+            <Text style={[styles.actionName, { color: colors.navyLight }]}>
+              {basket.selected.length} food{basket.selected.length === 1 ? '' : 's'} selected
             </Text>
-            <Text style={[styles.actionMeta, { color: colors.subtleText }]}>
-              {formatQty(qty)} × {selected.serving} · {Math.round(selected.calories * qty)} cal
+            <Text style={[styles.actionMeta, { color: colors.subtleText }]} numberOfLines={2}>
+              {basket.selected.map(entry => entry.item.name).join(', ')}
             </Text>
           </View>
           <View style={styles.actionControls}>
-            <Pressable
-              testID="logfood-qty-minus"
-              onPress={() => setQty(q => Math.max(0.5, Math.round((q - 0.5) * 2) / 2))}
-              disabled={qty <= 0.5}
-              style={({ pressed }) => [
-                styles.stepBtn,
-                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.background, borderRadius: colors.radiusSm },
-                qty <= 0.5 && { opacity: 0.35 },
-              ]}
-            >
-              <Feather name="minus" size={13} color={colors.bodyText} />
-            </Pressable>
-            <Text style={[styles.qtyValue, { color: colors.navy }]}>{formatQty(qty)}</Text>
-            <Pressable
-              testID="logfood-qty-plus"
-              onPress={() => setQty(q => Math.min(10, Math.round((q + 0.5) * 2) / 2))}
-              disabled={qty >= 10}
-              style={({ pressed }) => [
-                styles.stepBtn,
-                { borderColor: colors.border, backgroundColor: pressed ? colors.accent : colors.background, borderRadius: colors.radiusSm },
-                qty >= 10 && { opacity: 0.35 },
-              ]}
-            >
-              <Feather name="plus" size={13} color={colors.bodyText} />
-            </Pressable>
             <Pressable
               testID="logfood-add"
               onPress={addSelected}
@@ -791,7 +797,7 @@ export default function LogFoodScreen() {
               ]}
             >
               <Text style={[styles.addBtnText, { color: colors.primaryForeground }]}>
-                Add to {MEAL_LABELS[meal]}
+                 {saving ? 'Adding…' : `Log all to ${MEAL_LABELS[meal]}`}
               </Text>
             </Pressable>
           </View>
@@ -948,6 +954,26 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginBottom: 8,
   },
+  selectionHeader: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  clearSelection: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  selectedRow: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   yesterdayRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -986,6 +1012,13 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 14,
     paddingVertical: 11,
+  },
+  itemOpen: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   itemNameRow: {
     flexDirection: 'row',

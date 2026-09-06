@@ -24,6 +24,9 @@ export interface CatalogFood extends FoodItem {
   /** Search-time identity, retained when selection promotes an off: row. */
   lookupId?: string;
   selectionToken?: string;
+  servingGrams?: number;
+  measures: Array<{ label: string; grams: number }>;
+  canonicalName?: string;
 }
 
 export interface CatalogSearchResult {
@@ -50,6 +53,9 @@ export function catalogFoodSnapshot(food: CatalogFood): FoodItem {
     catalogSourceLabel: food.sourceLabel,
     catalogApproved: food.approved,
     ...(food.lookupId ? { catalogLookupId: food.lookupId } : {}),
+    ...(food.servingGrams ? { catalogServingGrams: food.servingGrams } : {}),
+    catalogMeasures: food.measures,
+    ...(food.canonicalName ? { catalogCanonicalName: food.canonicalName } : {}),
   };
 }
 
@@ -104,6 +110,17 @@ function sourceOf(value: unknown, group: CatalogGroup): CatalogSource {
   return group === 'personal' ? 'personal' : group === 'branded' ? 'openfoodfacts' : 'catalog';
 }
 
+function parseMeasures(value: unknown): Array<{ label: string; grams: number }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(raw => {
+    if (!raw || typeof raw !== 'object') return [];
+    const measure = raw as Record<string, unknown>;
+    return typeof measure.label === 'string' && measure.label.trim() && nonNegative(measure.grams) && measure.grams > 0
+      ? [{ label: measure.label.trim().slice(0, 80), grams: measure.grams }]
+      : [];
+  });
+}
+
 /** Public for focused contract regression tests. */
 export function parseCatalogFood(raw: unknown, fallbackGroup: CatalogGroup): CatalogFood | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -152,7 +169,12 @@ export function parseCatalogFood(raw: unknown, fallbackGroup: CatalogGroup): Cat
         : SOURCE_LABELS[source],
     approved: value.approved === true || (Array.isArray(value.approvals) && value.approvals.length > 0),
     lookupId: rawId,
+    measures: parseMeasures(value.measures),
   };
+  if (nonNegative(value.servingGrams) && value.servingGrams > 0) food.servingGrams = value.servingGrams;
+  if (typeof value.canonicalName === 'string' && value.canonicalName.trim()) {
+    food.canonicalName = value.canonicalName.trim().slice(0, 160);
+  }
   if (typeof value.brand === 'string' && value.brand.trim()) food.brand = value.brand.trim().slice(0, 80);
   if (typeof value.selectionToken === 'string' && value.selectionToken) {
     food.selectionToken = value.selectionToken;

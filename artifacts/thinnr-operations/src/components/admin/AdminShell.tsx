@@ -24,6 +24,7 @@ import {
   Users,
   ActivitySquare,
   type LucideIcon,
+  FileDown,
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
@@ -50,6 +51,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/support-test', label: 'Test AI Support', mobileLabel: 'Test chat', icon: FlaskConical },
   { path: '/admin/audit', label: 'Audit Log', mobileLabel: 'Audit', icon: ActivitySquare },
   { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
+  { path: '/admin/exports', label: 'Exports', icon: FileDown },
   { path: '/admin/settings', label: 'Settings', icon: Settings2 },
 ];
 
@@ -57,7 +59,7 @@ const ADMIN_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/admin'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
-  { label: 'Manage', paths: ['/admin/audit', '/admin/files', '/admin/settings'] },
+  { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/files', '/admin/settings'] },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {

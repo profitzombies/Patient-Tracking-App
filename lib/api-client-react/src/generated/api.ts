@@ -35,9 +35,15 @@ import type {
   ConversationEventsResult,
   ConversationSummaryResult,
   EngagementTrendResult,
+  ExportDownloadResult,
+  ExportJobListResult,
+  ExportJobResult,
+  ExportRequestInput,
   FollowUpResult,
   FollowUpUpdateInput,
   GetHqAuditEventsParams,
+  GetHqOfficeComparisonParams,
+  GetOfficeAnalyticsParams,
   GetOfficeConversationEventsParams,
   GetOfficeConversationsParams,
   GetOfficeEngagementTrendsParams,
@@ -65,6 +71,8 @@ import type {
   KnowledgeReplaceInput,
   KnowledgeUploadUrlInput,
   KnowledgeUploadUrlResult,
+  OfficeAnalyticsResult,
+  OfficeComparisonResult,
   OfficePatientRecord,
   OfficeRosterResult,
   OperationalRollupResult,
@@ -103,7 +111,6 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
-
 const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKey: K } => {
   const result = { queryKey } as T & { queryKey: K };
   for (const key of Object.keys(query)) {
@@ -120,8 +127,6 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
 };
 
 export const getSupportChatUrl = () => {
-
-
 
 
   return `/api/support/chat`
@@ -143,9 +148,6 @@ export const supportChat = async (supportChatInput: SupportChatInput, options?: 
 );}
 
 
-
-
-
 export const getSupportChatMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof supportChat>>, TError,{data: BodyType<SupportChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof supportChat>>, TError,{data: BodyType<SupportChatInput>}, TContext> => {
@@ -158,17 +160,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof supportChat>>, {data: BodyType<SupportChatInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  supportChat(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -194,8 +190,6 @@ export const useSupportChat = <TError = ErrorType<void>,
 export const getCoachChatUrl = () => {
 
 
-
-
   return `/api/coach/chat`
 }
 
@@ -215,9 +209,6 @@ export const coachChat = async (coachChatInput: CoachChatInput, options?: Parame
 );}
 
 
-
-
-
 export const getCoachChatMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachChat>>, TError,{data: BodyType<CoachChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof coachChat>>, TError,{data: BodyType<CoachChatInput>}, TContext> => {
@@ -230,17 +221,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachChat>>, {data: BodyType<CoachChatInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  coachChat(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -266,8 +251,6 @@ export const useCoachChat = <TError = ErrorType<void>,
 export const getCoachRecipeImageUrl = () => {
 
 
-
-
   return `/api/coach/recipe-image`
 }
 
@@ -287,9 +270,6 @@ export const coachRecipeImage = async (coachRecipeImageInput: CoachRecipeImageIn
 );}
 
 
-
-
-
 export const getCoachRecipeImageMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachRecipeImage>>, TError,{data: BodyType<CoachRecipeImageInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof coachRecipeImage>>, TError,{data: BodyType<CoachRecipeImageInput>}, TContext> => {
@@ -302,17 +282,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachRecipeImage>>, {data: BodyType<CoachRecipeImageInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  coachRecipeImage(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -338,8 +312,6 @@ export const useCoachRecipeImage = <TError = ErrorType<void>,
 export const getCoachMenuScanUrl = () => {
 
 
-
-
   return `/api/coach/menu-scan`
 }
 
@@ -359,9 +331,6 @@ export const coachMenuScan = async (coachMenuScanInput: CoachMenuScanInput, opti
 );}
 
 
-
-
-
 export const getCoachMenuScanMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachMenuScan>>, TError,{data: BodyType<CoachMenuScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof coachMenuScan>>, TError,{data: BodyType<CoachMenuScanInput>}, TContext> => {
@@ -374,17 +343,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachMenuScan>>, {data: BodyType<CoachMenuScanInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  coachMenuScan(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -410,8 +373,6 @@ export const useCoachMenuScan = <TError = ErrorType<void>,
 export const getCoachLabelScanUrl = () => {
 
 
-
-
   return `/api/coach/label-scan`
 }
 
@@ -431,9 +392,6 @@ export const coachLabelScan = async (coachLabelScanInput: CoachLabelScanInput, o
 );}
 
 
-
-
-
 export const getCoachLabelScanMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof coachLabelScan>>, TError,{data: BodyType<CoachLabelScanInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof coachLabelScan>>, TError,{data: BodyType<CoachLabelScanInput>}, TContext> => {
@@ -446,17 +404,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof coachLabelScan>>, {data: BodyType<CoachLabelScanInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  coachLabelScan(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -482,8 +434,6 @@ export const useCoachLabelScan = <TError = ErrorType<void>,
 export const getBarcodeLookupUrl = (code: string,) => {
 
 
-
-
   return `/api/barcode/${code}`
 }
 
@@ -503,9 +453,6 @@ export const barcodeLookup = async (code: string, options?: Parameters<typeof cu
 );}
 
 
-
-
-
 export const getBarcodeLookupQueryKey = (code: string,) => {
     return [
     `/api/barcode/${code}`
@@ -521,11 +468,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getBarcodeLookupQueryKey(code);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof barcodeLookup>>> = ({ signal }) => barcodeLookup(code, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, enabled: code !== null && code !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof barcodeLookup>>, TError, TData> & { queryKey: QueryKey }
@@ -550,11 +493,6 @@ export function useBarcodeLookup<TData = Awaited<ReturnType<typeof barcodeLookup
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getCatalogSearchUrl = (params: CatalogSearchParams,) => {
@@ -588,9 +526,6 @@ export const catalogSearch = async (params: CatalogSearchParams, options?: Param
 );}
 
 
-
-
-
 export const getCatalogSearchQueryKey = (params?: CatalogSearchParams,) => {
     return [
     `/api/catalog/search`, ...(params ? [params] : [])
@@ -606,11 +541,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getCatalogSearchQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogSearch>>> = ({ signal }) => catalogSearch(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogSearch>>, TError, TData> & { queryKey: QueryKey }
@@ -637,14 +568,7 @@ export function useCatalogSearch<TData = Awaited<ReturnType<typeof catalogSearch
 }
 
 
-
-
-
-
-
 export const getCatalogSelectUrl = () => {
-
-
 
 
   return `/api/catalog/selections`
@@ -666,9 +590,6 @@ export const catalogSelect = async (catalogSelectionInput: CatalogSelectionInput
 );}
 
 
-
-
-
 export const getCatalogSelectMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof catalogSelect>>, TError,{data: BodyType<CatalogSelectionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof catalogSelect>>, TError,{data: BodyType<CatalogSelectionInput>}, TContext> => {
@@ -681,17 +602,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof catalogSelect>>, {data: BodyType<CatalogSelectionInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  catalogSelect(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -745,9 +660,6 @@ export const progressPhotoFile = async (params: ProgressPhotoFileParams, options
 );}
 
 
-
-
-
 export const getProgressPhotoFileQueryKey = (params?: ProgressPhotoFileParams,) => {
     return [
     `/api/progress-photos/file`, ...(params ? [params] : [])
@@ -763,11 +675,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getProgressPhotoFileQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof progressPhotoFile>>> = ({ signal }) => progressPhotoFile(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof progressPhotoFile>>, TError, TData> & { queryKey: QueryKey }
@@ -794,14 +702,7 @@ export function useProgressPhotoFile<TData = Awaited<ReturnType<typeof progressP
 }
 
 
-
-
-
-
-
 export const getTrainingVideoUploadUrlUrl = (videoId: string,) => {
-
-
 
 
   return `/api/training/videos/${videoId}/upload-url`
@@ -824,9 +725,6 @@ export const trainingVideoUploadUrl = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingVideoUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingUploadUrlInput>}, TContext> => {
@@ -839,17 +737,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoUploadUrl>>, {videoId: string;data: BodyType<TrainingUploadUrlInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingVideoUploadUrl(videoId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -875,8 +767,6 @@ export const useTrainingVideoUploadUrl = <TError = ErrorType<void>,
 export const getTrainingVideoFinalizeUrl = (videoId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/video`
 }
 
@@ -897,9 +787,6 @@ export const trainingVideoFinalize = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingVideoFinalizeMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoFinalize>>, TError,{videoId: string;data: BodyType<TrainingFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoFinalize>>, TError,{videoId: string;data: BodyType<TrainingFinalizeInput>}, TContext> => {
@@ -912,17 +799,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoFinalize>>, {videoId: string;data: BodyType<TrainingFinalizeInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingVideoFinalize(videoId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -948,8 +829,6 @@ export const useTrainingVideoFinalize = <TError = ErrorType<void>,
 export const getTrainingVideoRemoveFileUrl = (videoId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/video`
 }
 
@@ -969,9 +848,6 @@ export const trainingVideoRemoveFile = async (videoId: string, options?: Paramet
 );}
 
 
-
-
-
 export const getTrainingVideoRemoveFileMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, TError,{videoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, TError,{videoId: string}, TContext> => {
@@ -984,17 +860,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoRemoveFile>>, {videoId: string}> = (props) => {
           const {videoId} = props ?? {};
 
           return  trainingVideoRemoveFile(videoId,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1020,8 +890,6 @@ export const useTrainingVideoRemoveFile = <TError = ErrorType<void>,
 export const getTrainingThumbnailUploadUrlUrl = (videoId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/thumbnail-upload-url`
 }
 
@@ -1042,9 +910,6 @@ export const trainingThumbnailUploadUrl = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingThumbnailUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}, TContext> => {
@@ -1057,17 +922,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingThumbnailUploadUrl>>, {videoId: string;data: BodyType<TrainingThumbnailUploadUrlInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingThumbnailUploadUrl(videoId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1093,8 +952,6 @@ export const useTrainingThumbnailUploadUrl = <TError = ErrorType<void>,
 export const getTrainingThumbnailUploadUrl = (videoId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/thumbnail-upload`
 }
 
@@ -1115,9 +972,6 @@ export const trainingThumbnailUpload = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingThumbnailUploadMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUpload>>, TError,{videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingThumbnailUpload>>, TError,{videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}, TContext> => {
@@ -1130,17 +984,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingThumbnailUpload>>, {videoId: string;data: BodyType<TrainingThumbnailFinalizeInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingThumbnailUpload(videoId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1166,8 +1014,6 @@ export const useTrainingThumbnailUpload = <TError = ErrorType<void>,
 export const getTrainingAttachmentUploadUrlUrl = (videoId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/attachment-upload-url`
 }
 
@@ -1188,9 +1034,6 @@ export const trainingAttachmentUploadUrl = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingAttachmentUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingAttachmentUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>, TError,{videoId: string;data: BodyType<TrainingAttachmentUploadUrlInput>}, TContext> => {
@@ -1203,17 +1046,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingAttachmentUploadUrl>>, {videoId: string;data: BodyType<TrainingAttachmentUploadUrlInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingAttachmentUploadUrl(videoId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1239,8 +1076,6 @@ export const useTrainingAttachmentUploadUrl = <TError = ErrorType<void>,
 export const getTrainingAttachmentFinalizeUrl = (videoId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/attachments`
 }
 
@@ -1261,9 +1096,6 @@ export const trainingAttachmentFinalize = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingAttachmentFinalizeMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentFinalize>>, TError,{videoId: string;data: BodyType<TrainingAttachmentFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentFinalize>>, TError,{videoId: string;data: BodyType<TrainingAttachmentFinalizeInput>}, TContext> => {
@@ -1276,17 +1108,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingAttachmentFinalize>>, {videoId: string;data: BodyType<TrainingAttachmentFinalizeInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingAttachmentFinalize(videoId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1312,8 +1138,6 @@ export const useTrainingAttachmentFinalize = <TError = ErrorType<void>,
 export const getTrainingAttachmentsClearUrl = (videoId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/attachments`
 }
 
@@ -1333,9 +1157,6 @@ export const trainingAttachmentsClear = async (videoId: string, options?: Parame
 );}
 
 
-
-
-
 export const getTrainingAttachmentsClearMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentsClear>>, TError,{videoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentsClear>>, TError,{videoId: string}, TContext> => {
@@ -1348,17 +1169,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingAttachmentsClear>>, {videoId: string}> = (props) => {
           const {videoId} = props ?? {};
 
           return  trainingAttachmentsClear(videoId,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1385,8 +1200,6 @@ export const getTrainingAttachmentRemoveUrl = (videoId: string,
     attachmentId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/attachments/${attachmentId}`
 }
 
@@ -1407,9 +1220,6 @@ export const trainingAttachmentRemove = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingAttachmentRemoveMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentRemove>>, TError,{videoId: string;attachmentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingAttachmentRemove>>, TError,{videoId: string;attachmentId: string}, TContext> => {
@@ -1422,17 +1232,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingAttachmentRemove>>, {videoId: string;attachmentId: string}> = (props) => {
           const {videoId,attachmentId} = props ?? {};
 
           return  trainingAttachmentRemove(videoId,attachmentId,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1459,8 +1263,6 @@ export const getTrainingAttachmentDownloadUrlUrl = (videoId: string,
     attachmentId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/attachments/${attachmentId}/download-url`
 }
 
@@ -1481,9 +1283,6 @@ export const trainingAttachmentDownloadUrl = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingAttachmentDownloadUrlQueryKey = (videoId: string,
     attachmentId: string,) => {
     return [
@@ -1501,11 +1300,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getTrainingAttachmentDownloadUrlQueryKey(videoId,attachmentId);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>> = ({ signal }) => trainingAttachmentDownloadUrl(videoId,attachmentId, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, enabled: videoId !== null && videoId !== undefined && attachmentId !== null && attachmentId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof trainingAttachmentDownloadUrl>>, TError, TData> & { queryKey: QueryKey }
@@ -1533,14 +1328,7 @@ export function useTrainingAttachmentDownloadUrl<TData = Awaited<ReturnType<type
 }
 
 
-
-
-
-
-
 export const getTrainingVideoMediaUrl = (videoId: string,) => {
-
-
 
 
   return `/api/training/videos/${videoId}/media`
@@ -1562,9 +1350,6 @@ export const trainingVideoMedia = async (videoId: string, options?: Parameters<t
 );}
 
 
-
-
-
 export const getTrainingVideoMediaQueryKey = (videoId: string,) => {
     return [
     `/api/training/videos/${videoId}/media`
@@ -1580,11 +1365,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getTrainingVideoMediaQueryKey(videoId);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof trainingVideoMedia>>> = ({ signal }) => trainingVideoMedia(videoId, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, enabled: videoId !== null && videoId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof trainingVideoMedia>>, TError, TData> & { queryKey: QueryKey }
@@ -1611,14 +1392,7 @@ export function useTrainingVideoMedia<TData = Awaited<ReturnType<typeof training
 }
 
 
-
-
-
-
-
 export const getTrainingVideoTranscriptUrl = (videoId: string,) => {
-
-
 
 
   return `/api/training/videos/${videoId}/transcript`
@@ -1640,9 +1414,6 @@ export const trainingVideoTranscript = async (videoId: string, options?: Paramet
 );}
 
 
-
-
-
 export const getTrainingVideoTranscriptQueryKey = (videoId: string,) => {
     return [
     `/api/training/videos/${videoId}/transcript`
@@ -1658,11 +1429,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getTrainingVideoTranscriptQueryKey(videoId);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof trainingVideoTranscript>>> = ({ signal }) => trainingVideoTranscript(videoId, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, enabled: videoId !== null && videoId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof trainingVideoTranscript>>, TError, TData> & { queryKey: QueryKey }
@@ -1689,14 +1456,7 @@ export function useTrainingVideoTranscript<TData = Awaited<ReturnType<typeof tra
 }
 
 
-
-
-
-
-
 export const getTrainingVideoThumbnailUrl = (videoId: string,) => {
-
-
 
 
   return `/api/training/videos/${videoId}/thumbnail`
@@ -1719,9 +1479,6 @@ export const trainingVideoThumbnail = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingVideoThumbnailMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoThumbnail>>, TError,{videoId: string;data: BodyType<TrainingThumbnailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoThumbnail>>, TError,{videoId: string;data: BodyType<TrainingThumbnailInput>}, TContext> => {
@@ -1734,17 +1491,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoThumbnail>>, {videoId: string;data: BodyType<TrainingThumbnailInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingVideoThumbnail(videoId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1770,8 +1521,6 @@ export const useTrainingVideoThumbnail = <TError = ErrorType<void>,
 export const getTrainingVideoProcessUrl = (videoId: string,) => {
 
 
-
-
   return `/api/training/videos/${videoId}/process`
 }
 
@@ -1792,9 +1541,6 @@ export const trainingVideoProcess = async (videoId: string,
 );}
 
 
-
-
-
 export const getTrainingVideoProcessMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof trainingVideoProcess>>, TError,{videoId: string;data?: BodyType<TrainingProcessInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof trainingVideoProcess>>, TError,{videoId: string;data?: BodyType<TrainingProcessInput>}, TContext> => {
@@ -1807,17 +1553,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof trainingVideoProcess>>, {videoId: string;data?: BodyType<TrainingProcessInput>}> = (props) => {
           const {videoId,data} = props ?? {};
 
           return  trainingVideoProcess(videoId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1843,8 +1583,6 @@ export const useTrainingVideoProcess = <TError = ErrorType<void>,
 export const getKnowledgeUploadUrlUrl = () => {
 
 
-
-
   return `/api/knowledge/upload-url`
 }
 
@@ -1864,9 +1602,6 @@ export const knowledgeUploadUrl = async (knowledgeUploadUrlInput: KnowledgeUploa
 );}
 
 
-
-
-
 export const getKnowledgeUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeUploadUrl>>, TError,{data: BodyType<KnowledgeUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeUploadUrl>>, TError,{data: BodyType<KnowledgeUploadUrlInput>}, TContext> => {
@@ -1879,17 +1614,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeUploadUrl>>, {data: BodyType<KnowledgeUploadUrlInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  knowledgeUploadUrl(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1915,8 +1644,6 @@ export const useKnowledgeUploadUrl = <TError = ErrorType<void>,
 export const getKnowledgeListDocumentsUrl = () => {
 
 
-
-
   return `/api/knowledge/documents`
 }
 
@@ -1936,9 +1663,6 @@ export const knowledgeListDocuments = async ( options?: Parameters<typeof custom
 );}
 
 
-
-
-
 export const getKnowledgeListDocumentsQueryKey = () => {
     return [
     `/api/knowledge/documents`
@@ -1954,11 +1678,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getKnowledgeListDocumentsQueryKey();
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof knowledgeListDocuments>>> = ({ signal }) => knowledgeListDocuments({ signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof knowledgeListDocuments>>, TError, TData> & { queryKey: QueryKey }
@@ -1985,14 +1705,7 @@ export function useKnowledgeListDocuments<TData = Awaited<ReturnType<typeof know
 }
 
 
-
-
-
-
-
 export const getKnowledgeCreateDocumentUrl = () => {
-
-
 
 
   return `/api/knowledge/documents`
@@ -2014,9 +1727,6 @@ export const knowledgeCreateDocument = async (knowledgeCreateInput: KnowledgeCre
 );}
 
 
-
-
-
 export const getKnowledgeCreateDocumentMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeCreateDocument>>, TError,{data: BodyType<KnowledgeCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeCreateDocument>>, TError,{data: BodyType<KnowledgeCreateInput>}, TContext> => {
@@ -2029,17 +1739,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeCreateDocument>>, {data: BodyType<KnowledgeCreateInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  knowledgeCreateDocument(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2065,8 +1769,6 @@ export const useKnowledgeCreateDocument = <TError = ErrorType<void>,
 export const getKnowledgeGetDocumentUrl = (documentId: string,) => {
 
 
-
-
   return `/api/knowledge/documents/${documentId}`
 }
 
@@ -2085,9 +1787,6 @@ export const knowledgeGetDocument = async (documentId: string, options?: Paramet
 );}
 
 
-
-
-
 export const getKnowledgeGetDocumentQueryKey = (documentId: string,) => {
     return [
     `/api/knowledge/documents/${documentId}`
@@ -2103,11 +1802,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getKnowledgeGetDocumentQueryKey(documentId);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof knowledgeGetDocument>>> = ({ signal }) => knowledgeGetDocument(documentId, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, enabled: documentId !== null && documentId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof knowledgeGetDocument>>, TError, TData> & { queryKey: QueryKey }
@@ -2134,14 +1829,7 @@ export function useKnowledgeGetDocument<TData = Awaited<ReturnType<typeof knowle
 }
 
 
-
-
-
-
-
 export const getKnowledgeRenameDocumentUrl = (documentId: string,) => {
-
-
 
 
   return `/api/knowledge/documents/${documentId}`
@@ -2163,9 +1851,6 @@ export const knowledgeRenameDocument = async (documentId: string,
 );}
 
 
-
-
-
 export const getKnowledgeRenameDocumentMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeRenameDocument>>, TError,{documentId: string;data: BodyType<KnowledgeRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeRenameDocument>>, TError,{documentId: string;data: BodyType<KnowledgeRenameInput>}, TContext> => {
@@ -2178,17 +1863,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeRenameDocument>>, {documentId: string;data: BodyType<KnowledgeRenameInput>}> = (props) => {
           const {documentId,data} = props ?? {};
 
           return  knowledgeRenameDocument(documentId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2214,8 +1893,6 @@ export const useKnowledgeRenameDocument = <TError = ErrorType<void>,
 export const getKnowledgeDeleteDocumentUrl = (documentId: string,) => {
 
 
-
-
   return `/api/knowledge/documents/${documentId}`
 }
 
@@ -2235,9 +1912,6 @@ export const knowledgeDeleteDocument = async (documentId: string, options?: Para
 );}
 
 
-
-
-
 export const getKnowledgeDeleteDocumentMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, TError,{documentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, TError,{documentId: string}, TContext> => {
@@ -2250,17 +1924,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeDeleteDocument>>, {documentId: string}> = (props) => {
           const {documentId} = props ?? {};
 
           return  knowledgeDeleteDocument(documentId,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2286,8 +1954,6 @@ export const useKnowledgeDeleteDocument = <TError = ErrorType<void>,
 export const getKnowledgeReplaceUploadUrlUrl = (documentId: string,) => {
 
 
-
-
   return `/api/knowledge/documents/${documentId}/upload-url`
 }
 
@@ -2307,9 +1973,6 @@ export const knowledgeReplaceUploadUrl = async (documentId: string,
 );}
 
 
-
-
-
 export const getKnowledgeReplaceUploadUrlMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, TError,{documentId: string;data: BodyType<KnowledgeUploadUrlInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, TError,{documentId: string;data: BodyType<KnowledgeUploadUrlInput>}, TContext> => {
@@ -2322,17 +1985,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeReplaceUploadUrl>>, {documentId: string;data: BodyType<KnowledgeUploadUrlInput>}> = (props) => {
           const {documentId,data} = props ?? {};
 
           return  knowledgeReplaceUploadUrl(documentId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2358,8 +2015,6 @@ export const useKnowledgeReplaceUploadUrl = <TError = ErrorType<void>,
 export const getKnowledgeReplaceFileUrl = (documentId: string,) => {
 
 
-
-
   return `/api/knowledge/documents/${documentId}/file`
 }
 
@@ -2380,9 +2035,6 @@ export const knowledgeReplaceFile = async (documentId: string,
 );}
 
 
-
-
-
 export const getKnowledgeReplaceFileMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceFile>>, TError,{documentId: string;data: BodyType<KnowledgeReplaceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeReplaceFile>>, TError,{documentId: string;data: BodyType<KnowledgeReplaceInput>}, TContext> => {
@@ -2395,17 +2047,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeReplaceFile>>, {documentId: string;data: BodyType<KnowledgeReplaceInput>}> = (props) => {
           const {documentId,data} = props ?? {};
 
           return  knowledgeReplaceFile(documentId,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2431,8 +2077,6 @@ export const useKnowledgeReplaceFile = <TError = ErrorType<void>,
 export const getKnowledgeRetryExtractionUrl = (documentId: string,) => {
 
 
-
-
   return `/api/knowledge/documents/${documentId}/extract`
 }
 
@@ -2452,9 +2096,6 @@ export const knowledgeRetryExtraction = async (documentId: string, options?: Par
 );}
 
 
-
-
-
 export const getKnowledgeRetryExtractionMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, TError,{documentId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, TError,{documentId: string}, TContext> => {
@@ -2467,17 +2108,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof knowledgeRetryExtraction>>, {documentId: string}> = (props) => {
           const {documentId} = props ?? {};
 
           return  knowledgeRetryExtraction(documentId,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2503,8 +2138,6 @@ export const useKnowledgeRetryExtraction = <TError = ErrorType<void>,
 export const getHealthCheckUrl = () => {
 
 
-
-
   return `/api/healthz`
 }
 
@@ -2524,9 +2157,6 @@ export const healthCheck = async ( options?: Parameters<typeof customFetch>[1]):
 );}
 
 
-
-
-
 export const getHealthCheckQueryKey = () => {
     return [
     `/api/healthz`
@@ -2542,11 +2172,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getHealthCheckQueryKey();
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheck>>> = ({ signal }) => healthCheck({ signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData> & { queryKey: QueryKey }
@@ -2571,11 +2197,6 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getGetOfficeRosterUrl = (params?: GetOfficeRosterParams,) => {
@@ -2609,9 +2230,6 @@ export const getOfficeRoster = async (params?: GetOfficeRosterParams, options?: 
 );}
 
 
-
-
-
 export const getGetOfficeRosterQueryKey = (params?: GetOfficeRosterParams,) => {
     return [
     `/api/office/roster`, ...(params ? [params] : [])
@@ -2627,11 +2245,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetOfficeRosterQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeRoster>>> = ({ signal }) => getOfficeRoster(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeRoster>>, TError, TData> & { queryKey: QueryKey }
@@ -2656,11 +2270,6 @@ export function useGetOfficeRoster<TData = Awaited<ReturnType<typeof getOfficeRo
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getGetOfficePatientRecordUrl = (patientId: string,
@@ -2696,9 +2305,6 @@ export const getOfficePatientRecord = async (patientId: string,
 );}
 
 
-
-
-
 export const getGetOfficePatientRecordQueryKey = (patientId: string,
     params?: GetOfficePatientRecordParams,) => {
     return [
@@ -2716,11 +2322,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetOfficePatientRecordQueryKey(patientId,params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficePatientRecord>>> = ({ signal }) => getOfficePatientRecord(patientId,params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficePatientRecord>>, TError, TData> & { queryKey: QueryKey }
@@ -2746,11 +2348,6 @@ export function useGetOfficePatientRecord<TData = Awaited<ReturnType<typeof getO
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getUpdateOfficePatientFollowUpUrl = (patientId: string,
@@ -2785,9 +2382,6 @@ export const updateOfficePatientFollowUp = async (patientId: string,
 );}
 
 
-
-
-
 export const getUpdateOfficePatientFollowUpMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficePatientFollowUp>>, TError,{patientId: string;reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue';data: BodyType<FollowUpUpdateInput>;params?: UpdateOfficePatientFollowUpParams}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateOfficePatientFollowUp>>, TError,{patientId: string;reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue';data: BodyType<FollowUpUpdateInput>;params?: UpdateOfficePatientFollowUpParams}, TContext> => {
@@ -2800,17 +2394,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateOfficePatientFollowUp>>, {patientId: string;reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue';data: BodyType<FollowUpUpdateInput>;params?: UpdateOfficePatientFollowUpParams}> = (props) => {
           const {patientId,reason,data,params} = props ?? {};
 
           return  updateOfficePatientFollowUp(patientId,reason,data,params,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2857,9 +2445,6 @@ export const getOfficeEngagementTrends = async (params: GetOfficeEngagementTrend
 );}
 
 
-
-
-
 export const getGetOfficeEngagementTrendsQueryKey = (params?: GetOfficeEngagementTrendsParams,) => {
     return [
     `/api/office/engagement-trends`, ...(params ? [params] : [])
@@ -2875,11 +2460,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetOfficeEngagementTrendsQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeEngagementTrends>>> = ({ signal }) => getOfficeEngagementTrends(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeEngagementTrends>>, TError, TData> & { queryKey: QueryKey }
@@ -2887,7 +2468,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type GetOfficeEngagementTrendsQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeEngagementTrends>>>
 export type GetOfficeEngagementTrendsQueryError = ErrorType<unknown>
-
 
 
 export function useGetOfficeEngagementTrends<TData = Awaited<ReturnType<typeof getOfficeEngagementTrends>>, TError = ErrorType<unknown>>(
@@ -2901,11 +2481,6 @@ export function useGetOfficeEngagementTrends<TData = Awaited<ReturnType<typeof g
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getGetOfficeOverviewUrl = (params?: GetOfficeOverviewParams,) => {
@@ -2938,9 +2513,6 @@ export const getOfficeOverview = async (params?: GetOfficeOverviewParams, option
 );}
 
 
-
-
-
 export const getGetOfficeOverviewQueryKey = (params?: GetOfficeOverviewParams,) => {
     return [
     `/api/office/overview`, ...(params ? [params] : [])
@@ -2956,11 +2528,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetOfficeOverviewQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeOverview>>> = ({ signal }) => getOfficeOverview(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeOverview>>, TError, TData> & { queryKey: QueryKey }
@@ -2985,11 +2553,6 @@ export function useGetOfficeOverview<TData = Awaited<ReturnType<typeof getOffice
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getGetOfficeConversationsUrl = (params?: GetOfficeConversationsParams,) => {
@@ -3022,9 +2585,6 @@ export const getOfficeConversations = async (params?: GetOfficeConversationsPara
 );}
 
 
-
-
-
 export const getGetOfficeConversationsQueryKey = (params?: GetOfficeConversationsParams,) => {
     return [
     `/api/office/conversations`, ...(params ? [params] : [])
@@ -3040,11 +2600,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetOfficeConversationsQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeConversations>>> = ({ signal }) => getOfficeConversations(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversations>>, TError, TData> & { queryKey: QueryKey }
@@ -3069,11 +2625,6 @@ export function useGetOfficeConversations<TData = Awaited<ReturnType<typeof getO
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getGetOfficeConversationEventsUrl = (conversationId: string,
@@ -3108,9 +2659,6 @@ export const getOfficeConversationEvents = async (conversationId: string,
 );}
 
 
-
-
-
 export const getGetOfficeConversationEventsQueryKey = (conversationId: string,
     params?: GetOfficeConversationEventsParams,) => {
     return [
@@ -3128,11 +2676,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetOfficeConversationEventsQueryKey(conversationId,params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeConversationEvents>>> = ({ signal }) => getOfficeConversationEvents(conversationId,params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, enabled: conversationId !== null && conversationId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationEvents>>, TError, TData> & { queryKey: QueryKey }
@@ -3159,15 +2703,21 @@ export function useGetOfficeConversationEvents<TData = Awaited<ReturnType<typeof
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getGetOfficeAnalyticsUrl = (params: GetOfficeAnalyticsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-
-
+  return stringifiedParams.length > 0 ? `/api/office/analytics?${stringifiedParams}` : `/api/office/analytics`
+}
 export const getGetHqOverviewUrl = () => {
-
-
 
 
   return `/api/hq/overview`
@@ -3188,9 +2738,6 @@ export const getHqOverview = async ( options?: Parameters<typeof customFetch>[1]
 );}
 
 
-
-
-
 export const getGetHqOverviewQueryKey = () => {
     return [
     `/api/hq/overview`
@@ -3206,11 +2753,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetHqOverviewQueryKey();
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqOverview>>> = ({ signal }) => getHqOverview({ signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqOverview>>, TError, TData> & { queryKey: QueryKey }
@@ -3237,14 +2780,7 @@ export function useGetHqOverview<TData = Awaited<ReturnType<typeof getHqOverview
 }
 
 
-
-
-
-
-
 export const getGetHqSettingsUrl = () => {
-
-
 
 
   return `/api/hq/settings`
@@ -3265,9 +2801,6 @@ export const getHqSettings = async ( options?: Parameters<typeof customFetch>[1]
 );}
 
 
-
-
-
 export const getGetHqSettingsQueryKey = () => {
     return [
     `/api/hq/settings`
@@ -3283,11 +2816,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetHqSettingsQueryKey();
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqSettings>>> = ({ signal }) => getHqSettings({ signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqSettings>>, TError, TData> & { queryKey: QueryKey }
@@ -3314,14 +2843,7 @@ export function useGetHqSettings<TData = Awaited<ReturnType<typeof getHqSettings
 }
 
 
-
-
-
-
-
 export const getUpdateHqSettingsUrl = () => {
-
-
 
 
   return `/api/hq/settings`
@@ -3342,9 +2864,6 @@ export const updateHqSettings = async (hqOrganizationSettingsInput: HqOrganizati
 );}
 
 
-
-
-
 export const getUpdateHqSettingsMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqSettings>>, TError,{data: BodyType<HqOrganizationSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateHqSettings>>, TError,{data: BodyType<HqOrganizationSettingsInput>}, TContext> => {
@@ -3357,17 +2876,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateHqSettings>>, {data: BodyType<HqOrganizationSettingsInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  updateHqSettings(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -3393,8 +2906,6 @@ export const useUpdateHqSettings = <TError = ErrorType<void>,
 export const getCreateHqFileUploadUrl = () => {
 
 
-
-
   return `/api/hq/files/upload-url`
 }
 
@@ -3413,9 +2924,6 @@ export const createHqFileUpload = async (hqFileUploadInput: HqFileUploadInput, o
 );}
 
 
-
-
-
 export const getCreateHqFileUploadMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createHqFileUpload>>, TError,{data: BodyType<HqFileUploadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createHqFileUpload>>, TError,{data: BodyType<HqFileUploadInput>}, TContext> => {
@@ -3428,17 +2936,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createHqFileUpload>>, {data: BodyType<HqFileUploadInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  createHqFileUpload(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -3464,8 +2966,6 @@ export const useCreateHqFileUpload = <TError = ErrorType<void>,
 export const getGetHqFilesUrl = () => {
 
 
-
-
   return `/api/hq/files`
 }
 
@@ -3484,9 +2984,6 @@ export const getHqFiles = async ( options?: Parameters<typeof customFetch>[1]): 
 );}
 
 
-
-
-
 export const getGetHqFilesQueryKey = () => {
     return [
     `/api/hq/files`
@@ -3502,11 +2999,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetHqFilesQueryKey();
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqFiles>>> = ({ signal }) => getHqFiles({ signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqFiles>>, TError, TData> & { queryKey: QueryKey }
@@ -3533,14 +3026,7 @@ export function useGetHqFiles<TData = Awaited<ReturnType<typeof getHqFiles>>, TE
 }
 
 
-
-
-
-
-
 export const getFinalizeHqFileUrl = () => {
-
-
 
 
   return `/api/hq/files`
@@ -3561,9 +3047,6 @@ export const finalizeHqFile = async (hqFileFinalizeInput: HqFileFinalizeInput, o
 );}
 
 
-
-
-
 export const getFinalizeHqFileMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finalizeHqFile>>, TError,{data: BodyType<HqFileFinalizeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof finalizeHqFile>>, TError,{data: BodyType<HqFileFinalizeInput>}, TContext> => {
@@ -3576,17 +3059,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof finalizeHqFile>>, {data: BodyType<HqFileFinalizeInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  finalizeHqFile(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -3612,8 +3089,6 @@ export const useFinalizeHqFile = <TError = ErrorType<void>,
 export const getGetHqFileDownloadUrl = (fileId: string,) => {
 
 
-
-
   return `/api/hq/files/${fileId}/download-url`
 }
 
@@ -3632,9 +3107,6 @@ export const getHqFileDownload = async (fileId: string, options?: Parameters<typ
 );}
 
 
-
-
-
 export const getGetHqFileDownloadQueryKey = (fileId: string,) => {
     return [
     `/api/hq/files/${fileId}/download-url`
@@ -3650,11 +3122,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetHqFileDownloadQueryKey(fileId);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqFileDownload>>> = ({ signal }) => getHqFileDownload(fileId, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, enabled: fileId !== null && fileId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqFileDownload>>, TError, TData> & { queryKey: QueryKey }
@@ -3681,14 +3149,7 @@ export function useGetHqFileDownload<TData = Awaited<ReturnType<typeof getHqFile
 }
 
 
-
-
-
-
-
 export const getDeleteHqFileUrl = (fileId: string,) => {
-
-
 
 
   return `/api/hq/files/${fileId}`
@@ -3709,9 +3170,6 @@ export const deleteHqFile = async (fileId: string, options?: Parameters<typeof c
 );}
 
 
-
-
-
 export const getDeleteHqFileMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteHqFile>>, TError,{fileId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteHqFile>>, TError,{fileId: string}, TContext> => {
@@ -3724,17 +3182,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteHqFile>>, {fileId: string}> = (props) => {
           const {fileId} = props ?? {};
 
           return  deleteHqFile(fileId,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -3784,9 +3236,6 @@ export const getHqAuditEvents = async (params?: GetHqAuditEventsParams, options?
 );}
 
 
-
-
-
 export const getGetHqAuditEventsQueryKey = (params?: GetHqAuditEventsParams,) => {
     return [
     `/api/hq/audit-events`, ...(params ? [params] : [])
@@ -3802,11 +3251,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetHqAuditEventsQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqAuditEvents>>> = ({ signal }) => getHqAuditEvents(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqAuditEvents>>, TError, TData> & { queryKey: QueryKey }
@@ -3814,7 +3259,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type GetHqAuditEventsQueryResult = NonNullable<Awaited<ReturnType<typeof getHqAuditEvents>>>
 export type GetHqAuditEventsQueryError = ErrorType<unknown>
-
 
 
 export function useGetHqAuditEvents<TData = Awaited<ReturnType<typeof getHqAuditEvents>>, TError = ErrorType<unknown>>(
@@ -3830,8 +3274,366 @@ export function useGetHqAuditEvents<TData = Awaited<ReturnType<typeof getHqAudit
 }
 
 
+/**
+ * @summary Queue a CSV export scoped to the caller's permissions and office
+ */
+export const requestExport = async (exportRequestInput: ExportRequestInput, options?: Parameters<typeof customFetch>[1]): Promise<ExportJobResult> => {
+
+  return customFetch<ExportJobResult>(getRequestExportUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(exportRequestInput)
+  }
+);}
+
+export type GetExportQueryResult = NonNullable<Awaited<ReturnType<typeof getExport>>>
+
+/**
+ * @summary Live office figures for a date range (own office or HQ by office id)
+ */
+
+export function useGetOfficeAnalytics<TData = Awaited<ReturnType<typeof getOfficeAnalytics>>, TError = ErrorType<void>>(
+ params: GetOfficeAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeAnalyticsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export type ListExportsQueryError = ErrorType<unknown>
+
+export const getGetHqOfficeComparisonQueryOptions = <TData = Awaited<ReturnType<typeof getHqOfficeComparison>>, TError = ErrorType<void>>(params: GetHqOfficeComparisonParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqOfficeComparison>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqOfficeComparisonQueryKey(params);
 
 
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqOfficeComparison>>> = ({ signal }) => getHqOfficeComparison(params, { signal, ...requestOptions });
 
 
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqOfficeComparison>>, TError, TData> & { queryKey: QueryKey }
+}
 
+export const getGetOfficeAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeAnalytics>>, TError = ErrorType<void>>(params: GetOfficeAnalyticsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeAnalyticsQueryKey(params);
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeAnalytics>>> = ({ signal }) => getOfficeAnalytics(params, { signal, ...requestOptions });
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+    /**
+ * @summary Queue a CSV export scoped to the caller's permissions and office
+ */
+export const useRequestExport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestExport>>, TError,{data: BodyType<ExportRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestExport>>,
+        TError,
+        {data: BodyType<ExportRequestInput>},
+        TContext
+      > => {
+      return useMutation(getRequestExportMutationOptions(options));
+    }
+
+export const getRequestExportUrl = () => {
+
+
+  return `/api/exports`
+}
+
+export const getGetExportQueryKey = (exportId: string,) => {
+    return [
+    `/api/exports/${exportId}`
+    ] as const;
+    }
+
+/**
+ * @summary Mint a short-lived signed download link for a ready export
+ */
+export const getExportDownloadUrl = async (exportId: string, options?: Parameters<typeof customFetch>[1]): Promise<ExportDownloadResult> => {
+
+  return customFetch<ExportDownloadResult>(getGetExportDownloadUrlUrl(exportId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+export type GetOfficeAnalyticsQueryError = ErrorType<void>
+
+/**
+ * @summary Poll one of the caller's export jobs
+ */
+
+export function useGetExport<TData = Awaited<ReturnType<typeof getExport>>, TError = ErrorType<void>>(
+ exportId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetExportQueryOptions(exportId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getListExportsQueryOptions = <TData = Awaited<ReturnType<typeof listExports>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListExportsQueryKey();
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listExports>>> = ({ signal }) => listExports({ signal, ...requestOptions });
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listExports>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export const getGetHqOfficeComparisonQueryKey = (params?: GetHqOfficeComparisonParams,) => {
+    return [
+    `/api/hq/office-comparison`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+export type ListExportsQueryResult = NonNullable<Awaited<ReturnType<typeof listExports>>>
+
+    export type RequestExportMutationResult = NonNullable<Awaited<ReturnType<typeof requestExport>>>
+
+/**
+ * @summary Mint a short-lived signed download link for a ready export
+ */
+
+export function useGetExportDownloadUrl<TData = Awaited<ReturnType<typeof getExportDownloadUrl>>, TError = ErrorType<void>>(
+ exportId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExportDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetExportDownloadUrlQueryOptions(exportId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getGetExportUrl = (exportId: string,) => {
+
+
+  return `/api/exports/${exportId}`
+}
+
+export const getGetHqOfficeComparisonUrl = (params: GetHqOfficeComparisonParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/office-comparison?${stringifiedParams}` : `/api/hq/office-comparison`
+}
+
+/**
+ * @summary Live office figures for a date range (own office or HQ by office id)
+ */
+export const getOfficeAnalytics = async (params: GetOfficeAnalyticsParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeAnalyticsResult> => {
+
+  return customFetch<OfficeAnalyticsResult>(getGetOfficeAnalyticsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+export type GetOfficeAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeAnalytics>>>
+
+/**
+ * @summary The caller's recent export jobs and the kinds they may request
+ */
+export const listExports = async ( options?: Parameters<typeof customFetch>[1]): Promise<ExportJobListResult> => {
+
+  return customFetch<ExportJobListResult>(getListExportsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+/**
+ * @summary Poll one of the caller's export jobs
+ */
+export const getExport = async (exportId: string, options?: Parameters<typeof customFetch>[1]): Promise<ExportJobResult> => {
+
+  return customFetch<ExportJobResult>(getGetExportUrl(exportId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+export const getGetOfficeAnalyticsQueryKey = (params?: GetOfficeAnalyticsParams,) => {
+    return [
+    `/api/office/analytics`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+export type GetExportQueryError = ErrorType<void>
+
+export type GetHqOfficeComparisonQueryResult = NonNullable<Awaited<ReturnType<typeof getHqOfficeComparison>>>
+
+export type GetExportDownloadUrlQueryError = ErrorType<void>
+
+export const getGetExportQueryOptions = <TData = Awaited<ReturnType<typeof getExport>>, TError = ErrorType<void>>(exportId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetExportQueryKey(exportId);
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExport>>> = ({ signal }) => getExport(exportId, { signal, ...requestOptions });
+
+
+   return  { queryKey, queryFn, enabled: exportId !== null && exportId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getExport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqOfficeComparisonQueryError = ErrorType<void>
+
+/**
+ * @summary The caller's recent export jobs and the kinds they may request
+ */
+
+export function useListExports<TData = Awaited<ReturnType<typeof listExports>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListExportsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getGetExportDownloadUrlQueryOptions = <TData = Awaited<ReturnType<typeof getExportDownloadUrl>>, TError = ErrorType<void>>(exportId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExportDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetExportDownloadUrlQueryKey(exportId);
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExportDownloadUrl>>> = ({ signal }) => getExportDownloadUrl(exportId, { signal, ...requestOptions });
+
+
+   return  { queryKey, queryFn, enabled: exportId !== null && exportId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getExportDownloadUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+/**
+ * @summary Per-office operational figures and daily series for a date range
+ */
+export const getHqOfficeComparison = async (params: GetHqOfficeComparisonParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeComparisonResult> => {
+
+  return customFetch<OfficeComparisonResult>(getGetHqOfficeComparisonUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+export const getRequestExportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestExport>>, TError,{data: BodyType<ExportRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestExport>>, TError,{data: BodyType<ExportRequestInput>}, TContext> => {
+
+const mutationKey = ['requestExport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestExport>>, {data: BodyType<ExportRequestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  requestExport(data,requestOptions)
+        }
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+/**
+ * @summary Per-office operational figures and daily series for a date range
+ */
+
+export function useGetHqOfficeComparison<TData = Awaited<ReturnType<typeof getHqOfficeComparison>>, TError = ErrorType<void>>(
+ params: GetHqOfficeComparisonParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqOfficeComparison>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqOfficeComparisonQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+    export type RequestExportMutationBody = BodyType<ExportRequestInput>
+
+    export type RequestExportMutationError = ErrorType<void>
+
+export const getListExportsUrl = () => {
+
+
+  return `/api/exports`
+}
+
+export const getGetExportDownloadUrlQueryKey = (exportId: string,) => {
+    return [
+    `/api/exports/${exportId}/download-url`
+    ] as const;
+    }
+
+export type GetExportDownloadUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getExportDownloadUrl>>>
+
+export const getListExportsQueryKey = () => {
+    return [
+    `/api/exports`
+    ] as const;
+    }
+
+export const getGetExportDownloadUrlUrl = (exportId: string,) => {
+
+
+  return `/api/exports/${exportId}/download-url`
+}

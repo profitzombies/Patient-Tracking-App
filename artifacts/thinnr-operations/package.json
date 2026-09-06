@@ -28,7 +28,9 @@
     "test:empty-office-drillin": "tsx scripts/verify-empty-office-drillin.ts",
     "test:email-studio": "tsx scripts/verify-email-studio.ts",
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
-    "test:roster-activity": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-roster-activity.tsx"
+    "test:roster-activity": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-roster-activity.tsx",
+    "test:office-comparison": "TZ=UTC tsx scripts/verify-office-comparison.ts && TZ=Pacific/Kiritimati tsx scripts/verify-office-comparison.ts",
+    "test:exports": "tsx scripts/verify-exports.ts"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

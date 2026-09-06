@@ -1214,6 +1214,87 @@ paths:
           description: Newest transcript page returned in chronological order
           content: { application/json: { schema: { $ref: "#/components/schemas/ConversationEventsResult" } } }
         "404": { description: Conversation not found }
+  /office/analytics:
+    get:
+      operationId: getOfficeAnalytics
+      tags: [office]
+      summary: Live office figures for a date range (own office or HQ by office id)
+      parameters:
+        - { name: start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date } }
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Range figures plus the daily series (unavailable when the range predates the office data)
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeAnalyticsResult" } } }
+        "400": { description: Invalid range }
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not authorized for provider reads }
+        "404": { description: Office unavailable }
+  /hq/office-comparison:
+    get:
+      operationId: getHqOfficeComparison
+      tags: [hq]
+      summary: Per-office operational figures and daily series for a date range
+      parameters:
+        - { name: start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: One row per enabled office (aggregate only)
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeComparisonResult" } } }
+        "400": { description: Invalid range }
+  /exports:
+    get:
+      operationId: listExports
+      tags: [exports]
+      summary: The caller's recent export jobs and the kinds they may request
+      responses:
+        "200":
+          description: Export jobs newest first
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExportJobListResult" } } }
+    post:
+      operationId: requestExport
+      tags: [exports]
+      summary: Queue a CSV export scoped to the caller's permissions and office
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExportRequestInput" }
+      responses:
+        "202":
+          description: Export queued
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExportJobResult" } } }
+        "400": { description: Invalid kind or office or range }
+        "403": { description: Export kind not allowed for this role or scope }
+        "429": { description: Too many exports in progress }
+  /exports/{exportId}:
+    get:
+      operationId: getExport
+      tags: [exports]
+      summary: Poll one of the caller's export jobs
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+      responses:
+        "200":
+          description: Job state
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExportJobResult" } } }
+        "404": { description: Not the caller's export }
+  /exports/{exportId}/download-url:
+    get:
+      operationId: getExportDownloadUrl
+      tags: [exports]
+      summary: Mint a short-lived signed download link for a ready export
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+      responses:
+        "200":
+          description: Signed link
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExportDownloadResult" } } }
+        "404": { description: Not the caller's export }
+        "409": { description: Export not ready }
+        "410": { description: Export expired }
   /hq/overview:
     get:
       operationId: getHqOverview
@@ -1331,6 +1412,161 @@ components:
       type: http
       scheme: bearer
   schemas:
+    OfficeRangeMetrics:
+      type: object
+      description: >-
+        Office figures for a date range. Point-in-time counts are as of the range end;
+        enrollments count inside the range; engaged, loggingPatients and checkInPatients
+        use the trailing 7-day window ending on the range end (same contract as the
+        network rollup's engaged7d); avgPoundsLost averages active patients with a
+        recorded starting and current weight.
+      required: [totalPatients, activePatients, enrollments, engaged, needsAttention, inactive, invited, loggingLapsed, checkInsOverdue, loggingPatients, checkInPatients, loggingAdherencePct, checkInAdherencePct, avgPoundsLost]
+      properties:
+        totalPatients: { type: number, description: Patients on the roster as of the range end }
+        activePatients: { type: number, description: Activated patients as of the range end }
+        enrollments: { type: number, description: Patients created inside the range }
+        engaged: { type: number, description: Active patients with any activity in the 7 days ending on the range end }
+        needsAttention: { type: number }
+        inactive: { type: number }
+        invited: { type: number }
+        loggingLapsed: { type: number }
+        checkInsOverdue: { type: number }
+        loggingPatients: { type: number, description: Active patients with a meal log in the 7 days ending on the range end }
+        checkInPatients: { type: number, description: Active patients with a check-in in the 7 days ending on the range end }
+        loggingAdherencePct: { type: ["number", "null"], description: loggingPatients / activePatients, null when no active patients }
+        checkInAdherencePct: { type: ["number", "null"], description: checkInPatients / activePatients, null when no active patients }
+        avgPoundsLost: { type: ["number", "null"], description: Average pounds lost across active patients with recorded weights; null when none }
+    OfficeSeriesPoint:
+      type: object
+      description: One day of an office's series. engagedPatients is a rolling 7-day count (active patients with activity in [date-6, date]); enrollments and checkIns are exact-day counts.
+      required: [date, activePatients, engagedPatients, enrollments, checkIns]
+      properties:
+        date: { type: string, format: date }
+        activePatients: { type: number }
+        engagedPatients: { type: number, description: Active patients with any activity in the 7 days ending on this date }
+        enrollments: { type: number }
+        checkIns: { type: number }
+    DateRangeKeys:
+      type: object
+      required: [start, end]
+      properties:
+        start: { type: string, format: date }
+        end: { type: string, format: date }
+    OfficeComparisonRow:
+      type: object
+      required: [providerId, officeName, providerName, firstPatientDate, available, metrics, series]
+      properties:
+        providerId: { type: string }
+        officeName: { type: string }
+        providerName: { type: string }
+        firstPatientDate: { type: ["string", "null"], format: date }
+        available: { type: boolean, description: "False when the whole range predates the first patient record" }
+        metrics:
+          oneOf:
+            - $ref: "#/components/schemas/OfficeRangeMetrics"
+            - type: "null"
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/OfficeSeriesPoint" }
+    OfficeComparisonResult:
+      type: object
+      required: [range, asOf, offices]
+      properties:
+        range: { $ref: "#/components/schemas/DateRangeKeys" }
+        asOf: { type: string }
+        offices:
+          type: array
+          items: { $ref: "#/components/schemas/OfficeComparisonRow" }
+    OfficeAnalyticsResult:
+      type: object
+      required: [office, range, asOf, firstPatientDate, available, metrics, series]
+      properties:
+        office:
+          type: object
+          required: [providerId, officeName]
+          properties:
+            providerId: { type: string }
+            officeName: { type: string }
+        range: { $ref: "#/components/schemas/DateRangeKeys" }
+        asOf: { type: string }
+        firstPatientDate: { type: ["string", "null"], format: date }
+        available: { type: boolean }
+        metrics:
+          oneOf:
+            - $ref: "#/components/schemas/OfficeRangeMetrics"
+            - type: "null"
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/OfficeSeriesPoint" }
+    ExportKind:
+      type: string
+      enum: [office_comparison, patient_activity, audit_events, training_completion, provider_directory]
+    ExportRequestInput:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: "#/components/schemas/ExportKind" }
+        office: { type: ["string", "null"], description: "Office account id (HQ only) - office staff are pinned to their own office" }
+        start: { type: string, format: date }
+        end: { type: string, format: date }
+    ExportJob:
+      type: object
+      required: [id, kind, label, status, scope, range, fileName, sizeBytes, rowCount, error, createdAt, completedAt, expiresAt, downloadCount, downloadable]
+      properties:
+        id: { type: string }
+        kind: { $ref: "#/components/schemas/ExportKind" }
+        label: { type: string }
+        status: { type: string, enum: [queued, running, ready, failed, expired] }
+        scope:
+          type: object
+          required: [providerId, officeName]
+          properties:
+            providerId: { type: ["string", "null"] }
+            officeName: { type: ["string", "null"] }
+        range:
+          oneOf:
+            - $ref: "#/components/schemas/DateRangeKeys"
+            - type: "null"
+        fileName: { type: ["string", "null"] }
+        sizeBytes: { type: ["number", "null"] }
+        rowCount: { type: ["number", "null"] }
+        error: { type: ["string", "null"] }
+        createdAt: { type: string }
+        completedAt: { type: ["string", "null"] }
+        expiresAt: { type: string }
+        downloadCount: { type: number }
+        downloadable: { type: boolean }
+    ExportKindOption:
+      type: object
+      required: [kind, label, ranged, needsOffice]
+      properties:
+        kind: { $ref: "#/components/schemas/ExportKind" }
+        label: { type: string }
+        ranged: { type: boolean }
+        needsOffice: { type: boolean }
+    ExportJobResult:
+      type: object
+      required: [job]
+      properties:
+        job: { $ref: "#/components/schemas/ExportJob" }
+    ExportJobListResult:
+      type: object
+      required: [jobs, available, ttlHours]
+      properties:
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/ExportJob" }
+        available:
+          type: array
+          items: { $ref: "#/components/schemas/ExportKindOption" }
+        ttlHours: { type: number }
+    ExportDownloadResult:
+      type: object
+      required: [url, fileName, expiresInSeconds]
+      properties:
+        url: { type: string }
+        fileName: { type: ["string", "null"] }
+        expiresInSeconds: { type: number }
     OperationalRollup:
       type: object
       required: [providerCount, totalPatients, activePatients, enrollments30d, engaged7d, needsAttention, inactive, invited, watchlist, loggingLapsed, checkInsOverdue, avgPoundsLost]
@@ -2798,6 +3034,11 @@ components:
       required: false
       schema: { type: string }
       description: Required for HQ; ignored for provider staff, who are always own-office scoped
+    ExportId:
+      name: exportId
+      in: path
+      required: true
+      schema: { type: string }
     TrainingVideoId:
       name: videoId
       in: path

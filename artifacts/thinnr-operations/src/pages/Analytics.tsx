@@ -3,10 +3,22 @@ import { Card } from '@/components/ui/card';
 import { getRangeDayCount } from '@/data/analytics-range';
 import { useScopedAnalyticsRange, useScopedProviders } from '@/data/scoped-data';
 import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
+import { LiveAnalytics, useLiveAnalyticsScope } from '@/components/office/LiveAnalytics';
 
 const formatDelta = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
 
+/**
+ * Signed-in office staff (and HQ drilling into a real office) get the live
+ * engagement/outcomes page; the guided demo keeps its synthetic, labeled deck.
+ * The branch is decided from auth state, never from whether data exists.
+ */
 export default function Analytics() {
+  const { liveEnabled, liveOffice } = useLiveAnalyticsScope();
+  if (liveEnabled) return <LiveAnalytics liveOffice={liveOffice} />;
+  return <DemoAnalytics />;
+}
+
+function DemoAnalytics() {
   const { range, minKey } = useDateRange();
   // Range selectors for the current scope: the program-wide originals in the
   // office demo, one account's exact split inside the HQ drill-in.

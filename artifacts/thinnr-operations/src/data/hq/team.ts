@@ -28,15 +28,17 @@ export type HqPermission =
   | 'knowledge'
   | 'files'
   | 'settings'
-  | 'audit';
+  | 'audit'
+  | 'exports';
 
 /** The UI mirrors the server authorization model; the API remains authoritative. */
 export const HQ_ROLE_PERMISSIONS: Record<HqRole, ReadonlySet<HqPermission>> = {
-  'Super Admin': new Set(['overview', 'accounts', 'conversations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit']),
-  Admin: new Set(['overview', 'accounts', 'conversations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit']),
-  Clinical: new Set(['accounts', 'conversations']),
-  Support: new Set(['accounts', 'conversations']),
-  Content: new Set(['training', 'knowledge', 'files']),
+  'Super Admin': new Set(['overview', 'accounts', 'conversations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit', 'exports']),
+  Admin: new Set(['overview', 'accounts', 'conversations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit', 'exports']),
+  // Every department has at least one export kind (the API narrows the list per role).
+  Clinical: new Set(['accounts', 'conversations', 'exports']),
+  Support: new Set(['accounts', 'conversations', 'exports']),
+  Content: new Set(['training', 'knowledge', 'files', 'exports']),
 };
 
 export const INVITABLE_HQ_ROLES: HqRole[] = ['Admin', 'Clinical', 'Support', 'Content'];
@@ -53,6 +55,7 @@ export function permissionForAdminPath(path: string): HqPermission {
   if (path.startsWith('/admin/knowledge') || path.startsWith('/admin/support-test')) return 'knowledge';
   if (path.startsWith('/admin/audit')) return 'audit';
   if (path.startsWith('/admin/files')) return 'files';
+  if (path.startsWith('/admin/exports')) return 'exports';
   if (path.startsWith('/admin/settings')) return 'settings';
   return 'overview';
 }

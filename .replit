@@ -180,6 +180,14 @@ args = "roster-activity"
 task = "workflow.run"
 args = "activity-sql"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-comparison"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "exports-api"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -621,12 +629,34 @@ args = "pnpm --filter @workspace/thinnr-operations run test:roster-activity"
 isValidation = true
 
 [[workflows.workflow]]
+name = "office-comparison"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:office-comparison"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
 name = "activity-sql"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run src/lib/patient-activity.sql.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "exports-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/exports src/routes/exports.test.ts src/routes/operational-rollups.test.ts"
 
 [workflows.workflow.metadata]
 isValidation = true

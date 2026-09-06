@@ -17,7 +17,6 @@ export const supportChatBodyMessagesItemContentMax = 8000;
 export const supportChatBodyMessagesMax = 30;
 
 
-
 export const SupportChatBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant']),
@@ -72,7 +71,6 @@ export const coachRecipeImageBodyNameMax = 80;
 export const coachRecipeImageBodyDescriptionMax = 200;
 
 
-
 export const CoachRecipeImageBody = zod.object({
   "name": zod.string().min(1).max(coachRecipeImageBodyNameMax),
   "description": zod.string().max(coachRecipeImageBodyDescriptionMax).optional()
@@ -88,7 +86,6 @@ export const CoachRecipeImageResponse = zod.object({
  * @summary Scan a restaurant menu photo for THINNR-compatible orders
  */
 export const coachMenuScanBodyImageMax = 8000000;
-
 
 
 export const CoachMenuScanBody = zod.object({
@@ -116,7 +113,6 @@ export const CoachMenuScanResponse = zod.object({
  * @summary Read a Nutrition Facts photo into per-serving values
  */
 export const coachLabelScanBodyImageMax = 8000000;
-
 
 
 export const CoachLabelScanBody = zod.object({
@@ -149,7 +145,6 @@ export const CoachLabelScanResponse = zod.object({
  */
 export const barcodeLookupPathCodeMin = 8;
 export const barcodeLookupPathCodeMax = 24;
-
 
 
 export const BarcodeLookupParams = zod.object({
@@ -228,7 +223,6 @@ export const CatalogSearchResponse = zod.object({
 export const catalogSelectBodyIdMax = 100;
 
 
-
 export const CatalogSelectBody = zod.object({
   "id": zod.string().min(1).max(catalogSelectBodyIdMax)
 })
@@ -271,7 +265,6 @@ export const CatalogSelectResponse = zod.object({
 export const progressPhotoFileQueryPathMax = 500;
 
 
-
 export const ProgressPhotoFileQueryParams = zod.object({
   "path": zod.coerce.string().max(progressPhotoFileQueryPathMax).describe('Canonical object path returned by finalize')
 })
@@ -292,7 +285,6 @@ export const trainingVideoUploadUrlBodyFileNameMax = 300;
 export const trainingVideoUploadUrlBodyContentTypeMax = 100;
 
 export const trainingVideoUploadUrlBodySizeBytesMax = 524288000;
-
 
 
 export const TrainingVideoUploadUrlBody = zod.object({
@@ -316,7 +308,6 @@ export const TrainingVideoFinalizeParams = zod.object({
 })
 
 export const trainingVideoFinalizeBodyObjectPathMax = 500;
-
 
 
 export const TrainingVideoFinalizeBody = zod.object({
@@ -356,7 +347,6 @@ export const trainingThumbnailUploadUrlBodyFileNameMax = 300;
 export const trainingThumbnailUploadUrlBodySizeBytesMax = 10485760;
 
 
-
 export const TrainingThumbnailUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingThumbnailUploadUrlBodyFileNameMax).describe('Original file name, for browser metadata only'),
   "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp']).describe('MIME type sent on the presigned PUT'),
@@ -381,7 +371,6 @@ export const TrainingThumbnailUploadParams = zod.object({
 export const trainingThumbnailUploadBodyObjectPathMax = 500;
 
 export const trainingThumbnailUploadBodyVideoSourceMax = 500;
-
 
 
 export const TrainingThumbnailUploadBody = zod.object({
@@ -411,7 +400,6 @@ export const trainingAttachmentUploadUrlBodyContentTypeMax = 100;
 export const trainingAttachmentUploadUrlBodySizeBytesMax = 26214400;
 
 
-
 export const TrainingAttachmentUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingAttachmentUploadUrlBodyFileNameMax).describe('Original file name, for logs and error copy only'),
   "contentType": zod.string().max(trainingAttachmentUploadUrlBodyContentTypeMax).describe('MIME type the browser will send on the PUT (PDF, Word, Excel, PowerPoint, text, CSV, or common image types)'),
@@ -437,7 +425,6 @@ export const trainingAttachmentFinalizeBodyObjectPathMax = 500;
 export const trainingAttachmentFinalizeBodyNameMax = 300;
 
 export const trainingAttachmentFinalizeBodyContentTypeMax = 100;
-
 
 
 export const TrainingAttachmentFinalizeBody = zod.object({
@@ -546,7 +533,6 @@ export const trainingVideoThumbnailBodyAtSecondsMin = 0;
 export const trainingVideoThumbnailBodyAtSecondsMax = 86400;
 
 
-
 export const TrainingVideoThumbnailBody = zod.object({
   "atSeconds": zod.number().min(trainingVideoThumbnailBodyAtSecondsMin).max(trainingVideoThumbnailBodyAtSecondsMax).describe('Video time of the frame to capture, clamped to the duration')
 })
@@ -568,7 +554,6 @@ export const TrainingVideoProcessParams = zod.object({
 export const trainingVideoProcessBodyStepsMax = 4;
 
 
-
 export const TrainingVideoProcessBody = zod.object({
   "steps": zod.array(zod.enum(['transcribe', 'describe', 'chapters', 'thumbnail'])).max(trainingVideoProcessBodyStepsMax).optional().describe('Subset of steps to run, in pipeline order; omit for the full pass. Used by retries to resume from a failed step without re-spending the ones that succeeded.')
 })
@@ -583,7 +568,6 @@ export const TrainingVideoProcessResponse = zod.unknown()
 export const knowledgeUploadUrlBodyFileNameMax = 300;
 
 export const knowledgeUploadUrlBodySizeBytesMax = 26214400;
-
 
 
 export const KnowledgeUploadUrlBody = zod.object({
@@ -630,7 +614,6 @@ export const knowledgeCreateDocumentBodyDocumentIdMax = 60;
 export const knowledgeCreateDocumentBodyObjectPathMax = 500;
 
 export const knowledgeCreateDocumentBodyFileNameMax = 300;
-
 
 
 export const KnowledgeCreateDocumentBody = zod.object({
@@ -690,7 +673,6 @@ export const KnowledgeRenameDocumentParams = zod.object({
 export const knowledgeRenameDocumentBodyTitleMax = 200;
 
 
-
 export const KnowledgeRenameDocumentBody = zod.object({
   "title": zod.string().min(1).max(knowledgeRenameDocumentBodyTitleMax)
 })
@@ -736,7 +718,6 @@ export const knowledgeReplaceUploadUrlBodyFileNameMax = 300;
 export const knowledgeReplaceUploadUrlBodySizeBytesMax = 26214400;
 
 
-
 export const KnowledgeReplaceUploadUrlBody = zod.object({
   "fileName": zod.string().min(1).max(knowledgeReplaceUploadUrlBodyFileNameMax).describe('Original file name; becomes the document title (sans extension)'),
   "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown']).describe('Canonical MIME type the browser will send on the PUT'),
@@ -761,7 +742,6 @@ export const KnowledgeReplaceFileParams = zod.object({
 export const knowledgeReplaceFileBodyObjectPathMax = 500;
 
 export const knowledgeReplaceFileBodyFileNameMax = 300;
-
 
 
 export const KnowledgeReplaceFileBody = zod.object({
@@ -820,7 +800,6 @@ export const getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast
 export const getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast7TwoMax = 7;
 
 export const getOfficeRosterResponsePatientsItemOperationalActivityTwoTopSideEffectsTwoMax = 3;
-
 
 
 export const GetOfficeRosterResponse = zod.object({
@@ -928,7 +907,6 @@ export const getOfficePatientRecordResponseEngagementLoggedLast7TwoMin = 7;
 export const getOfficePatientRecordResponseEngagementLoggedLast7TwoMax = 7;
 
 export const getOfficePatientRecordResponseEngagementTopSideEffectsTwoMax = 3;
-
 
 
 export const GetOfficePatientRecordResponse = zod.object({
@@ -1154,7 +1132,6 @@ export const getOfficeConversationsQueryOffsetDefault = 0;
 export const getOfficeConversationsQueryOffsetMin = 0;
 
 
-
 export const GetOfficeConversationsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "thread": zod.enum(['coach', 'support']).optional(),
@@ -1188,7 +1165,6 @@ export const getOfficeConversationEventsQueryLimitDefault = 50;
 export const getOfficeConversationEventsQueryLimitMax = 100;
 
 
-
 export const GetOfficeConversationEventsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "before": zod.coerce.number().min(1).optional(),
@@ -1215,7 +1191,14 @@ export const GetOfficeConversationEventsResponse = zod.object({
   "nextBefore": zod.number().nullable()
 })
 
-
+/**
+ * @summary Live office figures for a date range (own office or HQ by office id)
+ */
+export const GetOfficeAnalyticsQueryParams = zod.object({
+  "start": zod.date(),
+  "end": zod.date(),
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
 /**
  * @summary Read aggregate-only operational metrics across the HQ umbrella
  */
@@ -1267,7 +1250,6 @@ export const updateHqSettingsBodySupportPhoneMax = 40;
 export const updateHqSettingsBodyDefaultTimezoneMax = 80;
 
 
-
 export const UpdateHqSettingsBody = zod.object({
   "organizationName": zod.string().min(1).max(updateHqSettingsBodyOrganizationNameMax),
   "supportEmail": zod.string().max(updateHqSettingsBodySupportEmailMax).nullable(),
@@ -1292,7 +1274,6 @@ export const createHqFileUploadBodyNameMax = 240;
 export const createHqFileUploadBodyContentTypeMax = 120;
 
 export const createHqFileUploadBodySizeMax = 52428800;
-
 
 
 export const CreateHqFileUploadBody = zod.object({
@@ -1334,7 +1315,6 @@ export const finalizeHqFileBodyContentTypeMax = 120;
 export const finalizeHqFileBodySizeMax = 52428800;
 
 export const finalizeHqFileBodyObjectPathMax = 500;
-
 
 
 export const FinalizeHqFileBody = zod.object({
@@ -1408,3 +1388,203 @@ export const GetHqAuditEventsResponse = zod.object({
 })
 
 
+/**
+ * @summary Queue a CSV export scoped to the caller's permissions and office
+ */
+export const RequestExportBody = zod.object({
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "office": zod.string().nullish().describe('Office account id (HQ only) - office staff are pinned to their own office'),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional()
+})
+
+export const GetOfficeAnalyticsResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string()
+}),
+  "range": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "asOf": zod.string(),
+  "firstPatientDate": zod.coerce.date().nullable(),
+  "available": zod.boolean(),
+  "metrics": zod.union([zod.object({
+  "totalPatients": zod.number(),
+  "activePatients": zod.number(),
+  "enrollments": zod.number(),
+  "engaged": zod.number(),
+  "needsAttention": zod.number(),
+  "inactive": zod.number(),
+  "invited": zod.number(),
+  "loggingLapsed": zod.number(),
+  "checkInsOverdue": zod.number(),
+  "loggingPatients": zod.number(),
+  "checkInPatients": zod.number(),
+  "loggingAdherencePct": zod.number().nullable(),
+  "checkInAdherencePct": zod.number().nullable(),
+  "avgPoundsLost": zod.number().nullable()
+}),zod.null()]),
+  "series": zod.array(zod.object({
+  "date": zod.coerce.date(),
+  "activePatients": zod.number(),
+  "engagedPatients": zod.number(),
+  "enrollments": zod.number(),
+  "checkIns": zod.number()
+}))
+})
+
+/**
+ * @summary Poll one of the caller's export jobs
+ */
+export const GetExportParams = zod.object({
+  "exportId": zod.coerce.string()
+})
+
+export const GetExportResponse = zod.object({
+  "job": zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean()
+})
+})
+
+/**
+ * @summary Mint a short-lived signed download link for a ready export
+ */
+export const GetExportDownloadUrlParams = zod.object({
+  "exportId": zod.coerce.string()
+})
+
+export const GetExportDownloadUrlResponse = zod.object({
+  "url": zod.string(),
+  "fileName": zod.string().nullable(),
+  "expiresInSeconds": zod.number()
+})
+
+/**
+ * @summary Per-office operational figures and daily series for a date range
+ */
+export const GetHqOfficeComparisonQueryParams = zod.object({
+  "start": zod.date(),
+  "end": zod.date()
+})
+
+export const GetHqOfficeComparisonResponse = zod.object({
+  "range": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "asOf": zod.string(),
+  "offices": zod.array(zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "providerName": zod.string(),
+  "firstPatientDate": zod.coerce.date().nullable(),
+  "available": zod.boolean().describe('False when the whole range predates the first patient record'),
+  "metrics": zod.union([zod.object({
+  "totalPatients": zod.number(),
+  "activePatients": zod.number(),
+  "enrollments": zod.number(),
+  "engaged": zod.number(),
+  "needsAttention": zod.number(),
+  "inactive": zod.number(),
+  "invited": zod.number(),
+  "loggingLapsed": zod.number(),
+  "checkInsOverdue": zod.number(),
+  "loggingPatients": zod.number(),
+  "checkInPatients": zod.number(),
+  "loggingAdherencePct": zod.number().nullable(),
+  "checkInAdherencePct": zod.number().nullable(),
+  "avgPoundsLost": zod.number().nullable()
+}),zod.null()]),
+  "series": zod.array(zod.object({
+  "date": zod.coerce.date(),
+  "activePatients": zod.number(),
+  "engagedPatients": zod.number(),
+  "enrollments": zod.number(),
+  "checkIns": zod.number()
+}))
+}))
+})
+
+/**
+ * @summary The caller's recent export jobs and the kinds they may request
+ */
+export const ListExportsResponse = zod.object({
+  "jobs": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean()
+})),
+  "available": zod.array(zod.object({
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "label": zod.string(),
+  "ranged": zod.boolean(),
+  "needsOffice": zod.boolean()
+})),
+  "ttlHours": zod.number()
+})
+
+export const RequestExportResponse = zod.object({
+  "job": zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean()
+})
+})

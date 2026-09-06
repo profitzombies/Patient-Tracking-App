@@ -25,6 +25,13 @@ import {
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
+import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
+import { Sparkline } from '@/components/admin/Sparkline';
+import { DateRangeControl } from '@/components/layout/DateRangeControl';
+import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
+import { useSession } from '@/contexts/session';
+import { formatPercent, hqOfficeRoot, seriesValues } from '@/lib/office-analytics';
+import { useGetOfficeAnalytics, getGetOfficeAnalyticsQueryKey } from '@workspace/api-client-react';
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { fetchProviderAccountDetail, ProviderAccountError, type UpdateProviderAccountInput } from '@/lib/provider-accounts';
@@ -47,6 +54,52 @@ function Stat({ label, value, testId }: { label: string; value: React.ReactNode;
         {value}
       </p>
     </div>
+  );
+}
+
+/**
+ * Live metrics for this office over the shared date range — the same figures
+ * (and the same drill targets) as the HQ comparison table row.
+ */
+function OfficeRangeMetricsCard({ accountId }: { accountId: string }) {
+  const { authUser } = useSession();
+  const { range } = useDateRange();
+  const params = { office: accountId, start: range.start, end: range.end };
+  const analytics = useGetOfficeAnalytics(params, {
+    query: { queryKey: [...getGetOfficeAnalyticsQueryKey(params), authUser?.id], retry: 1 },
+  });
+  const status = analytics.isPending ? 'loading' : analytics.isError ? 'error' : 'ready';
+  const result = analytics.data;
+  const metrics = result?.available ? result.metrics : null;
+  return (
+    <SectionCard
+      title={`Office metrics · ${formatRangeLabel(range)}`}
+      sub="Live figures for the selected range; each one opens the matching list in this office."
+      action={<DateRangeControl />}
+    >
+      <OfficeRangeMetricsGrid
+        status={status}
+        result={result}
+        rangeEnd={range.end}
+        officeRoot={hqOfficeRoot(accountId)}
+        onRetry={() => analytics.refetch()}
+        testIdPrefix="account-range-metric"
+      />
+      {metrics && result && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border px-5 py-3 text-[11px] text-muted-foreground">
+          <span data-testid="text-account-logging-adherence">
+            Logging adherence <b className="font-semibold text-navy">{formatPercent(metrics.loggingAdherencePct)}</b>
+          </span>
+          <span data-testid="text-account-checkin-adherence">
+            Check-in adherence <b className="font-semibold text-navy">{formatPercent(metrics.checkInAdherencePct)}</b>
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span title="Rolling 7-day engaged patients, day by day across the range">Engaged trend</span>
+            <Sparkline values={seriesValues(result.series, "engagedPatients")} label="rolling 7-day engaged patients" width={120} height={22} testId="sparkline-account-engaged" />
+          </span>
+        </div>
+      )}
+    </SectionCard>
   );
 }
 
@@ -286,6 +339,10 @@ export default function AccountDetail() {
           <MessagesSquare size={14} aria-hidden="true" />
            Coach conversations
         </Link>
+      </div>
+
+      <div className="mb-5">
+        <OfficeRangeMetricsCard accountId={account.id} />
       </div>
 
       {/* The two main columns: metrics beside the roster, equal widths. */}

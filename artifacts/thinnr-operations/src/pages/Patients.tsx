@@ -277,7 +277,14 @@ export default function Patients() {
     let result = unifiedRows.filter(p => {
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
                             (p.email ?? '').toLowerCase().includes(search.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
+      // Live rosters carry an operational status (on_track / needs_attention /
+      // inactive / invited); "active" there means an activated account, the
+      // same definition the office-analytics rollups use for their Active
+      // figure, so drill-ins from those numbers land on the matching list.
+      const matchesStatus =
+        statusFilter === 'all' ||
+        p.status === statusFilter ||
+        (statusFilter === 'active' && p.isLive && p.status !== 'invited');
       // Live rows use the server's own lapsed verdict; rows whose activity
       // did not load are never "lapsed". Demo rows keep the seeded stats.
       const matchesLogging = loggingFilter === 'all'
@@ -377,6 +384,7 @@ export default function Patients() {
               <option value="all">All Patients</option>
               {liveEnabled ? (
                 <>
+                  <option value="active">Active (activated)</option>
                   <option value="on_track">On Track</option>
                   <option value="needs_attention">Needs Attention</option>
                   <option value="inactive">Inactive</option>

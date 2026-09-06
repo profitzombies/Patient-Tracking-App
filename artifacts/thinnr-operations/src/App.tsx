@@ -54,6 +54,7 @@ import KnowledgeBase from '@/pages/admin/KnowledgeBase';
 import SupportTestBench from '@/pages/admin/SupportTestBench';
 import Audit from '@/pages/admin/Audit';
 import Files from '@/pages/admin/Files';
+import Exports from '@/pages/admin/Exports';
 import EmailStudio from '@/pages/EmailStudio';
 import { PatientSessionProvider } from '@/contexts/patient-session';
 import { DateRangeProvider } from '@/contexts/date-range';
@@ -120,6 +121,7 @@ function AdminArea() {
                 {canViewAudit ? <Audit /> : <Redirect to="/admin" replace />}
               </Route>
               <Route path="/admin/files" component={Files} />
+              <Route path="/admin/exports" component={Exports} />
               {/* Admin persona anywhere else (including office URLs) → HQ. */}
               <Route>
                 <Redirect to={landingPath} replace />

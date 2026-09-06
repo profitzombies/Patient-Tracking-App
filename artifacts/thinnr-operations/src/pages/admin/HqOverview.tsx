@@ -7,67 +7,74 @@
  * page and the office desk can be shown side by side without a discrepancy.
  * Session-added accounts join with zeroes and can't disturb the rollup.
  * Anchored to the fixed demo date — no viewer-clock math.
+ *
+ * Signed-in HQ gets the live branch instead: a per-office comparison for the
+ * shared date range (sortable, ranked, sparklines), aggregate tiles that
+ * drill into the account list, and an export shortcut. Financial tiles stay
+ * unavailable until a live source exists.
  */
+import { useMemo, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { ArrowRight, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowRight, FileDown } from 'lucide-react';
 import { SectionCard } from '@/components/patient/heritage';
 import { AccountStatusChip, AdminPage, MetricTile, PageHeader } from '@/components/admin/primitives';
+import { OfficeComparisonTable } from '@/components/admin/OfficeComparisonTable';
+import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useHqData } from '@/contexts/hq-data';
+import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
 import { monthlyRevenueOf } from '@/data/hq/accounts';
 import { getConversations } from '@/data/hq/conversations';
 import { MOCK_PATIENTS } from '@/data/mock-data';
 import { TODAY_KEY, formatDateKey } from '@/data/nutrition-data';
 import { useSession } from '@/contexts/session';
-import { useGetHqOverview, getGetHqOverviewQueryKey } from '@workspace/api-client-react';
+import { formatPercent, percentOf, sumComparison } from '@/lib/office-analytics';
+import { useGetHqOfficeComparison, getGetHqOfficeComparisonQueryKey } from '@workspace/api-client-react';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
-const round1 = (value: number) => Math.round(value * 10) / 10;
 
-/** Stacked-bar palette — the cobalt ramp the office charts already use. */
-const BAR_CLASSES = ['bg-chart-1', 'bg-chart-2', 'bg-chart-3', 'bg-chart-4'];
+/** A metric tile that is itself the drill-through link (whole card clickable, one accessible name). */
+function MetricLinkTile({ label, value, detail, href, testId }: { label: string; value: ReactNode; detail?: ReactNode; href: string; testId: string }) {
+  return (
+    <Link
+      href={href}
+      className="block rounded-lg border border-card-border bg-card p-4 shadow-soft transition hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={`${label}: ${typeof value === 'string' || typeof value === 'number' ? value : ''}. Open the matching list`}
+      data-testid={testId}
+    >
+      <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">{label}</p>
+      <p className="mt-2 font-serif text-[26px] font-bold leading-none tracking-[-.01em] text-navy">{value}</p>
+      {detail && <p className="mt-2 text-[11px] text-muted-foreground">{detail}</p>}
+    </Link>
+  );
+}
 
-export default function HqOverview() {
-  const { accounts } = useHqData();
-  const { authStatus, authUser } = useSession();
-  const firstName = authStatus === 'signed-in'
-    ? authUser?.displayName?.trim().split(/\s+/)[0] ?? null
-    : 'HQ guest';
+function LiveHqOverview({ firstName }: { firstName: string | null }) {
+  const { authUser } = useSession();
+  const { range } = useDateRange();
+  const rangeLabel = formatRangeLabel(range);
 
-  const liveEnabled = authStatus === 'signed-in';
-
-  const { data: hqOverview, isLoading: hqIsLoading, isError: hqIsError } = useGetHqOverview(
+  const comparison = useGetHqOfficeComparison(
+    { start: range.start, end: range.end },
     {
       query: {
-        enabled: liveEnabled,
-        queryKey: [...getGetHqOverviewQueryKey(), authUser?.id]
-      }
-    }
+        queryKey: [...getGetHqOfficeComparisonQueryKey({ start: range.start, end: range.end }), authUser?.id],
+        retry: 1,
+      },
+    },
   );
 
-  const activeAccounts = accounts.filter((account) => account.status === 'active');
-  const revenueAccounts = accounts.filter((account) => monthlyRevenueOf(account) != null);
+  const rows = comparison.data?.offices ?? [];
+  const totals = useMemo(() => sumComparison(rows), [rows]);
+  const loading = comparison.isPending;
+  const failed = comparison.isError;
+  const noData = !loading && !failed && totals.availableOffices === 0;
 
-  const totalPatientsValue = liveEnabled
-    ? (hqIsLoading ? '—' : hqIsError ? 'Error' : fmt(hqOverview?.metrics.activePatients ?? 0))
-    : fmt(accounts.reduce((sum, account) => sum + (account.activePatientCount ?? 0), 0));
+  const tileValue = (value: number) => (loading ? '—' : failed ? 'Error' : noData ? 'Unavailable' : fmt(value));
+  const tileDetail = (ready: string) =>
+    loading ? 'Loading live data…' : failed ? 'Failed to load' : noData ? 'No office has data for this range' : ready;
 
-  const totalPatientsDetail = liveEnabled
-    ? (hqIsLoading ? 'Loading live data...' : hqIsError ? 'Failed to load' : `${hqOverview?.metrics.enrollments30d ?? 0} new enrollments this month`)
-    : 'Active patients from live provider-linked rows';
-
-  const engagementValue = liveEnabled
-    ? (hqIsLoading ? '—' : hqIsError ? 'Error' : (hqOverview?.metrics.activePatients && hqOverview?.metrics.engaged7d != null ? `${Math.round((hqOverview.metrics.engaged7d / hqOverview.metrics.activePatients) * 100)}%` : '—'))
-    : '—';
-
-  const engagementDetail = liveEnabled
-    ? (hqIsLoading ? 'Loading live data...' : hqIsError ? 'Failed to load' : 'Active patients engaging weekly')
-    : 'No confirmed live engagement source';
-
-  const pulseDate = liveEnabled && hqOverview?.asOf
-    ? formatDateKey(hqOverview.asOf.split('T')[0], true)
-    : formatDateKey(TODAY_KEY, true);
-
-  const latestConversations = getConversations().slice(0, 3);
+  const asOfDate = comparison.data?.asOf ? formatDateKey(comparison.data.asOf.split('T')[0], true) : null;
+  const engagementPct = noData || loading || failed ? null : percentOf(totals.engaged, totals.activePatients);
 
   return (
     <AdminPage>
@@ -75,14 +82,126 @@ export default function HqOverview() {
         kicker="THINNR HQ"
         title={firstName ? `Good morning, ${firstName}.` : 'Good morning.'}
         sub={
-          liveEnabled ? (
-            <><span data-testid="text-hq-demo-date">{pulseDate}</span> · Operations rollup</>
+          <>
+            <span data-testid="text-hq-demo-date">{asOfDate ?? 'Live'}</span> · Operations rollup for{' '}
+            <span className="font-semibold text-navy" data-testid="text-hq-range">{rangeLabel}</span>
+          </>
+        }
+        action={<DateRangeControl />}
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricLinkTile
+          label="Patients across offices"
+          value={tileValue(totals.totalPatients)}
+          detail={tileDetail(`${fmt(totals.enrollments)} enrolled in this range`)}
+          href="/admin/accounts"
+          testId="text-hq-patients"
+        />
+        <MetricLinkTile
+          label="Active patients"
+          value={tileValue(totals.activePatients)}
+          detail={tileDetail('Active as of the range end')}
+          href="/admin/accounts"
+          testId="text-hq-active"
+        />
+        <MetricLinkTile
+          label="Avg engagement"
+          value={loading ? '—' : failed ? 'Error' : noData ? 'Unavailable' : formatPercent(engagementPct)}
+          detail={tileDetail('Active patients engaging in the last 7 days of the range')}
+          href="/admin/accounts"
+          testId="text-hq-engagement"
+        />
+        <MetricLinkTile
+          label="Needs attention"
+          value={tileValue(totals.needsAttention)}
+          detail={tileDetail(`${fmt(totals.loggingLapsed)} lapsed · ${fmt(totals.checkInsOverdue)} overdue`)}
+          href="/admin/accounts"
+          testId="text-hq-attention"
+        />
+      </div>
+
+      <div className="mt-5">
+        <SectionCard
+          title="Office comparison"
+          sub={`Live figures per office for ${rangeLabel}. Sort any column; rank follows the sorted metric.`}
+          action={
+            <Link href="/admin/exports" className="inline-flex items-center gap-1 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="link-hq-export-comparison">
+              <FileDown size={12} aria-hidden="true" />
+              Export CSV
+            </Link>
+          }
+        >
+          {loading ? (
+            <p className="px-5 py-8 text-center text-xs text-muted-foreground" data-testid="text-office-comparison-loading">Loading office comparison…</p>
+          ) : failed ? (
+            <div className="m-5 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive" role="alert" data-testid="text-office-comparison-error">
+              <AlertCircle size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
+              <span>
+                The office comparison could not be loaded.{' '}
+                <button type="button" className="underline" onClick={() => comparison.refetch()}>Try again</button>
+              </span>
+            </div>
           ) : (
             <>
-              <span data-testid="text-hq-demo-date">{pulseDate}</span> · Rollup across{' '}
-              {accounts.length} provider accounts ({activeAccounts.length} active).
+              {totals.unavailableOffices > 0 && (
+                <p className="border-b border-border bg-secondary px-5 py-2 text-[11px] text-muted-foreground" data-testid="text-office-comparison-unavailable-note">
+                  {totals.unavailableOffices === rows.length
+                    ? 'No office has recorded data in this range — figures are unavailable, not zero. Try a later range.'
+                    : `${totals.unavailableOffices} of ${rows.length} offices have no data in this range and are shown as unavailable.`}
+                </p>
+              )}
+              <OfficeComparisonTable rows={rows} rangeEnd={range.end} />
             </>
-          )
+          )}
+        </SectionCard>
+      </div>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <MetricTile label="Active subscriptions" value="—" detail="No confirmed live subscription source" testId="text-hq-subscriptions" />
+        <MetricTile label="Deliveries" value="—" detail="No confirmed live delivery source" testId="text-hq-deliveries" />
+      </div>
+    </AdminPage>
+  );
+}
+
+/** Stacked-bar palette — the cobalt ramp the office charts already use. */
+const BAR_CLASSES = ['bg-chart-1', 'bg-chart-2', 'bg-chart-3', 'bg-chart-4'];
+
+export default function HqOverview() {
+  const { authStatus, authUser } = useSession();
+  if (authStatus === 'signed-in') {
+    return <LiveHqOverview firstName={authUser?.displayName?.trim().split(/\s+/)[0] ?? null} />;
+  }
+  return <DemoHqOverview />;
+}
+
+/** The guided-demo overview — seeded rollup, byte-for-byte as before. */
+function DemoHqOverview() {
+  const { accounts } = useHqData();
+  const firstName = 'HQ guest';
+
+  const activeAccounts = accounts.filter((account) => account.status === 'active');
+  const revenueAccounts = accounts.filter((account) => monthlyRevenueOf(account) != null);
+
+  const totalPatientsValue = fmt(accounts.reduce((sum, account) => sum + (account.activePatientCount ?? 0), 0));
+  const totalPatientsDetail = 'Active patients from live provider-linked rows';
+  const engagementValue = '—';
+  const engagementDetail = 'No confirmed live engagement source';
+  const pulseDate = formatDateKey(TODAY_KEY, true);
+
+  const latestConversations = getConversations().slice(0, 3);
+
+  return (
+    <AdminPage>
+      <PageHeader
+        kicker="THINNR HQ"
+        title={`Good morning, ${firstName}.`}
+        sub={
+          <>
+            <span data-testid="text-hq-demo-date">{pulseDate}</span> · Rollup across{' '}
+            {accounts.length} provider accounts ({activeAccounts.length} active).
+          </>
         }
       />
 
@@ -113,7 +232,7 @@ export default function HqOverview() {
         />
       </div>
 
-      {!liveEnabled && (
+      {(
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,7fr),minmax(0,5fr)]">
           <SectionCard
             title="Monthly program revenue"
@@ -194,7 +313,7 @@ export default function HqOverview() {
         </div>
       )}
 
-      {!liveEnabled && (
+      {(
         <div className="mt-5">
           <SectionCard
             title="Provider accounts"

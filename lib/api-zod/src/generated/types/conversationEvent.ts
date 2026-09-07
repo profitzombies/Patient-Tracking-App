@@ -12,5 +12,10 @@ export interface ConversationEvent {
   role: ConversationEventRole;
   text: string;
   stopped: boolean;
+  /**
+     * Staff messages only: who on the care team sent it
+     * @nullable
+     */
+  senderLabel?: string | null;
   createdAt: string;
 }

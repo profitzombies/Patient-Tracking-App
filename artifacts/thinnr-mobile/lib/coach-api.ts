@@ -36,7 +36,7 @@ import type { MealSlot } from '@/data/patient-data';
 import { parseLabelDraft, type LabelDraft } from '@/lib/label-food';
 
 export interface CoachRequestMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'staff';
   content: string;
   /**
    * Marks an assistant reply the patient stopped mid-stream. The server

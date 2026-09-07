@@ -20,7 +20,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import { apiBase } from '@/lib/coach-api';
 
 export interface SupportRequestMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'staff';
   content: string;
   /**
    * Marks an assistant reply the provider stopped mid-stream. The server

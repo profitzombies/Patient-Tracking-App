@@ -66,6 +66,7 @@ import { TrainingDataProvider } from '@/contexts/training-data';
 import { ProviderScopeProvider } from '@/contexts/provider-scope';
 import { findSeededAccount } from '@/data/hq/accounts';
 import { canHq, firstAllowedAdminPath, permissionForAdminPath, type HqRole } from '@/data/hq/team';
+import Escalations from '@/pages/admin/Escalations';
 
 const queryClient = new QueryClient();
 
@@ -107,6 +108,7 @@ function AdminArea() {
               <Route path="/admin/accounts" component={Accounts} />
               <Route path="/admin/accounts/:id" component={AccountDetail} />
               <Route path="/admin/conversations" component={Conversations} />
+              <Route path="/admin/escalations" component={Escalations} />
               <Route path="/admin/team" component={Team} />
               <Route path="/admin/settings" component={OrgSettings} />
               <Route path="/admin/training" component={TrainingDashboard} />

@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { InboxMetrics } from './inboxMetrics';
 
 export interface OperationalRollup {
   providerCount: number;
@@ -20,4 +21,5 @@ export interface OperationalRollup {
   checkInsOverdue: number;
   /** @nullable */
   avgPoundsLost: number | null;
+  inbox: InboxMetrics;
 }

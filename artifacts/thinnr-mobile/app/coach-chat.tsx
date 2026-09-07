@@ -51,7 +51,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { CoachCardSlot } from "@/components/coach/CoachCardSlot";
 import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
 import type { CoachStage } from "@/lib/coach-api";
@@ -134,7 +134,7 @@ export default function CoachChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { messages, isStreaming, send, sendPhoto, stop, coachPaused } =
+  const { messages, isStreaming, send, sendPhoto, stop, coachPaused, refreshThread } =
     useCoachChat();
   const [draft, setDraft] = useState("");
   const [photoOptionsOpen, setPhotoOptionsOpen] = useState(false);
@@ -153,6 +153,12 @@ export default function CoachChatScreen() {
   // up to re-read older answers never fights the typing animation.
   const nearBottomRef = useRef(true);
   const messageCountRef = useRef(0);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void refreshThread().catch(() => {});
+    }, [refreshThread]),
+  );
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   // The seeded greeting means the thread is never empty; "fresh chat" is now
@@ -971,6 +977,30 @@ function MessageBubble({ message }: { message: CoachMessage }) {
   const { isStreaming, pendingStage, retry } = useCoachChat();
   const isUser = message.role === "user";
 
+  if (message.role === "staff") {
+    const sender = message.senderLabel?.trim() || "Your care team";
+    return (
+      <View
+        accessible
+        accessibilityLabel={`Care team message from ${sender}: ${message.text}`}
+        style={[
+          styles.bubble,
+          styles.careTeamBubble,
+          {
+            backgroundColor: colors.paperCardAlt,
+            borderColor: colors.navy,
+            borderRadius: colors.radius,
+          },
+        ]}
+      >
+        <Text style={[styles.careTeamLabel, { color: colors.orangeText }]}>
+          {message.senderLabel ? `From your care team · ${sender}` : sender}
+        </Text>
+        <Text style={[styles.bubbleText, { color: colors.navy }]}>{message.text}</Text>
+      </View>
+    );
+  }
+
   if (isUser) {
     if (message.photo && !message.photo.reused) {
       // Photo turns render the picture itself; the message's fixed text is
@@ -1279,6 +1309,18 @@ const styles = StyleSheet.create({
   assistantBubble: {
     alignSelf: "flex-start",
     borderWidth: 1,
+  },
+  careTeamBubble: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderLeftWidth: 3,
+  },
+  careTeamLabel: {
+    fontSize: 9.5,
+    letterSpacing: 0.7,
+    fontFamily: "Inter_700Bold",
+    marginBottom: 6,
+    textTransform: "uppercase",
   },
   blockStack: {
     gap: 9,

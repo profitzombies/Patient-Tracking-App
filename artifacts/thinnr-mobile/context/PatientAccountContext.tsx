@@ -179,8 +179,10 @@ export interface ChatWirePhoto {
  */
 export interface ChatWireMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'staff';
   text: string;
+  /** Present on care-team replies delivered by the server. */
+  senderLabel?: string;
   stopped?: boolean;
   hidden?: boolean;
   card?: { kind: string; payload: unknown };

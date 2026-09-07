@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { GetOfficeConversationsSort } from './getOfficeConversationsSort';
 import type { GetOfficeConversationsStatus } from './getOfficeConversationsStatus';
 import type { GetOfficeConversationsThread } from './getOfficeConversationsThread';
 import type { OfficeIdParameter } from './officeIdParameter';
@@ -16,9 +17,24 @@ export type GetOfficeConversationsParams = {
 office?: OfficeIdParameter;
 thread?: GetOfficeConversationsThread;
 /**
- * Auto-close filter. A conversation is closed once it has been idle for the organization's conversation auto-close window (HQ settings).
+ * Workflow status filter. Threads idle longer than the organization's conversation auto-close window (HQ settings) count as closed.
  */
 status?: GetOfficeConversationsStatus;
+/**
+ * "me", "unassigned", or a staff user id
+ * @maxLength 80
+ */
+assignee?: string;
+/**
+ * Only conversations with patient messages the caller has not read
+ */
+unread?: boolean;
+/**
+ * Patient name or message text search
+ * @maxLength 120
+ */
+q?: string;
+sort?: GetOfficeConversationsSort;
 /**
  * @minimum 1
  * @maximum 100

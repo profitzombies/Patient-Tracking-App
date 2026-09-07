@@ -20,6 +20,8 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AddOfficeConversationNoteParams,
+  AssignOfficeConversationParams,
   BarcodeLookupResult,
   CatalogSearchParams,
   CatalogSearchResult,
@@ -33,9 +35,21 @@ import type {
   CoachMenuScanResult,
   CoachRecipeImageInput,
   CoachRecipeImageResult,
+  ConversationAssignInput,
+  ConversationEscalationInput,
+  ConversationEscalationResult,
   ConversationEventsResult,
+  ConversationMutationResult,
+  ConversationNoteInput,
+  ConversationNoteResult,
+  ConversationNotesResult,
+  ConversationReplyInput,
+  ConversationReplyResult,
+  ConversationStaffResult,
+  ConversationStatusInput,
   ConversationSummaryResult,
   EngagementTrendResult,
+  EscalateOfficeConversationParams,
   ExportDownloadResult,
   ExportJobListResult,
   ExportJobResult,
@@ -43,10 +57,14 @@ import type {
   FollowUpResult,
   FollowUpUpdateInput,
   GetHqAuditEventsParams,
+  GetHqEscalationsParams,
   GetHqOfficeComparisonParams,
   GetHqPatientDeletionsParams,
   GetOfficeAnalyticsParams,
   GetOfficeConversationEventsParams,
+  GetOfficeConversationNotesParams,
+  GetOfficeConversationStaffParams,
+  GetOfficeConversationSummaryParams,
   GetOfficeConversationsParams,
   GetOfficeEngagementTrendsParams,
   GetOfficeOverviewParams,
@@ -55,6 +73,8 @@ import type {
   GetOfficeSettingsParams,
   HealthStatus,
   HqAuditEventsResult,
+  HqEscalationResolveInput,
+  HqEscalationsResult,
   HqFile,
   HqFileDeleteResult,
   HqFileDownloadResult,
@@ -66,6 +86,7 @@ import type {
   HqOrganizationSettingsInput,
   HqPatientDeletionResult,
   HqPatientDeletionsResult,
+  InboxMetricsResult,
   KnowledgeCreateInput,
   KnowledgeDeleteResult,
   KnowledgeDocument,
@@ -84,6 +105,8 @@ import type {
   OfficeSettings,
   OperationalRollupResult,
   ProgressPhotoFileParams,
+  ReplyOfficeConversationParams,
+  SetOfficeConversationStatusParams,
   SupportChatInput,
   TrainingAttachmentDownloadResult,
   TrainingAttachmentFinalizeInput,
@@ -3102,7 +3125,7 @@ export const getGetOfficeConversationsUrl = (params?: GetOfficeConversationsPara
 }
 
 /**
- * @summary List privacy-safe patient conversation summaries for an authorized office
+ * @summary Staff inbox — filterable, sortable, searchable conversation summaries for an authorized office
  */
 export const getOfficeConversations = async (params?: GetOfficeConversationsParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationSummaryResult> => {
 
@@ -3149,7 +3172,7 @@ export type GetOfficeConversationsQueryError = ErrorType<void>
 
 
 /**
- * @summary List privacy-safe patient conversation summaries for an authorized office
+ * @summary Staff inbox — filterable, sortable, searchable conversation summaries for an authorized office
  */
 
 export function useGetOfficeConversations<TData = Awaited<ReturnType<typeof getOfficeConversations>>, TError = ErrorType<void>>(
@@ -3158,6 +3181,174 @@ export function useGetOfficeConversations<TData = Awaited<ReturnType<typeof getO
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetOfficeConversationsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeConversationSummaryUrl = (params?: GetOfficeConversationSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/conversations/summary?${stringifiedParams}` : `/api/office/conversations/summary`
+}
+
+/**
+ * @summary Inbox header metrics for an authorized office (open threads, unanswered, response time)
+ */
+export const getOfficeConversationSummary = async (params?: GetOfficeConversationSummaryParams, options?: Parameters<typeof customFetch>[1]): Promise<InboxMetricsResult> => {
+
+  return customFetch<InboxMetricsResult>(getGetOfficeConversationSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeConversationSummaryQueryKey = (params?: GetOfficeConversationSummaryParams,) => {
+    return [
+    `/api/office/conversations/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeConversationSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeConversationSummary>>, TError = ErrorType<void>>(params?: GetOfficeConversationSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeConversationSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeConversationSummary>>> = ({ signal }) => getOfficeConversationSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeConversationSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeConversationSummary>>>
+export type GetOfficeConversationSummaryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Inbox header metrics for an authorized office (open threads, unanswered, response time)
+ */
+
+export function useGetOfficeConversationSummary<TData = Awaited<ReturnType<typeof getOfficeConversationSummary>>, TError = ErrorType<void>>(
+ params?: GetOfficeConversationSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeConversationSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeConversationStaffUrl = (params?: GetOfficeConversationStaffParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/conversations/staff?${stringifiedParams}` : `/api/office/conversations/staff`
+}
+
+/**
+ * @summary Staff members a conversation in this office can be assigned to
+ */
+export const getOfficeConversationStaff = async (params?: GetOfficeConversationStaffParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationStaffResult> => {
+
+  return customFetch<ConversationStaffResult>(getGetOfficeConversationStaffUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeConversationStaffQueryKey = (params?: GetOfficeConversationStaffParams,) => {
+    return [
+    `/api/office/conversations/staff`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeConversationStaffQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeConversationStaff>>, TError = ErrorType<void>>(params?: GetOfficeConversationStaffParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationStaff>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeConversationStaffQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeConversationStaff>>> = ({ signal }) => getOfficeConversationStaff(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationStaff>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeConversationStaffQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeConversationStaff>>>
+export type GetOfficeConversationStaffQueryError = ErrorType<void>
+
+
+/**
+ * @summary Staff members a conversation in this office can be assigned to
+ */
+
+export function useGetOfficeConversationStaff<TData = Awaited<ReturnType<typeof getOfficeConversationStaff>>, TError = ErrorType<void>>(
+ params?: GetOfficeConversationStaffParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationStaff>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeConversationStaffQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -3187,7 +3378,7 @@ export const getGetOfficeConversationEventsUrl = (conversationId: string,
 }
 
 /**
- * @summary Read a paginated patient transcript in an authorized office
+ * @summary Read a paginated patient transcript in an authorized office (the newest page marks the thread read for the caller)
  */
 export const getOfficeConversationEvents = async (conversationId: string,
     params?: GetOfficeConversationEventsParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationEventsResult> => {
@@ -3237,7 +3428,7 @@ export type GetOfficeConversationEventsQueryError = ErrorType<void>
 
 
 /**
- * @summary Read a paginated patient transcript in an authorized office
+ * @summary Read a paginated patient transcript in an authorized office (the newest page marks the thread read for the caller)
  */
 
 export function useGetOfficeConversationEvents<TData = Awaited<ReturnType<typeof getOfficeConversationEvents>>, TError = ErrorType<void>>(
@@ -3258,6 +3449,656 @@ export function useGetOfficeConversationEvents<TData = Awaited<ReturnType<typeof
 
 
 
+
+export const getAssignOfficeConversationUrl = (conversationId: string,
+    params?: AssignOfficeConversationParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/conversations/${conversationId}/assign?${stringifiedParams}` : `/api/office/conversations/${conversationId}/assign`
+}
+
+/**
+ * @summary Claim, assign, or unassign a conversation
+ */
+export const assignOfficeConversation = async (conversationId: string,
+    conversationAssignInput: ConversationAssignInput,
+    params?: AssignOfficeConversationParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationMutationResult> => {
+
+  return customFetch<ConversationMutationResult>(getAssignOfficeConversationUrl(conversationId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(conversationAssignInput)
+  }
+);}
+
+
+
+
+
+export const getAssignOfficeConversationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationAssignInput>;params?: AssignOfficeConversationParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof assignOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationAssignInput>;params?: AssignOfficeConversationParams}, TContext> => {
+
+const mutationKey = ['assignOfficeConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof assignOfficeConversation>>, {conversationId: string;data: BodyType<ConversationAssignInput>;params?: AssignOfficeConversationParams}> = (props) => {
+          const {conversationId,data,params} = props ?? {};
+
+          return  assignOfficeConversation(conversationId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AssignOfficeConversationMutationResult = NonNullable<Awaited<ReturnType<typeof assignOfficeConversation>>>
+    export type AssignOfficeConversationMutationBody = BodyType<ConversationAssignInput>
+    export type AssignOfficeConversationMutationError = ErrorType<void>
+
+    /**
+ * @summary Claim, assign, or unassign a conversation
+ */
+export const useAssignOfficeConversation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationAssignInput>;params?: AssignOfficeConversationParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof assignOfficeConversation>>,
+        TError,
+        {conversationId: string;data: BodyType<ConversationAssignInput>;params?: AssignOfficeConversationParams},
+        TContext
+      > => {
+      return useMutation(getAssignOfficeConversationMutationOptions(options));
+    }
+
+export const getSetOfficeConversationStatusUrl = (conversationId: string,
+    params?: SetOfficeConversationStatusParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/conversations/${conversationId}/status?${stringifiedParams}` : `/api/office/conversations/${conversationId}/status`
+}
+
+/**
+ * @summary Change a conversation's workflow status (open, waiting on patient, closed; reopen by setting open)
+ */
+export const setOfficeConversationStatus = async (conversationId: string,
+    conversationStatusInput: ConversationStatusInput,
+    params?: SetOfficeConversationStatusParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationMutationResult> => {
+
+  return customFetch<ConversationMutationResult>(getSetOfficeConversationStatusUrl(conversationId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(conversationStatusInput)
+  }
+);}
+
+
+
+
+
+export const getSetOfficeConversationStatusMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setOfficeConversationStatus>>, TError,{conversationId: string;data: BodyType<ConversationStatusInput>;params?: SetOfficeConversationStatusParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setOfficeConversationStatus>>, TError,{conversationId: string;data: BodyType<ConversationStatusInput>;params?: SetOfficeConversationStatusParams}, TContext> => {
+
+const mutationKey = ['setOfficeConversationStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setOfficeConversationStatus>>, {conversationId: string;data: BodyType<ConversationStatusInput>;params?: SetOfficeConversationStatusParams}> = (props) => {
+          const {conversationId,data,params} = props ?? {};
+
+          return  setOfficeConversationStatus(conversationId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetOfficeConversationStatusMutationResult = NonNullable<Awaited<ReturnType<typeof setOfficeConversationStatus>>>
+    export type SetOfficeConversationStatusMutationBody = BodyType<ConversationStatusInput>
+    export type SetOfficeConversationStatusMutationError = ErrorType<void>
+
+    /**
+ * @summary Change a conversation's workflow status (open, waiting on patient, closed; reopen by setting open)
+ */
+export const useSetOfficeConversationStatus = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setOfficeConversationStatus>>, TError,{conversationId: string;data: BodyType<ConversationStatusInput>;params?: SetOfficeConversationStatusParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setOfficeConversationStatus>>,
+        TError,
+        {conversationId: string;data: BodyType<ConversationStatusInput>;params?: SetOfficeConversationStatusParams},
+        TContext
+      > => {
+      return useMutation(getSetOfficeConversationStatusMutationOptions(options));
+    }
+
+export const getReplyOfficeConversationUrl = (conversationId: string,
+    params?: ReplyOfficeConversationParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/conversations/${conversationId}/reply?${stringifiedParams}` : `/api/office/conversations/${conversationId}/reply`
+}
+
+/**
+ * @summary Send a care-team reply into the patient's thread (appears in their app; a push notification is queued)
+ */
+export const replyOfficeConversation = async (conversationId: string,
+    conversationReplyInput: ConversationReplyInput,
+    params?: ReplyOfficeConversationParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationReplyResult> => {
+
+  return customFetch<ConversationReplyResult>(getReplyOfficeConversationUrl(conversationId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(conversationReplyInput)
+  }
+);}
+
+
+
+
+
+export const getReplyOfficeConversationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replyOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReplyInput>;params?: ReplyOfficeConversationParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof replyOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReplyInput>;params?: ReplyOfficeConversationParams}, TContext> => {
+
+const mutationKey = ['replyOfficeConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replyOfficeConversation>>, {conversationId: string;data: BodyType<ConversationReplyInput>;params?: ReplyOfficeConversationParams}> = (props) => {
+          const {conversationId,data,params} = props ?? {};
+
+          return  replyOfficeConversation(conversationId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplyOfficeConversationMutationResult = NonNullable<Awaited<ReturnType<typeof replyOfficeConversation>>>
+    export type ReplyOfficeConversationMutationBody = BodyType<ConversationReplyInput>
+    export type ReplyOfficeConversationMutationError = ErrorType<void>
+
+    /**
+ * @summary Send a care-team reply into the patient's thread (appears in their app; a push notification is queued)
+ */
+export const useReplyOfficeConversation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replyOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReplyInput>;params?: ReplyOfficeConversationParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof replyOfficeConversation>>,
+        TError,
+        {conversationId: string;data: BodyType<ConversationReplyInput>;params?: ReplyOfficeConversationParams},
+        TContext
+      > => {
+      return useMutation(getReplyOfficeConversationMutationOptions(options));
+    }
+
+export const getGetOfficeConversationNotesUrl = (conversationId: string,
+    params?: GetOfficeConversationNotesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/conversations/${conversationId}/notes?${stringifiedParams}` : `/api/office/conversations/${conversationId}/notes`
+}
+
+/**
+ * @summary Internal staff notes on a conversation (never visible to the patient)
+ */
+export const getOfficeConversationNotes = async (conversationId: string,
+    params?: GetOfficeConversationNotesParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationNotesResult> => {
+
+  return customFetch<ConversationNotesResult>(getGetOfficeConversationNotesUrl(conversationId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeConversationNotesQueryKey = (conversationId: string,
+    params?: GetOfficeConversationNotesParams,) => {
+    return [
+    `/api/office/conversations/${conversationId}/notes`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeConversationNotesQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeConversationNotes>>, TError = ErrorType<void>>(conversationId: string,
+    params?: GetOfficeConversationNotesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationNotes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeConversationNotesQueryKey(conversationId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeConversationNotes>>> = ({ signal }) => getOfficeConversationNotes(conversationId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: conversationId !== null && conversationId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationNotes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeConversationNotesQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeConversationNotes>>>
+export type GetOfficeConversationNotesQueryError = ErrorType<void>
+
+
+/**
+ * @summary Internal staff notes on a conversation (never visible to the patient)
+ */
+
+export function useGetOfficeConversationNotes<TData = Awaited<ReturnType<typeof getOfficeConversationNotes>>, TError = ErrorType<void>>(
+ conversationId: string,
+    params?: GetOfficeConversationNotesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeConversationNotes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeConversationNotesQueryOptions(conversationId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAddOfficeConversationNoteUrl = (conversationId: string,
+    params?: AddOfficeConversationNoteParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/conversations/${conversationId}/notes?${stringifiedParams}` : `/api/office/conversations/${conversationId}/notes`
+}
+
+/**
+ * @summary Attach an internal note to a conversation
+ */
+export const addOfficeConversationNote = async (conversationId: string,
+    conversationNoteInput: ConversationNoteInput,
+    params?: AddOfficeConversationNoteParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationNoteResult> => {
+
+  return customFetch<ConversationNoteResult>(getAddOfficeConversationNoteUrl(conversationId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(conversationNoteInput)
+  }
+);}
+
+
+
+
+
+export const getAddOfficeConversationNoteMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addOfficeConversationNote>>, TError,{conversationId: string;data: BodyType<ConversationNoteInput>;params?: AddOfficeConversationNoteParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addOfficeConversationNote>>, TError,{conversationId: string;data: BodyType<ConversationNoteInput>;params?: AddOfficeConversationNoteParams}, TContext> => {
+
+const mutationKey = ['addOfficeConversationNote'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addOfficeConversationNote>>, {conversationId: string;data: BodyType<ConversationNoteInput>;params?: AddOfficeConversationNoteParams}> = (props) => {
+          const {conversationId,data,params} = props ?? {};
+
+          return  addOfficeConversationNote(conversationId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddOfficeConversationNoteMutationResult = NonNullable<Awaited<ReturnType<typeof addOfficeConversationNote>>>
+    export type AddOfficeConversationNoteMutationBody = BodyType<ConversationNoteInput>
+    export type AddOfficeConversationNoteMutationError = ErrorType<void>
+
+    /**
+ * @summary Attach an internal note to a conversation
+ */
+export const useAddOfficeConversationNote = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addOfficeConversationNote>>, TError,{conversationId: string;data: BodyType<ConversationNoteInput>;params?: AddOfficeConversationNoteParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addOfficeConversationNote>>,
+        TError,
+        {conversationId: string;data: BodyType<ConversationNoteInput>;params?: AddOfficeConversationNoteParams},
+        TContext
+      > => {
+      return useMutation(getAddOfficeConversationNoteMutationOptions(options));
+    }
+
+export const getEscalateOfficeConversationUrl = (conversationId: string,
+    params?: EscalateOfficeConversationParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/conversations/${conversationId}/escalations?${stringifiedParams}` : `/api/office/conversations/${conversationId}/escalations`
+}
+
+/**
+ * @summary Escalate a conversation to HQ clinical or support with a reason
+ */
+export const escalateOfficeConversation = async (conversationId: string,
+    conversationEscalationInput: ConversationEscalationInput,
+    params?: EscalateOfficeConversationParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationEscalationResult> => {
+
+  return customFetch<ConversationEscalationResult>(getEscalateOfficeConversationUrl(conversationId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(conversationEscalationInput)
+  }
+);}
+
+
+
+
+
+export const getEscalateOfficeConversationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof escalateOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationEscalationInput>;params?: EscalateOfficeConversationParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof escalateOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationEscalationInput>;params?: EscalateOfficeConversationParams}, TContext> => {
+
+const mutationKey = ['escalateOfficeConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof escalateOfficeConversation>>, {conversationId: string;data: BodyType<ConversationEscalationInput>;params?: EscalateOfficeConversationParams}> = (props) => {
+          const {conversationId,data,params} = props ?? {};
+
+          return  escalateOfficeConversation(conversationId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EscalateOfficeConversationMutationResult = NonNullable<Awaited<ReturnType<typeof escalateOfficeConversation>>>
+    export type EscalateOfficeConversationMutationBody = BodyType<ConversationEscalationInput>
+    export type EscalateOfficeConversationMutationError = ErrorType<void>
+
+    /**
+ * @summary Escalate a conversation to HQ clinical or support with a reason
+ */
+export const useEscalateOfficeConversation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof escalateOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationEscalationInput>;params?: EscalateOfficeConversationParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof escalateOfficeConversation>>,
+        TError,
+        {conversationId: string;data: BodyType<ConversationEscalationInput>;params?: EscalateOfficeConversationParams},
+        TContext
+      > => {
+      return useMutation(getEscalateOfficeConversationMutationOptions(options));
+    }
+
+export const getGetHqEscalationsUrl = (params?: GetHqEscalationsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/escalations?${stringifiedParams}` : `/api/hq/escalations`
+}
+
+/**
+ * @summary HQ escalation queue, limited to the departments the caller's role may handle
+ */
+export const getHqEscalations = async (params?: GetHqEscalationsParams, options?: Parameters<typeof customFetch>[1]): Promise<HqEscalationsResult> => {
+
+  return customFetch<HqEscalationsResult>(getGetHqEscalationsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqEscalationsQueryKey = (params?: GetHqEscalationsParams,) => {
+    return [
+    `/api/hq/escalations`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqEscalationsQueryOptions = <TData = Awaited<ReturnType<typeof getHqEscalations>>, TError = ErrorType<void>>(params?: GetHqEscalationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqEscalations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqEscalationsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqEscalations>>> = ({ signal }) => getHqEscalations(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqEscalations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqEscalationsQueryResult = NonNullable<Awaited<ReturnType<typeof getHqEscalations>>>
+export type GetHqEscalationsQueryError = ErrorType<void>
+
+
+/**
+ * @summary HQ escalation queue, limited to the departments the caller's role may handle
+ */
+
+export function useGetHqEscalations<TData = Awaited<ReturnType<typeof getHqEscalations>>, TError = ErrorType<void>>(
+ params?: GetHqEscalationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqEscalations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqEscalationsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getResolveHqEscalationUrl = (escalationId: string,) => {
+
+
+
+
+  return `/api/hq/escalations/${escalationId}/resolve`
+}
+
+/**
+ * @summary Resolve an escalation
+ */
+export const resolveHqEscalation = async (escalationId: string,
+    hqEscalationResolveInput: HqEscalationResolveInput, options?: Parameters<typeof customFetch>[1]): Promise<ConversationEscalationResult> => {
+
+  return customFetch<ConversationEscalationResult>(getResolveHqEscalationUrl(escalationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqEscalationResolveInput)
+  }
+);}
+
+
+
+
+
+export const getResolveHqEscalationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveHqEscalation>>, TError,{escalationId: string;data: BodyType<HqEscalationResolveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resolveHqEscalation>>, TError,{escalationId: string;data: BodyType<HqEscalationResolveInput>}, TContext> => {
+
+const mutationKey = ['resolveHqEscalation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveHqEscalation>>, {escalationId: string;data: BodyType<HqEscalationResolveInput>}> = (props) => {
+          const {escalationId,data} = props ?? {};
+
+          return  resolveHqEscalation(escalationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResolveHqEscalationMutationResult = NonNullable<Awaited<ReturnType<typeof resolveHqEscalation>>>
+    export type ResolveHqEscalationMutationBody = BodyType<HqEscalationResolveInput>
+    export type ResolveHqEscalationMutationError = ErrorType<void>
+
+    /**
+ * @summary Resolve an escalation
+ */
+export const useResolveHqEscalation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveHqEscalation>>, TError,{escalationId: string;data: BodyType<HqEscalationResolveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resolveHqEscalation>>,
+        TError,
+        {escalationId: string;data: BodyType<HqEscalationResolveInput>},
+        TContext
+      > => {
+      return useMutation(getResolveHqEscalationMutationOptions(options));
+    }
 
 export const getGetOfficeAnalyticsUrl = (params: GetOfficeAnalyticsParams,) => {
   const normalizedParams = new URLSearchParams();

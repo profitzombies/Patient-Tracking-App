@@ -20,6 +20,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -35,14 +36,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Redirect, usePathname, useRouter } from "expo-router";
+import { Redirect, useFocusEffect, usePathname, useRouter } from "expo-router";
 import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
 import { SupportMarkdown } from "@/components/provider/SupportMarkdown";
 import { useColors } from "@/hooks/useColors";
 import { useAppMode } from "@/context/AppModeContext";
 import {
   usePatientAccount,
-  type ChatThreadSnapshot,
   type ChatWireMessage,
 } from "@/context/PatientAccountContext";
 import { localTodayKey } from "@/lib/live-patient-entry";
@@ -53,6 +53,7 @@ import {
   toSupportHistoryContent,
   type SupportRequestMessage,
 } from "@/lib/support-api";
+import { subscribeChatSync } from "@/lib/chat-sync-events";
 
 /** Heritage soft shadows as boxShadow strings (shadow* props warn on web). */
 const CARD_SHADOW = "0 8px 20px rgba(40, 55, 74, 0.07)";
@@ -68,8 +69,9 @@ const SUGGESTED_QUESTIONS = [
 
 interface SupportMessage {
   id: number;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "staff";
   text: string;
+  senderLabel?: string;
   status: "streaming" | "done" | "error";
   /** The provider pressed Stop while this reply was streaming. */
   stopped?: boolean;
@@ -84,6 +86,7 @@ interface SupportMessage {
  */
 function supportWire(m: SupportMessage, clientId: string): ChatWireMessage {
   const wire: ChatWireMessage = { id: clientId, role: m.role, text: m.text };
+  if (m.role === "staff" && m.senderLabel) wire.senderLabel = m.senderLabel;
   if (m.stopped) wire.stopped = true;
   return wire;
 }
@@ -125,6 +128,7 @@ export default function SupportChatScreen() {
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushFailuresRef = useRef(0);
   const hydratedThreadRef = useRef(false);
+  const refreshPromiseRef = useRef<Promise<void> | null>(null);
 
   const clientIdFor = useCallback((localId: number) => {
     const existing = clientIdsRef.current.get(localId);
@@ -162,7 +166,7 @@ export default function SupportChatScreen() {
         const sigs: Array<[string, string]> = [];
         for (const localId of batch) {
           const m = messagesRef.current.find((x) => x.id === localId);
-          if (!m || m.status !== "done") continue;
+          if (!m || m.status !== "done" || m.role === "staff") continue;
           const wire = supportWire(m, clientIdFor(localId));
           wires.push(wire);
           sigs.push([wire.id, JSON.stringify(wire)]);
@@ -192,51 +196,102 @@ export default function SupportChatScreen() {
     }
   }, [clientIdFor]);
 
+  const refreshThread = useCallback((): Promise<void> => {
+    const api = accountApiRef.current;
+    if (!api) return Promise.resolve();
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+    const request = api.fetchChatThread("support", localTodayKey()).then((snapshot) => {
+      if (accountApiRef.current !== api) return;
+      const restored: SupportMessage[] = [];
+      for (const wire of snapshot.messages) {
+        let localId: number | undefined;
+        for (const [candidate, clientId] of clientIdsRef.current) {
+          if (clientId === wire.id) {
+            localId = candidate;
+            break;
+          }
+        }
+        if (localId === undefined) {
+          localId = ++idRef.current;
+          clientIdsRef.current.set(localId, wire.id);
+        }
+        const message: SupportMessage = {
+          id: localId,
+          role: wire.role,
+          text: wire.text,
+          status: "done",
+          ...(wire.senderLabel ? { senderLabel: wire.senderLabel } : {}),
+          ...(wire.stopped ? { stopped: true } : {}),
+        };
+        persistedRef.current.set(wire.id, JSON.stringify(supportWire(message, wire.id)));
+        restored.push(message);
+      }
+      // First load: the stored transcript goes ahead of anything typed while
+      // it was in flight. Later refreshes only append what the server has
+      // that this screen has not seen yet (care-team replies).
+      const firstLoad = !hydratedThreadRef.current;
+      hydratedThreadRef.current = true;
+      setMessages((current) => {
+        const currentClientIds = new Set(
+          current.map((message) => clientIdsRef.current.get(message.id)).filter(Boolean),
+        );
+        const additions = restored.filter(
+          (message) => !currentClientIds.has(clientIdsRef.current.get(message.id)),
+        );
+        if (additions.length === 0) return current;
+        return firstLoad ? [...additions, ...current] : [...current, ...additions];
+      });
+    }).finally(() => {
+      refreshPromiseRef.current = null;
+    });
+    refreshPromiseRef.current = request;
+    return request;
+  }, []);
+
   // Hydration: load the account's stored support thread once per mount.
   // Failures retry a few times, then leave the screen session-only for this
   // visit (the next open tries again). Anything typed while the load ran
   // stays, appended after the stored transcript.
   useEffect(() => {
     if (!realAccount || hydratedThreadRef.current) return;
-    const api = realAccount.api;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
     const run = async () => {
-      let snapshot: ChatThreadSnapshot;
       try {
-        snapshot = await api.fetchChatThread("support", localTodayKey());
+        await refreshThread();
       } catch {
         if (cancelled) return;
         attempts += 1;
         if (attempts < 4) retryTimer = setTimeout(() => void run(), 4000);
-        return;
       }
-      if (cancelled) return;
-      hydratedThreadRef.current = true;
-      const restored = snapshot.messages.map((w) => {
-        const localId = ++idRef.current;
-        clientIdsRef.current.set(localId, w.id);
-        const m: SupportMessage = {
-          id: localId,
-          role: w.role,
-          text: w.text,
-          status: "done",
-        };
-        if (w.stopped) m.stopped = true;
-        // Stored rows are persisted by definition: seed the diff baseline.
-        persistedRef.current.set(w.id, JSON.stringify(supportWire(m, w.id)));
-        return m;
-      });
-      if (restored.length === 0) return;
-      setMessages((prev) => (prev.length === 0 ? restored : [...restored, ...prev]));
     };
     void run();
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [realAccount]);
+  }, [realAccount, refreshThread]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (realAccount) void refreshThread().catch(() => {});
+    }, [realAccount, refreshThread]),
+  );
+
+  useEffect(() => {
+    if (!realAccount) return;
+    const appState = AppState.addEventListener("change", state => {
+      if (state === "active") void refreshThread().catch(() => {});
+    });
+    const unsubscribe = subscribeChatSync(thread => {
+      if (thread === "support") void refreshThread().catch(() => {});
+    });
+    return () => {
+      appState.remove();
+      unsubscribe();
+    };
+  }, [realAccount, refreshThread]);
 
   // Persistence: enqueue every finalized message whose wire shape the
   // account does not have yet — user turns at send, replies when they reach
@@ -246,7 +301,7 @@ export default function SupportChatScreen() {
     if (!realAccount || !hydratedThreadRef.current) return;
     let queued = false;
     for (const m of messages) {
-      if (m.status !== "done") continue;
+      if (m.status !== "done" || m.role === "staff") continue;
       const sig = JSON.stringify(supportWire(m, clientIdFor(m.id)));
       if (persistedRef.current.get(clientIdFor(m.id)) === sig) continue;
       if (!outboxRef.current.includes(m.id)) {
@@ -431,7 +486,7 @@ export default function SupportChatScreen() {
   const submitDraft = () => send(draft);
 
   if (!hydrated) return null;
-  if (mode !== "staff" && pathname === "/support-chat") {
+  if (mode !== "staff" && !realAccount && pathname === "/support-chat") {
     return <Redirect href="/persona" />;
   }
 
@@ -678,6 +733,30 @@ function SupportBubble({
 }) {
   const colors = useColors();
 
+  if (message.role === "staff") {
+    const sender = message.senderLabel?.trim() || "Your care team";
+    return (
+      <View
+        accessible
+        accessibilityLabel={`Care team message from ${sender}: ${message.text}`}
+        style={[
+          styles.bubble,
+          styles.careTeamBubble,
+          {
+            backgroundColor: colors.paperCardAlt,
+            borderColor: colors.navy,
+            borderRadius: colors.radius,
+          },
+        ]}
+      >
+        <Text style={[styles.careTeamLabel, { color: colors.orangeText }]}>
+          {message.senderLabel ? `From your care team · ${sender}` : sender}
+        </Text>
+        <Text style={[styles.bubbleText, { color: colors.navy }]}>{message.text}</Text>
+      </View>
+    );
+  }
+
   if (message.role === "user") {
     return (
       <View
@@ -898,6 +977,19 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     borderWidth: 1,
     maxWidth: "92%",
+  },
+  careTeamBubble: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderLeftWidth: 3,
+    maxWidth: "92%",
+  },
+  careTeamLabel: {
+    fontSize: 9.5,
+    letterSpacing: 0.7,
+    fontFamily: "Inter_700Bold",
+    marginBottom: 6,
+    textTransform: "uppercase",
   },
   bubbleText: {
     fontSize: 14.5,

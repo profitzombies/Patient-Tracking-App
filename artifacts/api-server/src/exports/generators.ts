@@ -37,6 +37,12 @@ export const AUDIT_EXPORT_ACTIONS = [
   "hq_file_uploaded",
   "hq_file_deleted",
   "conversation_transcript_read",
+  "conversation_replied",
+  "conversation_assigned",
+  "conversation_status_changed",
+  "conversation_note_added",
+  "conversation_escalated",
+  "conversation_escalation_resolved",
   "data_export_requested",
   "data_export_downloaded",
 ] as const;

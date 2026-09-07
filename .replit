@@ -256,6 +256,14 @@ args = "privacy-controls"
 task = "workflow.run"
 args = "account-deletion"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "staff-inbox-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "staff-inbox-web"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -912,6 +920,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:account-deletion"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "staff-inbox-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/staff-conversations.test.ts src/routes/staff-inbox.sql.test.ts src/routes/coach-care-team.test.ts src/coach/care-team-history.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "staff-inbox-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:staff-inbox"
 
 [workflows.workflow.metadata]
 isValidation = true

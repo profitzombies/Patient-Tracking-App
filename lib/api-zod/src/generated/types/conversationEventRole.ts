@@ -12,4 +12,5 @@ export type ConversationEventRole = typeof ConversationEventRole[keyof typeof Co
 export const ConversationEventRole = {
   user: 'user',
   assistant: 'assistant',
+  staff: 'staff',
 } as const;

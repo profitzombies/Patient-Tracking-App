@@ -20,3 +20,5 @@ Using `type: integer` in the OpenAPI spec makes orval v8 emit `zod.int()` — a 
 **Why:** the API-Zod barrel exports both generated symbols, so otherwise-valid codegen fails with a duplicate-export collision even though the runtime contract is sound.
 
 **How to apply:** keep a narrowly asserted post-codegen rename for the query type, fail the codegen step if the expected generated declaration is absent, and finish with the root library typecheck.
+
+**The collision fix is an allow-list, not automatic.** Every NEW operation that has both a path parameter and query parameters must be added to the rename list in `lib/api-spec/fix-zod-parameter-type.mjs`, or codegen fails on the duplicate export. Also: a YAML flow-mapping `description` containing `:` or `|` must be quoted, or the spec silently loses the mapping.

@@ -19,6 +19,7 @@ export function pushAvailability(input: {
 
 const NOTIFICATION_ROUTES = new Set([
   '/coach-chat',
+  '/support-chat',
   '/(patient)/today',
   '/(patient)/progress',
   '/(patient)/diary',

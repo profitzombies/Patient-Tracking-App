@@ -25,6 +25,8 @@ const DEFAULT_ACTIONS = [
   'patient_note_added', 'patient_note_deleted', 'patient_weight_recorded', 'patient_weight_updated', 'patient_weight_removed',
   'patient_follow_up_open', 'patient_follow_up_resolved', 'office_team_invited', 'office_team_role_changed',
   'office_team_deactivated', 'office_team_reactivated', 'office_team_signed_out', 'conversation_transcript_read',
+  'conversation_replied', 'conversation_assigned', 'conversation_status_changed', 'conversation_note_added',
+  'conversation_escalated', 'conversation_escalation_resolved',
   'data_export_requested', 'data_export_downloaded', 'access_denied',
 ];
 

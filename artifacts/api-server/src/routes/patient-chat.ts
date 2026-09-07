@@ -244,6 +244,9 @@ function rowToClientMessage(raw: unknown): Record<string, unknown> {
     message.replyToId = row.reply_to_client_id;
   }
   if (row.photo !== null && row.photo !== undefined) message.photo = row.photo;
+  // Care-team replies (written by the staff inbox) carry the sender's
+  // display name so the app can label the bubble.
+  if (row.role === "staff" && typeof row.sender_label === "string") message.senderLabel = row.sender_label;
   return message;
 }
 
@@ -295,7 +298,7 @@ router.get("/patient-chat/:thread", async (req, res) => {
       // when a thread outgrows it, never the latest exchange.
       const stored = await supabaseAdmin(
         "GET",
-        `/rest/v1/patient_chat_messages?conversation_id=eq.${enc(conversationRow.id)}&select=client_id,role,text,stopped,hidden,card,quick_replies,reply_to_client_id,photo&order=seq.desc&limit=${TRANSCRIPT_LIMIT}`,
+        `/rest/v1/patient_chat_messages?conversation_id=eq.${enc(conversationRow.id)}&select=client_id,role,text,stopped,hidden,card,quick_replies,reply_to_client_id,photo,sender_label&order=seq.desc&limit=${TRANSCRIPT_LIMIT}`,
       );
       if (stored.status >= 300 || !Array.isArray(stored.json)) {
         throw new Error(`chat transcript read failed (${stored.status})`);

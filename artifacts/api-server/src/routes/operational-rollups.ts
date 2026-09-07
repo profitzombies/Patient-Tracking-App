@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { requireHqPermission } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { inboxMetrics } from "./staff-conversations";
 
 const router: IRouter = Router();
 
@@ -34,7 +35,11 @@ async function load(providerId: string | null) {
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`operational rollup failed (${result.status})`);
   }
-  return operationalMetrics(result.json[0] as Record<string, unknown> | undefined);
+  const [metrics, inbox] = await Promise.all([
+    Promise.resolve(operationalMetrics(result.json[0] as Record<string, unknown> | undefined)),
+    inboxMetrics(providerId),
+  ]);
+  return { ...metrics, inbox };
 }
 
 /* ---------------------------------------------------------------- ranges */

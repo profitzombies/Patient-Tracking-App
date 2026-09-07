@@ -11,6 +11,6 @@ export type GetOfficeConversationsStatus = typeof GetOfficeConversationsStatus[k
 
 export const GetOfficeConversationsStatus = {
   open: 'open',
+  waiting_patient: 'waiting_patient',
   closed: 'closed',
-  all: 'all',
 } as const;

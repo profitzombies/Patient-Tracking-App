@@ -5,6 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ConversationAssignee } from './conversationAssignee';
+import type { ConversationEscalationRef } from './conversationEscalationRef';
 import type { ConversationSummaryStatus } from './conversationSummaryStatus';
 import type { ConversationSummaryThread } from './conversationSummaryThread';
 
@@ -13,10 +15,23 @@ export interface ConversationSummary {
   patientId: string;
   patientName: string;
   thread: ConversationSummaryThread;
+  /** Persisted workflow status; idle threads past the auto-close window read as closed */
+  status: ConversationSummaryStatus;
+  assignee: ConversationAssignee | null;
+  /** The caller has not read the latest patient message */
+  unread: boolean;
   messageCount: number;
   /** @nullable */
   lastMessageAt: string | null;
+  /** @nullable */
+  lastPatientMessageAt: string | null;
+  /** @nullable */
+  lastStaffReplyAt: string | null;
+  /** Latest message text, trimmed */
+  preview: string;
+  noteCount: number;
+  openEscalation: ConversationEscalationRef | null;
   createdAt: string;
-  /** Derived from lastMessageAt against the organization's auto-close window */
-  status: ConversationSummaryStatus;
+  /** Workflow status is open or waiting, but the thread has been idle past the organization's auto-close window and is reported as closed */
+  autoClosed: boolean;
 }

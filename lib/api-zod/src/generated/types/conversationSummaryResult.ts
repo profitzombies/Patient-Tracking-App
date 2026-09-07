@@ -8,8 +8,8 @@
 import type { ConversationSummary } from './conversationSummary';
 
 export interface ConversationSummaryResult {
-  /** The auto-close window the statuses were derived with */
-  autoCloseDays?: number;
+  /** The organization's conversation auto-close window in days */
+  autoCloseDays: number;
   conversations: ConversationSummary[];
   total: number;
 }

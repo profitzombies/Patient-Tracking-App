@@ -8,6 +8,7 @@
 import type { SupportChatMessageRole } from './supportChatMessageRole';
 
 export interface SupportChatMessage {
+  /** "staff" is a care-team message the patient saw in this thread, replayed to the model as context only. */
   role: SupportChatMessageRole;
   /**
      * Provider questions are capped at 4000 characters by the composer; the higher limit exists because comprehensive assistant answers replay as history on later turns. Clients truncate any longer replayed reply to fit (the model only needs the gist for continuity), keeping request bodies under the JSON size cap.

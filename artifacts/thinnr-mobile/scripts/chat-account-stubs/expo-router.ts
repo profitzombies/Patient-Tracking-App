@@ -6,6 +6,7 @@
  * way — the suite drives persistence, not the persona gate.
  */
 export * from '../onboarding-gate-stubs/expo-router';
+import { useEffect } from 'react';
 import { router } from '../onboarding-gate-stubs/expo-router';
 
 export function useRouter() {
@@ -14,6 +15,10 @@ export function useRouter() {
 
 export function usePathname(): string {
   return '/';
+}
+
+export function useFocusEffect(effect: () => void | (() => void)): void {
+  useEffect(effect, [effect]);
 }
 
 /** The coach screen reads its entry params; the suite opens it bare. */

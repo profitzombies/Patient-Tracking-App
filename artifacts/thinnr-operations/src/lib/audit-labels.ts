@@ -43,7 +43,13 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   training_media_deleted: 'Removed training media',
   training_attachment_downloaded: 'Downloaded a training attachment',
   ai_support_used: 'Used AI Support',
-  conversation_transcript_read: 'Read a coach conversation transcript',
+  conversation_transcript_read: 'Read a patient conversation transcript',
+  conversation_replied: 'Replied to a patient conversation',
+  conversation_assigned: 'Assigned a patient conversation',
+  conversation_status_changed: 'Changed a conversation status',
+  conversation_note_added: 'Added an internal conversation note',
+  conversation_escalated: 'Escalated a conversation to HQ',
+  conversation_escalation_resolved: 'Resolved a conversation escalation',
   data_export_requested: 'Requested a data export',
   data_export_downloaded: 'Downloaded a data export',
   access_denied: 'Was refused access',
@@ -75,10 +81,15 @@ const METADATA_LABELS: Record<string, string> = {
   section: 'Section',
   areaCount: 'Areas',
   dateKey: 'Date',
+  page: 'Page',
+  self: 'Self-assigned',
+  length: 'Characters',
+  department: 'Department',
+  hasNote: 'With note',
 };
 
 /** Keys that are internal record ids: hidden from the office page, shown as fine print at HQ. */
-const ID_KEYS = new Set(['noteId', 'weightId', 'visitId', 'attachmentId']);
+const ID_KEYS = new Set(['noteId', 'weightId', 'visitId', 'attachmentId', 'assigneeUserId', 'previousAssigneeUserId', 'messageClientId', 'escalationId']);
 
 export interface AuditDetail {
   label: string;

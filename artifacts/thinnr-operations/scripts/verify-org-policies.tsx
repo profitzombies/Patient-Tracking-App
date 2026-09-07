@@ -146,7 +146,7 @@ const requests: Array<{ url: string; method: string; body: any }> = [];
 let hqSettings: HqOrganizationSettings;
 let officeSettings: OfficeSettingsDto;
 let conflictNext = false;
-let conversations: Array<{ id: string; status: 'open' | 'closed' }> = [];
+let conversations: Array<{ id: string; status: 'open' | 'waiting_patient' | 'closed'; autoClosed: boolean }> = [];
 
 function hqFixture(): HqOrganizationSettings {
   return {
@@ -221,11 +221,23 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     officeSettings = { ...officeSettings, overrides, effective: previewEffective(officeSettings.hq, overrides) };
     return json(officeSettings);
   }
+  if (method === 'GET' && url.includes('/api/office/conversations/summary')) {
+    return json({ office: { providerId: 'prov-1', officeName: 'Riverside Wellness' }, metrics: { openThreads: 1, waitingOnPatient: 0, closedThreads: 1, unanswered: 1, avgResponseMinutes: null, openEscalations: 0 } });
+  }
+  if (method === 'GET' && url.includes('/api/office/conversations/staff')) {
+    return json({ staff: [{ userId: 'u-admin', label: 'Pat Rivera', kind: 'hq' }] });
+  }
   if (method === 'GET' && url.includes('/api/office/conversations')) {
-    const status = new URL(url, 'http://local').searchParams.get('status') ?? 'open';
-    const rows = conversations.filter((conv) => status === 'all' || conv.status === status);
+    // The inbox RPC files idle threads as closed against HQ's window; the
+    // stub mirrors that by filtering on the effective status.
+    const status = new URL(url, 'http://local').searchParams.get('status');
+    const rows = conversations.filter((conv) => status === null || conv.status === status);
     return json({
-      conversations: rows.map((conv) => ({ id: conv.id, patientId: `pt-${conv.id}`, patientName: `Patient ${conv.id}`, thread: 'coach', messageCount: 3, lastMessageAt: '2026-09-01T00:00:00.000Z', status: conv.status })),
+      conversations: rows.map((conv) => ({
+        id: conv.id, patientId: `pt-${conv.id}`, patientName: `Patient ${conv.id}`, thread: 'coach', status: conv.status, autoClosed: conv.autoClosed,
+        assignee: null, unread: false, messageCount: 3, lastMessageAt: '2026-09-01T00:00:00.000Z', lastPatientMessageAt: '2026-09-01T00:00:00.000Z',
+        lastStaffReplyAt: null, preview: `Preview ${conv.id}`, noteCount: 0, openEscalation: null, createdAt: '2026-08-01T00:00:00.000Z',
+      })),
       total: rows.length,
       autoCloseDays: 14,
     });
@@ -449,19 +461,20 @@ console.log('live conversations — auto-close status');
     accounts: [{ id: 'acct-1', providerId: 'prov-1', officeName: 'Riverside Wellness', providerName: 'Dr. Test', providerRole: 'Owner', providerCode: 'TEST', status: 'active' }],
     findAccount: (id: string | undefined) => (id === 'acct-1' ? { id: 'acct-1', providerId: 'prov-1', officeName: 'Riverside Wellness', providerName: 'Dr. Test', providerRole: 'Owner', providerCode: 'TEST', status: 'active' } : undefined),
   });
-  conversations = [{ id: 'c1', status: 'open' }, { id: 'c2', status: 'closed' }];
+  conversations = [{ id: 'c1', status: 'open', autoClosed: false }, { id: 'c2', status: 'closed', autoClosed: true }];
   requests.length = 0;
   const { root } = await render('/admin/conversations?account=acct-1', <Conversations />, '/admin/conversations');
-  const first = requests.find((request) => request.url.includes('/api/office/conversations'));
-  check('inbox asks for OPEN threads by default', first !== undefined && first.url.includes('status=open'), first?.url);
-  check('open list hides the closed thread', textOf(root).includes('Patient c1') && !textOf(root).includes('Patient c2'));
-  check('auto-close window is stated from the API', textOf(oneByTestId(root, 'text-auto-close-window')) === 'Closes after 14d quiet');
-  await press(oneByTestId(root, 'filter-conversation-status-all'));
-  const all = requests.filter((request) => request.url.includes('/api/office/conversations')).at(-1);
-  check('All refetches with status=all', all !== undefined && all.url.includes('status=all'), all?.url);
-  check('closed threads carry the Closed chip, open ones do not', byTestId(root, 'chip-conversation-closed-c2').length === 1 && byTestId(root, 'chip-conversation-closed-c1').length === 0);
-  await press(oneByTestId(root, 'filter-conversation-status-closed'));
-  check('Closed shows only the filed thread', !textOf(root).includes('Patient c1') && textOf(root).includes('Patient c2'));
+  const first = requests.find((request) => /\/api\/office\/conversations\?/.test(request.url));
+  check('inbox lists every status by default (auto-closed threads included)', first !== undefined && !first.url.includes('status='), first?.url);
+  check('both threads render', textOf(root).includes('Patient c1') && textOf(root).includes('Patient c2'));
+  check('auto-close window is stated from the API', textOf(oneByTestId(root, 'text-auto-close-window')).startsWith('Closes after 14d quiet'));
+  check('auto-closed threads carry the quiet chip, open ones do not', byTestId(root, 'chip-conversation-auto-closed-c2').length === 1 && byTestId(root, 'chip-conversation-auto-closed-c1').length === 0);
+  check('the quiet chip reads as closed', textOf(oneByTestId(root, 'chip-conversation-auto-closed-c2')).includes('closed'));
+  requests.length = 0;
+  const closed = await render('/admin/conversations?account=acct-1&status=closed', <Conversations />, '/admin/conversations');
+  const closedRequest = requests.find((request) => /\/api\/office\/conversations\?/.test(request.url));
+  check('Closed filter asks the API for closed threads', closedRequest !== undefined && closedRequest.url.includes('status=closed'), closedRequest?.url);
+  check('Closed shows only the filed thread', !textOf(closed.root).includes('Patient c1') && textOf(closed.root).includes('Patient c2'));
 }
 
 if (failures) { console.error(`\n${failures} check(s) failed`); process.exit(1); }

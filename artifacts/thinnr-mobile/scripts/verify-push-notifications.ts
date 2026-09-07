@@ -77,6 +77,10 @@ async function main() {
   assert.deepEqual(unregistrations, [{ deviceId: firstId, reason: 'signed_out' }]);
 
   assert.equal(resolveNotificationRoute({ route: '/coach-chat' }), '/coach-chat');
+  assert.equal(
+    resolveNotificationRoute({ route: '/support-chat', kind: 'care_team_reply', thread: 'support' }),
+    '/support-chat',
+  );
   assert.equal(resolveNotificationRoute({ route: '/(patient)/progress' }), '/(patient)/progress');
   assert.equal(resolveNotificationRoute({ route: 'https://evil.example' }), null);
   assert.equal(resolveNotificationRoute({ route: '/account' }), null);

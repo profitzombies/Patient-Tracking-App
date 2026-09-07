@@ -7,12 +7,13 @@
  */
 
 /**
- * Derived from lastMessageAt against the organization's auto-close window
+ * Persisted workflow status; idle threads past the auto-close window read as closed
  */
 export type ConversationSummaryStatus = typeof ConversationSummaryStatus[keyof typeof ConversationSummaryStatus];
 
 
 export const ConversationSummaryStatus = {
   open: 'open',
+  waiting_patient: 'waiting_patient',
   closed: 'closed',
 } as const;

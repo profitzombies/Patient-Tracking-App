@@ -28,7 +28,7 @@ import { MOCK_PATIENTS } from '@/data/mock-data';
 import { TODAY_KEY, formatDateKey } from '@/data/nutrition-data';
 import { useSession } from '@/contexts/session';
 import { formatPercent, percentOf, sumComparison } from '@/lib/office-analytics';
-import { useGetHqOfficeComparison, getGetHqOfficeComparisonQueryKey } from '@workspace/api-client-react';
+import { useGetHqOfficeComparison, getGetHqOfficeComparisonQueryKey, useGetHqOverview, getGetHqOverviewQueryKey } from '@workspace/api-client-react';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
 
@@ -62,6 +62,9 @@ function LiveHqOverview({ firstName }: { firstName: string | null }) {
       },
     },
   );
+  const overview = useGetHqOverview({
+    query: { queryKey: [...getGetHqOverviewQueryKey(), authUser?.id], retry: 1 },
+  });
 
   const rows = comparison.data?.offices ?? [];
   const totals = useMemo(() => sumComparison(rows), [rows]);
@@ -119,6 +122,12 @@ function LiveHqOverview({ firstName }: { firstName: string | null }) {
           href="/admin/accounts"
           testId="text-hq-attention"
         />
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Inbox overview">
+        <MetricLinkTile label="Open threads" value={overview.isPending ? '—' : overview.isError ? 'Error' : fmt(overview.data?.metrics.inbox.openThreads ?? 0)} detail="Live staff inbox" href="/admin/conversations" testId="text-hq-inbox-open" />
+        <MetricLinkTile label="Unanswered" value={overview.isPending ? '—' : overview.isError ? 'Error' : fmt(overview.data?.metrics.inbox.unanswered ?? 0)} detail="Awaiting a staff reply" href="/admin/conversations?sort=waiting_longest" testId="text-hq-inbox-unanswered" />
+        <MetricLinkTile label="Avg response" value={overview.isPending ? '—' : overview.isError ? 'Error' : overview.data?.metrics.inbox.avgResponseMinutes == null ? '—' : overview.data.metrics.inbox.avgResponseMinutes < 60 ? `${Math.round(overview.data.metrics.inbox.avgResponseMinutes)} min` : `${(overview.data.metrics.inbox.avgResponseMinutes / 60).toFixed(1)} h`} detail="Across live conversations" href="/admin/conversations" testId="text-hq-inbox-response" />
+        <MetricLinkTile label="Open escalations" value={overview.isPending ? '—' : overview.isError ? 'Error' : fmt(overview.data?.metrics.inbox.openEscalations ?? 0)} detail="Your permitted HQ queues" href="/admin/escalations" testId="text-hq-inbox-escalations" />
       </div>
 
       <div className="mt-5">

@@ -32,6 +32,7 @@
  * emojis and the EmojiSmoother strips any that slip through, chunk-split
  * ones included, flushing on every stream end (error paths too).
  */
+import { foldCareTeamTurns } from "../coach/care-team-history";
 import { Router, type IRouter } from "express";
 import type { Response } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -187,7 +188,15 @@ router.post("/support/chat", async (req, res) => {
       return;
     }
 
-    const history = parsed.data.messages.slice(-MAX_HISTORY);
+    // Care-team turns replay as context-only user notes; the latest turn
+    // must still be the patient's own message, so a staff line can never be
+    // the thing the model answers.
+    const rawHistory = parsed.data.messages.slice(-MAX_HISTORY);
+    if (rawHistory[rawHistory.length - 1]?.role !== "user") {
+      res.status(400).json({ error: "Last message must be from the user" });
+      return;
+    }
+    const history = foldCareTeamTurns(rawHistory);
     const latest = history[history.length - 1];
     if (!latest || latest.role !== "user") {
       res.status(400).json({ error: "Last message must be from the user" });

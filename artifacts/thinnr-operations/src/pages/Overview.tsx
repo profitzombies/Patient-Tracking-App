@@ -665,6 +665,21 @@ export default function Overview() {
           warning
         />
       </div>
+      {liveEnabled && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Inbox overview">
+          {[
+            ['Open threads', overviewData?.metrics.inbox.openThreads, '/admin/conversations'],
+            ['Unanswered', overviewData?.metrics.inbox.unanswered, '/admin/conversations?sort=waiting_longest'],
+            ['Avg response', overviewData?.metrics.inbox.avgResponseMinutes == null ? '—' : overviewData.metrics.inbox.avgResponseMinutes < 60 ? `${Math.round(overviewData.metrics.inbox.avgResponseMinutes)} min` : `${(overviewData.metrics.inbox.avgResponseMinutes / 60).toFixed(1)} h`, '/admin/conversations'],
+            ['Open escalations', overviewData?.metrics.inbox.openEscalations, '/admin/conversations'],
+          ].map(([label, rawValue, href]) => (
+            <Link key={label} href={href as string} className="block rounded-lg border border-card-border bg-card p-4 shadow-soft transition hover:border-primary/40">
+              <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">{label}</p>
+              <p className="mt-2 font-serif text-2xl font-bold text-navy">{overviewIsLoading ? '—' : overviewIsError ? 'Error' : rawValue ?? '—'}</p>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* Notice Banner */}
       {showNotice && overduePatientsList.length > 0 && (

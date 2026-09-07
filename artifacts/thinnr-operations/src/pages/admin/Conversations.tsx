@@ -1,12 +1,15 @@
 import { useMemo, useState, useEffect } from 'react';
-import { useLocation, useSearch } from 'wouter';
-import { ArrowLeft, MessagesSquare, Search, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Link, useLocation, useSearch } from 'wouter';
+import { ArrowLeft, MessagesSquare, Search, X, AlertTriangle, StickyNote } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_SECONDARY, CHIP_WARM, WARM_TEXT } from '@/components/patient/heritage';
 import { AccountStatusChip } from '@/components/admin/primitives';
 import { useHqData } from '@/contexts/hq-data';
 import { useSession } from '@/contexts/session';
+import { useToast } from '@/hooks/use-toast';
 import { MOCK_PATIENTS, MOCK_PRODUCTS, type Patient } from '@/data/mock-data';
 import type { ProviderAccount } from '@/data/hq/accounts';
 import type { HqRole } from '@/data/hq/team';
@@ -22,10 +25,22 @@ import {
 import {
   useGetOfficeConversations,
   useGetOfficeConversationEvents,
+  useGetOfficeConversationSummary,
+  useGetOfficeConversationStaff,
+  useGetOfficeConversationNotes,
+  useAssignOfficeConversation,
+  useSetOfficeConversationStatus,
+  useReplyOfficeConversation,
+  useAddOfficeConversationNote,
+  useEscalateOfficeConversation,
   getGetOfficeConversationsQueryKey,
   getGetOfficeConversationEventsQueryKey,
+  getGetOfficeConversationNotesQueryKey,
+  getGetOfficeConversationSummaryQueryKey,
+  getGetOfficeConversationStaffQueryKey,
   type GetOfficeConversationsThread,
   type GetOfficeConversationsStatus,
+  type GetOfficeConversationsSort,
   type ConversationEvent,
 } from '@workspace/api-client-react';
 
@@ -175,16 +190,20 @@ function MessageRow({ message }: { message: HqCoachMessage }) {
 
 function LiveMessageRow({ message }: { message: ConversationEvent }) {
   const isUser = message.role === 'user';
+  const isStaff = message.role === 'staff';
   const timeLabel = format(new Date(message.createdAt), 'h:mm a');
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[88%] md:max-w-[72%] ${isUser ? 'items-end' : 'items-start'}`}>
+        {isStaff && <p className="mb-1 text-[10px] font-bold uppercase tracking-[.1em] text-primary">{message.senderLabel ?? 'Care team'}</p>}
         <div
           className={
             isUser
               ? 'rounded-lg rounded-br-sm bg-primary px-3.5 py-2.5 text-primary-foreground shadow-xs'
-              : 'rounded-lg rounded-bl-sm border border-card-border bg-card px-3.5 py-2.5 shadow-soft'
+              : isStaff
+                ? 'rounded-lg rounded-bl-sm border border-primary/25 bg-accent px-3.5 py-2.5 shadow-soft'
+                : 'rounded-lg rounded-bl-sm border border-card-border bg-card px-3.5 py-2.5 shadow-soft'
           }
         >
           {message.text.split('\n\n').map((block, index) => (
@@ -536,69 +555,77 @@ function LiveConversations({ role }: { role: HqRole }) {
   const search = useSearch();
   const { accounts, findAccount } = useHqData();
   const { authUser } = useSession();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const params = new URLSearchParams(search);
-  const rawAccount = params.get('account');
-  const accountFilter = rawAccount && findAccount(rawAccount) ? rawAccount : 'all';
-  const openId = params.get('c');
+  const rawOffice = params.get('office') ?? params.get('account');
+  const accountFilter = rawOffice && findAccount(rawOffice) ? rawOffice : 'all';
+  const openId = params.get('conversation') ?? params.get('c');
+  const threadFilter = (params.get('thread') === 'support' || (!params.has('thread') && role === 'Support') ? 'support' : 'coach') as GetOfficeConversationsThread;
+  const statusFilter = params.get('status') as GetOfficeConversationsStatus | null;
+  const assigneeFilter = params.get('assignee') ?? 'anyone';
+  const unreadOnly = params.get('unread') === 'true';
+  const sortFilter = (params.get('sort') ?? 'newest') as GetOfficeConversationsSort;
+  const queryFilter = params.get('q') ?? '';
 
   const isUnifiedAdmin = role === 'Super Admin' || role === 'Admin';
-
-  const [threadFilter, setThreadFilter] = useState<GetOfficeConversationsThread>(
-    role === 'Support' ? 'support' : 'coach'
-  );
-
-  // Open vs closed is derived server-side from HQ's auto-close window, so the
-  // inbox shows the same state every consumer of the policy sees.
-  const [statusFilter, setStatusFilter] = useState<GetOfficeConversationsStatus>('open');
-
+  const [searchText, setSearchText] = useState(queryFilter);
   const [offset, setOffset] = useState(0);
   const limit = 20;
-
-  const buildUrl = (next: { account?: string; c?: string | null }) => {
-    const url = new URLSearchParams();
-    const account = next.account !== undefined ? next.account : accountFilter;
-    const conversation = next.c !== undefined ? next.c : openId;
-    if (account !== 'all') url.set('account', account);
-    if (conversation) url.set('c', conversation);
-    const encoded = url.toString();
-    return encoded ? `/admin/conversations?${encoded}` : '/admin/conversations';
+  const updateUrl = (changes: Record<string, string | null>, replace = true) => {
+    const next = new URLSearchParams(search);
+    next.delete('account'); next.delete('c');
+    Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    navigate(`/admin/conversations${next.toString() ? `?${next}` : ''}`, { replace });
   };
 
   const setAccountFilter = (next: string) => {
     setOffset(0);
-    navigate(buildUrl({ account: next, c: null }), { replace: true });
+    updateUrl({ office: next === 'all' ? null : next, conversation: null });
   };
 
   const handleThreadChange = (next: GetOfficeConversationsThread) => {
     setOffset(0);
-    setThreadFilter(next);
-    navigate(buildUrl({ c: null }), { replace: true });
+    updateUrl({ thread: next, conversation: null });
   };
 
-  const openConversation = (id: string) => navigate(buildUrl({ c: id }));
-  const closeThread = () => navigate(buildUrl({ c: null }), { replace: true });
+  const openConversation = (id: string) => updateUrl({ conversation: id }, false);
+  const closeThread = () => updateUrl({ conversation: null });
+
+  useEffect(() => {
+    setSearchText(queryFilter);
+  }, [queryFilter]);
+  useEffect(() => {
+    if (searchText === queryFilter) return;
+    const timer = window.setTimeout(() => { setOffset(0); updateUrl({ q: searchText.trim() || null, conversation: null }); }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchText, queryFilter]);
 
   const resolvedOffice = accountFilter !== 'all' ? accountFilter : undefined;
+  const listParams = {
+    office: resolvedOffice, thread: threadFilter,
+    status: statusFilter ?? undefined,
+    assignee: assigneeFilter === 'anyone' ? undefined : assigneeFilter,
+    unread: unreadOnly || undefined, q: queryFilter || undefined,
+    sort: sortFilter, limit, offset,
+  };
 
   const { data: convData, isFetching: isConvFetching, error: convError } = useGetOfficeConversations(
-    { office: resolvedOffice, thread: threadFilter, status: statusFilter, limit, offset },
+    listParams,
     {
       query: {
         enabled: !!resolvedOffice,
-        queryKey: [...getGetOfficeConversationsQueryKey({ office: resolvedOffice, thread: threadFilter, status: statusFilter, limit, offset }), authUser?.id],
+        queryKey: [...getGetOfficeConversationsQueryKey(listParams), authUser?.id],
       }
     }
   );
+  const summary = useGetOfficeConversationSummary({ office: resolvedOffice }, { query: { enabled: !!resolvedOffice, queryKey: getGetOfficeConversationSummaryQueryKey({ office: resolvedOffice }) } });
+  const staff = useGetOfficeConversationStaff({ office: resolvedOffice }, { query: { enabled: !!resolvedOffice, queryKey: getGetOfficeConversationStaffQueryKey({ office: resolvedOffice }) } });
 
   const conversations = convData?.conversations ?? [];
   const total = convData?.total ?? 0;
   const autoCloseDays = convData?.autoCloseDays;
-  const handleStatusChange = (next: GetOfficeConversationsStatus) => {
-    setOffset(0);
-    setStatusFilter(next);
-    navigate(buildUrl({ c: null }), { replace: true });
-  };
   const hasMore = offset + limit < total;
   const hasPrev = offset > 0;
 
@@ -627,15 +654,70 @@ function LiveConversations({ role }: { role: HqRole }) {
         const newEvents = eventsData.events.filter(e => !prev.some(p => p.seq === e.seq));
         return [...prev, ...newEvents].sort((a, b) => a.seq - b.seq);
       });
+      if (beforeCursor === undefined) queryClient.invalidateQueries({ queryKey: ['/api/office/conversations'] });
     }
   }, [eventsData?.events]);
 
   const explicit = openId;
   const selectedSummary = eventsData?.conversation ?? conversations.find(c => c.id === openId);
+  const notes = useGetOfficeConversationNotes(openId ?? '', { office: resolvedOffice }, { query: { enabled: !!openId && !!resolvedOffice, queryKey: getGetOfficeConversationNotesQueryKey(openId ?? '', { office: resolvedOffice }) } });
+  const assign = useAssignOfficeConversation();
+  const setStatus = useSetOfficeConversationStatus();
+  const reply = useReplyOfficeConversation();
+  const addNote = useAddOfficeConversationNote();
+  const escalate = useEscalateOfficeConversation();
+  const [replyText, setReplyText] = useState('');
+  const [noteText, setNoteText] = useState('');
+  const [escalationOpen, setEscalationOpen] = useState(false);
+  const [department, setDepartment] = useState<'clinical' | 'support'>('clinical');
+  const [reason, setReason] = useState('');
+  const [escalationError, setEscalationError] = useState<string | null>(null);
+
+  const refresh = async (includeEvents = false) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['/api/office/conversations'] }),
+      queryClient.invalidateQueries({ queryKey: ['/api/office/conversations/summary'] }),
+      ...(includeEvents && openId ? [queryClient.invalidateQueries({ queryKey: [`/api/office/conversations/${openId}/events`] })] : []),
+    ]);
+  };
+  const mutationError = (title: string, error: unknown) => {
+    const status = (error as { status?: number })?.status;
+    toast({ variant: 'destructive', title, description: status === 403 ? 'You do not have permission to perform this action.' : error instanceof Error ? error.message : 'Try again.' });
+  };
+  const changeAssignment = async (assigneeUserId: string | null) => {
+    if (!openId) return;
+    try { await assign.mutateAsync({ conversationId: openId, data: { assigneeUserId }, params: { office: resolvedOffice } }); await refresh(); toast({ variant: 'success', title: assigneeUserId === 'me' ? 'Conversation claimed' : 'Assignment updated' }); }
+    catch (e) { mutationError('Assignment not updated', e); }
+  };
+  const changeStatus = async (status: 'open' | 'waiting_patient' | 'closed') => {
+    if (!openId) return;
+    try { await setStatus.mutateAsync({ conversationId: openId, data: { status }, params: { office: resolvedOffice } }); await refresh(); toast({ variant: 'success', title: status === 'open' ? 'Conversation reopened' : 'Status updated' }); }
+    catch (e) { mutationError('Status not updated', e); }
+  };
+  const sendReply = async () => {
+    if (!openId || !replyText.trim()) return;
+    try {
+      const result = await reply.mutateAsync({ conversationId: openId, data: { text: replyText.trim() }, params: { office: resolvedOffice } });
+      setAllEvents(prev => [...prev.filter(e => e.seq !== result.event.seq), result.event].sort((a, b) => a.seq - b.seq));
+      setReplyText(''); await refresh(true); toast({ variant: 'success', title: 'Reply sent' });
+    } catch (e) { mutationError('Reply not sent', e); }
+  };
+  const saveNote = async () => {
+    if (!openId || !noteText.trim()) return;
+    try { await addNote.mutateAsync({ conversationId: openId, data: { body: noteText.trim() }, params: { office: resolvedOffice } }); setNoteText(''); await queryClient.invalidateQueries({ queryKey: getGetOfficeConversationNotesQueryKey(openId, { office: resolvedOffice }) }); await refresh(); toast({ variant: 'success', title: 'Internal note added' }); }
+    catch (e) { mutationError('Note not added', e); }
+  };
+  const submitEscalation = async () => {
+    if (!openId || !reason.trim()) return;
+    setEscalationError(null);
+    try { await escalate.mutateAsync({ conversationId: openId, data: { department, reason: reason.trim() }, params: { office: resolvedOffice } }); setEscalationOpen(false); setReason(''); await refresh(); toast({ variant: 'success', title: 'Conversation escalated' }); }
+    catch (e) { if ((e as { status?: number })?.status === 409) setEscalationError('This conversation is already escalated.'); else mutationError('Conversation not escalated', e); }
+  };
+  const avgLabel = (minutes: number | null | undefined) => minutes == null ? '—' : minutes < 60 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
 
   const listPane = (
     <aside
-      className={`${explicit ? 'hidden md:flex' : 'flex'} w-full min-w-0 flex-col border-r border-border bg-paper-alt md:w-[320px] md:shrink-0 lg:w-[352px]`}
+      className={`${explicit ? 'hidden lg:flex' : 'flex'} w-full min-w-0 flex-col border-r border-border bg-paper-alt lg:w-[410px] lg:shrink-0`}
     >
       <div className="shrink-0 space-y-2.5 border-b border-border px-4 pb-3.5 pt-4">
         <div className="flex items-baseline justify-between gap-2">
@@ -667,26 +749,6 @@ function LiveConversations({ role }: { role: HqRole }) {
           </div>
         )}
 
-        <div className="flex items-center gap-2" role="group" aria-label="Conversation status">
-          {(['open', 'closed', 'all'] as const).map((status) => (
-            <button
-              key={status}
-              type="button"
-              aria-pressed={statusFilter === status}
-              onClick={() => handleStatusChange(status)}
-              data-testid={`filter-conversation-status-${status}`}
-              className={`rounded-sm border px-2 py-1 text-[10px] font-bold uppercase tracking-[.06em] transition ${statusFilter === status ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`}
-            >
-              {status === 'all' ? 'All' : status === 'open' ? 'Open' : 'Closed'}
-            </button>
-          ))}
-          {autoCloseDays !== undefined && (
-            <span className="ml-auto text-[10px] text-muted-foreground" data-testid="text-auto-close-window">
-              Closes after {autoCloseDays}d quiet
-            </span>
-          )}
-        </div>
-
         <Select value={accountFilter} onValueChange={setAccountFilter}>
           <SelectTrigger className="h-9 w-full text-xs">
             <SelectValue>{accountFilter === 'all' ? 'Select a provider account...' : findAccount(accountFilter)?.officeName}</SelectValue>
@@ -705,6 +767,45 @@ function LiveConversations({ role }: { role: HqRole }) {
             ))}
           </SelectContent>
         </Select>
+        {resolvedOffice && (
+          <>
+            {summary.isPending ? <p className="text-[11px] text-muted-foreground">Loading inbox metrics…</p> :
+             summary.isError ? <p role="alert" className="text-[11px] text-destructive">Inbox metrics could not be loaded.</p> :
+             <div className="grid grid-cols-5 gap-1" aria-label="Inbox metrics">
+               {[
+                 ['Open', summary.data?.metrics.openThreads],
+                 ['Waiting', summary.data?.metrics.waitingOnPatient],
+                 ['Unanswered', summary.data?.metrics.unanswered],
+                 ['Avg response', avgLabel(summary.data?.metrics.avgResponseMinutes)],
+                 ['Escalated', summary.data?.metrics.openEscalations],
+               ].map(([label, value]) => <div key={label} className="rounded-md border border-card-border bg-card p-1.5 text-center"><b className="block font-serif text-sm text-navy">{value}</b><span className="text-[8px] uppercase text-muted-foreground">{label}</span></div>)}
+             </div>}
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-2.5 text-muted-foreground" />
+              <input aria-label="Search conversations" value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="Search patient or messages" className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-xs" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Select value={statusFilter ?? 'all'} onValueChange={value => { setOffset(0); updateUrl({ status: value === 'all' ? null : value, conversation: null }); }}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="all">Any status</SelectItem><SelectItem value="open">Open</SelectItem><SelectItem value="waiting_patient">Waiting on patient</SelectItem><SelectItem value="closed">Closed</SelectItem></SelectContent>
+              </Select>
+              <Select value={assigneeFilter} onValueChange={value => { setOffset(0); updateUrl({ assignee: value === 'anyone' ? null : value, conversation: null }); }}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="anyone">Anyone</SelectItem><SelectItem value="me">Mine</SelectItem><SelectItem value="unassigned">Unassigned</SelectItem>{staff.data?.staff.map(person => <SelectItem key={person.userId} value={person.userId}>{person.label}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={sortFilter} onValueChange={value => { setOffset(0); updateUrl({ sort: value === 'newest' ? null : value, conversation: null }); }}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="newest">Newest</SelectItem><SelectItem value="oldest">Oldest</SelectItem><SelectItem value="waiting_longest">Waiting longest</SelectItem><SelectItem value="unread_first">Unread first</SelectItem></SelectContent>
+              </Select>
+              <label className="flex h-8 items-center gap-2 rounded-md border border-input bg-background px-2 text-xs"><input type="checkbox" checked={unreadOnly} onChange={e => { setOffset(0); updateUrl({ unread: e.target.checked ? 'true' : null, conversation: null }); }} /> Unread only</label>
+            </div>
+            {autoCloseDays !== undefined && (
+              <p className="text-[10px] text-muted-foreground" data-testid="text-auto-close-window">
+                Closes after {autoCloseDays}d quiet · set in HQ organization policies
+              </p>
+            )}
+          </>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -727,25 +828,25 @@ function LiveConversations({ role }: { role: HqRole }) {
                 const isActive = openId === conv.id;
                 return (
                   <li key={conv.id}>
-                    <button
-                      type="button"
-                      onClick={() => openConversation(conv.id)}
+                     <Link
+                       href={`/admin/conversations?${new URLSearchParams({ ...(resolvedOffice ? { office: resolvedOffice } : {}), thread: threadFilter, conversation: conv.id }).toString()}`}
+                       onClick={(event) => { event.preventDefault(); openConversation(conv.id); }}
                       className={`flex w-full items-start gap-3 border-l-2 px-3.5 py-3 text-left transition ${isActive ? 'border-primary bg-card shadow-soft' : 'border-transparent hover:bg-card/70'}`}
                     >
+                       {conv.unread && <span className="mt-4 h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Unread conversation" />}
                       <InitialsAvatar name={conv.patientName} />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline justify-between gap-2">
-                          <b className="truncate text-xs font-semibold text-navy">{conv.patientName}</b>
+                           <b className={`truncate text-xs text-navy ${conv.unread ? 'font-bold' : 'font-semibold'}`}>{conv.patientName}</b>
                           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
                             {conv.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : ''}
                           </span>
                         </span>
-                        <span className="mt-0.5 flex items-center gap-2 text-[11px] leading-snug text-muted-foreground">
-                          <span>{conv.messageCount} message{conv.messageCount !== 1 ? 's' : ''}</span>
-                          {conv.status === 'closed' && <span className={CHIP_WARM} data-testid={`chip-conversation-closed-${conv.id}`}>Closed</span>}
-                        </span>
+                         <span className="mt-1 flex flex-wrap gap-1 text-[9px] font-semibold uppercase"><span className={CHIP_WARM}>{conv.thread}</span><span className="rounded bg-secondary px-1.5 py-0.5" data-testid={conv.autoClosed ? `chip-conversation-auto-closed-${conv.id}` : undefined}>{conv.autoClosed ? 'closed · quiet' : conv.status.replace('_', ' ')}</span>{conv.openEscalation && <span className="rounded bg-warn-bg px-1.5 py-0.5 text-warn">Escalated · {conv.openEscalation.department}</span>}</span>
+                         <span className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{conv.preview || `${conv.messageCount} messages`}</span>
+                         <span className="mt-1 flex gap-2 text-[10px] text-muted-foreground"><span>{conv.assignee?.label ?? 'Unassigned'}</span>{conv.noteCount > 0 && <span>{conv.noteCount} note{conv.noteCount === 1 ? '' : 's'}</span>}</span>
                       </span>
-                    </button>
+                     </Link>
                   </li>
                 );
               })}
@@ -775,10 +876,10 @@ function LiveConversations({ role }: { role: HqRole }) {
             <p className="mt-2 text-xs font-semibold text-navy">No conversations</p>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               {statusFilter === 'open'
-                ? `No open ${threadFilter} conversations for this account. Threads quiet for ${autoCloseDays ?? 'the auto-close'} days are filed under Closed.`
+                ? `No open ${threadFilter} conversations match. Threads quiet for ${autoCloseDays ?? 'the auto-close'} days are filed under Closed.`
                 : statusFilter === 'closed'
-                  ? `No closed ${threadFilter} conversations for this account yet.`
-                  : `No live ${threadFilter} transcripts for this account yet.`}
+                  ? `No closed ${threadFilter} conversations match yet.`
+                  : `No live ${threadFilter} conversations match yet.`}
             </p>
           </div>
         )}
@@ -816,9 +917,32 @@ function LiveConversations({ role }: { role: HqRole }) {
               </div>
             </div>
           </header>
+           {selectedSummary && (
+             <div className="flex flex-wrap items-center gap-2 border-b border-border bg-paper-alt px-4 py-2 md:px-6">
+               <button className={`${BTN_SECONDARY} h-8 px-3 text-xs`} disabled={assign.isPending} onClick={() => changeAssignment('me')}>Claim</button>
+               <Select value={selectedSummary.assignee?.userId ?? 'unassigned'} onValueChange={value => changeAssignment(value === 'unassigned' ? null : value)}>
+                 <SelectTrigger aria-label="Assign conversation" className="h-8 w-[170px] text-xs"><SelectValue /></SelectTrigger>
+                 <SelectContent><SelectItem value="unassigned">Unassign</SelectItem>{staff.data?.staff.map(person => <SelectItem key={person.userId} value={person.userId}>{person.label}</SelectItem>)}</SelectContent>
+               </Select>
+               <div className="flex rounded-md bg-muted p-1" aria-label="Conversation status">
+                 {selectedSummary.status === 'closed' ? (
+                   <>
+                     {selectedSummary.autoClosed && <span className="self-center px-2 text-[10px] text-muted-foreground">Closed after {autoCloseDays ?? '—'}d quiet</span>}
+                     <button className="rounded-sm bg-card px-3 py-1 text-xs font-semibold" disabled={setStatus.isPending} onClick={() => changeStatus('open')}>Reopen</button>
+                   </>
+                 ) : <>
+                   {([['open', 'Open'], ['waiting_patient', 'Waiting on patient'], ['closed', 'Closed']] as const).map(([value, label]) => (
+                     <button key={value} disabled={setStatus.isPending} onClick={() => changeStatus(value)} className={`rounded-sm px-2 py-1 text-[10px] font-semibold ${selectedSummary.status === value ? 'bg-card text-navy shadow-xs' : 'text-muted-foreground'}`}>{label}</button>
+                   ))}
+                 </>}
+               </div>
+               <button className={`${BTN_SECONDARY} ml-auto h-8 px-3 text-xs`} disabled={!!selectedSummary.openEscalation} onClick={() => setEscalationOpen(true)}><AlertTriangle size={12} /> {selectedSummary.openEscalation ? 'Escalated' : 'Escalate'}</button>
+             </div>
+           )}
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6 flex flex-col">
-            <div className="mx-auto w-full max-w-[820px] space-y-4 flex flex-col justify-end">
+           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
+             <div className="mx-auto grid w-full max-w-[1050px] gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
+             <div className="space-y-4 flex flex-col justify-end">
               {eventsData?.nextBefore && (
                 <div className="text-center pb-4">
                   <button
@@ -847,12 +971,22 @@ function LiveConversations({ role }: { role: HqRole }) {
                 </>
               )}
             </div>
+             <aside className="rounded-lg border border-card-border bg-card p-4 shadow-soft">
+               <div className="flex items-center gap-2"><StickyNote size={14} className="text-primary" /><h3 className="font-serif text-sm font-bold text-navy">Internal notes</h3></div>
+               <p className="mt-1 text-[10px] font-semibold text-warn">Internal — patients never see notes</p>
+               {notes.isError ? <p role="alert" className="mt-3 text-xs text-destructive">Notes could not be loaded.</p> :
+                <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto">{notes.data?.notes.map(note => <li key={note.id} className="rounded-md bg-paper-alt p-2 text-xs"><p>{note.body}</p><p className="mt-1 text-[9px] text-muted-foreground">{note.authorLabel} · {formatRelativeTime(note.createdAt)}</p></li>)}</ul>}
+               <textarea aria-label="New internal note" value={noteText} onChange={e => setNoteText(e.target.value)} maxLength={4000} rows={3} className="mt-3 w-full rounded-md border border-input bg-background p-2 text-xs" />
+               <button className={`${BTN_SECONDARY} mt-2 h-8 px-3 text-xs`} disabled={addNote.isPending || !noteText.trim()} onClick={saveNote}>{addNote.isPending ? 'Adding…' : 'Add note'}</button>
+             </aside>
+             </div>
           </div>
 
-          <footer className="shrink-0 border-t border-border bg-card px-4 py-2.5 md:px-6">
-            <p className="text-[10px] leading-relaxed text-muted-foreground">
-              Read-only live transcript. You are viewing real user history. Use carefully.
-            </p>
+           <footer className="shrink-0 border-t border-border bg-card px-4 py-3 md:px-6">
+             <div className="mx-auto flex max-w-[1050px] gap-2">
+               <textarea aria-label="Reply to patient" value={replyText} onChange={e => setReplyText(e.target.value)} maxLength={4000} rows={2} placeholder="Write a care-team reply…" className="min-w-0 flex-1 rounded-md border border-input bg-background p-2 text-xs" />
+               <button className="rounded-md bg-primary px-4 text-xs font-bold text-primary-foreground disabled:opacity-50" disabled={reply.isPending || !replyText.trim()} onClick={sendReply}>{reply.isPending ? 'Sending…' : 'Send'}</button>
+             </div>
           </footer>
         </>
       ) : (
@@ -872,6 +1006,15 @@ function LiveConversations({ role }: { role: HqRole }) {
     <div className="flex h-full min-h-0">
       {listPane}
       {viewerPane}
+       <Dialog open={escalationOpen} onOpenChange={setEscalationOpen}>
+         <DialogContent>
+           <DialogHeader><DialogTitle>Escalate to HQ</DialogTitle><DialogDescription>Send this conversation to the appropriate HQ queue.</DialogDescription></DialogHeader>
+           <fieldset className="flex gap-4 text-sm"><legend className="sr-only">Department</legend><label><input type="radio" checked={department === 'clinical'} onChange={() => setDepartment('clinical')} /> Clinical</label><label><input type="radio" checked={department === 'support'} onChange={() => setDepartment('support')} /> Support</label></fieldset>
+           <textarea aria-label="Escalation reason" value={reason} onChange={e => setReason(e.target.value)} maxLength={2000} rows={5} className="w-full rounded-md border border-input p-3 text-sm" placeholder="Reason for escalation" />
+           {escalationError && <p role="alert" className="text-sm text-destructive">{escalationError}</p>}
+           <DialogFooter><button className={BTN_SECONDARY} onClick={() => setEscalationOpen(false)}>Cancel</button><button className="rounded-md bg-primary px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50" disabled={escalate.isPending || !reason.trim()} onClick={submitEscalation}>{escalate.isPending ? 'Escalating…' : 'Escalate'}</button></DialogFooter>
+         </DialogContent>
+       </Dialog>
     </div>
   );
 }

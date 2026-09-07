@@ -9,6 +9,7 @@ import type { CoachChatMessagePhotoKind } from './coachChatMessagePhotoKind';
 import type { CoachChatMessageRole } from './coachChatMessageRole';
 
 export interface CoachChatMessage {
+  /** "staff" is a care-team message the patient saw in this thread. The server replays it to the model as context only; the coach never answers it or speaks for the care team. */
   role: CoachChatMessageRole;
   /** @maxLength 4000 */
   content: string;

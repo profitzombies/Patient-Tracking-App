@@ -20,7 +20,7 @@ export const supportChatBodyMessagesMax = 30;
 
 export const SupportChatBody = zod.object({
   "messages": zod.array(zod.object({
-  "role": zod.enum(['user', 'assistant']),
+  "role": zod.enum(['user', 'assistant', 'staff']).describe('\"staff\" is a care-team message the patient saw in this thread, replayed to the model as context only.'),
   "content": zod.string().max(supportChatBodyMessagesItemContentMax).describe('Provider questions are capped at 4000 characters by the composer; the higher limit exists because comprehensive assistant answers replay as history on later turns. Clients truncate any longer replayed reply to fit (the model only needs the gist for continuity), keeping request bodies under the JSON size cap.'),
   "stopped": zod.boolean().optional().describe('True when the provider stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off text. Ignored on user messages.')
 })).min(1).max(supportChatBodyMessagesMax)
@@ -49,7 +49,7 @@ export const coachChatBodyLocalDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$')
 
 export const CoachChatBody = zod.object({
   "messages": zod.array(zod.object({
-  "role": zod.enum(['user', 'assistant']),
+  "role": zod.enum(['user', 'assistant', 'staff']).describe('\"staff\" is a care-team message the patient saw in this thread. The server replays it to the model as context only; the coach never answers it or speaks for the care team.'),
   "content": zod.string().max(coachChatBodyMessagesItemContentMax),
   "stopped": zod.boolean().optional().describe('True when the patient stopped this assistant reply mid-stream, so its text is an incomplete fragment. The server annotates flagged replies before replaying them to the model, keeping the next answer from continuing the cut-off sentence. Ignored on user messages.'),
   "image": zod.string().max(coachChatBodyMessagesItemImageMax).optional().describe('Optional photo attached to this user message, as a base64 data URI (JPEG, PNG, or WebP). Honored only on the final message of the request — history replays carry text only, so a photo is never re-sent on later turns. Analyzed in memory and never stored. Ignored on assistant messages.'),
@@ -1149,15 +1149,27 @@ export const GetOfficeOverviewResponse = zod.object({
   "watchlist": zod.number(),
   "loggingLapsed": zod.number(),
   "checkInsOverdue": zod.number(),
-  "avgPoundsLost": zod.number().nullable()
+  "avgPoundsLost": zod.number().nullable(),
+  "inbox": zod.object({
+  "openThreads": zod.number(),
+  "waitingOnPatient": zod.number(),
+  "closedThreads": zod.number(),
+  "unanswered": zod.number().describe('Open threads whose latest patient message has no care-team reply yet'),
+  "avgResponseMinutes": zod.number().nullable().describe('Mean minutes from a patient message to the next care-team reply; null before any reply'),
+  "openEscalations": zod.number()
+})
 })
 })
 
 
 /**
- * @summary List privacy-safe patient conversation summaries for an authorized office
+ * @summary Staff inbox — filterable, sortable, searchable conversation summaries for an authorized office
  */
-export const getOfficeConversationsQueryStatusDefault = `all`;
+export const getOfficeConversationsQueryAssigneeMax = 80;
+
+export const getOfficeConversationsQueryQMax = 120;
+
+export const getOfficeConversationsQuerySortDefault = `newest`;
 export const getOfficeConversationsQueryLimitDefault = 50;
 export const getOfficeConversationsQueryLimitMax = 100;
 
@@ -1169,29 +1181,87 @@ export const getOfficeConversationsQueryOffsetMin = 0;
 export const GetOfficeConversationsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "thread": zod.enum(['coach', 'support']).optional(),
-  "status": zod.enum(['open', 'closed', 'all']).default(getOfficeConversationsQueryStatusDefault).describe('Auto-close filter. A conversation is closed once it has been idle for the organization\'s conversation auto-close window (HQ settings).'),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']).optional().describe('Workflow status filter. Threads idle longer than the organization\'s conversation auto-close window (HQ settings) count as closed.'),
+  "assignee": zod.coerce.string().max(getOfficeConversationsQueryAssigneeMax).optional().describe('\"me\", \"unassigned\", or a staff user id'),
+  "unread": zod.coerce.boolean().optional().describe('Only conversations with patient messages the caller has not read'),
+  "q": zod.coerce.string().max(getOfficeConversationsQueryQMax).optional().describe('Patient name or message text search'),
+  "sort": zod.enum(['newest', 'oldest', 'waiting_longest', 'unread_first']).default(getOfficeConversationsQuerySortDefault),
   "limit": zod.coerce.number().min(1).max(getOfficeConversationsQueryLimitMax).default(getOfficeConversationsQueryLimitDefault),
   "offset": zod.coerce.number().min(getOfficeConversationsQueryOffsetMin).default(getOfficeConversationsQueryOffsetDefault)
 })
 
 export const GetOfficeConversationsResponse = zod.object({
-  "autoCloseDays": zod.number().optional().describe('The auto-close window the statuses were derived with'),
+  "autoCloseDays": zod.number().describe('The organization\'s conversation auto-close window in days'),
   "conversations": zod.array(zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
   "thread": zod.enum(['coach', 'support']),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
+  "assignee": zod.union([zod.object({
+  "userId": zod.string(),
+  "label": zod.string()
+}),zod.null()]),
+  "unread": zod.boolean().describe('The caller has not read the latest patient message'),
   "messageCount": zod.number(),
   "lastMessageAt": zod.string().nullable(),
+  "lastPatientMessageAt": zod.string().nullable(),
+  "lastStaffReplyAt": zod.string().nullable(),
+  "preview": zod.string().describe('Latest message text, trimmed'),
+  "noteCount": zod.number(),
+  "openEscalation": zod.union([zod.object({
+  "id": zod.string(),
+  "department": zod.enum(['clinical', 'support'])
+}),zod.null()]),
   "createdAt": zod.string(),
-  "status": zod.enum(['open', 'closed']).describe('Derived from lastMessageAt against the organization\'s auto-close window')
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
 })),
   "total": zod.number()
 })
 
 
 /**
- * @summary Read a paginated patient transcript in an authorized office
+ * @summary Inbox header metrics for an authorized office (open threads, unanswered, response time)
+ */
+export const GetOfficeConversationSummaryQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficeConversationSummaryResponse = zod.object({
+  "scope": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string()
+}),
+  "asOf": zod.string(),
+  "metrics": zod.object({
+  "openThreads": zod.number(),
+  "waitingOnPatient": zod.number(),
+  "closedThreads": zod.number(),
+  "unanswered": zod.number().describe('Open threads whose latest patient message has no care-team reply yet'),
+  "avgResponseMinutes": zod.number().nullable().describe('Mean minutes from a patient message to the next care-team reply; null before any reply'),
+  "openEscalations": zod.number()
+})
+})
+
+
+/**
+ * @summary Staff members a conversation in this office can be assigned to
+ */
+export const GetOfficeConversationStaffQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficeConversationStaffResponse = zod.object({
+  "staff": zod.array(zod.object({
+  "userId": zod.string(),
+  "label": zod.string(),
+  "kind": zod.enum(['provider', 'team_member'])
+}))
+})
+
+
+/**
+ * @summary Read a paginated patient transcript in an authorized office (the newest page marks the thread read for the caller)
  */
 export const GetOfficeConversationEventsParams = zod.object({
   "conversationId": zod.coerce.string()
@@ -1215,19 +1285,347 @@ export const GetOfficeConversationEventsResponse = zod.object({
   "patientId": zod.string(),
   "patientName": zod.string(),
   "thread": zod.enum(['coach', 'support']),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
+  "assignee": zod.union([zod.object({
+  "userId": zod.string(),
+  "label": zod.string()
+}),zod.null()]),
+  "unread": zod.boolean().describe('The caller has not read the latest patient message'),
   "messageCount": zod.number(),
   "lastMessageAt": zod.string().nullable(),
+  "lastPatientMessageAt": zod.string().nullable(),
+  "lastStaffReplyAt": zod.string().nullable(),
+  "preview": zod.string().describe('Latest message text, trimmed'),
+  "noteCount": zod.number(),
+  "openEscalation": zod.union([zod.object({
+  "id": zod.string(),
+  "department": zod.enum(['clinical', 'support'])
+}),zod.null()]),
   "createdAt": zod.string(),
-  "status": zod.enum(['open', 'closed']).describe('Derived from lastMessageAt against the organization\'s auto-close window')
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
 }),
   "events": zod.array(zod.object({
   "seq": zod.number(),
-  "role": zod.enum(['user', 'assistant']),
+  "role": zod.enum(['user', 'assistant', 'staff']),
   "text": zod.string(),
   "stopped": zod.boolean(),
+  "senderLabel": zod.string().nullish().describe('Staff messages only: who on the care team sent it'),
   "createdAt": zod.string()
 })),
   "nextBefore": zod.number().nullable()
+})
+
+
+/**
+ * @summary Claim, assign, or unassign a conversation
+ */
+export const AssignOfficeConversationParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const AssignOfficeConversationQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const assignOfficeConversationBodyAssigneeUserIdMax = 80;
+
+
+
+export const AssignOfficeConversationBody = zod.object({
+  "assigneeUserId": zod.string().max(assignOfficeConversationBodyAssigneeUserIdMax).nullable().describe('A staff user id from the staff list, \"me\" to claim, or null to unassign')
+})
+
+export const AssignOfficeConversationResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "patientName": zod.string(),
+  "thread": zod.enum(['coach', 'support']),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
+  "assignee": zod.union([zod.object({
+  "userId": zod.string(),
+  "label": zod.string()
+}),zod.null()]),
+  "unread": zod.boolean().describe('The caller has not read the latest patient message'),
+  "messageCount": zod.number(),
+  "lastMessageAt": zod.string().nullable(),
+  "lastPatientMessageAt": zod.string().nullable(),
+  "lastStaffReplyAt": zod.string().nullable(),
+  "preview": zod.string().describe('Latest message text, trimmed'),
+  "noteCount": zod.number(),
+  "openEscalation": zod.union([zod.object({
+  "id": zod.string(),
+  "department": zod.enum(['clinical', 'support'])
+}),zod.null()]),
+  "createdAt": zod.string(),
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+})
+})
+
+
+/**
+ * @summary Change a conversation's workflow status (open, waiting on patient, closed; reopen by setting open)
+ */
+export const SetOfficeConversationStatusParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const SetOfficeConversationStatusQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const SetOfficeConversationStatusBody = zod.object({
+  "status": zod.enum(['open', 'waiting_patient', 'closed'])
+})
+
+export const SetOfficeConversationStatusResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "patientName": zod.string(),
+  "thread": zod.enum(['coach', 'support']),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
+  "assignee": zod.union([zod.object({
+  "userId": zod.string(),
+  "label": zod.string()
+}),zod.null()]),
+  "unread": zod.boolean().describe('The caller has not read the latest patient message'),
+  "messageCount": zod.number(),
+  "lastMessageAt": zod.string().nullable(),
+  "lastPatientMessageAt": zod.string().nullable(),
+  "lastStaffReplyAt": zod.string().nullable(),
+  "preview": zod.string().describe('Latest message text, trimmed'),
+  "noteCount": zod.number(),
+  "openEscalation": zod.union([zod.object({
+  "id": zod.string(),
+  "department": zod.enum(['clinical', 'support'])
+}),zod.null()]),
+  "createdAt": zod.string(),
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+})
+})
+
+
+/**
+ * @summary Send a care-team reply into the patient's thread (appears in their app; a push notification is queued)
+ */
+export const ReplyOfficeConversationParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const ReplyOfficeConversationQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const replyOfficeConversationBodyTextMax = 4000;
+
+
+
+export const ReplyOfficeConversationBody = zod.object({
+  "text": zod.string().min(1).max(replyOfficeConversationBodyTextMax)
+})
+
+export const ReplyOfficeConversationResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "patientName": zod.string(),
+  "thread": zod.enum(['coach', 'support']),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
+  "assignee": zod.union([zod.object({
+  "userId": zod.string(),
+  "label": zod.string()
+}),zod.null()]),
+  "unread": zod.boolean().describe('The caller has not read the latest patient message'),
+  "messageCount": zod.number(),
+  "lastMessageAt": zod.string().nullable(),
+  "lastPatientMessageAt": zod.string().nullable(),
+  "lastStaffReplyAt": zod.string().nullable(),
+  "preview": zod.string().describe('Latest message text, trimmed'),
+  "noteCount": zod.number(),
+  "openEscalation": zod.union([zod.object({
+  "id": zod.string(),
+  "department": zod.enum(['clinical', 'support'])
+}),zod.null()]),
+  "createdAt": zod.string(),
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+}),
+  "event": zod.object({
+  "seq": zod.number(),
+  "role": zod.enum(['user', 'assistant', 'staff']),
+  "text": zod.string(),
+  "stopped": zod.boolean(),
+  "senderLabel": zod.string().nullish().describe('Staff messages only: who on the care team sent it'),
+  "createdAt": zod.string()
+})
+})
+
+
+/**
+ * @summary Internal staff notes on a conversation (never visible to the patient)
+ */
+export const GetOfficeConversationNotesParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const GetOfficeConversationNotesQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficeConversationNotesResponse = zod.object({
+  "notes": zod.array(zod.object({
+  "id": zod.string(),
+  "authorUserId": zod.string(),
+  "authorLabel": zod.string(),
+  "body": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Attach an internal note to a conversation
+ */
+export const AddOfficeConversationNoteParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const AddOfficeConversationNoteQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const addOfficeConversationNoteBodyBodyMax = 4000;
+
+
+
+export const AddOfficeConversationNoteBody = zod.object({
+  "body": zod.string().min(1).max(addOfficeConversationNoteBodyBodyMax)
+})
+
+export const AddOfficeConversationNoteResponse = zod.object({
+  "note": zod.object({
+  "id": zod.string(),
+  "authorUserId": zod.string(),
+  "authorLabel": zod.string(),
+  "body": zod.string(),
+  "createdAt": zod.string()
+})
+})
+
+
+/**
+ * @summary Escalate a conversation to HQ clinical or support with a reason
+ */
+export const EscalateOfficeConversationParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const EscalateOfficeConversationQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const escalateOfficeConversationBodyReasonMax = 2000;
+
+
+
+export const EscalateOfficeConversationBody = zod.object({
+  "department": zod.enum(['clinical', 'support']),
+  "reason": zod.string().min(1).max(escalateOfficeConversationBodyReasonMax)
+})
+
+export const EscalateOfficeConversationResponse = zod.object({
+  "escalation": zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "patientName": zod.string(),
+  "thread": zod.enum(['coach', 'support']),
+  "department": zod.enum(['clinical', 'support']),
+  "reason": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "createdByLabel": zod.string(),
+  "createdAt": zod.string(),
+  "resolvedByLabel": zod.string().nullable(),
+  "resolvedAt": zod.string().nullable(),
+  "resolutionNote": zod.string().nullable()
+})
+})
+
+
+/**
+ * @summary HQ escalation queue, limited to the departments the caller's role may handle
+ */
+export const getHqEscalationsQueryStatusDefault = `open`;
+export const getHqEscalationsQueryLimitDefault = 50;
+export const getHqEscalationsQueryLimitMax = 100;
+
+export const getHqEscalationsQueryOffsetDefault = 0;
+export const getHqEscalationsQueryOffsetMin = 0;
+
+
+
+export const GetHqEscalationsQueryParams = zod.object({
+  "department": zod.enum(['clinical', 'support']).optional(),
+  "status": zod.enum(['open', 'resolved']).default(getHqEscalationsQueryStatusDefault),
+  "limit": zod.coerce.number().min(1).max(getHqEscalationsQueryLimitMax).default(getHqEscalationsQueryLimitDefault),
+  "offset": zod.coerce.number().min(getHqEscalationsQueryOffsetMin).default(getHqEscalationsQueryOffsetDefault)
+})
+
+export const GetHqEscalationsResponse = zod.object({
+  "escalations": zod.array(zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "patientName": zod.string(),
+  "thread": zod.enum(['coach', 'support']),
+  "department": zod.enum(['clinical', 'support']),
+  "reason": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "createdByLabel": zod.string(),
+  "createdAt": zod.string(),
+  "resolvedByLabel": zod.string().nullable(),
+  "resolvedAt": zod.string().nullable(),
+  "resolutionNote": zod.string().nullable()
+})),
+  "total": zod.number(),
+  "departments": zod.array(zod.enum(['clinical', 'support'])).describe('Departments the caller role may handle')
+})
+
+
+/**
+ * @summary Resolve an escalation
+ */
+export const ResolveHqEscalationParams = zod.object({
+  "escalationId": zod.coerce.string()
+})
+
+export const resolveHqEscalationBodyNoteMax = 2000;
+
+
+
+export const ResolveHqEscalationBody = zod.object({
+  "note": zod.string().max(resolveHqEscalationBodyNoteMax).nullish()
+})
+
+export const ResolveHqEscalationResponse = zod.object({
+  "escalation": zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "patientName": zod.string(),
+  "thread": zod.enum(['coach', 'support']),
+  "department": zod.enum(['clinical', 'support']),
+  "reason": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "createdByLabel": zod.string(),
+  "createdAt": zod.string(),
+  "resolvedByLabel": zod.string().nullable(),
+  "resolvedAt": zod.string().nullable(),
+  "resolutionNote": zod.string().nullable()
+})
 })
 
 
@@ -1469,7 +1867,15 @@ export const GetHqOverviewResponse = zod.object({
   "watchlist": zod.number(),
   "loggingLapsed": zod.number(),
   "checkInsOverdue": zod.number(),
-  "avgPoundsLost": zod.number().nullable()
+  "avgPoundsLost": zod.number().nullable(),
+  "inbox": zod.object({
+  "openThreads": zod.number(),
+  "waitingOnPatient": zod.number(),
+  "closedThreads": zod.number(),
+  "unanswered": zod.number().describe('Open threads whose latest patient message has no care-team reply yet'),
+  "avgResponseMinutes": zod.number().nullable().describe('Mean minutes from a patient message to the next care-team reply; null before any reply'),
+  "openEscalations": zod.number()
+})
 })
 })
 

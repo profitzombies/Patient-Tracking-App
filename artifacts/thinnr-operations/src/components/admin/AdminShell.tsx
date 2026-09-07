@@ -45,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin', label: 'Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
   { path: '/admin/accounts', label: 'Provider accounts', mobileLabel: 'Accounts', icon: Building2 },
   { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: MessagesSquare },
+  { path: '/admin/escalations', label: 'Escalations', icon: ActivitySquare },
   { path: '/admin/team', label: 'Team', icon: Users },
   { path: '/admin/training', label: 'Training', icon: GraduationCap },
   { path: '/admin/knowledge', label: 'AI Support', mobileLabel: 'Support', icon: BookOpenText },
@@ -57,7 +58,7 @@ const NAV_ITEMS: NavItem[] = [
 
 const ADMIN_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/admin'] },
-  { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/team'] },
+  { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/escalations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
   { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/files', '/admin/settings'] },
 ];

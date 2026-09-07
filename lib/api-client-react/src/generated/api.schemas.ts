@@ -181,6 +181,20 @@ export interface ExportDownloadResult {
   expiresInSeconds: number;
 }
 
+export interface InboxMetrics {
+  openThreads: number;
+  waitingOnPatient: number;
+  closedThreads: number;
+  /** Open threads whose latest patient message has no care-team reply yet */
+  unanswered: number;
+  /**
+     * Mean minutes from a patient message to the next care-team reply; null before any reply
+     * @nullable
+     */
+  avgResponseMinutes: number | null;
+  openEscalations: number;
+}
+
 export interface OperationalRollup {
   providerCount: number;
   totalPatients: number;
@@ -195,6 +209,7 @@ export interface OperationalRollup {
   checkInsOverdue: number;
   /** @nullable */
   avgPoundsLost: number | null;
+  inbox: InboxMetrics;
 }
 
 export type OperationalRollupResultScopeKind = typeof OperationalRollupResultScopeKind[keyof typeof OperationalRollupResultScopeKind];
@@ -219,6 +234,24 @@ export interface OperationalRollupResult {
   metrics: OperationalRollup;
 }
 
+export interface ConversationAssignee {
+  userId: string;
+  label: string;
+}
+
+export type ConversationEscalationRefDepartment = typeof ConversationEscalationRefDepartment[keyof typeof ConversationEscalationRefDepartment];
+
+
+export const ConversationEscalationRefDepartment = {
+  clinical: 'clinical',
+  support: 'support',
+} as const;
+
+export interface ConversationEscalationRef {
+  id: string;
+  department: ConversationEscalationRefDepartment;
+}
+
 export type ConversationSummaryThread = typeof ConversationSummaryThread[keyof typeof ConversationSummaryThread];
 
 
@@ -228,13 +261,14 @@ export const ConversationSummaryThread = {
 } as const;
 
 /**
- * Derived from lastMessageAt against the organization's auto-close window
+ * Persisted workflow status; idle threads past the auto-close window read as closed
  */
 export type ConversationSummaryStatus = typeof ConversationSummaryStatus[keyof typeof ConversationSummaryStatus];
 
 
 export const ConversationSummaryStatus = {
   open: 'open',
+  waiting_patient: 'waiting_patient',
   closed: 'closed',
 } as const;
 
@@ -243,19 +277,61 @@ export interface ConversationSummary {
   patientId: string;
   patientName: string;
   thread: ConversationSummaryThread;
+  /** Persisted workflow status; idle threads past the auto-close window read as closed */
+  status: ConversationSummaryStatus;
+  assignee: ConversationAssignee | null;
+  /** The caller has not read the latest patient message */
+  unread: boolean;
   messageCount: number;
   /** @nullable */
   lastMessageAt: string | null;
+  /** @nullable */
+  lastPatientMessageAt: string | null;
+  /** @nullable */
+  lastStaffReplyAt: string | null;
+  /** Latest message text, trimmed */
+  preview: string;
+  noteCount: number;
+  openEscalation: ConversationEscalationRef | null;
   createdAt: string;
-  /** Derived from lastMessageAt against the organization's auto-close window */
-  status: ConversationSummaryStatus;
+  /** Workflow status is open or waiting, but the thread has been idle past the organization's auto-close window and is reported as closed */
+  autoClosed: boolean;
 }
 
 export interface ConversationSummaryResult {
-  /** The auto-close window the statuses were derived with */
-  autoCloseDays?: number;
+  /** The organization's conversation auto-close window in days */
+  autoCloseDays: number;
   conversations: ConversationSummary[];
   total: number;
+}
+
+export type InboxMetricsResultScope = {
+  providerId: string;
+  officeName: string;
+};
+
+export interface InboxMetricsResult {
+  scope: InboxMetricsResultScope;
+  asOf: string;
+  metrics: InboxMetrics;
+}
+
+export type ConversationStaffMemberKind = typeof ConversationStaffMemberKind[keyof typeof ConversationStaffMemberKind];
+
+
+export const ConversationStaffMemberKind = {
+  provider: 'provider',
+  team_member: 'team_member',
+} as const;
+
+export interface ConversationStaffMember {
+  userId: string;
+  label: string;
+  kind: ConversationStaffMemberKind;
+}
+
+export interface ConversationStaffResult {
+  staff: ConversationStaffMember[];
 }
 
 export type ConversationEventRole = typeof ConversationEventRole[keyof typeof ConversationEventRole];
@@ -264,6 +340,7 @@ export type ConversationEventRole = typeof ConversationEventRole[keyof typeof Co
 export const ConversationEventRole = {
   user: 'user',
   assistant: 'assistant',
+  staff: 'staff',
 } as const;
 
 export interface ConversationEvent {
@@ -271,6 +348,11 @@ export interface ConversationEvent {
   role: ConversationEventRole;
   text: string;
   stopped: boolean;
+  /**
+     * Staff messages only: who on the care team sent it
+     * @nullable
+     */
+  senderLabel?: string | null;
   createdAt: string;
 }
 
@@ -331,6 +413,157 @@ export interface PolicySectionChanges {
   notifications: PolicySectionChange | null;
   conversations: PolicySectionChange | null;
   retention: PolicySectionChange | null;
+}
+
+export interface ConversationAssignInput {
+  /**
+     * A staff user id from the staff list, "me" to claim, or null to unassign
+     * @maxLength 80
+     * @nullable
+     */
+  assigneeUserId: string | null;
+}
+
+export type ConversationStatusInputStatus = typeof ConversationStatusInputStatus[keyof typeof ConversationStatusInputStatus];
+
+
+export const ConversationStatusInputStatus = {
+  open: 'open',
+  waiting_patient: 'waiting_patient',
+  closed: 'closed',
+} as const;
+
+export interface ConversationStatusInput {
+  status: ConversationStatusInputStatus;
+}
+
+export interface ConversationMutationResult {
+  conversation: ConversationSummary;
+}
+
+export interface ConversationReplyInput {
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  text: string;
+}
+
+export interface ConversationReplyResult {
+  conversation: ConversationSummary;
+  event: ConversationEvent;
+}
+
+export interface ConversationNote {
+  id: string;
+  authorUserId: string;
+  authorLabel: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface ConversationNotesResult {
+  notes: ConversationNote[];
+}
+
+export interface ConversationNoteInput {
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  body: string;
+}
+
+export interface ConversationNoteResult {
+  note: ConversationNote;
+}
+
+export type ConversationEscalationInputDepartment = typeof ConversationEscalationInputDepartment[keyof typeof ConversationEscalationInputDepartment];
+
+
+export const ConversationEscalationInputDepartment = {
+  clinical: 'clinical',
+  support: 'support',
+} as const;
+
+export interface ConversationEscalationInput {
+  department: ConversationEscalationInputDepartment;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  reason: string;
+}
+
+export type ConversationEscalationThread = typeof ConversationEscalationThread[keyof typeof ConversationEscalationThread];
+
+
+export const ConversationEscalationThread = {
+  coach: 'coach',
+  support: 'support',
+} as const;
+
+export type ConversationEscalationDepartment = typeof ConversationEscalationDepartment[keyof typeof ConversationEscalationDepartment];
+
+
+export const ConversationEscalationDepartment = {
+  clinical: 'clinical',
+  support: 'support',
+} as const;
+
+export type ConversationEscalationStatus = typeof ConversationEscalationStatus[keyof typeof ConversationEscalationStatus];
+
+
+export const ConversationEscalationStatus = {
+  open: 'open',
+  resolved: 'resolved',
+} as const;
+
+export interface ConversationEscalation {
+  id: string;
+  conversationId: string;
+  providerId: string;
+  officeName: string;
+  patientName: string;
+  thread: ConversationEscalationThread;
+  department: ConversationEscalationDepartment;
+  reason: string;
+  status: ConversationEscalationStatus;
+  createdByLabel: string;
+  createdAt: string;
+  /** @nullable */
+  resolvedByLabel: string | null;
+  /** @nullable */
+  resolvedAt: string | null;
+  /** @nullable */
+  resolutionNote: string | null;
+}
+
+export interface ConversationEscalationResult {
+  escalation: ConversationEscalation;
+}
+
+export type HqEscalationsResultDepartmentsItem = typeof HqEscalationsResultDepartmentsItem[keyof typeof HqEscalationsResultDepartmentsItem];
+
+
+export const HqEscalationsResultDepartmentsItem = {
+  clinical: 'clinical',
+  support: 'support',
+} as const;
+
+export interface HqEscalationsResult {
+  escalations: ConversationEscalation[];
+  total: number;
+  /** Departments the caller role may handle */
+  departments: HqEscalationsResultDepartmentsItem[];
+}
+
+export interface HqEscalationResolveInput {
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  note?: string | null;
 }
 
 export interface HqOrganizationSettings {
@@ -1081,12 +1314,16 @@ export interface HealthStatus {
   status: string;
 }
 
+/**
+ * "staff" is a care-team message the patient saw in this thread. The server replays it to the model as context only; the coach never answers it or speaks for the care team.
+ */
 export type CoachChatMessageRole = typeof CoachChatMessageRole[keyof typeof CoachChatMessageRole];
 
 
 export const CoachChatMessageRole = {
   user: 'user',
   assistant: 'assistant',
+  staff: 'staff',
 } as const;
 
 /**
@@ -1102,6 +1339,7 @@ export const CoachChatMessagePhotoKind = {
 } as const;
 
 export interface CoachChatMessage {
+  /** "staff" is a care-team message the patient saw in this thread. The server replays it to the model as context only; the coach never answers it or speaks for the care team. */
   role: CoachChatMessageRole;
   /** @maxLength 4000 */
   content: string;
@@ -1150,15 +1388,20 @@ export interface CoachChatInput {
   localDate?: string;
 }
 
+/**
+ * "staff" is a care-team message the patient saw in this thread, replayed to the model as context only.
+ */
 export type SupportChatMessageRole = typeof SupportChatMessageRole[keyof typeof SupportChatMessageRole];
 
 
 export const SupportChatMessageRole = {
   user: 'user',
   assistant: 'assistant',
+  staff: 'staff',
 } as const;
 
 export interface SupportChatMessage {
+  /** "staff" is a care-team message the patient saw in this thread, replayed to the model as context only. */
   role: SupportChatMessageRole;
   /**
      * Provider questions are capped at 4000 characters by the composer; the higher limit exists because comprehensive assistant answers replay as history on later turns. Clients truncate any longer replayed reply to fit (the model only needs the gist for continuity), keeping request bodies under the JSON size cap.
@@ -1981,9 +2224,24 @@ export type GetOfficeConversationsParams = {
 office?: OfficeIdParameter;
 thread?: GetOfficeConversationsThread;
 /**
- * Auto-close filter. A conversation is closed once it has been idle for the organization's conversation auto-close window (HQ settings).
+ * Workflow status filter. Threads idle longer than the organization's conversation auto-close window (HQ settings) count as closed.
  */
 status?: GetOfficeConversationsStatus;
+/**
+ * "me", "unassigned", or a staff user id
+ * @maxLength 80
+ */
+assignee?: string;
+/**
+ * Only conversations with patient messages the caller has not read
+ */
+unread?: boolean;
+/**
+ * Patient name or message text search
+ * @maxLength 120
+ */
+q?: string;
+sort?: GetOfficeConversationsSort;
 /**
  * @minimum 1
  * @maximum 100
@@ -2008,9 +2266,33 @@ export type GetOfficeConversationsStatus = typeof GetOfficeConversationsStatus[k
 
 export const GetOfficeConversationsStatus = {
   open: 'open',
+  waiting_patient: 'waiting_patient',
   closed: 'closed',
-  all: 'all',
 } as const;
+
+export type GetOfficeConversationsSort = typeof GetOfficeConversationsSort[keyof typeof GetOfficeConversationsSort];
+
+
+export const GetOfficeConversationsSort = {
+  newest: 'newest',
+  oldest: 'oldest',
+  waiting_longest: 'waiting_longest',
+  unread_first: 'unread_first',
+} as const;
+
+export type GetOfficeConversationSummaryParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetOfficeConversationStaffParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
 
 export type GetOfficeConversationEventsParams = {
 /**
@@ -2027,6 +2309,78 @@ before?: number;
  */
 limit?: number;
 };
+
+export type AssignOfficeConversationParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type SetOfficeConversationStatusParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type ReplyOfficeConversationParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetOfficeConversationNotesParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type AddOfficeConversationNoteParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type EscalateOfficeConversationParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetHqEscalationsParams = {
+department?: GetHqEscalationsDepartment;
+status?: GetHqEscalationsStatus;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
+export type GetHqEscalationsDepartment = typeof GetHqEscalationsDepartment[keyof typeof GetHqEscalationsDepartment];
+
+
+export const GetHqEscalationsDepartment = {
+  clinical: 'clinical',
+  support: 'support',
+} as const;
+
+export type GetHqEscalationsStatus = typeof GetHqEscalationsStatus[keyof typeof GetHqEscalationsStatus];
+
+
+export const GetHqEscalationsStatus = {
+  open: 'open',
+  resolved: 'resolved',
+} as const;
 
 export type GetOfficeAnalyticsParams = {
 start: string;

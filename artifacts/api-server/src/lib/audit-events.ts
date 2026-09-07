@@ -55,6 +55,12 @@ export const AUDIT_ACTIONS = [
   "training_attachment_downloaded",
   "ai_support_used",
   "conversation_transcript_read",
+  "conversation_replied",
+  "conversation_assigned",
+  "conversation_status_changed",
+  "conversation_note_added",
+  "conversation_escalated",
+  "conversation_escalation_resolved",
   "data_export_requested",
   "data_export_downloaded",
   "patient_consent_recorded",
@@ -83,6 +89,7 @@ export const AUDIT_METADATA_KEYS = [
   "thread", "kind", "office", "rows", "noteId", "weightId", "visitId", "areaCount", "dateKey",
   "route", "method", "turn", "attachmentId", "mediaKind", "version", "section",
   "policyVersion", "photoAnalysis", "attempt", "step", "objects", "tables", "purgeAfter", "exportId", "requestId",
+  "page", "assigneeUserId", "previousAssigneeUserId", "self", "messageClientId", "length", "department", "escalationId", "hasNote",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 
@@ -110,6 +117,12 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "office_team_reactivated",
   "office_team_signed_out",
   "conversation_transcript_read",
+  "conversation_replied",
+  "conversation_assigned",
+  "conversation_status_changed",
+  "conversation_note_added",
+  "conversation_escalated",
+  "conversation_escalation_resolved",
   "data_export_requested",
   "data_export_downloaded",
   "patient_consent_recorded",

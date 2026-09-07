@@ -449,7 +449,7 @@ function recipeWire(recipe: SavedRecipe): Record<string, unknown> {
 
 // ── Chat transcript parsing (account → client wire shapes) ──────────────────
 
-const CHAT_ROLES = new Set(['user', 'assistant']);
+const CHAT_ROLES = new Set(['user', 'assistant', 'staff']);
 const CHAT_PHOTO_KINDS = new Set(['menu', 'meal', 'label']);
 
 function parseChatMessage(raw: unknown): ChatWireMessage {
@@ -468,6 +468,9 @@ function parseChatMessage(raw: unknown): ChatWireMessage {
     role: m.role as ChatWireMessage['role'],
     text: m.text,
   };
+  if (m.role === 'staff' && typeof m.senderLabel === 'string' && m.senderLabel.length > 0) {
+    message.senderLabel = m.senderLabel;
+  }
   if (m.stopped === true) message.stopped = true;
   if (m.hidden === true) message.hidden = true;
   if (
@@ -814,6 +817,9 @@ export const patientDataApi: PatientDataApi = {
   },
 
   async appendChatMessages(thread: ChatThread, messages: ChatWireMessage[]): Promise<void> {
+    if (messages.some(message => message.role === 'staff')) {
+      throw new PatientDataError('Care team messages cannot be appended by the patient app.');
+    }
     await authedRequest('POST', `/patient-chat/${thread}/messages`, { messages });
   },
 

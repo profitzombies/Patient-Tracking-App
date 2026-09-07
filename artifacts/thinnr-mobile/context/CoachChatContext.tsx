@@ -37,6 +37,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { AppState } from 'react-native';
 import { usePatient } from '@/context/PatientContext';
 import {
   usePatientAccount,
@@ -59,6 +60,7 @@ import { parseLabelDraft, type LabelDraft, type LabelFoodCardPayload } from '@/l
 import { isMealCorrectionText } from '@/lib/meal-correction';
 import { localTimeForDate } from '@/lib/meal-slot';
 import { toTitleCase } from '@/lib/title-case';
+import { subscribeChatSync } from '@/lib/chat-sync-events';
 
 /** Rich-card slot rendered under an assistant message (see CoachCardSlot). */
 export interface CoachCard {
@@ -90,7 +92,10 @@ export interface SendPhotoOptions {
 export interface CoachMessage {
   id: string;
 
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'staff';
+
+  /** Human-readable care-team sender, present only on server-owned staff rows. */
+  senderLabel?: string;
 
   /**
    * For a streaming assistant reply this is the REVEALED text — the exact
@@ -182,6 +187,8 @@ interface CoachChatContextValue {
    * while no reply text is on screen yet.
    */
   pendingStage: CoachStage | null;
+  /** Re-fetches and merges server-owned transcript rows for real accounts. */
+  refreshThread: () => Promise<void>;
   send: (text: string) => void;
   /**
    * Sends a photo as its own user turn: the bubble shows the photo and the
@@ -564,6 +571,7 @@ function isLocalPhotoUri(uri: string): boolean {
 
 function toWireMessage(m: CoachMessage, photoPath?: string): ChatWireMessage {
   const wire: ChatWireMessage = { id: m.id, role: m.role, text: m.text };
+  if (m.role === 'staff' && m.senderLabel) wire.senderLabel = m.senderLabel;
   if (m.stopped) wire.stopped = true;
   if (m.hidden) wire.hidden = true;
   if (m.card) wire.card = { kind: m.card.kind, payload: m.card.payload };
@@ -588,6 +596,7 @@ function toWireMessage(m: CoachMessage, photoPath?: string): ChatWireMessage {
 /** Rebuilds a stored message for the thread exactly as it last rendered. */
 function wireToCoachMessage(w: ChatWireMessage): CoachMessage {
   const m: CoachMessage = { id: w.id, role: w.role, text: w.text, status: 'done' };
+  if (w.role === 'staff' && w.senderLabel) m.senderLabel = w.senderLabel;
   if (w.stopped) m.stopped = true;
   if (w.hidden) m.hidden = true;
   if (w.card) m.card = { kind: w.card.kind, payload: w.card.payload };
@@ -854,7 +863,7 @@ export function CoachChatProvider({
           const m = messagesRef.current.find(x => x.id === id);
           // Gone (a stopped bubble that kept nothing) or no longer final:
           // nothing to store under this id.
-          if (!m || m.status !== 'done') continue;
+          if (!m || m.status !== 'done' || m.role === 'staff') continue;
           const wire = toWireMessage(m, await storedPhotoPath(m));
           wires.push(wire);
           sigs.push([id, JSON.stringify(wire)]);
@@ -910,6 +919,40 @@ export function CoachChatProvider({
     // The account key names the owner; the token getter follows it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountKey]);
+
+  const refreshThread = useCallback(async () => {
+    const api = chatApiRef.current;
+    if (!api || accountRef.current.resolving || accountRef.current.kind !== 'real') return;
+    const snapshot = await api.fetchChatThread('coach', localTodayKey());
+    if (
+      chatApiRef.current !== api ||
+      accountRef.current.resolving ||
+      accountRef.current.kind !== 'real'
+    ) return;
+    const incoming = snapshot.messages.map(wireToCoachMessage);
+    for (const message of incoming) {
+      persistedRef.current.set(message.id, JSON.stringify(toWireMessage(message)));
+    }
+    setMessages(current => {
+      const existing = new Set(current.map(message => message.id));
+      const additions = incoming.filter(message => !existing.has(message.id));
+      return additions.length === 0 ? current : [...current, ...additions];
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!realAccount) return;
+    const appState = AppState.addEventListener('change', state => {
+      if (state === 'active') void refreshThread().catch(() => {});
+    });
+    const unsubscribe = subscribeChatSync(thread => {
+      if (thread === 'coach') void refreshThread().catch(() => {});
+    });
+    return () => {
+      appState.remove();
+      unsubscribe();
+    };
+  }, [realAccount, refreshThread]);
 
   // Real-account hydration: on open (or account switch) load the stored
   // transcript and resume it. Runs once per accountKey; a failure retries a
@@ -984,7 +1027,7 @@ export function CoachChatProvider({
     if (!realAccount || hydratedKeyRef.current !== accountKey) return;
     let queued = false;
     for (const m of messages) {
-      if (m.status !== 'done') continue;
+      if (m.status !== 'done' || m.role === 'staff') continue;
       const sig = JSON.stringify(
         toWireMessage(m, m.photo ? photoPathsRef.current.get(m.photo.uri) : undefined),
       );
@@ -1836,6 +1879,7 @@ export function CoachChatProvider({
       messages,
       isStreaming,
       pendingStage,
+      refreshThread,
       send,
       sendPhoto,
       retry,
@@ -1852,6 +1896,7 @@ export function CoachChatProvider({
       messages,
       isStreaming,
       pendingStage,
+      refreshThread,
       send,
       sendPhoto,
       retry,

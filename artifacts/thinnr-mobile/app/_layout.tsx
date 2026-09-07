@@ -29,6 +29,7 @@ import * as Font from 'expo-font';
 import { Redirect, Stack, usePathname, useRouter, type Href } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
+import { emitChatSync } from '@/lib/chat-sync-events';
 import { useColors } from '@/hooks/useColors';
 import { AppModeProvider } from '@/context/AppModeContext';
 import { CoachChatProvider } from '@/context/CoachChatContext';
@@ -355,6 +356,12 @@ function PushResponseBridge() {
     if (handledResponses.current.has(responseId)) return;
     handledResponses.current.add(responseId);
     const data = response.notification.request.content.data;
+    if (
+      data?.kind === 'care_team_reply' &&
+      (data.thread === 'coach' || data.thread === 'support')
+    ) {
+      emitChatSync(data.thread);
+    }
     const route = resolveNotificationRoute(data) ?? '/(patient)/today';
     const notificationId = typeof data?.notificationId === 'string' ? data.notificationId : null;
     if (admitted) {
@@ -368,10 +375,22 @@ function PushResponseBridge() {
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const subscription = Notifications.addNotificationResponseReceivedListener(consume);
+    const received = Notifications.addNotificationReceivedListener(notification => {
+      const data = notification.request.content.data;
+      if (
+        data?.kind === 'care_team_reply' &&
+        (data.thread === 'coach' || data.thread === 'support')
+      ) {
+        emitChatSync(data.thread);
+      }
+    });
     void Notifications.getLastNotificationResponseAsync().then(response => {
       if (response) consume(response);
     }).catch(() => {});
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+      received.remove();
+    };
   }, [consume]);
 
   useEffect(() => {

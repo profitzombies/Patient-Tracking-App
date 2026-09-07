@@ -133,3 +133,40 @@ describe("office analytics", () => {
     expect(json).toMatchObject({ available: false, metrics: null, series: [] });
   });
 });
+
+describe("overview inbox block", () => {
+  const overviewRow = { provider_count: 1, total_patients: 3, active_patients: 2, enrollments_30d: 1, engaged_7d: 1, needs_attention: 0, inactive: 0, invited: 1, watchlist: 0, logging_lapsed: 0, check_ins_overdue: 0, avg_pounds_lost: null };
+  const inboxRow = { open_threads: 4, waiting_threads: 2, closed_threads: 9, unanswered_threads: 3, avg_response_minutes: "18.5", open_escalations: 1 };
+  it("includes office inbox metrics from the office-pinned inbox RPC", async () => {
+    mocks.scope.mockReset().mockResolvedValue({ kind: "ok", scope: { providerId: "p1", officeName: "One", actorUserId: "a", actorKind: "provider" } });
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
+      if (path.endsWith("nonfinancial_operational_rollup")) return response([overviewRow]);
+      if (path.startsWith("/rest/v1/hq_organization_settings")) return response([{ conversation_auto_close_days: 14, version: 1 }]);
+      if (path.endsWith("patient_chat_inbox_metrics")) { expect(body).toMatchObject({ p_provider_id: "p1", p_auto_close_before: expect.any(String) }); return response([inboxRow]); }
+      throw new Error(`unexpected ${path}`);
+    });
+    const json = await (await call("/office/overview")).json() as { metrics: { totalPatients: number; inbox: Record<string, unknown> } };
+    expect(json.metrics.totalPatients).toBe(3);
+    expect(json.metrics.inbox).toEqual({ openThreads: 4, waitingOnPatient: 2, closedThreads: 9, unanswered: 3, avgResponseMinutes: 18.5, openEscalations: 1 });
+  });
+  it("rolls the whole fleet's inbox into the HQ overview", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
+      if (path.endsWith("nonfinancial_operational_rollup")) return response([overviewRow]);
+      if (path.startsWith("/rest/v1/hq_organization_settings")) return response([{ conversation_auto_close_days: 14, version: 1 }]);
+      if (path.endsWith("patient_chat_inbox_metrics")) { expect(body).toMatchObject({ p_provider_id: null, p_auto_close_before: expect.any(String) }); return response([{ ...inboxRow, avg_response_minutes: null }]); }
+      throw new Error(`unexpected ${path}`);
+    });
+    const json = await (await call("/hq/overview")).json() as { metrics: { inbox: { avgResponseMinutes: number | null; openThreads: number } } };
+    expect(json.metrics.inbox).toMatchObject({ openThreads: 4, avgResponseMinutes: null });
+  });
+  it("fails the overview loudly when the inbox RPC is down instead of serving zeros", async () => {
+    mocks.scope.mockReset().mockResolvedValue({ kind: "ok", scope: { providerId: "p1", officeName: "One", actorUserId: "a", actorKind: "provider" } });
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string) => {
+      if (path.endsWith("nonfinancial_operational_rollup")) return response([overviewRow]);
+      if (path.startsWith("/rest/v1/hq_organization_settings")) return response([{ conversation_auto_close_days: 14, version: 1 }]);
+      return response({}, 500);
+    });
+    expect((await call("/office/overview")).status).toBe(502);
+  });
+});

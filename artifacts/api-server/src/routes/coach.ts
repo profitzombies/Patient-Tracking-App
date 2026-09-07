@@ -1,3 +1,4 @@
+import { foldCareTeamTurns } from "../coach/care-team-history";
 import express, { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { CoachChatBody } from "@workspace/api-zod";
@@ -122,7 +123,15 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       return;
     }
 
-    const history = parsed.data.messages.slice(-MAX_HISTORY);
+    // Care-team turns replay as context-only user notes; the latest turn
+    // must still be the patient's own message, so a staff line can never be
+    // the thing the model answers.
+    const rawHistory = parsed.data.messages.slice(-MAX_HISTORY);
+    if (rawHistory[rawHistory.length - 1]?.role !== "user") {
+      res.status(400).json({ error: "Last message must be from the user" });
+      return;
+    }
+    const history = foldCareTeamTurns(rawHistory);
     const latest = history[history.length - 1];
     if (!latest || latest.role !== "user") {
       res.status(400).json({ error: "Last message must be from the user" });

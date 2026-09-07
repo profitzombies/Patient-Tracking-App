@@ -1207,28 +1207,56 @@ paths:
     get:
       operationId: getOfficeConversations
       tags: [office]
-      summary: List privacy-safe patient conversation summaries for an authorized office
+      summary: Staff inbox — filterable, sortable, searchable conversation summaries for an authorized office
       parameters:
         - $ref: "#/components/parameters/OfficeId"
         - { name: thread, in: query, schema: { type: string, enum: [coach, support] } }
         - name: status
           in: query
-          schema: { type: string, enum: [open, closed, all], default: all }
+          schema: { type: string, enum: [open, waiting_patient, closed] }
           description: >-
-            Auto-close filter. A conversation is closed once it has been idle for
-            the organization's conversation auto-close window (HQ settings).
+            Workflow status filter. Threads idle longer than the organization's
+            conversation auto-close window (HQ settings) count as closed.
+        - { name: assignee, in: query, schema: { type: string, maxLength: 80 }, description: '"me", "unassigned", or a staff user id' }
+        - { name: unread, in: query, schema: { type: boolean }, description: "Only conversations with patient messages the caller has not read" }
+        - { name: q, in: query, schema: { type: string, maxLength: 120 }, description: "Patient name or message text search" }
+        - { name: sort, in: query, schema: { type: string, enum: [newest, oldest, waiting_longest, unread_first], default: newest } }
         - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
         - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
       responses:
         "200":
-          description: Paginated summaries without message content
+          description: Paginated inbox summaries
           content: { application/json: { schema: { $ref: "#/components/schemas/ConversationSummaryResult" } } }
+        "404": { description: Office unavailable }
+  /office/conversations/summary:
+    get:
+      operationId: getOfficeConversationSummary
+      tags: [office]
+      summary: Inbox header metrics for an authorized office (open threads, unanswered, response time)
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Office-wide inbox metrics
+          content: { application/json: { schema: { $ref: "#/components/schemas/InboxMetricsResult" } } }
+        "404": { description: Office unavailable }
+  /office/conversations/staff:
+    get:
+      operationId: getOfficeConversationStaff
+      tags: [office]
+      summary: Staff members a conversation in this office can be assigned to
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Assignable office staff
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationStaffResult" } } }
         "404": { description: Office unavailable }
   /office/conversations/{conversationId}/events:
     get:
       operationId: getOfficeConversationEvents
       tags: [office]
-      summary: Read a paginated patient transcript in an authorized office
+      summary: Read a paginated patient transcript in an authorized office (the newest page marks the thread read for the caller)
       parameters:
         - { name: conversationId, in: path, required: true, schema: { type: string } }
         - $ref: "#/components/parameters/OfficeId"
@@ -1239,6 +1267,144 @@ paths:
           description: Newest transcript page returned in chronological order
           content: { application/json: { schema: { $ref: "#/components/schemas/ConversationEventsResult" } } }
         "404": { description: Conversation not found }
+  /office/conversations/{conversationId}/assign:
+    post:
+      operationId: assignOfficeConversation
+      tags: [office]
+      summary: Claim, assign, or unassign a conversation
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationAssignInput" }
+      responses:
+        "200":
+          description: Updated conversation
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationMutationResult" } } }
+        "400": { description: Unknown assignee }
+        "404": { description: Conversation not found }
+  /office/conversations/{conversationId}/status:
+    post:
+      operationId: setOfficeConversationStatus
+      tags: [office]
+      summary: Change a conversation's workflow status (open, waiting on patient, closed; reopen by setting open)
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationStatusInput" }
+      responses:
+        "200":
+          description: Updated conversation
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationMutationResult" } } }
+        "404": { description: Conversation not found }
+  /office/conversations/{conversationId}/reply:
+    post:
+      operationId: replyOfficeConversation
+      tags: [office]
+      summary: Send a care-team reply into the patient's thread (appears in their app; a push notification is queued)
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationReplyInput" }
+      responses:
+        "200":
+          description: Stored reply and the updated conversation
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationReplyResult" } } }
+        "404": { description: Conversation not found }
+  /office/conversations/{conversationId}/notes:
+    get:
+      operationId: getOfficeConversationNotes
+      tags: [office]
+      summary: Internal staff notes on a conversation (never visible to the patient)
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Notes, oldest first
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationNotesResult" } } }
+        "404": { description: Conversation not found }
+    post:
+      operationId: addOfficeConversationNote
+      tags: [office]
+      summary: Attach an internal note to a conversation
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationNoteInput" }
+      responses:
+        "200":
+          description: Stored note
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationNoteResult" } } }
+        "404": { description: Conversation not found }
+  /office/conversations/{conversationId}/escalations:
+    post:
+      operationId: escalateOfficeConversation
+      tags: [office]
+      summary: Escalate a conversation to HQ clinical or support with a reason
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationEscalationInput" }
+      responses:
+        "200":
+          description: Open escalation
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationEscalationResult" } } }
+        "404": { description: Conversation not found }
+        "409": { description: An escalation is already open for this conversation }
+  /hq/escalations:
+    get:
+      operationId: getHqEscalations
+      tags: [hq]
+      summary: HQ escalation queue, limited to the departments the caller's role may handle
+      parameters:
+        - { name: department, in: query, schema: { type: string, enum: [clinical, support] } }
+        - { name: status, in: query, schema: { type: string, enum: [open, resolved], default: open } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
+        - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Paginated escalations
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqEscalationsResult" } } }
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Role handles neither department }
+  /hq/escalations/{escalationId}/resolve:
+    post:
+      operationId: resolveHqEscalation
+      tags: [hq]
+      summary: Resolve an escalation
+      parameters:
+        - { name: escalationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqEscalationResolveInput" }
+      responses:
+        "200":
+          description: Resolved escalation
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationEscalationResult" } } }
+        "404": { description: Escalation not found }
+        "409": { description: Already resolved }
   /office/analytics:
     get:
       operationId: getOfficeAnalytics
@@ -1657,7 +1823,7 @@ components:
         expiresInSeconds: { type: number }
     OperationalRollup:
       type: object
-      required: [providerCount, totalPatients, activePatients, enrollments30d, engaged7d, needsAttention, inactive, invited, watchlist, loggingLapsed, checkInsOverdue, avgPoundsLost]
+      required: [providerCount, totalPatients, activePatients, enrollments30d, engaged7d, needsAttention, inactive, invited, watchlist, loggingLapsed, checkInsOverdue, avgPoundsLost, inbox]
       properties:
         providerCount: { type: number }
         totalPatients: { type: number }
@@ -1671,6 +1837,7 @@ components:
         loggingLapsed: { type: number }
         checkInsOverdue: { type: number }
         avgPoundsLost: { type: ["number", "null"] }
+        inbox: { $ref: "#/components/schemas/InboxMetrics" }
     OperationalRollupResult:
       type: object
       required: [scope, asOf, metrics]
@@ -1684,36 +1851,94 @@ components:
             officeName: { type: ["string", "null"] }
         asOf: { type: string }
         metrics: { $ref: "#/components/schemas/OperationalRollup" }
+    ConversationAssignee:
+      type: object
+      required: [userId, label]
+      properties:
+        userId: { type: string }
+        label: { type: string }
+    ConversationEscalationRef:
+      type: object
+      required: [id, department]
+      properties:
+        id: { type: string }
+        department: { type: string, enum: [clinical, support] }
     ConversationSummary:
       type: object
-      required: [id, patientId, patientName, thread, messageCount, lastMessageAt, createdAt, status]
+      required: [id, patientId, patientName, thread, status, autoClosed, assignee, unread, messageCount, lastMessageAt, lastPatientMessageAt, lastStaffReplyAt, preview, noteCount, openEscalation, createdAt]
       properties:
         id: { type: string }
         patientId: { type: string }
         patientName: { type: string }
         thread: { type: string, enum: [coach, support] }
+        status: { type: string, enum: [open, waiting_patient, closed], description: "Persisted workflow status; idle threads past the auto-close window read as closed" }
+        assignee:
+          oneOf:
+            - $ref: "#/components/schemas/ConversationAssignee"
+            - type: "null"
+        unread: { type: boolean, description: "The caller has not read the latest patient message" }
         messageCount: { type: number }
         lastMessageAt: { type: ["string", "null"] }
+        lastPatientMessageAt: { type: ["string", "null"] }
+        lastStaffReplyAt: { type: ["string", "null"] }
+        preview: { type: string, description: "Latest message text, trimmed" }
+        noteCount: { type: number }
+        openEscalation:
+          oneOf:
+            - $ref: "#/components/schemas/ConversationEscalationRef"
+            - type: "null"
         createdAt: { type: string }
-        status:
-          type: string
-          enum: [open, closed]
-          description: Derived from lastMessageAt against the organization's auto-close window
+        autoClosed: { type: boolean, description: "Workflow status is open or waiting, but the thread has been idle past the organization's auto-close window and is reported as closed" }
     ConversationSummaryResult:
       type: object
-      required: [conversations, total]
+      required: [conversations, total, autoCloseDays]
       properties:
-        autoCloseDays: { type: number, description: The auto-close window the statuses were derived with }
+        autoCloseDays: { type: number, description: "The organization's conversation auto-close window in days" }
         conversations: { type: array, items: { $ref: "#/components/schemas/ConversationSummary" } }
         total: { type: number }
+    InboxMetrics:
+      type: object
+      required: [openThreads, waitingOnPatient, closedThreads, unanswered, avgResponseMinutes, openEscalations]
+      properties:
+        openThreads: { type: number }
+        waitingOnPatient: { type: number }
+        closedThreads: { type: number }
+        unanswered: { type: number, description: "Open threads whose latest patient message has no care-team reply yet" }
+        avgResponseMinutes: { type: ["number", "null"], description: "Mean minutes from a patient message to the next care-team reply; null before any reply" }
+        openEscalations: { type: number }
+    InboxMetricsResult:
+      type: object
+      required: [scope, asOf, metrics]
+      properties:
+        scope:
+          type: object
+          required: [providerId, officeName]
+          properties:
+            providerId: { type: string }
+            officeName: { type: string }
+        asOf: { type: string }
+        metrics: { $ref: "#/components/schemas/InboxMetrics" }
+    ConversationStaffMember:
+      type: object
+      required: [userId, label, kind]
+      properties:
+        userId: { type: string }
+        label: { type: string }
+        kind: { type: string, enum: [provider, team_member] }
+    ConversationStaffResult:
+      type: object
+      required: [staff]
+      properties:
+        staff: { type: array, items: { $ref: "#/components/schemas/ConversationStaffMember" } }
     ConversationEvent:
       type: object
       required: [seq, role, text, stopped, createdAt]
       properties:
         seq: { type: number }
-        role: { type: string, enum: [user, assistant] }
+        role: { type: string, enum: [user, assistant, staff] }
         text: { type: string }
         stopped: { type: boolean }
+        senderLabel: { type: ["string", "null"], description: "Staff messages only: who on the care team sent it" }
         createdAt: { type: string }
     ConversationEventsResult:
       type: object
@@ -1759,6 +1984,102 @@ components:
         notifications: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
         conversations: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
         retention: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
+    ConversationAssignInput:
+      type: object
+      additionalProperties: false
+      required: [assigneeUserId]
+      properties:
+        assigneeUserId: { type: ["string", "null"], maxLength: 80, description: "A staff user id from the staff list, \"me\" to claim, or null to unassign" }
+    ConversationStatusInput:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [open, waiting_patient, closed] }
+    ConversationMutationResult:
+      type: object
+      required: [conversation]
+      properties:
+        conversation: { $ref: "#/components/schemas/ConversationSummary" }
+    ConversationReplyInput:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 4000 }
+    ConversationReplyResult:
+      type: object
+      required: [conversation, event]
+      properties:
+        conversation: { $ref: "#/components/schemas/ConversationSummary" }
+        event: { $ref: "#/components/schemas/ConversationEvent" }
+    ConversationNote:
+      type: object
+      required: [id, authorUserId, authorLabel, body, createdAt]
+      properties:
+        id: { type: string }
+        authorUserId: { type: string }
+        authorLabel: { type: string }
+        body: { type: string }
+        createdAt: { type: string }
+    ConversationNotesResult:
+      type: object
+      required: [notes]
+      properties:
+        notes: { type: array, items: { $ref: "#/components/schemas/ConversationNote" } }
+    ConversationNoteInput:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 4000 }
+    ConversationNoteResult:
+      type: object
+      required: [note]
+      properties:
+        note: { $ref: "#/components/schemas/ConversationNote" }
+    ConversationEscalationInput:
+      type: object
+      additionalProperties: false
+      required: [department, reason]
+      properties:
+        department: { type: string, enum: [clinical, support] }
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+    ConversationEscalation:
+      type: object
+      required: [id, conversationId, providerId, officeName, patientName, thread, department, reason, status, createdByLabel, createdAt, resolvedByLabel, resolvedAt, resolutionNote]
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        providerId: { type: string }
+        officeName: { type: string }
+        patientName: { type: string }
+        thread: { type: string, enum: [coach, support] }
+        department: { type: string, enum: [clinical, support] }
+        reason: { type: string }
+        status: { type: string, enum: [open, resolved] }
+        createdByLabel: { type: string }
+        createdAt: { type: string }
+        resolvedByLabel: { type: ["string", "null"] }
+        resolvedAt: { type: ["string", "null"] }
+        resolutionNote: { type: ["string", "null"] }
+    ConversationEscalationResult:
+      type: object
+      required: [escalation]
+      properties:
+        escalation: { $ref: "#/components/schemas/ConversationEscalation" }
+    HqEscalationsResult:
+      type: object
+      required: [escalations, total, departments]
+      properties:
+        escalations: { type: array, items: { $ref: "#/components/schemas/ConversationEscalation" } }
+        total: { type: number }
+        departments: { type: array, items: { type: string, enum: [clinical, support] }, description: "Departments the caller role may handle" }
+    HqEscalationResolveInput:
+      type: object
+      additionalProperties: false
+      properties:
+        note: { type: ["string", "null"], maxLength: 2000 }
     HqOrganizationSettings:
       type: object
       required:
@@ -2330,7 +2651,11 @@ components:
       properties:
         role:
           type: string
-          enum: [user, assistant]
+          enum: [user, assistant, staff]
+          description: >-
+            "staff" is a care-team message the patient saw in this thread.
+            The server replays it to the model as context only; the coach
+            never answers it or speaks for the care team.
         content:
           type: string
           maxLength: 4000
@@ -2412,7 +2737,10 @@ components:
       properties:
         role:
           type: string
-          enum: [user, assistant]
+          enum: [user, assistant, staff]
+          description: >-
+            "staff" is a care-team message the patient saw in this thread,
+            replayed to the model as context only.
         content:
           type: string
           maxLength: 8000

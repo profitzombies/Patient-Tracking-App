@@ -6,10 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * "staff" is a care-team message the patient saw in this thread. The server replays it to the model as context only; the coach never answers it or speaks for the care team.
+ */
 export type CoachChatMessageRole = typeof CoachChatMessageRole[keyof typeof CoachChatMessageRole];
 
 
 export const CoachChatMessageRole = {
   user: 'user',
   assistant: 'assistant',
+  staff: 'staff',
 } as const;

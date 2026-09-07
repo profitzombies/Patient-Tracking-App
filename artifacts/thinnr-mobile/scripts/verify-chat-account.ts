@@ -68,6 +68,8 @@ import { TODAY_KEY } from '../data/patient-data';
 import { localTodayKey } from '../lib/live-patient-entry';
 import { patientMediaDisplayUrl } from '../lib/patient-data-api';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
+import { emitChatSync } from '../lib/chat-sync-events';
+import { resolveNotificationRoute } from '../lib/push-notification-core';
 
 let checks = 0;
 let failures = 0;
@@ -280,6 +282,9 @@ function routeCall(call: ApiCall): Scripted {
     const thread = call.path.includes('/support/') ? 'support' : 'coach';
     const store = chatStoreFor(patientId)[thread];
     const messages = (call.body?.messages as WireMsg[] | undefined) ?? [];
+    if (messages.some(message => message.role === 'staff')) {
+      return { status: 400, body: { error: 'Staff messages are server owned.' } };
+    }
     for (const message of messages) store.set(message.id, message);
     return { status: 200, body: { ok: true } };
   }
@@ -704,12 +709,82 @@ async function main() {
   await signIn(P1);
   await waitUntil('transcript recovers after a failed load', () => chat.messages.length >= 13, 12000);
   assert('the failed read was retried', callsTo('patient-chat/coach').length >= readsBefore + 2);
+
+  section('care-team replies: merge, context, sync targeting, and no client persistence');
+  const streamsBeforeStaff = openedStreams.length;
+  chatStoreFor('p-1').coach.set('staff-coach-1', {
+    id: 'staff-coach-1',
+    role: 'staff',
+    text: 'Please keep an eye on hydration today.',
+    senderLabel: 'Dr. Ellis',
+  });
+  await act(async () => {
+    await chat.refreshThread();
+  });
+  assert('coach refresh renders the staff row', chat.messages.some(message =>
+    message.id === 'staff-coach-1' &&
+    message.role === 'staff' &&
+    message.senderLabel === 'Dr. Ellis'
+  ));
+  await act(async () => {
+    await chat.refreshThread();
+  });
+  assert('coach refresh does not duplicate a staff id',
+    chat.messages.filter(message => message.id === 'staff-coach-1').length === 1);
+  assert('a staff row never starts a coach request', openedStreams.length === streamsBeforeStaff);
+
+  const coachReadsBeforeWrongEvent = callsTo('patient-chat/coach').length;
+  emitChatSync('support');
+  await settle();
+  assert('support sync events do not refresh coach',
+    callsTo('patient-chat/coach').length === coachReadsBeforeWrongEvent);
+  chatStoreFor('p-1').coach.set('staff-coach-2', {
+    id: 'staff-coach-2',
+    role: 'staff',
+    text: 'Reply here if anything changes.',
+    senderLabel: 'Riverside Care Team',
+  });
+  emitChatSync('coach');
+  await waitUntil('coach care-team event refetches the thread', () =>
+    chat.messages.some(message => message.id === 'staff-coach-2'));
+
+  await sendText('I will, thank you.');
+  const careContextStream = await takeStream('staff context send');
+  if (careContextStream) {
+    const history = careContextStream.body.messages as Array<Record<string, unknown>>;
+    assert('coach request includes staff context',
+      history.some(message => message.role === 'staff' &&
+        message.content === 'Reply here if anything changes.'));
+    assert('coach request still ends with the patient turn',
+      history[history.length - 1]?.role === 'user');
+    careContextStream.emit({ content: 'You are welcome.' });
+    careContextStream.emit({ done: true });
+    careContextStream.close();
+  }
+  await waitUntil('care-team follow-up finalizes', () =>
+    chat.messages.some(message => message.text === 'You are welcome.' && message.status === 'done'));
+  assert('coach persistence never posts staff rows', callsTo('patient-chat/coach/messages').every(call =>
+    !((call.body?.messages as WireMsg[] | undefined) ?? []).some(message => message.role === 'staff')
+  ));
+  assert('support notification route is accepted',
+    resolveNotificationRoute({
+      route: '/support-chat',
+      kind: 'care_team_reply',
+      thread: 'support',
+    }) === '/support-chat');
   await unmount(tree);
 
   // ── 8 · Support screen: same per-account pattern, demo stays session-only ─
   section('support chat: persists per account, hydrates on reopen, demo untouched');
+  chatStoreFor('p-1').support.set('staff-support-1', {
+    id: 'staff-support-1',
+    role: 'staff',
+    text: 'We received your support request.',
+    senderLabel: 'Riverside Care Team',
+  });
   let supportTree = await mountSupport();
-  await waitUntil('support thread hydrates (empty)', () => callsTo('patient-chat/support').length >= 1);
+  await waitUntil('support thread hydrates staff reply', () =>
+    JSON.stringify(supportTree.toJSON()).includes('We received your support request.'));
   const input = supportTree.root.findAll(node => node.type === 'TextInput')[0];
   assert('support input renders', input !== undefined);
   await act(async () => {
@@ -725,20 +800,43 @@ async function main() {
   const supportStream = await takeStream('support send');
   if (supportStream) {
     assert('support stream is the support route', supportStream.path === 'support/chat');
+    const history = supportStream.body.messages as Array<Record<string, unknown>>;
+    assert('support request includes staff context',
+      history.some(message => message.role === 'staff' &&
+        message.content === 'We received your support request.'));
+    assert('support request still ends with the patient turn',
+      history[history.length - 1]?.role === 'user');
     supportStream.emit({ content: 'Try reinstalling from the store.' });
     supportStream.emit({ done: true });
     supportStream.close();
   }
-  await waitUntil('support turns persist', () => storedThread('p-1', 'support').length === 2);
+  await waitUntil('support turns persist', () => storedThread('p-1', 'support').length === 3);
   const supportRows = storedThread('p-1', 'support');
-  assert('support user turn stored verbatim', supportRows[0]?.text === 'My app crashed.' && supportRows[0]?.role === 'user');
-  assert('support reply stored verbatim', supportRows[1]?.text === 'Try reinstalling from the store.');
+  assert('support user turn stored verbatim', supportRows[1]?.text === 'My app crashed.' && supportRows[1]?.role === 'user');
+  assert('support reply stored verbatim', supportRows[2]?.text === 'Try reinstalling from the store.');
+  assert('support persistence never posts staff rows', callsTo('patient-chat/support/messages').every(call =>
+    !((call.body?.messages as WireMsg[] | undefined) ?? []).some(message => message.role === 'staff')
+  ));
 
   await unmount(supportTree);
   supportTree = await mountSupport();
   await waitUntil('support restart shows the stored thread', () =>
     JSON.stringify(supportTree.toJSON()).includes('Try reinstalling from the store.'),
   );
+  const supportReadsBeforeWrongEvent = callsTo('patient-chat/support').length;
+  emitChatSync('coach');
+  await settle();
+  assert('coach sync events do not refresh support',
+    callsTo('patient-chat/support').length === supportReadsBeforeWrongEvent);
+  chatStoreFor('p-1').support.set('staff-support-2', {
+    id: 'staff-support-2',
+    role: 'staff',
+    text: 'Your support specialist is reviewing this.',
+    senderLabel: 'Riverside Care Team',
+  });
+  emitChatSync('support');
+  await waitUntil('support care-team event refetches the thread', () =>
+    JSON.stringify(supportTree.toJSON()).includes('Your support specialist is reviewing this.'));
 
   await unmount(supportTree);
   await signIn(null);

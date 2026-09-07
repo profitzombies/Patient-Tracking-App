@@ -9,7 +9,6 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard-systems/OperationsSignalPress.tsx": () => import("../components/mockups/dashboard-systems/OperationsSignalPress.tsx"),
   "./components/mockups/dashboard-systems/OperationsSystem.tsx": () => import("../components/mockups/dashboard-systems/OperationsSystem.tsx"),
   "./components/mockups/dashboard-systems/OperationsUltravioletGrid.tsx": () => import("../components/mockups/dashboard-systems/OperationsUltravioletGrid.tsx"),
-  "./components/mockups/side-menu/Porcelain.tsx": () => import("../components/mockups/side-menu/Porcelain.tsx"),
   "./components/mockups/patient-home/CobaltHeritage.tsx": () => import("../components/mockups/patient-home/CobaltHeritage.tsx"),
   "./components/mockups/patient-home/CobaltSignal.tsx": () => import("../components/mockups/patient-home/CobaltSignal.tsx"),
   "./components/mockups/patient-home/CobaltThaw.tsx": () => import("../components/mockups/patient-home/CobaltThaw.tsx"),
@@ -17,5 +16,6 @@ export const modules: ModuleMap = {
   "./components/mockups/patient-home/HeritageHero.tsx": () => import("../components/mockups/patient-home/HeritageHero.tsx"),
   "./components/mockups/patient-home/HeritageRefined.tsx": () => import("../components/mockups/patient-home/HeritageRefined.tsx"),
   "./components/mockups/patient-home/HeritageSharp.tsx": () => import("../components/mockups/patient-home/HeritageSharp.tsx"),
-  "./components/mockups/patient-home/WarmLedger.tsx": () => import("../components/mockups/patient-home/WarmLedger.tsx")
+  "./components/mockups/patient-home/WarmLedger.tsx": () => import("../components/mockups/patient-home/WarmLedger.tsx"),
+  "./components/mockups/side-menu/Porcelain.tsx": () => import("../components/mockups/side-menu/Porcelain.tsx")
 };

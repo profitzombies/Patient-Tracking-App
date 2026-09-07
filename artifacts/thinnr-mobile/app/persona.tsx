@@ -12,6 +12,7 @@ import { router, type Href } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { supabase, useSupabaseSession } from '@/lib/supabase';
+import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
 
 const CARD_SHADOW = '0 8px 20px rgba(40, 55, 74, 0.07)';
 
@@ -71,6 +72,7 @@ export default function PersonaScreen() {
   const insets = useSafeAreaInsets();
   const { mode, setMode } = useAppMode();
   const { session } = useSupabaseSession();
+  const device = useDeviceFeatures();
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
@@ -91,6 +93,7 @@ export default function PersonaScreen() {
   const signOutReal = async () => {
     if (!supabase) return;
     Haptics.selectionAsync();
+    await device.unregisterBeforeSignOut('account_switch');
     await supabase.auth.signOut();
   };
 

@@ -208,6 +208,18 @@ args = "body-measurements-mobile"
 task = "workflow.run"
 args = "body-measurements-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "push-notifications-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "push-notifications-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "notification-timeline"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -732,6 +744,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run src/routes/office-patient-edits.test.ts src/routes/office-roster.test.ts src/routes/hq-audit-events.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "push-notifications-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/notifications src/routes/patient-notifications.test.ts src/routes/office-notifications.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "push-notifications-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:push-notifications"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "notification-timeline"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:notification-timeline"
 
 [workflows.workflow.metadata]
 isValidation = true

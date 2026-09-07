@@ -46,7 +46,7 @@ import {
 } from '@/context/PatientAccountContext';
 import { ENROLLMENT_DAYS, PATIENT_PROFILE, type MealSlot } from '@/data/patient-data';
 import { localTodayKey } from '@/lib/live-patient-entry';
-import { BACK_ON_TRACK_OFFER, type NudgeAssessment } from '@/data/stall-nudge';
+import { BACK_ON_TRACK_OFFER, isOutreachMessageId, type NudgeAssessment } from '@/data/stall-nudge';
 import {
   streamCoachChat,
   type CoachChatRequestBody,
@@ -1283,7 +1283,7 @@ export function CoachChatProvider({
       // Any reply while the outreach is in the thread counts as engagement:
       // the proactive conversation stops re-opening once the patient has
       // answered in any form (fire-and-forget; the guard is idempotent).
-      if (messagesRef.current.some(m => m.id === OUTREACH_MESSAGE_ID)) {
+      if (messagesRef.current.some(m => isOutreachMessageId(m.id))) {
         void markNudgeEngaged();
       }
 
@@ -1291,7 +1291,7 @@ export function CoachChatProvider({
       // like the label flow: fixed coach strings, no model call. Anything
       // typed instead of the exact chip labels falls through to the coach.
       const latestMessage = messagesRef.current[messagesRef.current.length - 1];
-      if (latestMessage?.id === OUTREACH_MESSAGE_ID && text === OUTREACH_DECLINE) {
+      if (latestMessage && isOutreachMessageId(latestMessage.id) && text === OUTREACH_DECLINE) {
         const userMessage: CoachMessage = { id: nextId(), role: 'user', text, status: 'done' };
         setMessages(prev => [
           ...prev,
@@ -1451,7 +1451,7 @@ export function CoachChatProvider({
       if (!photo.uri || inFlightRef.current) return;
       if (accountRef.current.resolving) return;
       // A photo reply counts as engagement exactly like a text reply.
-      if (messagesRef.current.some(m => m.id === OUTREACH_MESSAGE_ID)) {
+      if (messagesRef.current.some(m => isOutreachMessageId(m.id))) {
         void markNudgeEngaged();
       }
       inFlightRef.current = true;

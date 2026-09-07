@@ -57,6 +57,7 @@ let patchFailures = 0;
 let operationalFacts: Row[] | null = null;
 let activityRequests: Array<{ p_provider_id: string; p_at: string }> = [];
 let operationalFollowUps: Row[] = [];
+let outreachStates: Row[] = [];
 
 function response(json: unknown, status = 200): Response {
   return new Response(json == null ? "" : JSON.stringify(json), {
@@ -168,6 +169,7 @@ beforeEach(() => {
   operationalFacts = null;
   activityRequests = [];
   operationalFollowUps = [];
+  outreachStates = [];
 
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -233,6 +235,7 @@ beforeEach(() => {
       );
     }
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") return response(null, 204);
+    if (url.pathname === "/rest/v1/rpc/provider_outreach_states") return response(outreachStates);
     if (url.pathname === "/rest/v1/patient_operational_follow_ups") {
       const providerId = url.searchParams.get("provider_id")?.replace("eq.", "");
       return response(operationalFollowUps.filter((row) => !providerId || row.provider_id === providerId));
@@ -333,6 +336,22 @@ describe("office scope", () => {
     expect(activityRequests).toHaveLength(1);
     expect(activityRequests[0]).toMatchObject({ p_provider_id: "office-1" });
     expect(Date.parse(activityRequests[0].p_at)).not.toBeNaN();
+    // No outreach state on file: the chip stays silent.
+    expect(body.patients[0].outreach).toMatchObject({ state: "none", delivery: null });
+  });
+
+  it("surfaces the server-side coach outreach state as the roster chip", async () => {
+    outreachStates = [{
+      patient_id: "pat-own", eligible: true, crossed_on_key: "2026-06-20", evaluated_at: "2026-07-01T00:00:00Z", decision: "send",
+      nudge_opt_out: false, nudge_engaged: false, nudge_last_sent_key: "2026-06-21", nudge_last_crossing_key: "2026-06-20",
+      notification_id: "n-1", notification_status: "suppressed", notification_updated_at: "2026-06-21T00:00:00Z", notification_suppression_reason: "no_device",
+    }];
+    const res = await api("/office/roster", "provider-token");
+    const body = await res.json() as { patients: Row[] };
+    expect(body.patients[0].outreach).toEqual({
+      state: "sent_awaiting", eligible: true, crossedOnKey: "2026-06-20", evaluatedAt: "2026-07-01T00:00:00Z", lastSentKey: "2026-06-21",
+      delivery: "suppressed", deliveryDetail: "No registered device", notificationId: "n-1",
+    });
   });
 
   it("passes the aggregate's activity signals through as explicit nullable families", async () => {

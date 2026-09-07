@@ -26,8 +26,9 @@ import {
   PlayfairDisplay_700Bold,
 } from '@expo-google-fonts/playfair-display';
 import * as Font from 'expo-font';
-import { Redirect, Stack, usePathname } from 'expo-router';
+import { Redirect, Stack, usePathname, useRouter, type Href } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Notifications from 'expo-notifications';
 import { useColors } from '@/hooks/useColors';
 import { AppModeProvider } from '@/context/AppModeContext';
 import { CoachChatProvider } from '@/context/CoachChatContext';
@@ -43,6 +44,8 @@ import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
 import { liveEntryDecision } from '@/lib/live-patient-entry';
 import { supabase } from '@/lib/supabase';
+import { markNotificationOpened } from '@/lib/push-notifications-api';
+import { resolveNotificationRoute } from '@/lib/push-notification-core';
 
 const publicDomain = process.env.EXPO_PUBLIC_DOMAIN;
 if (publicDomain) setBaseUrl(`https://${publicDomain}`);
@@ -50,6 +53,18 @@ setAuthTokenGetter(async () => (await supabase?.auth.getSession())?.data.session
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 const queryClient = new QueryClient();
 
@@ -310,6 +325,60 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
   );
 }
 
+function PushResponseBridge() {
+  const router = useRouter();
+  const { mode, hydrated: modeHydrated } = useAppMode();
+  const { resolving, account } = usePatientAccount();
+  const patient = usePatient();
+  const pending = useRef<{ route: string; notificationId: string | null } | null>(null);
+  const opened = useRef(new Set<string>());
+  const handledResponses = useRef(new Set<string>());
+  const admitted = modeHydrated && mode === 'patient' && !resolving &&
+    account.kind === 'real' && patient.hydrated &&
+    patient.hydratedFlags?.onboardingComplete === true;
+
+  const recordOpened = useCallback((notificationId: string | null) => {
+    if (!notificationId || opened.current.has(notificationId)) return;
+    opened.current.add(notificationId);
+    void markNotificationOpened(notificationId).catch(() => {
+      opened.current.delete(notificationId);
+    });
+  }, []);
+
+  const consume = useCallback((response: Notifications.NotificationResponse) => {
+    const responseId = response.notification.request.identifier;
+    if (handledResponses.current.has(responseId)) return;
+    handledResponses.current.add(responseId);
+    const data = response.notification.request.content.data;
+    const route = resolveNotificationRoute(data) ?? '/(patient)/today';
+    const notificationId = typeof data?.notificationId === 'string' ? data.notificationId : null;
+    if (admitted) {
+      recordOpened(notificationId);
+      router.push(route as Href);
+    } else {
+      pending.current = { route, notificationId };
+    }
+  }, [admitted, recordOpened, router]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const subscription = Notifications.addNotificationResponseReceivedListener(consume);
+    void Notifications.getLastNotificationResponseAsync().then(response => {
+      if (response) consume(response);
+    }).catch(() => {});
+    return () => subscription.remove();
+  }, [consume]);
+
+  useEffect(() => {
+    if (!admitted || !pending.current) return;
+    const { route, notificationId } = pending.current;
+    pending.current = null;
+    recordOpened(notificationId);
+    router.push(route as Href);
+  }, [admitted, recordOpened, router]);
+  return null;
+}
+
 export default function RootLayout() {
   const { status, retry } = useAppFonts();
 
@@ -353,6 +422,7 @@ export default function RootLayout() {
                             <LivePatientEntryGuard>
                               <RootLayoutNav />
                             </LivePatientEntryGuard>
+                            <PushResponseBridge />
                             <PatientSyncNotice />
                           </CoachChatProvider>
                           </DeviceBiometricGate>

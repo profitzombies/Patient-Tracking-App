@@ -1,0 +1,547 @@
+/**
+ * Persistence seam for the notification outbox.
+ *
+ * `NotificationStore` is everything the sender, the coach-outreach evaluator
+ * and the patient/office routes need from the database. The Supabase-backed
+ * implementation below talks PostgREST through the service role; tests use
+ * the in-memory implementation in memory-store.ts, which honors the same
+ * contracts (lease ownership guards, dedupe keys, status filters).
+ */
+import { supabaseAdmin } from "../lib/supabase-admin";
+import type {
+  AttemptRow,
+  EnqueueInput,
+  NotificationRow,
+  NotificationStatus,
+  OutreachStateRow,
+  PolicyContext,
+  PushTokenRow,
+  TokenDisableReason,
+} from "./types";
+
+const enc = encodeURIComponent;
+
+export type NotificationPatch = Partial<
+  Pick<
+    NotificationRow,
+    | "status"
+    | "attempts"
+    | "next_attempt_at"
+    | "lease_owner"
+    | "lease_until"
+    | "suppression_reason"
+    | "last_error"
+    | "sent_at"
+    | "delivered_at"
+    | "opened_at"
+    | "engaged_at"
+    | "finalized_at"
+    | "receipts_checked_at"
+  >
+>;
+
+export interface UpdateGuard {
+  /** Only apply while this owner still holds the lease. */
+  leaseOwner?: string;
+  /** Only apply while the row is in one of these statuses. */
+  statuses?: NotificationStatus[];
+}
+
+export type AttemptInsert = Pick<
+  AttemptRow,
+  "notification_id" | "patient_id" | "token_id" | "attempt" | "ticket_id" | "outcome" | "error_code" | "error_message"
+>;
+
+export type AttemptPatch = Partial<Pick<AttemptRow, "receipt_outcome" | "receipt_error_code" | "receipt_checked_at">>;
+
+export interface ReceiptCandidate {
+  notification: NotificationRow;
+  /** ticket_ok attempts whose receipt has not been resolved yet. */
+  attempts: AttemptRow[];
+}
+
+/** Everything the server-side stall evaluation reads for one patient. */
+export interface OutreachFacts {
+  patientId: string;
+  providerId: string;
+  firstName: string;
+  timezone: string | null;
+  startingWeight: number | null;
+  /** Diary rows in the evaluation window (kind/ref_id/date_key). */
+  entries: Array<{ dateKey: string; kind: string; refId: string | undefined }>;
+  /** Patient check-in weigh-ins, oldest first, one per day. */
+  weighIns: Array<{ dateKey: string; weight: number }>;
+  flags: {
+    nudgeOptOut: boolean;
+    nudgeEngaged: boolean;
+    nudgeLastSentKey: string | null;
+    nudgeLastCrossingKey: string | null;
+  };
+}
+
+export interface OutreachCandidate {
+  patientId: string;
+  providerId: string;
+}
+
+export interface CoachSeedMessage {
+  clientId: string;
+  text: string;
+  quickReplies: string[];
+}
+
+export interface NotificationStore {
+  // ── Outbox ────────────────────────────────────────────────────────────
+  enqueue(input: EnqueueInput): Promise<{ row: NotificationRow; created: boolean }>;
+  claimDue(owner: string, limit: number, leaseSeconds: number): Promise<NotificationRow[]>;
+  /** Returns the updated row, or null when the guard no longer matched. */
+  updateNotification(id: string, patch: NotificationPatch, guard?: UpdateGuard): Promise<NotificationRow | null>;
+  getNotification(id: string): Promise<NotificationRow | null>;
+  listPatientNotifications(patientId: string, limit: number): Promise<NotificationRow[]>;
+  listAttempts(notificationIds: string[]): Promise<AttemptRow[]>;
+  insertAttempts(rows: AttemptInsert[]): Promise<AttemptRow[]>;
+  updateAttempt(id: string, patch: AttemptPatch): Promise<void>;
+  receiptCandidates(sentBefore: Date, limit: number): Promise<ReceiptCandidate[]>;
+  /** Latest coach-outreach row not yet engaged gets engaged_at stamped. */
+  markLatestEngaged(patientId: string, kind: string, at: Date): Promise<NotificationRow | null>;
+
+  // ── Tokens ────────────────────────────────────────────────────────────
+  activeTokens(patientId: string): Promise<PushTokenRow[]>;
+  /**
+   * Upserts (patient, token); re-enables a previously disabled row; retires
+   * other patients' active rows on the same device (account switch) and the
+   * same patient's other tokens on the same device (token rotation).
+   */
+  registerToken(input: {
+    patientId: string;
+    token: string;
+    deviceId: string;
+    platform: "ios" | "android";
+  }): Promise<{ token: PushTokenRow; retired: number }>;
+  /** Disables the patient's rows for a device (or all of them when no device). */
+  unregisterTokens(patientId: string, deviceId: string | null, reason: TokenDisableReason): Promise<number>;
+  disableToken(id: string, reason: TokenDisableReason): Promise<void>;
+
+  // ── Policy ────────────────────────────────────────────────────────────
+  policyContext(patientId: string): Promise<PolicyContext>;
+
+  // ── Coach outreach ────────────────────────────────────────────────────
+  outreachCandidates(evaluatedBefore: Date, limit: number): Promise<OutreachCandidate[]>;
+  outreachFacts(patientId: string, fromDateKey: string): Promise<OutreachFacts | null>;
+  saveOutreachState(row: Omit<OutreachStateRow, "updated_at">): Promise<void>;
+  stampNudgeFlags(
+    patientId: string,
+    flags: { nudgeLastSentKey: string; nudgeLastCrossingKey: string; nudgeEngaged: boolean },
+  ): Promise<void>;
+  seedCoachMessage(patientId: string, message: CoachSeedMessage): Promise<void>;
+}
+
+// ── Supabase-backed implementation ─────────────────────────────────────────
+
+function expectOk(res: { status: number; json: unknown }, what: string): void {
+  if (res.status >= 300) throw new Error(`${what} failed (${res.status})`);
+}
+
+function rowsOf<T>(res: { status: number; json: unknown }, what: string): T[] {
+  expectOk(res, what);
+  return Array.isArray(res.json) ? (res.json as T[]) : [];
+}
+
+function guardQuery(guard?: UpdateGuard): string {
+  let q = "";
+  if (guard?.leaseOwner) q += `&lease_owner=eq.${enc(guard.leaseOwner)}`;
+  if (guard?.statuses?.length) q += `&status=in.(${guard.statuses.join(",")})`;
+  return q;
+}
+
+function numeric(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+export const supabaseNotificationStore: NotificationStore = {
+  async enqueue(input) {
+    const body = {
+      patient_id: input.patientId,
+      kind: input.kind,
+      category: input.category,
+      title: input.title,
+      body: input.body,
+      data: input.data ?? {},
+      dedupe_key: input.dedupeKey ?? null,
+      scheduled_at: (input.scheduledAt ?? new Date()).toISOString(),
+      next_attempt_at: (input.scheduledAt ?? new Date()).toISOString(),
+      ...(input.expiresAt ? { expires_at: input.expiresAt.toISOString() } : {}),
+    };
+    if (input.dedupeKey) {
+      const inserted = rowsOf<NotificationRow>(
+        await supabaseAdmin(
+          "POST",
+          "/rest/v1/patient_notifications?on_conflict=dedupe_key",
+          [body],
+          "resolution=ignore-duplicates,return=representation",
+        ),
+        "notification enqueue",
+      );
+      if (inserted[0]) return { row: inserted[0], created: true };
+      const existing = rowsOf<NotificationRow>(
+        await supabaseAdmin("GET", `/rest/v1/patient_notifications?dedupe_key=eq.${enc(input.dedupeKey)}&limit=1`),
+        "notification lookup",
+      );
+      if (!existing[0]) throw new Error("notification enqueue lost its row");
+      return { row: existing[0], created: false };
+    }
+    const inserted = rowsOf<NotificationRow>(
+      await supabaseAdmin("POST", "/rest/v1/patient_notifications", [body], "return=representation"),
+      "notification enqueue",
+    );
+    if (!inserted[0]) throw new Error("notification enqueue returned no row");
+    return { row: inserted[0], created: true };
+  },
+
+  async claimDue(owner, limit, leaseSeconds) {
+    return rowsOf<NotificationRow>(
+      await supabaseAdmin("POST", "/rest/v1/rpc/claim_patient_notifications", {
+        p_owner: owner,
+        p_limit: limit,
+        p_lease_seconds: leaseSeconds,
+      }),
+      "notification claim",
+    );
+  },
+
+  async updateNotification(id, patch, guard) {
+    const rows = rowsOf<NotificationRow>(
+      await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/patient_notifications?id=eq.${enc(id)}${guardQuery(guard)}`,
+        { ...patch, updated_at: new Date().toISOString() },
+        "return=representation",
+      ),
+      "notification update",
+    );
+    return rows[0] ?? null;
+  },
+
+  async getNotification(id) {
+    const rows = rowsOf<NotificationRow>(
+      await supabaseAdmin("GET", `/rest/v1/patient_notifications?id=eq.${enc(id)}&limit=1`),
+      "notification read",
+    );
+    return rows[0] ?? null;
+  },
+
+  async listPatientNotifications(patientId, limit) {
+    return rowsOf<NotificationRow>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_notifications?patient_id=eq.${enc(patientId)}&order=created_at.desc&limit=${limit}`,
+      ),
+      "notification list",
+    );
+  },
+
+  async listAttempts(notificationIds) {
+    if (!notificationIds.length) return [];
+    return rowsOf<AttemptRow>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_notification_attempts?notification_id=in.(${notificationIds.map(enc).join(",")})&order=created_at.asc`,
+      ),
+      "attempt list",
+    );
+  },
+
+  async insertAttempts(rows) {
+    if (!rows.length) return [];
+    return rowsOf<AttemptRow>(
+      await supabaseAdmin("POST", "/rest/v1/patient_notification_attempts", rows, "return=representation"),
+      "attempt insert",
+    );
+  },
+
+  async updateAttempt(id, patch) {
+    expectOk(
+      await supabaseAdmin("PATCH", `/rest/v1/patient_notification_attempts?id=eq.${enc(id)}`, patch, "return=minimal"),
+      "attempt update",
+    );
+  },
+
+  async receiptCandidates(sentBefore, limit) {
+    const notifications = rowsOf<NotificationRow>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_notifications?status=eq.sent&receipts_checked_at=is.null&sent_at=lte.${enc(sentBefore.toISOString())}&order=sent_at.asc&limit=${limit}`,
+      ),
+      "receipt candidates",
+    );
+    if (!notifications.length) return [];
+    const attempts = rowsOf<AttemptRow>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_notification_attempts?notification_id=in.(${notifications.map((n) => enc(n.id)).join(",")})&outcome=eq.ticket_ok&receipt_checked_at=is.null&order=created_at.asc`,
+      ),
+      "receipt attempts",
+    );
+    const byNotification = new Map<string, AttemptRow[]>();
+    for (const attempt of attempts) {
+      const list = byNotification.get(attempt.notification_id) ?? [];
+      list.push(attempt);
+      byNotification.set(attempt.notification_id, list);
+    }
+    return notifications.map((notification) => ({
+      notification,
+      attempts: byNotification.get(notification.id) ?? [],
+    }));
+  },
+
+  async markLatestEngaged(patientId, kind, at) {
+    const latest = rowsOf<NotificationRow>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_notifications?patient_id=eq.${enc(patientId)}&kind=eq.${enc(kind)}&engaged_at=is.null&order=created_at.desc&limit=1`,
+      ),
+      "engagement lookup",
+    );
+    if (!latest[0]) return null;
+    return this.updateNotification(latest[0].id, { engaged_at: at.toISOString() });
+  },
+
+  async activeTokens(patientId) {
+    return rowsOf<PushTokenRow>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_push_tokens?patient_id=eq.${enc(patientId)}&disabled_at=is.null&order=last_registered_at.desc`,
+      ),
+      "token list",
+    );
+  },
+
+  async registerToken(input) {
+    const now = new Date().toISOString();
+    // Retire other accounts' rows on this device (account switch) and this
+    // account's other tokens on this device (rotation): one active
+    // (device, token) per patient.
+    const others = rowsOf<PushTokenRow>(
+      await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/patient_push_tokens?device_id=eq.${enc(input.deviceId)}&disabled_at=is.null&patient_id=neq.${enc(input.patientId)}`,
+        { disabled_at: now, disabled_reason: "account_switch", updated_at: now },
+        "return=representation",
+      ),
+      "token account-switch retire",
+    );
+    const rotated = rowsOf<PushTokenRow>(
+      await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/patient_push_tokens?device_id=eq.${enc(input.deviceId)}&disabled_at=is.null&patient_id=eq.${enc(input.patientId)}&token=neq.${enc(input.token)}`,
+        { disabled_at: now, disabled_reason: "replaced", updated_at: now },
+        "return=representation",
+      ),
+      "token rotation retire",
+    );
+    const upserted = rowsOf<PushTokenRow>(
+      await supabaseAdmin(
+        "POST",
+        "/rest/v1/patient_push_tokens?on_conflict=patient_id,token",
+        [
+          {
+            patient_id: input.patientId,
+            token: input.token,
+            device_id: input.deviceId,
+            platform: input.platform,
+            disabled_at: null,
+            disabled_reason: null,
+            last_registered_at: now,
+            updated_at: now,
+          },
+        ],
+        "resolution=merge-duplicates,return=representation",
+      ),
+      "token upsert",
+    );
+    if (!upserted[0]) throw new Error("token upsert returned no row");
+    return { token: upserted[0], retired: others.length + rotated.length };
+  },
+
+  async unregisterTokens(patientId, deviceId, reason) {
+    const now = new Date().toISOString();
+    const rows = rowsOf<PushTokenRow>(
+      await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/patient_push_tokens?patient_id=eq.${enc(patientId)}&disabled_at=is.null${deviceId ? `&device_id=eq.${enc(deviceId)}` : ""}`,
+        { disabled_at: now, disabled_reason: reason, updated_at: now },
+        "return=representation",
+      ),
+      "token unregister",
+    );
+    return rows.length;
+  },
+
+  async disableToken(id, reason) {
+    const now = new Date().toISOString();
+    expectOk(
+      await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/patient_push_tokens?id=eq.${enc(id)}&disabled_at=is.null`,
+        { disabled_at: now, disabled_reason: reason, updated_at: now },
+        "return=minimal",
+      ),
+      "token disable",
+    );
+  },
+
+  async policyContext(patientId) {
+    const [flags, patient] = await Promise.all([
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_flags?patient_id=eq.${enc(patientId)}&select=notification_prefs,nudge_opt_out&limit=1`,
+      ),
+      supabaseAdmin("GET", `/rest/v1/patients?id=eq.${enc(patientId)}&select=timezone&limit=1`),
+    ]);
+    const flag = rowsOf<Record<string, unknown>>(flags, "policy flags")[0];
+    const row = rowsOf<Record<string, unknown>>(patient, "policy patient")[0];
+    return {
+      prefs:
+        flag?.notification_prefs && typeof flag.notification_prefs === "object"
+          ? (flag.notification_prefs as Record<string, unknown>)
+          : null,
+      timezone: typeof row?.timezone === "string" && row.timezone ? row.timezone : null,
+      nudgeOptOut: flag?.nudge_opt_out === true,
+    };
+  },
+
+  async outreachCandidates(evaluatedBefore, limit) {
+    // Activated, unarchived patients whose evaluation is missing or stale.
+    // Two reads (PostgREST cannot anti-join): the stale/missing set is built
+    // client-side from the office's activated ids and the state rows.
+    const patients = rowsOf<Record<string, unknown>>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patients?activation_status=eq.activated&archived_at=is.null&select=id,provider_id&order=created_at.asc&limit=5000`,
+      ),
+      "outreach patients",
+    );
+    if (!patients.length) return [];
+    const fresh = rowsOf<Record<string, unknown>>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_outreach_state?evaluated_at=gt.${enc(evaluatedBefore.toISOString())}&select=patient_id&limit=5000`,
+      ),
+      "outreach fresh states",
+    );
+    const freshIds = new Set(fresh.map((row) => String(row.patient_id)));
+    return patients
+      .filter((row) => !freshIds.has(String(row.id)))
+      .slice(0, limit)
+      .map((row) => ({ patientId: String(row.id), providerId: String(row.provider_id) }));
+  },
+
+  async outreachFacts(patientId, fromDateKey) {
+    const pid = enc(patientId);
+    const [patient, entries, checkIns, flags] = await Promise.all([
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patients?id=eq.${pid}&select=id,provider_id,first_name,name,timezone,starting_weight,activation_status,archived_at&limit=1`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_diary_entries?patient_id=eq.${pid}&date_key=gte.${enc(fromDateKey)}&select=date_key,kind,ref_id&order=date_key.asc&limit=5000`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_check_ins?patient_id=eq.${pid}&select=date_key,weight&order=date_key.asc&limit=2000`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_flags?patient_id=eq.${pid}&select=nudge_opt_out,nudge_engaged,nudge_last_sent_key,nudge_last_crossing_key&limit=1`,
+      ),
+    ]);
+    const row = rowsOf<Record<string, unknown>>(patient, "outreach patient")[0];
+    if (!row || row.archived_at || row.activation_status !== "activated") return null;
+    const flag = rowsOf<Record<string, unknown>>(flags, "outreach flags")[0];
+    const storedFirst = typeof row.first_name === "string" ? row.first_name.trim() : "";
+    const firstName = storedFirst || String(row.name ?? "").trim().split(/\s+/)[0] || "";
+    return {
+      patientId,
+      providerId: String(row.provider_id),
+      firstName,
+      timezone: typeof row.timezone === "string" && row.timezone ? row.timezone : null,
+      startingWeight: numeric(row.starting_weight),
+      entries: rowsOf<Record<string, unknown>>(entries, "outreach entries").map((e) => ({
+        dateKey: String(e.date_key),
+        kind: String(e.kind),
+        refId: typeof e.ref_id === "string" && e.ref_id ? e.ref_id : undefined,
+      })),
+      weighIns: rowsOf<Record<string, unknown>>(checkIns, "outreach check-ins")
+        .map((c) => ({ dateKey: String(c.date_key), weight: numeric(c.weight) }))
+        .filter((c): c is { dateKey: string; weight: number } => c.weight !== null),
+      flags: {
+        nudgeOptOut: flag?.nudge_opt_out === true,
+        nudgeEngaged: flag?.nudge_engaged === true,
+        nudgeLastSentKey: typeof flag?.nudge_last_sent_key === "string" ? flag.nudge_last_sent_key : null,
+        nudgeLastCrossingKey:
+          typeof flag?.nudge_last_crossing_key === "string" ? flag.nudge_last_crossing_key : null,
+      },
+    };
+  },
+
+  async saveOutreachState(row) {
+    expectOk(
+      await supabaseAdmin(
+        "POST",
+        "/rest/v1/patient_outreach_state?on_conflict=patient_id",
+        [{ ...row, updated_at: new Date().toISOString() }],
+        "resolution=merge-duplicates,return=minimal",
+      ),
+      "outreach state save",
+    );
+  },
+
+  async stampNudgeFlags(patientId, flags) {
+    expectOk(
+      await supabaseAdmin(
+        "POST",
+        "/rest/v1/patient_flags?on_conflict=patient_id",
+        [
+          {
+            patient_id: patientId,
+            nudge_last_sent_key: flags.nudgeLastSentKey,
+            nudge_last_crossing_key: flags.nudgeLastCrossingKey,
+            nudge_engaged: flags.nudgeEngaged,
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        "resolution=merge-duplicates,return=minimal",
+      ),
+      "nudge flags stamp",
+    );
+  },
+
+  async seedCoachMessage(patientId, message) {
+    expectOk(
+      await supabaseAdmin("POST", "/rest/v1/rpc/patient_chat_apply", {
+        p_patient_id: patientId,
+        p_thread: "coach",
+        p_messages: [
+          {
+            client_id: message.clientId,
+            role: "assistant",
+            text: message.text,
+            stopped: false,
+            hidden: false,
+            card: null,
+            quick_replies: message.quickReplies,
+            reply_to_client_id: null,
+            photo: null,
+          },
+        ],
+      }),
+      "coach outreach seed",
+    );
+  },
+};

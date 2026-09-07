@@ -236,6 +236,9 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const method = init?.method ?? 'GET';
   requests.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
+  if (method === 'GET' && url.includes('/notifications')) {
+    return new Response(JSON.stringify({ patientId: liveDetail.patient.id, outreach: { state: 'none' }, notifications: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
   if (method === 'GET' && url.includes('/api/office/patients/')) {
     return new Response(JSON.stringify(liveDetail), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }

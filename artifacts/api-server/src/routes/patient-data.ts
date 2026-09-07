@@ -54,6 +54,9 @@ import { objectStorage } from "../lib/objectStorage";
 import { firstNameOf, programDayFor } from "../coach/real-patient";
 import crypto from "node:crypto";
 import { normalizeIdentifier } from "../claim/normalize";
+import { validateNotificationPrefsInput } from "../notifications/policy";
+import { supabaseNotificationStore } from "../notifications/store";
+import { OUTREACH_KIND } from "../notifications/stall-outreach";
 import {
   assertLiveChannelReady,
   checkTwilioVerification,
@@ -1996,6 +1999,11 @@ router.put("/patient-data/flags", async (req, res) => {
         res.status(400).json({ error: "Notification preferences are invalid." });
         return;
       }
+      const prefsProblem = validateNotificationPrefsInput(body.notificationPrefs as Record<string, unknown>);
+      if (prefsProblem) {
+        res.status(400).json({ error: prefsProblem });
+        return;
+      }
       row.notification_prefs = body.notificationPrefs;
     }
     if (Object.keys(row).length === 1) {
@@ -2010,6 +2018,16 @@ router.put("/patient-data/flags", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`flags upsert failed (${upsert.status})`);
+    if (row.nudge_engaged === true) {
+      // The patient answered the coach's outreach: close the loop on the
+      // newest outreach notification so staff see "engaged" on the timeline.
+      // Best-effort — the flag write above is the source of truth.
+      try {
+        await supabaseNotificationStore.markLatestEngaged(auth.patientId, OUTREACH_KIND, new Date());
+      } catch (error) {
+        req.log?.warn({ err: error }, "outreach engagement stamp failed");
+      }
+    }
     res.json({ ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data flags write failed");

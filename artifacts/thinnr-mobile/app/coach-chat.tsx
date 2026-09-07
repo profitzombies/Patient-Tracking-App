@@ -65,10 +65,10 @@ import { AppModal } from "@/components/ui/AppModal";
 import { useColors } from "@/hooks/useColors";
 import {
   offersMealPhotoRetake,
-  OUTREACH_MESSAGE_ID,
   useCoachChat,
   type CoachMessage,
 } from "@/context/CoachChatContext";
+import { isOutreachMessageId } from "@/data/stall-nudge";
 import { createFoodCameraRequest, type FoodCameraCapture } from "@/lib/food-camera";
 import { preparePhotoForUpload, type PreparedPhoto } from "@/lib/photo-prep";
 
@@ -112,7 +112,7 @@ function offersQuickReplies(
     latest !== undefined &&
     latest.role === "assistant" &&
     latest.status === "done" &&
-    (latest.replyToId !== undefined || latest.id === OUTREACH_MESSAGE_ID) &&
+    (latest.replyToId !== undefined || isOutreachMessageId(latest.id)) &&
     latest.text.trimEnd().endsWith("?")
   );
 }

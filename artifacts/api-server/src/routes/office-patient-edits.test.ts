@@ -148,6 +148,7 @@ beforeEach(() => {
       })));
     }
     if (url.pathname === "/rest/v1/patient_operational_follow_ups") return response([]);
+    if (url.pathname === "/rest/v1/rpc/provider_outreach_states") return response([]);
     if (url.pathname === "/rest/v1/rpc/office_update_patient_profile") {
       if (profileRpcFailsWith) return response({ message: profileRpcFailsWith }, 409);
       const patient = patients.find((row) => row.id === body.p_patient_id && row.provider_id === body.p_provider_id);
@@ -585,7 +586,8 @@ describe("body measurement visits", () => {
     // The audit trail names the visit and how many areas were measured, never the inches.
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ p_action: "patient_measurements_recorded", p_target_id: OWN, p_metadata: { visitId: body.visit.id, dateKey: "2026-01-03", areaCount: 3 } });
-    const serialized = JSON.stringify(audits[0].p_metadata);
+    // Scan everything except the random visit id, whose hex digits can legitimately contain "41".
+    const serialized = JSON.stringify({ ...(audits[0].p_metadata as Record<string, unknown>), visitId: undefined });
     for (const forbidden of ["34.5", "41", "12.3", "waist", "hips", "leftArm", "Morning"]) expect(serialized).not.toContain(forbidden);
 
     // The live record carries the visit list, newest first, with values intact.

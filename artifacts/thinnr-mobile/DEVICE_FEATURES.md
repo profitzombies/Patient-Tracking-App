@@ -1,5 +1,8 @@
 # Native device features
 
+Remote push registration, deep links, delivery-open tracking, and development
+build setup are documented in [PUSH_NOTIFICATIONS.md](./PUSH_NOTIFICATIONS.md).
+
 Medication notifications use `expo-notifications`; biometric convenience uses
 `expo-local-authentication` plus account-scoped `expo-secure-store` state.
 Apple Health (`react-native-health`) and Android Health Connect

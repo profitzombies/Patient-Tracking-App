@@ -41,10 +41,12 @@ import { useSession } from "@/contexts/session";
 import { useProviderScope } from "@/contexts/provider-scope";
 import {
   fetchOfficePatient,
+  fetchOfficePatientNotifications,
   type OfficeDiaryEntry,
   type OfficePatientDetail,
 } from "@/lib/office-roster";
 import { EngagementSummary } from "@/components/office/RosterActivity";
+import { CoachOutreachTimeline } from "@/components/office/NotificationTimeline";
 import {
   EditPatientProfile,
   PatientStatusControl,
@@ -70,8 +72,13 @@ function ProductImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
-const formatDate = (date: string, includeYear = false) =>
-  new Date(date).toLocaleDateString("en-US", includeYear ? { month: "short", day: "numeric", year: "numeric" } : { month: "short", day: "numeric" });
+const formatDate = (date: string, includeYear = false, includeTime = false) => {
+  const value = new Date(date);
+  const day = value.toLocaleDateString("en-US", includeYear ? { month: "short", day: "numeric", year: "numeric" } : { month: "short", day: "numeric" });
+  return includeTime
+    ? `${day} · ${value.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+    : day;
+};
 
 function StatusBadge({ status }: { status: string }) {
   const chip = status === "active" || status === "graduated"
@@ -376,6 +383,11 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
     queryFn: () => fetchOfficePatient(id, office),
     refetchInterval: 30_000,
   });
+  const notificationTimeline = useQuery({
+    queryKey: ['office-patient-notifications', office ?? 'own', id],
+    queryFn: () => fetchOfficePatientNotifications(id, office),
+    refetchInterval: 30_000,
+  });
 
   if (detail.isLoading) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center text-sm text-muted-foreground">Loading patient record…</div>;
   if (detail.isError) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center"><h2 className="font-serif text-xl font-bold text-navy">Patient record unavailable</h2><p className="mt-2 text-sm text-destructive" role="alert">{detail.error instanceof Error ? detail.error.message : 'The patient record could not be loaded.'}</p><Link href="/patients" className={`mt-4 ${LINK_ACTION}`}>Return to roster</Link></div>;
@@ -455,6 +467,16 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
           </SectionCard>
         </div>
         <aside className="space-y-5">
+          <CoachOutreachTimeline
+            payload={notificationTimeline.data}
+            isLoading={notificationTimeline.isLoading}
+            error={notificationTimeline.isError
+              ? notificationTimeline.error instanceof Error
+                ? notificationTimeline.error
+                : new Error('Notification history could not be loaded.')
+              : null}
+            formatTimestamp={(date) => formatDate(date, true, true)}
+          />
           {canEdit && activation && (
             <SectionCard title="Program status">
               <div className="p-5"><PatientStatusControl patient={record.patient} office={office} /></div>

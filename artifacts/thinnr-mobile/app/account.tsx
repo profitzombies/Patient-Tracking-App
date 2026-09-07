@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +13,10 @@ import { usePatientAccount } from '@/context/PatientAccountContext';
 import { formatPhoneNumber, isValidContact, isValidDateKey } from '@/data/onboarding-data';
 import { supabase } from '@/lib/supabase';
 import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
+import {
+  buildNotificationPrefsPatch,
+  parseNotificationPrefs,
+} from '@/lib/push-notification-core';
 
 type VerifyKind = 'email' | 'phone';
 
@@ -68,6 +72,11 @@ export default function AccountScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const notificationPrefs = patient.hydratedFlags?.notificationPrefs;
+  const initialPushPrefs = parseNotificationPrefs(notificationPrefs);
+  const [pushCategories, setPushCategories] = useState(initialPushPrefs.categories);
+  const [quietHoursEnabled, setQuietHoursEnabled] = useState(initialPushPrefs.quietHours !== null);
+  const [quietStart, setQuietStart] = useState(initialPushPrefs.quietHours?.start ?? '22:00');
+  const [quietEnd, setQuietEnd] = useState(initialPushPrefs.quietHours?.end ?? '07:00');
   const [reminderMorning, setReminderMorning] = useState(
     typeof notificationPrefs?.reminderMorning === 'string' ? notificationPrefs.reminderMorning : '8:00 AM',
   );
@@ -170,6 +179,33 @@ export default function AccountScreen() {
       setBusy(false);
     }
   };
+
+  const saveNotificationPreferences = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const merged = buildNotificationPrefsPatch(notificationPrefs, {
+        categories: pushCategories,
+        quietHours: quietHoursEnabled ? { start: quietStart, end: quietEnd } : null,
+      });
+      await patient.saveOnboardingFlags({ notificationPrefs: merged });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Notification preferences didn’t save.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pushDescription =
+    device.pushState.availability === 'expo-go' ? 'Not available in Expo Go — use a development build' :
+    device.pushState.availability === 'web' ? 'Not available on web' :
+    device.pushState.availability === 'simulator' ? 'Simulator: no push' :
+    device.pushState.availability === 'unconfigured' ? 'Not configured for this build' :
+    device.pushState.status === 'denied' ? 'Permission denied — enable in Settings' :
+    device.pushState.status === 'registered' ? 'Registered' :
+    device.pushState.status === 'registering' ? 'Registering…' :
+    device.pushState.status === 'error' ? `Error: ${device.pushState.reason ?? 'registration failed'}` :
+    'Ready to register';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
@@ -317,6 +353,82 @@ export default function AccountScreen() {
           ) : null}
         </LedgerCard>
 
+        <Text style={[styles.section, { color: colors.labelText }]}>NOTIFICATIONS</Text>
+        <LedgerCard style={styles.card}>
+          {([
+            ['coachOutreach', 'Coach outreach'],
+            ['checkInReminders', 'Check-in reminders'],
+            ['officeReminders', 'Reminders from my office'],
+          ] as const).map(([key, label]) => (
+            <View key={key} style={styles.switchRow}>
+              <Text style={[styles.body, { color: colors.bodyText }]}>{label}</Text>
+              <Switch
+                testID={`account-push-${key}`}
+                accessibilityRole="switch"
+                accessibilityLabel={label}
+                value={pushCategories[key]}
+                onValueChange={value => setPushCategories(current => ({ ...current, [key]: value }))}
+                trackColor={{ true: colors.cobaltMuted }}
+                thumbColor={pushCategories[key] ? colors.cobalt : undefined}
+              />
+            </View>
+          ))}
+          <View style={styles.switchRow}>
+            <Text style={[styles.body, { color: colors.bodyText }]}>Quiet hours</Text>
+            <Switch
+              testID="account-quiet-hours"
+              accessibilityRole="switch"
+              accessibilityLabel="Enable quiet hours"
+              value={quietHoursEnabled}
+              onValueChange={setQuietHoursEnabled}
+              trackColor={{ true: colors.cobaltMuted }}
+              thumbColor={quietHoursEnabled ? colors.cobalt : undefined}
+            />
+          </View>
+          {quietHoursEnabled ? (
+            <View style={styles.row}>
+              <View style={styles.rowItem}>
+                <FieldLabel text="Start (24-hour)" />
+                <LedgerInput
+                  testID="account-quiet-start"
+                  value={quietStart}
+                  onChangeText={setQuietStart}
+                  placeholder="22:00"
+                  accessibilityLabel="Quiet hours start in 24-hour HH:MM format"
+                />
+              </View>
+              <View style={styles.rowItem}>
+                <FieldLabel text="End (24-hour)" />
+                <LedgerInput
+                  testID="account-quiet-end"
+                  value={quietEnd}
+                  onChangeText={setQuietEnd}
+                  placeholder="07:00"
+                  accessibilityLabel="Quiet hours end in 24-hour HH:MM format"
+                />
+              </View>
+            </View>
+          ) : null}
+          <PrimaryButton
+            testID="account-save-push-preferences"
+            label={busy ? 'Saving…' : 'Save notification preferences'}
+            disabled={busy}
+            onPress={() => void saveNotificationPreferences()}
+            style={styles.gap}
+          />
+          <View style={styles.gap}>
+            <Text style={[styles.body, { color: colors.bodyText }]}>
+              Push on this device: {pushDescription}
+            </Text>
+            {device.pushState.status === 'denied' ? (
+              <PrimaryButton label="Open device Settings" onPress={device.openSettings} style={styles.smallGap} />
+            ) : null}
+            {device.pushState.status === 'error' ? (
+              <PrimaryButton label="Retry push registration" onPress={() => void device.retryPush()} style={styles.smallGap} />
+            ) : null}
+          </View>
+        </LedgerCard>
+
         <Text style={[styles.section, { color: colors.labelText }]}>DEVICE FEATURES</Text>
         <LedgerCard style={styles.card}>
           <Text style={[styles.body, { color: colors.bodyText }]}>
@@ -391,7 +503,10 @@ export default function AccountScreen() {
 
         <Pressable
           testID="account-signout"
-          onPress={() => supabase?.auth.signOut()}
+          onPress={() => void (async () => {
+            await device.unregisterBeforeSignOut('signed_out');
+            await supabase?.auth.signOut();
+          })()}
           style={({ pressed }) => [styles.signout, { borderColor: colors.border }, pressed && { opacity: 0.7 }]}
         >
           <Feather name="log-out" size={16} color={colors.bodyText} />
@@ -421,6 +536,7 @@ const styles = StyleSheet.create({
   gap: { marginTop: 14 },
   row: { flexDirection: 'row', gap: 8, marginTop: 14 },
   rowItem: { flex: 1 },
+  switchRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   smallGap: { marginTop: 9 },
   verify: { marginTop: 18 },
   code: { textAlign: 'center', fontSize: 22, letterSpacing: 8 },

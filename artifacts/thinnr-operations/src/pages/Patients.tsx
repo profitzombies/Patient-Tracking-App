@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Search, Filter, ArrowUpDown, ChevronRight, MessageCircleHeart } from "lucide-react";
+import { Search, Filter, ArrowUpDown, ChevronRight } from "lucide-react";
 import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
 import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
 import { getNudgeAssessment } from "@/data/stall-nudge";
@@ -9,9 +9,10 @@ import { usePatientSession } from "@/contexts/patient-session";
 import { useLiveRoster } from "@/hooks/use-live-roster";
 import { InvitePatientAction, InvitationChip, officeRosterQueryKey } from "@/components/office/LiveRoster";
 import { BTN_SECONDARY } from "@/components/patient/heritage";
-import { resendInvitation, type OfficePatient } from "@/lib/office-roster";
+import { resendInvitation, type OfficePatient, type OutreachRoster } from "@/lib/office-roster";
 import { compareLiveLogging, isLiveLapsed, rosterActivityFor, type RosterActivity } from "@/lib/roster-activity";
 import { LiveEngagementCell, LiveLoggingCell } from "@/components/office/RosterActivity";
+import { OutreachChip } from "@/components/office/NotificationTimeline";
 import {
   useUpdateOfficePatientFollowUp,
   type PatientOperationalFollowUpReason,
@@ -124,18 +125,24 @@ function LoggingSignal({ stats, align = 'left' }: { stats: LoggingStats; align?:
  * Flags patients whose signals crossed the coach-outreach threshold (weight
  * stalled while the diary kept showing off-list items — the shared trigger
  * in data/stall-nudge.ts). Deliberately an ELIGIBILITY signal: the outreach
- * itself sends automatically in the patient's app with no approval step,
- * and delivery/engagement/opt-out state lives there — this surface never
- * claims a conversation was sent. The detail page carries the signals.
+ * itself sends automatically in the patient's app with no approval step.
+ * Live rows use the server's tracked delivery/engagement state; demo rows
+ * retain the seeded eligibility-only signal.
  */
-function NudgeChip() {
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-[#e8b47c] bg-[#fff4e6] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-[#b65c22]">
-      <MessageCircleHeart size={10} aria-hidden="true" />
-      Outreach due
-    </span>
-  );
+function NudgeChip({ outreach }: { outreach: OutreachRoster }) {
+  return <OutreachChip outreach={outreach} />;
 }
+
+const DEMO_ELIGIBLE_OUTREACH: OutreachRoster = {
+  state: 'eligible',
+  eligible: true,
+  crossedOnKey: null,
+  evaluatedAt: null,
+  lastSentKey: null,
+  delivery: null,
+  deliveryDetail: null,
+  notificationId: null,
+};
 
 export default function Patients() {
   const { toast } = useToast();
@@ -241,7 +248,7 @@ export default function Patients() {
           percentLossDisplay: weightLoss ? `${percentLoss}%` : '',
           stats: null as LoggingStats | null,
           activity: activity as RosterActivity | null,
-          isNudgeDue: false,
+          outreachChip: !p.outreach || p.outreach.state === 'none' ? null : p.outreach,
           isLive: true as boolean,
           showResend,
           rawLive: p
@@ -269,7 +276,7 @@ export default function Patients() {
         percentLossDisplay: `${percentLoss}%`,
         stats: stats as LoggingStats | null,
         activity: null as RosterActivity | null,
-        isNudgeDue: getNudgeAssessment(p).active,
+        outreachChip: getNudgeAssessment(p).active ? DEMO_ELIGIBLE_OUTREACH : null,
         isLive: false as boolean,
         showResend: false,
         rawLive: undefined
@@ -462,7 +469,7 @@ export default function Patients() {
                     <div className="min-w-0">
                       <span className="flex items-center gap-2">
                         <b className="block truncate font-serif text-[15px] font-semibold leading-tight text-navy">{patient.name}</b>
-                        {patient.isNudgeDue && <NudgeChip />}
+                        {patient.outreachChip && <NudgeChip outreach={patient.outreachChip} />}
                       </span>
                       <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{patient.providerName}</span>
                     </div>
@@ -608,7 +615,7 @@ export default function Patients() {
                         <div>
                           <span className="flex items-center gap-2">
                             <b className="block font-serif text-sm font-semibold leading-tight text-navy">{patient.name}</b>
-                            {patient.isNudgeDue && <NudgeChip />}
+                            {patient.outreachChip && <NudgeChip outreach={patient.outreachChip} />}
                           </span>
                           <span className="text-[10px] text-muted-foreground">{patient.email}</span>
                         </div>

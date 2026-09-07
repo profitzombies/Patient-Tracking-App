@@ -19,6 +19,17 @@ import {
   type ReminderRecord,
 } from '@/lib/device-feature-core';
 import { getSessionAccessToken } from '@/lib/patient-data-api';
+import {
+  currentPushAvailability,
+  currentPushDeviceId,
+  pushProjectId,
+  pushRegistrationDriver,
+} from '@/lib/push-notifications';
+import {
+  registerForPush,
+  unregisterPush,
+  type PushAvailability,
+} from '@/lib/push-notification-core';
 
 type Availability = 'available' | 'web' | 'expo-go' | 'unsupported';
 interface FeatureState {
@@ -28,6 +39,13 @@ interface FeatureState {
   message: string | null;
   busy: boolean;
   locked: boolean;
+  pushState: {
+    availability: PushAvailability;
+    status: 'idle' | 'registering' | 'registered' | 'denied' | 'error' | 'unavailable';
+    reason?: string;
+  };
+  retryPush(): Promise<void>;
+  unregisterBeforeSignOut(reason?: 'signed_out' | 'account_switch'): Promise<void>;
   enableNotifications(prefs?: ReminderPrefs): Promise<boolean>;
   disableNotifications(): Promise<void>;
   enableBiometrics(): Promise<boolean>;
@@ -110,6 +128,11 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [locked, setLocked] = useState(false);
+  const [pushState, setPushState] = useState<FeatureState['pushState']>({
+    availability: currentPushAvailability,
+    status: currentPushAvailability === 'available' ? 'idle' : 'unavailable',
+    ...(currentPushAvailability === 'available' ? {} : { reason: currentPushAvailability }),
+  });
   const [biometricLoadedFor, setBiometricLoadedFor] = useState<string | null>(null);
   const previousAccount = useRef<string | null>(null);
   const accountRef = useRef<string | null>(null);
@@ -118,6 +141,83 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   operationEpochRef.current.activate(accountId);
   const coordinatorRef = useRef(new ReminderCoordinator(notificationDriver, store));
   const flags = patient.hydratedFlags?.notificationPrefs ?? null;
+
+  const retryPush = useCallback(async () => {
+    if (!accountId || account.kind !== 'real') return;
+    if (currentPushAvailability !== 'available' || (Platform.OS !== 'ios' && Platform.OS !== 'android')) {
+      setPushState({
+        availability: currentPushAvailability,
+        status: 'unavailable',
+        reason: currentPushAvailability,
+      });
+      return;
+    }
+    setPushState({ availability: currentPushAvailability, status: 'registering' });
+    try {
+      const deviceId = await currentPushDeviceId();
+      const result = await registerForPush({
+        accountId,
+        epoch: operationEpochRef.current,
+        availability: currentPushAvailability,
+        projectId: pushProjectId,
+        deviceId,
+        platform: Platform.OS,
+        driver: pushRegistrationDriver,
+      });
+      if (accountRef.current !== accountId || result.status === 'stale') return;
+      if (result.status === 'registered') {
+        setPushState({ availability: currentPushAvailability, status: 'registered' });
+      } else if (result.status === 'denied') {
+        setPushState({ availability: currentPushAvailability, status: 'denied', reason: 'permission-denied' });
+      } else {
+        setPushState({ availability: currentPushAvailability, status: 'unavailable', reason: result.reason });
+      }
+    } catch (cause) {
+      if (accountRef.current === accountId) {
+        setPushState({
+          availability: currentPushAvailability,
+          status: 'error',
+          reason: cause instanceof Error ? cause.message : 'Push registration failed.',
+        });
+      }
+    }
+  }, [account.kind, accountId]);
+
+  const unregisterBeforeSignOut = useCallback(async (
+    reason: 'signed_out' | 'account_switch' = 'signed_out',
+  ) => {
+    if (!accountId || currentPushAvailability !== 'available') return;
+    try {
+      await unregisterPush(pushRegistrationDriver, {
+        deviceId: await currentPushDeviceId(),
+        reason,
+      });
+    } catch {
+      // Sign-out must always proceed; a later registration retires this install's old token.
+    }
+  }, [accountId]);
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      void Notifications.setNotificationChannelAsync('thinnr-messages', {
+        name: 'THINNR messages',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: 'default',
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (accountId) {
+      void retryPush();
+    } else {
+      setPushState({
+        availability: currentPushAvailability,
+        status: currentPushAvailability === 'available' ? 'idle' : 'unavailable',
+        ...(currentPushAvailability === 'available' ? {} : { reason: currentPushAvailability }),
+      });
+    }
+  }, [accountId, retryPush]);
 
   useEffect(() => {
     previousAccount.current = accountId;
@@ -367,11 +467,11 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   }, [account, accountId]);
 
   const value = useMemo<FeatureState>(() => ({
-    notification, biometric, health, message, busy,
+    notification, biometric, health, message, busy, pushState, retryPush, unregisterBeforeSignOut,
     locked: Boolean(accountId) && (biometricLoadedFor !== accountId || locked), enableNotifications, disableNotifications,
     enableBiometrics, disableBiometrics, authenticate, connectAndImportHealth,
     openSettings: async () => { if (Platform.OS !== 'web') await Linking.openSettings(); },
-  }), [notification, biometric, health, message, busy, accountId, biometricLoadedFor, locked, enableNotifications, disableNotifications, enableBiometrics, disableBiometrics, authenticate, connectAndImportHealth]);
+  }), [notification, biometric, health, message, busy, pushState, accountId, biometricLoadedFor, locked, enableNotifications, disableNotifications, enableBiometrics, disableBiometrics, authenticate, connectAndImportHealth, retryPush, unregisterBeforeSignOut]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
@@ -398,7 +498,10 @@ export function DeviceBiometricGate({ children }: { children: ReactNode }) {
       >
         <Text style={{ color: colors.primaryForeground }}>Unlock</Text>
       </Pressable>
-      <Pressable testID="biometric-use-signin" onPress={() => void supabase?.auth.signOut()} style={gateStyles.link}>
+      <Pressable testID="biometric-use-signin" onPress={() => void (async () => {
+        await device.unregisterBeforeSignOut('signed_out');
+        await supabase?.auth.signOut();
+      })()} style={gateStyles.link}>
         <Text style={{ color: colors.cobalt }}>Sign out and use account sign-in</Text>
       </Pressable>
     </View>

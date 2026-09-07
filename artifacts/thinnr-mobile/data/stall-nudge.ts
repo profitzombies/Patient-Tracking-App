@@ -65,6 +65,10 @@ export const CROSSING_LOOKBACK_DAYS = 28;
 /** At most one fresh nudge per this many days (enforced by the app state). */
 export const NUDGE_COOLDOWN_DAYS = 14;
 
+export function isOutreachMessageId(id: string): boolean {
+  return id === 'coach-outreach' || id.startsWith('coach-outreach:');
+}
+
 /**
  * The outreach offer's closing question — the exact tail of the coach's
  * proactive message. The api server keys its back-on-track follow-up branch

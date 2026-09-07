@@ -48,6 +48,8 @@ export interface OfficePatient {
   verified: boolean;
 
   createdAt: string | null;
+
+  outreach: OutreachRoster;
   /** Optional summary values supplied by the roster endpoint as they become available. */
 
   status?: string | null;
@@ -156,6 +158,16 @@ export interface OfficeRoster {
   summary: OfficeRosterSummary;
 }
 
+export type NotificationDeliveryStatus =
+  | 'queued'
+  | 'sending'
+  | 'sent'
+  | 'delivered'
+  | 'opened'
+  | 'failed'
+  | 'suppressed'
+  | 'opted_out'
+  | 'expired';
 export interface OfficeWeightEntry {
   dateKey: string;
   weight: number;
@@ -341,6 +353,20 @@ export async function fetchOfficePatient(patientId: string, office?: string | nu
   );
 }
 
+export async function fetchOfficePatientNotifications(
+  patientId: string,
+  office?: string | null,
+): Promise<OfficePatientNotifications> {
+  const payload = await request<OfficePatientNotifications>(
+    `/api/office/patients/${encodeURIComponent(patientId)}/notifications${officeQuery(office)}`,
+  );
+  // Guard the shape so a wrong-route or proxy response surfaces as the
+  // timeline's own error state instead of crashing the patient record.
+  if (!payload || typeof payload.outreach !== 'object' || payload.outreach === null || !Array.isArray(payload.notifications)) {
+    throw new Error('Notification timeline returned an unexpected response');
+  }
+  return payload;
+}
 export async function invitePatient(
   input: InvitePatientInput,
   office?: string | null,
@@ -544,3 +570,64 @@ export const RECORD_CHANGED_MESSAGE = 'This record changed since you opened it. 
 function patientPath(patientId: string, suffix = '', office?: string | null): string {
   return `/api/office/patients/${encodeURIComponent(patientId)}${suffix}${officeQuery(office)}`;
 }
+
+export interface OfficePatientNotification {
+  id: string;
+  kind: string;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  status: NotificationDeliveryStatus;
+  suppressionReason: string | null;
+  lastError: string | null;
+  attempts: number;
+  scheduledAt: string;
+  expiresAt: string;
+  createdAt: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  openedAt: string | null;
+  engagedAt: string | null;
+  finalizedAt: string | null;
+  nextAttemptAt: string | null;
+  events: NotificationTimelineEvent[];
+}
+
+export interface OfficePatientNotifications {
+  patientId: string;
+  outreach: OutreachRoster;
+  notifications: OfficePatientNotification[];
+}
+
+export interface OutreachRoster {
+  state: OutreachRosterState;
+  eligible: boolean;
+  crossedOnKey: string | null;
+  evaluatedAt: string | null;
+  lastSentKey: string | null;
+  delivery: NotificationDeliveryStatus | null;
+  deliveryDetail: string | null;
+  notificationId: string | null;
+}
+
+export type NotificationTimelineEventKind =
+  | 'queued'
+  | 'attempt_failed'
+  | 'sent'
+  | 'delivered'
+  | 'opened'
+  | 'engaged'
+  | 'failed'
+  | 'suppressed'
+  | 'opted_out'
+  | 'expired';
+
+export type NotificationCategory = 'coach_outreach' | 'check_in_reminders' | 'office_reminders';
+
+export interface NotificationTimelineEvent {
+  at: string;
+  kind: NotificationTimelineEventKind;
+  detail: string | null;
+}
+
+export type OutreachRosterState = 'none' | 'eligible' | 'sent_awaiting' | 'engaged' | 'opted_out';

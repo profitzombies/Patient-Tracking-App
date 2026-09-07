@@ -96,3 +96,4 @@
 - [Export jobs & office analytics](export-jobs-and-office-analytics.md) — staff requests are pinned (never 403), expiry is a status flip, pre-dataset ranges go null, drill links must match real roster filters.
 - [Tester sign-in without tokens](tester-session-injection.md) — never paste JWTs to the tester; throwaway identities + temporary self-deleting session helper that seeds the app's own storage keys.
 - [Live patient record edits](live-record-edits.md) — legacy rows are name-only (derive the untouched half), staff weights own table + trigger, expectedVersion null ≠ skip, e2e fixtures need mgmt-API cleanup.
+- [Push notification outbox](push-notification-outbox.md) — suppression decided at send time (reason on the row); lease proven on real PG; quiet-hours end uses the offset AT the end wall time (DST).

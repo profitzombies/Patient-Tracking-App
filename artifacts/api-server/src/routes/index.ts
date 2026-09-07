@@ -26,6 +26,8 @@ import staffConversationsRouter from "./staff-conversations";
 import hqSettingsFilesRouter from "./hq-settings-files";
 import exportsRouter from "./exports";
 import officePatientEditsRouter from "./office-patient-edits";
+import patientNotificationsRouter from "./patient-notifications";
+import officeNotificationsRouter from "./office-notifications";
 
 const router: IRouter = Router();
 
@@ -46,11 +48,13 @@ router.use(authRouter);
 router.use(patientDataRouter);
 router.use(patientMediaRouter);
 router.use(patientChatRouter);
+router.use(patientNotificationsRouter);
 router.use(providerAccountsRouter);
 router.use(hqTeamRouter);
 router.use(officeRosterRouter);
 router.use(officeOperationsRouter);
 router.use(officePatientEditsRouter);
+router.use(officeNotificationsRouter);
 router.use(hqAuditEventsRouter);
 router.use(operationalRollupsRouter);
 router.use(staffConversationsRouter);

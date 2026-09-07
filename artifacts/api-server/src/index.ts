@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startExportWorker } from "./exports/worker";
+import { startNotificationWorker } from "./notifications/worker";
 
 const rawPort = process.env["PORT"];
 
@@ -25,4 +26,7 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   // CSV export jobs are generated in-process; the worker is idle otherwise.
   startExportWorker();
+  // Push outbox + coach outreach evaluation; NOTIFICATIONS_DISABLED=1 leaves it
+  // to the external scheduler trigger.
+  startNotificationWorker();
 });

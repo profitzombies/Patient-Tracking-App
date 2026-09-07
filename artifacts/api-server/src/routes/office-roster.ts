@@ -37,6 +37,7 @@ import { programDayFor } from "../coach/real-patient";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { activityFromSummaryRow, computePatientActivity } from "../lib/patient-activity";
+import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/timeline";
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 
 const router: IRouter = Router();
@@ -373,7 +374,7 @@ router.get("/office/roster", async (req, res) => {
     // UTC date for the summary counters.
     const now = new Date();
     const asOf = now.toISOString().slice(0, 10);
-    const [rows, operational, followUps] = await Promise.all([
+    const [rows, operational, followUps, outreachStates] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
@@ -383,10 +384,15 @@ router.get("/office/roster", async (req, res) => {
         p_at: now.toISOString(),
       }),
       supabaseAdmin("GET", `/rest/v1/patient_operational_follow_ups?provider_id=eq.${enc(scope.providerId)}&select=patient_id,reason,status,created_at,resolved_at&order=created_at.desc&limit=2000`),
+      supabaseAdmin("POST", "/rest/v1/rpc/provider_outreach_states", { p_provider_id: scope.providerId }),
     ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
     if (operational.status >= 300) throw new Error(`operational roster load failed (${operational.status})`);
     if (followUps.status >= 300) throw new Error(`follow-up roster load failed (${followUps.status})`);
+    if (outreachStates.status >= 300) throw new Error(`outreach roster load failed (${outreachStates.status})`);
+    const outreachByPatient = new Map(
+      (Array.isArray(outreachStates.json) ? (outreachStates.json as OutreachStateRpcRow[]) : []).map((row) => [String(row.patient_id), row]),
+    );
     const facts = new Map((Array.isArray(operational.json) ? operational.json as OperationalRow[] : []).map((fact) => [String(fact.patient_id), fact]));
     const followUpByPatient = new Map<string, OperationalRow[]>();
     for (const item of (Array.isArray(followUps.json) ? followUps.json as OperationalRow[] : [])) {
@@ -398,7 +404,10 @@ router.get("/office/roster", async (req, res) => {
         followUpByPatient.set(id, [...prior, item]);
       }
     }
-    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => rosterOperationalDto(patientDto(row, asOf), facts.get(String(row.id)), asOf, followUpByPatient.get(String(row.id))));
+    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => ({
+      ...rosterOperationalDto(patientDto(row, asOf), facts.get(String(row.id)), asOf, followUpByPatient.get(String(row.id))),
+      outreach: outreachRosterDto(outreachByPatient.get(String(row.id))),
+    }));
     const activePatients = patients.filter((patient) => patient.activationStatus === "activated").length;
     const summary = {
       totalPatients: patients.length, activePatients,

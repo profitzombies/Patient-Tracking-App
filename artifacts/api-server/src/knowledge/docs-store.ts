@@ -28,6 +28,8 @@ export interface KnowledgeDocumentRecord {
   keywords: unknown;
   created_at: string;
   updated_at: string;
+  /** Stamped by the storage reconciliation job when the stored file is gone. */
+  object_missing_at?: string | null;
 }
 
 export interface KnowledgeDocumentDetailRecord extends KnowledgeDocumentRecord {
@@ -42,7 +44,7 @@ export function isDocumentId(value: string): boolean {
 
 /** List payloads never carry extracted_text — it can be hundreds of KB. */
 const LIST_COLUMNS =
-  "id,title,original_filename,object_path,content_type,size_bytes,status,error_message,extracted_chars,summary,keywords,created_at,updated_at";
+  "id,title,original_filename,object_path,content_type,size_bytes,status,error_message,extracted_chars,summary,keywords,created_at,updated_at,object_missing_at";
 const DETAIL_COLUMNS = `${LIST_COLUMNS},extracted_text`;
 
 function base(): string {

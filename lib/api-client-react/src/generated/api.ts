@@ -106,8 +106,12 @@ import type {
   OperationalRollupResult,
   ProgressPhotoFileParams,
   ReplyOfficeConversationParams,
+  RunSystemJobBody,
   SetOfficeConversationStatusParams,
   SupportChatInput,
+  SystemHealthResult,
+  SystemJobRunResult,
+  SystemJobStartedResult,
   TrainingAttachmentDownloadResult,
   TrainingAttachmentFinalizeInput,
   TrainingAttachmentFinalizeResult,
@@ -5324,6 +5328,232 @@ export const useDeleteHqFile = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteHqFileMutationOptions(options));
+    }
+
+export const getGetHqSystemHealthUrl = () => {
+
+
+
+
+  return `/api/hq/system-health`
+}
+
+/**
+ * @summary Background clean-up jobs with their health, last runs, and recent item failures
+ */
+export const getHqSystemHealth = async ( options?: Parameters<typeof customFetch>[1]): Promise<SystemHealthResult> => {
+
+  return customFetch<SystemHealthResult>(getGetHqSystemHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqSystemHealthQueryKey = () => {
+    return [
+    `/api/hq/system-health`
+    ] as const;
+    }
+
+
+export const getGetHqSystemHealthQueryOptions = <TData = Awaited<ReturnType<typeof getHqSystemHealth>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqSystemHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqSystemHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqSystemHealth>>> = ({ signal }) => getHqSystemHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqSystemHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqSystemHealthQueryResult = NonNullable<Awaited<ReturnType<typeof getHqSystemHealth>>>
+export type GetHqSystemHealthQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Background clean-up jobs with their health, last runs, and recent item failures
+ */
+
+export function useGetHqSystemHealth<TData = Awaited<ReturnType<typeof getHqSystemHealth>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqSystemHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqSystemHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqSystemJobRunUrl = (runId: string,) => {
+
+
+
+
+  return `/api/hq/system-health/runs/${runId}`
+}
+
+/**
+ * @summary One job run (used to poll a manual run that is still going)
+ */
+export const getHqSystemJobRun = async (runId: string, options?: Parameters<typeof customFetch>[1]): Promise<SystemJobRunResult> => {
+
+  return customFetch<SystemJobRunResult>(getGetHqSystemJobRunUrl(runId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqSystemJobRunQueryKey = (runId: string,) => {
+    return [
+    `/api/hq/system-health/runs/${runId}`
+    ] as const;
+    }
+
+
+export const getGetHqSystemJobRunQueryOptions = <TData = Awaited<ReturnType<typeof getHqSystemJobRun>>, TError = ErrorType<void>>(runId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqSystemJobRun>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqSystemJobRunQueryKey(runId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqSystemJobRun>>> = ({ signal }) => getHqSystemJobRun(runId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqSystemJobRun>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqSystemJobRunQueryResult = NonNullable<Awaited<ReturnType<typeof getHqSystemJobRun>>>
+export type GetHqSystemJobRunQueryError = ErrorType<void>
+
+
+/**
+ * @summary One job run (used to poll a manual run that is still going)
+ */
+
+export function useGetHqSystemJobRun<TData = Awaited<ReturnType<typeof getHqSystemJobRun>>, TError = ErrorType<void>>(
+ runId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqSystemJobRun>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqSystemJobRunQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunHqSystemJobUrl = (name: string,) => {
+
+
+
+
+  return `/api/hq/system-health/jobs/${name}/run`
+}
+
+/**
+ * @summary Run one background job now (optionally as a dry run)
+ */
+export const runHqSystemJob = async (name: string,
+    runSystemJobBody?: RunSystemJobBody, options?: Parameters<typeof customFetch>[1]): Promise<SystemJobRunResult | SystemJobStartedResult> => {
+
+  return customFetch<SystemJobRunResult | SystemJobStartedResult>(getRunHqSystemJobUrl(name),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(runSystemJobBody)
+  }
+);}
+
+
+
+
+
+export const getRunHqSystemJobMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runHqSystemJob>>, TError,{name: string;data?: BodyType<RunSystemJobBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runHqSystemJob>>, TError,{name: string;data?: BodyType<RunSystemJobBody>}, TContext> => {
+
+const mutationKey = ['runHqSystemJob'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runHqSystemJob>>, {name: string;data?: BodyType<RunSystemJobBody>}> = (props) => {
+          const {name,data} = props ?? {};
+
+          return  runHqSystemJob(name,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunHqSystemJobMutationResult = NonNullable<Awaited<ReturnType<typeof runHqSystemJob>>>
+    export type RunHqSystemJobMutationBody = BodyType<RunSystemJobBody> | undefined
+    export type RunHqSystemJobMutationError = ErrorType<void>
+
+    /**
+ * @summary Run one background job now (optionally as a dry run)
+ */
+export const useRunHqSystemJob = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runHqSystemJob>>, TError,{name: string;data?: BodyType<RunSystemJobBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runHqSystemJob>>,
+        TError,
+        {name: string;data?: BodyType<RunSystemJobBody>},
+        TContext
+      > => {
+      return useMutation(getRunHqSystemJobMutationOptions(options));
     }
 
 export const getGetHqAuditEventsUrl = (params?: GetHqAuditEventsParams,) => {

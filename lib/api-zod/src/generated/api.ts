@@ -622,6 +622,7 @@ export const KnowledgeListDocumentsResponse = zod.object({
   "sizeBytes": zod.number(),
   "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
   "errorMessage": zod.string().nullable().describe('Plain-words reason when status is failed'),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored file missing'),
   "summary": zod.string().nullable().describe('Short routing summary written at extraction time'),
   "keywords": zod.array(zod.string()).describe('Routing keywords written at extraction time'),
   "extractedChars": zod.number().describe('Length of the extracted text; 0 until status is ready'),
@@ -658,6 +659,7 @@ export const KnowledgeCreateDocumentResponse = zod.object({
   "sizeBytes": zod.number(),
   "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
   "errorMessage": zod.string().nullable().describe('Plain-words reason when status is failed'),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored file missing'),
   "summary": zod.string().nullable().describe('Short routing summary written at extraction time'),
   "keywords": zod.array(zod.string()).describe('Routing keywords written at extraction time'),
   "extractedChars": zod.number().describe('Length of the extracted text; 0 until status is ready'),
@@ -713,6 +715,7 @@ export const KnowledgeRenameDocumentResponse = zod.object({
   "sizeBytes": zod.number(),
   "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
   "errorMessage": zod.string().nullable().describe('Plain-words reason when status is failed'),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored file missing'),
   "summary": zod.string().nullable().describe('Short routing summary written at extraction time'),
   "keywords": zod.array(zod.string()).describe('Routing keywords written at extraction time'),
   "extractedChars": zod.number().describe('Length of the extracted text; 0 until status is ready'),
@@ -788,6 +791,7 @@ export const KnowledgeReplaceFileResponse = zod.object({
   "sizeBytes": zod.number(),
   "status": zod.enum(['uploaded', 'extracting', 'ready', 'failed']),
   "errorMessage": zod.string().nullable().describe('Plain-words reason when status is failed'),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored file missing'),
   "summary": zod.string().nullable().describe('Short routing summary written at extraction time'),
   "keywords": zod.array(zod.string()).describe('Routing keywords written at extraction time'),
   "extractedChars": zod.number().describe('Length of the extracted text; 0 until status is ready'),
@@ -2382,7 +2386,8 @@ export const GetHqFilesResponse = zod.object({
   "contentType": zod.string(),
   "size": zod.number(),
   "createdAt": zod.string(),
-  "updatedAt": zod.string()
+  "updatedAt": zod.string(),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
 }))
 })
 
@@ -2414,7 +2419,8 @@ export const FinalizeHqFileResponse = zod.object({
   "contentType": zod.string(),
   "size": zod.number(),
   "createdAt": zod.string(),
-  "updatedAt": zod.string()
+  "updatedAt": zod.string(),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
 })
 
 
@@ -2441,6 +2447,102 @@ export const DeleteHqFileParams = zod.object({
 
 export const DeleteHqFileResponse = zod.object({
   "ok": zod.boolean()
+})
+
+
+/**
+ * @summary Background clean-up jobs with their health, last runs, and recent item failures
+ */
+export const GetHqSystemHealthResponse = zod.object({
+  "asOf": zod.string(),
+  "jobs": zod.array(zod.object({
+  "name": zod.string(),
+  "title": zod.string(),
+  "description": zod.string(),
+  "intervalMs": zod.number().nullable(),
+  "schedule": zod.string().describe('Human schedule, e.g. Every 6 hours \/ On demand'),
+  "status": zod.enum(['ok', 'failing', 'stale', 'never_ran', 'running', 'on_demand']),
+  "running": zod.boolean(),
+  "consecutiveFailures": zod.number(),
+  "nextEligibleAt": zod.string().nullable(),
+  "lastStartedAt": zod.string().nullable(),
+  "lastFinishedAt": zod.string().nullable(),
+  "lastStatus": zod.union([zod.literal('succeeded'),zod.literal('failed'),zod.literal(null)]).nullable(),
+  "lastSuccessAt": zod.string().nullable(),
+  "lastSuccessCounts": zod.record(zod.string(), zod.number()).nullable(),
+  "lastFailureAt": zod.string().nullable(),
+  "lastError": zod.string().nullable(),
+  "recentFailures": zod.array(zod.object({
+  "item": zod.string(),
+  "error": zod.string(),
+  "occurredAt": zod.string()
+}))
+})),
+  "recentRuns": zod.array(zod.object({
+  "id": zod.string(),
+  "jobName": zod.string(),
+  "trigger": zod.enum(['schedule', 'manual', 'internal', 'user']),
+  "dryRun": zod.boolean(),
+  "status": zod.enum(['running', 'succeeded', 'failed']),
+  "owner": zod.string().nullish(),
+  "startedAt": zod.string(),
+  "finishedAt": zod.string().nullable(),
+  "counts": zod.record(zod.string(), zod.number()),
+  "failureCount": zod.number(),
+  "error": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary One job run (used to poll a manual run that is still going)
+ */
+export const GetHqSystemJobRunParams = zod.object({
+  "runId": zod.coerce.string()
+})
+
+export const GetHqSystemJobRunResponse = zod.object({
+  "run": zod.object({
+  "id": zod.string(),
+  "jobName": zod.string(),
+  "trigger": zod.enum(['schedule', 'manual', 'internal', 'user']),
+  "dryRun": zod.boolean(),
+  "status": zod.enum(['running', 'succeeded', 'failed']),
+  "owner": zod.string().nullish(),
+  "startedAt": zod.string(),
+  "finishedAt": zod.string().nullable(),
+  "counts": zod.record(zod.string(), zod.number()),
+  "failureCount": zod.number(),
+  "error": zod.string().nullable()
+})
+})
+
+
+/**
+ * @summary Run one background job now (optionally as a dry run)
+ */
+export const RunHqSystemJobParams = zod.object({
+  "name": zod.coerce.string()
+})
+
+export const RunHqSystemJobBody = zod.object({
+  "dryRun": zod.boolean().optional()
+})
+
+export const RunHqSystemJobResponse = zod.object({
+  "run": zod.object({
+  "id": zod.string(),
+  "jobName": zod.string(),
+  "trigger": zod.enum(['schedule', 'manual', 'internal', 'user']),
+  "dryRun": zod.boolean(),
+  "status": zod.enum(['running', 'succeeded', 'failed']),
+  "owner": zod.string().nullish(),
+  "startedAt": zod.string(),
+  "finishedAt": zod.string().nullable(),
+  "counts": zod.record(zod.string(), zod.number()),
+  "failureCount": zod.number(),
+  "error": zod.string().nullable()
+})
 })
 
 

@@ -1,0 +1,24 @@
+{
+  // tsx config for scripts/verify-system-health.tsx ONLY (not part of
+  // typecheck — tsconfig.json includes src/**/* alone).
+  //
+  // Renders the REAL HQ System health page and the HQ Files page under
+  // react-test-renderer against a scripted global fetch. Session / provider
+  // scope / HQ directory contexts are the a11y stubs, lib/supabase is the
+  // invite-suite stub (poses as a signed-in HQ admin), and the Radix
+  // primitives that need a document are the DOM-free office-admin stand-ins.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
+      "@/contexts/hq-data": ["./scripts/a11y-stubs/hq-data.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
+      "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
+      "@/components/ui/alert-dialog": ["./scripts/office-admin-stubs/alert-dialog.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

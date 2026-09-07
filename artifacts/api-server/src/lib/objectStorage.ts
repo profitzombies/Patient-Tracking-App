@@ -44,6 +44,14 @@ export class ObjectNotFoundError extends Error {
 
 /** Signed upload/download TTLs. Playback URLs outlive the longest lesson. */
 export const UPLOAD_URL_TTL_SEC = 900;
+
+/** One stored object as the reconciliation job sees it. */
+export interface StoredObjectSummary {
+  path: string;
+  /** Null when storage reported no usable timestamp (treated as brand new). */
+  createdAt: Date | null;
+  sizeBytes: number | null;
+}
 export const PLAYBACK_URL_TTL_SEC = 3 * 60 * 60;
 
 export const THUMBNAIL_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -350,11 +358,38 @@ export class ObjectStorageService {
     }
     const { bucketName, objectName } = this.locate(objectPrefix);
     const [files] = await objectStorageClient.bucket(bucketName).getFiles({ prefix: objectName });
-    const dirObjectName = this.locate("/objects/").objectName;
+    const dirObjectName = this.objectsDirName();
     return files
       .map((file) => file.name)
       .filter((name) => name.startsWith(dirObjectName))
       .map((name) => `/objects/${name.slice(dirObjectName.length)}`);
+  }
+
+  /**
+   * Every stored object under a prefix with its creation time — what the
+   * storage reconciliation job compares against the ledgers. Same trailing
+   * slash rule as `listObjectPaths`.
+   */
+  async listObjects(objectPrefix: string): Promise<StoredObjectSummary[]> {
+    if (!objectPrefix.endsWith("/")) {
+      throw new Error("object prefix must end with /");
+    }
+    const { bucketName, objectName } = this.locate(objectPrefix);
+    const [files] = await objectStorageClient.bucket(bucketName).getFiles({ prefix: objectName });
+    const dirObjectName = this.objectsDirName();
+    const out: StoredObjectSummary[] = [];
+    for (const file of files) {
+      if (!file.name.startsWith(dirObjectName)) continue;
+      const meta = (file.metadata ?? {}) as { timeCreated?: string; updated?: string; size?: string | number };
+      const stamp = meta.timeCreated ?? meta.updated ?? null;
+      const createdAt = stamp ? new Date(stamp) : null;
+      out.push({
+        path: `/objects/${file.name.slice(dirObjectName.length)}`,
+        createdAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : null,
+        sizeBytes: meta.size == null ? null : Number(meta.size),
+      });
+    }
+    return out;
   }
 
   /**
@@ -373,6 +408,12 @@ export class ObjectStorageService {
   private fileFor(objectPath: string): File {
     const { bucketName, objectName } = this.locate(objectPath);
     return objectStorageClient.bucket(bucketName).file(objectName);
+  }
+
+  /** Object-name prefix that `/objects/` maps to (with trailing slash). */
+  private objectsDirName(): string {
+    const { objectName } = parseObjectPath(`${getTrainingObjectDir()}/`);
+    return objectName.endsWith("/") ? objectName : `${objectName}/`;
   }
 
   private locate(objectPath: string): { bucketName: string; objectName: string } {

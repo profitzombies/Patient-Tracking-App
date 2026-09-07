@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { recordUploadIntent } from "../jobs/upload-intents";
 import { Router, type IRouter } from "express";
 import {
   CreateHqFileUploadBody,
@@ -135,6 +136,9 @@ function fileDto(row: Record<string, unknown>) {
     size: Number(row.size_bytes),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    // Set by the storage reconciliation job when the object is gone; the
+    // UI shows "file unavailable" instead of minting a dead download link.
+    unavailableSince: typeof row.object_missing_at === "string" ? row.object_missing_at : null,
   };
 }
 
@@ -237,6 +241,7 @@ router.post("/hq/files/upload-url", async (req, res) => {
   try {
     const fileId = randomUUID();
     const upload = await objectStorage.hqFileUploadURL(fileId);
+    await recordUploadIntent({ objectPath: upload.objectPath, surface: "hq_file", ownerId: identity(res).userId });
     res.json({ fileId, ...upload, expiresIn: UPLOAD_URL_TTL_SEC });
   } catch (error) {
     req.log?.error({ err: error }, "HQ file upload URL failed");
@@ -322,7 +327,7 @@ router.post("/hq/files", async (req, res) => {
 
 router.get("/hq/files", async (req, res) => {
   try {
-    const result = await supabaseAdmin("GET", "/rest/v1/hq_private_files?select=id,name,content_type,size_bytes,created_at,updated_at&order=created_at.desc,id.desc&limit=500");
+    const result = await supabaseAdmin("GET", "/rest/v1/hq_private_files?select=id,name,content_type,size_bytes,created_at,updated_at,object_missing_at&order=created_at.desc,id.desc&limit=500");
     if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`HQ files list failed (${result.status})`);
     res.json({ files: (result.json as Record<string, unknown>[]).map(fileDto) });
   } catch (error) {
@@ -337,11 +342,15 @@ router.get("/hq/files/:fileId/download-url", async (req, res) => {
     return;
   }
   try {
-    const result = await supabaseAdmin("GET", `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(req.params.fileId)}&select=name,object_path&limit=1`);
+    const result = await supabaseAdmin("GET", `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(req.params.fileId)}&select=name,object_path,object_missing_at&limit=1`);
     const row = Array.isArray(result.json) ? result.json[0] as Record<string, unknown> | undefined : undefined;
     if (result.status >= 300) throw new Error(`HQ file lookup failed (${result.status})`);
     if (!row) {
       res.status(404).json({ error: "File not found." });
+      return;
+    }
+    if (typeof row.object_missing_at === "string") {
+      res.status(410).json({ error: "This file's stored bytes are missing. It can be deleted, but not downloaded." });
       return;
     }
     const url = await objectStorage.signedDownloadURL(String(row.object_path), DOWNLOAD_TTL_SEC);

@@ -264,6 +264,14 @@ args = "staff-inbox-api"
 task = "workflow.run"
 args = "staff-inbox-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "system-jobs-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "system-health-web"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -942,6 +950,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:staff-inbox"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "system-jobs-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/jobs src/routes/system-jobs.test.ts src/routes/hq-settings-files.test.ts src/routes/patient-media.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "system-health-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:system-health"
 
 [workflows.workflow.metadata]
 isValidation = true

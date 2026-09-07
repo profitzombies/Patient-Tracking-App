@@ -173,30 +173,28 @@ export async function sweepExpiredExports(now = new Date()): Promise<{ expired: 
   return { expired, pruned: Array.isArray(pruned.json) ? pruned.json.length : 0 };
 }
 
-let timers: { drain: NodeJS.Timeout; sweep: NodeJS.Timeout } | null = null;
+let timers: { drain: NodeJS.Timeout } | null = null;
 
 /** Start the periodic drain + sweep loops (once per process). */
-export function startExportWorker(input: { drainEveryMs?: number; sweepEveryMs?: number } = {}): void {
+/**
+ * Drains queued exports on a timer. Expiry of finished archives is NOT on a
+ * timer here any more: the `retention-exports` job (src/jobs) runs
+ * `sweepExpiredExports` under a lease so overlapping processes never race.
+ */
+export function startExportWorker(input: { drainEveryMs?: number } = {}): void {
   if (timers) return;
   const drainEveryMs = input.drainEveryMs ?? 15_000;
-  const sweepEveryMs = input.sweepEveryMs ?? 5 * 60_000;
   const drain = setInterval(() => {
     void drainQueuedExports();
   }, drainEveryMs);
-  const sweep = setInterval(() => {
-    sweepExpiredExports().catch((error) => logger.error({ err: error }, "export sweep failed"));
-  }, sweepEveryMs);
   drain.unref();
-  sweep.unref();
-  timers = { drain, sweep };
-  // Pick up anything left queued by a previous process, and expire stale files.
+  timers = { drain };
+  // Pick up anything left queued by a previous process.
   void drainQueuedExports();
-  sweepExpiredExports().catch((error) => logger.error({ err: error }, "export sweep failed"));
 }
 
 export function stopExportWorker(): void {
   if (!timers) return;
   clearInterval(timers.drain);
-  clearInterval(timers.sweep);
   timers = null;
 }

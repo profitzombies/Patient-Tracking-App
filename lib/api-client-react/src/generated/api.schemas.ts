@@ -786,6 +786,140 @@ export interface HqFile {
   size: number;
   createdAt: string;
   updatedAt: string;
+  /**
+     * Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded
+     * @nullable
+     */
+  unavailableSince?: string | null;
+}
+
+export type SystemJobRunTrigger = typeof SystemJobRunTrigger[keyof typeof SystemJobRunTrigger];
+
+
+export const SystemJobRunTrigger = {
+  schedule: 'schedule',
+  manual: 'manual',
+  internal: 'internal',
+  user: 'user',
+} as const;
+
+export type SystemJobRunStatus = typeof SystemJobRunStatus[keyof typeof SystemJobRunStatus];
+
+
+export const SystemJobRunStatus = {
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+export type SystemJobRunCounts = {[key: string]: number};
+
+export interface SystemJobRun {
+  id: string;
+  jobName: string;
+  trigger: SystemJobRunTrigger;
+  dryRun: boolean;
+  status: SystemJobRunStatus;
+  /** @nullable */
+  owner?: string | null;
+  startedAt: string;
+  /** @nullable */
+  finishedAt: string | null;
+  counts: SystemJobRunCounts;
+  failureCount: number;
+  /** @nullable */
+  error: string | null;
+}
+
+export interface SystemJobItemFailure {
+  item: string;
+  error: string;
+  occurredAt: string;
+}
+
+export type SystemJobHealthStatus = typeof SystemJobHealthStatus[keyof typeof SystemJobHealthStatus];
+
+
+export const SystemJobHealthStatus = {
+  ok: 'ok',
+  failing: 'failing',
+  stale: 'stale',
+  never_ran: 'never_ran',
+  running: 'running',
+  on_demand: 'on_demand',
+} as const;
+
+/**
+ * @nullable
+ */
+export type SystemJobHealthLastStatus = typeof SystemJobHealthLastStatus[keyof typeof SystemJobHealthLastStatus] | null;
+
+
+export const SystemJobHealthLastStatus = {
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+/**
+ * @nullable
+ */
+export type SystemJobHealthLastSuccessCounts = {[key: string]: number} | null;
+
+export interface SystemJobHealth {
+  name: string;
+  title: string;
+  description: string;
+  /** @nullable */
+  intervalMs: number | null;
+  /** Human schedule, e.g. Every 6 hours / On demand */
+  schedule: string;
+  status: SystemJobHealthStatus;
+  running: boolean;
+  consecutiveFailures: number;
+  /** @nullable */
+  nextEligibleAt: string | null;
+  /** @nullable */
+  lastStartedAt: string | null;
+  /** @nullable */
+  lastFinishedAt: string | null;
+  /** @nullable */
+  lastStatus: SystemJobHealthLastStatus;
+  /** @nullable */
+  lastSuccessAt: string | null;
+  /** @nullable */
+  lastSuccessCounts: SystemJobHealthLastSuccessCounts;
+  /** @nullable */
+  lastFailureAt: string | null;
+  /** @nullable */
+  lastError: string | null;
+  recentFailures: SystemJobItemFailure[];
+}
+
+export interface SystemHealthResult {
+  asOf: string;
+  jobs: SystemJobHealth[];
+  recentRuns: SystemJobRun[];
+}
+
+export interface SystemJobRunResult {
+  run: SystemJobRun;
+}
+
+export type SystemJobStartedResultStatus = typeof SystemJobStartedResultStatus[keyof typeof SystemJobStartedResultStatus];
+
+
+export const SystemJobStartedResultStatus = {
+  running: 'running',
+} as const;
+
+export interface SystemJobStartedResult {
+  status: SystemJobStartedResultStatus;
+  /** @nullable */
+  startedAt: string | null;
+}
+
+export interface RunSystemJobBody {
+  dryRun?: boolean;
 }
 
 export interface HqFileListResult {
@@ -2084,6 +2218,11 @@ export interface KnowledgeDocument {
      * @nullable
      */
   errorMessage: string | null;
+  /**
+     * Set when storage reconciliation found the stored file missing
+     * @nullable
+     */
+  unavailableSince?: string | null;
   /**
      * Short routing summary written at extraction time
      * @nullable

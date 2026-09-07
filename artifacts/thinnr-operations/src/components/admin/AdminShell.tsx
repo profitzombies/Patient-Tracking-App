@@ -23,6 +23,7 @@ import {
   Settings2,
   Users,
   ActivitySquare,
+  HeartPulse,
   type LucideIcon,
   FileDown,
 } from 'lucide-react';
@@ -54,13 +55,14 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
   { path: '/admin/exports', label: 'Exports', icon: FileDown },
   { path: '/admin/settings', label: 'Settings', icon: Settings2 },
+  { path: '/admin/system-health', label: 'System health', mobileLabel: 'Health', icon: HeartPulse },
 ];
 
 const ADMIN_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/admin'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/escalations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
-  { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/files', '/admin/settings'] },
+  { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/files', '/admin/settings', '/admin/system-health'] },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {
@@ -71,7 +73,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const visibleNavItems = NAV_ITEMS.filter(
     (item) =>
       canHq(effectiveRole, permissionForAdminPath(item.path)) &&
-      (item.path !== '/admin/audit' || authStatus === 'signed-in'),
+      ((item.path !== '/admin/audit' && item.path !== '/admin/system-health') || authStatus === 'signed-in'),
   );
   const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);

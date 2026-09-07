@@ -130,4 +130,26 @@ describe("HQ file downloads", () => {
     expect(res.status).toBe(404);
     expect(mocks.audit).not.toHaveBeenCalled();
   });
+
+  it("refuses to mint a link for a file whose bytes reconciliation found missing", async () => {
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: [{ name: "Playbook.pdf", object_path: objectPath, object_missing_at: "2026-09-06T03:00:00Z" }] });
+    mocks.signedDownloadURL.mockReset();
+    const res = await fetch(`${base}/hq/files/${fileId}/download-url`, { headers: { authorization: "Bearer admin" } });
+    expect(res.status).toBe(410);
+    expect(mocks.signedDownloadURL).not.toHaveBeenCalled();
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
+
+  it("lists the unavailable-since stamp so the UI can show an honest state", async () => {
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: [
+      { id: "f-ok", name: "A.pdf", content_type: "application/pdf", size_bytes: 8, created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z", object_missing_at: null },
+      { id: "f-gone", name: "B.pdf", content_type: "application/pdf", size_bytes: 8, created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z", object_missing_at: "2026-09-06T03:00:00Z" },
+    ] });
+    const res = await fetch(`${base}/hq/files`, { headers: { authorization: "Bearer admin" } });
+    expect(res.status).toBe(200);
+    const [, path] = mocks.admin.mock.calls[0];
+    expect(path).toContain("object_missing_at");
+    const body = await res.json() as { files: Array<{ id: string; unavailableSince: string | null }> };
+    expect(body.files.map((f) => [f.id, f.unavailableSince])).toEqual([["f-ok", null], ["f-gone", "2026-09-06T03:00:00Z"]]);
+  });
 });

@@ -3,6 +3,8 @@ import { logger } from "./lib/logger";
 import { startExportWorker } from "./exports/worker";
 import { startNotificationWorker } from "./notifications/worker";
 import { startPrivacyWorker } from "./privacy/worker";
+import { registerAllJobs } from "./jobs";
+import { startJobScheduler } from "./jobs/scheduler";
 
 const rawPort = process.env["PORT"];
 
@@ -32,4 +34,8 @@ app.listen(port, (err) => {
   startNotificationWorker();
   // Patient data exports + due account purges.
   startPrivacyWorker();
+  // Scheduled clean-up: abandoned uploads, storage reconciliation, retention.
+  // JOBS_DISABLED=1 leaves it to the internal trigger (POST /internal/jobs/tick).
+  registerAllJobs();
+  startJobScheduler();
 });

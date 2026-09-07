@@ -17,6 +17,7 @@ import {
   Plus,
   Presentation,
   Download,
+  FileX2,
   Trash2,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -367,7 +368,13 @@ function LiveFiles() {
       const res = await getHqFileDownload(file.id);
       window.location.assign(res.url);
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Download failed', description: 'Could not generate a download link.' });
+      const status = (error as { status?: number })?.status;
+      toast({
+        variant: 'destructive',
+        title: status === 410 ? 'File unavailable' : 'Download failed',
+        description: status === 410 ? 'The stored file is missing. It can be deleted, but not downloaded.' : 'Could not generate a download link.',
+      });
+      if (status === 410) await queryClient.invalidateQueries({ queryKey });
     } finally {
       setDownloadingId(null);
     }
@@ -464,7 +471,19 @@ function LiveFiles() {
                           <span className="grid h-7 w-7 shrink-0 place-items-center rounded-sm bg-accent text-primary" aria-hidden="true">
                             {getIconForContentType(file.contentType)}
                           </span>
-                          <span className="truncate font-medium text-foreground">{file.name}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium text-foreground">{file.name}</span>
+                            {file.unavailableSince && (
+                              <span
+                                className="mt-0.5 inline-flex items-center gap-1 rounded-sm border border-[#d5a7a7] bg-[#fff0f0] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-destructive"
+                                data-testid={`chip-file-unavailable-${file.id}`}
+                                title={`Stored file not found since ${format(new Date(file.unavailableSince), 'MMM d, yyyy HH:mm')}`}
+                              >
+                                <FileX2 size={10} aria-hidden="true" />
+                                File unavailable
+                              </span>
+                            )}
+                          </span>
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground">{getLabelForContentType(file.contentType)}</td>
@@ -472,16 +491,22 @@ function LiveFiles() {
                       <td className="px-3 py-2.5 text-muted-foreground">{format(new Date(file.createdAt), 'MMM d, yyyy')}</td>
                       <td className="py-2.5 pl-3 text-right">
                         <div className="flex justify-end items-center gap-2">
-                          <button
-                            type="button"
-                            className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
-                            data-testid={`button-download-${file.id}`}
-                            disabled={downloadingId === file.id}
-                            onClick={() => handleDownload(file)}
-                          >
-                            <Download size={12} aria-hidden="true" />
-                            {downloadingId === file.id ? 'Starting...' : 'Download'}
-                          </button>
+                          {file.unavailableSince ? (
+                            <span className="text-[11px] italic text-muted-foreground" data-testid={`text-file-unavailable-${file.id}`}>
+                              Cannot download
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
+                              data-testid={`button-download-${file.id}`}
+                              disabled={downloadingId === file.id}
+                              onClick={() => handleDownload(file)}
+                            >
+                              <Download size={12} aria-hidden="true" />
+                              {downloadingId === file.id ? 'Starting...' : 'Download'}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 hover:border-destructive/30`}

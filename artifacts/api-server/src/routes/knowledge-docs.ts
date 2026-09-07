@@ -15,6 +15,7 @@
  * the same conditional write that swaps the object path — stale knowledge
  * never describes new bytes — then deletes the replaced object.
  */
+import { recordUploadIntent } from "../jobs/upload-intents";
 import { randomUUID } from "crypto";
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import {
@@ -123,6 +124,7 @@ function toDocumentDto(row: KnowledgeDocumentRecord) {
     extractedChars: Number(row.extracted_chars) || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    unavailableSince: typeof row.object_missing_at === "string" ? row.object_missing_at : null,
   };
 }
 
@@ -222,6 +224,7 @@ router.post(
       }
       const documentId = randomUUID();
       const { uploadUrl, objectPath } = await objectStorage.knowledgeUploadURL(documentId);
+      await recordUploadIntent({ objectPath, surface: "knowledge_document" });
       res.json({ documentId, uploadUrl, objectPath });
     } catch (error) {
       req.log?.error({ err: error }, "knowledge upload-url failed");
@@ -401,6 +404,7 @@ router.post(
       const record = await loadDocumentOr404(String(req.params.documentId), res);
       if (!record) return;
       const { uploadUrl, objectPath } = await objectStorage.knowledgeUploadURL(record.id);
+      await recordUploadIntent({ objectPath, surface: "knowledge_document" });
       res.json({ documentId: record.id, uploadUrl, objectPath });
     } catch (error) {
       req.log?.error({ err: error }, "knowledge replace upload-url failed");

@@ -33,6 +33,7 @@ import officeTeamRouter from "./office-team";
 import officeAuditEventsRouter from "./office-audit-events";
 import patientPrivacyRouter from "./patient-privacy";
 import hqPatientDeletionsRouter from "./hq-patient-deletions";
+import systemJobsRouter from "./system-jobs";
 
 const router: IRouter = Router();
 
@@ -69,6 +70,7 @@ router.use(hqPatientDeletionsRouter);
 router.use(operationalRollupsRouter);
 router.use(staffConversationsRouter);
 router.use(hqSettingsFilesRouter);
+router.use(systemJobsRouter);
 router.use(exportsRouter);
 
 export default router;

@@ -103,3 +103,4 @@
 - [Office team roles & audit read layer](office-team-and-audit.md) — owner/admin/staff with DB last-owner guard, fail-closed disabled members, app-side audit allowlists; DOM-free Radix stubs + form onSubmit for RTR suites.
 - [Patient purge lifecycle](patient-purge-lifecycle.md) — tombstone-first FK-ordered idempotent purge; null-patient_id guard skip + analytics detach carve-out; grace fixtures ride the real clock.
 - [Staff inbox over patient chat](staff-inbox-workflow.md) — workflow state is trigger-derived (upsert replays are safe); staff rows are server-owned and refresh-delivered; coach folds staff turns to context; HQ auto-close window is a read-time overlay via RPC cutoff.
+- [System jobs framework](system-jobs-framework.md) — all clean-up rides the leased job ledger (intents, two-way reconcile flags, dry-run neutrality); live traps: pg-safeupdate bare DELETE, locate("/objects/"), real-HQ tester login recipe.

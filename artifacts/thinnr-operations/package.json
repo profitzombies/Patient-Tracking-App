@@ -36,6 +36,7 @@
     "test:exports": "tsx scripts/verify-exports.ts",
     "test:live-patient-edits": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-live-patient-edits.ts",
     "test:org-policies": "TZ=UTC tsx --tsconfig tsconfig.org-policies.json scripts/verify-org-policies.tsx",
+    "test:system-health": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-system-health.tsx",
     "test:office-team": "TZ=UTC tsx --tsconfig tsconfig.office-admin.json scripts/verify-office-team.tsx",
     "test:office-audit": "TZ=UTC tsx --tsconfig tsconfig.office-admin.json scripts/verify-office-audit.tsx",
     "test:staff-inbox": "tsx scripts/verify-staff-inbox.ts"

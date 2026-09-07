@@ -57,7 +57,6 @@ import {
   updateVideoRecord,
   upsertTranscript,
   type TranscriptSegment,
-  deleteMediaCleanup,
   dequeueMediaCleanup,
   listMediaCleanup,
   queueMediaCleanup,
@@ -76,6 +75,9 @@ import {
 import { keepaliveIntervalMs, UpstreamTimeoutError } from "../coach/upstream";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
+import { runUserJob } from "../jobs/scheduler";
+import { drainTrainingMediaCleanup } from "../training/media-cleanup";
+import { recordUploadIntent } from "../jobs/upload-intents";
 
 const router: IRouter = Router();
 const requireContentManager = requireHqPermission("content_manage");
@@ -280,7 +282,7 @@ function isThumbnailObjectPath(videoId: string, objectPath: string): boolean {
   return objectPath.startsWith(prefix) && name.startsWith("thumb-") && !name.includes("/");
 }
 
-type RouteLog = { error: (obj: unknown, msg?: string) => void };
+type RouteLog = { error: (obj: unknown, msg?: string) => void; warn?: (obj: unknown, msg?: string) => void };
 
 /**
  * Strictly delete a storage object that no row references any more — one
@@ -405,41 +407,20 @@ async function settleDisplaced(paths: string[], videoId: string, log?: RouteLog)
   return allDurable;
 }
 
-function videoReferencesPath(
-  record: { video_source: string | null; thumbnail_source: string | null; attachments: unknown },
-  objectPath: string,
-): boolean {
-  if (record.video_source === objectPath || record.thumbnail_source === objectPath) return true;
-  return attachmentEntries(record.attachments).some((entry) => entry.source === objectPath);
-}
-
 /**
  * Opportunistic drain of the cleanup ledger, run at the top of the finalize
- * routes. Bounded and never throws. Reference-aware: a row whose video still
- * references the path is a stale pre-registration (its swap never committed)
- * — the row is dropped and the LIVE object is never touched. Everything else
- * is strictly deleted (missing counts as gone) before its row leaves.
+ * routes. Bounded and never throws. The scheduled `training-media-cleanup`
+ * job runs the same drain; a drain that actually had rows to settle is
+ * logged to the job-runs ledger as a user-triggered run.
  */
 async function drainMediaCleanup(log?: RouteLog): Promise<void> {
   try {
-    const rows = await listMediaCleanup(10);
-    for (const row of rows) {
-      try {
-        if (row.video_id) {
-          const owner = await getVideoRecord(row.video_id);
-          if (owner && videoReferencesPath(owner, row.object_path)) {
-            await deleteMediaCleanup(row.id);
-            continue;
-          }
-        }
-        await objectStorage.deleteObjectStrict(row.object_path);
-        await deleteMediaCleanup(row.id);
-      } catch {
-        // Still refused (or the owner lookup failed) — the row stays.
-      }
-    }
-  } catch {
+    const pending = await listMediaCleanup(1);
+    if (pending.length === 0) return;
+    await runUserJob("training-media-cleanup", (ctx) => drainTrainingMediaCleanup(ctx, 10));
+  } catch (error) {
     // Ledger unavailable — drain again on a later write.
+    log?.warn?.({ err: error }, "training media cleanup drain skipped");
   }
 }
 
@@ -535,6 +516,7 @@ router.post(
         return;
       }
       const { uploadUrl, objectPath } = await objectStorage.trainingUploadURL(record.id, "video");
+      await recordUploadIntent({ objectPath, surface: "training_video" });
       res.json({ uploadUrl, objectPath });
     } catch (error) {
       req.log?.error({ err: error }, "training upload-url failed");
@@ -791,6 +773,7 @@ router.post(
         return;
       }
       const { uploadUrl, objectPath } = await objectStorage.trainingUploadURL(record.id, "thumb");
+      await recordUploadIntent({ objectPath, surface: "training_thumbnail" });
       res.json({ uploadUrl, objectPath, videoSource: record.video_source });
     } catch (error) {
       req.log?.error({ err: error }, "training thumbnail upload-url failed");
@@ -960,6 +943,7 @@ router.post(
         return;
       }
       const { uploadUrl, objectPath } = await objectStorage.trainingAttachmentUploadURL(record.id);
+      await recordUploadIntent({ objectPath, surface: "training_attachment" });
       res.json({ uploadUrl, objectPath });
     } catch (error) {
       req.log?.error({ err: error }, "training attachment upload-url failed");

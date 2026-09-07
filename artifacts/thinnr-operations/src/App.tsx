@@ -67,6 +67,7 @@ import { ProviderScopeProvider } from '@/contexts/provider-scope';
 import { findSeededAccount } from '@/data/hq/accounts';
 import { canHq, firstAllowedAdminPath, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 import Escalations from '@/pages/admin/Escalations';
+import SystemHealth from '@/pages/admin/SystemHealth';
 
 const queryClient = new QueryClient();
 
@@ -128,6 +129,9 @@ function AdminArea() {
               </Route>
               <Route path="/admin/files" component={Files} />
               <Route path="/admin/exports" component={Exports} />
+              <Route path="/admin/system-health">
+                {canViewAudit ? <SystemHealth /> : <Redirect to="/admin" replace />}
+              </Route>
               {/* Admin persona anywhere else (including office URLs) → HQ. */}
               <Route>
                 <Redirect to={landingPath} replace />

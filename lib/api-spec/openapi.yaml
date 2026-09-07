@@ -1620,6 +1620,48 @@ paths:
           description: File deleted
           content: { application/json: { schema: { $ref: "#/components/schemas/HqFileDeleteResult" } } }
         "404": { description: File not found }
+  /hq/system-health:
+    get:
+      operationId: getHqSystemHealth
+      tags: [hq]
+      summary: Background clean-up jobs with their health, last runs, and recent item failures
+      responses:
+        "200":
+          description: System health snapshot
+          content: { application/json: { schema: { $ref: "#/components/schemas/SystemHealthResult" } } }
+  /hq/system-health/runs/{runId}:
+    get:
+      operationId: getHqSystemJobRun
+      tags: [hq]
+      summary: One job run (used to poll a manual run that is still going)
+      parameters:
+        - { name: runId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The run
+          content: { application/json: { schema: { $ref: "#/components/schemas/SystemJobRunResult" } } }
+        "404": { description: Unknown run }
+  /hq/system-health/jobs/{name}/run:
+    post:
+      operationId: runHqSystemJob
+      tags: [hq]
+      summary: Run one background job now (optionally as a dry run)
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunSystemJobBody" }
+      responses:
+        "200":
+          description: The finished run
+          content: { application/json: { schema: { $ref: "#/components/schemas/SystemJobRunResult" } } }
+        "202":
+          description: Still running; poll the health endpoint
+          content: { application/json: { schema: { $ref: "#/components/schemas/SystemJobStartedResult" } } }
+        "404": { description: Unknown job }
+        "409": { description: Already running or not runnable on demand }
   /hq/audit-events:
     get:
       operationId: getHqAuditEvents
@@ -2227,6 +2269,78 @@ components:
         size: { type: number }
         createdAt: { type: string }
         updatedAt: { type: string }
+        unavailableSince:
+          type: ["string", "null"]
+          description: Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded
+    SystemJobRun:
+      type: object
+      required: [id, jobName, trigger, dryRun, status, startedAt, finishedAt, counts, failureCount, error]
+      properties:
+        id: { type: string }
+        jobName: { type: string }
+        trigger: { type: string, enum: [schedule, manual, internal, user] }
+        dryRun: { type: boolean }
+        status: { type: string, enum: [running, succeeded, failed] }
+        owner: { type: ["string", "null"] }
+        startedAt: { type: string }
+        finishedAt: { type: ["string", "null"] }
+        counts:
+          type: object
+          additionalProperties: { type: number }
+        failureCount: { type: number }
+        error: { type: ["string", "null"] }
+    SystemJobItemFailure:
+      type: object
+      required: [item, error, occurredAt]
+      properties:
+        item: { type: string }
+        error: { type: string }
+        occurredAt: { type: string }
+    SystemJobHealth:
+      type: object
+      required: [name, title, description, intervalMs, schedule, status, running, consecutiveFailures, nextEligibleAt, lastStartedAt, lastFinishedAt, lastStatus, lastSuccessAt, lastSuccessCounts, lastFailureAt, lastError, recentFailures]
+      properties:
+        name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        intervalMs: { type: ["number", "null"] }
+        schedule: { type: string, description: "Human schedule, e.g. Every 6 hours / On demand" }
+        status: { type: string, enum: [ok, failing, stale, never_ran, running, on_demand] }
+        running: { type: boolean }
+        consecutiveFailures: { type: number }
+        nextEligibleAt: { type: ["string", "null"] }
+        lastStartedAt: { type: ["string", "null"] }
+        lastFinishedAt: { type: ["string", "null"] }
+        lastStatus: { type: ["string", "null"], enum: [succeeded, failed, null] }
+        lastSuccessAt: { type: ["string", "null"] }
+        lastSuccessCounts:
+          type: ["object", "null"]
+          additionalProperties: { type: number }
+        lastFailureAt: { type: ["string", "null"] }
+        lastError: { type: ["string", "null"] }
+        recentFailures: { type: array, items: { $ref: "#/components/schemas/SystemJobItemFailure" } }
+    SystemHealthResult:
+      type: object
+      required: [asOf, jobs, recentRuns]
+      properties:
+        asOf: { type: string }
+        jobs: { type: array, items: { $ref: "#/components/schemas/SystemJobHealth" } }
+        recentRuns: { type: array, items: { $ref: "#/components/schemas/SystemJobRun" } }
+    SystemJobRunResult:
+      type: object
+      required: [run]
+      properties:
+        run: { $ref: "#/components/schemas/SystemJobRun" }
+    SystemJobStartedResult:
+      type: object
+      required: [status, startedAt]
+      properties:
+        status: { type: string, enum: [running] }
+        startedAt: { type: ["string", "null"] }
+    RunSystemJobBody:
+      type: object
+      properties:
+        dryRun: { type: boolean }
     HqFileListResult:
       type: object
       required: [files]
@@ -3513,6 +3627,9 @@ components:
         errorMessage:
           type: ["string", "null"]
           description: Plain-words reason when status is failed
+        unavailableSince:
+          type: ["string", "null"]
+          description: Set when storage reconciliation found the stored file missing
         summary:
           type: ["string", "null"]
           description: Short routing summary written at extraction time

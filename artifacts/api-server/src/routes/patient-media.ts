@@ -26,6 +26,8 @@
  * to a short-lived signed URL. A leaked path opens nothing on its own,
  * and a removed photo's URL dies with its ledger row.
  */
+import { recordUploadIntent } from "../jobs/upload-intents";
+import { runUserJob } from "../jobs/scheduler";
 import {
   Router,
   type IRouter,
@@ -165,6 +167,7 @@ router.post(
         auth.patientId,
         body.kind as "food" | "recipe" | "chat" | "progress",
       );
+      await recordUploadIntent({ objectPath, surface: "patient_media", ownerId: auth.patientId });
       res.json({ uploadUrl, objectPath });
     } catch (error) {
       req.log?.error({ err: error }, "patient media upload-url failed");
@@ -315,27 +318,41 @@ router.post(
           return;
         }
       }
-      const rpc = await supabaseAdmin("POST", "/rest/v1/rpc/patient_media_cleanup_progress", {
-        p_patient_id: auth.patientId,
-        p_paths: paths,
-      });
-      if (rpc.status >= 300) {
+      // Logged to the job-runs ledger as a user-triggered run so discards
+      // show up next to the scheduled sweeps on the HQ system health panel.
+      const outcome = await runUserJob("patient-media-cleanup", async (ctx) => {
+        ctx.tally("requested", paths.length);
+        const rpc = await supabaseAdmin("POST", "/rest/v1/rpc/patient_media_cleanup_progress", {
+          p_patient_id: auth.patientId,
+          p_paths: paths,
+        });
+        if (rpc.status >= 300) throw new Error(`patient_media_cleanup_progress failed (${rpc.status})`);
+        const removed = Array.isArray(rpc.json)
+          ? (rpc.json as unknown[]).filter((p): p is string => typeof p === "string")
+          : [];
+        ctx.tally("rowsRemoved", removed.length);
+        // Rows first, bytes best-effort: a missed byte delete leaves an
+        // unreferenced object for the storage sweep, not a correctness hole.
+        for (const objectPath of removed) {
+          try {
+            await objectStorage.deleteObjectStrict(objectPath);
+            ctx.tally("objectsDeleted");
+          } catch (error) {
+            req.log?.warn({ err: error, objectPath }, "cleanup byte delete failed");
+            ctx.failItem(objectPath, error);
+          }
+        }
+        return removed;
+      }).then(
+        (removed) => ({ ok: true as const, removed }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      if (!outcome.ok) {
+        req.log?.error({ err: outcome.error }, "patient media cleanup rpc failed");
         res.status(502).json({ error: "Could not discard the uploads — try again." });
         return;
       }
-      const removed = Array.isArray(rpc.json)
-        ? (rpc.json as unknown[]).filter((p): p is string => typeof p === "string")
-        : [];
-      // Rows first, bytes best-effort: a missed byte delete leaves an
-      // unreferenced object for the storage sweep, not a correctness hole.
-      for (const objectPath of removed) {
-        try {
-          await objectStorage.deleteObjectStrict(objectPath);
-        } catch (error) {
-          req.log?.warn({ err: error, objectPath }, "cleanup byte delete failed");
-        }
-      }
-      res.json({ removed });
+      res.json({ removed: outcome.removed });
     } catch (error) {
       req.log?.error({ err: error }, "patient media cleanup failed");
       res.status(500).json({ error: "Could not discard the uploads — try again." });

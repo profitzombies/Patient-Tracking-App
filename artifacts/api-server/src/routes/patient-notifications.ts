@@ -11,8 +11,8 @@
  * is invisible rather than merely locked; comparisons are constant-time.
  */
 import { Router, type IRouter, type Request, type Response } from "express";
-import { timingSafeEqual } from "crypto";
 import { createLimiter } from "../coach/limits";
+import { authorizeInternalTrigger } from "../lib/internal-trigger";
 import { resolvePatient } from "../lib/patient-auth";
 import { isExpoPushToken } from "../notifications/expo-push";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
@@ -141,19 +141,7 @@ export function createPatientNotificationsRouter(store: NotificationStore = supa
   });
 
   r.post("/internal/notifications/tick", async (req: Request, res: Response) => {
-    const configured = process.env.NOTIFICATIONS_INTERNAL_TOKEN;
-    if (!configured || configured.trim() === "") {
-      res.status(404).json({ error: "Not found." });
-      return;
-    }
-    const header = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-    const presented = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-    const a = Buffer.from(presented);
-    const b = Buffer.from(configured.trim());
-    if (a.length === 0 || a.length !== b.length || !timingSafeEqual(a, b)) {
-      res.status(401).json({ error: "Unauthorized." });
-      return;
-    }
+    if (!authorizeInternalTrigger(req, res)) return;
     const slot = acquireInternalSlot("internal-tick");
     if (!slot.ok) {
       res.status(429).json({ error: slot.message });

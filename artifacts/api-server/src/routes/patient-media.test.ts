@@ -93,6 +93,10 @@ const fake = {
   failLedger: false,
   /** Object paths a progress GRID row references (cleanup must skip them). */
   referencedPaths: new Set<string>(),
+  /** Upload intents recorded for the abandoned-upload sweep. */
+  intents: [] as Array<Record<string, unknown>>,
+  /** Job-run ledger rows (user-triggered clean-up logs here too). */
+  jobRuns: [] as Array<Record<string, unknown>>,
 };
 
 function json(status: number, body: unknown): Response {
@@ -174,6 +178,21 @@ function fakeSupabase(href: string, init?: RequestInit): Response {
       removed.push(path);
     }
     return json(200, removed);
+  }
+  if (url.pathname === "/rest/v1/storage_upload_intents" && method === "POST") {
+    fake.intents.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return json(201, []);
+  }
+  if (url.pathname === "/rest/v1/system_job_runs" && method === "POST") {
+    const row = { id: `run-${fake.jobRuns.length + 1}`, status: "running", started_at: "2026-09-07T12:00:00Z", finished_at: null, counts: {}, failure_count: 0, error: null, ...(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>) };
+    fake.jobRuns.push(row);
+    return json(201, [row]);
+  }
+  if (url.pathname === "/rest/v1/rpc/finish_system_job_run" && method === "POST") {
+    const args = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    const row = fake.jobRuns.find(r => r.id === args.p_run_id);
+    if (row) Object.assign(row, { status: args.p_status, counts: args.p_counts, failure_count: args.p_failure_count, error: args.p_error, finished_at: "2026-09-07T12:00:01Z" });
+    return json(200, null);
   }
   return json(404, { message: `fake: no route ${url.pathname}` });
 }
@@ -321,6 +340,19 @@ describe("POST /patient-media/upload-url", () => {
     );
     expect(stale.status).toBe(401);
     expect(state.minted).toEqual([]);
+  });
+
+  it("records an upload intent so the abandoned-upload sweep can find never-finalized objects", async () => {
+    fake.intents.length = 0;
+    const res = await post(
+      "/patient-media/upload-url",
+      { kind: "food", contentType: "image/jpeg", sizeBytes: 1000 },
+      "tok-1",
+    );
+    expect(res.status).toBe(200);
+    expect(fake.intents).toEqual([
+      expect.objectContaining({ object_path: res.json.objectPath, surface: "patient_media", owner_id: PATIENT_ID }),
+    ]);
   });
 
   it("responds 503 (not 401) when the auth lookup is down", async () => {
@@ -627,13 +659,25 @@ describe("POST /patient-media/cleanup", () => {
     expect(fake.mediaRows.map(r => r.object_path)).toEqual([PROGRESS_B]);
   });
 
+  it("logs the user-triggered clean-up to the job-runs ledger with its counts", async () => {
+    fake.jobRuns.length = 0;
+    seedProgress(PROGRESS_A);
+    const res = await post("/patient-media/cleanup", { paths: [PROGRESS_A] }, "tok-1");
+    expect(res.status).toBe(200);
+    expect(fake.jobRuns).toEqual([
+      expect.objectContaining({ job_name: "patient-media-cleanup", trigger: "user", dry_run: false, status: "succeeded", counts: { requested: 1, rowsRemoved: 1, objectsDeleted: 1 } }),
+    ]);
+  });
+
   it("reports 502 when the ledger delete fails and touches no bytes", async () => {
+    fake.jobRuns.length = 0;
     seedProgress(PROGRESS_A);
     fake.failLedger = true;
     const res = await post("/patient-media/cleanup", { paths: [PROGRESS_A] }, "tok-1");
     expect(res.status).toBe(502);
     expect(state.deleted).toEqual([]);
     expect(fake.mediaRows).toHaveLength(1);
+    expect(fake.jobRuns[0]).toMatchObject({ job_name: "patient-media-cleanup", status: "failed" });
   });
 
   it("survives a failed byte delete — the ledger row still goes", async () => {

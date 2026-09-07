@@ -20,6 +20,11 @@ export interface KnowledgeDocument {
      */
   errorMessage: string | null;
   /**
+     * Set when storage reconciliation found the stored file missing
+     * @nullable
+     */
+  unavailableSince?: string | null;
+  /**
      * Short routing summary written at extraction time
      * @nullable
      */

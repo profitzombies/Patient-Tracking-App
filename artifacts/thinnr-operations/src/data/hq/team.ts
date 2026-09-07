@@ -58,7 +58,7 @@ export function permissionForAdminPath(path: string): HqPermission {
   if (path.startsWith('/admin/audit')) return 'audit';
   if (path.startsWith('/admin/files')) return 'files';
   if (path.startsWith('/admin/exports')) return 'exports';
-  if (path.startsWith('/admin/settings')) return 'settings';
+  if (path.startsWith('/admin/settings') || path.startsWith('/admin/system-health')) return 'settings';
   return 'overview';
 }
 

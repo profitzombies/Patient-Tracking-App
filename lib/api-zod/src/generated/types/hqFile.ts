@@ -13,4 +13,9 @@ export interface HqFile {
   size: number;
   createdAt: string;
   updatedAt: string;
+  /**
+     * Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded
+     * @nullable
+     */
+  unavailableSince?: string | null;
 }

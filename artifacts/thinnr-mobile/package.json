@@ -31,6 +31,7 @@
     "test:patient-profile": "tsx scripts/verify-patient-profile.ts",
     "test:patient-auth": "tsx --tsconfig tsconfig.patient-auth.json scripts/verify-patient-auth.ts",
     "test:patient-fab": "tsx --tsconfig tsconfig.patient-fab.json scripts/verify-patient-fab.ts",
+    "test:body-measurements": "tsx --tsconfig tsconfig.body-measurements.json scripts/verify-body-measurements.tsx",
     "test:photo-backfill": "tsx scripts/verify-photo-backfill.ts",
     "test:provider-training": "tsx --tsconfig tsconfig.provider-training.json scripts/verify-provider-training.mts",
     "test:photo-remove": "tsx scripts/verify-photo-remove.ts",

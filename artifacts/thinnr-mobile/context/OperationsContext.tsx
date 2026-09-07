@@ -17,6 +17,7 @@ import {
   type Patient,
   type Subscription,
 } from '@/data/mock-data';
+import { sortVisitsNewestFirst, type MeasurementVisit } from '@/data/body-measurements';
 
 const STORAGE_KEY = 'thinnr_ops_state_v1';
 
@@ -74,11 +75,19 @@ export interface SubStatusOverride {
   status: 'active' | 'paused' | 'overdue' | 'cancelled';
 }
 
+/** A staff-logged measurement visit, persisted alongside weigh-ins and notes. */
+export interface BodyMeasurementEntry extends MeasurementVisit {
+  patientId: string;
+}
+
 interface PersistedState {
   contactOverrides: ContactOverride[];
   weightEntries: WeightEntry[];
   notes: NoteEntry[];
   subStatusOverrides: SubStatusOverride[];
+  bodyMeasurementVisits: BodyMeasurementEntry[];
+  /** Seeded or logged visit ids staff removed; hidden from every projection. */
+  removedVisitIds: string[];
 }
 
 const EMPTY_STATE: PersistedState = {
@@ -86,7 +95,28 @@ const EMPTY_STATE: PersistedState = {
   weightEntries: [],
   notes: [],
   subStatusOverrides: [],
+  bodyMeasurementVisits: [],
+  removedVisitIds: [],
 };
+
+/** Older persisted payloads predate the measurement fields; default them so reads never crash. */
+function normalizePersistedState(parsed: Partial<PersistedState>): PersistedState {
+  return {
+    ...EMPTY_STATE,
+    ...parsed,
+    bodyMeasurementVisits: Array.isArray(parsed.bodyMeasurementVisits) ? parsed.bodyMeasurementVisits : [],
+    removedVisitIds: Array.isArray(parsed.removedVisitIds) ? parsed.removedVisitIds : [],
+  };
+}
+
+/** Seeded visits with logged ones layered on and removed ones dropped, newest first. */
+function projectBodyMeasurements(state: PersistedState, patientId: string, seeded: MeasurementVisit[]): MeasurementVisit[] {
+  const removed = new Set(state.removedVisitIds);
+  const logged = state.bodyMeasurementVisits
+    .filter(v => v.patientId === patientId)
+    .map(({ patientId: _patientId, ...visit }) => visit);
+  return sortVisitsNewestFirst([...seeded, ...logged].filter(v => !removed.has(v.id)));
+}
 
 interface OperationsContextValue {
   hydrated: boolean;
@@ -95,6 +125,8 @@ interface OperationsContextValue {
   weightEntries: WeightEntry[];
   notes: NoteEntry[];
   subStatusOverrides: SubStatusOverride[];
+  bodyMeasurementVisits: BodyMeasurementEntry[];
+  removedVisitIds: string[];
   // Merged projections — always up-to-date, reload-safe
   mergedPatients: Patient[];
   mergedSubscriptions: Subscription[];
@@ -103,11 +135,15 @@ interface OperationsContextValue {
   appendWeightEntry: (entry: WeightEntry) => Promise<void>;
   appendNote: (note: NoteEntry) => Promise<void>;
   saveSubStatusOverride: (override: SubStatusOverride) => Promise<void>;
+  appendBodyMeasurementVisit: (visit: BodyMeasurementEntry) => Promise<void>;
+  removeBodyMeasurementVisit: (visitId: string) => Promise<void>;
   // Per-patient helpers
   getPatientContact: (patientId: string, defaultEmail: string, defaultPhone: string) => { email: string; phone: string };
   getPatientWeights: (patientId: string, baseHistory: { date: string; weight: number }[]) => { date: string; weight: number }[];
   getPatientNotes: (patientId: string) => NoteEntry[];
   getSubStatus: (patientId: string, defaultStatus: 'active' | 'paused' | 'overdue' | 'cancelled') => 'active' | 'paused' | 'overdue' | 'cancelled';
+  /** Seeded visits merged with this device's logged visits (removed ones hidden), newest first. */
+  getPatientBodyMeasurements: (patientId: string, seeded: MeasurementVisit[]) => MeasurementVisit[];
 }
 
 const OperationsContext = createContext<OperationsContextValue | null>(null);
@@ -127,6 +163,7 @@ function buildMergedPatients(state: PersistedState): Patient[] {
       phone: contactOverride?.phone ?? p.phone,
       currentWeight: latestWeight,
       progressHistory: fullHistory,
+      bodyMeasurements: projectBodyMeasurements(state, p.id, p.bodyMeasurements),
     };
   });
 }
@@ -160,7 +197,7 @@ export function OperationsProvider({ children }: { children: ReactNode }) {
       .then(raw => {
         if (raw) {
           try {
-            const parsed = JSON.parse(raw) as PersistedState;
+            const parsed = normalizePersistedState(JSON.parse(raw) as Partial<PersistedState>);
             stateRef.current = parsed;
             setState(parsed);
           } catch {
@@ -221,6 +258,27 @@ export function OperationsProvider({ children }: { children: ReactNode }) {
     await commit(next);
   }, [commit]);
 
+  const appendBodyMeasurementVisit = useCallback(async (visit: BodyMeasurementEntry): Promise<void> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const prev = stateRef.current;
+    const next: PersistedState = {
+      ...prev,
+      bodyMeasurementVisits: [...prev.bodyMeasurementVisits, visit],
+    };
+    await commit(next);
+  }, [commit]);
+
+  const removeBodyMeasurementVisit = useCallback(async (visitId: string): Promise<void> => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const prev = stateRef.current;
+    const next: PersistedState = {
+      ...prev,
+      bodyMeasurementVisits: prev.bodyMeasurementVisits.filter(v => v.id !== visitId),
+      removedVisitIds: prev.removedVisitIds.includes(visitId) ? prev.removedVisitIds : [...prev.removedVisitIds, visitId],
+    };
+    await commit(next);
+  }, [commit]);
+
   // ─── Per-patient helpers (read from reactive state) ────────────────────────
 
   const getPatientContact = useCallback(
@@ -254,6 +312,11 @@ export function OperationsProvider({ children }: { children: ReactNode }) {
     [state.subStatusOverrides],
   );
 
+  const getPatientBodyMeasurements = useCallback(
+    (patientId: string, seeded: MeasurementVisit[]) => projectBodyMeasurements(state, patientId, seeded),
+    [state],
+  );
+
   // ─── Merged projections ────────────────────────────────────────────────────
 
   const mergedPatients = useMemo(() => buildMergedPatients(state), [state]);
@@ -268,16 +331,21 @@ export function OperationsProvider({ children }: { children: ReactNode }) {
       weightEntries: state.weightEntries,
       notes: state.notes,
       subStatusOverrides: state.subStatusOverrides,
+      bodyMeasurementVisits: state.bodyMeasurementVisits,
+      removedVisitIds: state.removedVisitIds,
       mergedPatients,
       mergedSubscriptions,
       saveContactOverride,
       appendWeightEntry,
       appendNote,
       saveSubStatusOverride,
+      appendBodyMeasurementVisit,
+      removeBodyMeasurementVisit,
       getPatientContact,
       getPatientWeights,
       getPatientNotes,
       getSubStatus,
+      getPatientBodyMeasurements,
     }),
     [
       hydrated,
@@ -288,10 +356,13 @@ export function OperationsProvider({ children }: { children: ReactNode }) {
       appendWeightEntry,
       appendNote,
       saveSubStatusOverride,
+      appendBodyMeasurementVisit,
+      removeBodyMeasurementVisit,
       getPatientContact,
       getPatientWeights,
       getPatientNotes,
       getSubStatus,
+      getPatientBodyMeasurements,
     ],
   );
 

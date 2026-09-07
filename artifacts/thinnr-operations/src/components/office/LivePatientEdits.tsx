@@ -62,7 +62,7 @@ const formatStamp = (iso: string) =>
 const formatDay = (dateKey: string) =>
   new Date(`${dateKey}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
-interface RecordContext {
+export interface RecordContext {
   id: string;
   office: string | null;
   version: string | null;
@@ -73,7 +73,7 @@ interface RecordContext {
  * input, a conflict shows the reload state, permission denials explain
  * themselves, and everything else is a plain toast.
  */
-function useRecordWrite(ctx: RecordContext) {
+export function useRecordWrite(ctx: RecordContext) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [conflict, setConflict] = useState(false);
@@ -115,7 +115,7 @@ function useRecordWrite(ctx: RecordContext) {
   return { run, conflict, forbidden, reload };
 }
 
-function ConflictNotice({ onReload, testId }: { onReload: () => void | Promise<void>; testId: string }) {
+export function ConflictNotice({ onReload, testId }: { onReload: () => void | Promise<void>; testId: string }) {
   return (
     <div role="alert" data-testid={testId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-3 py-2 text-xs text-[#b65c22]">
       <span>{RECORD_CHANGED_MESSAGE}</span>
@@ -126,7 +126,7 @@ function ConflictNotice({ onReload, testId }: { onReload: () => void | Promise<v
   );
 }
 
-function ForbiddenNotice({ message }: { message: string }) {
+export function ForbiddenNotice({ message }: { message: string }) {
   return <p role="alert" className="rounded-md border border-[#d5a7a7] bg-[#fff0f0] px-3 py-2 text-xs text-destructive">{message}</p>;
 }
 

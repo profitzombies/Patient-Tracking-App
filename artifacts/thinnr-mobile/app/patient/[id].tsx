@@ -23,6 +23,7 @@ import { Divider, LedgerCard, ProgressBar, SectionHeader, StatusBadge } from '@/
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { MOCK_PRODUCTS, MOCK_PROVIDERS } from '@/data/mock-data';
 import { useOperations } from '@/context/OperationsContext';
+import { BodyMeasurementsCard, LogVisitSheet, localTodayKey, type VisitDraft } from '@/components/staff/BodyMeasurementsCard';
 
 const formatDate = (date: string, includeYear = false) =>
   new Date(date).toLocaleDateString('en-US', includeYear
@@ -117,6 +118,8 @@ export default function PatientDetailScreen() {
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const [noteSaved, setNoteSaved] = useState(false);
+
+  const [visitSheetOpen, setVisitSheetOpen] = useState(false);
 
   const [subModalOpen, setSubModalOpen] = useState(false);
   const [subStatusDraft, setSubStatusDraft] = useState<'active' | 'paused' | 'overdue' | 'cancelled'>('active');
@@ -224,6 +227,17 @@ export default function PatientDetailScreen() {
     setWeightSaved(true);
     setTimeout(() => setWeightModalOpen(false), 800);
   }, [weightDraft, ops, patient.id]);
+
+  const saveVisit = useCallback(async (draft: VisitDraft) => {
+    await ops.appendBodyMeasurementVisit({
+      patientId: patient.id,
+      id: `visit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      dateKey: draft.dateKey,
+      note: draft.note,
+      measurements: draft.measurements,
+      recordedByName: 'Dr. Sarah Jenkins',
+    });
+  }, [ops, patient.id]);
 
   const openNoteModal = () => {
     setNoteDraft('');
@@ -443,6 +457,15 @@ export default function PatientDetailScreen() {
               );
             })}
           </LedgerCard>
+        </View>
+
+        {/* Body measurements */}
+        <View style={styles.section}>
+          <BodyMeasurementsCard
+            visits={patient.bodyMeasurements}
+            onLogPress={() => setVisitSheetOpen(true)}
+            onRemove={visit => ops.removeBodyMeasurementVisit(visit.id)}
+          />
         </View>
 
         {/* Care plan */}
@@ -745,6 +768,16 @@ export default function PatientDetailScreen() {
           </View>
         </View>
       </AppModal>
+
+      {/* ── Log a Visit Sheet ── */}
+      <LogVisitSheet
+        visible={visitSheetOpen}
+        todayKey={localTodayKey()}
+        topInset={insets.top}
+        patientName={patient.name.split(' ')[0]}
+        onClose={() => setVisitSheetOpen(false)}
+        onSave={saveVisit}
+      />
 
       {/* ── Add Note Modal ── */}
       <AppModal visible={noteModalOpen} animationType={modalAnimation} presentationStyle="formSheet" onRequestClose={() => setNoteModalOpen(false)}>

@@ -3,8 +3,8 @@
  *
  * Office staff (and HQ with provider_manage on an explicitly named office)
  * can edit demographics/contact fields, leave staff-only provider notes,
- * record/correct/remove staff weigh-ins, and set the activation status with
- * a reason. Every route:
+ * record/correct/remove staff weigh-ins, log/remove body measurement visits,
+ * and set the activation status with a reason. Every route:
  *   * resolves office scope with provider_manage + requireUnlocked, so locked
  *     and disabled offices and HQ roles without the permission are refused;
  *   * looks the patient up scoped to that office in the same query, so a
@@ -12,7 +12,7 @@
  *   * preconditions patient-row edits on the record version (updated_at) the
  *     client rendered — a stale save is a 409 "reload", never an overwrite;
  *   * records an audit event with actor, patient, and a field summary only
- *     (no note bodies, weights, reasons, or other clinical text).
+ *     (no note bodies, weights, measurements, reasons, or other clinical text).
  *
  * Profile edits run through one SQL function so a claimed account's login
  * identifiers move in the same transaction as the patients row.
@@ -37,8 +37,10 @@ import {
   recordVersion,
   providerNoteDto,
   staffWeightDto,
+  bodyMeasurementDto,
   type PatientRosterRow,
 } from "./office-roster";
+import { BODY_AREAS, MEASUREMENT_COLUMNS, inchesIssue, type BodyAreaKey } from "../lib/body-measurements";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -535,6 +537,138 @@ router.delete("/office/patients/:id/weights/:weightId", async (req, res) => {
     res.json({ deleted: true, patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
   } catch (error) {
     req.log?.error({ err: error }, "office staff weight delete failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
+
+// ── Body measurement visits ─────────────────────────────────────────────────
+//
+// A visit records the date plus whichever areas staff measured (inches). The
+// per-area values are the only clinical payload: the audit trail carries the
+// visit id, the date, and HOW MANY areas were measured — never the numbers.
+
+const MEASUREMENT_SELECT = `visit_id,date_key,note,${MEASUREMENT_COLUMNS},recorded_by_name,created_at,updated_at`;
+const NO_MEASUREMENTS = "Enter at least one measurement.";
+
+const MeasurementValues = z.object(
+  Object.fromEntries(BODY_AREAS.map((area) => [area.key, z.number({ invalid_type_error: "Enter the measurement in inches." }).optional()])) as Record<BodyAreaKey, z.ZodOptional<z.ZodNumber>>,
+).strict();
+
+const MeasurementCreateInput = z.object({
+  office: z.string().trim().max(120).optional(),
+  dateKey: z.string().trim(),
+  note: z.union([z.string().trim().max(500, "Keep the note under 500 characters."), z.null()]).optional(),
+  measurements: MeasurementValues,
+});
+
+const MeasurementDeleteInput = z.object({ expectedVersion: Version, office: z.string().trim().max(120).optional() });
+
+function measurementIssue(input: z.infer<typeof MeasurementCreateInput>, patient: PatientRosterRow): { error: string; field: string } | null {
+  const today = dayKeyInTimeZone(typeof patient.timezone === "string" ? patient.timezone : null);
+  if (!validDateKey(input.dateKey) || input.dateKey < "2000-01-01" || input.dateKey > today) {
+    return { error: "Enter a date on or before today.", field: "dateKey" };
+  }
+  let measured = 0;
+  for (const area of BODY_AREAS) {
+    const value = input.measurements[area.key];
+    if (value === undefined) continue;
+    const issue = inchesIssue(value);
+    if (issue) return { error: issue, field: area.key };
+    measured += 1;
+  }
+  if (measured === 0) return { error: NO_MEASUREMENTS, field: "measurements" };
+  return null;
+}
+
+/** Field-keyed like firstIssue, but a bad value inside `measurements` names its area. */
+function measurementParseIssue(error: z.ZodError): { error: string; field?: string } {
+  const issue = error.issues[0];
+  const path = issue?.path ?? [];
+  if (path[0] === "measurements" && path.length > 1 && typeof path[1] === "string" && issue.code !== "unrecognized_keys") {
+    return { error: issue.message, field: path[1] };
+  }
+  return firstIssue(error);
+}
+
+router.post("/office/patients/:id/measurements", async (req, res) => {
+  try {
+    const parsed = MeasurementCreateInput.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json(measurementParseIssue(parsed.error)); return; }
+    const scoped = await scopedPatient(req);
+    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    const { scope, patient } = scoped;
+    const patientId = String(patient.id);
+    const issue = measurementIssue(parsed.data, patient);
+    if (issue) { res.status(400).json(issue); return; }
+    const visitId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const columns: Record<string, number | null> = {};
+    let areaCount = 0;
+    for (const area of BODY_AREAS) {
+      const value = parsed.data.measurements[area.key];
+      columns[area.column] = value === undefined ? null : Math.round(value * 10) / 10;
+      if (value !== undefined) areaCount += 1;
+    }
+    const inserted = await supabaseAdmin(
+      "POST",
+      `/rest/v1/patient_body_measurements?select=${MEASUREMENT_SELECT}`,
+      {
+        visit_id: visitId,
+        provider_id: scope.providerId,
+        patient_id: patientId,
+        date_key: parsed.data.dateKey,
+        note: parsed.data.note?.trim() || null,
+        ...columns,
+        recorded_by: scope.actorUserId,
+        recorded_by_name: await actorDisplayName(scope),
+        created_at: now,
+        updated_at: now,
+      },
+      "return=representation",
+    );
+    if (inserted.status >= 300) throw new Error(`body measurement insert failed (${inserted.status})`);
+    const row = (Array.isArray(inserted.json) ? inserted.json[0] : inserted.json) as PatientRosterRow | undefined;
+    if (!row) throw new Error("body measurement insert returned no row");
+    await audit(req, scope, "patient_measurements_recorded", patientId, { visitId, dateKey: parsed.data.dateKey, areaCount });
+    res.status(201).json({ visit: bodyMeasurementDto(row), patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
+  } catch (error) {
+    req.log?.error({ err: error }, "office body measurement failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
+
+// Values on a visit are not editable — a mistaken visit is removed and
+// re-logged. Removal is preconditioned on the visit's own version like a
+// weigh-in, so a stale dialog surfaces the reload conflict instead of
+// deleting something it never saw.
+router.delete("/office/patients/:id/measurements/:visitId", async (req, res) => {
+  try {
+    const parsed = MeasurementDeleteInput.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json(firstIssue(parsed.error)); return; }
+    const scoped = await scopedPatient(req);
+    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    const { scope, patient } = scoped;
+    const patientId = String(patient.id);
+    const visitId = String(req.params.visitId ?? "");
+    const existing = await supabaseAdmin(
+      "GET",
+      `/rest/v1/patient_body_measurements?visit_id=eq.${enc(visitId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&select=visit_id,date_key&limit=1`,
+    );
+    if (existing.status >= 300) throw new Error(`body measurement lookup failed (${existing.status})`);
+    const found = Array.isArray(existing.json) ? (existing.json[0] as PatientRosterRow | undefined) : undefined;
+    if (!found) { res.status(404).json({ error: "That measurement visit is no longer on this record." }); return; }
+    const deleted = await supabaseAdmin(
+      "DELETE",
+      `/rest/v1/patient_body_measurements?visit_id=eq.${enc(visitId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&${versionFilter(parsed.data.expectedVersion)}&select=visit_id`,
+      undefined,
+      "return=representation",
+    );
+    if (deleted.status >= 300) throw new Error(`body measurement delete failed (${deleted.status})`);
+    if (!Array.isArray(deleted.json) || deleted.json.length === 0) { res.status(409).json({ error: RECORD_CHANGED, code: "record_changed" }); return; }
+    await audit(req, scope, "patient_measurements_removed", patientId, { visitId, dateKey: String(found.date_key ?? "").slice(0, 10) });
+    res.json({ deleted: true, patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
+  } catch (error) {
+    req.log?.error({ err: error }, "office body measurement delete failed");
     res.status(502).json({ error: SERVER_ERROR });
   }
 });

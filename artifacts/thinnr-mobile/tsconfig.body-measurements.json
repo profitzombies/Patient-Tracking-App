@@ -1,0 +1,32 @@
+{
+  // tsx config for scripts/verify-body-measurements.tsx ONLY (not part of
+  // typecheck — tsconfig.json includes the app sources alone).
+  //
+  // Runs the REAL OperationsContext and the REAL staff BodyMeasurementsCard /
+  // LogVisitSheet under react-test-renderer: react-native and its native
+  // neighbours map to the onboarding-gate Node stand-ins (Platform.OS is
+  // 'web', so persistence rides an in-memory localStorage the suite installs),
+  // and AppModal is the patient-fab stub that renders children only while
+  // visible. Every other '@/…' import resolves to the real code.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/components/ui/AppModal": ["./scripts/patient-fab-stubs/app-modal.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/onboarding-gate-stubs/expo-router.ts"],
+      "react-native-safe-area-context": [
+        "./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"
+      ],
+      "react-native-keyboard-controller": [
+        "./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"
+      ],
+      "@react-native-async-storage/async-storage": [
+        "./scripts/onboarding-gate-stubs/async-storage.ts"
+      ]
+    }
+  }
+}

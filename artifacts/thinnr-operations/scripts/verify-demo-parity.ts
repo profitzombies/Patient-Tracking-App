@@ -26,6 +26,9 @@ import { classifyMealName, getNudgeAssessment } from '../src/data/stall-nudge';
 // deciders, not copies of them.
 import { buildSeedEntries as buildMobileSeedEntries } from '../../thinnr-mobile/data/patient-data';
 import { classifyEntry as classifyMobileEntry } from '../../thinnr-mobile/data/stall-nudge';
+import { MOCK_PATIENTS as MOBILE_MOCK_PATIENTS } from '../../thinnr-mobile/data/mock-data';
+import { BODY_AREAS } from '../src/lib/body-measurements';
+import { BODY_AREAS as MOBILE_BODY_AREAS } from '../../thinnr-mobile/data/body-measurements';
 
 let failures = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -163,6 +166,19 @@ check(
   verdictMismatches.slice(0, 5),
   [],
 );
+
+// ─── Body measurement visits (staff-logged inches) ───────────────────────────
+check('body areas identical on web and mobile', MOBILE_BODY_AREAS, BODY_AREAS);
+const mobileVisitsById = new Map(MOBILE_MOCK_PATIENTS.map((p) => [p.id, p.bodyMeasurements]));
+const visitMismatches = MOCK_PATIENTS
+  .filter((p) => JSON.stringify(p.bodyMeasurements) !== JSON.stringify(mobileVisitsById.get(p.id)))
+  .map((p) => p.id);
+check('every demo patient carries identical measurement visits on web and mobile', visitMismatches, []);
+check('demo patient count matches mobile', MOCK_PATIENTS.length, MOBILE_MOCK_PATIENTS.length);
+check('Emma: three seeded visits, baseline first', emma.bodyMeasurements.map((v) => v.dateKey), ['2026-05-20', '2026-07-06', '2026-08-22']);
+check('Emma: baseline waist', emma.bodyMeasurements[0].measurements.waist, 36);
+check('Emma: newest visit waist (inches lost)', emma.bodyMeasurements.at(-1)?.measurements.waist, 32.8);
+check('no seeded visit lands after the anchor', MOCK_PATIENTS.every((p) => p.bodyMeasurements.every((v) => v.dateKey <= TODAY_KEY)), true);
 
 if (failures > 0) {
   console.error(`\n${failures} parity check(s) failed.`);

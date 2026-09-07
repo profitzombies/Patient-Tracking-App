@@ -29,6 +29,7 @@
     "test:email-studio": "tsx scripts/verify-email-studio.ts",
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
     "test:roster-activity": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-roster-activity.tsx",
+    "test:body-measurements": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-body-measurements.tsx",
     "test:office-comparison": "TZ=UTC tsx scripts/verify-office-comparison.ts && TZ=Pacific/Kiritimati tsx scripts/verify-office-comparison.ts",
     "test:exports": "tsx scripts/verify-exports.ts",
     "test:live-patient-edits": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-live-patient-edits.ts"

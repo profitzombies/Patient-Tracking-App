@@ -196,6 +196,18 @@ args = "patient-edits-api"
 task = "workflow.run"
 args = "live-patient-edits-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "body-measurements-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "body-measurements-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "body-measurements-api"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -687,6 +699,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:live-patient-edits"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "body-measurements-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:body-measurements"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "body-measurements-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:body-measurements"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "body-measurements-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/office-patient-edits.test.ts src/routes/office-roster.test.ts src/routes/hq-audit-events.test.ts"
 
 [workflows.workflow.metadata]
 isValidation = true

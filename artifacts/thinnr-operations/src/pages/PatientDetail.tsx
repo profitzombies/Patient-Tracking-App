@@ -19,6 +19,9 @@ import { useScopedPatients, useScopedProviders, useScopedSubscriptions } from "@
 import { TODAY_KEY } from "@/data/nutrition-data";
 import { ADHERENCE_WINDOW_DAYS, NUDGE_COOLDOWN_DAYS, getNudgeAssessment } from "@/data/stall-nudge";
 import { WeightTrend } from "@/components/patient/WeightTrend";
+import { BodyMeasurementsCard } from "@/components/patient/BodyMeasurements";
+import { LiveBodyMeasurements } from "@/components/office/LiveBodyMeasurements";
+import type { MeasurementVisit } from "@/lib/body-measurements";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
 import {
   BTN_PRIMARY,
@@ -80,7 +83,7 @@ function StatusBadge({ status }: { status: string }) {
 function DemoPatientDetail() {
   const { id } = useParams();
   const { toast } = useToast();
-  const { addWeightEntry, getCurrentWeight, getProgressHistory } = usePatientSession();
+  const { addWeightEntry, getCurrentWeight, getProgressHistory, getBodyMeasurements, addMeasurementVisit, removeMeasurementVisit } = usePatientSession();
   // Scoped lookups: inside the HQ drill-in, another office's patient id is
   // simply "not found" here — the umbrella never leaks records across offices.
   const patients = useScopedPatients();
@@ -216,6 +219,23 @@ function DemoPatientDetail() {
               <div className="mt-5 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[460px] text-left text-xs"><caption className="sr-only">Logged weigh-ins for {patient.name}</caption><thead className="bg-secondary text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2 font-bold">Date</th><th className="px-3 py-2 font-bold">Weight</th><th className="px-3 py-2 font-bold">From baseline</th><th className="px-3 py-2 font-bold">To goal</th></tr></thead><tbody>{orderedWeights.map((entry, index) => { const loss = patient.startingWeight - entry.weight; const change = loss === 0 ? "Baseline" : loss > 0 ? `${loss.toFixed(1)} lbs lost` : `${Math.abs(loss).toFixed(1)} lbs above baseline`; return <tr key={`${entry.date}-${index}`} className="border-t border-border"><td className="px-3 py-2.5 text-muted-foreground">{formatDate(entry.date, true)}</td><td className="px-3 py-2.5 font-mono font-semibold text-navy">{entry.weight.toFixed(1)} lbs</td><td className="px-3 py-2.5 text-primary">{change}</td><td className="px-3 py-2.5 text-muted-foreground">{Math.max(0, entry.weight - patient.goalWeight).toFixed(1)} lbs</td></tr>; })}</tbody></table></div>
             </div>
           </SectionCard>
+
+          <BodyMeasurementsCard
+            visits={getBodyMeasurements(patient)}
+            patientName={patient.name}
+            canEdit
+            todayKey={TODAY_KEY}
+            onSave={async (draft) => {
+              const visit: MeasurementVisit = { id: `visit-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, ...draft, recordedByName: provider?.name ?? "Care team" };
+              addMeasurementVisit(patient, visit);
+              toast({ variant: "success", title: "Visit logged", description: `${Object.keys(draft.measurements).length} measurement${Object.keys(draft.measurements).length === 1 ? "" : "s"} saved to this session's record.` });
+              return { ok: true };
+            }}
+            onRemove={(visit) => {
+              removeMeasurementVisit(patient, visit.id);
+              toast({ variant: "success", title: "Visit removed", description: "Removed from this synthetic session." });
+            }}
+          />
 
           <SectionCard title="Clinical activity and notes">
             <div className="p-5">
@@ -423,6 +443,7 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
               {weights.length && startingWeight != null ? <><WeightTrend entries={weights.map((entry) => ({ date: entry.dateKey, weight: entry.weight }))} goalWeight={program.goalWeight} startingWeight={startingWeight} patientName={identity.name} /><ul className="mt-4 divide-y divide-border rounded-md border border-border" data-testid="list-weigh-ins">{[...weights].reverse().map((entry) => { const staff = entry.source === 'staff' && entry.id ? staffWeightsById.get(entry.id) : undefined; return <li key={`${entry.dateKey}-${entry.source ?? 'patient'}-${entry.id ?? entry.weight}`} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3 py-2 text-xs" data-testid={`weigh-in-${entry.dateKey}-${entry.source ?? 'patient'}`}><span className="text-muted-foreground">{formatDate(`${entry.dateKey}T12:00:00Z`, true)}</span><span className="flex items-center gap-3"><span className={`text-[10px] ${entry.source === 'staff' ? 'text-primary' : 'text-muted-foreground'}`}>{entry.source === 'staff' ? `Staff · ${staff?.recordedByName ?? 'office'}${staff?.note ? ` · ${staff.note}` : ''}` : 'Patient check-in'}</span><b className="font-mono text-navy">{entry.weight.toFixed(1)} lbs</b>{canEdit && staff && <StaffWeightActions patient={record.patient} entry={staff} office={office} />}</span></li>; })}</ul></> : <EmptyState>No weigh-ins have been recorded.</EmptyState>}
             </div>
           </SectionCard>
+          <LiveBodyMeasurements patient={record.patient} visits={record.bodyMeasurements ?? []} office={office} canEdit={canRecordWeight} />
           <SectionCard title="Provider notes" sub="Internal care-team notes on this record.">
             <ProviderNotes patient={record.patient} notes={providerNotes} office={office} canEdit={canEdit} />
           </SectionCard>

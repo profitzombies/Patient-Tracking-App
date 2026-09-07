@@ -37,6 +37,7 @@ import { programDayFor } from "../coach/real-patient";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { activityFromSummaryRow, computePatientActivity } from "../lib/patient-activity";
+import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 
 const router: IRouter = Router();
 
@@ -252,6 +253,24 @@ export function staffWeightDto(row: PatientRosterRow) {
   };
 }
 
+/** One measurement visit: only the areas actually measured appear in `measurements`. */
+export function bodyMeasurementDto(row: PatientRosterRow) {
+  const measurements: Record<string, number> = {};
+  for (const area of BODY_AREAS) {
+    const value = numericOrNull(row[area.column]);
+    if (value !== null) measurements[area.key] = value;
+  }
+  return {
+    id: String(row.visit_id),
+    dateKey: String(row.date_key ?? "").slice(0, 10),
+    note: typeof row.note === "string" && row.note ? row.note : null,
+    measurements,
+    recordedByName: String(row.recorded_by_name ?? ""),
+    createdAt: String(row.created_at ?? ""),
+    version: typeof row.updated_at === "string" ? row.updated_at : null,
+  };
+}
+
 /** Patient + staff weight series, oldest first; staff entries carry their id so the UI can correct them. */
 export function mergedWeights(
   checkIns: Array<{ dateKey: string; weight: number | null }>,
@@ -441,7 +460,7 @@ router.get("/office/patients/:id", async (req, res) => {
     }
 
     const pid = enc(patientId);
-    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights] =
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits] =
       await Promise.all([
         supabaseAdmin(
           "GET",
@@ -497,8 +516,13 @@ router.get("/office/patients/:id", async (req, res) => {
           `/rest/v1/patient_staff_weights?patient_id=eq.${pid}&provider_id=eq.${enc(scope.providerId)}` +
             "&select=weight_id,date_key,weight,note,recorded_by_name,created_at,updated_at&order=date_key.asc&limit=2000",
         ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_body_measurements?patient_id=eq.${pid}&provider_id=eq.${enc(scope.providerId)}` +
+            `&select=visit_id,date_key,note,${MEASUREMENT_COLUMNS},recorded_by_name,created_at,updated_at&order=date_key.desc,created_at.desc&limit=1000`,
+        ),
       ]);
-    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights];
+    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits];
     if (results.some((result) => result.status >= 300 || !Array.isArray(result.json))) {
       throw new Error("patient record history load failed");
     }
@@ -548,6 +572,7 @@ router.get("/office/patients/:id", async (req, res) => {
     const flag = (flags.json as PatientRosterRow[])[0];
     const providerNotes = (notes.json as PatientRosterRow[]).map(providerNoteDto);
     const staffWeightList = (staffWeights.json as PatientRosterRow[]).map(staffWeightDto);
+    const bodyMeasurements = (measurementVisits.json as PatientRosterRow[]).map(bodyMeasurementDto);
 
     const photoList = await Promise.all(
       (photos.json as PatientRosterRow[]).map(async (row) => ({
@@ -624,6 +649,7 @@ router.get("/office/patients/:id", async (req, res) => {
       },
       providerNotes,
       staffWeights: staffWeightList,
+      bodyMeasurements,
       diary: {
         entries: entryList,
         nutritionTotals: {

@@ -24,6 +24,8 @@ const allowedActions = new Set([
   "patient_weight_recorded",
   "patient_weight_updated",
   "patient_weight_removed",
+  "patient_measurements_recorded",
+  "patient_measurements_removed",
   "provider_account_created",
   "provider_account_updated",
   "hq_team_invited",
@@ -36,7 +38,7 @@ const allowedActions = new Set([
   "data_export_requested",
   "data_export_downloaded",
 ]);
-const allowedMetadata = new Set(["reason", "role", "status", "field", "fields", "from", "to", "size", "contentType", "thread", "kind", "office", "rows", "noteId", "weightId", "dateKey"]);
+const allowedMetadata = new Set(["reason", "role", "status", "field", "fields", "from", "to", "size", "contentType", "thread", "kind", "office", "rows", "noteId", "weightId", "visitId", "areaCount", "dateKey"]);
 const enc = encodeURIComponent;
 function utcDate(value: string | undefined): number | null {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;

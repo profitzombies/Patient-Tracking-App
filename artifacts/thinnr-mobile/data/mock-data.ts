@@ -3,6 +3,7 @@
  * Mirrors artifacts/thinnr-operations/src/data/mock-data.ts
  * Uses native Date helpers instead of date-fns.
  */
+import { BODY_AREAS, type BodyAreaKey, type MeasurementValues, type MeasurementVisit } from './body-measurements';
 
 export type Status = 'active' | 'paused' | 'overdue' | 'cancelled' | 'graduated';
 
@@ -41,6 +42,8 @@ export interface Patient {
   notes: string[];
   activity: ActivityItem[];
   progressHistory: WeightEntry[];
+  /** Staff-recorded body measurement visits (inches), seeded newest last. */
+  bodyMeasurements: MeasurementVisit[];
   checkIns: { date: string; summary: string; mood: string }[];
   carePlan: {
     name: string;
@@ -149,6 +152,53 @@ const generateName = (i: number): string => {
 const SEEDED_STALL_INDICES = new Set([0, 8]);
 /** How many trailing days of a stalled patient's history hold flat. */
 const STALL_SEED_DAYS = 21;
+
+/**
+ * Seeded body measurement visits: a baseline taken the week the patient
+ * enrolled and one or two follow-ups, so the "Body measurements" card is
+ * never empty in a demo. Deterministic per patient index and identical on
+ * web and mobile (both build from the shared anchor date), with a couple of
+ * areas deliberately skipped on follow-ups so unmeasured cells show a dash.
+ */
+function seedMeasurementVisits(i: number, patientId: string, enrollmentDays: number, startWeight: number): MeasurementVisit[] {
+  const heavier = Math.max(0, startWeight - 180);
+  const baseline: Record<BodyAreaKey, number> = {
+    neck: 14.5 + heavier * 0.03,
+    chest: 40 + heavier * 0.16,
+    leftArm: 12.5 + heavier * 0.05,
+    rightArm: 12.7 + heavier * 0.05,
+    waist: 36 + heavier * 0.2,
+    hips: 41 + heavier * 0.17,
+    leftThigh: 23 + heavier * 0.09,
+    rightThigh: 23.2 + heavier * 0.09,
+    leftCalf: 15 + heavier * 0.04,
+    rightCalf: 15.1 + heavier * 0.04,
+  };
+  const visitCount = enrollmentDays >= 28 ? 3 : 2;
+  const lastElapsed = Math.max(1, enrollmentDays - (i % 4));
+  const elapsedDays = Array.from({ length: visitCount }, (_, k) =>
+    k === 0 ? 0 : Math.round((lastElapsed * k) / (visitCount - 1)),
+  );
+  return elapsedDays.map((elapsed, k) => {
+    const progress = Math.min(1, elapsed / Math.max(enrollmentDays, 1));
+    const measurements: MeasurementValues = {};
+    BODY_AREAS.forEach((area, areaIndex) => {
+      // Follow-ups skip one or two areas so the table shows real gaps.
+      if (k > 0 && (areaIndex + i + k) % 7 === 0) return;
+      const base = baseline[area.key];
+      const shrink = base * (area.key === 'waist' || area.key === 'hips' ? 0.09 : 0.045) * progress;
+      const wobble = k === 0 ? 0 : (seededFraction(i * 97 + k * 11 + areaIndex) - 0.5) * 0.4;
+      measurements[area.key] = Math.round((base - shrink + wobble) * 10) / 10;
+    });
+    return {
+      id: `${patientId}-visit-${k + 1}`,
+      dateKey: subDays(today, enrollmentDays - elapsed).toISOString().slice(0, 10),
+      note: k === 0 ? 'Baseline measurements at enrollment.' : null,
+      measurements,
+      recordedByName: 'Dr. Sarah Jenkins',
+    };
+  });
+}
 
 export const MOCK_PATIENTS: Patient[] = Array.from({ length: 32 }).map((_, i) => {
   const name = generateName(i);
@@ -271,6 +321,7 @@ export const MOCK_PATIENTS: Patient[] = Array.from({ length: 32 }).map((_, i) =>
     ],
     activity,
     progressHistory: history,
+    bodyMeasurements: seedMeasurementVisits(i, `pat_${i + 100}`, enrollmentDays, startWeight),
     checkIns,
     carePlan: {
       name: isGraduated ? 'THINNR Maintenance Plan' : 'THINNR Six-Week Protocol',

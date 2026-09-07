@@ -7,6 +7,7 @@
  * calls these endpoints at all — the seeded roster stays byte-identical.
  */
 import { supabase } from '@/lib/supabase';
+import type { MeasurementValues } from '@/lib/body-measurements';
 
 export class OfficeRosterError extends Error {
   constructor(
@@ -255,6 +256,8 @@ export interface OfficePatientDetail {
   /** Staff-only notes — never part of the patient app's own-record contract. */
   providerNotes: OfficeProviderNote[];
   staffWeights: OfficeStaffWeight[];
+  /** Staff-recorded body measurement visits, newest first. */
+  bodyMeasurements: OfficeMeasurementVisit[];
   progressPhotos: OfficeProgressPhoto[];
   account: {
     targets: { calories: number | null; protein: number | null; carbs: number | null; fat: number | null; waterOz: number | null };
@@ -428,6 +431,29 @@ export async function recordStaffWeight(
 }
 
 /** Removal carries the weigh-in's version like a correction: a stale dialog gets the reload conflict, not a silent delete. */
+export async function recordMeasurementVisit(
+  patientId: string,
+  input: { dateKey: string; note?: string | null; measurements: MeasurementValues },
+  office?: string | null,
+): Promise<{ visit: OfficeMeasurementVisit } & PatientRecordResponse> {
+  return request(patientPath(patientId, '/measurements', office), {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteMeasurementVisit(
+  patientId: string,
+  visitId: string,
+  expectedVersion: string | null,
+  office?: string | null,
+): Promise<{ deleted: boolean } & PatientRecordResponse> {
+  return request(patientPath(patientId, `/measurements/${encodeURIComponent(visitId)}`, office), {
+    method: 'DELETE',
+    body: JSON.stringify({ expectedVersion }),
+  });
+}
+
 export async function deleteStaffWeight(
   patientId: string,
   weightId: string,
@@ -461,6 +487,18 @@ export async function deleteProviderNote(
   office?: string | null,
 ): Promise<{ deleted: boolean }> {
   return request(patientPath(patientId, `/notes/${encodeURIComponent(noteId)}`, office), { method: 'DELETE' });
+}
+
+export interface OfficeMeasurementVisit {
+  id: string;
+  dateKey: string;
+  note: string | null;
+  /** Inches per measured area (keys from BODY_AREAS); unmeasured areas are absent. */
+  measurements: MeasurementValues;
+  recordedByName: string;
+  createdAt: string;
+  /** Row version echoed back as expectedVersion when removing the visit. */
+  version: string | null;
 }
 
 export interface OfficeStaffWeight {

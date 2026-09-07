@@ -33,6 +33,7 @@ let locks: string[] = [];
 let patients: Row[] = [];
 let notes: Row[] = [];
 let staffWeights: Row[] = [];
+let measurementVisits: Row[] = [];
 let checkIns: Row[] = [];
 let audits: Row[] = [];
 let requests: string[] = [];
@@ -114,6 +115,7 @@ beforeEach(() => {
   ];
   notes = [];
   staffWeights = [];
+  measurementVisits = [];
   checkIns = [];
   audits = [];
   requests = [];
@@ -205,6 +207,19 @@ beforeEach(() => {
         return response(gone);
       }
     }
+    if (url.pathname === "/rest/v1/patient_body_measurements") {
+      if (method === "GET") return response(matching(measurementVisits, url.searchParams, ["visit_id", "patient_id", "provider_id"]));
+      if (method === "POST") {
+        const areas = ["neck", "chest", "left_arm", "right_arm", "waist", "hips", "left_thigh", "right_thigh", "left_calf", "right_calf"];
+        if (areas.every((column) => body[column] == null)) return response({ message: 'new row violates check constraint "patient_body_measurements_at_least_one"' }, 400);
+        measurementVisits.push(body); return response([body], 201);
+      }
+      if (method === "DELETE") {
+        const gone = matching(measurementVisits, url.searchParams, ["visit_id", "patient_id", "provider_id", "updated_at"]);
+        measurementVisits = measurementVisits.filter((row) => !gone.includes(row));
+        return response(gone);
+      }
+    }
     if (url.pathname === "/rest/v1/patient_check_ins") return response(checkIns.filter((row) => row.patient_id === (url.searchParams.get("patient_id") ?? "").replace("eq.", "")));
     if (url.pathname.startsWith("/rest/v1/patient_")) return response([]);
     throw new Error(`Unexpected fake request: ${method} ${url}`);
@@ -228,6 +243,8 @@ describe("scope and permissions", () => {
     ["POST", "/weights", { dateKey: "2026-01-02", weight: 188 }],
     ["PATCH", "/weights/w-1", { expectedVersion: V1, weight: 187 }],
     ["DELETE", "/weights/w-1", { expectedVersion: V1 }],
+    ["POST", "/measurements", { dateKey: "2026-01-02", measurements: { waist: 34.5 } }],
+    ["DELETE", "/measurements/m-1", { expectedVersion: V1 }],
   ];
 
   it("answers cross-office ids and unknown ids with the identical neutral 404 and writes nothing", async () => {
@@ -239,6 +256,7 @@ describe("scope and permissions", () => {
     }
     expect(notes).toEqual([]);
     expect(staffWeights).toEqual([]);
+    expect(measurementVisits).toEqual([]);
     expect(patients[1]).toMatchObject({ first_name: "Riley", activation_status: "activated" });
     expect(audits).toEqual([]);
     expect(requests.filter((line) => !line.startsWith("GET "))).toEqual([]);
@@ -507,15 +525,106 @@ describe("staff weigh-ins", () => {
       ["POST", "/weights", { dateKey: "2026-01-05", weight: 180 }],
       ["PATCH", "/weights/w-arch", { expectedVersion: V1, weight: 170 }],
       ["DELETE", "/weights/w-arch", { expectedVersion: V1 }],
+      ["POST", "/measurements", { dateKey: "2026-01-05", measurements: { waist: 33 } }],
+      ["DELETE", "/measurements/m-arch", { expectedVersion: V1 }],
     ];
+    measurementVisits.push({ visit_id: "m-arch", patient_id: OWN, provider_id: "office-1", date_key: "2026-01-02", note: null, waist: 34, recorded_by_name: "Dr. Reyes", created_at: V1, updated_at: V1 });
     for (const [method, suffix, body] of attempts) {
       const res = await api(`/office/patients/${OWN}${suffix}`, "provider-token", { method, ...(body ? json(body) : {}) });
       expect([method, suffix, res.status]).toEqual([method, suffix, 404]);
     }
     expect(patients[0].first_name).toBe("Casey");
     expect(staffWeights).toHaveLength(1);
+    expect(measurementVisits).toHaveLength(1);
     expect(notes).toHaveLength(1);
     expect(audits).toEqual([]);
+  });
+});
+
+describe("body measurement visits", () => {
+  it("validates the day, every inch value, and requires at least one area", async () => {
+    const cases: Array<[Row, string]> = [
+      [{ dateKey: "2999-01-01", measurements: { waist: 34 } }, "dateKey"],
+      [{ dateKey: "2026-02-30", measurements: { waist: 34 } }, "dateKey"],
+      [{ dateKey: "2026-01-02", measurements: {} }, "measurements"],
+      [{ dateKey: "2026-01-02", measurements: { waist: 0 } }, "waist"],
+      [{ dateKey: "2026-01-02", measurements: { waist: -2 } }, "waist"],
+      [{ dateKey: "2026-01-02", measurements: { chest: 41.25 } }, "chest"],
+      [{ dateKey: "2026-01-02", measurements: { neck: 500 } }, "neck"],
+      [{ dateKey: "2026-01-02", measurements: { hips: "40" } }, "hips"],
+      [{ dateKey: "2026-01-02", measurements: { waist: 34, leftArm: 12, shoulders: 50 } }, "measurements"],
+      [{ dateKey: "2026-01-02", measurements: { waist: 34 }, note: "x".repeat(501) }, "note"],
+    ];
+    for (const [body, field] of cases) {
+      const res = await api(`/office/patients/${OWN}/measurements`, "provider-token", { method: "POST", ...json(body) });
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(((await res.json()) as Row).field, JSON.stringify(body)).toBe(field);
+    }
+    expect(measurementVisits).toEqual([]);
+    expect(audits).toEqual([]);
+  });
+
+  it("stores only the measured areas, returns them on the record, and audits the count rather than the values", async () => {
+    const created = await api(`/office/patients/${OWN}/measurements`, "provider-token", {
+      method: "POST",
+      ...json({ dateKey: "2026-01-03", note: "  Morning visit  ", measurements: { waist: 34.5, hips: 41, leftArm: 12.3 } }),
+    });
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as any;
+    expect(body.visit).toMatchObject({
+      dateKey: "2026-01-03",
+      note: "Morning visit",
+      measurements: { waist: 34.5, hips: 41, leftArm: 12.3 },
+      recordedByName: "Dr. Reyes",
+    });
+    expect(Object.keys(body.visit.measurements).sort()).toEqual(["hips", "leftArm", "waist"]);
+    expect(body.visit.version).toBeTruthy();
+    expect(body.patient.identity.id).toBe(OWN);
+    expect(measurementVisits[0]).toMatchObject({ waist: 34.5, hips: 41, left_arm: 12.3, neck: null, chest: null, right_arm: null, recorded_by: "provider-user" });
+
+    // The audit trail names the visit and how many areas were measured, never the inches.
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ p_action: "patient_measurements_recorded", p_target_id: OWN, p_metadata: { visitId: body.visit.id, dateKey: "2026-01-03", areaCount: 3 } });
+    const serialized = JSON.stringify(audits[0].p_metadata);
+    for (const forbidden of ["34.5", "41", "12.3", "waist", "hips", "leftArm", "Morning"]) expect(serialized).not.toContain(forbidden);
+
+    // The live record carries the visit list, newest first, with values intact.
+    measurementVisits.push({ visit_id: "m-older", patient_id: OWN, provider_id: "office-1", date_key: "2025-12-01", note: null, waist: 36, hips: null, recorded_by_name: "Dr. Reyes", created_at: "2025-12-01T10:00:00Z", updated_at: "2025-12-01T10:00:00Z" });
+    const record = await api(`/office/patients/${OWN}`, "provider-token");
+    expect(record.status).toBe(200);
+    const detail = (await record.json()) as any;
+    expect(detail.bodyMeasurements.map((visit: any) => [visit.id, visit.dateKey, visit.measurements])).toEqual([
+      [body.visit.id, "2026-01-03", { waist: 34.5, hips: 41, leftArm: 12.3 }],
+      ["m-older", "2025-12-01", { waist: 36 }],
+    ]);
+  });
+
+  it("removes a visit only with its current version, and another office can never reach it", async () => {
+    const created = await api(`/office/patients/${OWN}/measurements`, "member-token", { method: "POST", ...json({ dateKey: "2026-01-03", measurements: { waist: 34.5 } }) });
+    expect(created.status).toBe(201);
+    const visit = ((await created.json()) as any).visit;
+    expect(visit.recordedByName).toBe("Sam Front Desk");
+
+    // Another office's staff see neither the visit nor the patient.
+    const otherToken = "provider-token";
+    patients[0].provider_id = "office-2";
+    expect((await api(`/office/patients/${OWN}/measurements/${visit.id}`, otherToken, { method: "DELETE", ...json({ expectedVersion: visit.version }) })).status).toBe(404);
+    patients[0].provider_id = "office-1";
+    expect(measurementVisits).toHaveLength(1);
+
+    expect((await api(`/office/patients/${OWN}/measurements/${visit.id}`, "provider-token", { method: "DELETE", ...json({}) })).status).toBe(400);
+    const stale = await api(`/office/patients/${OWN}/measurements/${visit.id}`, "provider-token", { method: "DELETE", ...json({ expectedVersion: "2020-01-01T00:00:00Z" }) });
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as Row).code).toBe("record_changed");
+    expect(measurementVisits).toHaveLength(1);
+
+    const removed = await api(`/office/patients/${OWN}/measurements/${visit.id}`, "provider-token", { method: "DELETE", ...json({ expectedVersion: visit.version }) });
+    expect(removed.status).toBe(200);
+    expect(((await removed.json()) as any).patient.identity.id).toBe(OWN);
+    expect(measurementVisits).toEqual([]);
+    expect(audits.at(-1)).toMatchObject({ p_action: "patient_measurements_removed", p_metadata: { visitId: visit.id, dateKey: "2026-01-03" } });
+    expect(JSON.stringify(audits.at(-1)!.p_metadata)).not.toContain("34.5");
+    expect((await api(`/office/patients/${OWN}/measurements/${visit.id}`, "provider-token", { method: "DELETE", ...json({ expectedVersion: visit.version }) })).status).toBe(404);
   });
 });
 
@@ -530,6 +639,7 @@ describe("patient-facing boundary", () => {
     expect(patientData).toContain("patient_check_ins");
     expect(patientData).not.toContain("patient_provider_notes");
     expect(patientData).not.toContain("patient_staff_weights");
+    expect(patientData).not.toContain("patient_body_measurements");
     expect(patientData).not.toContain("activation_reason");
   });
 });

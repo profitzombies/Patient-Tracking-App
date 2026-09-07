@@ -157,6 +157,7 @@ beforeEach(() => {
     patient_flags: [],
     patient_provider_notes: [],
     patient_staff_weights: [],
+    patient_body_measurements: [],
   };
   locks = [];
   hqMemberships = [{ department_role: "admin", status: "active" }];
@@ -550,6 +551,7 @@ describe("live patient records", () => {
     expect(body.weights).toEqual([]);
     expect(body.providerNotes).toEqual([]);
     expect(body.staffWeights).toEqual([]);
+    expect(body.bodyMeasurements).toEqual([]);
     expect(body.patient.version).toBeNull();
     expect(body.progressPhotos).toEqual([]);
     expect(body.account).toMatchObject({
@@ -600,6 +602,12 @@ describe("live patient records", () => {
     patientTables.patient_staff_weights.push({
       patient_id: ownId, provider_id: "office-1", weight_id: "sw-1", date_key: "2026-01-03", weight: "196.5",
       note: "Office scale", recorded_by_name: "Dr. Reyes", created_at: "2026-01-03T15:00:00Z", updated_at: "2026-01-03T15:00:00Z",
+    });
+    patientTables.patient_body_measurements.push({
+      patient_id: ownId, provider_id: "office-1", visit_id: "bm-1", date_key: "2026-01-03", note: "Baseline",
+      neck: "15.0", waist: "36.5", hips: null, chest: null, left_arm: null, right_arm: null,
+      left_thigh: null, right_thigh: null, left_calf: null, right_calf: null,
+      recorded_by_name: "Dr. Reyes", created_at: "2026-01-03T15:10:00Z", updated_at: "2026-01-03T15:10:00Z",
     });
     patientTables.patient_provider_notes.push({
       patient_id: ownId, provider_id: "office-1", note_id: "n-1", body: "Discussed hydration.",
@@ -660,6 +668,11 @@ describe("live patient records", () => {
     }]);
     expect(body.providerNotes).toEqual([{
       id: "n-1", body: "Discussed hydration.", authorName: "Dr. Reyes", authorKind: "provider", createdAt: "2026-01-04T12:00:00Z",
+    }]);
+    // Measurement visits ride the record with only the areas that were measured.
+    expect(body.bodyMeasurements).toEqual([{
+      id: "bm-1", dateKey: "2026-01-03", note: "Baseline", measurements: { neck: 15, waist: 36.5 },
+      recordedByName: "Dr. Reyes", createdAt: "2026-01-03T15:10:00Z", version: "2026-01-03T15:10:00Z",
     }]);
     expect(body.patient.version).toBe("2026-01-06T08:00:00+00:00");
     // Engagement rides the same rows with the roster's definitions, anchored

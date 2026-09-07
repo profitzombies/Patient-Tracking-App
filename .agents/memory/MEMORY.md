@@ -1,5 +1,3 @@
-// hint: Structural and logic conflict. Both design and behavior differ.
-// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.

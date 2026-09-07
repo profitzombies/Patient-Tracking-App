@@ -1,0 +1,61 @@
+/*
+ * THINNR brand tokens for the login-redesign group.
+ * Mirrors artifacts/thinnr-operations/src/index.css (:root) and
+ * artifacts/thinnr-mobile/constants/colors.ts (Heritage evolution of Cobalt Ledger).
+ * Every component in this folder imports this file; never edit the sandbox index.css.
+ */
+.thinnr-login {
+  /* surfaces */
+  --th-paper: #f2f3f4;          /* page background */
+  --th-paper-alt: #f9faf8;      /* header paper */
+  --th-card: #fdfcf9;           /* cream card */
+  --th-secondary: #f5f7f9;
+  --th-muted: #eaedef;
+  --th-accent: #e3ecf7;         /* pale cobalt chip / icon tile */
+  --th-accent-border: #b7cbe8;
+  --th-sidebar: #e5edf7;        /* tinted rail */
+  --th-hairline: #d8e0e9;       /* borders */
+
+  /* ink */
+  --th-ink: #26364b;            /* body foreground */
+  --th-navy: #203b64;           /* display titles, TH mark */
+  --th-navy-light: #243f66;
+  --th-cobalt: #315eae;         /* primary / links / focus ring */
+  --th-cobalt-light: #5878b9;
+  --th-cobalt-muted: #9db1d4;
+  --th-label: #7e8994;          /* uppercase micro labels, muted text */
+  --th-body: #56708e;
+  --th-subtle: #858d95;
+  --th-brand-fg: #dce6fa;       /* "TH" glyph on the navy mark */
+
+  /* status */
+  --th-destructive: #a04646;
+  --th-risk-bg: #fff0f0;
+  --th-risk-border: #d5a7a7;
+  --th-warn: #b65c22;
+  --th-warn-bg: #fff4e6;
+  --th-warn-border: #e8b47c;
+  --th-warm: #df772c;           /* tiny accents only */
+
+  /* chart ramp (cobalt) */
+  --th-chart-1: #315eae;
+  --th-chart-2: #5878b9;
+  --th-chart-3: #8da4d6;
+  --th-chart-4: #c9d4e8;
+  --th-chart-5: #e3ecf7;
+
+  /* geometry + type */
+  --th-radius-card: 9px;
+  --th-radius-control: 7px;
+  --th-radius-badge: 5px;
+  --th-shadow-soft: 0 1px 2px rgba(32, 59, 100, 0.06), 0 6px 18px rgba(32, 59, 100, 0.07);
+  --th-font-display: 'Playfair Display', Georgia, serif;
+  --th-font-body: 'Inter', system-ui, sans-serif;
+
+  font-family: var(--th-font-body);
+  color: var(--th-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.thinnr-login .th-display { font-family: var(--th-font-display); color: var(--th-navy); letter-spacing: -0.02em; }
+.thinnr-login .th-kicker { font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--th-label); }

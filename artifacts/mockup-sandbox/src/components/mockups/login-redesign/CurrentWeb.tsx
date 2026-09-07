@@ -1,22 +1,23 @@
 import { useState } from 'react';
 import { ArrowRight, Building2, ChevronDown, Stethoscope } from 'lucide-react';
 import './_group.css';
+import './_thinnr-brand.css';
 
 const colors = {
-  background: '#f2f3f4',
-  foreground: '#26364b',
-  border: '#d8e0e9',
-  card: '#fdfcf9',
-  navy: '#203b64',
-  cobalt: '#315eae',
-  muted: '#7e8994',
-  accent: '#e3ecf7',
-  brand: '#dce6fa',
-  sidebar: '#e5edf7',
+  background: '#f6fafa',
+  foreground: '#0b0f0f',
+  border: '#d2dede',
+  card: '#ffffff',
+  navy: '#0b0f0f',
+  cobalt: '#0b0f0f',
+  muted: '#5b6868',
+  accent: '#dff3f3',
+  brand: '#8fd4d5',
+  sidebar: '#e4f4f4',
 };
 
 const softShadow =
-  '0 1px 2px hsla(216, 52%, 26%, 0.05), 0 10px 28px -20px hsla(216, 52%, 26%, 0.28)';
+  '0 1px 2px rgba(11, 15, 15, 0.05), 0 10px 28px -20px rgba(11, 15, 15, 0.28)';
 
 const demoOptions = [
   {
@@ -39,7 +40,7 @@ export function CurrentWeb() {
 
   return (
     <div
-      className="thinnr-login"
+      className="thinnr-login thinnr-brand thinnr-brand-web"
       style={{
         width: 1280,
         height: 800,
@@ -67,36 +68,24 @@ export function CurrentWeb() {
         }}
       >
         <header style={{ marginBottom: 32, textAlign: 'center' }}>
-          <span
-            style={{
-              display: 'grid',
-              placeItems: 'center',
-              width: 48,
-              height: 48,
-              margin: '0 auto',
-              borderRadius: 7,
-              background: colors.navy,
-              color: colors.brand,
-              boxShadow: softShadow,
-              fontSize: 14,
-              fontWeight: 700,
-              letterSpacing: '.04em',
-            }}
-          >
-            TH
-          </span>
+          <img
+            className="th-logo"
+            src="/__mockup/images/login-redesign-thinnr-logo.png"
+            alt="THINNR"
+            style={{ height: 56, width: 'auto', margin: '0 auto', display: 'block' }}
+          />
           <h1
             style={{
               margin: '16px 0 0',
               color: colors.navy,
-              fontFamily: "'Playfair Display', Georgia, serif",
+              fontFamily: "'GT America Mono', ui-monospace, monospace",
               fontSize: 34,
               lineHeight: 1.25,
               fontWeight: 700,
               letterSpacing: '-.02em',
             }}
           >
-            THINNR Operations
+            Staff sign in
           </h1>
           <p
             style={{
@@ -180,11 +169,11 @@ export function CurrentWeb() {
                   height: 40,
                   marginTop: 16,
                   padding: '8px 16px',
-                  border: '1px solid hsl(218 56% 38%)',
+                  border: '1px solid #0b0f0f',
                   borderRadius: 7,
-                  background: colors.cobalt,
-                  color: '#fff',
-                  font: "500 14px 'Inter', system-ui, sans-serif",
+                  background: '#8fd4d5',
+                  color: '#0b0f0f',
+                  font: "700 14px 'Inter', system-ui, sans-serif",
                   cursor: 'pointer',
                 }}
               >
@@ -266,7 +255,7 @@ export function CurrentWeb() {
                       style={{
                         margin: 0,
                         color: colors.navy,
-                        fontFamily: "'Playfair Display', Georgia, serif",
+                        fontFamily: "'GT America Mono', ui-monospace, monospace",
                         fontSize: 16,
                         fontWeight: 700,
                         letterSpacing: '-.01em',

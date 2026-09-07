@@ -1,0 +1,55 @@
+/*
+ * THINNR brand overlay for the getthinnr-login-round3 group.
+ * Wires the real GT America Mono Bold face, sizes the official wordmark,
+ * and gives the text-brand wrappers a flex layout so the logo image sits
+ * where the typed "THINNR" used to be.
+ */
+@font-face {
+  font-family: "GT America Mono";
+  src: url("/__mockup/fonts/gt-america-mono-bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+.thinnr-brand {
+  -webkit-font-smoothing: antialiased;
+}
+
+.thinnr-brand .th-logo {
+  display: block;
+  width: auto;
+  height: 40px;
+  flex: none;
+}
+.thinnr-brand-web .th-logo { height: 42px; }
+.thinnr-brand-mobile .th-logo { height: 36px; }
+
+.thinnr-brand .th-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  letter-spacing: 0;
+}
+.thinnr-brand .th-brand > span,
+.thinnr-brand .th-brand > small {
+  font-family: "GT America Mono", ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  vertical-align: baseline;
+  margin: 0;
+  padding-left: 12px;
+  border-left: 1px solid rgba(10, 10, 10, 0.25);
+}
+
+.thinnr-brand h1,
+.thinnr-brand h2 {
+  font-weight: 700;
+}
+
+/* Dark-hero variants: knock the wordmark out to white */
+.thinnr-brand .th-brand-inverse .th-logo { filter: invert(1); }
+.thinnr-brand .th-brand-inverse { color: #f6fafa; }

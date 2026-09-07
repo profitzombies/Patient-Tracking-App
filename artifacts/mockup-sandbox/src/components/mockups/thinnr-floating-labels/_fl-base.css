@@ -1,0 +1,23 @@
+/*
+ * Floating Labels — shared base for the THINNR dashboard + patient home.
+ * Real GT America Mono Bold for headlines/labels, Inter for reading text.
+ */
+@font-face {
+  font-family: "GT America Mono";
+  src: url("/__mockup/fonts/gt-america-mono-bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@keyframes fl-float {
+  50% { transform: translateY(-7px); }
+}
+@keyframes fl-toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes fl-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}

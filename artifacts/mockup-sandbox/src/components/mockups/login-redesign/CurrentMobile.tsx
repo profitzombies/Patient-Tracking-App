@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import './_group.css';
+import './_thinnr-brand.css';
 
 const colors = {
-  background: '#f2f3f4',
-  card: '#fdfcf9',
-  border: '#d8e0e9',
-  navy: '#203b64',
-  cobalt: '#315eae',
-  label: '#7e8994',
-  subtle: '#858d95',
+  background: '#f6fafa',
+  card: '#ffffff',
+  border: '#d2dede',
+  navy: '#0b0f0f',
+  cobalt: '#0b0f0f',
+  label: '#5b6868',
+  subtle: '#6c7878',
 };
 
 const labelStyle = {
@@ -30,7 +31,7 @@ export function CurrentMobile() {
 
   return (
     <div
-      className="thinnr-login"
+      className="thinnr-login thinnr-brand thinnr-brand-mobile"
       style={{
         width: 393,
         height: 852,
@@ -70,25 +71,12 @@ export function CurrentMobile() {
         >
           <ChevronLeft size={18} strokeWidth={2} />
         </button>
-        <div
-          style={{
-            display: 'grid',
-            placeItems: 'center',
-            width: 34,
-            height: 34,
-            boxSizing: 'border-box',
-            border: `1px solid ${colors.border}`,
-            borderRadius: 7,
-            background: colors.card,
-            color: colors.navy,
-            fontFamily: "'Playfair Display', Georgia, serif",
-            fontSize: 13,
-            fontWeight: 700,
-            letterSpacing: 1,
-          }}
-        >
-          TH
-        </div>
+        <img
+          className="th-logo"
+          src="/__mockup/images/login-redesign-thinnr-logo.png"
+          alt="THINNR"
+          style={{ height: 38, width: 'auto', display: 'block' }}
+        />
         <div style={{ width: 44 }} />
       </header>
 
@@ -117,7 +105,7 @@ export function CurrentMobile() {
           style={{
             margin: 0,
             color: colors.navy,
-            fontFamily: "'Playfair Display', Georgia, serif",
+            fontFamily: "'GT America Mono', ui-monospace, monospace",
             fontSize: 30,
             fontWeight: 700,
             lineHeight: '36px',
@@ -206,8 +194,8 @@ export function CurrentMobile() {
               padding: '14px 12px',
               border: 0,
               borderRadius: 7,
-              background: colors.cobalt,
-              color: '#fff',
+              background: '#8fd4d5',
+              color: '#0b0f0f',
               fontFamily: "'Inter', system-ui, sans-serif",
               fontSize: 14,
               fontWeight: 700,

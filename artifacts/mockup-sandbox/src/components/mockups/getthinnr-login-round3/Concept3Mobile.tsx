@@ -1,0 +1,35 @@
+import { useState, type FormEvent } from 'react';
+import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+
+export function Concept3Mobile() {
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [emailMode, setEmailMode] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [notice, setNotice] = useState('');
+  const submit = (event: FormEvent) => { event.preventDefault(); setNotice('Your secure sign-in is ready to continue.'); };
+  return (
+    <main className="aqua-mobile">
+      <style>{`
+        .aqua-mobile{--ink:#0a0a0a;--paper:#f7f8f4;--aqua:#8fd4d5;--coral:#fa795a;width:393px;height:852px;overflow:hidden;background:var(--paper);color:var(--ink);font-family:Arial,sans-serif;position:relative}.aqua-mobile *{box-sizing:border-box}.aqua-mobile button,.aqua-mobile input{font-family:inherit}.aqua-mobile button{cursor:pointer}.am-top{height:279px;background:var(--aqua);position:relative;overflow:hidden;padding:51px 23px 0}.am-top:before{content:"";position:absolute;width:340px;height:340px;border:1px solid rgba(10,10,10,.2);border-radius:50%;right:-150px;top:45px}.am-top:after{content:"";position:absolute;width:230px;height:230px;border:1px solid rgba(10,10,10,.2);border-radius:50%;right:-95px;top:100px}.am-head{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between}.am-back{width:38px;height:38px;border-radius:7px;border:1px solid var(--ink);background:var(--paper);display:grid;place-items:center;color:var(--ink)}.am-logo{width:91px;filter:invert(1);height:auto}.am-grid{font:700 9px "Courier New",monospace;letter-spacing:.1em}.am-grid i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--coral);margin-right:5px}.am-title{position:relative;z-index:1;margin:46px 0 0;font-family:ui-monospace,SFMono-Regular,monospace;font-size:43px;font-weight:800;line-height:.88;letter-spacing:-.1em;text-transform:uppercase}.am-title b{color:var(--paper)}.am-index{position:absolute;left:23px;bottom:17px;font:700 9px "Courier New",monospace;letter-spacing:.12em}.am-dots{position:absolute;right:22px;bottom:17px;display:flex;gap:5px}.am-dots i{width:6px;height:6px;background:var(--ink);border-radius:50%}.am-dots i:nth-child(2){background:var(--coral)}.am-dots i:nth-child(3){background:var(--paper)}
+        .am-body{position:relative;margin-top:-1px;padding:25px 23px 0}.am-lead{font:700 10px "Courier New",monospace;text-transform:uppercase;letter-spacing:.1em;margin:0 0 16px}.am-form{border-top:2px solid var(--ink);padding-top:15px}.am-field{margin-bottom:13px}.am-field label{display:block;font:700 10px "Courier New",monospace;text-transform:uppercase;letter-spacing:.09em;margin-bottom:8px}.am-field input{height:45px;width:100%;border:1px solid var(--ink);border-radius:7px;background:transparent;padding:0 12px;font-size:13px;outline:none}.am-field input:focus{box-shadow:0 0 0 3px rgba(143,212,213,.8)}.am-field input::placeholder{color:#74746e}.am-switch,.am-forgot{padding:6px 0 0;border:0;background:transparent;color:var(--ink);font-size:11px;text-decoration:underline;text-underline-offset:3px}.am-pass{position:relative}.am-pass input{padding-right:45px}.am-eye{position:absolute;right:0;top:0;width:45px;height:45px;border:0;background:none;display:grid;place-items:center}.am-continue{width:100%;height:48px;border:1px solid var(--ink);border-radius:7px;background:var(--ink);color:var(--paper);font:700 11px "Courier New",monospace;text-transform:uppercase;letter-spacing:.08em;margin-top:2px;transition:transform .16s ease}.am-continue:hover{transform:translateY(-2px)}.am-notice{font-size:11px;line-height:1.35;border-left:3px solid var(--coral);padding-left:9px;margin:11px 0 0}.am-create{width:100%;margin-top:17px;padding:12px 0;border:1px solid var(--ink);border-radius:7px;background:transparent;font:700 10px "Courier New",monospace;letter-spacing:.07em;text-transform:uppercase}.am-links{display:flex;justify-content:center;gap:15px;margin:15px 0 0}.am-links button{border:0;background:transparent;padding:0;font-size:11px;text-decoration:underline;text-underline-offset:3px}.am-foot{position:absolute;left:23px;right:23px;bottom:17px;border-top:1px solid rgba(10,10,10,.28);padding-top:10px;display:flex;justify-content:space-between;font:700 8px "Courier New",monospace;letter-spacing:.09em;text-transform:uppercase;color:#4f4f4a}
+      `}</style>
+      <section className="am-top">
+        <header className="am-head"><button className="am-back" type="button" aria-label="Go back" onClick={() => setNotice('Returning to the previous screen.')}><ArrowLeft size={18} /></button><img className="am-logo" src="/__mockup/images/getthinnr-logo.png" alt="THINNR" /><span className="am-grid"><i />01</span></header>
+        <h1 className="am-title">Your<br /><b>next</b> step.</h1><div className="am-index">Patient access</div><div className="am-dots"><i /><i /><i /></div>
+      </section>
+      <section className="am-body">
+        <p className="am-lead">Welcome back</p>
+        <form className="am-form" onSubmit={submit}>
+          <div className="am-field"><label htmlFor="patient-id">{emailMode ? 'Email address' : 'Phone number'}</label><input id="patient-id" type={emailMode ? 'email' : 'tel'} inputMode={emailMode ? 'email' : 'tel'} autoComplete={emailMode ? 'email' : 'tel'} value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder={emailMode ? 'you@example.com' : '(555) 000-0000'} required /><button className="am-switch" type="button" onClick={() => setEmailMode(!emailMode)}>{emailMode ? 'Use phone number instead' : 'Use email instead'}</button></div>
+          <div className="am-field"><label htmlFor="patient-password">Password</label><div className="am-pass"><input id="patient-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" required /><button className="am-eye" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div><button className="am-forgot" type="button" onClick={() => setNotice('Password reset instructions will be sent securely.')}>Forgot password?</button></div>
+          <button className="am-continue" type="submit">Continue</button>
+          {notice && <p className="am-notice" role="status">{notice}</p>}
+        </form>
+        <button className="am-create" type="button" onClick={() => setNotice('New account setup starts with your care team.')}>Create new account</button>
+        <div className="am-links"><button type="button" onClick={() => setNotice('Opening the patient demonstration.')}>Explore demo</button><button type="button" onClick={() => setNotice('Opening provider login.')}>Provider login</button></div>
+      </section>
+      <footer className="am-foot"><span>THINNR / ACCESS</span><span>Private & secure</span></footer>
+    </main>
+  );
+}

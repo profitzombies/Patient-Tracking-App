@@ -197,6 +197,15 @@ export interface ChatThreadSnapshot {
   patient: { firstName: string; programDay: number };
 }
 
+/**
+ * Per-write options on the live rail. The offline write queue passes each
+ * queued item's id as the idempotency key so a replay after a lost response
+ * lands exactly once server-side (the server keeps recent keys per patient
+ * and replays the original result).
+ */
+export interface WriteOptions {
+  idempotencyKey?: string;
+}
 /** The live diary rail (implemented by lib/patient-data-api.ts). */
 export interface PatientDataApi {
   fetchState(fromKey?: string, toKey?: string, todayKey?: string): Promise<PatientServerState>;
@@ -206,15 +215,21 @@ export interface PatientDataApi {
     profile: PatientProfileWrite;
     onboardingAnswers: object;
   }): Promise<{ profile: PatientProfile }>;
-  writeEntries(input: {
-    upsert?: MealLogEntry[];
-    deleteIds?: string[];
-    recents?: string[];
-  }): Promise<void>;
-  writeWater(dateKey: string, oz: number): Promise<void>;
-  writeTargets(partial: Partial<DailyTargets>): Promise<void>;
-  writePrefs(prefs: { favorites?: string[]; recents?: string[] }): Promise<void>;
-  writeLibrary(input: LibraryWrite): Promise<void>;
+  writeEntries(
+    input: {
+      upsert?: MealLogEntry[];
+      deleteIds?: string[];
+      recents?: string[];
+    },
+    options?: WriteOptions,
+  ): Promise<void>;
+  writeWater(dateKey: string, oz: number, options?: WriteOptions): Promise<void>;
+  writeTargets(partial: Partial<DailyTargets>, options?: WriteOptions): Promise<void>;
+  writePrefs(
+    prefs: { favorites?: string[]; recents?: string[] },
+    options?: WriteOptions,
+  ): Promise<void>;
+  writeLibrary(input: LibraryWrite, options?: WriteOptions): Promise<void>;
   /**
    * Moves a library photo (data URI) onto the account's media rail. Returns
    * the stored object path plus the display URL that serves it.
@@ -229,15 +244,22 @@ export interface PatientDataApi {
   appendChatMessages(thread: ChatThread, messages: ChatWireMessage[]): Promise<void>;
   /** Stores a chat photo (data URI) on the account's media rail. */
   uploadChatPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }>;
-  /** Stores a progress photo (data URI) on the account's media rail. */
-  uploadProgressPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }>;
+  /**
+   * Stores a progress photo (data URI) on the account's media rail. An
+   * `uploadId` pins the server-minted object so a retry after a lost
+   * response re-uses the same path instead of allocating a second object.
+   */
+  uploadProgressPhoto(
+    dataUri: string,
+    options?: { uploadId?: string },
+  ): Promise<{ photoPath: string; photoUri: string }>;
   /** Records uploaded progress photos on the account's grid. */
-  writeProgressPhotos(photos: ProgressPhotoWire[]): Promise<void>;
+  writeProgressPhotos(photos: ProgressPhotoWire[], options?: WriteOptions): Promise<void>;
   /**
    * Deletes a photo's grid row, media-ledger row, AND stored bytes. The app
    * only calls this after its local undo window has closed.
    */
-  removeProgressPhoto(photoId: string): Promise<void>;
+  removeProgressPhoto(photoId: string, options?: WriteOptions): Promise<void>;
   /**
    * Discards uploaded progress objects that never became grid rows (a
    * failed grid write the patient walked away from). The server deletes
@@ -245,11 +267,11 @@ export interface PatientDataApi {
    */
   cleanupProgressUploads(paths: string[]): Promise<void>;
   /** Records one check-in (one row per day — a same-day re-submit replaces). */
-  writeCheckIn(checkIn: CheckIn): Promise<void>;
+  writeCheckIn(checkIn: CheckIn, options?: WriteOptions): Promise<void>;
   /** Idempotently imports only the approved device-health measurement kinds. */
   importHealthMeasurements(measurements: HealthMeasurement[], accessToken?: string): Promise<{ imported: number }>;
   /** Merges the provided account flags (stall-nudge / onboarding / prefs). */
-  writeFlags(flags: Partial<PatientFlagsWrite>): Promise<void>;
+  writeFlags(flags: Partial<PatientFlagsWrite>, options?: WriteOptions): Promise<void>;
   /** Safely commits a resumable onboarding checkpoint. */
   /** Atomically validates and commits every required canonical setup field. */
   completeSetup(input: {

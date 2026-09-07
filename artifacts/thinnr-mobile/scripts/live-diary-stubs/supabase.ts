@@ -38,11 +38,24 @@ export const supabase = {
   },
 };
 
+/**
+ * Optional cold-start emulation: while > 0, the hook reports a loading
+ * session with no user for that many renders' worth of effect ticks before
+ * settling on the real stub session (the real hook does exactly this while
+ * AsyncStorage is read). Suites use it to prove nothing treats "loading" as
+ * "signed out".
+ */
+let loadingTicks = 0;
+export function setStubSessionLoadingTicks(ticks: number): void {
+  loadingTicks = ticks;
+}
+
 export function useSupabaseSession(): {
   session: StubSession | null;
   sessionLoading: boolean;
 } {
   const [session, setSession] = useState<StubSession | null>(current);
+  const [loading, setLoading] = useState(loadingTicks > 0);
   useEffect(() => {
     const listener = (next: StubSession | null) => setSession(next);
     listeners.add(listener);
@@ -51,5 +64,13 @@ export function useSupabaseSession(): {
       listeners.delete(listener);
     };
   }, []);
-  return { session, sessionLoading: false };
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => {
+      loadingTicks = 0;
+      setLoading(false);
+    }, 5);
+    return () => clearTimeout(timer);
+  }, [loading]);
+  return loading ? { session: null, sessionLoading: true } : { session, sessionLoading: false };
 }

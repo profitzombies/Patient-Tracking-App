@@ -14,22 +14,36 @@
  * the on-device capture uri (native camera cache file; on web, the bundled
  * pose asset), exactly as the demo behaved before accounts existed.
  *
- * Failures are per-shot: the caller learns exactly which angles landed
- * and which didn't, keeps the on-device shots, and retries only the
- * failures.
+ * Failures are per-shot. A shot whose PREP failed is reported in `failed`
+ * (the caller keeps the on-device shot and retries). A shot that prepped
+ * but could not be UPLOADED — offline, or the rail refused it — is not a
+ * failure any more: its ref keeps the prepared data URI (`deferred`), and
+ * the account's offline write queue uploads it later when addPhotos
+ * records the grid row. Offline devices skip the upload attempt outright.
  */
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { apiBase } from './coach-api';
 import { appendMediaToken } from './media-token-holder';
 import { preparePhotoForUpload } from './photo-prep';
 import type { GuidedAngle, GuidedShot } from './guided-photos';
+import { isOnline } from './connectivity';
 
 export interface UploadedShotRef {
   angle: GuidedAngle;
   /** Stored object path — present when the shot uploaded to the account. */
   objectPath?: string;
-  /** On-device uri — present for the demo persona's local-only grid. */
+  /** On-device uri — present for the demo persona's local-only grid, and
+   *  for an account shot whose upload is deferred to the offline queue
+   *  (then it is the prepared JPEG data URI). */
   uri?: string;
+  /** Account shot that prepped fine but is waiting for connectivity. */
+  deferred?: boolean;
+  /**
+   * Upload id this shot was (or will be) uploaded under. Deferred shots
+   * hand it to the offline queue so the queued upload pins the same
+   * server object an interrupted in-session attempt may already hold.
+   */
+  uploadId?: string;
 }
 
 export interface GuidedUploadResult {
@@ -37,8 +51,14 @@ export interface GuidedUploadResult {
   failed: GuidedAngle[];
 }
 
-/** Uploads one prepared photo (data URI) to the signed-in account. */
-export type ProgressPhotoUploader = (dataUri: string) => Promise<{ photoPath: string }>;
+/**
+ * Uploads one prepared photo (data URI) to the signed-in account. The
+ * `uploadId` pins the server-minted object path for that shot.
+ */
+export type ProgressPhotoUploader = (
+  dataUri: string,
+  options?: { uploadId?: string },
+) => Promise<{ photoPath: string }>;
 
 /**
  * Grid display URL for a stored shot — resolved at render, never persisted.
@@ -68,6 +88,8 @@ export function progressPhotoDisplayUrl(objectPath: string): string {
 export async function uploadGuidedShots(
   shots: readonly GuidedShot[],
   uploader?: ProgressPhotoUploader,
+  /** Stable per-session upload id for an angle (real accounts only). */
+  uploadIdFor?: (angle: GuidedAngle) => string,
 ): Promise<GuidedUploadResult> {
   const uploaded: UploadedShotRef[] = [];
   const failed: GuidedAngle[] = [];
@@ -76,6 +98,7 @@ export async function uploadGuidedShots(
       uploaded.push({ angle: shot.angle, uri: shot.uri });
       continue;
     }
+    let preparedUri: string;
     try {
       const prepared = await preparePhotoForUpload({
         uri: shot.uri,
@@ -83,11 +106,27 @@ export async function uploadGuidedShots(
         height: shot.height,
         base64: shot.base64,
       } as ImagePickerAsset);
-      const { photoPath } = await uploader(prepared.uri);
-      uploaded.push({ angle: shot.angle, objectPath: photoPath });
+      preparedUri = prepared.uri;
     } catch (error) {
-      console.error(`Progress photo upload failed (${shot.angle})`, error);
+      console.error(`Progress photo prep failed (${shot.angle})`, error);
       failed.push(shot.angle);
+      continue;
+    }
+    const uploadId = uploadIdFor?.(shot.angle);
+    const pinned = uploadId ? { uploadId } : {};
+    if (!isOnline()) {
+      uploaded.push({ angle: shot.angle, uri: preparedUri, deferred: true, ...pinned });
+      continue;
+    }
+    try {
+      const { photoPath } = await uploader(preparedUri, uploadId ? { uploadId } : undefined);
+      uploaded.push({ angle: shot.angle, objectPath: photoPath, ...pinned });
+    } catch (error) {
+      // A lost response after the bytes landed is indistinguishable from a
+      // failed upload here; the deferred ref keeps the upload id so the
+      // queue re-uploads onto the SAME object rather than a second one.
+      console.error(`Progress photo upload deferred (${shot.angle})`, error);
+      uploaded.push({ angle: shot.angle, uri: preparedUri, deferred: true, ...pinned });
     }
   }
   return { uploaded, failed };

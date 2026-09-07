@@ -17,8 +17,9 @@
  *   3. A remount ("new phone / reinstall") rebuilds the whole library from
  *      the server alone: items, photos as display URLs, client constants
  *      (category, source) re-injected.
- *   4. Failures behave: a failed library write rolls back with the server's
- *      words; a failed photo upload saves the item photo-less, quietly.
+ *   4. Failures behave: a failed library write stays on the phone as a
+ *      pending item and replays with backoff; a failed photo upload saves
+ *      the item photo-less, quietly.
  *   5. Accounts never bleed: a second account starts empty, and real
  *      accounts never persist library slices into device storage.
  *
@@ -39,7 +40,15 @@ const localStorageBacking = new Map<string, string>();
 import React, { act } from 'react';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 
-import { PatientProvider, usePatient, usePatientSyncNotice, type PatientSyncNoticeValue } from '../context/PatientContext';
+import {
+  PatientProvider,
+  usePatient,
+  usePatientSync,
+  usePatientSyncNotice,
+  type PatientSyncNoticeValue,
+  type PatientSyncValue,
+} from '../context/PatientContext';
+import { WRITE_QUEUE_TUNING } from '../lib/patient-write-queue';
 import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
 import { TODAY_KEY, type FoodItem, type MealLogEntry, type SavedRecipe } from '../data/patient-data';
@@ -93,6 +102,7 @@ interface ApiCall {
   path: string; // e.g. "patient-data/library", "patient-media/upload-url"
   query: URLSearchParams;
   token: string | null;
+  idempotencyKey: string | null;
   body: Record<string, unknown> | null;
 }
 
@@ -320,6 +330,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     path: url.pathname.slice('/api/'.length),
     query: url.searchParams,
     token: auth?.startsWith('Bearer ') ? auth.slice(7) : null,
+    idempotencyKey: headers['Idempotency-Key'] ?? null,
     body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null,
   };
   apiCalls.push(call);
@@ -345,13 +356,26 @@ type Ctx = ReturnType<typeof usePatient>;
 
 let ctx!: Ctx;
 let notice: PatientSyncNoticeValue | null = null;
+let sync!: PatientSyncValue;
 let account!: PatientAccountState;
 
 function Probe() {
   ctx = usePatient();
   notice = usePatientSyncNotice();
+  sync = usePatientSync();
   account = usePatientAccount();
   return null;
+}
+
+/** Polls (inside act) until the condition holds — queue replays ride real timers. */
+async function waitFor(label: string, condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition() && Date.now() < deadline) {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 5));
+    });
+  }
+  assert(label, condition());
 }
 
 async function settle(): Promise<void> {
@@ -650,7 +674,9 @@ async function main() {
   assert('favorites and recents still reference the food', ctx.favorites.includes(food.id) && ctx.recents[0] === food.id);
 
   // ── 6 · Failures: loud rollback for data, quiet photo-less save for photos ─
-  section('failures: library write rolls back loudly, photo upload fails quietly');
+  section('failures: library write queues and replays, photo upload fails quietly');
+  WRITE_QUEUE_TUNING.baseDelayMs = 5;
+  WRITE_QUEUE_TUNING.maxDelayMs = 20;
   const foodsBefore = ctx.customFoods.length;
   failNext.set('POST patient-data/library', {
     status: 502,
@@ -659,15 +685,18 @@ async function main() {
   await act(async () => {
     await ctx.addCustomFood(foodInput('Ghost Food'));
   });
-  assert('failed create rolls back', ctx.customFoods.length === foodsBefore
-    && !ctx.customFoods.some(f => f.name === 'Ghost Food')
+  const ghostFood = ctx.customFoods.find(f => f.name === 'Ghost Food');
+  assert('failed create stays on the phone, pending', ctx.customFoods.length === foodsBefore + 1
+    && ghostFood !== undefined && sync.isPending(`food:${ghostFood.id}`)
     && !storeFor('p-1').customFoods.some(r => r.name === 'Ghost Food'));
-  assert('notice carries the server’s words', notice?.message === 'Couldn’t save your library right now. Please try again.'
-    && notice?.actionLabel === 'OK');
-  await act(async () => {
-    notice!.onAction();
-  });
-  assert('dismiss clears the notice', notice === null);
+  assert('a queued library write raises no blocking notice', notice === null && sync.status === 'syncing');
+  await waitFor('the library write replays after backoff',
+    () => storeFor('p-1').customFoods.some(r => r.name === 'Ghost Food'));
+  await settle();
+  assert('the replayed row clears its pending marker', !sync.isPending(`food:${ghostFood!.id}`) && sync.status === 'idle');
+  const ghostCalls = callsTo('patient-data/library').slice(-2);
+  assert('the replay reuses the original idempotency key', ghostCalls.length === 2
+    && ghostCalls[0].idempotencyKey !== null && ghostCalls[0].idempotencyKey === ghostCalls[1].idempotencyKey);
 
   // Photo upload failure: quiet, item saves photo-less.
   const uploadsBefore = callsTo('patient-media/upload-url').length;

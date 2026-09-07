@@ -48,6 +48,7 @@ import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
 import { mintPatientMediaToken } from "../lib/media-token";
 import { resolvePatient } from "../lib/patient-auth";
 import { createLimiter, envLimit } from "../coach/limits";
+import { openIdempotentWrite } from "../lib/idempotency";
 import { clientIp } from "../auth/ledger";
 import { isOwnPatientMediaPath, PATIENT_MEDIA_PREFIX } from "./patient-media";
 import { objectStorage } from "../lib/objectStorage";
@@ -1348,6 +1349,8 @@ router.post("/patient-data/entries", async (req, res) => {
       res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
+    const idem = await openIdempotentWrite(req, res, auth.patientId, "entries");
+    if (idem.handled) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
 
     let upsertRaw: unknown[] = [];
@@ -1405,7 +1408,7 @@ router.post("/patient-data/entries", async (req, res) => {
     });
     if (applied.status >= 300) throw new Error(`diary apply failed (${applied.status})`);
 
-    res.json({ ok: true });
+    await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data entries write failed");
     res.status(502).json({ error: "Couldn't save to your diary right now. Please try again." });
@@ -1426,6 +1429,8 @@ router.put("/patient-data/water", async (req, res) => {
       res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
+    const idem = await openIdempotentWrite(req, res, auth.patientId, "water");
+    if (idem.handled) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
     if (!isPlausibleDayKey(body.dateKey)) {
       res.status(400).json({ error: "Water date is invalid." });
@@ -1449,7 +1454,7 @@ router.put("/patient-data/water", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`water upsert failed (${upsert.status})`);
-    res.json({ ok: true });
+    await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data water write failed");
     res.status(502).json({ error: "Couldn't save your water right now. Please try again." });
@@ -1470,6 +1475,8 @@ router.put("/patient-data/targets", async (req, res) => {
       res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
+    const idem = await openIdempotentWrite(req, res, auth.patientId, "targets");
+    if (idem.handled) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
     const row: Record<string, unknown> = { patient_id: auth.patientId };
     if (body.calories !== undefined) {
@@ -1519,7 +1526,7 @@ router.put("/patient-data/targets", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`target upsert failed (${upsert.status})`);
-    res.json({ ok: true });
+    await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data targets write failed");
     res.status(502).json({ error: "Couldn't save your targets right now. Please try again." });
@@ -1540,6 +1547,8 @@ router.put("/patient-data/prefs", async (req, res) => {
       res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
+    const idem = await openIdempotentWrite(req, res, auth.patientId, "prefs");
+    if (idem.handled) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
     const row: Record<string, unknown> = { patient_id: auth.patientId };
     if (body.favorites !== undefined) {
@@ -1570,7 +1579,7 @@ router.put("/patient-data/prefs", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`prefs upsert failed (${upsert.status})`);
-    res.json({ ok: true });
+    await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data prefs write failed");
     res.status(502).json({ error: "Couldn't save your preferences right now. Please try again." });
@@ -1591,6 +1600,8 @@ router.post("/patient-data/library", async (req, res) => {
       res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
+    const idem = await openIdempotentWrite(req, res, auth.patientId, "library");
+    if (idem.handled) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
 
     const foodRows: FoodRow[] = [];
@@ -1693,7 +1704,7 @@ router.post("/patient-data/library", async (req, res) => {
     });
     if (applied.status >= 300) throw new Error(`library apply failed (${applied.status})`);
 
-    res.json({ ok: true });
+    await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data library write failed");
     res.status(502).json({ error: "Couldn't save your library right now. Please try again." });
@@ -1714,6 +1725,8 @@ router.post("/patient-data/check-ins", async (req, res) => {
       res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
+    const idem = await openIdempotentWrite(req, res, auth.patientId, "check-ins");
+    if (idem.handled) return;
     const parsed = parseCheckIn(req.body, auth.patientId);
     if ("error" in parsed) {
       res.status(400).json({ error: parsed.error });
@@ -1728,7 +1741,7 @@ router.post("/patient-data/check-ins", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`check-in upsert failed (${upsert.status})`);
-    res.json({ ok: true });
+    await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data check-in write failed");
     res.status(502).json({ error: "Couldn't save your check-in right now. Please try again." });
@@ -1818,6 +1831,8 @@ router.post("/patient-data/photos", async (req, res) => {
       res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
+    const idem = await openIdempotentWrite(req, res, auth.patientId, "photos");
+    if (idem.handled) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
 
     const photoRows: PhotoRow[] = [];
@@ -1924,7 +1939,7 @@ router.post("/patient-data/photos", async (req, res) => {
       }
     }
 
-    res.json({ ok: true });
+    await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data photos write failed");
     res.status(502).json({ error: "Couldn't save your photos right now. Please try again." });
@@ -1945,6 +1960,8 @@ router.put("/patient-data/flags", async (req, res) => {
       res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
+    const idem = await openIdempotentWrite(req, res, auth.patientId, "flags");
+    if (idem.handled) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
     const row: Record<string, unknown> = { patient_id: auth.patientId };
     if (body.nudgeOptOut !== undefined) {
@@ -2033,7 +2050,7 @@ router.put("/patient-data/flags", async (req, res) => {
         req.log?.warn({ err: error }, "outreach engagement stamp failed");
       }
     }
-    res.json({ ok: true });
+    await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data flags write failed");
     res.status(502).json({ error: "Couldn't save your settings right now. Please try again." });

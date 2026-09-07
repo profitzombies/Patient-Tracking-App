@@ -10,6 +10,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONSENT_POLICY_VERSION } from "../privacy/consent";
+import { PENDING_TTL_MS } from "../lib/idempotency";
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -55,6 +56,7 @@ class FakeBackend {
       patient_data_exports: [],
       patient_deletion_requests: [],
       claim_verifications: [],
+      patient_write_receipts: [],
     };
     this.tokens.clear();
     this.authOutage = false;
@@ -122,6 +124,8 @@ class FakeBackend {
     if (op === "is" && value === "null") return cell == null;
     if (op === "gte") return typeof cell === "string" && cell >= value;
     if (op === "lte") return typeof cell === "string" && cell <= value;
+    if (op === "lt") return typeof cell === "string" && cell < value;
+    if (op === "gt") return typeof cell === "string" && cell > value;
     if (op === "in") {
       const list = value
         .replace(/^\(|\)$/g, "")
@@ -426,6 +430,8 @@ class FakeBackend {
       const conflictCols = (url.searchParams.get("on_conflict") ?? "").split(",").filter(Boolean);
       const raw = JSON.parse(String(init?.body ?? "[]")) as Row[] | Row;
       const payload = Array.isArray(raw) ? raw : [raw];
+      const prefer = headers.get("prefer") ?? "";
+      const ignoreDuplicates = prefer.includes("resolution=ignore-duplicates");
       const written: Row[] = [];
       for (const incoming of payload) {
         const existing = conflictCols.length
@@ -433,17 +439,32 @@ class FakeBackend {
               conflictCols.every(col => String(row[col] ?? "") === String(incoming[col] ?? "")),
             )
           : undefined;
+        if (existing && ignoreDuplicates) {
+          // PostgREST ignore-duplicates: the conflicting row is left alone
+          // and is NOT part of the returned representation.
+          continue;
+        }
         if (existing) {
           // PostgREST merge-duplicates: update ONLY the payload's columns.
           Object.assign(existing, incoming);
           written.push(existing);
+        } else if (
+          table === "patient_write_receipts" &&
+          this.tables[table].some(
+            row =>
+              row.patient_id === incoming.patient_id &&
+              row.idempotency_key === incoming.idempotency_key,
+          )
+        ) {
+          // Primary key (patient_id, idempotency_key): a plain insert of a
+          // duplicate is a 409, exactly as PostgREST reports it.
+          return json(409, { code: "23505", message: "duplicate key value violates unique constraint" });
         } else {
           const row = { id: crypto.randomUUID(), created_at: stampAt(this.seq++), ...incoming };
           this.tables[table].push(row);
           written.push(row);
         }
       }
-      const prefer = headers.get("prefer") ?? "";
       return json(201, prefer.includes("return=representation") ? written : []);
     }
 
@@ -481,18 +502,19 @@ let base: string;
 async function api(
   method: string,
   path: string,
-  options: { token?: string; body?: unknown } = {},
-): Promise<{ status: number; json: any }> {
+  options: { token?: string; body?: unknown; headers?: Record<string, string> } = {},
+): Promise<{ status: number; json: any; headers: Headers }> {
   const response = await realFetch(`${base}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(options.headers ?? {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const text = await response.text();
-  return { status: response.status, json: text ? JSON.parse(text) : null };
+  return { status: response.status, json: text ? JSON.parse(text) : null, headers: response.headers };
 }
 
 function entryPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -1149,6 +1171,282 @@ describe("POST /patient-data/health-measurements", () => {
     });
     expect(res.status).toBe(503);
     expect(res.json.error).toBeTruthy();
+  });
+});
+
+describe("idempotency keys (offline queue replay)", () => {
+  const KEY = "q_01J8ZC0K9ABCDEF.entries:1";
+
+  it("replays the stored response without applying the write again", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const first = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { upsert: [entryPayload({ id: "e-1" })], recents: ["grilled-chicken"] },
+    });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("idempotency-replayed")).toBeNull();
+    expect(backend.tables.patient_write_receipts).toHaveLength(1);
+    const rpcAfterFirst = backend.rpcCalls;
+
+    // Same key again — as the app does after a lost response — must not
+    // reach the diary RPC (and so cannot re-bump recents or re-run deletes).
+    const replay = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { upsert: [entryPayload({ id: "e-1" })], recents: ["grilled-chicken"] },
+    });
+    expect(replay.status).toBe(200);
+    expect(replay.json).toEqual({ ok: true });
+    expect(replay.headers.get("idempotency-replayed")).toBe("true");
+    expect(backend.rpcCalls).toBe(rpcAfterFirst);
+    expect(backend.tables.patient_diary_entries).toHaveLength(1);
+    expect(backend.tables.patient_write_receipts).toHaveLength(1);
+  });
+
+  it("scopes keys per patient — another account's identical key is a fresh write", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.seedSignedInPatient("tok-2");
+    for (const token of ["tok-1", "tok-2"]) {
+      const res = await api("PUT", "/api/patient-data/water", {
+        token,
+        headers: { "Idempotency-Key": KEY },
+        body: { dateKey: "2026-08-30", oz: 24 },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("idempotency-replayed")).toBeNull();
+    }
+    expect(backend.tables.patient_water_days).toHaveLength(2);
+    expect(backend.tables.patient_write_receipts).toHaveLength(2);
+  });
+
+  it("refuses a key reused for a different route", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    const res = await api("PUT", "/api/patient-data/targets", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { calories: 1500 },
+    });
+    expect(res.status).toBe(409);
+    expect(backend.tables.patient_target_overrides).toHaveLength(0);
+  });
+
+  it("does not record validation failures, so the corrected retry runs for real", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const bad = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "not-a-day", oz: 24 },
+    });
+    expect(bad.status).toBe(400);
+    expect(backend.tables.patient_write_receipts).toHaveLength(0);
+    const good = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(good.status).toBe(200);
+    expect(backend.tables.patient_water_days).toHaveLength(1);
+  });
+
+  it("does not record upstream failures either — the retry applies", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.failOnce.add("POST patient_water_days");
+    const failed = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(failed.status).toBe(502);
+    // The pending claim is released when the failed response ends.
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(backend.tables.patient_write_receipts).toHaveLength(0);
+    const retry = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(retry.status).toBe(200);
+    expect(backend.tables.patient_water_days).toHaveLength(1);
+  });
+
+  it("claims the receipt BEFORE writing: a claim failure means nothing was written", async () => {
+    backend.seedSignedInPatient("tok-1");
+    backend.failOnce.add("POST patient_write_receipts");
+    const res = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(res.status).toBe(502);
+    expect(backend.tables.patient_water_days).toHaveLength(0);
+    expect(backend.tables.patient_write_receipts).toHaveLength(0);
+  });
+
+  it("fails closed when the receipt lookup behind a duplicate claim is unavailable", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    backend.tables.patient_write_receipts.push({
+      patient_id: patientId,
+      idempotency_key: KEY,
+      route: "water",
+      state: "done",
+      status: 200,
+      response: { ok: true },
+      claimed_at: new Date().toISOString(),
+    });
+    backend.failOnce.add("GET patient_write_receipts");
+    const res = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(res.status).toBe(502);
+    expect(backend.tables.patient_water_days).toHaveLength(0);
+  });
+
+  it("marks the receipt done with the response, so a replay after a lost response never re-applies", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    const first = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(first.status).toBe(200);
+    const receipt = backend.tables.patient_write_receipts[0];
+    expect(receipt).toMatchObject({
+      patient_id: patientId,
+      idempotency_key: KEY,
+      route: "water",
+      state: "done",
+      status: 200,
+      response: { ok: true },
+    });
+    // Pretend the 200 never reached the phone: it replays with different
+    // (older) content under the same key — the receipt answers, the water
+    // row keeps the value the first attempt landed.
+    const replay = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 8 },
+    });
+    expect(replay.status).toBe(200);
+    expect(replay.headers.get("idempotency-replayed")).toBe("true");
+    expect(backend.tables.patient_water_days).toHaveLength(1);
+    expect(backend.tables.patient_water_days[0].oz).toBe(24);
+  });
+
+  it("tells a twin request to retry while the first attempt is still in flight", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    backend.tables.patient_write_receipts.push({
+      patient_id: patientId,
+      idempotency_key: KEY,
+      route: "water",
+      state: "pending",
+      status: null,
+      response: null,
+      claimed_at: new Date().toISOString(),
+    });
+    const res = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("2");
+    expect(backend.tables.patient_water_days).toHaveLength(0);
+    // The pending claim is left to its owner — not released, not flipped.
+    expect(backend.tables.patient_write_receipts).toHaveLength(1);
+    expect(backend.tables.patient_write_receipts[0].state).toBe("pending");
+  });
+
+  it("takes over a stale pending claim (owner died mid-write) and completes it", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    const stale = new Date(Date.now() - PENDING_TTL_MS - 1_000).toISOString();
+    backend.tables.patient_write_receipts.push({
+      patient_id: patientId,
+      idempotency_key: KEY,
+      route: "water",
+      state: "pending",
+      status: null,
+      response: null,
+      claimed_at: stale,
+    });
+    const res = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("idempotency-replayed")).toBeNull();
+    expect(backend.tables.patient_water_days).toHaveLength(1);
+    expect(backend.tables.patient_write_receipts).toHaveLength(1);
+    expect(backend.tables.patient_write_receipts[0]).toMatchObject({ state: "done", status: 200 });
+    expect(String(backend.tables.patient_write_receipts[0].claimed_at) > stale).toBe(true);
+
+    const replay = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(replay.headers.get("idempotency-replayed")).toBe("true");
+  });
+
+  it("still answers success when the done-flip fails after the write landed (write is not re-run by the client)", async () => {
+    backend.seedSignedInPatient("tok-1");
+    // Three flip attempts, all failing.
+    backend.failOnce.add("PATCH patient_write_receipts");
+    const res = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": KEY },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    // failOnce is one-shot: the second flip attempt succeeds.
+    expect(res.status).toBe(200);
+    expect(backend.tables.patient_water_days).toHaveLength(1);
+    expect(backend.tables.patient_write_receipts[0].state).toBe("done");
+  });
+
+  it("rejects malformed keys and ignores absent ones", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const bad = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      headers: { "Idempotency-Key": "has spaces!" },
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(bad.status).toBe(400);
+    const plain = await api("PUT", "/api/patient-data/water", {
+      token: "tok-1",
+      body: { dateKey: "2026-08-30", oz: 24 },
+    });
+    expect(plain.status).toBe(200);
+    expect(backend.tables.patient_write_receipts).toHaveLength(0);
+  });
+
+  it("covers every patient write route (photos: see patient-progress.test.ts)", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const routes: Array<[string, string, unknown]> = [
+      ["POST", "/api/patient-data/entries", { upsert: [entryPayload({ id: "e-9" })] }],
+      ["PUT", "/api/patient-data/water", { dateKey: "2026-08-30", oz: 8 }],
+      ["PUT", "/api/patient-data/targets", { calories: 1400 }],
+      ["PUT", "/api/patient-data/prefs", { favorites: ["grilled-chicken"] }],
+      ["POST", "/api/patient-data/library", { foodDeleteIds: ["nothing"] }],
+      ["POST", "/api/patient-data/check-ins", { id: "c-1", dateKey: "2026-08-30", weight: 180, mood: 4, sideEffects: [] }],
+      ["PUT", "/api/patient-data/flags", { nudgeOptOut: true }],
+    ];
+    for (const [method, path, body] of routes) {
+      const key = `${KEY}.${path.split("/").pop()}`;
+      const first = await api(method, path, { token: "tok-1", headers: { "Idempotency-Key": key }, body });
+      expect(first.status, `${method} ${path}`).toBe(200);
+      const replay = await api(method, path, { token: "tok-1", headers: { "Idempotency-Key": key }, body });
+      expect(replay.status, `${method} ${path} replay`).toBe(200);
+      expect(replay.headers.get("idempotency-replayed"), `${method} ${path} replay`).toBe("true");
+    }
+    expect(backend.tables.patient_write_receipts).toHaveLength(routes.length);
   });
 });
 

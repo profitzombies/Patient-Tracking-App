@@ -147,10 +147,12 @@ import {
 import { OUTLINE_PATHS } from '../components/patient/BodyOutline';
 import { decodeBase64, decodePngToLuma, probeCameraFrame } from '../lib/photo-probe';
 import { progressPhotoDisplayUrl, uploadGuidedShots } from '../lib/progress-photo-upload';
+import { setConnectivityOverride } from '../lib/connectivity';
 import { ENROLLMENT_DAYS, TODAY_KEY } from '../data/patient-data';
 import { localTodayKey } from '../lib/live-patient-entry';
 import * as SessionModule from '../components/patient/GuidedPhotoSession';
 import { PatientProvider, usePatient } from '../context/PatientContext';
+import { WRITE_QUEUE_TUNING } from '../lib/patient-write-queue';
 import {
   PatientAccountContext,
   type PatientAccountState,
@@ -537,6 +539,8 @@ interface FakeRail {
  */
 function makeFakeRail(): FakeRail {
   const uploads: string[] = [];
+  /** Upload id each rail call pinned (null = unpinned). */
+  const uploadIds: Array<string | null> = [];
   const photoWrites: ProgressPhotoWire[][] = [];
   const failUploadsAt = new Set<number>();
   const failPhotoWritesAt = new Set<number>();
@@ -563,8 +567,9 @@ function makeFakeRail(): FakeRail {
     async fetchState() {
       return emptyState;
     },
-    async uploadProgressPhoto(dataUri: string) {
+    async uploadProgressPhoto(dataUri: string, options?: { uploadId?: string }) {
       const call = uploads.push(dataUri);
+      uploadIds.push(options?.uploadId ?? null);
       if (failUploadsAt.has(call)) throw new Error('The photo upload was declined.');
       const photoPath = `/objects/patient-media/p-real/progress-${call}`;
       return { photoPath, photoUri: progressPhotoDisplayUrl(photoPath) };
@@ -587,11 +592,21 @@ function makeFakeRail(): FakeRail {
       retryResolve: () => {},
     },
     uploads,
+    uploadIds,
     photoWrites,
     failUploadsAt,
     failPhotoWritesAt,
     cleanups,
   };
+}
+
+/** Drops the fake account's persisted offline queue/snapshot between sections. */
+function clearQueueStorage(): void {
+  for (const key of Array.from(localStore.keys())) {
+    if (key.includes(':queue_') || key.includes(':snapshot_') || key.includes(':blob_')) {
+      localStore.delete(key);
+    }
+  }
 }
 
 /** mountSession, but signed in: the fake account rail wraps the tree. */
@@ -1231,15 +1246,63 @@ async function main(): Promise<void> {
       'uploader receives one prepared jpeg per shot (bytes preserved by the prep stub)',
     );
 
-    // Per-angle failure: one bad upload reports its angle; the rest land.
+    // Per-angle upload failure: the shot is not lost — its ref keeps the
+    // prepared data URI and is flagged deferred so addPhotos hands it to the
+    // offline queue; the rest land with object paths as before.
     let uploadCall = 0;
     const partial = await uploadGuidedShots(shots, async () => {
       uploadCall += 1;
       if (uploadCall === 2) throw new Error('rail rejected the upload');
       return { photoPath: `/objects/patient-media/p-1/progress-retry-${uploadCall}` };
     });
-    assertEqual(partial.failed.join(','), 'side', 'failed upload reports its angle');
-    assertEqual(partial.uploaded.length, 2, 'other angles still land');
+    assertEqual(partial.failed.length, 0, 'an upload failure is deferred, not failed');
+    assertEqual(partial.uploaded.length, 3, 'every angle yields a ref');
+    assert(
+      partial.uploaded[1].deferred === true &&
+        partial.uploaded[1].objectPath === undefined &&
+        typeof partial.uploaded[1].uri === 'string',
+      'the refused shot keeps its prepared uri as a deferred upload',
+    );
+    assert(
+      partial.uploaded[0].objectPath !== undefined && partial.uploaded[2].objectPath !== undefined,
+      'the other angles still land on the rail',
+    );
+
+    // Offline device: no upload attempt at all — every shot is deferred.
+    setConnectivityOverride(false);
+    let offlineCalls = 0;
+    const offline = await uploadGuidedShots(shots, async () => {
+      offlineCalls += 1;
+      return { photoPath: '/objects/patient-media/p-1/never' };
+    });
+    setConnectivityOverride(null);
+    assertEqual(offlineCalls, 0, 'offline save never calls the uploader');
+    assertEqual(offline.failed.length, 0, 'offline save fails nothing');
+    assert(offline.uploaded.every(ref => ref.deferred === true && typeof ref.uri === 'string'), 'offline refs are all deferred');
+
+    // Pinned upload ids: the uploader receives one per angle, stored and
+    // deferred refs both carry it, so a cut-off upload and its later queued
+    // retry name the same server object.
+    const pinnedIds: Array<string | undefined> = [];
+    let pinnedCall = 0;
+    const pinned = await uploadGuidedShots(
+      shots,
+      async (_uri, options) => {
+        pinnedCall += 1;
+        pinnedIds.push(options?.uploadId);
+        if (pinnedCall === 3) throw new Error('response lost');
+        return { photoPath: `/objects/patient-media/p-1/progress-pinned-${pinnedCall}` };
+      },
+      angle => `gp_test.${angle}`,
+    );
+    assertEqual(pinnedIds.join(','), 'gp_test.front,gp_test.side,gp_test.back', 'the uploader is handed the per-angle upload id');
+    assert(
+      pinned.uploaded.every(ref => ref.uploadId === `gp_test.${ref.angle}`),
+      'stored AND deferred refs carry their upload id',
+    );
+    assert(pinned.uploaded[2].deferred === true && pinned.uploaded[2].uploadId === 'gp_test.back', 'the cut-off shot is deferred with its id intact');
+    // Without an id provider (demo) nothing is pinned.
+    assert(offline.uploaded.every(ref => ref.uploadId === undefined), 'no ids without a provider');
   }
 
   // ── 8. Web demo: full auto session ─────────────────────────────────────
@@ -1431,10 +1494,16 @@ async function main(): Promise<void> {
     await actSettle(() => webSession.renderer.unmount());
   }
 
-  // ── 10. Account save: rail failure → retry only failed angles ──────────
-  section('10. Account save: rail failure keeps shots + retry sends only failed angles');
+  // ── 10. Account save: rail failure → shot deferred to the offline queue ──
+  // A refused upload no longer blocks Save: the session records every shot
+  // at once (stored shots by object path, the refused one by its prepared
+  // bytes) and the account's write queue uploads the deferred shot itself.
+  section('10. Account save: rail failure defers the shot; the queue uploads it');
   {
     await resetScenario('web');
+    clearQueueStorage();
+    WRITE_QUEUE_TUNING.baseDelayMs = 5;
+    WRITE_QUEUE_TUNING.maxDelayMs = 20;
     localStore.set(HIDE_INSTRUCTIONS_KEY, '1'); // also exercises skip-straight-to-capture
     const rail = makeFakeRail();
     rail.failUploadsAt.add(2); // shots upload in angle order → call #2 is Side
@@ -1447,46 +1516,64 @@ async function main(): Promise<void> {
     await waitUntil('auto session reaches review', () => present(renderer, 'guided-review-save'));
 
     await tap(renderer, 'guided-review-save', 'save with the Side upload failing');
-    await waitUntil('inline upload error appears', () => present(renderer, 'guided-upload-error'));
-    assertEqual(
-      textOf(byTestID(renderer, 'guided-upload-error')).trim(),
-      'Side photo could not be uploaded. Your shots are still here — try Save again.',
-      'error names the failed angle and keeps shots',
+    await waitUntil('save settles despite the refused upload', () => outcomes.length === 1);
+    assert(
+      outcomes[0] !== null && outcomes[0]!.savedCount === 3,
+      'outcome reports all three photos saved',
     );
-    assertEqual(outcomes.length, 0, 'no settle on failed save');
-    assert(present(renderer, 'guided-review-save'), 'save stays available for retry');
-    for (const angle of GUIDED_ANGLES) {
-      const image = renderer.root.findAll(
-        node =>
-          typeof node.type === 'string' && node.props?.source?.uri === `asset://pose-${angle}`,
-      );
-      assert(image.length > 0, `${angle} shot still on review after failure`);
-    }
-    assertEqual(rail.uploads.length, 3, 'every shot attempted the account rail');
-    assertEqual(rail.photoWrites.length, 0, 'no grid write until every upload lands');
+    assert(!present(renderer, 'guided-upload-error'), 'no inline upload error for a deferred shot');
+    assertEqual(
+      countAnnounced('3 progress photos saved. They will upload when you are back online.'),
+      1,
+      'save announces the deferred upload in plain words',
+    );
+    assert(rail.uploads.length >= 3, 'every shot attempted the account rail at save');
     assert(
       rail.uploads.every(uri => uri.startsWith('data:image/jpeg;base64,')),
       'the rail receives prepared jpeg data uris',
     );
-
-    rail.failUploadsAt.clear();
-    await tap(renderer, 'guided-review-save', 'retry save');
-    await waitUntil('retry settles', () => outcomes.length === 1);
-    assertEqual(rail.uploads.length, 4, 'retry re-uploads ONLY the failed angle');
     assert(
-      outcomes[0] !== null && outcomes[0]!.savedCount === 3,
-      'retry still saves the full set of three',
+      GUIDED_ANGLES.every(angle =>
+        patientCtx!.photos.some(photo => (photo as { angle?: string }).angle === angle),
+      ),
+      'all three angles are on the grid immediately',
     );
-    assertEqual(rail.photoWrites.length, 1, 'one grid write records all three photos');
-    const write = rail.photoWrites[0] ?? [];
+
+    // The queue: one grid write for the two stored shots, then the deferred
+    // Side shot is uploaded and recorded on its own.
+    await waitUntil('the queue re-uploads the deferred shot', () => rail.uploads.length === 4);
+    await waitUntil('the queue records the deferred shot', () => rail.photoWrites.length === 2);
+    await actSleep(30);
     assertEqual(
-      write.map(photo => photo.angle).join(','),
-      'front,side,back',
-      'grid write carries all three angles in order',
+      (rail.photoWrites[0] ?? []).map(photo => photo.angle).join(','),
+      'front,back',
+      'first grid write carries the two stored shots in order',
+    );
+    assertEqual(
+      (rail.photoWrites[1] ?? []).map(photo => photo.angle).join(','),
+      'side',
+      'the deferred shot follows in its own grid write',
+    );
+    // Every in-session upload was pinned to a (session, angle) id, and the
+    // queue's re-upload of the deferred Side shot re-used Side's id exactly:
+    // if the refused call had in fact landed server-side, the retry lands on
+    // that same object instead of leaking a second one.
+    assert(
+      rail.uploadIds.slice(0, 3).every((id, index) => typeof id === 'string' && id.endsWith(`.${GUIDED_ANGLES[index]}`)),
+      'in-session uploads pin a per-angle upload id',
+    );
+    assertEqual(
+      rail.uploadIds[3],
+      rail.uploadIds[1],
+      'the queued re-upload re-uses the deferred shot’s session upload id',
+    );
+    assert(
+      new Set(rail.uploadIds.slice(0, 3).map(id => id?.split('.')[0])).size === 1,
+      'all angles share one session prefix',
     );
     const railWeek = Math.ceil(ENROLLMENT_DAYS / 7);
     assert(
-      write.every(
+      rail.photoWrites.flat().every(
         photo =>
           typeof photo.id === 'string' &&
           photo.id.length > 0 &&
@@ -1499,6 +1586,10 @@ async function main(): Promise<void> {
       'grid write rows carry ids, labels, dates, and rail object paths',
     );
     assert(
+      rail.photoWrites.flat().every(photo => !('uri' in photo) || photo.uri === undefined),
+      'no photo bytes ride a grid write',
+    );
+    assert(
       GUIDED_ANGLES.every(angle =>
         patientCtx!.photos.some(
           photo =>
@@ -1508,85 +1599,100 @@ async function main(): Promise<void> {
             ),
         ),
       ),
-      'patient grid rows reference the stored objects',
+      'patient grid rows reference the stored objects once synced',
     );
+    assertEqual(rail.cleanups.length, 0, 'a completed save never discards its own uploads');
     assertEqual(fetchCalls.length, 0, 'the in-process rail means zero raw fetches');
     await actSettle(() => renderer.unmount());
   }
 
-  // ── 10b. Account save: grid-write failure → no success, retry completes ─
-  section('10b. Account save: grid-write failure keeps the session; retry completes');
+  // ── 10b. Account save: grid-write failure → queued, retried, lands ──────
+  section('10b. Account save: grid-write failure queues the write; the retry lands');
   {
     await resetScenario('web');
+    clearQueueStorage();
     localStore.set(HIDE_INSTRUCTIONS_KEY, '1');
     const rail = makeFakeRail();
     rail.failPhotoWritesAt.add(1); // uploads land; the FIRST grid write fails
     const { renderer, outcomes } = await mountRealSession(rail);
     await waitUntil('auto session reaches review', () => present(renderer, 'guided-review-save'));
 
-    const savedAnnouncementsBefore = announcements.filter(a =>
-      a.includes('progress photos saved'),
-    ).length;
     await tap(renderer, 'guided-review-save', 'save with the grid write failing');
-    await waitUntil('inline grid error appears', () => present(renderer, 'guided-upload-error'));
-    assertEqual(
-      textOf(byTestID(renderer, 'guided-upload-error')).trim(),
-      'The photos uploaded but could not be added to your grid. Try Save again.',
-      'error says the uploads are safe but the grid write failed',
-    );
-    assertEqual(outcomes.length, 0, 'no settle while the photos are off the grid');
-    assertEqual(
-      announcements.filter(a => a.includes('progress photos saved')).length,
-      savedAnnouncementsBefore,
-      'no success announcement on a failed grid write',
-    );
-    assert(present(renderer, 'guided-review-save'), 'save stays available for retry');
-    assertEqual(rail.uploads.length, 3, 'all three uploads landed before the failure');
-    assertEqual(rail.photoWrites.length, 1, 'exactly one (failed) grid write was attempted');
-    assertEqual(rail.cleanups.length, 0, 'held uploads are NOT discarded while retry is offered');
-
-    await tap(renderer, 'guided-review-save', 'retry save');
-    await waitUntil('retry settles', () => outcomes.length === 1);
-    assertEqual(rail.uploads.length, 3, 'retry re-sends NO uploads — the held paths are reused');
+    await waitUntil('save settles — the grid row is queued, not lost', () => outcomes.length === 1);
     assert(
       outcomes[0] !== null && outcomes[0]!.savedCount === 3,
-      'retry records the full set of three',
+      'outcome reports the full set of three',
     );
-    assertEqual(rail.photoWrites.length, 2, 'retry repeats only the grid write');
+    assertEqual(countAnnounced('3 progress photos saved.'), 1, 'plain success announcement (no deferral)');
+    assertEqual(rail.uploads.length, 3, 'all three uploads landed');
+    await waitUntil('the queue retries the grid write', () => rail.photoWrites.length === 2);
+    await actSleep(30);
     assertEqual(
       (rail.photoWrites[1] ?? []).map(photo => photo.angle).join(','),
       'front,side,back',
       'the retried grid write carries all three angles',
     );
-    assertEqual(rail.cleanups.length, 0, 'a completed save never discards its own uploads');
+    assertEqual(rail.cleanups.length, 0, 'a queued save never discards its own uploads');
     await actSettle(() => renderer.unmount());
   }
 
-  // ── 10c. Abandoning a failed grid write discards the uploaded objects ──
-  section('10c. Closing after a failed grid write discards the uploaded objects');
+  // ── 10c. Offline save: nothing touches the rail until connectivity ──────
+  section('10c. Offline save queues every shot; reconnecting uploads and records them');
   {
     await resetScenario('web');
+    clearQueueStorage();
     localStore.set(HIDE_INSTRUCTIONS_KEY, '1');
     const rail = makeFakeRail();
-    rail.failPhotoWritesAt.add(1);
-    rail.failPhotoWritesAt.add(2); // a retry would fail too — the patient gives up
     const { renderer, outcomes } = await mountRealSession(rail);
     await waitUntil('auto session reaches review', () => present(renderer, 'guided-review-save'));
-    await tap(renderer, 'guided-review-save', 'save with the grid write failing');
-    await waitUntil('inline grid error appears', () => present(renderer, 'guided-upload-error'));
 
-    await tap(renderer, 'guided-close', 'give up and close the session');
-    await waitUntil('close settles the claim', () => outcomes.length === 1);
-    assert(outcomes[0] === null, 'closing after failure reports no save');
-    assertEqual(rail.cleanups.length, 1, 'close discards the abandoned uploads once');
+    setConnectivityOverride(false);
+    await tap(renderer, 'guided-review-save', 'save while offline');
+    await waitUntil('offline save settles', () => outcomes.length === 1);
+    assert(outcomes[0] !== null && outcomes[0]!.savedCount === 3, 'offline save reports three photos');
     assertEqual(
-      (rail.cleanups[0] ?? []).slice().sort().join(','),
-      [1, 2, 3]
-        .map(n => `/objects/patient-media/p-real/progress-${n}`)
-        .sort()
-        .join(','),
-      'every uploaded-but-unrecorded object path is discarded',
+      countAnnounced('3 progress photos saved. They will upload when you are back online.'),
+      1,
+      'offline save says the photos will upload later',
     );
+    await actSleep(60);
+    assertEqual(rail.uploads.length, 0, 'offline: the rail is never called');
+    assertEqual(rail.photoWrites.length, 0, 'offline: no grid write is attempted');
+    assert(
+      GUIDED_ANGLES.every(angle =>
+        patientCtx!.photos.some(
+          photo =>
+            (photo as { angle?: string }).angle === angle &&
+            typeof (photo as { uri?: string }).uri === 'string',
+        ),
+      ),
+      'offline: all three shots are on the grid from their local bytes',
+    );
+
+    setConnectivityOverride(true);
+    await waitUntil('reconnecting uploads every shot', () => rail.uploads.length === 3);
+    await waitUntil('reconnecting records every shot', () => rail.photoWrites.length === 3);
+    await actSleep(30);
+    assertEqual(
+      rail.photoWrites.map(write => write.map(photo => photo.angle).join(',')).join('|'),
+      'front|side|back',
+      'shots are recorded in capture order, one grid write each',
+    );
+    assert(
+      GUIDED_ANGLES.every(angle =>
+        patientCtx!.photos.some(
+          photo =>
+            (photo as { angle?: string }).angle === angle &&
+            String((photo as { objectPath?: string }).objectPath ?? '').startsWith(
+              '/objects/patient-media/p-real/progress-',
+            ) &&
+            (photo as { uri?: string }).uri === undefined,
+        ),
+      ),
+      'once synced the grid rows reference stored objects and drop the local bytes',
+    );
+    assertEqual(rail.cleanups.length, 0, 'nothing to discard after a clean sync');
+    setConnectivityOverride(null);
     await actSettle(() => renderer.unmount());
   }
 

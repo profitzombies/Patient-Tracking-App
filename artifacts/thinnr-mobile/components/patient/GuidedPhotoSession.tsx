@@ -319,6 +319,14 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   const detectorRef = useRef(createSubjectDetector());
   const queueRef = useRef<GuidedAngle[]>([]);
   const uploadedRef = useRef(new Map<GuidedAngle, UploadedShotRef>());
+  // One upload id per (session, angle): every attempt to upload an angle in
+  // this session — a Save retry, a reshoot, or the offline queue later —
+  // pins the same server object, so an interrupted upload can never leave
+  // a second, invisible object behind on the account.
+  const uploadSessionIdRef = useRef(
+    `gp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+  );
+  const uploadIdFor = (angle: GuidedAngle) => `${uploadSessionIdRef.current}.${angle}`;
   const lastStatusRef = useRef<LineupStatus | null>(null);
   const readingRef = useRef<PositioningReading | null>(null);
   const holdRef = useRef(createSteadyHold());
@@ -947,6 +955,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     const result = await uploadGuidedShots(
       toUpload,
       account.kind === 'real' ? account.api.uploadProgressPhoto : undefined,
+      account.kind === 'real' ? uploadIdFor : undefined,
     );
     for (const ref of result.uploaded) uploadedRef.current.set(ref.angle, ref);
     if (result.failed.length > 0) {
@@ -969,8 +978,10 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
         label: `Week ${week} ${GUIDED_ANGLE_LABELS[angle]}`,
         angle,
         // Account shots reference their stored object; demo shots keep the
-        // on-device capture uri, exactly as before accounts existed.
+        // on-device capture uri, exactly as before accounts existed. A
+        // deferred shot passes its pinned upload id on to the queue.
         ...(ref.objectPath ? { objectPath: ref.objectPath } : { uri: ref.uri }),
+        ...(ref.deferred && ref.uploadId ? { uploadId: ref.uploadId } : {}),
       };
     });
     // addPhotos resolves false when the account's grid write failed (the
@@ -989,8 +1000,13 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       return;
     }
     // Recorded on the grid — nothing left for close() to discard.
+    const deferredCount = GUIDED_ANGLES.filter(angle => uploadedRef.current.get(angle)?.deferred).length;
     uploadedRef.current.clear();
-    announce(`${entries.length} progress photos saved.`);
+    announce(
+      deferredCount > 0
+        ? `${entries.length} progress photos saved. They will upload when you are back online.`
+        : `${entries.length} progress photos saved.`,
+    );
     finish({ savedCount: entries.length });
   };
 

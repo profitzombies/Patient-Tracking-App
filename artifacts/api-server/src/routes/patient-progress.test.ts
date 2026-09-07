@@ -75,6 +75,7 @@ class FakeBackend {
       patient_consents: [],
       patient_data_exports: [],
       patient_deletion_requests: [],
+      patient_write_receipts: [],
     };
     this.tokens.clear();
     this.failOnce.clear();
@@ -133,6 +134,8 @@ class FakeBackend {
     if (op === "eq") return String(cell ?? "") === value;
     if (op === "gte") return typeof cell === "string" && cell >= value;
     if (op === "lte") return typeof cell === "string" && cell <= value;
+    if (op === "lt") return typeof cell === "string" && cell < value;
+    if (op === "gt") return typeof cell === "string" && cell > value;
     if (op === "in") {
       const list = value
         .replace(/^\(|\)$/g, "")
@@ -220,12 +223,18 @@ class FakeBackend {
     if (method === "POST") {
       const conflictCols = (url.searchParams.get("on_conflict") ?? "").split(",").filter(Boolean);
       const payload = JSON.parse(String(init?.body ?? "[]")) as Row[];
+      const prefer = headers.get("prefer") ?? "";
+      const ignoreDuplicates = prefer.includes("resolution=ignore-duplicates");
+      const written: Row[] = [];
       for (const incoming of payload) {
         const existing = conflictCols.length
           ? this.tables[table].find(row =>
               conflictCols.every(col => String(row[col] ?? "") === String(incoming[col] ?? "")),
             )
           : undefined;
+        // PostgREST ignore-duplicates: the conflicting row is left alone and
+        // is NOT part of the returned representation.
+        if (existing && ignoreDuplicates) continue;
         // The live table also carries unique (patient_id, object_path): a
         // row reusing an object that a DIFFERENT photo row already owns
         // trips 23505, which PostgREST surfaces as 409.
@@ -241,11 +250,28 @@ class FakeBackend {
         if (existing) {
           // PostgREST merge-duplicates: update ONLY the payload's columns.
           Object.assign(existing, incoming);
+          written.push(existing);
         } else {
-          this.tables[table].push({ created_at: stampAt(this.seq++), ...incoming });
+          const row = { created_at: stampAt(this.seq++), ...incoming };
+          this.tables[table].push(row);
+          written.push(row);
         }
       }
-      return json(201, []);
+      return json(201, prefer.includes("return=representation") ? written : []);
+    }
+
+    if (method === "PATCH") {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as Row;
+      const matched = this.tables[table].filter(row => filters.every(f => this.matches(row, f)));
+      for (const row of matched) Object.assign(row, payload);
+      return json(200, matched);
+    }
+
+    if (method === "DELETE") {
+      this.tables[table] = this.tables[table].filter(
+        row => !filters.every(f => this.matches(row, f)),
+      );
+      return new Response(null, { status: 204 });
     }
 
     return json(405, { message: `fake: unsupported ${method}` });
@@ -267,18 +293,19 @@ let base: string;
 async function api(
   method: string,
   path: string,
-  options: { token?: string; body?: unknown } = {},
-): Promise<{ status: number; json: any }> {
+  options: { token?: string; body?: unknown; headers?: Record<string, string> } = {},
+): Promise<{ status: number; json: any; headers: Headers }> {
   const response = await realFetch(`${base}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(options.headers ?? {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const text = await response.text();
-  return { status: response.status, json: text ? JSON.parse(text) : null };
+  return { status: response.status, json: text ? JSON.parse(text) : null, headers: response.headers };
 }
 
 function progressPath(patientId: string, suffix = "11111111-1111-4111-8111-111111111111"): string {
@@ -473,6 +500,29 @@ describe("POST /patient-data/check-ins", () => {
 });
 
 describe("POST /patient-data/photos — grid rows", () => {
+  it("replays a keyed photo write from its receipt — the delete RPC never re-runs", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    backend.seedLedger(patientId, progressPath(patientId));
+    await api("POST", "/api/patient-data/photos", {
+      token: "tok-1",
+      body: { upsert: [photoPayload(patientId, { id: "p-front", angle: "front" })] },
+    });
+    const send = () =>
+      api("POST", "/api/patient-data/photos", {
+        token: "tok-1",
+        headers: { "Idempotency-Key": "q_photos_remove_1" },
+        body: { deleteIds: ["p-front"] },
+      });
+    const first = await send();
+    expect(first.status).toBe(200);
+    expect(backend.removeRpcCalls).toBe(1);
+    const replay = await send();
+    expect(replay.status).toBe(200);
+    expect(replay.headers.get("idempotency-replayed")).toBe("true");
+    expect(backend.removeRpcCalls).toBe(1);
+    expect(backend.tables.patient_write_receipts).toHaveLength(1);
+  });
+
   it("records uploaded photos and the state read lists them in insertion order", async () => {
     const { patientId } = backend.seedSignedInPatient("tok-1");
     backend.seedLedger(patientId, progressPath(patientId));

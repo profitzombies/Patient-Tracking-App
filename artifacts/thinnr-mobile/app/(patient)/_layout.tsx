@@ -5,6 +5,7 @@ import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
 import { PatientFabMenu } from '@/components/patient/PatientFabMenu';
 import { PatientTabBar } from '@/components/patient/PatientTabBar';
+import { SyncStatusChip } from '@/components/patient/SyncStatusChip';
 
 /**
  * The five patient screens still live in a tab navigator — swapping between
@@ -46,6 +47,8 @@ export default function PatientTabLayout() {
       <PatientTabs />
       <PatientTabBar />
       <PatientFabMenu />
+      {/* Offline-queue status, above the pill bar; real accounts only. */}
+      <SyncStatusChip />
     </View>
   );
 }

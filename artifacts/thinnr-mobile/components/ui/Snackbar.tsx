@@ -10,6 +10,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { patientSnackbarBottom } from '@/constants/layout';
+import { usePatientSync } from '@/context/PatientContext';
+import { syncChipVisible } from '@/components/patient/SyncStatusChip';
 
 interface SnackbarProps {
   message: string;
@@ -22,6 +24,8 @@ interface SnackbarProps {
 export function Snackbar({ message, actionLabel, onAction, testID, actionTestID }: SnackbarProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  // Outside a PatientProvider (staff screens) this reads as disabled.
+  const sync = usePatientSync();
   return (
     <View
       testID={testID}
@@ -33,7 +37,7 @@ export function Snackbar({ message, actionLabel, onAction, testID, actionTestID 
           // Above the launcher circle (Material snackbar-over-FAB): the
           // action button sits exactly in the corner the circle owns, so
           // docking at the old tab-bar shelf would leave it untappable.
-          bottom: patientSnackbarBottom(insets.bottom),
+          bottom: patientSnackbarBottom(insets.bottom, syncChipVisible(sync)),
         },
       ]}
     >

@@ -10,6 +10,7 @@ import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import { usePatient } from '@/context/PatientContext';
+import { PendingDot } from '@/components/patient/PendingDot';
 import { WATER_CUP_OZ } from '@/data/patient-data';
 
 // Reference water-segment inks — no semantic token exists for these fills.
@@ -46,7 +47,10 @@ export function WaterTracker({ dateKey }: WaterTrackerProps) {
           <Feather name="droplet" size={16} color={colors.cobalt} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.title, { color: colors.foreground }]}>Water</Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, { color: colors.foreground }]}>Water</Text>
+            <PendingDot entityKey={`water:${dateKey}`} size={10} />
+          </View>
           <Text style={[styles.meta, { color: colors.subtleText }]}>
             {oz} of {targetOz} fl oz · {filled} of {cupCount} cups
           </Text>
@@ -114,6 +118,11 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   title: {
     fontSize: 17,

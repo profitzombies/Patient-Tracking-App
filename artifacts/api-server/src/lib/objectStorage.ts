@@ -12,6 +12,7 @@
  * directly and nothing long-lived ever lands in a table.
  */
 import { randomUUID } from "crypto";
+import { patientMediaObjectId, type PatientMediaKind } from "./patient-media-ids";
 import { File, Storage } from "@google-cloud/storage";
 
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
@@ -274,9 +275,12 @@ export class ObjectStorageService {
    */
   async patientMediaUploadURL(
     patientId: string,
-    kind: "food" | "recipe" | "chat" | "progress",
+    kind: PatientMediaKind,
+    uploadId?: string | null,
   ): Promise<{ uploadUrl: string; objectPath: string }> {
-    const objectId = `${kind}-${randomUUID()}`;
+    // A client uploadId pins the object id (see patient-media-ids): a retry
+    // after a lost response lands on the same object, never a second one.
+    const objectId = patientMediaObjectId(patientId, kind, uploadId);
     const objectPath = `/objects/patient-media/${patientId}/${objectId}`;
     const fullPath = `${getTrainingObjectDir()}/patient-media/${patientId}/${objectId}`;
     const { bucketName, objectName } = parseObjectPath(fullPath);

@@ -44,6 +44,7 @@ import {
 import { verifyPatientMediaToken } from "../lib/media-token";
 import { resolvePatient } from "../lib/patient-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { isValidUploadId } from "../lib/patient-media-ids";
 import { createLimiter, envLimit } from "../coach/limits";
 
 const router: IRouter = Router();
@@ -163,9 +164,17 @@ router.post(
         res.status(413).json({ error: "That photo is over the 10 MB limit." });
         return;
       }
+      // Optional client upload id: the offline queue sends one per queued
+      // photo so a re-minted URL after a lost response names the SAME
+      // object (see lib/patient-media-ids). Malformed = client bug, 400.
+      if (body.uploadId !== undefined && !isValidUploadId(body.uploadId)) {
+        res.status(400).json({ error: "Invalid upload id." });
+        return;
+      }
       const { uploadUrl, objectPath } = await objectStorage.patientMediaUploadURL(
         auth.patientId,
         body.kind as "food" | "recipe" | "chat" | "progress",
+        body.uploadId === undefined ? undefined : body.uploadId,
       );
       await recordUploadIntent({ objectPath, surface: "patient_media", ownerId: auth.patientId });
       res.json({ uploadUrl, objectPath });

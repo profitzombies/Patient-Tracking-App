@@ -10,9 +10,12 @@
  *  - Session resolves to any staff or demo-profile kind → demo account: a
  *    provider browsing the patient persona sees the seeded demo, never a
  *    real patient's diary.
- *  - The lookup fails (server unreachable) → 'unresolved': seedless and
- *    write-blocked behind a retry, because showing the demo seed to a
- *    possibly-real patient would present someone else's history as theirs.
+ *  - The lookup fails (server unreachable) → the last successful resolution
+ *    for this SAME user id, if there is one, so an offline cold start still
+ *    opens the patient's cached diary and offline queue; otherwise
+ *    'unresolved': seedless and write-blocked behind a retry, because
+ *    showing the demo seed to a possibly-real patient would present someone
+ *    else's history as theirs.
  *
  * While a session's resolution is in flight the state reports
  * resolving=true and PatientProvider holds hydration, so a real patient
@@ -20,7 +23,17 @@
  */
 import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { supabaseConfigured, useSupabaseSession } from '@/lib/supabase';
-import { fetchAccountRole, getSessionAccessToken, patientDataApi } from '@/lib/patient-data-api';
+import {
+  fetchAccountRole,
+  getSessionAccessToken,
+  patientDataApi,
+  type AccountRole,
+} from '@/lib/patient-data-api';
+import {
+  clearCachedAccountRole,
+  readCachedAccountRole,
+  writeCachedAccountRole,
+} from '@/lib/account-role-cache';
 import {
   DEMO_ACCOUNT_STATE,
   PatientAccountContext,
@@ -46,23 +59,32 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
       // Signed out (or never signed in): drop any previous resolution so a
       // later sign-in starts fresh.
       setResolved(null);
+      // Only a settled signed-out state forgets the remembered role. While
+      // the session is still loading (every cold start) userId is null too,
+      // and wiping here would defeat the offline cold start it exists for.
+      if (!sessionLoading) void clearCachedAccountRole();
       return;
     }
     let cancelled = false;
+    const accountFor = (role: AccountRole): PatientAccount =>
+      role.kind === 'patient'
+        ? { kind: 'real', patientId: role.patientId, api: patientDataApi }
+        : { kind: 'demo' };
     (async () => {
       try {
         const role = await fetchAccountRole();
         if (cancelled) return;
-        setResolved({
-          forUserId: userId,
-          account:
-            role.kind === 'patient'
-              ? { kind: 'real', patientId: role.patientId, api: patientDataApi }
-              : { kind: 'demo' },
-          notice: null,
-        });
+        setResolved({ forUserId: userId, account: accountFor(role), notice: null });
+        void writeCachedAccountRole(userId, role);
       } catch {
+        // Unreachable server: fall back to what this user resolved to last
+        // time (offline cold start), else block behind a retry.
+        const remembered = await readCachedAccountRole(userId).catch(() => null);
         if (cancelled) return;
+        if (remembered) {
+          setResolved({ forUserId: userId, account: accountFor(remembered), notice: null });
+          return;
+        }
         setResolved({
           forUserId: userId,
           account: { kind: 'unresolved' },
@@ -73,7 +95,7 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [userId, attempt]);
+  }, [userId, attempt, sessionLoading]);
 
   const retryResolve = useCallback(() => {
     // Clear a failed resolution first so the UI holds (resolving) rather

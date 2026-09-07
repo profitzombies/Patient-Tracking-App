@@ -1,3 +1,5 @@
+// hint: Structural and logic conflict. Both design and behavior differ.
+// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -104,3 +106,4 @@
 - [Patient purge lifecycle](patient-purge-lifecycle.md) — tombstone-first FK-ordered idempotent purge; null-patient_id guard skip + analytics detach carve-out; grace fixtures ride the real clock.
 - [Staff inbox over patient chat](staff-inbox-workflow.md) — workflow state is trigger-derived (upsert replays are safe); staff rows are server-owned and refresh-delivered; coach folds staff turns to context; HQ auto-close window is a read-time overlay via RPC cutoff.
 - [System jobs framework](system-jobs-framework.md) — all clean-up rides the leased job ledger (intents, two-way reconcile flags, dry-run neutrality); live traps: pg-safeupdate bare DELETE, locate("/objects/"), real-HQ tester login recipe.
+- [Offline patient write queue](offline-write-queue.md) — state=project(base,queue), head-first drain, cached launches refresh truth first; receipts claimed BEFORE the write; photo uploads pinned by client id.

@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { PatientWeightChart } from '@/components/patient/PatientWeightChart';
+import { PendingDot } from '@/components/patient/PendingDot';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
@@ -123,17 +124,15 @@ export default function ProgressScreen() {
       const asset = result.assets[0];
       const label = `Week ${Math.ceil(programDay / 7)}`;
       if (account.kind === 'real') {
-        // Signed-in patient: compress, upload to the account's media rail,
-        // and record the grid row on the account — reinstall-safe.
+        // Signed-in patient: compress here, then hand the prepared bytes to
+        // the offline queue. The queued write shows the photo in the grid
+        // at once (pending marker), uploads to the account's media rail and
+        // records the grid row when connectivity allows — reinstall-safe
+        // once synced, and never lost to a dead connection in the meantime.
         const prepared = await preparePhotoForUpload(asset);
-        const { photoPath } = await account.api.uploadProgressPhoto(prepared.uri);
-        const saved = await patient.addPhoto({ dateKey: patient.todayKey, objectPath: photoPath, label });
+        const saved = await patient.addPhoto({ dateKey: patient.todayKey, uri: prepared.uri, label });
         if (!saved) {
-          // The grid write failed and rolled back: discard the now-orphaned
-          // upload (a retry re-picks and re-uploads fresh) and surface the
-          // picker's own inline error alongside the sync notice.
-          void account.api.cleanupProgressUploads([photoPath]).catch(() => {});
-          setPhotoError('The photo uploaded but could not be added to your grid. Please try again.');
+          setPhotoError('The photo could not be added to your grid. Please try again.');
         }
         return;
       }
@@ -282,7 +281,10 @@ export default function ProgressScreen() {
                   </Pressable>
                 )}
                 <View style={styles.photoCaption}>
-                  <Text style={[styles.photoLabel, { color: colors.navyLight }]}>{label}</Text>
+                  <View style={styles.photoLabelRow}>
+                    <Text style={[styles.photoLabel, { color: colors.navyLight }]}>{label}</Text>
+                    <PendingDot entityKey={`photo:${photo.id}`} size={10} />
+                  </View>
                   <Text style={[styles.photoMeta, { color: colors.subtleText }]}>
                     {formatDateKey(photo.dateKey)}
                     {seedWeight !== null ? ` · ${seedWeight.toFixed(1)} lbs` : ''}
@@ -301,9 +303,12 @@ export default function ProgressScreen() {
               {index > 0 && <Divider />}
               <View style={styles.checkinRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.checkinDate, { color: colors.navyLight }]}>
-                    {checkIn.dateKey === patient.todayKey ? 'Today' : formatDateKey(checkIn.dateKey)}
-                  </Text>
+                  <View style={styles.checkinDateRow}>
+                    <Text style={[styles.checkinDate, { color: colors.navyLight }]}>
+                      {checkIn.dateKey === patient.todayKey ? 'Today' : formatDateKey(checkIn.dateKey)}
+                    </Text>
+                    <PendingDot entityKey={`checkIn:${checkIn.dateKey}`} size={10} />
+                  </View>
                   <Text style={[styles.checkinMeta, { color: colors.subtleText }]}>
                     Mood: {MOOD_LABELS[checkIn.mood]}
                     {checkIn.sideEffects.length > 0 ? ` · ${checkIn.sideEffects.join(', ')}` : ' · No side effects'}
@@ -456,6 +461,11 @@ const styles = StyleSheet.create({
   photoCaption: {
     padding: 10,
   },
+  photoLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   photoLabel: {
     fontSize: 15,
     fontFamily: 'PlayfairDisplay_600SemiBold',
@@ -471,6 +481,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 12,
+  },
+  checkinDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   checkinDate: {
     fontSize: 15,

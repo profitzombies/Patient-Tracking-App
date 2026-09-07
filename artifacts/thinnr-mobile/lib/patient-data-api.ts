@@ -37,6 +37,7 @@ import type {
   PatientSetupWrite,
   PatientServerState,
   ProgressPhotoWire,
+  WriteOptions,
 } from '@/context/PatientAccountContext';
 import { parsePatientProfile } from '@/lib/patient-profile';
 import { apiBase } from '@/lib/coach-api';
@@ -67,18 +68,37 @@ const SIGNED_OUT_MESSAGE = 'You’re signed out. Sign in again to sync your diar
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
-async function authedRequest(method: string, path: string, body?: unknown, accessToken?: string): Promise<unknown> {
+/** Per-call options for the write rail (see WriteOptions on PatientDataApi). */
+interface RequestOptions {
+  accessToken?: string;
+  /**
+   * Client-generated idempotency key: the server replays the original
+   * result for a repeated key instead of applying the write twice, which
+   * is what lets the offline queue re-send a request whose response was
+   * lost without duplicating data.
+   */
+  idempotencyKey?: string;
+}
+async function authedRequest(
+  method: string,
+  path: string,
+  body?: unknown,
+  options?: string | RequestOptions,
+): Promise<unknown> {
+  const opts: RequestOptions = typeof options === 'string' ? { accessToken: options } : options ?? {};
   let base: string;
   try {
     base = apiBase();
   } catch {
-    throw new PatientDataError('This build isn’t configured to reach the server.');
+    throw new PatientDataError('This build isn’t configured to reach the server.', null, {
+      kind: 'config',
+    });
   }
   if (!supabase) {
-    throw new PatientDataError('Sign-in isn’t configured in this build.');
+    throw new PatientDataError('Sign-in isn’t configured in this build.', null, { kind: 'config' });
   }
-  const token = accessToken ?? (await supabase.auth.getSession()).data.session?.access_token;
-  if (!token) throw new PatientDataError(SIGNED_OUT_MESSAGE);
+  const token = opts.accessToken ?? (await supabase.auth.getSession()).data.session?.access_token;
+  if (!token) throw new PatientDataError(SIGNED_OUT_MESSAGE, null, { kind: 'signedOut' });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -89,12 +109,13 @@ async function authedRequest(method: string, path: string, body?: unknown, acces
       headers: {
         Authorization: `Bearer ${token}`,
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(opts.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });
   } catch {
-    throw new PatientDataError(NETWORK_MESSAGE);
+    throw new PatientDataError(NETWORK_MESSAGE, null, { kind: 'network' });
   } finally {
     clearTimeout(timer);
   }
@@ -112,6 +133,7 @@ async function authedRequest(method: string, path: string, body?: unknown, acces
         ? message
         : 'The server couldn’t handle that. Please try again.',
       patientDataErrorCode(failure?.code),
+      { kind: 'http', status: response.status },
     );
   }
   return json;
@@ -222,9 +244,16 @@ export function patientMediaDisplayUrl(objectPath: string): string {
   );
 }
 
+/**
+ * `uploadId` (optional) pins the object the server mints: the offline queue
+ * sends one per queued photo so re-minting after a lost response lands on
+ * the SAME object path and re-finalizes the same ledger row, never a second
+ * unreferenced object.
+ */
 async function uploadPatientPhoto(
   kind: 'food' | 'recipe' | 'chat' | 'progress',
   dataUri: string,
+  uploadId?: string,
 ): Promise<{ photoPath: string; photoUri: string }> {
   const commaAt = dataUri.indexOf(',');
   const header = commaAt > 0 ? dataUri.slice(0, commaAt) : '';
@@ -241,6 +270,7 @@ async function uploadPatientPhoto(
     kind,
     contentType,
     sizeBytes: bytes.byteLength,
+    ...(uploadId ? { uploadId } : {}),
   })) as { uploadUrl?: unknown; objectPath?: unknown } | null;
   if (typeof minted?.uploadUrl !== 'string' || typeof minted.objectPath !== 'string') {
     throw new PatientDataError(MALFORMED_MESSAGE);
@@ -752,27 +782,33 @@ export const patientDataApi: PatientDataApi = {
     return parseServerState(json);
   },
 
-  async writeEntries(input: {
-    upsert?: MealLogEntry[];
-    deleteIds?: string[];
-    recents?: string[];
-  }): Promise<void> {
-    await authedRequest('POST', '/patient-data/entries', input);
+  async writeEntries(
+    input: {
+      upsert?: MealLogEntry[];
+      deleteIds?: string[];
+      recents?: string[];
+    },
+    options?: WriteOptions,
+  ): Promise<void> {
+    await authedRequest('POST', '/patient-data/entries', input, options);
   },
 
-  async writeWater(dateKey: string, oz: number): Promise<void> {
-    await authedRequest('PUT', '/patient-data/water', { dateKey, oz });
+  async writeWater(dateKey: string, oz: number, options?: WriteOptions): Promise<void> {
+    await authedRequest('PUT', '/patient-data/water', { dateKey, oz }, options);
   },
 
-  async writeTargets(partial: Partial<DailyTargets>): Promise<void> {
-    await authedRequest('PUT', '/patient-data/targets', partial);
+  async writeTargets(partial: Partial<DailyTargets>, options?: WriteOptions): Promise<void> {
+    await authedRequest('PUT', '/patient-data/targets', partial, options);
   },
 
-  async writePrefs(prefs: { favorites?: string[]; recents?: string[] }): Promise<void> {
-    await authedRequest('PUT', '/patient-data/prefs', prefs);
+  async writePrefs(
+    prefs: { favorites?: string[]; recents?: string[] },
+    options?: WriteOptions,
+  ): Promise<void> {
+    await authedRequest('PUT', '/patient-data/prefs', prefs, options);
   },
 
-  async writeLibrary(input: LibraryWrite): Promise<void> {
+  async writeLibrary(input: LibraryWrite, options?: WriteOptions): Promise<void> {
     const body: Record<string, unknown> = {};
     if (input.foodUpsert && input.foodUpsert.length > 0) {
       body.foodUpsert = input.foodUpsert.map(foodWire);
@@ -788,7 +824,7 @@ export const patientDataApi: PatientDataApi = {
     }
     if (input.favorites) body.favorites = input.favorites;
     if (input.recents) body.recents = input.recents;
-    await authedRequest('POST', '/patient-data/library', body);
+    await authedRequest('POST', '/patient-data/library', body, options);
   },
 
   uploadLibraryPhoto: uploadPatientPhoto,
@@ -827,11 +863,14 @@ export const patientDataApi: PatientDataApi = {
     return uploadPatientPhoto('chat', dataUri);
   },
 
-  async uploadProgressPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }> {
-    return uploadPatientPhoto('progress', dataUri);
+  async uploadProgressPhoto(
+    dataUri: string,
+    options?: { uploadId?: string },
+  ): Promise<{ photoPath: string; photoUri: string }> {
+    return uploadPatientPhoto('progress', dataUri, options?.uploadId);
   },
 
-  async writeProgressPhotos(photos: ProgressPhotoWire[]): Promise<void> {
+  async writeProgressPhotos(photos: ProgressPhotoWire[], options?: WriteOptions): Promise<void> {
     await authedRequest('POST', '/patient-data/photos', {
       // Built field-by-field so display-only baggage never rides the wire.
       upsert: photos.map(photo => ({
@@ -841,18 +880,18 @@ export const patientDataApi: PatientDataApi = {
         ...(photo.angle ? { angle: photo.angle } : {}),
         objectPath: photo.objectPath,
       })),
-    });
+    }, options);
   },
 
-  async removeProgressPhoto(photoId: string): Promise<void> {
-    await authedRequest('POST', '/patient-data/photos', { deleteIds: [photoId] });
+  async removeProgressPhoto(photoId: string, options?: WriteOptions): Promise<void> {
+    await authedRequest('POST', '/patient-data/photos', { deleteIds: [photoId] }, options);
   },
 
   async cleanupProgressUploads(paths: string[]): Promise<void> {
     await authedRequest('POST', '/patient-media/cleanup', { paths });
   },
 
-  async writeCheckIn(checkIn: CheckIn): Promise<void> {
+  async writeCheckIn(checkIn: CheckIn, options?: WriteOptions): Promise<void> {
     await authedRequest('POST', '/patient-data/check-ins', {
       id: checkIn.id,
       dateKey: checkIn.dateKey,
@@ -860,7 +899,7 @@ export const patientDataApi: PatientDataApi = {
       mood: checkIn.mood,
       sideEffects: checkIn.sideEffects,
       ...(checkIn.notes ? { notes: checkIn.notes } : {}),
-    });
+    }, options);
   },
 
   async importHealthMeasurements(measurements: HealthMeasurement[], accessToken?: string): Promise<{ imported: number }> {
@@ -870,8 +909,8 @@ export const patientDataApi: PatientDataApi = {
     return { imported };
   },
 
-  async writeFlags(flags: Partial<PatientFlagsWrite>): Promise<void> {
-    await authedRequest('PUT', '/patient-data/flags', flags);
+  async writeFlags(flags: Partial<PatientFlagsWrite>, options?: WriteOptions): Promise<void> {
+    await authedRequest('PUT', '/patient-data/flags', flags, options);
   },
 
   async completeSetup(input: {

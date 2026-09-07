@@ -63,13 +63,31 @@ export function patientContentBottom(insetsBottom: number): number {
   return patientBarBottom(insetsBottom) + PATIENT_BAR_HEIGHT + 20;
 }
 
+/** Height of the sync status chip that floats above the pill bar. */
+export const PATIENT_SYNC_CHIP_HEIGHT = 30;
+
+/** Gap between the pill bar's top edge and the sync chip. */
+const PATIENT_SYNC_CHIP_GAP = 8;
+
+/**
+ * Bottom offset of the sync status chip (offline / syncing / needs
+ * attention): directly above the pill bar, left-aligned with it, and
+ * clear of the launcher circle on the right. It only mounts for real
+ * accounts with something to say, so it takes no permanent room from the
+ * content shelf.
+ */
+export function patientSyncChipBottom(insetsBottom: number): number {
+  return patientBarBottom(insetsBottom) + PATIENT_BAR_HEIGHT + PATIENT_SYNC_CHIP_GAP;
+}
+
 /**
  * Bottom offset for patient snackbars: above the floating row with the
  * snackbar's usual 12 gap, so its corner action button always stays
- * tappable.
+ * tappable. When the sync chip is up the snackbar clears it too.
  */
-export function patientSnackbarBottom(insetsBottom: number): number {
-  return patientBarBottom(insetsBottom) + PATIENT_BAR_HEIGHT + 12;
+export function patientSnackbarBottom(insetsBottom: number, syncChipVisible = false): number {
+  const base = patientBarBottom(insetsBottom) + PATIENT_BAR_HEIGHT + 12;
+  return syncChipVisible ? base + PATIENT_SYNC_CHIP_HEIGHT + PATIENT_SYNC_CHIP_GAP : base;
 }
 
 /**

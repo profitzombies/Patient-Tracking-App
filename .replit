@@ -272,6 +272,10 @@ args = "system-jobs-api"
 task = "workflow.run"
 args = "system-health-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "offline-queue"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -972,6 +976,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:system-health"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "offline-queue"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:offline-queue"
 
 [workflows.workflow.metadata]
 isValidation = true

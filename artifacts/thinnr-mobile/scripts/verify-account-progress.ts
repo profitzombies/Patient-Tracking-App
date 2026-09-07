@@ -45,9 +45,12 @@ import { create, type ReactTestRenderer } from 'react-test-renderer';
 import {
   PatientProvider,
   usePatient,
+  usePatientSync,
   usePatientSyncNotice,
   type PatientSyncNoticeValue,
+  type PatientSyncValue,
 } from '../context/PatientContext';
+import { WRITE_QUEUE_TUNING } from '../lib/patient-write-queue';
 import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
 import { OnboardingProvider, useOnboarding } from '../context/OnboardingContext';
@@ -362,12 +365,14 @@ type Onb = ReturnType<typeof useOnboarding>;
 
 let ctx!: Ctx;
 let notice: PatientSyncNoticeValue | null = null;
+let sync!: PatientSyncValue;
 let account!: PatientAccountState;
 let onb!: Onb;
 
 function Probe() {
   ctx = usePatient();
   notice = usePatientSyncNotice();
+  sync = usePatientSync();
   account = usePatientAccount();
   return null;
 }
@@ -376,6 +381,17 @@ function OnbProbe() {
   onb = useOnboarding();
   account = usePatientAccount();
   return null;
+}
+
+/** Polls (inside act) until the condition holds — queue replays ride real timers. */
+async function waitFor(label: string, condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition() && Date.now() < deadline) {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 5));
+    });
+  }
+  assert(label, condition());
 }
 
 async function settle(): Promise<void> {
@@ -561,6 +577,10 @@ async function main() {
     && storeFor('p-1').checkIns[0].mood === 2);
   assert('weight series drops the replaced weight', !ctx.weightSeries.some(p => p.dateKey === TODAY_KEY));
 
+  // A failed check-in write is queued, not rolled back: the new answer stays
+  // on the phone with a pending marker and replays with backoff.
+  WRITE_QUEUE_TUNING.baseDelayMs = 5;
+  WRITE_QUEUE_TUNING.maxDelayMs = 20;
   failNext.set('POST patient-data/check-ins', {
     status: 502,
     body: { error: 'Couldn’t save your check-in right now. Please try again.' },
@@ -568,13 +588,12 @@ async function main() {
   await act(async () => {
     await ctx.addCheckIn({ dateKey: TODAY_KEY, mood: 5, sideEffects: [] });
   });
-  assert('failed check-in rolls back', ctx.checkIns.find(c => c.dateKey === TODAY_KEY)?.mood === 2);
-  assert('failed check-in never reaches the store', storeFor('p-1').checkIns[0].mood === 2);
-  assert('check-in notice carries the server’s words',
-    notice?.message === 'Couldn’t save your check-in right now. Please try again.' && notice?.actionLabel === 'OK');
-  await act(async () => {
-    notice!.onAction();
-  });
+  assert('failed check-in stays on the phone', ctx.checkIns.find(c => c.dateKey === TODAY_KEY)?.mood === 5);
+  assert('failed check-in is marked pending', sync.isPending(`checkIn:${TODAY_KEY}`) && sync.status === 'syncing');
+  assert('failed check-in raises no blocking notice', notice === null);
+  await waitFor('check-in replays after backoff', () => storeFor('p-1').checkIns[0]?.mood === 5);
+  await settle();
+  assert('acked check-in clears its pending marker', !sync.isPending(`checkIn:${TODAY_KEY}`) && sync.status === 'idle');
 
   // ── 4 · Photos: authenticated rail upload + account grid write ────────────
   section('photos: media-rail upload, grid write, rollback on failure');
@@ -626,18 +645,28 @@ async function main() {
     status: 502,
     body: { error: 'Couldn’t save your photos right now. Please try again.' },
   });
-  let ghostSaved = true;
+  const ghostUpload = await realApi().uploadProgressPhoto(jpegDataUri('P1-GHOST'));
+  let ghostSaved = false;
   await act(async () => {
-    ghostSaved = await ctx.addPhoto({ dateKey: TODAY_KEY, label: 'Ghost Photo', objectPath: uploaded.photoPath });
+    ghostSaved = await ctx.addPhoto({ dateKey: TODAY_KEY, label: 'Ghost Photo', objectPath: ghostUpload.photoPath });
   });
-  assert('failed grid write resolves false so screens can gate success UI', ghostSaved === false);
-  assert('failed grid write rolls back', ctx.photos.length === photosBeforeFail
-    && !ctx.photos.some(p => p.label === 'Ghost Photo'));
-  assert('photo notice carries the server’s words',
-    notice?.message === 'Couldn’t save your photos right now. Please try again.' && notice?.actionLabel === 'OK');
+  assert('a queued grid write still resolves true', ghostSaved === true);
+  const ghostPhoto = ctx.photos.find(p => p.label === 'Ghost Photo');
+  assert('failed grid write keeps the photo on the grid, pending', ctx.photos.length === photosBeforeFail + 1
+    && ghostPhoto !== undefined && sync.isPending(`photo:${ghostPhoto.id}`));
+  assert('failed grid write raises no blocking notice', notice === null);
+  await waitFor('grid write replays after backoff', () => storeFor('p-1').photos.some(p => p.id === ghostPhoto?.id));
+  await settle();
+  // Keep the grid at three rows for the sections below.
+  let ghostRemoval: Awaited<ReturnType<Ctx['removePhoto']>> = null;
   await act(async () => {
-    notice!.onAction();
+    ghostRemoval = await ctx.removePhoto(ghostPhoto!.id);
   });
+  await act(async () => {
+    await ctx.commitPhotoRemoval(ghostRemoval!);
+  });
+  await settle();
+  assert('the extra row is gone again', storeFor('p-1').photos.length === 3 && !ctx.photos.some(p => p.label === 'Ghost Photo'));
   // Abandoned uploads (a failed grid write the patient walks away from)
   // are discarded through the authenticated cleanup endpoint.
   await act(async () => {
@@ -657,7 +686,7 @@ async function main() {
   assert('remount rehydrates the grid', ctx.photos.length === 3
     && ctx.photos.every(p => p.source === 'user' && typeof p.objectPath === 'string'));
   assert('remount keeps angles', ctx.photos.filter(p => p.angle === 'side' || p.angle === 'back').length === 2);
-  assert('remount rehydrates check-ins', ctx.checkIns.length === 1 && ctx.checkIns[0].mood === 2);
+  assert('remount rehydrates check-ins', ctx.checkIns.length === 1 && ctx.checkIns[0].mood === 5);
   // Reads are token-authorized: render-time display URLs must carry the
   // media token the hydrate delivered — a bare object path opens nothing.
   assert('display URLs carry the account media token',
@@ -718,14 +747,25 @@ async function main() {
   await act(async () => {
     await ctx.commitPhotoRemoval(removedAgain!);
   });
-  assert('failed commit resurfaces the photo', ctx.photos.some(p => p.id === sidePhoto.id));
-  assert('failed commit leaves row and bytes in place',
+  // A failed delete commit is queued like any other write: the photo stays
+  // gone locally (pending) and the delete replays until the server agrees.
+  assert('failed commit keeps the photo removed locally', !ctx.photos.some(p => p.id === sidePhoto.id)
+    && sync.pendingCount === 1 && sync.status === 'syncing');
+  assert('failed commit leaves row and bytes in place until the replay',
     storeFor('p-1').photos.some(p => p.id === sidePhoto.id) && storedBytes.has(sidePhoto.objectPath!));
-  assert('failed commit explains itself',
-    notice?.message === 'Couldn’t save your photos right now. Please try again.');
+  assert('failed commit raises no blocking notice', notice === null);
+  await waitFor('delete replays after backoff', () => !storeFor('p-1').photos.some(p => p.id === sidePhoto.id));
+  await settle();
+  assert('replayed delete removes the stored bytes', !storedBytes.has(sidePhoto.objectPath!));
+  // A fresh side photo for the backstop scenario below.
+  const sideUpload2 = await realApi().uploadProgressPhoto(jpegDataUri('P1-SIDE2'));
   await act(async () => {
-    notice!.onAction();
+    await ctx.addPhoto({ dateKey: TODAY_KEY, label: 'Week 1 Side', angle: 'side', objectPath: sideUpload2.photoPath });
   });
+  await settle();
+  const sidePhoto2 = ctx.photos.find(p => p.angle === 'side')!;
+  assert('a new side photo is recorded', sidePhoto2 !== undefined
+    && storeFor('p-1').photos.some(p => p.id === sidePhoto2.id));
 
   // The screen owns the undo clock, but the PROVIDER owns making sure a
   // lapsed window really commits: if the screen unmounts mid-window (its
@@ -740,7 +780,7 @@ async function main() {
   // Nobody ever calls commitPhotoRemoval for backPhoto — "the screen died".
   let removedSideAgain: Awaited<ReturnType<Ctx['removePhoto']>> = null;
   await act(async () => {
-    removedSideAgain = await ctx.removePhoto(sidePhoto.id);
+    removedSideAgain = await ctx.removePhoto(sidePhoto2.id);
   });
   await act(async () => {
     await ctx.restorePhoto(removedSideAgain!);
@@ -756,9 +796,9 @@ async function main() {
     && !storedBytes.has(backPhoto.objectPath!)
     && !ctx.photos.some(p => p.id === backPhoto.id));
   assert('undo cancels the backstop for good',
-    ctx.photos.some(p => p.id === sidePhoto.id)
-    && storeFor('p-1').photos.some(p => p.id === sidePhoto.id)
-    && storedBytes.has(sidePhoto.objectPath!));
+    ctx.photos.some(p => p.id === sidePhoto2.id)
+    && storeFor('p-1').photos.some(p => p.id === sidePhoto2.id)
+    && storedBytes.has(sidePhoto2.objectPath!));
 
   // ── 7 · Stall-nudge flags follow the account ──────────────────────────────
   section('stall-nudge: opt-out and engagement write through and hydrate back');
@@ -787,12 +827,15 @@ async function main() {
   await act(async () => {
     await ctx.setNudgeOptOut(false);
   });
-  assert('failed flag write rolls back', ctx.nudgeOptOut && storeFor('p-1').flags.nudgeOptOut);
-  assert('flag notice carries the server’s words',
-    notice?.message === 'Couldn’t save your settings right now. Please try again.');
+  assert('failed flag write keeps the new setting locally', !ctx.nudgeOptOut && storeFor('p-1').flags.nudgeOptOut
+    && sync.isPending('flags'));
+  assert('failed flag write raises no blocking notice', notice === null);
+  await waitFor('flag write replays after backoff', () => storeFor('p-1').flags.nudgeOptOut === false);
+  await settle();
   await act(async () => {
-    notice!.onAction();
+    await ctx.setNudgeOptOut(true);
   });
+  await settle();
 
   await unmount(tree);
   tree = await mountLive();
@@ -801,6 +844,9 @@ async function main() {
   // ── 8 · No server truth → no writes ────────────────────────────────────────
   section('hydration failure: check-in and photo writes are blocked');
   await unmount(tree);
+  // Fresh install: no cached snapshot to fall back on (with one, the last
+  // synced view opens and writes queue — see verify-live-diary).
+  localStorageBacking.delete(`${STORAGE_KEY}:snapshot_p-1`);
   failNext.set('GET patient-data/state', {
     status: 502,
     body: { error: 'Couldn’t load your diary right now. Please try again.' },

@@ -34,7 +34,7 @@ const state = vi.hoisted(() => ({
   entityMissing: false,
   deleted: [] as string[],
   metadataSet: [] as Array<Record<string, unknown>>,
-  minted: [] as Array<{ patientId: string; kind: string }>,
+  minted: [] as Array<{ patientId: string; kind: string; uploadId?: string }>,
   downloadRanges: [] as Array<{ start?: number; end?: number }>,
   entityCalls: 0,
   failDelete: false,
@@ -48,8 +48,8 @@ vi.mock("../lib/objectStorage", () => {
     THUMBNAIL_CONTENT_TYPES: new Set(["image/jpeg", "image/png", "image/webp"]),
     detectThumbnailContentType: () => state.detectedType,
     objectStorage: {
-      patientMediaUploadURL: vi.fn(async (patientId: string, kind: string) => {
-        state.minted.push({ patientId, kind });
+      patientMediaUploadURL: vi.fn(async (patientId: string, kind: string, uploadId?: string) => {
+        state.minted.push(uploadId === undefined ? { patientId, kind } : { patientId, kind, uploadId });
         return {
           uploadUrl: "https://storage.test/upload",
           objectPath: `/objects/patient-media/${patientId}/${kind}-11111111-1111-4111-8111-111111111111`,
@@ -387,6 +387,29 @@ describe("POST /patient-media/upload-url", () => {
     expect(body.uploadUrl).toBe("https://storage.test/upload");
     expect(body.objectPath.startsWith(`/objects/patient-media/${PATIENT_ID}/recipe-`)).toBe(true);
     expect(state.minted).toEqual([{ patientId: PATIENT_ID, kind: "recipe" }]);
+  });
+
+  it("passes a client upload id through so a re-minted URL pins the same object", async () => {
+    const { status } = await post(
+      "/patient-media/upload-url",
+      { kind: "progress", contentType: "image/jpeg", sizeBytes: 4096, uploadId: "photo_lx3k2m_7_ab12cd" },
+      "tok-1",
+    );
+    expect(status).toBe(200);
+    expect(state.minted).toEqual([
+      { patientId: PATIENT_ID, kind: "progress", uploadId: "photo_lx3k2m_7_ab12cd" },
+    ]);
+  });
+
+  it("rejects a malformed upload id before minting", async () => {
+    const { status, json: body } = await post(
+      "/patient-media/upload-url",
+      { kind: "progress", contentType: "image/jpeg", sizeBytes: 4096, uploadId: "has spaces!" },
+      "tok-1",
+    );
+    expect(status).toBe(400);
+    expect(body.error).toBe("Invalid upload id.");
+    expect(state.minted).toEqual([]);
   });
 
   it("rejects unknown kinds, non-image types, and bad sizes", async () => {

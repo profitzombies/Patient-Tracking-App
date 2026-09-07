@@ -21,6 +21,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { PendingDot } from '@/components/patient/PendingDot';
 import { EntryEditPanel } from '@/components/patient/EntryEditPanel';
 import { MealPhotoButton } from '@/components/patient/MealPhotoButton';
 import { PatientHeader } from '@/components/patient/PatientHeader';
@@ -420,6 +421,7 @@ export default function DiaryScreen() {
                             {entry.name}
                           </Text>
                           {entry.kind === 'food' && isApprovedFood(entry.refId) && <ApprovedBadge size="sm" />}
+                          <PendingDot entityKey={`entry:${entry.id}`} size={10} />
                           {!!entryRecipeId(entry) && (
                             <Feather name="chevron-right" size={12} color={colors.subtleText} />
                           )}

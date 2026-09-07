@@ -43,6 +43,22 @@ import { setPatientMediaToken } from '@/lib/media-token-holder';
 import { localTodayKey } from '@/lib/live-patient-entry';
 import type { PrivacyState } from '@/lib/patient-privacy';
 import { PatientDataError } from '@/lib/patient-data-error';
+import { isOnline, subscribeConnectivity } from '@/lib/connectivity';
+import {
+  backoffDelay,
+  deriveSyncStatus,
+  markAttemptFailed,
+  markRetryRequested,
+  parseQueue,
+  pendingEntityKeys,
+  projectQueue,
+  projectWrite,
+  reconcileQueue,
+  serializeQueue,
+  type QueuedWrite,
+  type QueuedWritePayload,
+  type SyncStatus,
+} from '@/lib/patient-write-queue';
 import {
   applyRemoveEntries,
   applyRemoveEntry,
@@ -88,11 +104,19 @@ import {
   type PatientEntryFacts,
   type PatientProfile,
   type PatientProfileWrite,
+  type PatientServerState,
   type PatientSetupWrite,
   type ProgressPhotoWire,
 } from './PatientAccountContext';
 
 const STORAGE_KEY = 'thinnr_patient_state_v1';
+// Offline write queue, per real account (see lib/patient-write-queue.ts).
+const queueKeyFor = (patientId: string) => `${STORAGE_KEY}:queue_${patientId}`;
+// Last server-confirmed snapshot (plus acked queue items), per real account:
+// what the diary opens on when a launch can't reach the server.
+const snapshotKeyFor = (patientId: string) => `${STORAGE_KEY}:snapshot_${patientId}`;
+// A photo captured offline keeps its bytes out of the queue file.
+const blobKeyFor = (itemId: string) => `${STORAGE_KEY}:blob_${itemId}`;
 
 // Seeds are deterministic — compute once per JS runtime.
 const SEED_ENTRIES = buildSeedEntries();
@@ -129,7 +153,10 @@ async function readPersistedState(key: string): Promise<string | null> {
 }
 
 async function writePersistedState(next: PersistedState, key: string): Promise<void> {
-  const serialized = JSON.stringify(next);
+  await writePersistedRaw(key, JSON.stringify(next));
+}
+
+async function writePersistedRaw(key: string, serialized: string): Promise<void> {
   if (Platform.OS === 'web') {
     const storage = globalThis.localStorage;
     if (!storage) {
@@ -139,6 +166,14 @@ async function writePersistedState(next: PersistedState, key: string): Promise<v
     return;
   }
   await AsyncStorage.setItem(key, serialized);
+}
+
+async function removePersisted(key: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    globalThis.localStorage?.removeItem(key);
+    return;
+  }
+  await AsyncStorage.removeItem(key);
 }
 
 interface PersistedState {
@@ -196,6 +231,27 @@ function localOnlySlice(state: PersistedState): PersistedState {
   // recent ids can still resolve offline, without sending them through the
   // custom-food API or publishing anything globally.
   return { ...EMPTY_STATE, catalogFoods: state.catalogFoods };
+}
+
+/** Server truth → the base every queued write projects on top of. */
+function baseFromServer(server: PatientServerState): PersistedState {
+  return {
+    ...EMPTY_STATE,
+    addedEntries: server.entries,
+    removedEntryIds: [],
+    waterOverrides: server.water,
+    targetOverrides: server.targets,
+    favorites: server.favorites,
+    recents: server.recents,
+    customFoods: server.customFoods,
+    savedRecipes: server.savedRecipes,
+    addedCheckIns: server.checkIns,
+    photos: server.photos.map(photoFromWire),
+    nudgeOptOut: server.flags.nudgeOptOut,
+    nudgeEngaged: server.flags.nudgeEngaged,
+    nudgeLastSentKey: server.flags.nudgeLastSentKey,
+    nudgeLastCrossingKey: server.flags.nudgeLastCrossingKey,
+  };
 }
 
 /** Grid row → wire shape (display-only fields like uri stay behind). */
@@ -289,6 +345,8 @@ interface PatientContextValue {
       uri?: string;
       angle?: 'front' | 'side' | 'back';
       objectPath?: string;
+      /** Upload id a deferred guided shot already used, so its queued upload re-uses the same object. */
+      uploadId?: string;
     }>,
   ) => Promise<boolean>;
   removePhoto: (id: string) => Promise<RemovedProgressPhoto | null>;
@@ -418,8 +476,83 @@ export interface PatientSyncNoticeValue {
 
 const PatientSyncNoticeContext = createContext<PatientSyncNoticeValue | null>(null);
 
+/**
+ * Offline write queue status for the patient tab shell (SyncStatusChip and
+ * its detail sheet). Demo and unresolved accounts report `enabled: false`
+ * and an empty queue — nothing renders for them.
+ */
+export interface PatientSyncValue {
+  enabled: boolean;
+  online: boolean;
+  status: SyncStatus;
+  /** Every queued write, oldest first (pending and failed). */
+  items: readonly QueuedWrite[];
+  pendingCount: number;
+  failedCount: number;
+  /** True briefly after the queue drains, so the shell can flash "Up to date". */
+  justSynced: boolean;
+  /** Whether an entity has an unsent write (see pendingEntityKeys for the keys). */
+  isPending: (entityKey: string) => boolean;
+  retry: (id: string) => void;
+  retryAll: () => void;
+  discard: (id: string) => Promise<void>;
+}
+
+const DISABLED_SYNC: PatientSyncValue = {
+  enabled: false,
+  online: true,
+  status: 'idle',
+  items: [],
+  pendingCount: 0,
+  failedCount: 0,
+  justSynced: false,
+  isPending: () => false,
+  retry: () => undefined,
+  retryAll: () => undefined,
+  discard: async () => undefined,
+};
+
+const PatientSyncContext = createContext<PatientSyncValue>(DISABLED_SYNC);
+
+/** How long the shell's "Up to date" confirmation stays up after a drain. */
+const JUST_SYNCED_MS = 2500;
+
+/**
+ * What a real account keeps on this device between launches so the diary
+ * can open — and accept writes — while the server is unreachable. Only
+ * server-confirmed data lands here (hydration results plus acked queue
+ * items); the read token is deliberately NOT cached.
+ */
+interface CachedAccountSnapshot {
+  state: PersistedState;
+  flags: HydratedOnboardingFlags | null;
+  privacy: PrivacyState | null;
+  entry: PatientEntryFacts | null;
+  profile: PatientProfile | null;
+}
+
+function parseSnapshot(raw: string | null): CachedAccountSnapshot | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<CachedAccountSnapshot>;
+    if (!parsed || typeof parsed !== 'object' || !parsed.state || typeof parsed.state !== 'object') {
+      return null;
+    }
+    return {
+      state: { ...EMPTY_STATE, ...(parsed.state as Partial<PersistedState>), catalogFoods: [] },
+      flags: parsed.flags ?? null,
+      privacy: parsed.privacy ?? null,
+      entry: parsed.entry ?? null,
+      profile: parsed.profile ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 const WRITE_FAILED_MESSAGE = 'That didn’t save. Check your connection and try again.';
 const HYDRATE_FAILED_MESSAGE = 'Couldn’t load your diary. Retry in a moment.';
+const CACHED_DIARY_MESSAGE = 'Showing your last synced diary. Retry to refresh.';
 const ACCOUNT_FAILED_MESSAGE = 'Couldn’t load your account. Retry in a moment.';
 const ACCOUNT_BLOCKED_MESSAGE = 'Your account isn’t loaded yet. Retry loading before saving.';
 const DIARY_BLOCKED_MESSAGE = 'Your diary isn’t loaded yet. Retry loading before saving.';
@@ -483,6 +616,30 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef<PersistedState>(EMPTY_STATE);
   const [syncNotice, setSyncNotice] = useState<SyncNotice | null>(null);
 
+  // ─── Offline write queue (real accounts) ──────────────────────────────────
+  // `state` stays the single optimistic view every screen reads. Underneath
+  // it, baseRef is the last server-confirmed snapshot and queueRef the
+  // writes not yet acknowledged, so state === project(base, queue) (+ the
+  // device-local catalog cache). Acks advance the base; discards and fresh
+  // hydrations recompute state from it — which is how server truth wins.
+  const queueRef = useRef<QueuedWrite[]>([]);
+  const [queue, setQueue] = useState<QueuedWrite[]>([]);
+  const baseRef = useRef<PersistedState>(EMPTY_STATE);
+  const cachedFactsRef = useRef<Omit<CachedAccountSnapshot, 'state'>>({
+    flags: null,
+    privacy: null,
+    entry: null,
+    profile: null,
+  });
+  const drainingRef = useRef(false);
+  const drainAgainRef = useRef(false);
+  const forceAttemptRef = useRef(false);
+  const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const justSyncedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [online, setOnline] = useState(() => isOnline());
+  const onlineRef = useRef(online);
+  const [justSynced, setJustSynced] = useState(false);
+
   // Bumped whenever the active account changes (and pinned alongside the
   // account it belongs to). Every async continuation captures the epoch it
   // started under and goes quiet if the account changed underneath it, so
@@ -499,6 +656,14 @@ export function PatientProvider({ children }: { children: ReactNode }) {
    * replaces the whole list).
    */
   const serverTruthRef = useRef(true);
+  /**
+   * True while baseRef holds the cached snapshot from an offline launch
+   * rather than a live server answer. The drain must not replay on top of
+   * it: a queued edit of a row deleted since the snapshot would resurrect
+   * the row. refreshTruth clears it once a fresh GET lands.
+   */
+  const truthFromCacheRef = useRef(false);
+  const refreshAttemptsRef = useRef(0);
   const [rehydrateTick, setRehydrateTick] = useState(0);
 
   // Deferred photo removals awaiting their server commit (real accounts
@@ -619,19 +784,357 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
+  // The mutation chain (declared early so the queue helpers below can use it).
+  // Every read-modify-write mutation runs through a single promise chain, so
+  // it reads state only after the previous commit has finished. Without this,
+  // two in-flight mutations (e.g. a delete and a fast Undo) could both read
+  // the same pre-delete state and the later commit would silently drop the
+  // earlier one's write.
+  const mutationChain = useRef<Promise<void>>(Promise.resolve());
+  const runSerialized = useCallback(<T,>(mutate: () => Promise<T>): Promise<T> => {
+    const run = mutationChain.current.then(mutate);
+    mutationChain.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }, []);
+
+  /** Replaces the queue for the given account generation and persists it. */
+  const replaceQueue = useCallback((next: QueuedWrite[], run: MutationRun): void => {
+    if (run.epoch !== epochRef.current || run.account.kind !== 'real') return;
+    queueRef.current = next;
+    setQueue(next);
+    writePersistedRaw(queueKeyFor(run.account.patientId), serializeQueue(next)).catch(error => {
+      console.error('Offline queue persist failed', error);
+    });
+  }, []);
+
+  /** Persists the server-confirmed snapshot the next offline launch opens on. */
+  const persistSnapshot = useCallback((run: MutationRun): void => {
+    if (run.epoch !== epochRef.current || run.account.kind !== 'real') return;
+    const snapshot: CachedAccountSnapshot = {
+      state: { ...baseRef.current, catalogFoods: [] },
+      ...cachedFactsRef.current,
+    };
+    writePersistedRaw(snapshotKeyFor(run.account.patientId), JSON.stringify(snapshot)).catch(
+      error => {
+        console.error('Diary snapshot persist failed', error);
+      },
+    );
+  }, []);
+
+  /** state = project(base, queue) + the device-local catalog cache. */
+  const recomputeFromBase = useCallback(
+    (run: MutationRun): Promise<void> =>
+      commit(
+        { ...projectQueue(baseRef.current, queueRef.current), catalogFoods: stateRef.current.catalogFoods },
+        run,
+      ),
+    [commit],
+  );
+
+  const flashJustSynced = useCallback(() => {
+    if (justSyncedTimerRef.current) clearTimeout(justSyncedTimerRef.current);
+    setJustSynced(true);
+    const timer = setTimeout(() => {
+      justSyncedTimerRef.current = null;
+      setJustSynced(false);
+    }, JUST_SYNCED_MS);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    justSyncedTimerRef.current = timer;
+  }, []);
+
   /**
-   * Real-account write path: optimistic local commit, then the server write;
-   * on failure the optimistic commit is rolled back and the error surfaces
-   * in the sync notice. Runs inside the serialized mutation chain, so the
-   * rollback restores exactly the state this mutation started from.
-   * Returns false when the write did not land.
+   * Sends one queued write. Returns the item as acknowledged — a photo
+   * upload comes back carrying its uploadedPath so the base projection
+   * records the stored object, not the local bytes.
    */
-  const commitWithServer = useCallback(
+  const performWrite = useCallback(
+    async (item: QueuedWrite, run: MutationRun & { account: { kind: 'real' } }): Promise<QueuedWrite> => {
+      const api = run.account.api;
+      const options = { idempotencyKey: item.id };
+      const write = item.payload;
+      switch (write.kind) {
+        case 'entries':
+          await api.writeEntries(
+            {
+              ...(write.upsert && write.upsert.length > 0 ? { upsert: write.upsert } : {}),
+              ...(write.deleteIds && write.deleteIds.length > 0 ? { deleteIds: write.deleteIds } : {}),
+              ...(write.recents ? { recents: write.recents } : {}),
+            },
+            options,
+          );
+          return item;
+        case 'water':
+          await api.writeWater(write.dateKey, write.oz, options);
+          return item;
+        case 'targets':
+          await api.writeTargets(write.partial, options);
+          return item;
+        case 'prefs':
+          await api.writePrefs(
+            {
+              ...(write.favorites ? { favorites: write.favorites } : {}),
+              ...(write.recents ? { recents: write.recents } : {}),
+            },
+            options,
+          );
+          return item;
+        case 'library':
+          await api.writeLibrary(write.input, options);
+          return item;
+        case 'checkIn':
+          await api.writeCheckIn(write.checkIn, options);
+          return item;
+        case 'flags':
+          await api.writeFlags(write.flags, options);
+          return item;
+        case 'photos':
+          await api.writeProgressPhotos(write.photos.map(photoWire), options);
+          return item;
+        case 'photoRemove':
+          await api.removeProgressPhoto(write.photoId, options);
+          return item;
+        case 'photoUpload': {
+          let uploadedPath = write.uploadedPath;
+          if (!uploadedPath) {
+            if (!write.photo.uri) {
+              // Bytes lost (storage evicted them) — nothing can be uploaded.
+              // Permanent, so it parks under "needs attention" for discard.
+              throw new PatientDataError('This photo’s data is no longer on this device.', null, {
+                kind: 'http',
+                status: 410,
+              });
+            }
+            // Pinned upload id: every attempt mints the same object path, so
+            // a lost finalize response can never leave a second, invisible
+            // object behind (the retry overwrites and re-finalizes it).
+            const uploaded = await api.uploadProgressPhoto(write.photo.uri, {
+              uploadId: write.uploadId ?? write.photo.id,
+            });
+            uploadedPath = uploaded.photoPath;
+            // Record the finished upload BEFORE the grid write: a lost
+            // response then replays the keyed grid write, never a second
+            // upload of the same bytes.
+            const recorded: QueuedWrite = {
+              ...item,
+              payload: { ...write, uploadedPath },
+            };
+            replaceQueue(
+              queueRef.current.map(queued => (queued.id === item.id ? recorded : queued)),
+              run,
+            );
+            item = recorded;
+          }
+          await api.writeProgressPhotos(
+            [photoWire({ ...write.photo, objectPath: uploadedPath })],
+            options,
+          );
+          return { ...item, payload: { ...write, uploadedPath } };
+        }
+      }
+    },
+    [replaceQueue],
+  );
+
+  const scheduleDrain = useRef<(delayMs: number) => void>(() => undefined);
+  const drainRef = useRef<() => Promise<void>>(async () => undefined);
+
+  /**
+   * Quietly re-fetches server truth for an account that opened on its
+   * cached snapshot, reconciles the queue against it (server-deleted rows
+   * drop their queued edits), and recomputes the optimistic state — no
+   * hydration flash. Returns false when the server is still unreachable.
+   */
+  const refreshTruth = useCallback(
+    async (run: MutationRun): Promise<boolean> => {
+      const acct = run.account;
+      if (acct.kind !== 'real') return false;
+      try {
+        const [server, profile] = await Promise.all([
+          acct.api.fetchState(undefined, undefined, localTodayKey()),
+          typeof acct.api.fetchProfile === 'function' ? acct.api.fetchProfile() : Promise.resolve(null),
+        ]);
+        if (epochRef.current !== run.epoch) return false;
+        const base = baseFromServer(server);
+        const reconciled = reconcileQueue(queueRef.current, base);
+        const flags: HydratedOnboardingFlags = {
+          onboardingAnswers: server.flags.onboardingAnswers ?? null,
+          notificationPrefs: server.flags.notificationPrefs ?? null,
+          onboardingComplete: server.flags.onboardingComplete,
+        };
+        baseRef.current = base;
+        cachedFactsRef.current = {
+          flags,
+          privacy: server.privacy ?? cachedFactsRef.current.privacy,
+          entry: server.entry,
+          profile,
+        };
+        truthFromCacheRef.current = false;
+        refreshAttemptsRef.current = 0;
+        replaceQueue(reconciled, run);
+        persistSnapshot(run);
+        await commit(
+          { ...projectQueue(base, reconciled), catalogFoods: stateRef.current.catalogFoods },
+          run,
+        );
+        if (epochRef.current !== run.epoch) return false;
+        setHydratedFlags(flags);
+        if (server.privacy) setHydratedPrivacy(server.privacy);
+        setEntryFacts(server.entry);
+        setProfile(profile);
+        setSyncNotice(prev => (prev?.message === CACHED_DIARY_MESSAGE ? null : prev));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [commit, persistSnapshot, replaceQueue],
+  );
+
+  /**
+   * Single-flight, in-order replay. The first pending item is sent; a
+   * retryable failure re-arms it with backoff and STOPS the pass (later
+   * writes must not overtake it), while a permanent failure parks it as
+   * failed and lets the rest proceed. Halts while the device reports
+   * offline, except for a manual retry (forceAttemptRef), which always
+   * tries once so a stale offline hint can never strand the queue.
+   */
+  const drain = useCallback(async (): Promise<void> => {
+    if (drainingRef.current) {
+      drainAgainRef.current = true;
+      return;
+    }
+    drainingRef.current = true;
+    const epoch = epochRef.current;
+    try {
+      const account = runAccountRef.current;
+      if (account.kind !== 'real' || !serverTruthRef.current || !hydrationGate.current?.settled) return;
+      const run = { epoch, account };
+      while (epochRef.current === epoch) {
+        const item = queueRef.current.find(queued => queued.status === 'pending');
+        if (!item) break;
+        const force = forceAttemptRef.current;
+        forceAttemptRef.current = false;
+        if (!onlineRef.current && !force) break;
+        if (truthFromCacheRef.current) {
+          // Opened on a snapshot: fetch live truth first so the replay
+          // never resurrects a row the server has since deleted.
+          const refreshed = await refreshTruth(run);
+          if (epochRef.current !== epoch) return;
+          if (!refreshed) {
+            refreshAttemptsRef.current += 1;
+            scheduleDrain.current(backoffDelay(refreshAttemptsRef.current));
+            break;
+          }
+          continue; // re-read the (possibly reconciled) queue head
+        }
+        const wait = item.nextAttemptAt - Date.now();
+        if (wait > 0 && !force) {
+          scheduleDrain.current(wait);
+          break;
+        }
+        try {
+          const acked = await performWrite(item, run);
+          if (epochRef.current !== epoch) return;
+          baseRef.current = projectWrite(baseRef.current, acked);
+          const remaining = queueRef.current.filter(queued => queued.id !== item.id);
+          replaceQueue(remaining, run);
+          persistSnapshot(run);
+          if (acked.payload.kind === 'photoUpload') {
+            // The bytes are on the media rail now: point the grid row at
+            // the stored object and free the local copy.
+            const { photo, uploadedPath } = acked.payload;
+            const current = stateRef.current;
+            await commit(
+              {
+                ...current,
+                photos: current.photos.map(row => {
+                  if (row.id !== photo.id) return row;
+                  const { uri: _uri, ...rest } = row;
+                  return { ...rest, objectPath: uploadedPath };
+                }),
+              },
+              run,
+            );
+            removePersisted(blobKeyFor(item.id)).catch(() => undefined);
+          }
+          if (remaining.length === 0) flashJustSynced();
+        } catch (error) {
+          if (epochRef.current !== epoch) return;
+          const latest = queueRef.current.find(queued => queued.id === item.id) ?? item;
+          const failed = markAttemptFailed(latest, error, Date.now());
+          replaceQueue(
+            queueRef.current.map(queued => (queued.id === item.id ? failed : queued)),
+            run,
+          );
+          if (failed.status === 'pending') {
+            scheduleDrain.current(Math.max(0, failed.nextAttemptAt - Date.now()));
+            break;
+          }
+          // Parked as failed: fall through to the next pending item.
+        }
+      }
+    } finally {
+      drainingRef.current = false;
+      if (drainAgainRef.current) {
+        drainAgainRef.current = false;
+        void drainRef.current();
+      }
+    }
+  }, [commit, flashJustSynced, performWrite, persistSnapshot, refreshTruth, replaceQueue]);
+  drainRef.current = drain;
+
+  const kickDrain = useCallback(() => {
+    void drainRef.current();
+  }, []);
+
+  scheduleDrain.current = (delayMs: number) => {
+    if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
+    const timer = setTimeout(() => {
+      drainTimerRef.current = null;
+      kickDrain();
+    }, delayMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    drainTimerRef.current = timer;
+  };
+
+  // Replay triggers: connectivity returning and the app foregrounding.
+  // Real accounts only — the demo persona has no queue to drain.
+  useEffect(() => {
+    if (account.kind !== 'real') return;
+    const unsubscribe = subscribeConnectivity(next => {
+      onlineRef.current = next;
+      setOnline(next);
+      if (next) kickDrain();
+    });
+    const subscription = AppState.addEventListener('change', status => {
+      if (status !== 'active') return;
+      const now = isOnline();
+      onlineRef.current = now;
+      setOnline(now);
+      kickDrain();
+    });
+    return () => {
+      unsubscribe();
+      subscription.remove();
+    };
+  }, [account.kind, kickDrain]);
+
+  /**
+   * Real-account write path: commit the optimistic state, queue the server
+   * write, and start the replay. The write is accepted the moment it is
+   * queued — offline or not — and shows as pending until the server
+   * acknowledges it. Runs inside the serialized mutation chain. Returns
+   * false only when the account cannot accept writes at all (unresolved
+   * lookup, or a real account with no server or cached truth yet).
+   */
+  const commitQueued = useCallback(
     async (
       run: MutationRun,
-      prev: PersistedState,
       next: PersistedState,
-      op: (api: PatientDataApi) => Promise<void>,
+      write: { payload: QueuedWritePayload; summary: string; editIds?: string[] },
     ): Promise<boolean> => {
       if (run.account.kind !== 'real') {
         // Only 'unresolved' reaches here (demo branches commit locally):
@@ -641,29 +1144,84 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         return false;
       }
       if (!serverTruthRef.current) {
-        // Belt-and-suspenders behind requireWritableAccount: never let a
-        // write built on non-authoritative (empty) state reach the server.
+        // Belt-and-suspenders behind requireWritableAccount: never queue a
+        // write built on non-authoritative (empty) state.
         setSyncNotice({ message: DIARY_BLOCKED_MESSAGE, action: 'retry-hydration' });
         return false;
       }
       await commit(next, run);
-      try {
-        await op(run.account.api);
-        return true;
-      } catch (error) {
-        if (epochRef.current === run.epoch) {
-          await commit(prev, run);
-          setSyncNotice({
-            message:
-              error instanceof Error && error.message ? error.message : WRITE_FAILED_MESSAGE,
-            action: 'dismiss',
-          });
+      const now = Date.now();
+      const item: QueuedWrite = {
+        id: nextRealId('w'),
+        payload: write.payload,
+        summary: write.summary,
+        createdAt: now,
+        attempts: 0,
+        nextAttemptAt: now,
+        status: 'pending',
+        lastError: null,
+        ...(write.editIds && write.editIds.length > 0 ? { editIds: write.editIds } : {}),
+      };
+      if (item.payload.kind === 'photoUpload' && item.payload.photo.uri) {
+        try {
+          await writePersistedRaw(blobKeyFor(item.id), item.payload.photo.uri);
+        } catch (error) {
+          // The in-memory copy still uploads this session; only a relaunch
+          // before it lands would lose the bytes (and park the item).
+          console.error('Offline photo persist failed', error);
         }
-        return false;
       }
+      replaceQueue([...queueRef.current, item], run);
+      kickDrain();
+      return true;
     },
-    [commit],
+    [commit, kickDrain, replaceQueue],
   );
+
+  const isPending = useMemo(() => {
+    const keys = pendingEntityKeys(queue);
+    return (entityKey: string) => keys.has(entityKey);
+  }, [queue]);
+
+  const retryQueued = useCallback((id: string) => {
+    const account = runAccountRef.current;
+    if (account.kind !== 'real') return;
+    const run = { epoch: epochRef.current, account };
+    const now = Date.now();
+    replaceQueue(
+      queueRef.current.map(item => (item.id === id ? markRetryRequested(item, now) : item)),
+      run,
+    );
+    forceAttemptRef.current = true;
+    kickDrain();
+  }, [kickDrain, replaceQueue]);
+
+  const retryAllQueued = useCallback(() => {
+    const account = runAccountRef.current;
+    if (account.kind !== 'real') return;
+    const run = { epoch: epochRef.current, account };
+    const now = Date.now();
+    replaceQueue(
+      queueRef.current.map(item => (item.status === 'failed' ? markRetryRequested(item, now) : item)),
+      run,
+    );
+    forceAttemptRef.current = true;
+    kickDrain();
+  }, [kickDrain, replaceQueue]);
+
+  /** Drops a queued write; the diary re-reads as the server (plus the rest) has it. */
+  const discardQueued = useCallback(async (id: string): Promise<void> => {
+    await hydrationGate.current!.promise;
+    const startEpoch = epochRef.current;
+    await runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      if (!run || run.account.kind !== 'real') return;
+      if (!queueRef.current.some(item => item.id === id)) return;
+      replaceQueue(queueRef.current.filter(item => item.id !== id), run);
+      removePersisted(blobKeyFor(id)).catch(() => undefined);
+      await recomputeFromBase(run);
+    });
+  }, [beginRun, recomputeFromBase, replaceQueue, runSerialized]);
 
   /**
    * Drains the queued onboarding flag saves once the hydration gate opens
@@ -758,21 +1316,6 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     [flushOnboardingFlags],
   );
 
-  // Every read-modify-write mutation runs through a single promise chain, so
-  // it reads state only after the previous commit has finished. Without this,
-  // two in-flight mutations (e.g. a delete and a fast Undo) could both read
-  // the same pre-delete state and the later commit would silently drop the
-  // earlier one's write.
-  const mutationChain = useRef<Promise<void>>(Promise.resolve());
-  const runSerialized = useCallback(<T,>(mutate: () => Promise<T>): Promise<T> => {
-    const run = mutationChain.current.then(mutate);
-    mutationChain.current = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }, []);
-
   useEffect(() => {
     if (resolving) {
       // A retry of a failed account lookup is the one case where the same
@@ -798,6 +1341,19 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       pendingPhotoRemovalsRef.current.clear();
       pendingFlagsRef.current = null;
       completionWaitersRef.current.splice(0).forEach(resolve => resolve(false));
+      // The offline queue and server snapshot belong to the previous
+      // account: drop them from memory at once (their on-device copies stay
+      // under that account's own keys and only its next sign-in reads them).
+      if (drainTimerRef.current) {
+        clearTimeout(drainTimerRef.current);
+        drainTimerRef.current = null;
+      }
+      forceAttemptRef.current = false;
+      queueRef.current = [];
+      setQueue([]);
+      baseRef.current = EMPTY_STATE;
+      cachedFactsRef.current = { flags: null, privacy: null, entry: null, profile: null };
+      setJustSynced(false);
       // The media read token belongs to the previous account; the new
       // account's own token arrives with its hydration (demo never has one).
       setPatientMediaToken(null);
@@ -833,7 +1389,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const acct = account;
       (async () => {
         const currentLocalDay = localTodayKey();
-        const [serverResult, profileResult, localResult] = await Promise.allSettled([
+        const [serverResult, profileResult, localResult, queueResult, snapshotResult] = await Promise.allSettled([
           // Real accounts are not bounded by the demo seed calendar. The API
           // caps returned rows, while this unbounded range ensures every
           // program date Today exposes has its corresponding diary data.
@@ -844,8 +1400,31 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             ? acct.api.fetchProfile()
             : Promise.resolve(null),
           readPersistedState(storageKeyFor(acct)),
+          readPersistedState(queueKeyFor(acct.patientId)),
+          readPersistedState(snapshotKeyFor(acct.patientId)),
         ]);
         if (epochRef.current !== epoch) return;
+        // Writes queued by an earlier session of THIS account (a same-account
+        // rehydrate keeps whatever is already in memory — it is newer).
+        let storedQueue: QueuedWrite[] =
+          queueRef.current.length > 0
+            ? queueRef.current
+            : parseQueue(queueResult.status === 'fulfilled' ? queueResult.value : null);
+        if (queueRef.current.length === 0 && storedQueue.length > 0) {
+          // Re-attach photo bytes stored out of line for uploads still pending.
+          storedQueue = await Promise.all(
+            storedQueue.map(async item => {
+              if (item.payload.kind !== 'photoUpload' || item.payload.uploadedPath) return item;
+              const bytes = await readPersistedState(blobKeyFor(item.id)).catch(() => null);
+              return bytes
+                ? { ...item, payload: { ...item.payload, photo: { ...item.payload.photo, uri: bytes } } }
+                : item;
+            }),
+          );
+          if (epochRef.current !== epoch) return;
+        }
+        const cached = parseSnapshot(snapshotResult.status === 'fulfilled' ? snapshotResult.value : null);
+        const run: MutationRun = { epoch, account: acct };
         let local: PersistedState = EMPTY_STATE;
         if (localResult.status === 'fulfilled' && localResult.value) {
           try {
@@ -863,47 +1442,51 @@ export function PatientProvider({ children }: { children: ReactNode }) {
           // Server truth just arrived — release any onboarding flag saves
           // that queued up while writes were still blocked.
           if (pendingFlagsRef.current) void flushOnboardingFlags();
-          finish({
-            ...local,
-            addedEntries: server.entries,
-            removedEntryIds: [],
-            waterOverrides: server.water,
-            targetOverrides: server.targets,
-            favorites: server.favorites,
-            recents: server.recents,
-            customFoods: server.customFoods,
-            savedRecipes: server.savedRecipes,
-            addedCheckIns: server.checkIns,
-            photos: server.photos.map(photoFromWire),
-            nudgeOptOut: server.flags.nudgeOptOut,
-            nudgeEngaged: server.flags.nudgeEngaged,
-            nudgeLastSentKey: server.flags.nudgeLastSentKey,
-            nudgeLastCrossingKey: server.flags.nudgeLastCrossingKey,
-          });
-          // Onboarding truth for OnboardingProvider — answers and prefs
-          // are its state, not the diary's.
-          setHydratedFlags({
+          const base = baseFromServer(server);
+          truthFromCacheRef.current = false;
+          // Server truth wins: queued EDITS of rows the server no longer
+          // has are dropped rather than replayed as resurrections; every
+          // other queued write re-applies on top of the fresh snapshot.
+          const reconciled = reconcileQueue(storedQueue, base);
+          const flags: HydratedOnboardingFlags = {
             onboardingAnswers: server.flags.onboardingAnswers ?? null,
             notificationPrefs: server.flags.notificationPrefs ?? null,
             onboardingComplete: server.flags.onboardingComplete,
-          });
+          };
           // Absent privacy = older test server: treat as "no consent yet"
           // with nothing pending, never as satisfied.
-          setHydratedPrivacy(
-            server.privacy ?? {
-              consent: {
-                requiredVersion: 'unknown',
-                recordedVersion: null,
-                satisfied: false,
-                photoAnalysis: null,
-                recordedAt: null,
-              },
-              export: null,
-              deletion: null,
+          const privacy: PrivacyState = server.privacy ?? {
+            consent: {
+              requiredVersion: 'unknown',
+              recordedVersion: null,
+              satisfied: false,
+              photoAnalysis: null,
+              recordedAt: null,
             },
-          );
+            export: null,
+            deletion: null,
+          };
+          baseRef.current = base;
+          cachedFactsRef.current = {
+            flags,
+            privacy,
+            entry: server.entry,
+            profile: profileResult.value,
+          };
+          queueRef.current = reconciled;
+          setQueue(reconciled);
+          writePersistedRaw(queueKeyFor(acct.patientId), serializeQueue(reconciled)).catch(error => {
+            console.error('Offline queue persist failed', error);
+          });
+          persistSnapshot(run);
+          finish({ ...projectQueue(base, reconciled), catalogFoods: local.catalogFoods });
+          // Onboarding truth for OnboardingProvider — answers and prefs
+          // are its state, not the diary's.
+          setHydratedFlags(flags);
+          setHydratedPrivacy(privacy);
           setEntryFacts(server.entry);
           setProfile(profileResult.value);
+          if (reconciled.length > 0) kickDrain();
         } else if (
           serverResult.status === 'rejected' &&
           serverResult.reason instanceof PatientDataError &&
@@ -940,11 +1523,40 @@ export function PatientProvider({ children }: { children: ReactNode }) {
               : profileResult.status === 'rejected'
                 ? profileResult.reason
                 : undefined;
-          // Explicit failure: open seedless with the device-local slices and
-          // surface the error with a retry. Server truth never arrived, so
-          // writes stay BLOCKED (serverTruthRef) until a retry hydrates —
-          // otherwise a mutation computed from this empty state could
-          // overwrite the account's real server data.
+          if (cached) {
+            // Offline (or a server hiccup) with a snapshot from an earlier
+            // launch: open on the last server-confirmed diary plus this
+            // account's still-queued writes, and keep accepting writes —
+            // they queue behind the existing ones. The notice says what
+            // the patient is looking at and offers the refresh.
+            baseRef.current = cached.state;
+            cachedFactsRef.current = {
+              flags: cached.flags,
+              privacy: cached.privacy,
+              entry: cached.entry,
+              profile: cached.profile,
+            };
+            queueRef.current = storedQueue;
+            setQueue(storedQueue);
+            serverTruthRef.current = true;
+            // The base is a snapshot, not live truth: the drain refreshes
+            // from the server before sending anything (see refreshTruth).
+            truthFromCacheRef.current = true;
+            if (pendingFlagsRef.current) void flushOnboardingFlags();
+            setSyncNotice({ message: CACHED_DIARY_MESSAGE, action: 'retry-hydration' });
+            finish({ ...projectQueue(cached.state, storedQueue), catalogFoods: local.catalogFoods });
+            setHydratedFlags(cached.flags);
+            setHydratedPrivacy(cached.privacy);
+            setEntryFacts(cached.entry);
+            setProfile(cached.profile);
+            if (storedQueue.length > 0) kickDrain();
+            return;
+          }
+          // Explicit failure with nothing cached: open seedless with the
+          // device-local slices and surface the error with a retry. Server
+          // truth never arrived, so writes stay BLOCKED (serverTruthRef)
+          // until a retry hydrates — otherwise a mutation computed from
+          // this empty state could overwrite the account's real server data.
           setSyncNotice({
             message:
               failure instanceof Error && failure.message
@@ -988,6 +1600,16 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountKey, resolving, rehydrateTick]);
 
+  // Anything still queued when the provider unmounts stays on disk; only
+  // the timers need clearing.
+  useEffect(
+    () => () => {
+      if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
+      if (justSyncedTimerRef.current) clearTimeout(justSyncedTimerRef.current);
+    },
+    [],
+  );
+
   /** Re-runs the live hydration for the current account (sync notice RETRY). */
   const rehydrate = useCallback(() => {
     startedKeyRef.current = null;
@@ -1013,14 +1635,16 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api =>
-        api.writeEntries({
+      await commitQueued(run, next, {
+        payload: {
+          kind: 'entries',
           upsert: [full],
           ...(recents !== prev.recents ? { recents } : {}),
-        }),
-      );
+        },
+        summary: `Logged ${full.name}`,
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Copies already-logged entries (seeded or user-added, from any day) onto a
   // target day — optionally into one meal slot — as user-added entries with
@@ -1046,12 +1670,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return clones;
       }
-      const saved = await commitWithServer(run, prev, next, api =>
-        api.writeEntries({ upsert: clones }),
-      );
+      const saved = await commitQueued(run, next, {
+        payload: { kind: 'entries', upsert: clones },
+        summary: `Copied ${clones.length} ${clones.length === 1 ? 'entry' : 'entries'}`,
+      });
       return saved ? clones : [];
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // The "Yesterday's [meal]" review confirm — one commit that lands the kept
   // yesterday entries as snapshot-preserving copies (same rules as
@@ -1087,15 +1712,17 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return batch;
       }
-      const saved = await commitWithServer(run, prev, next, api =>
-        api.writeEntries({
+      const saved = await commitQueued(run, next, {
+        payload: {
+          kind: 'entries',
           upsert: batch,
           ...(recents !== prev.recents ? { recents } : {}),
-        }),
-      );
+        },
+        summary: `Logged ${batch.length} ${batch.length === 1 ? 'entry' : 'entries'}`,
+      });
       return saved ? batch : [];
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const removeEntry = useCallback(async (id: string): Promise<void> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1114,11 +1741,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit({ ...prev, ...next }, run);
         return;
       }
-      await commitWithServer(run, prev, { ...prev, ...next }, api =>
-        api.writeEntries({ deleteIds: [id] }),
-      );
+      const removed = prev.addedEntries.find(e => e.id === id);
+      await commitQueued(run, { ...prev, ...next }, {
+        payload: { kind: 'entries', deleteIds: [id] },
+        summary: removed ? `Removed ${removed.name}` : 'Removed an entry',
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Undo for copyEntries — takes back a whole batch of entries (the clone ids
   // one copy created) in a single commit, so day totals return to their
@@ -1146,11 +1775,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       }
       const kept = new Set(next.addedEntries.map(e => e.id));
       const removedIds = prev.addedEntries.map(e => e.id).filter(entryId => !kept.has(entryId));
-      await commitWithServer(run, prev, { ...prev, ...next }, api =>
-        api.writeEntries({ deleteIds: removedIds }),
-      );
+      await commitQueued(run, { ...prev, ...next }, {
+        payload: { kind: 'entries', deleteIds: removedIds },
+        summary: `Removed ${removedIds.length} ${removedIds.length === 1 ? 'entry' : 'entries'}`,
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Undo for removeEntry — accepts the whole batch from a rapid multi-delete
   // clean-up so one Undo restores every affected entry in a single commit
@@ -1180,11 +1810,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       }
       const prevIds = new Set(prev.addedEntries.map(e => e.id));
       const restored = next.addedEntries.filter(e => !prevIds.has(e.id));
-      await commitWithServer(run, prev, { ...prev, ...next }, api =>
-        api.writeEntries({ upsert: restored }),
-      );
+      await commitQueued(run, { ...prev, ...next }, {
+        payload: { kind: 'entries', upsert: restored },
+        summary: restored.length === 1 ? `Restored ${restored[0].name}` : `Restored ${restored.length} entries`,
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const restoreEntry = useCallback(
     (entry: MealLogEntry): Promise<void> => restoreEntries([entry]),
@@ -1228,11 +1859,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit({ ...prev, ...next }, run);
         return;
       }
-      await commitWithServer(run, prev, { ...prev, ...next }, api =>
-        api.writeEntries({ upsert: changedRows }),
-      );
+      await commitQueued(run, { ...prev, ...next }, {
+        payload: { kind: 'entries', upsert: changedRows },
+        summary: `Edited ${changedRows[0].name}`,
+        editIds: changedRows.map(e => e.id),
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const setWater = useCallback(async (dateKey: string, oz: number): Promise<void> => {
     await Haptics.selectionAsync();
@@ -1248,9 +1881,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api => api.writeWater(dateKey, clamped));
+      await commitQueued(run, next, {
+        payload: { kind: 'water', dateKey, oz: clamped },
+        summary: `Water ${clamped} oz`,
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const addCheckIn = useCallback(async (checkIn: Omit<CheckIn, 'id'>): Promise<boolean> => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1271,9 +1907,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       }
       // The server keys check-ins by day too, so a same-day re-submit
       // replaces the row there exactly as the filter above replaces it here.
-      return await commitWithServer(run, prev, next, api => api.writeCheckIn(full));
+      return await commitQueued(run, next, {
+        payload: { kind: 'checkIn', checkIn: full },
+        summary: 'Weekly check-in',
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const addPhoto = useCallback(async (photo: {
     dateKey: string;
@@ -1294,11 +1933,17 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return true;
       }
-      return await commitWithServer(run, prev, next, api =>
-        api.writeProgressPhotos([photoWire(full)]),
-      );
+      // A photo whose bytes are still local (the upload failed or never
+      // ran) queues as an upload; one already on the media rail is a plain
+      // grid write.
+      return await commitQueued(run, next, {
+        payload: !full.objectPath && full.uri
+          ? { kind: 'photoUpload', photo: full }
+          : { kind: 'photos', photos: [full] },
+        summary: 'Progress photo',
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Batch insert for the guided photo session: one commit, one haptic —
   // the whole set lands atomically so an interruption mid-save can never
@@ -1311,6 +1956,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         uri?: string;
         angle?: 'front' | 'side' | 'back';
         objectPath?: string;
+        uploadId?: string;
       }>,
     ): Promise<boolean> => {
       if (photos.length === 0) return true;
@@ -1321,22 +1967,44 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         const run = beginRun(startEpoch);
         if (!run || !requireWritableAccount(run)) return false;
         const prev = stateRef.current;
-        const full: ProgressPhoto[] = photos.map(photo => ({
-          id: makeId(run, 'photo'),
-          source: 'user' as const,
-          ...photo,
-        }));
+        const uploadIds = new Map<string, string>();
+        const full: ProgressPhoto[] = photos.map(({ uploadId, ...photo }) => {
+          const row: ProgressPhoto = { id: makeId(run, 'photo'), source: 'user' as const, ...photo };
+          if (uploadId) uploadIds.set(row.id, uploadId);
+          return row;
+        });
         const next = { ...prev, photos: [...prev.photos, ...full] };
         if (run.account.kind !== 'real') {
           await commit(next, run);
           return true;
         }
-        return await commitWithServer(run, prev, next, api =>
-          api.writeProgressPhotos(full.map(photoWire)),
-        );
+        // Uploaded shots land as one grid write; any shot still holding
+        // local bytes queues its own upload behind it (in session order).
+        const stored = full.filter(photo => photo.objectPath || !photo.uri);
+        const local = full.filter(photo => !photo.objectPath && photo.uri);
+        const writes: Array<{ payload: QueuedWritePayload; summary: string }> = [
+          ...(stored.length > 0
+            ? [{ payload: { kind: 'photos' as const, photos: stored }, summary: `Progress photos (${stored.length})` }]
+            : []),
+          ...local.map(photo => ({
+            payload: {
+              kind: 'photoUpload' as const,
+              photo,
+              ...(uploadIds.has(photo.id) ? { uploadId: uploadIds.get(photo.id) } : {}),
+            },
+            summary: `Progress photo (${photo.angle ?? photo.label})`,
+          })),
+        ];
+        for (const [index, write] of writes.entries()) {
+          // The first write commits the whole batch optimistically; the rest
+          // only add their queue items on top of that committed state.
+          const saved = await commitQueued(run, index === 0 ? next : stateRef.current, write);
+          if (!saved) return false;
+        }
+        return true;
       });
     },
-    [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized],
+    [beginRun, commit, commitQueued, requireWritableAccount, runSerialized],
   );
 
   // Removes a user-added progress photo. Seed photos are not removable: they
@@ -1432,15 +2100,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const current = stateRef.current;
       // Undone (or already committed) meanwhile — nothing to delete.
       if (current.photos.some(p => p.id === removed.photo.id)) return;
-      const withPhotoRestored = {
-        ...current,
-        photos: applyRestorePhoto(current.photos, removed),
-      };
-      await commitWithServer(run, withPhotoRestored, current, api =>
-        api.removeProgressPhoto(removed.photo.id),
-      );
+      await commitQueued(run, current, {
+        payload: { kind: 'photoRemove', photoId: removed.photo.id },
+        summary: 'Removed a progress photo',
+      });
     });
-  }, [beginRun, commitWithServer, runSerialized]);
+  }, [beginRun, commitQueued, runSerialized]);
   // Latest-callback ref so backstop timers armed by older renders always
   // invoke the current commit (with its current epoch machinery).
   commitPhotoRemovalRef.current = commitPhotoRemoval;
@@ -1461,9 +2126,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api => api.writePrefs({ favorites }));
+      await commitQueued(run, next, {
+        payload: { kind: 'prefs', favorites },
+        summary: favorites.length > prev.favorites.length ? 'Added a favorite' : 'Removed a favorite',
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const addCustomFood = useCallback(async (food: Omit<FoodItem, 'id' | 'category'>): Promise<FoodItem> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1483,10 +2151,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return full;
       }
-      await commitWithServer(run, prev, next, api => api.writeLibrary({ foodUpsert: [full] }));
+      await commitQueued(run, next, {
+        payload: { kind: 'library', input: { foodUpsert: [full] } },
+        summary: `Added ${full.name} to My Foods`,
+      });
       return full;
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const saveCatalogFood = useCallback(async (food: FoodItem): Promise<boolean> => {
     await hydrationGate.current!.promise;
@@ -1570,9 +2241,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       // Upserting an id the account doesn't know would CREATE it server-side;
       // an edit of a vanished food (double-fired form) simply drops.
       if (!prevItem) return;
-      await commitWithServer(run, prev, next, api => api.writeLibrary({ foodUpsert: [rebuilt] }));
+      await commitQueued(run, next, {
+        payload: { kind: 'library', input: { foodUpsert: [rebuilt] } },
+        summary: `Edited ${rebuilt.name}`,
+        editIds: [id],
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Existing diary entries keep their logged values; only the library item
   // (plus any dangling favorite/recent references) goes away. Returns the
@@ -1601,16 +2276,20 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(merged, run);
         return removed;
       }
-      const saved = await commitWithServer(run, prev, merged, api =>
-        api.writeLibrary({
-          foodDeleteIds: [id],
-          ...(merged.favorites !== prev.favorites ? { favorites: merged.favorites } : {}),
-          ...(merged.recents !== prev.recents ? { recents: merged.recents } : {}),
-        }),
-      );
+      const saved = await commitQueued(run, merged, {
+        payload: {
+          kind: 'library',
+          input: {
+            foodDeleteIds: [id],
+            ...(merged.favorites !== prev.favorites ? { favorites: merged.favorites } : {}),
+            ...(merged.recents !== prev.recents ? { recents: merged.recents } : {}),
+          },
+        },
+        summary: removed ? `Removed ${removed.food.name} from My Foods` : 'Removed a custom food',
+      });
       return saved ? removed : null;
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Undo for removeCustomFood. Re-inserts the exact snapshot under its
   // original id and re-attaches the favorite/recents references the removal
@@ -1635,15 +2314,19 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       }
       // removed.food still carries its photoPath, so the account re-registers
       // the photo alongside the row — Undo restores the photo reference too.
-      await commitWithServer(run, prev, merged, api =>
-        api.writeLibrary({
-          foodUpsert: [removed.food],
-          ...(merged.favorites !== prev.favorites ? { favorites: merged.favorites } : {}),
-          ...(merged.recents !== prev.recents ? { recents: merged.recents } : {}),
-        }),
-      );
+      await commitQueued(run, merged, {
+        payload: {
+          kind: 'library',
+          input: {
+            foodUpsert: [removed.food],
+            ...(merged.favorites !== prev.favorites ? { favorites: merged.favorites } : {}),
+            ...(merged.recents !== prev.recents ? { recents: merged.recents } : {}),
+          },
+        },
+        summary: `Restored ${removed.food.name}`,
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Keeps an AI suggestion permanently (Library > Recipes). Stored whole —
   // demo keeps the generated photo data URI inline; real accounts move the
@@ -1676,15 +2359,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
           delete full.photoUri;
         }
       }
-      await commitWithServer(
-        run,
-        prev,
-        { ...prev, savedRecipes: [...prev.savedRecipes, full] },
-        api => api.writeLibrary({ recipeUpsert: [full] }),
-      );
+      await commitQueued(run, { ...prev, savedRecipes: [...prev.savedRecipes, full] }, {
+        payload: { kind: 'library', input: { recipeUpsert: [full] } },
+        summary: `Saved recipe ${full.name}`,
+      });
       return full;
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Photo backfill for AI suggestions saved while their dish photo was still
   // generating: patch just the photo onto the already-persisted record. No
@@ -1724,9 +2405,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api => api.writeLibrary({ foodUpsert: [nextItem] }));
+      await commitQueued(run, next, {
+        payload: { kind: 'library', input: { foodUpsert: [nextItem] } },
+        summary: `Photo for ${nextItem.name}`,
+        editIds: [id],
+      });
     });
-  }, [beginRun, commit, commitWithServer, runSerialized]);
+  }, [beginRun, commit, commitQueued, runSerialized]);
 
   const setSavedRecipePhoto = useCallback(async (id: string, photoUri: string): Promise<void> => {
     await hydrationGate.current!.promise;
@@ -1760,11 +2445,13 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api =>
-        api.writeLibrary({ recipeUpsert: [nextItem] }),
-      );
+      await commitQueued(run, next, {
+        payload: { kind: 'library', input: { recipeUpsert: [nextItem] } },
+        summary: `Photo for ${nextItem.name}`,
+        editIds: [id],
+      });
     });
-  }, [beginRun, commit, commitWithServer, runSerialized]);
+  }, [beginRun, commit, commitQueued, runSerialized]);
 
   const setTargets = useCallback(async (partial: Partial<DailyTargets>): Promise<void> => {
     await Haptics.selectionAsync();
@@ -1788,9 +2475,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api => api.writeTargets(cleaned));
+      await commitQueued(run, next, {
+        payload: { kind: 'targets', partial: cleaned },
+        summary: 'Updated daily targets',
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const clearLocalState = useCallback(async (): Promise<void> => {
     await hydrationGate.current!.promise;
@@ -1798,6 +2488,26 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     await runSerialized(async () => {
       const run = beginRun(startEpoch);
       if (!run || run.account.kind === 'unresolved') return;
+      if (run.account.kind === 'real') {
+        // Leaving this device clean for the account: nothing queued, no
+        // cached diary, no photo bytes.
+        const patientId = run.account.patientId;
+        const blobIds = queueRef.current.map(item => item.id);
+        if (drainTimerRef.current) {
+          clearTimeout(drainTimerRef.current);
+          drainTimerRef.current = null;
+        }
+        queueRef.current = [];
+        setQueue([]);
+        baseRef.current = EMPTY_STATE;
+        await Promise.all([
+          removePersisted(queueKeyFor(patientId)),
+          removePersisted(snapshotKeyFor(patientId)),
+          ...blobIds.map(id => removePersisted(blobKeyFor(id))),
+        ]).catch(error => {
+          console.error('Offline queue clear failed', error);
+        });
+      }
       await commit({ ...EMPTY_STATE }, run);
     });
   }, [beginRun, commit, runSerialized]);
@@ -1824,9 +2534,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api => api.writeFlags({ nudgeEngaged: true }));
+      await commitQueued(run, next, {
+        payload: { kind: 'flags', flags: { nudgeEngaged: true } },
+        summary: 'Coach check-in reply',
+      });
     });
-  }, [beginRun, commit, commitWithServer, runSerialized]);
+  }, [beginRun, commit, commitQueued, runSerialized]);
 
   const setNudgeOptOut = useCallback(async (optOut: boolean): Promise<void> => {
     await Haptics.selectionAsync();
@@ -1842,9 +2555,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api => api.writeFlags({ nudgeOptOut: optOut }));
+      await commitQueued(run, next, {
+        payload: { kind: 'flags', flags: { nudgeOptOut: optOut } },
+        summary: optOut ? 'Paused coach check-ins' : 'Resumed coach check-ins',
+      });
     });
-  }, [beginRun, commit, commitWithServer, requireWritableAccount, runSerialized]);
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // ─── Merged projections ────────────────────────────────────────────────────
 
@@ -1962,15 +2678,19 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         await commit(next, run);
         return;
       }
-      await commitWithServer(run, prev, next, api =>
-        api.writeFlags({
-          nudgeLastSentKey: todayKey,
-          nudgeLastCrossingKey: crossing,
-          nudgeEngaged: false,
-        }),
-      );
+      await commitQueued(run, next, {
+        payload: {
+          kind: 'flags',
+          flags: {
+            nudgeLastSentKey: todayKey,
+            nudgeLastCrossingKey: crossing,
+            nudgeEngaged: false,
+          },
+        },
+        summary: 'Coach check-in',
+      });
     });
-  }, [beginRun, commit, commitWithServer, runSerialized, nudgeAssessment, todayKey]);
+  }, [beginRun, commit, commitQueued, runSerialized, nudgeAssessment, todayKey]);
 
   // Stable ascending sort: equal dateKeys keep concatenation order (seeds
   // first, then user photos in add order), so two photos added the same day
@@ -2229,10 +2949,29 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     };
   }, [syncNotice, retryResolve, rehydrate, flushOnboardingFlags]);
 
+  const syncValue = useMemo<PatientSyncValue>(() => {
+    if (account.kind !== 'real') return DISABLED_SYNC;
+    return {
+      enabled: true,
+      online,
+      status: deriveSyncStatus(queue, online),
+      items: queue,
+      pendingCount: queue.filter(item => item.status === 'pending').length,
+      failedCount: queue.filter(item => item.status === 'failed').length,
+      justSynced,
+      isPending,
+      retry: retryQueued,
+      retryAll: retryAllQueued,
+      discard: discardQueued,
+    };
+  }, [account.kind, discardQueued, isPending, justSynced, online, queue, retryAllQueued, retryQueued]);
+
   return (
     <PatientContext.Provider value={value}>
       <PatientSyncNoticeContext.Provider value={noticeValue}>
-        {children}
+        <PatientSyncContext.Provider value={syncValue}>
+          {children}
+        </PatientSyncContext.Provider>
       </PatientSyncNoticeContext.Provider>
     </PatientContext.Provider>
   );
@@ -2257,4 +2996,9 @@ export function usePatientOptional() {
 /** Read by components/patient/PatientSyncNotice.tsx (root layout). */
 export function usePatientSyncNotice(): PatientSyncNoticeValue | null {
   return useContext(PatientSyncNoticeContext);
+}
+
+/** Offline write-queue status; disabled (empty) outside a real account. */
+export function usePatientSync(): PatientSyncValue {
+  return useContext(PatientSyncContext);
 }

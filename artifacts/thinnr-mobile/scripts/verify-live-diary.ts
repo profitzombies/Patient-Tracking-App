@@ -45,7 +45,15 @@ const localStorageBacking = new Map<string, string>();
 import React, { act } from 'react';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 
-import { PatientProvider, usePatient, usePatientSyncNotice, type PatientSyncNoticeValue } from '../context/PatientContext';
+import {
+  PatientProvider,
+  usePatient,
+  usePatientSync,
+  usePatientSyncNotice,
+  type PatientSyncNoticeValue,
+  type PatientSyncValue,
+} from '../context/PatientContext';
+import { WRITE_QUEUE_TUNING } from '../lib/patient-write-queue';
 import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
 import { TODAY_KEY, shiftDateKey, type DailyTargets, type MealLogEntry } from '../data/patient-data';
@@ -89,6 +97,7 @@ interface ApiCall {
   path: string; // e.g. "patient-data/entries", "claim/whoami"
   query: URLSearchParams;
   token: string | null;
+  idempotencyKey: string | null;
   body: Record<string, unknown> | null;
 }
 
@@ -255,6 +264,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     path: url.pathname.slice('/api/'.length),
     query: url.searchParams,
     token: auth?.startsWith('Bearer ') ? auth.slice(7) : null,
+    idempotencyKey: headers['Idempotency-Key'] ?? null,
     body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null,
   };
   apiCalls.push(call);
@@ -284,13 +294,26 @@ type Ctx = ReturnType<typeof usePatient>;
 
 let ctx!: Ctx;
 let notice: PatientSyncNoticeValue | null = null;
+let sync!: PatientSyncValue;
 let account!: PatientAccountState;
 
 function Probe() {
   ctx = usePatient();
   notice = usePatientSyncNotice();
+  sync = usePatientSync();
   account = usePatientAccount();
   return null;
+}
+
+/** Polls (inside act) until the condition holds — queue replays ride real timers. */
+async function waitFor(label: string, condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition() && Date.now() < deadline) {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 5));
+    });
+  }
+  assert(label, condition());
 }
 
 async function settle(): Promise<void> {
@@ -542,9 +565,16 @@ async function main() {
     && ctx.targets.calories === 1400 && ctx.favorites.includes('fd_chicken'));
   assert('remount recents follow the account', ctx.recents[0] === 'fd_chicken');
 
-  // ── 5 · Failed writes roll back with the server's words ────────────────────
-  section('write failures: rollback + visible notice');
+  // ── 5 · Failed writes queue locally and replay ─────────────────────────────
+  // A dead link or a 5xx no longer rolls the row back: the write stays on
+  // the phone with a pending marker and the queue retries it with backoff.
+  // Only a permanent rejection (4xx) parks the item for the patient to
+  // retry or discard — and a discard restores the server's truth.
+  section('write failures: queued locally, replayed with backoff');
+  WRITE_QUEUE_TUNING.baseDelayMs = 5;
+  WRITE_QUEUE_TUNING.maxDelayMs = 20;
   const beforeCount = ctx.allEntries.length;
+  const entryCallsBeforeFailure = callsTo('patient-data/entries').length;
   failNext.set('POST patient-data/entries', {
     status: 502,
     body: { error: 'Couldn’t save to your diary right now. Please try again.' },
@@ -552,38 +582,114 @@ async function main() {
   await act(async () => {
     await ctx.addEntry(entryInput('Ghost Entry'));
   });
-  assert('failed add rolls back', ctx.allEntries.length === beforeCount && !entryNames().includes('Ghost Entry'));
-  assert('failed add never reaches the store', !storeFor('p-1').entries.some(e => e.name === 'Ghost Entry'));
-  assert('notice carries the server’s words', notice?.message === 'Couldn’t save to your diary right now. Please try again.'
-    && notice?.actionLabel === 'OK');
-  await act(async () => {
-    notice!.onAction();
-  });
-  assert('dismiss clears the notice', notice === null);
+  const ghost = ctx.allEntries.find(e => e.name === 'Ghost Entry') ?? null;
+  assert('a 5xx keeps the row on the phone', ctx.allEntries.length === beforeCount + 1 && ghost !== null);
+  assert('the failed row is marked pending', ghost !== null && sync.isPending(`entry:${ghost!.id}`));
+  assert('the queue reports syncing, not an error notice', sync.status === 'syncing' && sync.pendingCount === 1 && notice === null);
+  assert('the store has not seen it yet', !storeFor('p-1').entries.some(e => e.name === 'Ghost Entry'));
+  await waitFor('the retry lands after backoff', () => storeFor('p-1').entries.some(e => e.name === 'Ghost Entry'));
+  await settle();
+  assert('the replay used a second POST', callsTo('patient-data/entries').length === entryCallsBeforeFailure + 2);
+  const replayKeys = callsTo('patient-data/entries').slice(-2).map(call => call.idempotencyKey);
+  assert('both attempts carried the same idempotency key',
+    replayKeys.every(key => typeof key === 'string' && key.length > 0) && replayKeys[0] === replayKeys[1]);
+  assert('once acked the row is no longer pending', ghost !== null && !sync.isPending(`entry:${ghost!.id}`));
+  assert('queue drains to up to date', sync.status === 'idle' && sync.pendingCount === 0);
 
   failNext.set('PUT patient-data/water', 'network');
   await act(async () => {
     await ctx.setWater(TODAY_KEY, 64);
   });
-  assert('failed water rolls back to the last saved value', ctx.waterFor(TODAY_KEY) === 40);
-  assert('network failure gets plain words', notice?.message === 'Couldn’t reach the server. Check your connection and try again.');
-  await act(async () => {
-    notice!.onAction();
-  });
+  assert('a dead link keeps the new water value locally', ctx.waterFor(TODAY_KEY) === 64 && sync.isPending(`water:${TODAY_KEY}`));
+  assert('network failure raises no blocking notice', notice === null);
+  await waitFor('water replays after backoff', () => storeFor('p-1').water[TODAY_KEY] === 64);
+  await settle();
+  assert('water pending marker clears on ack', !sync.isPending(`water:${TODAY_KEY}`));
 
   failNext.set('POST patient-data/entries', { status: 502, body: { error: 'Nope.' } });
-  let failedClones: MealLogEntry[] = ['sentinel' as unknown as MealLogEntry];
+  let failedClones: MealLogEntry[] = [];
   await act(async () => {
     failedClones = await ctx.copyEntries([ctx.allEntries[0]], { dateKey: TODAY_KEY });
   });
-  assert('failed copy returns no clones (no Undo to arm)', failedClones.length === 0);
+  assert('a queued copy still returns its clones (Undo can arm)', failedClones.length === 1);
+  await waitFor('copy replays', () => storeFor('p-1').entries.some(e => e.id === failedClones[0].id));
+  await settle();
+
+  // Permanent rejection: parked, visible, discardable — and discard restores
+  // the server's version of the diary.
+  failNext.set('POST patient-data/entries', { status: 422, body: { error: 'That entry is not valid.' } });
   await act(async () => {
-    notice?.onAction();
+    await ctx.addEntry(entryInput('Rejected Entry'));
   });
+  await settle();
+  const rejected = ctx.allEntries.find(e => e.name === 'Rejected Entry') ?? null;
+  assert('a 4xx parks the item as failed', sync.status === 'attention' && sync.failedCount === 1
+    && sync.items[0]?.status === 'failed' && sync.items[0]?.lastError === 'That entry is not valid.');
+  assert('the parked row stays visible and pending', entryNames().includes('Rejected Entry') && sync.isPending(`entry:${rejected!.id}`));
+  const entryCallsBeforeDiscard = callsTo('patient-data/entries').length;
+  await act(async () => {
+    await sync.discard(sync.items[0].id);
+  });
+  await settle();
+  assert('discard drops the row — server truth wins', !entryNames().includes('Rejected Entry') && sync.items.length === 0 && sync.status === 'idle');
+  assert('discard sends nothing', callsTo('patient-data/entries').length === entryCallsBeforeDiscard);
+
+  // Retry from the sheet: the parked item goes back to the front and lands.
+  failNext.set('POST patient-data/entries', { status: 422, body: { error: 'Try later.' } });
+  await act(async () => {
+    await ctx.addEntry(entryInput('Retried Entry'));
+  });
+  await settle();
+  const retried = ctx.allEntries.find(e => e.name === 'Retried Entry') ?? null;
+  assert('second permanent failure parks too', sync.failedCount === 1);
+  await act(async () => {
+    sync.retry(sync.items[0].id);
+  });
+  await waitFor('retry lands the parked write', () => storeFor('p-1').entries.some(e => e.id === retried!.id));
+  await settle();
+  assert('retry clears the parked item', sync.items.length === 0 && !sync.isPending(`entry:${retried!.id}`));
   await unmount(tree);
 
-  // ── 6 · Failed hydration: seedless + RETRY, never demo data ────────────────
-  section('hydration failure: seedless behind RETRY');
+  // ── 6 · Failed hydration ───────────────────────────────────────────────────
+  // 6a · With a cached snapshot from the last good sync the diary still opens
+  //      (read-only view of the last sync) and writes queue.
+  section('hydration failure with a cached snapshot: last synced diary, writes queue');
+  failNext.set('GET patient-data/state', { status: 502, body: { error: 'Couldn’t load your diary right now. Please try again.' } });
+  tree = await mountLive();
+  const cachedIds = idsOf(storeFor('p-1').entries);
+  assert('cached hydration settles with the last synced diary', ctx.hydrated
+    && JSON.stringify(idsOf(ctx.allEntries)) === JSON.stringify(cachedIds));
+  assert('cached hydration explains itself with RETRY',
+    notice?.message === 'Showing your last synced diary. Retry to refresh.' && notice?.actionLabel === 'RETRY');
+  await act(async () => {
+    notice!.onAction();
+  });
+  await settle();
+  assert('retry refreshes from the server and clears the notice', notice === null
+    && JSON.stringify(idsOf(ctx.allEntries)) === JSON.stringify(cachedIds));
+  await unmount(tree);
+
+  // A write while on the cached diary: the queue refreshes live truth
+  // BEFORE replaying (so a stale snapshot can never resurrect a server
+  // deletion), which also clears the cached-diary notice on its own.
+  failNext.set('GET patient-data/state', { status: 502, body: { error: 'Couldn’t load your diary right now. Please try again.' } });
+  tree = await mountLive();
+  assert('cached diary again', notice?.message === 'Showing your last synced diary. Retry to refresh.');
+  const stateCallsBeforeCachedWrite = callsTo('patient-data/state').length;
+  await act(async () => {
+    await ctx.addEntry(entryInput('Cached Write'));
+  });
+  await waitFor('a write during cached mode still syncs', () => storeFor('p-1').entries.some(e => e.name === 'Cached Write'));
+  await settle();
+  assert('the queue refreshed server truth before replaying', callsTo('patient-data/state').length > stateCallsBeforeCachedWrite);
+  assert('the refresh clears the cached-diary notice and keeps the write', notice === null
+    && entryNames().includes('Cached Write'));
+  await unmount(tree);
+
+  // 6b · Fresh install (no snapshot): seedless behind RETRY, every write blocked.
+  section('hydration failure without a cache: seedless behind RETRY');
+  localStorageBacking.delete(`${STORAGE_KEY}:snapshot_p-1`);
+  const p1IdsAfterCached = idsOf(storeFor('p-1').entries);
   failNext.set('GET patient-data/state', {
     status: 502,
     body: { error: 'Couldn’t load your diary right now. Please try again.' },
@@ -621,12 +727,22 @@ async function main() {
     notice!.onAction();
   });
   await settle();
-  assert('retry hydrates the real diary', JSON.stringify(idsOf(ctx.allEntries)) === JSON.stringify(p1Ids));
+  assert('retry hydrates the real diary', JSON.stringify(idsOf(ctx.allEntries)) === JSON.stringify(p1IdsAfterCached));
   assert('retry clears the notice', notice === null);
   await unmount(tree);
 
   // ── 7 · Unresolved account: blocked writes behind retry ────────────────────
   section('unresolved account: seedless, write-blocked, recoverable');
+  // A dead lookup for a user this device has resolved before reuses the
+  // last-known role (offline cold start keeps the real diary reachable)...
+  failNext.set('GET claim/whoami', 'network');
+  tree = await mountLive();
+  assert('a dead lookup falls back to the last-known role for the same user',
+    account.account.kind === 'real' && account.account.patientId === 'p-1' && notice === null
+    && JSON.stringify(idsOf(ctx.allEntries)) === JSON.stringify(p1IdsAfterCached));
+  await unmount(tree);
+  // ...while a user with no remembered role stays unresolved and write-blocked.
+  localStorageBacking.delete('thinnr_account_role_v1');
   failNext.set('GET claim/whoami', 'network');
   tree = await mountLive();
   assert('account is unresolved after a dead lookup', account.account.kind === 'unresolved');
@@ -645,7 +761,7 @@ async function main() {
   });
   await settle();
   assert('retry resolves the account and hydrates', account.account.kind === 'real'
-    && JSON.stringify(idsOf(ctx.allEntries)) === JSON.stringify(p1Ids));
+    && JSON.stringify(idsOf(ctx.allEntries)) === JSON.stringify(p1IdsAfterCached));
   await act(async () => {
     await ctx.addEntry(entryInput('P1 After Retry'));
   });

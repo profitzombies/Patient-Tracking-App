@@ -1128,6 +1128,88 @@ export const GetOfficeEngagementTrendsResponse = zod.object({
 
 
 /**
+ * Provider staff are always scoped to their own office. HQ names an office, or passes office=all for every enabled office at once. Rows carry every metric plus a competition rank per metric (ties share); patients who cannot be ranked for the period are counted under notRankable by reason and never returned as zero-score rows. A live failure is a 502 — clients never fall back to seeded data.
+ * @summary Rank an authorized office's real patients by loss, goal completion and adherence
+ */
+export const getOfficeLeaderboardQueryPeriodDefault = `program`;
+export const getOfficeLeaderboardQueryStageDefault = `all`;
+
+export const GetOfficeLeaderboardQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "period": zod.enum(['program', '30d', '90d']).default(getOfficeLeaderboardQueryPeriodDefault),
+  "stage": zod.enum(['all', 'protocol', 'maintenance']).default(getOfficeLeaderboardQueryStageDefault)
+})
+
+export const GetOfficeLeaderboardResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string()
+}).nullable(),
+  "offices": zod.array(zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string()
+})),
+  "period": zod.enum(['program', '30d', '90d']),
+  "stage": zod.enum(['all', 'protocol', 'maintenance']),
+  "asOf": zod.coerce.date().describe('UTC date the board was computed on. Each row\'s asOfDate is that patient\'s own local day (the day program day, stage and period facts are sliced on).'),
+  "windowDays": zod.number().nullable(),
+  "rows": zod.array(zod.object({
+  "id": zod.string(),
+  "providerId": zod.string(),
+  "officeName": zod.string().nullable(),
+  "name": zod.string(),
+  "initials": zod.string(),
+  "program": zod.object({
+  "startDate": zod.string().nullable(),
+  "day": zod.number().nullable(),
+  "stage": zod.enum(['protocol', 'maintenance']).nullable(),
+  "week": zod.number().nullable()
+}),
+  "asOfDate": zod.coerce.date(),
+  "periodStart": zod.coerce.date(),
+  "baselineWeight": zod.number(),
+  "baselineWeightDate": zod.string().nullable(),
+  "latestWeight": zod.number(),
+  "latestWeightDate": zod.string().nullable(),
+  "poundsLost": zod.number(),
+  "percentLost": zod.number(),
+  "goalCompletion": zod.number().nullable(),
+  "adherence": zod.object({
+  "score": zod.number().nullable(),
+  "eligibleDays": zod.number(),
+  "loggedDays": zod.number(),
+  "checkInDays": zod.number(),
+  "waterGoalDays": zod.number(),
+  "loggedRate": zod.number().nullable(),
+  "checkInRate": zod.number().nullable(),
+  "waterRate": zod.number().nullable()
+}),
+  "ranks": zod.object({
+  "percent": zod.number(),
+  "pounds": zod.number(),
+  "goal": zod.number(),
+  "adherence": zod.number()
+})
+})),
+  "notRankable": zod.object({
+  "total": zod.number(),
+  "reasons": zod.array(zod.object({
+  "reason": zod.string(),
+  "label": zod.string(),
+  "count": zod.number()
+}))
+}),
+  "definitions": zod.object({
+  "adherence": zod.string(),
+  "loss": zod.string(),
+  "goal": zod.string(),
+  "eligibility": zod.string(),
+  "ties": zod.string()
+})
+})
+
+
+/**
  * @summary Read aggregate-only live operational metrics for an authorized office
  */
 export const GetOfficeOverviewQueryParams = zod.object({

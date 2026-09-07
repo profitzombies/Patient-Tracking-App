@@ -1189,6 +1189,31 @@ paths:
         "200":
           description: Aggregate engagement daily trend
           content: { application/json: { schema: { $ref: "#/components/schemas/EngagementTrendResult" } } }
+  /office/leaderboard:
+    get:
+      operationId: getOfficeLeaderboard
+      tags: [office]
+      summary: Rank an authorized office's real patients by loss, goal completion and adherence
+      description: >-
+        Provider staff are always scoped to their own office. HQ names an
+        office, or passes office=all for every enabled office at once. Rows
+        carry every metric plus a competition rank per metric (ties share);
+        patients who cannot be ranked for the period are counted under
+        notRankable by reason and never returned as zero-score rows. A live
+        failure is a 502 — clients never fall back to seeded data.
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: period, in: query, schema: { type: string, enum: [program, 30d, 90d], default: program } }
+        - { name: stage, in: query, schema: { type: string, enum: [all, protocol, maintenance], default: all } }
+      responses:
+        "200":
+          description: Ranked rows, not-rankable counts and the staff-facing definitions
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeLeaderboardResult" } } }
+        "400": { description: Unknown period or stage or HQ without an office }
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not authorized for provider reads }
+        "404": { description: Office unavailable }
+        "502": { description: The live ranking could not be computed }
   /office/overview:
     get:
       operationId: getOfficeOverview
@@ -2611,6 +2636,101 @@ components:
           type: array
           items: { $ref: "#/components/schemas/OfficeRosterPatient" }
         summary: { $ref: "#/components/schemas/OfficeRosterOperationalSummary" }
+    OfficeLeaderboardResult:
+      type: object
+      required: [office, offices, period, stage, asOf, windowDays, rows, notRankable, definitions]
+      properties:
+        office:
+          nullable: true
+          type: object
+          required: [providerId, officeName]
+          properties:
+            providerId: { type: string }
+            officeName: { type: string }
+        offices:
+          type: array
+          items:
+            type: object
+            required: [providerId, officeName]
+            properties:
+              providerId: { type: string }
+              officeName: { type: string }
+        period: { type: string, enum: [program, 30d, 90d] }
+        stage: { type: string, enum: [all, protocol, maintenance] }
+        asOf: { type: string, format: date, description: "UTC date the board was computed on. Each row's asOfDate is that patient's own local day (the day program day, stage and period facts are sliced on)." }
+        windowDays: { type: number, nullable: true }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/OfficeLeaderboardRow" }
+        notRankable:
+          type: object
+          required: [total, reasons]
+          properties:
+            total: { type: number }
+            reasons:
+              type: array
+              items:
+                type: object
+                required: [reason, label, count]
+                properties:
+                  reason: { type: string }
+                  label: { type: string }
+                  count: { type: number }
+        definitions:
+          type: object
+          required: [adherence, loss, goal, eligibility, ties]
+          properties:
+            adherence: { type: string }
+            loss: { type: string }
+            goal: { type: string }
+            eligibility: { type: string }
+            ties: { type: string }
+    OfficeLeaderboardRow:
+      type: object
+      required: [id, providerId, officeName, name, initials, program, asOfDate, periodStart, baselineWeight, baselineWeightDate, latestWeight, latestWeightDate, poundsLost, percentLost, goalCompletion, adherence, ranks]
+      properties:
+        id: { type: string }
+        providerId: { type: string }
+        officeName: { type: string, nullable: true }
+        name: { type: string }
+        initials: { type: string }
+        program:
+          type: object
+          required: [startDate, day, stage, week]
+          properties:
+            startDate: { type: string, nullable: true }
+            day: { type: number, nullable: true }
+            stage: { type: string, nullable: true, enum: [protocol, maintenance] }
+            week: { type: number, nullable: true }
+        asOfDate: { type: string, format: date }
+        periodStart: { type: string, format: date }
+        baselineWeight: { type: number }
+        baselineWeightDate: { type: string, nullable: true }
+        latestWeight: { type: number }
+        latestWeightDate: { type: string, nullable: true }
+        poundsLost: { type: number }
+        percentLost: { type: number }
+        goalCompletion: { type: number, nullable: true }
+        adherence:
+          type: object
+          required: [score, eligibleDays, loggedDays, checkInDays, waterGoalDays, loggedRate, checkInRate, waterRate]
+          properties:
+            score: { type: number, nullable: true }
+            eligibleDays: { type: number }
+            loggedDays: { type: number }
+            checkInDays: { type: number }
+            waterGoalDays: { type: number }
+            loggedRate: { type: number, nullable: true }
+            checkInRate: { type: number, nullable: true }
+            waterRate: { type: number, nullable: true }
+        ranks:
+          type: object
+          required: [percent, pounds, goal, adherence]
+          properties:
+            percent: { type: number }
+            pounds: { type: number }
+            goal: { type: number }
+            adherence: { type: number }
     NutritionAmounts:
       type: object
       required: [calories, protein, carbs, fat]

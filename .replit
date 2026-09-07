@@ -304,6 +304,18 @@ args = "medication-reminders"
 task = "workflow.run"
 args = "medications-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "leaderboard-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "leaderboard-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "leaderboard-mobile"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -1092,6 +1104,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:medications"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "leaderboard-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/leaderboard src/routes/office-leaderboard.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "leaderboard-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:leaderboard"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "leaderboard-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:leaderboard"
 
 [workflows.workflow.metadata]
 isValidation = true

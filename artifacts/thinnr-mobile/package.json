@@ -41,6 +41,7 @@
     "test:recipe-nutrition": "tsx scripts/verify-recipe-nutrition.ts",
     "test:stall-nudge": "tsx scripts/verify-stall-nudge.ts",
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
+    "test:leaderboard": "tsx --tsconfig tsconfig.leaderboard.json scripts/verify-leaderboard.tsx",
     "test:device-features": "tsx scripts/verify-device-features.ts",
     "test:medication-reminders": "tsx --tsconfig tsconfig.offline-queue.json scripts/verify-medication-reminders.ts",
     "test:push-notifications": "tsx scripts/verify-push-notifications.ts",

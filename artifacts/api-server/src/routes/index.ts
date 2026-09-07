@@ -36,6 +36,7 @@ import officeAuditEventsRouter from "./office-audit-events";
 import patientPrivacyRouter from "./patient-privacy";
 import hqPatientDeletionsRouter from "./hq-patient-deletions";
 import systemJobsRouter from "./system-jobs";
+import officeLeaderboardRouter from "./office-leaderboard";
 
 const router: IRouter = Router();
 
@@ -63,6 +64,7 @@ router.use(patientNotificationsRouter);
 router.use(providerAccountsRouter);
 router.use(hqTeamRouter);
 router.use(officeRosterRouter);
+router.use(officeLeaderboardRouter);
 router.use(officeOperationsRouter);
 router.use(officePatientEditsRouter);
 router.use(officeNotificationsRouter);

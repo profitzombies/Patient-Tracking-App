@@ -113,6 +113,67 @@ export async function fetchOfficeRoster(): Promise<OfficeRosterData> {
   return bearerRequest<OfficeRosterData>('GET', '/office/roster');
 }
 
+// ─── Leaderboard ─────────────────────────────────────────────────────────────
+
+export type LeaderboardPeriod = 'program' | '30d' | '90d';
+export type LeaderboardMetric = 'percent' | 'pounds' | 'goal' | 'adherence';
+export type LeaderboardStage = 'all' | 'protocol' | 'maintenance';
+
+export interface LeaderboardRow {
+  id: string;
+  providerId: string;
+  officeName: string | null;
+  name: string;
+  initials: string;
+  program: { startDate: string | null; day: number | null; stage: 'protocol' | 'maintenance' | null; week: number | null };
+  asOfDate: string;
+  periodStart: string;
+  baselineWeight: number;
+  baselineWeightDate: string | null;
+  latestWeight: number;
+  latestWeightDate: string | null;
+  poundsLost: number;
+  percentLost: number;
+  /** Program-to-date goal completion, 0–100; null without a usable goal. */
+  goalCompletion: number | null;
+  adherence: {
+    score: number | null;
+    eligibleDays: number;
+    loggedDays: number;
+    checkInDays: number;
+    waterGoalDays: number;
+    loggedRate: number | null;
+    checkInRate: number | null;
+    waterRate: number | null;
+  };
+  /** Server-computed competition ranks per metric (ties share a rank). */
+  ranks: Record<LeaderboardMetric, number>;
+}
+
+export interface OfficeLeaderboardData {
+  office: { providerId: string; officeName: string } | null;
+  period: LeaderboardPeriod;
+  stage: LeaderboardStage;
+  asOf: string;
+  windowDays: number | null;
+  rows: LeaderboardRow[];
+  notRankable: { total: number; reasons: Array<{ reason: string; label: string; count: number }> };
+  definitions: { adherence: string; loss: string; goal: string; eligibility: string; ties: string };
+}
+
+/**
+ * Live ranking for the signed-in staff member's office. Ranks, adherence,
+ * and eligibility are all server-computed; the client only chooses which
+ * server rank to sort by. The office is never named here.
+ */
+export async function fetchOfficeLeaderboard(params: {
+  period: LeaderboardPeriod;
+  stage: LeaderboardStage;
+}): Promise<OfficeLeaderboardData> {
+  const query = new URLSearchParams({ period: params.period, stage: params.stage });
+  return bearerRequest<OfficeLeaderboardData>('GET', `/office/leaderboard?${query.toString()}`);
+}
+
 export async function invitePatient(
   input: InvitePatientInput,
 ): Promise<{ patient: OfficePatient; invitation: InvitationEmailOutcome }> {

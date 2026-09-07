@@ -732,3 +732,75 @@ export interface NotificationTimelineEvent {
 }
 
 export type OutreachRosterState = 'none' | 'eligible' | 'sent_awaiting' | 'engaged' | 'opted_out';
+
+export type LeaderboardPeriod = 'program' | '30d' | '90d';
+
+export interface LeaderboardRow {
+  id: string;
+  providerId: string;
+  /** Present on the HQ "all offices" board; null on a single office. */
+  officeName: string | null;
+  name: string;
+  initials: string;
+  program: { startDate: string | null; day: number | null; stage: 'protocol' | 'maintenance' | null; week: number | null };
+  asOfDate: string;
+  periodStart: string;
+  baselineWeight: number;
+  baselineWeightDate: string | null;
+  latestWeight: number;
+  latestWeightDate: string | null;
+  poundsLost: number;
+  percentLost: number;
+  /** Program-to-date goal completion, 0–100; null without a usable goal. */
+  goalCompletion: number | null;
+  adherence: {
+    score: number | null;
+    eligibleDays: number;
+    loggedDays: number;
+    checkInDays: number;
+    waterGoalDays: number;
+    loggedRate: number | null;
+    checkInRate: number | null;
+    waterRate: number | null;
+  };
+  /** Competition ranks per metric (ties share a rank). */
+  ranks: Record<LeaderboardMetric, number>;
+}
+
+export type LeaderboardMetric = 'percent' | 'pounds' | 'goal' | 'adherence';
+
+export type LeaderboardStage = 'all' | 'protocol' | 'maintenance';
+
+export interface OfficeLeaderboard {
+  office: LeaderboardOffice | null;
+  offices: LeaderboardOffice[];
+  period: LeaderboardPeriod;
+  stage: LeaderboardStage;
+  asOf: string;
+  windowDays: number | null;
+  rows: LeaderboardRow[];
+  notRankable: { total: number; reasons: Array<{ reason: string; label: string; count: number }> };
+  definitions: { adherence: string; loss: string; goal: string; eligibility: string; ties: string };
+}
+
+export interface LeaderboardOffice {
+  providerId: string;
+  officeName: string;
+}
+
+export function leaderboardQueryKey(params: LeaderboardParams, authUserId: string | null): readonly unknown[] {
+  return ['office-leaderboard', params.office ?? 'own', params.period, params.stage, authUserId] as const;
+}
+
+export async function fetchOfficeLeaderboard(params: LeaderboardParams): Promise<OfficeLeaderboard> {
+  const search = new URLSearchParams({ period: params.period, stage: params.stage });
+  if (params.office) search.set('office', params.office);
+  return request<OfficeLeaderboard>(`/api/office/leaderboard?${search.toString()}`);
+}
+
+export interface LeaderboardParams {
+  /** Office id for HQ drill-ins, 'all' for the HQ network board, null for office staff. */
+  office: string | null;
+  period: LeaderboardPeriod;
+  stage: LeaderboardStage;
+}

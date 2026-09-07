@@ -67,6 +67,7 @@ import type {
   GetOfficeConversationSummaryParams,
   GetOfficeConversationsParams,
   GetOfficeEngagementTrendsParams,
+  GetOfficeLeaderboardParams,
   GetOfficeOverviewParams,
   GetOfficePatientRecordParams,
   GetOfficeRosterParams,
@@ -99,6 +100,7 @@ import type {
   KnowledgeUploadUrlResult,
   OfficeAnalyticsResult,
   OfficeComparisonResult,
+  OfficeLeaderboardResult,
   OfficeOverridesInput,
   OfficePatientRecord,
   OfficeRosterResult,
@@ -3017,6 +3019,91 @@ export function useGetOfficeEngagementTrends<TData = Awaited<ReturnType<typeof g
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetOfficeEngagementTrendsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeLeaderboardUrl = (params?: GetOfficeLeaderboardParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/leaderboard?${stringifiedParams}` : `/api/office/leaderboard`
+}
+
+/**
+ * Provider staff are always scoped to their own office. HQ names an office, or passes office=all for every enabled office at once. Rows carry every metric plus a competition rank per metric (ties share); patients who cannot be ranked for the period are counted under notRankable by reason and never returned as zero-score rows. A live failure is a 502 — clients never fall back to seeded data.
+ * @summary Rank an authorized office's real patients by loss, goal completion and adherence
+ */
+export const getOfficeLeaderboard = async (params?: GetOfficeLeaderboardParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeLeaderboardResult> => {
+
+  return customFetch<OfficeLeaderboardResult>(getGetOfficeLeaderboardUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeLeaderboardQueryKey = (params?: GetOfficeLeaderboardParams,) => {
+    return [
+    `/api/office/leaderboard`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeLeaderboardQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeLeaderboard>>, TError = ErrorType<void>>(params?: GetOfficeLeaderboardParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeLeaderboardQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeLeaderboard>>> = ({ signal }) => getOfficeLeaderboard(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeLeaderboard>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeLeaderboardQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeLeaderboard>>>
+export type GetOfficeLeaderboardQueryError = ErrorType<void>
+
+
+/**
+ * @summary Rank an authorized office's real patients by loss, goal completion and adherence
+ */
+
+export function useGetOfficeLeaderboard<TData = Awaited<ReturnType<typeof getOfficeLeaderboard>>, TError = ErrorType<void>>(
+ params?: GetOfficeLeaderboardParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeLeaderboardQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

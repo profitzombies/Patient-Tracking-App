@@ -1,0 +1,21 @@
+{
+  // tsx config for scripts/verify-leaderboard.tsx ONLY (not part of
+  // typecheck — tsconfig.json includes src/**/* alone).
+  //
+  // The suite renders the REAL Leaderboard page with react-test-renderer
+  // under Node against a scripted global fetch. Session / provider scope /
+  // HQ directory contexts are the a11y stubs and lib/supabase is the
+  // invite-suite stub (it can pose as a signed-in staffer). Exact path keys
+  // win over the '@/*' wildcard; every other '@/…' import is the real code.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
+      "@/contexts/hq-data": ["./scripts/a11y-stubs/hq-data.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

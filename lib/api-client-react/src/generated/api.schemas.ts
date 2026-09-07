@@ -1306,6 +1306,119 @@ export interface OfficeRosterResult {
   summary: OfficeRosterOperationalSummary;
 }
 
+export type OfficeLeaderboardResultOffice = {
+  providerId: string;
+  officeName: string;
+} | null;
+
+export type OfficeLeaderboardResultOfficesItem = {
+  providerId: string;
+  officeName: string;
+};
+
+export type OfficeLeaderboardResultPeriod = typeof OfficeLeaderboardResultPeriod[keyof typeof OfficeLeaderboardResultPeriod];
+
+
+export const OfficeLeaderboardResultPeriod = {
+  program: 'program',
+  '30d': '30d',
+  '90d': '90d',
+} as const;
+
+export type OfficeLeaderboardResultStage = typeof OfficeLeaderboardResultStage[keyof typeof OfficeLeaderboardResultStage];
+
+
+export const OfficeLeaderboardResultStage = {
+  all: 'all',
+  protocol: 'protocol',
+  maintenance: 'maintenance',
+} as const;
+
+export type OfficeLeaderboardResultNotRankableReasonsItem = {
+  reason: string;
+  label: string;
+  count: number;
+};
+
+export type OfficeLeaderboardResultNotRankable = {
+  total: number;
+  reasons: OfficeLeaderboardResultNotRankableReasonsItem[];
+};
+
+export type OfficeLeaderboardResultDefinitions = {
+  adherence: string;
+  loss: string;
+  goal: string;
+  eligibility: string;
+  ties: string;
+};
+
+export type OfficeLeaderboardRowProgramStage = typeof OfficeLeaderboardRowProgramStage[keyof typeof OfficeLeaderboardRowProgramStage] | null;
+
+
+export const OfficeLeaderboardRowProgramStage = {
+  protocol: 'protocol',
+  maintenance: 'maintenance',
+} as const;
+
+export type OfficeLeaderboardRowProgram = {
+  startDate: string | null;
+  day: number | null;
+  stage: OfficeLeaderboardRowProgramStage;
+  week: number | null;
+};
+
+export type OfficeLeaderboardRowAdherence = {
+  score: number | null;
+  eligibleDays: number;
+  loggedDays: number;
+  checkInDays: number;
+  waterGoalDays: number;
+  loggedRate: number | null;
+  checkInRate: number | null;
+  waterRate: number | null;
+};
+
+export type OfficeLeaderboardRowRanks = {
+  percent: number;
+  pounds: number;
+  goal: number;
+  adherence: number;
+};
+
+export interface OfficeLeaderboardRow {
+  id: string;
+  providerId: string;
+  officeName: string | null;
+  name: string;
+  initials: string;
+  program: OfficeLeaderboardRowProgram;
+  asOfDate: string;
+  periodStart: string;
+  baselineWeight: number;
+  baselineWeightDate: string | null;
+  latestWeight: number;
+  latestWeightDate: string | null;
+  poundsLost: number;
+  percentLost: number;
+  goalCompletion: number | null;
+  adherence: OfficeLeaderboardRowAdherence;
+  ranks: OfficeLeaderboardRowRanks;
+}
+
+export interface OfficeLeaderboardResult {
+  office: OfficeLeaderboardResultOffice;
+  offices: OfficeLeaderboardResultOfficesItem[];
+  period: OfficeLeaderboardResultPeriod;
+  stage: OfficeLeaderboardResultStage;
+  /** UTC date the board was computed on. Each row's asOfDate is that patient's own local day (the day program day, stage and period facts are sliced on). */
+  asOf: string;
+  windowDays: number | null;
+  rows: OfficeLeaderboardRow[];
+  notRankable: OfficeLeaderboardResultNotRankable;
+  definitions: OfficeLeaderboardResultDefinitions;
+}
+
 export interface NutritionAmounts {
   calories: number;
   protein: number;
@@ -2348,6 +2461,33 @@ end: string;
  */
 office?: OfficeIdParameter;
 };
+
+export type GetOfficeLeaderboardParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+period?: GetOfficeLeaderboardPeriod;
+stage?: GetOfficeLeaderboardStage;
+};
+
+export type GetOfficeLeaderboardPeriod = typeof GetOfficeLeaderboardPeriod[keyof typeof GetOfficeLeaderboardPeriod];
+
+
+export const GetOfficeLeaderboardPeriod = {
+  program: 'program',
+  '30d': '30d',
+  '90d': '90d',
+} as const;
+
+export type GetOfficeLeaderboardStage = typeof GetOfficeLeaderboardStage[keyof typeof GetOfficeLeaderboardStage];
+
+
+export const GetOfficeLeaderboardStage = {
+  all: 'all',
+  protocol: 'protocol',
+  maintenance: 'maintenance',
+} as const;
 
 export type GetOfficeOverviewParams = {
 /**

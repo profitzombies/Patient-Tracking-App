@@ -122,7 +122,7 @@ router.get("/catalog/search", async (req, res) => {
     const anonymous = !auth.ok && auth.status === 401;
     if (auth.ok) patientId = auth.patientId;
     else if (anonymous) patientId = null;
-    else { res.status(auth.status).json({ error: auth.error }); return; }
+    else { res.status(auth.status).json({ error: auth.error, ...auth.details }); return; }
     const local = await searchCatalog(patientId, query, limit);
     let brandedResults: ExternalItem[] = [];
     let externalUnavailable = false;
@@ -151,7 +151,7 @@ router.post("/catalog/selections", async (req, res) => {
     if (!parsed.success) { res.status(400).json({ error: "Selection id is invalid." }); return; }
     const id = parsed.data.id;
     const auth = await resolvePatient(req);
-    if (!auth.ok) { res.status(auth.status).json({ error: auth.error }); return; }
+    if (!auth.ok) { res.status(auth.status).json({ error: auth.error, ...auth.details }); return; }
     // Raw custom-food ids are canonical in the mobile library/diary. They are
     // never looked up or promoted here, which keeps them owner-private.
     if (id.startsWith("custom_")) {

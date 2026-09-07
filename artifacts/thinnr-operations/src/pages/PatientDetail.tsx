@@ -21,6 +21,7 @@ import { ADHERENCE_WINDOW_DAYS, NUDGE_COOLDOWN_DAYS, getNudgeAssessment } from "
 import { WeightTrend } from "@/components/patient/WeightTrend";
 import { BodyMeasurementsCard } from "@/components/patient/BodyMeasurements";
 import { LiveBodyMeasurements } from "@/components/office/LiveBodyMeasurements";
+import { DeletedRecordNotice, DeletionBanner } from "@/components/office/AccountDeletion";
 import type { MeasurementVisit } from "@/lib/body-measurements";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
 import {
@@ -42,6 +43,7 @@ import { useProviderScope } from "@/contexts/provider-scope";
 import {
   fetchOfficePatient,
   fetchOfficePatientNotifications,
+  OfficeRosterError,
   type OfficeDiaryEntry,
   type OfficePatientDetail,
 } from "@/lib/office-roster";
@@ -390,6 +392,9 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
   });
 
   if (detail.isLoading) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center text-sm text-muted-foreground">Loading patient record…</div>;
+  if (detail.isError && detail.error instanceof OfficeRosterError && detail.error.isDeleted) {
+    return <div className="mx-auto max-w-[720px] px-5 py-12"><DeletedRecordNotice message={detail.error.message} deleted={detail.error.deleted} /></div>;
+  }
   if (detail.isError) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center"><h2 className="font-serif text-xl font-bold text-navy">Patient record unavailable</h2><p className="mt-2 text-sm text-destructive" role="alert">{detail.error instanceof Error ? detail.error.message : 'The patient record could not be loaded.'}</p><Link href="/patients" className={`mt-4 ${LINK_ACTION}`}>Return to roster</Link></div>;
   if (!detail.data) return null;
 
@@ -435,6 +440,7 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
           </div>
           {canEdit && <div><EditPatientProfile patient={record.patient} office={office} /></div>}
         </div>
+        {record.patient.deletion && <div className="mt-5"><DeletionBanner deletion={record.patient.deletion} /></div>}
       </header>
       <main className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">

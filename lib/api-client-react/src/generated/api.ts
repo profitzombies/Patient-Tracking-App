@@ -44,6 +44,7 @@ import type {
   FollowUpUpdateInput,
   GetHqAuditEventsParams,
   GetHqOfficeComparisonParams,
+  GetHqPatientDeletionsParams,
   GetOfficeAnalyticsParams,
   GetOfficeConversationEventsParams,
   GetOfficeConversationsParams,
@@ -63,6 +64,8 @@ import type {
   HqFileUploadResult,
   HqOrganizationSettings,
   HqOrganizationSettingsInput,
+  HqPatientDeletionResult,
+  HqPatientDeletionsResult,
   KnowledgeCreateInput,
   KnowledgeDeleteResult,
   KnowledgeDocument,
@@ -4559,4 +4562,159 @@ export function useGetHqAuditEvents<TData = Awaited<ReturnType<typeof getHqAudit
 
 
 
+
+export const getGetHqPatientDeletionsUrl = (params?: GetHqPatientDeletionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/patient-deletions?${stringifiedParams}` : `/api/hq/patient-deletions`
+}
+
+/**
+ * @summary Patient-requested account deletions across the network, with purge progress and failures surfaced for HQ
+ */
+export const getHqPatientDeletions = async (params?: GetHqPatientDeletionsParams, options?: Parameters<typeof customFetch>[1]): Promise<HqPatientDeletionsResult> => {
+
+  return customFetch<HqPatientDeletionsResult>(getGetHqPatientDeletionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqPatientDeletionsQueryKey = (params?: GetHqPatientDeletionsParams,) => {
+    return [
+    `/api/hq/patient-deletions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqPatientDeletionsQueryOptions = <TData = Awaited<ReturnType<typeof getHqPatientDeletions>>, TError = ErrorType<unknown>>(params?: GetHqPatientDeletionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientDeletions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqPatientDeletionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqPatientDeletions>>> = ({ signal }) => getHqPatientDeletions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqPatientDeletions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqPatientDeletionsQueryResult = NonNullable<Awaited<ReturnType<typeof getHqPatientDeletions>>>
+export type GetHqPatientDeletionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Patient-requested account deletions across the network, with purge progress and failures surfaced for HQ
+ */
+
+export function useGetHqPatientDeletions<TData = Awaited<ReturnType<typeof getHqPatientDeletions>>, TError = ErrorType<unknown>>(
+ params?: GetHqPatientDeletionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientDeletions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqPatientDeletionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRetryHqPatientDeletionUrl = (id: string,) => {
+
+
+
+
+  return `/api/hq/patient-deletions/${id}/retry`
+}
+
+/**
+ * @summary Re-queue a failed purge (idempotent; only failed requests can be retried)
+ */
+export const retryHqPatientDeletion = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<HqPatientDeletionResult> => {
+
+  return customFetch<HqPatientDeletionResult>(getRetryHqPatientDeletionUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRetryHqPatientDeletionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryHqPatientDeletion>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryHqPatientDeletion>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['retryHqPatientDeletion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryHqPatientDeletion>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  retryHqPatientDeletion(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryHqPatientDeletionMutationResult = NonNullable<Awaited<ReturnType<typeof retryHqPatientDeletion>>>
+
+    export type RetryHqPatientDeletionMutationError = ErrorType<void>
+
+    /**
+ * @summary Re-queue a failed purge (idempotent; only failed requests can be retried)
+ */
+export const useRetryHqPatientDeletion = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryHqPatientDeletion>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryHqPatientDeletion>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getRetryHqPatientDeletionMutationOptions(options));
+    }
 

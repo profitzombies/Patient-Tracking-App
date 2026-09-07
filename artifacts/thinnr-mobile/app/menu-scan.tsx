@@ -37,6 +37,7 @@ import { Redirect, router, usePathname } from 'expo-router';
 import { LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { APPROVED_FOODS_HREF } from '@/constants/links';
 import { useAppMode } from '@/context/AppModeContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useColors } from '@/hooks/useColors';
 import { MenuScanError, scanMenuPhoto, type MenuScanResult } from '@/lib/coach-api';
 import { preparePhotoForUpload, type PreparedPhoto } from '@/lib/photo-prep';
@@ -56,6 +57,13 @@ export default function MenuScanScreen() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const { mode, hydrated: modeHydrated } = useAppMode();
+  const patientAccount = usePatientAccount();
+  // Signed-in accounts authenticate the scan so the server can honor the
+  // account's consent and photo-analysis choice; the demo stays tokenless.
+  const scanAuth =
+    patientAccount.account.kind === 'demo'
+      ? {}
+      : { getAuthToken: patientAccount.getAccessToken ?? (async () => null) };
 
   const [phase, setPhase] = useState<Phase>({ kind: 'pick' });
   const [pickError, setPickError] = useState<string | null>(null);
@@ -153,7 +161,7 @@ export default function MenuScanScreen() {
     abortRef.current = controller;
     setPhase({ kind: 'scanning', photo });
     try {
-      const result = await scanMenuPhoto(photo.uri, { signal: controller.signal });
+      const result = await scanMenuPhoto(photo.uri, { signal: controller.signal, ...scanAuth });
       if (controller.signal.aborted) return;
       Haptics.notificationAsync(
         result.result === 'ok'

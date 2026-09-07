@@ -31,6 +31,7 @@
     "test:roster-activity": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-roster-activity.tsx",
     "test:notification-timeline": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-notification-timeline.tsx",
     "test:body-measurements": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-body-measurements.tsx",
+    "test:account-deletion": "TZ=UTC tsx --tsconfig tsconfig.account-deletion.json scripts/verify-account-deletion.tsx",
     "test:office-comparison": "TZ=UTC tsx scripts/verify-office-comparison.ts && TZ=Pacific/Kiritimati tsx scripts/verify-office-comparison.ts",
     "test:exports": "tsx scripts/verify-exports.ts",
     "test:live-patient-edits": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-live-patient-edits.ts",

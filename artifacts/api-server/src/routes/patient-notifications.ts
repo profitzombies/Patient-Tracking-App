@@ -39,7 +39,7 @@ export function createPatientNotificationsRouter(store: NotificationStore = supa
     try {
       const auth = await resolvePatient(req);
       if (!auth.ok) {
-        res.status(auth.status).json({ error: auth.error });
+        res.status(auth.status).json({ error: auth.error, ...auth.details });
         return;
       }
       const body = (req.body ?? {}) as Record<string, unknown>;
@@ -72,7 +72,7 @@ export function createPatientNotificationsRouter(store: NotificationStore = supa
     try {
       const auth = await resolvePatient(req);
       if (!auth.ok) {
-        res.status(auth.status).json({ error: auth.error });
+        res.status(auth.status).json({ error: auth.error, ...auth.details });
         return;
       }
       const body = (req.body ?? {}) as Record<string, unknown>;
@@ -90,7 +90,7 @@ export function createPatientNotificationsRouter(store: NotificationStore = supa
     try {
       const auth = await resolvePatient(req);
       if (!auth.ok) {
-        res.status(auth.status).json({ error: auth.error });
+        res.status(auth.status).json({ error: auth.error, ...auth.details });
         return;
       }
       const tokens = await store.activeTokens(auth.patientId);
@@ -109,7 +109,7 @@ export function createPatientNotificationsRouter(store: NotificationStore = supa
     try {
       const auth = await resolvePatient(req);
       if (!auth.ok) {
-        res.status(auth.status).json({ error: auth.error });
+        res.status(auth.status).json({ error: auth.error, ...auth.details });
         return;
       }
       const id = String(req.params.id ?? "");

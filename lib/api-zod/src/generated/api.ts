@@ -2068,3 +2068,63 @@ export const GetHqAuditEventsResponse = zod.object({
 })
 
 
+/**
+ * @summary Patient-requested account deletions across the network, with purge progress and failures surfaced for HQ
+ */
+export const GetHqPatientDeletionsQueryParams = zod.object({
+  "status": zod.enum(['pending', 'cancelled', 'purging', 'purged', 'failed']).optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetHqPatientDeletionsResponse = zod.object({
+  "deletions": zod.array(zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "providerId": zod.string().nullable(),
+  "status": zod.enum(['pending', 'cancelled', 'purging', 'purged', 'failed']),
+  "requestedAt": zod.coerce.date(),
+  "purgeAfter": zod.coerce.date(),
+  "cancelledAt": zod.coerce.date().nullable(),
+  "startedAt": zod.coerce.date().nullable(),
+  "purgedAt": zod.coerce.date().nullable(),
+  "attempts": zod.number(),
+  "nextAttemptAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable(),
+  "steps": zod.record(zod.string(), zod.unknown())
+}).describe('One patient-initiated deletion request. Steps records each purge stage (storage, rows, auth) with its outcome; no PII is carried.')),
+  "summary": zod.object({
+  "pending": zod.number(),
+  "cancelled": zod.number(),
+  "purging": zod.number(),
+  "purged": zod.number(),
+  "failed": zod.number()
+})
+})
+
+
+/**
+ * @summary Re-queue a failed purge (idempotent; only failed requests can be retried)
+ */
+export const RetryHqPatientDeletionParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const RetryHqPatientDeletionResponse = zod.object({
+  "deletion": zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "providerId": zod.string().nullable(),
+  "status": zod.enum(['pending', 'cancelled', 'purging', 'purged', 'failed']),
+  "requestedAt": zod.coerce.date(),
+  "purgeAfter": zod.coerce.date(),
+  "cancelledAt": zod.coerce.date().nullable(),
+  "startedAt": zod.coerce.date().nullable(),
+  "purgedAt": zod.coerce.date().nullable(),
+  "attempts": zod.number(),
+  "nextAttemptAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable(),
+  "steps": zod.record(zod.string(), zod.unknown())
+}).describe('One patient-initiated deletion request. Steps records each purge stage (storage, rows, auth) with its outcome; no PII is carried.')
+})
+
+

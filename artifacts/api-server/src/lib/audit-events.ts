@@ -57,6 +57,16 @@ export const AUDIT_ACTIONS = [
   "conversation_transcript_read",
   "data_export_requested",
   "data_export_downloaded",
+  "patient_consent_recorded",
+  "patient_export_requested",
+  "patient_export_ready",
+  "patient_export_failed",
+  "patient_export_downloaded",
+  "patient_deletion_requested",
+  "patient_deletion_cancelled",
+  "patient_deletion_purged",
+  "patient_deletion_failed",
+  "patient_deletion_retried",
   "access_denied",
 ] as const;
 
@@ -72,6 +82,7 @@ export const AUDIT_METADATA_KEYS = [
   "reason", "role", "status", "field", "fields", "from", "to", "size", "contentType",
   "thread", "kind", "office", "rows", "noteId", "weightId", "visitId", "areaCount", "dateKey",
   "route", "method", "turn", "attachmentId", "mediaKind", "version", "section",
+  "policyVersion", "photoAnalysis", "attempt", "step", "objects", "tables", "purgeAfter", "exportId", "requestId",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 
@@ -101,6 +112,16 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "conversation_transcript_read",
   "data_export_requested",
   "data_export_downloaded",
+  "patient_consent_recorded",
+  "patient_export_requested",
+  "patient_export_ready",
+  "patient_export_failed",
+  "patient_export_downloaded",
+  "patient_deletion_requested",
+  "patient_deletion_cancelled",
+  "patient_deletion_purged",
+  "patient_deletion_failed",
+  "patient_deletion_retried",
   "access_denied",
 ] as const satisfies readonly AuditAction[];
 export const officeVisibleActions: ReadonlySet<string> = new Set(OFFICE_VISIBLE_ACTIONS);
@@ -301,6 +322,7 @@ const ACTOR_KIND_LABEL: Record<string, string> = {
   anonymous: "Anonymous visitor",
   learner: "Training learner",
   unknown: "Signed-in user",
+  patient: "Patient",
   system: "System",
 };
 

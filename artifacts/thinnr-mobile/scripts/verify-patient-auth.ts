@@ -105,7 +105,7 @@ async function provider(){
 }
 function routing(){
  console.log('· welcome, deep-link guard, demo admission, onboarding filtering');
- const signedOut={modeHydrated:true,mode:'patient' as const,accountResolving:false,accountKind:'demo' as const,patientHydrated:true,onboardingComplete:null,pathname:'/onboarding/height',demoAdmitted:false};
+ const signedOut={modeHydrated:true,mode:'patient' as const,accountResolving:false,accountKind:'demo' as const,patientHydrated:true,onboardingComplete:null,consentSatisfied:true,deletionPending:false,pathname:'/onboarding/height',demoAdmitted:false};
  const welcomeSource=readFileSync(new URL('../app/patient-welcome.tsx',import.meta.url),'utf8');
  const staffTabsLayout=readFileSync(new URL('../app/(tabs)/_layout.tsx',import.meta.url),'utf8');
  const patientTabsLayout=readFileSync(new URL('../app/(patient)/_layout.tsx',import.meta.url),'utf8');

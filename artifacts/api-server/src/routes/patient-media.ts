@@ -140,7 +140,7 @@ router.post(
     try {
       const auth = await resolvePatient(req);
       if (!auth.ok) {
-        res.status(auth.status).json({ error: auth.error });
+        res.status(auth.status).json({ error: auth.error, ...auth.details });
         return;
       }
       const body = (req.body ?? {}) as Record<string, unknown>;
@@ -185,7 +185,7 @@ router.post(
     try {
       const auth = await resolvePatient(req);
       if (!auth.ok) {
-        res.status(auth.status).json({ error: auth.error });
+        res.status(auth.status).json({ error: auth.error, ...auth.details });
         return;
       }
       const body = (req.body ?? {}) as Record<string, unknown>;
@@ -300,7 +300,7 @@ router.post(
     try {
       const auth = await resolvePatient(req);
       if (!auth.ok) {
-        res.status(auth.status).json({ error: auth.error });
+        res.status(auth.status).json({ error: auth.error, ...auth.details });
         return;
       }
       const body = (req.body ?? {}) as Record<string, unknown>;

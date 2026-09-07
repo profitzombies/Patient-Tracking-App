@@ -339,6 +339,37 @@ export class ObjectStorageService {
     await this.fileFor(objectPath).delete({ ignoreNotFound: true });
   }
 
+  /**
+   * Every stored `/objects/...` path under a prefix (a patient's media dir).
+   * The prefix must end with "/" so `patient-media/<id>` can never match a
+   * sibling whose id merely starts the same way.
+   */
+  async listObjectPaths(objectPrefix: string): Promise<string[]> {
+    if (!objectPrefix.endsWith("/")) {
+      throw new Error("object prefix must end with /");
+    }
+    const { bucketName, objectName } = this.locate(objectPrefix);
+    const [files] = await objectStorageClient.bucket(bucketName).getFiles({ prefix: objectName });
+    const dirObjectName = this.locate("/objects/").objectName;
+    return files
+      .map((file) => file.name)
+      .filter((name) => name.startsWith(dirObjectName))
+      .map((name) => `/objects/${name.slice(dirObjectName.length)}`);
+  }
+
+  /**
+   * Strict prefix purge: lists, deletes each object, and returns how many
+   * were removed. A missing object is fine (re-runs stay idempotent); a real
+   * storage failure throws so the caller retries later.
+   */
+  async deletePrefixStrict(objectPrefix: string): Promise<number> {
+    const paths = await this.listObjectPaths(objectPrefix);
+    for (const path of paths) {
+      await this.deleteObjectStrict(path);
+    }
+    return paths.length;
+  }
+
   private fileFor(objectPath: string): File {
     const { bucketName, objectName } = this.locate(objectPath);
     return objectStorageClient.bucket(bucketName).file(objectName);

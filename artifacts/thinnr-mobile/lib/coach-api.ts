@@ -510,6 +510,18 @@ function parseAvoidItems(value: unknown): MenuScanAvoidItem[] {
 }
 
 /**
+ * Options shared by the photo scan calls. `getAuthToken` mirrors the coach
+ * stream: a signed-in patient authenticates so the server can enforce the
+ * account's consent and photo-analysis choice; the demo persona never sets
+ * it and stays tokenless. A supplier that yields no token throws the given
+ * error class with the signed-out message — a real patient is never
+ * silently served as the demo.
+ */
+export interface PhotoScanOptions {
+  signal?: AbortSignal;
+  getAuthToken?: () => Promise<string | null>;
+}
+/**
  * Sends one menu photo (JPEG/PNG data URI, already downscaled client-side)
  * for analysis and returns the structured scan result. The server analyzes
  * the photo in memory only — it is never stored.
@@ -520,18 +532,19 @@ function parseAvoidItems(value: unknown): MenuScanAvoidItem[] {
  */
 export async function scanMenuPhoto(
   image: string,
-  options: { signal?: AbortSignal } = {},
+  options: PhotoScanOptions = {},
 ): Promise<MenuScanResult> {
   const doFetch =
     Platform.OS === 'web'
       ? globalThis.fetch.bind(globalThis)
       : (expoFetch as unknown as typeof globalThis.fetch);
+  const headers = await scanHeaders(options, message => new MenuScanError(message));
 
   let response: Response;
   try {
     response = await doFetch(`${apiBase()}/coach/menu-scan`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ image }),
       signal: options.signal,
     });
@@ -626,18 +639,19 @@ const LABEL_SCAN_FALLBACK_ERROR = 'The label scan is unavailable right now. Plea
  */
 export async function scanLabelPhoto(
   image: string,
-  options: { signal?: AbortSignal } = {},
+  options: PhotoScanOptions = {},
 ): Promise<LabelScanResult> {
   const doFetch =
     Platform.OS === 'web'
       ? globalThis.fetch.bind(globalThis)
       : (expoFetch as unknown as typeof globalThis.fetch);
+  const headers = await scanHeaders(options, message => new LabelScanError(message));
 
   let response: Response;
   try {
     response = await doFetch(`${apiBase()}/coach/label-scan`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ image }),
       signal: options.signal,
     });
@@ -691,3 +705,22 @@ export async function scanLabelPhoto(
   if (!label) throw new LabelScanError(LABEL_SCAN_FALLBACK_ERROR);
   return { result: 'ok', message, label };
 }
+
+async function scanHeaders(
+  options: PhotoScanOptions,
+  fail: (message: string) => Error,
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (!options.getAuthToken) return headers;
+  let token: string | null;
+  try {
+    token = await options.getAuthToken();
+  } catch {
+    token = null;
+  }
+  if (!token) throw fail(SCAN_SIGNED_OUT_MESSAGE);
+  headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+const SCAN_SIGNED_OUT_MESSAGE = 'You’re signed out. Sign in again to scan photos.';

@@ -67,7 +67,7 @@ function resendCooldownSeconds(): number {
 }
 
 export const PATIENT_SELECT =
-  "id,provider_id,first_name,last_name,name,email,phone,activation_status,activation_reason,activation_updated_at,auth_user_id,claimed_at,created_at,updated_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date";
+  "id,provider_id,first_name,last_name,name,email,phone,activation_status,activation_reason,activation_updated_at,auth_user_id,claimed_at,created_at,updated_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date,deletion_requested_at";
 
 export type PatientRosterRow = Record<string, unknown>;
 type OperationalRow = Record<string, unknown>;
@@ -99,6 +99,9 @@ export function patientDto(row: PatientRosterRow, asOf?: string) {
     activationStatus: row.activation_status ? String(row.activation_status) : null,
     verified,
     createdAt: row.created_at ? String(row.created_at) : null,
+    // Account deletion the PATIENT asked for (staff-initiated deletion is not
+    // a thing). `purgeAfter` is filled in by the roster from the request row.
+    deletion: deletionStateDto(row),
     program: {
       id: row.program_id ? String(row.program_id) : null,
       startDate: programStartDate,
@@ -122,6 +125,46 @@ export function patientDto(row: PatientRosterRow, asOf?: string) {
         }
       : null,
   };
+}
+
+export interface PatientDeletionStateDto {
+  state: "requested";
+  requestedAt: string;
+  purgeAfter: string | null;
+}
+
+function deletionStateDto(row: PatientRosterRow): PatientDeletionStateDto | null {
+  return typeof row.deletion_requested_at === "string" && row.deletion_requested_at.length > 0
+    ? { state: "requested", requestedAt: row.deletion_requested_at, purgeAfter: null }
+    : null;
+}
+
+/** PII-free marker for an account that has been purged; counts stay honest. */
+export interface DeletedAccountDto {
+  id: string;
+  requestedAt: string | null;
+  purgedAt: string;
+  wasActivated: boolean;
+  programId: string | null;
+  enrolledOn: string | null;
+}
+
+export function deletedAccountDto(row: Record<string, unknown>): DeletedAccountDto {
+  return {
+    id: String(row.id),
+    requestedAt: typeof row.requested_at === "string" ? row.requested_at : null,
+    purgedAt: String(row.purged_at),
+    wasActivated: row.was_activated === true,
+    programId: typeof row.program_id === "string" ? row.program_id : null,
+    enrolledOn: typeof row.enrolled_on === "string" ? row.enrolled_on.slice(0, 10) : null,
+  };
+}
+
+function recordDeletionDto(patient: PatientRosterRow, pending: OperationalRow | undefined): PatientDeletionStateDto | null {
+  const base = deletionStateDto(patient);
+  const purgeAfter = typeof pending?.purge_after === "string" ? pending.purge_after : null;
+  if (base) return { ...base, purgeAfter };
+  return pending ? { state: "requested", requestedAt: String(pending.requested_at), purgeAfter } : null;
 }
 
 function dateOrNull(value: unknown): string | null {
@@ -222,6 +265,7 @@ export function identityDto(row: PatientRosterRow) {
 }
 
 export const RECORD_NOT_FOUND = "No patient record found for this office.";
+export const RECORD_DELETED = "This patient deleted their account. Their record has been permanently removed.";
 
 /**
  * Record version for optimistic concurrency: the patients row's updated_at
@@ -374,7 +418,7 @@ router.get("/office/roster", async (req, res) => {
     // UTC date for the summary counters.
     const now = new Date();
     const asOf = now.toISOString().slice(0, 10);
-    const [rows, operational, followUps, outreachStates] = await Promise.all([
+    const [rows, operational, followUps, outreachStates, pendingDeletions, tombstones] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
@@ -385,8 +429,15 @@ router.get("/office/roster", async (req, res) => {
       }),
       supabaseAdmin("GET", `/rest/v1/patient_operational_follow_ups?provider_id=eq.${enc(scope.providerId)}&select=patient_id,reason,status,created_at,resolved_at&order=created_at.desc&limit=2000`),
       supabaseAdmin("POST", "/rest/v1/rpc/provider_outreach_states", { p_provider_id: scope.providerId }),
+      supabaseAdmin("GET", `/rest/v1/patient_deletion_requests?provider_id=eq.${enc(scope.providerId)}&status=eq.pending&select=patient_id,requested_at,purge_after&limit=500`),
+      supabaseAdmin("GET", `/rest/v1/patient_tombstones?provider_id=eq.${enc(scope.providerId)}&select=id,requested_at,purged_at,was_activated,program_id,enrolled_on&order=purged_at.desc&limit=200`),
     ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
+    if (pendingDeletions.status >= 300) throw new Error(`deletion roster load failed (${pendingDeletions.status})`);
+    if (tombstones.status >= 300) throw new Error(`tombstone roster load failed (${tombstones.status})`);
+    const purgeAfterByPatient = new Map(
+      (Array.isArray(pendingDeletions.json) ? (pendingDeletions.json as OperationalRow[]) : []).map((row) => [String(row.patient_id), row]),
+    );
     if (operational.status >= 300) throw new Error(`operational roster load failed (${operational.status})`);
     if (followUps.status >= 300) throw new Error(`follow-up roster load failed (${followUps.status})`);
     if (outreachStates.status >= 300) throw new Error(`outreach roster load failed (${outreachStates.status})`);
@@ -404,10 +455,22 @@ router.get("/office/roster", async (req, res) => {
         followUpByPatient.set(id, [...prior, item]);
       }
     }
-    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => ({
-      ...rosterOperationalDto(patientDto(row, asOf), facts.get(String(row.id)), asOf, followUpByPatient.get(String(row.id))),
-      outreach: outreachRosterDto(outreachByPatient.get(String(row.id))),
-    }));
+    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => {
+      const base = patientDto(row, asOf);
+      const pending = purgeAfterByPatient.get(String(row.id));
+      const deletion: PatientDeletionStateDto | null = base.deletion
+        ? { ...base.deletion, purgeAfter: typeof pending?.purge_after === "string" ? pending.purge_after : null }
+        : pending
+          ? { state: "requested", requestedAt: String(pending.requested_at), purgeAfter: typeof pending.purge_after === "string" ? pending.purge_after : null }
+          : null;
+      return {
+        ...rosterOperationalDto({ ...base, deletion }, facts.get(String(row.id)), asOf, followUpByPatient.get(String(row.id))),
+        outreach: outreachRosterDto(outreachByPatient.get(String(row.id))),
+      };
+    });
+    // Purged accounts are tombstones only: listed separately, never counted
+    // in the roster totals or the activity buckets below.
+    const deletedAccounts = (Array.isArray(tombstones.json) ? (tombstones.json as OperationalRow[]) : []).map(deletedAccountDto);
     const activePatients = patients.filter((patient) => patient.activationStatus === "activated").length;
     const summary = {
       totalPatients: patients.length, activePatients,
@@ -417,6 +480,8 @@ router.get("/office/roster", async (req, res) => {
       invited: patients.filter((patient) => patient.operational.status === "invited").length,
       checkInsOverdue: patients.filter((patient) => patient.operational.reasons.includes("check_in_overdue")).length,
       loggingLapsed: patients.filter((patient) => patient.operational.reasons.includes("logging_lapsed")).length,
+      deletionRequested: patients.filter((patient) => patient.deletion != null).length,
+      deletedAccounts: deletedAccounts.length,
       asOf,
     };
     res.json({
@@ -427,6 +492,7 @@ router.get("/office/roster", async (req, res) => {
           effectiveProviderCode(scope.onboardingCode, scope.providerId) ?? scope.providerId,
       },
       patients,
+      deletedAccounts,
       summary,
     });
   } catch (error) {
@@ -464,12 +530,27 @@ router.get("/office/patients/:id", async (req, res) => {
       ? (found.json[0] as PatientRosterRow | undefined)
       : undefined;
     if (!patient) {
+      // A purged account leaves only its tombstone: tell staff it was
+      // deleted (and when) instead of pretending it never existed.
+      if (/^[0-9a-f-]{36}$/i.test(patientId)) {
+        const tombstone = await supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_tombstones?id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}` +
+            "&select=id,requested_at,purged_at,was_activated,program_id,enrolled_on&limit=1",
+        );
+        if (tombstone.status >= 300) throw new Error(`tombstone lookup failed (${tombstone.status})`);
+        const row = Array.isArray(tombstone.json) ? (tombstone.json[0] as Record<string, unknown> | undefined) : undefined;
+        if (row) {
+          res.status(410).json({ error: RECORD_DELETED, deleted: deletedAccountDto(row) });
+          return;
+        }
+      }
       res.status(404).json({ error: RECORD_NOT_FOUND });
       return;
     }
 
     const pid = enc(patientId);
-    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits] =
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits, pendingDeletion] =
       await Promise.all([
         supabaseAdmin(
           "GET",
@@ -530,8 +611,12 @@ router.get("/office/patients/:id", async (req, res) => {
           `/rest/v1/patient_body_measurements?patient_id=eq.${pid}&provider_id=eq.${enc(scope.providerId)}` +
             `&select=visit_id,date_key,note,${MEASUREMENT_COLUMNS},recorded_by_name,created_at,updated_at&order=date_key.desc,created_at.desc&limit=1000`,
         ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_deletion_requests?patient_id=eq.${pid}&status=eq.pending&select=patient_id,requested_at,purge_after&limit=1`,
+        ),
       ]);
-    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits];
+    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits, pendingDeletion];
     if (results.some((result) => result.status >= 300 || !Array.isArray(result.json))) {
       throw new Error("patient record history load failed");
     }
@@ -655,6 +740,7 @@ router.get("/office/patients/:id", async (req, res) => {
         identity: identityDto(patient),
         program: patientDto(patient).program,
         version: recordVersion(patient),
+        deletion: recordDeletionDto(patient, (pendingDeletion.json as OperationalRow[])[0]),
       },
       providerNotes,
       staffWeights: staffWeightList,

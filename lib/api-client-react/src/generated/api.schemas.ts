@@ -860,6 +860,61 @@ export interface HqAuditEvent {
   metadata: HqAuditEventMetadata;
 }
 
+export type HqPatientDeletionStatus = typeof HqPatientDeletionStatus[keyof typeof HqPatientDeletionStatus];
+
+
+export const HqPatientDeletionStatus = {
+  pending: 'pending',
+  cancelled: 'cancelled',
+  purging: 'purging',
+  purged: 'purged',
+  failed: 'failed',
+} as const;
+
+export type HqPatientDeletionSteps = { [key: string]: unknown };
+
+/**
+ * One patient-initiated deletion request. Steps records each purge stage (storage, rows, auth) with its outcome; no PII is carried.
+ */
+export interface HqPatientDeletion {
+  id: string;
+  patientId: string;
+  /** @nullable */
+  providerId: string | null;
+  status: HqPatientDeletionStatus;
+  requestedAt: string;
+  purgeAfter: string;
+  /** @nullable */
+  cancelledAt: string | null;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  purgedAt: string | null;
+  attempts: number;
+  /** @nullable */
+  nextAttemptAt: string | null;
+  /** @nullable */
+  lastError: string | null;
+  steps: HqPatientDeletionSteps;
+}
+
+export interface HqPatientDeletionsSummary {
+  pending: number;
+  cancelled: number;
+  purging: number;
+  purged: number;
+  failed: number;
+}
+
+export interface HqPatientDeletionsResult {
+  deletions: HqPatientDeletion[];
+  summary: HqPatientDeletionsSummary;
+}
+
+export interface HqPatientDeletionResult {
+  deletion: HqPatientDeletion;
+}
+
 export interface HqAuditEventsResult {
   events: HqAuditEvent[];
   total?: number;
@@ -2012,4 +2067,20 @@ action?: string;
 from?: string;
 to?: string;
 };
+
+export type GetHqPatientDeletionsParams = {
+status?: GetHqPatientDeletionsStatus;
+limit?: number;
+};
+
+export type GetHqPatientDeletionsStatus = typeof GetHqPatientDeletionsStatus[keyof typeof GetHqPatientDeletionsStatus];
+
+
+export const GetHqPatientDeletionsStatus = {
+  pending: 'pending',
+  cancelled: 'cancelled',
+  purging: 'purging',
+  purged: 'purged',
+  failed: 'failed',
+} as const;
 

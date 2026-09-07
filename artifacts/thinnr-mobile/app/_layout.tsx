@@ -259,6 +259,7 @@ function RootLayoutNav() {
       <Stack.Screen name="claim-test" options={{ headerShown: false }} />
       <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
       <Stack.Screen name="account" options={{ headerShown: false }} />
+      <Stack.Screen name="consent" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="recipe/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="ai-recipe/[id]" options={{ headerShown: false }} />
@@ -305,6 +306,8 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
     accountKind: account.kind,
     patientHydrated: patient.hydrated,
     onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
+    consentSatisfied: patient.hydratedPrivacy?.consent.satisfied ?? null,
+    deletionPending: patient.hydratedPrivacy?.deletion !== null && patient.hydratedPrivacy?.deletion !== undefined,
     pathname,
     demoAdmitted,
   });
@@ -335,7 +338,9 @@ function PushResponseBridge() {
   const handledResponses = useRef(new Set<string>());
   const admitted = modeHydrated && mode === 'patient' && !resolving &&
     account.kind === 'real' && patient.hydrated &&
-    patient.hydratedFlags?.onboardingComplete === true;
+    patient.hydratedFlags?.onboardingComplete === true &&
+    patient.hydratedPrivacy?.consent.satisfied === true &&
+    patient.hydratedPrivacy.deletion === null;
 
   const recordOpened = useCallback((notificationId: string | null) => {
     if (!notificationId || opened.current.has(notificationId)) return;

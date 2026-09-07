@@ -47,13 +47,19 @@ import {
 } from '@/lib/media-token-holder';
 import { supabase } from '@/lib/supabase';
 import type { HealthMeasurement } from '@/lib/device-feature-core';
+import {
+  parseConsent,
+  parseDeletion,
+  parseExport,
+  parsePrivacyState,
+  PrivacyParseError,
+  type ConsentWrite,
+  type PrivacyState,
+} from '@/lib/patient-privacy';
 
-export class PatientDataError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'PatientDataError';
-  }
-}
+import { PatientDataError, patientDataErrorCode } from '@/lib/patient-data-error';
+
+export { PatientDataError, patientDataErrorCode, type PatientDataErrorCode } from '@/lib/patient-data-error';
 
 const NETWORK_MESSAGE = 'Couldn’t reach the server. Check your connection and try again.';
 const MALFORMED_MESSAGE = 'The server sent something unexpected. Please try again.';
@@ -99,11 +105,13 @@ async function authedRequest(method: string, path: string, body?: unknown, acces
     json = null;
   }
   if (!response.ok) {
-    const message = (json as { error?: unknown } | null)?.error;
+    const failure = json as { error?: unknown; code?: unknown } | null;
+    const message = failure?.error;
     throw new PatientDataError(
       typeof message === 'string' && message.length > 0
         ? message
         : 'The server couldn’t handle that. Please try again.',
+      patientDataErrorCode(failure?.code),
     );
   }
   return json;
@@ -668,6 +676,15 @@ function parseServerState(json: unknown): PatientServerState {
   const flags = parseFlags(data.flags);
   const entry = parseEntryFacts(data.entry);
   const profile = data.profile === undefined ? undefined : parsePatientProfile(data.profile);
+  let privacy: PrivacyState | undefined;
+  if (data.privacy !== undefined) {
+    try {
+      privacy = parsePrivacyState(data.privacy);
+    } catch (error) {
+      if (error instanceof PrivacyParseError) throw new PatientDataError(MALFORMED_MESSAGE);
+      throw error;
+    }
+  }
 
   return {
     entries,
@@ -682,7 +699,18 @@ function parseServerState(json: unknown): PatientServerState {
     flags,
     entry,
     ...(profile ? { profile } : {}),
+    ...(privacy ? { privacy } : {}),
   };
+}
+
+/** Re-throws privacy parse failures in the sync snackbar's plain words. */
+function privacyParsed<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    if (error instanceof PrivacyParseError) throw new PatientDataError(MALFORMED_MESSAGE);
+    throw error;
+  }
 }
 
 export const patientDataApi: PatientDataApi = {
@@ -874,5 +902,50 @@ export const patientDataApi: PatientDataApi = {
     return parseProfileResult(
       await authedRequest('POST', '/patient-data/profile/contact/verify', input),
     );
+  },
+
+  privacy: {
+    async fetchPrivacy() {
+      const json = await authedRequest('GET', '/patient-data/privacy');
+      return privacyParsed(() => parsePrivacyState(json));
+    },
+    async recordConsent(input: ConsentWrite) {
+      const json = (await authedRequest('PUT', '/patient-data/consent', input)) as Record<string, unknown> | null;
+      return privacyParsed(() => ({ consent: parseConsent(json?.consent) }));
+    },
+    async requestExport() {
+      const json = (await authedRequest('POST', '/patient-data/export')) as Record<string, unknown> | null;
+      const job = privacyParsed(() => parseExport(json?.export));
+      if (!job) throw new PatientDataError(MALFORMED_MESSAGE);
+      return { export: job };
+    },
+    async fetchExport() {
+      const json = (await authedRequest('GET', '/patient-data/export')) as Record<string, unknown> | null;
+      return privacyParsed(() => ({ export: parseExport(json?.export) }));
+    },
+    async exportDownloadUrl(id: string) {
+      const json = (await authedRequest(
+        'GET',
+        `/patient-data/export/${encodeURIComponent(id)}/download-url`,
+      )) as Record<string, unknown> | null;
+      if (typeof json?.url !== 'string' || !/^https?:\/\//.test(json.url)) {
+        throw new PatientDataError(MALFORMED_MESSAGE);
+      }
+      return {
+        url: json.url,
+        expiresInSeconds: typeof json.expiresInSeconds === 'number' ? json.expiresInSeconds : 300,
+        fileName: typeof json.fileName === 'string' ? json.fileName : 'thinnr-export.zip',
+      };
+    },
+    async requestDeletion() {
+      const json = (await authedRequest('POST', '/patient-data/deletion', { confirm: 'DELETE' })) as Record<string, unknown> | null;
+      const deletion = privacyParsed(() => parseDeletion(json?.deletion));
+      if (!deletion) throw new PatientDataError(MALFORMED_MESSAGE);
+      return { deletion };
+    },
+    async cancelDeletion() {
+      const json = (await authedRequest('DELETE', '/patient-data/deletion')) as Record<string, unknown> | null;
+      return { cancelled: json?.cancelled === true };
+    },
   },
 };

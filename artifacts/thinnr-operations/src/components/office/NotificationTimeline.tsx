@@ -60,6 +60,7 @@ const CATEGORY_LABELS = {
   coach_outreach: 'Coach outreach',
   check_in_reminders: 'Check-in reminder',
   office_reminders: 'Office reminder',
+  account: 'Account',
 } as const;
 
 function statusClass(status: NotificationDeliveryStatus): string {

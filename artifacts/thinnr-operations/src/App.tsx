@@ -53,6 +53,7 @@ import LearnerPreview from '@/pages/admin/training/LearnerPreview';
 import KnowledgeBase from '@/pages/admin/KnowledgeBase';
 import SupportTestBench from '@/pages/admin/SupportTestBench';
 import Audit from '@/pages/admin/Audit';
+import PatientDeletions from '@/pages/admin/PatientDeletions';
 import Files from '@/pages/admin/Files';
 import Exports from '@/pages/admin/Exports';
 import EmailStudio from '@/pages/EmailStudio';
@@ -117,6 +118,9 @@ function AdminArea() {
               <Route path="/admin/training/analytics" component={TrainingAnalytics} />
               <Route path="/admin/knowledge" component={KnowledgeBase} />
               <Route path="/admin/support-test" component={SupportTestBench} />
+              <Route path="/admin/audit/deletions">
+                {canViewAudit ? <PatientDeletions /> : <Redirect to="/admin" replace />}
+              </Route>
               <Route path="/admin/audit">
                 {canViewAudit ? <Audit /> : <Redirect to="/admin" replace />}
               </Route>

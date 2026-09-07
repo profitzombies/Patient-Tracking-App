@@ -33,7 +33,6 @@ const query = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
-
 router.get("/hq/audit-events", requireHqPermission("audit_read"), async (req, res) => {
   const parsed = query.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: "Check audit event filters." }); return; }

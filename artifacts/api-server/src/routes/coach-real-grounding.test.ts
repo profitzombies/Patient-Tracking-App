@@ -17,9 +17,10 @@
  *   5. The demo-only back-on-track pipeline never fires for real accounts.
  *
  * The OpenAI client and the Supabase surfaces are mocked — no credits, no
- * network. Budget: 12 chat requests (per-IP burst lifted to 40 for this file).
+ * network. Budget: well under the per-IP burst, lifted to 100 for this file.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { CONSENT_POLICY_VERSION } from "../privacy/consent";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import crypto from "node:crypto";
@@ -32,7 +33,7 @@ vi.hoisted(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
   // Twelve chat posts in one file: lift the per-IP burst so the limiter never
   // interferes (its own behavior is covered elsewhere).
-  process.env.COACH_CHAT_BURST = "40";
+  process.env.COACH_CHAT_BURST = "100";
 });
 
 const modelState = vi.hoisted(() => ({
@@ -96,6 +97,8 @@ const fake = {
   authOutage: false,
   /** pathname substrings that fail once with a 500 */
   failOnce: new Set<string>(),
+  /** Consent on record for PATIENT_ID (routes enforce the current version). */
+  consent: { version: CONSENT_POLICY_VERSION as string | null, photoAnalysis: true },
   /** HQ policy row served for hq_organization_settings; null = table unreachable (404). */
   coachAvailable: null as boolean | null,
 };
@@ -133,6 +136,24 @@ function handleSupabase(url: URL, init?: RequestInit): Response {
       ]);
     }
     return json(200, []);
+  }
+  if (url.pathname === "/rest/v1/patient_consents") {
+    const byPatient = url.searchParams.get("patient_id");
+    if (byPatient !== `eq.${PATIENT_ID}` || fake.consent.version === null) return json(200, []);
+    return json(200, [
+      {
+        id: "consent-1",
+        patient_id: PATIENT_ID,
+        policy_version: fake.consent.version,
+        terms_accepted: true,
+        privacy_accepted: true,
+        health_data_accepted: true,
+        photo_analysis_accepted: fake.consent.photoAnalysis,
+        app_version: null,
+        platform: null,
+        recorded_at: "2026-09-01T00:00:00Z",
+      },
+    ]);
   }
   if (url.pathname === "/rest/v1/patient_diary_entries") {
     return json(200, [
@@ -185,6 +206,7 @@ afterEach(() => {
   modelState.calls = [];
   fake.authOutage = false;
   fake.failOnce.clear();
+  fake.consent = { version: CONSENT_POLICY_VERSION, photoAnalysis: true };
   fake.coachAvailable = null;
   invalidateOrgPolicyCache();
 });
@@ -302,6 +324,75 @@ describe("coach chat grounding ladder", () => {
     expect(await (await getAvailability("tok-patient")).json()).toEqual({ available: true, message: null });
   });
 
+  it("refuses a patient with no current consent — 403 CONSENT_REQUIRED, never the demo fallback", async () => {
+    fake.consent.version = null;
+    const missing = await postChat({ ...QUESTION, localDate: "2026-08-22" }, "tok-patient");
+    expect(missing.status).toBe(403);
+    expect(await missing.json()).toEqual({
+      error: expect.any(String),
+      code: "CONSENT_REQUIRED",
+      consent: expect.objectContaining({ requiredVersion: CONSENT_POLICY_VERSION, recordedVersion: null, satisfied: false }),
+      retryable: false,
+    });
+
+    fake.consent.version = "2020-01-01";
+    const outdated = await postChat({ ...QUESTION, localDate: "2026-08-22" }, "tok-patient");
+    expect(outdated.status).toBe(403);
+    expect(((await outdated.json()) as { code?: string }).code).toBe("CONSENT_REQUIRED");
+    expect(modelState.calls).toHaveLength(0);
+  });
+
+  it("keeps photos away from the model when the patient declined photo analysis", async () => {
+    fake.consent.photoAnalysis = false;
+    const photoTurn = {
+      messages: [{ role: "user", content: "What's in this?", image: "data:image/jpeg;base64,dGVzdA==", photoKind: "meal" }],
+      localDate: "2026-08-22",
+    };
+    const chat = await postChat(photoTurn, "tok-patient");
+    expect(chat.status).toBe(403);
+    expect(await chat.json()).toEqual({
+      error: expect.stringContaining("Photo analysis is off"),
+      code: "PHOTO_ANALYSIS_OPT_IN_REQUIRED",
+      consent: expect.objectContaining({ satisfied: true, photoAnalysis: false }),
+      retryable: false,
+    });
+
+    for (const path of ["/api/coach/menu-scan", "/api/coach/label-scan"]) {
+      const scan = await realFetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer tok-patient" },
+        body: JSON.stringify({ image: "data:image/jpeg;base64,dGVzdA==" }),
+      });
+      expect(scan.status, path).toBe(403);
+      expect(((await scan.json()) as { code?: string }).code, path).toBe("PHOTO_ANALYSIS_OPT_IN_REQUIRED");
+    }
+    expect(modelState.calls).toHaveLength(0);
+
+    // Text turns are unaffected by the photo choice.
+    const text = await postChat({ ...QUESTION, localDate: "2026-08-22" }, "tok-patient");
+    expect(text.status).toBe(200);
+    await text.text();
+    expect(modelState.calls).toHaveLength(1);
+  });
+
+  it("gates the scan routes on consent too, while a bad session stays 401", async () => {
+    fake.consent.version = null;
+    const scan = await realFetch(`${baseUrl}/api/coach/menu-scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-patient" },
+      body: JSON.stringify({ image: "data:image/jpeg;base64,dGVzdA==" }),
+    });
+    expect(scan.status).toBe(403);
+    expect(((await scan.json()) as { code?: string }).code).toBe("CONSENT_REQUIRED");
+
+    const bad = await realFetch(`${baseUrl}/api/coach/label-scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-nobody" },
+      body: JSON.stringify({ image: "data:image/jpeg;base64,dGVzdA==" }),
+    });
+    expect(bad.status).toBe(401);
+    expect(modelState.calls).toHaveLength(0);
+  });
   it("keeps the back-on-track pipeline demo-only", async () => {
     const trigger = {
       messages: [

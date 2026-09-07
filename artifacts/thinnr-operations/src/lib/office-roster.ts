@@ -16,6 +16,8 @@ export class OfficeRosterError extends Error {
     readonly field: string | null = null,
     /** Server error code; `record_changed` marks a stale-save conflict (reload, never overwrite). */
     readonly code: string | null = null,
+    /** PII-free tombstone attached to a 410 record-deleted response. */
+    readonly deleted: DeletedAccount | null = null,
   ) {
     super(message);
     this.name = 'OfficeRosterError';
@@ -30,6 +32,29 @@ export class OfficeRosterError extends Error {
   get isForbidden(): boolean {
     return this.status === 403;
   }
+
+  /** True when the patient deleted their account and the record has been purged (410). */
+  get isDeleted(): boolean {
+    return this.status === 410;
+  }
+}
+
+/** A deletion the PATIENT requested; the record still exists until the grace period ends. */
+export interface PatientDeletionState {
+  state: 'requested';
+  requestedAt: string;
+  /** When the purge becomes due; null when the roster row carries the flag but no schedule loaded. */
+  purgeAfter: string | null;
+}
+
+/** PII-free marker left behind by a completed purge so office counts stay honest. */
+export interface DeletedAccount {
+  id: string;
+  requestedAt: string | null;
+  purgedAt: string;
+  wasActivated: boolean;
+  programId: string | null;
+  enrolledOn: string | null;
 }
 
 export interface OfficePatient {
@@ -50,6 +75,8 @@ export interface OfficePatient {
   createdAt: string | null;
 
   outreach: OutreachRoster;
+  /** Non-null while the patient's own deletion request is in its grace period. */
+  deletion?: PatientDeletionState | null;
   /** Optional summary values supplied by the roster endpoint as they become available. */
 
   status?: string | null;
@@ -149,6 +176,10 @@ export interface OfficeRosterSummary {
   invited: number;
   checkInsOverdue: number;
   loggingLapsed: number;
+  /** Patients whose own deletion request is pending (still on the roster). */
+  deletionRequested?: number;
+  /** Purged accounts represented only by tombstones (never counted as patients). */
+  deletedAccounts?: number;
   asOf: string;
 }
 
@@ -156,6 +187,7 @@ export interface OfficeRoster {
   office: { providerId: string; officeName: string; providerCode: string };
   patients: OfficePatient[];
   summary: OfficeRosterSummary;
+  deletedAccounts?: DeletedAccount[];
 }
 
 export type NotificationDeliveryStatus =
@@ -252,6 +284,8 @@ export interface OfficePatientDetail {
     };
     /** Record version for optimistic concurrency (null for never-edited legacy rows). */
     version: string | null;
+    /** Non-null while the patient's own deletion request is in its grace period. */
+    deletion?: PatientDeletionState | null;
   };
   diary: {
     entries: OfficeDiaryEntry[];
@@ -322,7 +356,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new OfficeRosterError('Could not reach the roster service. Check your connection and try again.', 0);
   }
-  let body: { error?: unknown; field?: unknown; code?: unknown } & Partial<T> = {};
+  let body: { error?: unknown; field?: unknown; code?: unknown; deleted?: unknown } & Partial<T> = {};
   try {
     body = (await response.json()) as typeof body;
   } catch {
@@ -334,6 +368,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       response.status,
       typeof body.field === 'string' ? body.field : null,
       typeof body.code === 'string' ? body.code : null,
+      response.status === 410 && body.deleted && typeof body.deleted === 'object' ? (body.deleted as DeletedAccount) : null,
     );
   }
   return body as T;
@@ -622,7 +657,7 @@ export type NotificationTimelineEventKind =
   | 'opted_out'
   | 'expired';
 
-export type NotificationCategory = 'coach_outreach' | 'check_in_reminders' | 'office_reminders';
+export type NotificationCategory = 'coach_outreach' | 'check_in_reminders' | 'office_reminders' | 'account';
 
 export interface NotificationTimelineEvent {
   at: string;

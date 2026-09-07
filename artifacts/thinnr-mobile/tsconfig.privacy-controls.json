@@ -1,0 +1,31 @@
+{
+  // tsx config for scripts/verify-privacy-controls.ts ONLY (not part of typecheck).
+  //
+  // Renders the REAL PatientAccountProvider + PatientProvider under Node with
+  // react-test-renderer plus the consent screen and the account screen's
+  // Privacy & data controls, against a scripted privacy API. Same stub set as
+  // the account-progress suite plus expo-constants (app version stamp).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/supabase": ["./scripts/live-diary-stubs/supabase.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "expo-constants": ["./scripts/privacy-controls-stubs/expo-constants.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/onboarding-gate-stubs/expo-router.ts"],
+      "react-native-safe-area-context": [
+        "./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"
+      ],
+      "react-native-keyboard-controller": [
+        "./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"
+      ],
+      "@react-native-async-storage/async-storage": [
+        "./scripts/onboarding-gate-stubs/async-storage.ts"
+      ]
+    }
+  }
+}

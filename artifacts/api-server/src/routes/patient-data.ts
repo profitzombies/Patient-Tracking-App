@@ -57,6 +57,7 @@ import { normalizeIdentifier } from "../claim/normalize";
 import { validateNotificationPrefsInput } from "../notifications/policy";
 import { supabaseNotificationStore } from "../notifications/store";
 import { OUTREACH_KIND } from "../notifications/stall-outreach";
+import { loadPrivacyState } from "./patient-privacy";
 import {
   assertLiveChannelReady,
   checkTwilioVerification,
@@ -787,7 +788,7 @@ router.get("/patient-data/profile", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     res.json({ profile: profileDto(await loadCanonicalProfile(auth.patientId)) });
@@ -808,7 +809,7 @@ async function saveProfile(req: any, res: any, setup: boolean): Promise<void> {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -897,7 +898,7 @@ const contactVerificationStart = async (req: any, res: any) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const kind = (req.body ?? {}).kind;
@@ -975,7 +976,7 @@ const contactVerificationConfirm = async (req: any, res: any) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     let { requestId, code } = req.body ?? {};
@@ -1065,7 +1066,7 @@ router.get("/patient-data/state", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const from = typeof req.query.from === "string" ? req.query.from : null;
@@ -1093,7 +1094,7 @@ router.get("/patient-data/state", async (req, res) => {
     // Photos, check-ins, and flags are deliberately NOT range-filtered: the
     // grid shows every photo the account owns, the weight chart wants the
     // whole weigh-in history, and flags are a singleton.
-    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, profile] = await Promise.all([
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, profile, privacy] = await Promise.all([
       supabaseAdmin(
         "GET",
         `/rest/v1/patient_diary_entries?${rangeFilters([`patient_id=eq.${pid}`])}` +
@@ -1142,6 +1143,9 @@ router.get("/patient-data/state", async (req, res) => {
           `&select=nudge_opt_out,nudge_engaged,nudge_last_sent_key,nudge_last_crossing_key,onboarding_complete,onboarding_answers,notification_prefs`,
       ),
       loadCanonicalProfile(auth.patientId),
+      // Consent / export / deletion facts ride the same hydration so the
+      // route guard can gate on server truth before any screen renders.
+      loadPrivacyState(auth.patientId),
     ]);
     for (const r of [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags]) {
       if (r.status >= 300 || !Array.isArray(r.json)) throw new Error(`state fetch failed (${r.status})`);
@@ -1319,6 +1323,7 @@ router.get("/patient-data/state", async (req, res) => {
       ...(profile.profile_completed_at || profile.first_name
         ? { profile: canonicalProfile }
         : {}),
+      privacy,
       // Read capability for this patient's media: display URLs the client
       // builds append it, and GET /patient-media/file requires it.
       mediaToken: mintPatientMediaToken(auth.patientId),
@@ -1340,7 +1345,7 @@ router.post("/patient-data/entries", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1418,7 +1423,7 @@ router.put("/patient-data/water", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1462,7 +1467,7 @@ router.put("/patient-data/targets", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1532,7 +1537,7 @@ router.put("/patient-data/prefs", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1583,7 +1588,7 @@ router.post("/patient-data/library", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1706,7 +1711,7 @@ router.post("/patient-data/check-ins", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const parsed = parseCheckIn(req.body, auth.patientId);
@@ -1810,7 +1815,7 @@ router.post("/patient-data/photos", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -1937,7 +1942,7 @@ router.put("/patient-data/flags", async (req, res) => {
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
     const body = (req.body ?? {}) as Record<string, unknown>;

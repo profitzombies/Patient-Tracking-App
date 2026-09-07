@@ -14,6 +14,7 @@ import express from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { CONSENT_POLICY_VERSION } from "../privacy/consent";
 import {
   mintPatientMediaToken,
   PATIENT_MEDIA_TOKEN_TTL_SEC,
@@ -86,6 +87,8 @@ const fake = {
   tokens: new Map<string, string>(),
   authOutage: false,
   patients: [] as Array<{ id: string; auth_user_id: string | null }>,
+  /** Patient ids with the current consent policy on record (routes enforce it). */
+  consented: new Set<string>(),
   mediaRows: [] as Array<Record<string, unknown>>,
   failLedger: false,
   /** Object paths a progress GRID row references (cleanup must skip them). */
@@ -116,6 +119,15 @@ function fakeSupabase(href: string, init?: RequestInit): Response {
     return json(
       200,
       fake.patients.filter(p => p.auth_user_id === wanted).map(p => ({ id: p.id })),
+    );
+  }
+  if (url.pathname === "/rest/v1/patient_consents" && method === "GET") {
+    const pid = (url.searchParams.get("patient_id") ?? "").replace(/^eq\./, "");
+    return json(
+      200,
+      fake.consented.has(pid)
+        ? [{ id: `consent-${pid}`, patient_id: pid, policy_version: CONSENT_POLICY_VERSION, terms_accepted: true, privacy_accepted: true, health_data_accepted: true, photo_analysis_accepted: true, app_version: null, platform: null, recorded_at: "2026-09-01T00:00:00Z" }]
+        : [],
     );
   }
   if (url.pathname === "/rest/v1/patient_media" && method === "GET") {
@@ -167,10 +179,11 @@ function fakeSupabase(href: string, init?: RequestInit): Response {
 }
 
 /** Signed-in patient: auth user + token + linked patients row. */
-function seedSignedInPatient(token: string, patientId: string): void {
+function seedSignedInPatient(token: string, patientId: string, options: { consent?: boolean } = {}): void {
   const userId = `user-for-${patientId}`;
   fake.tokens.set(token, userId);
   fake.patients.push({ id: patientId, auth_user_id: userId });
+  if (options.consent !== false) fake.consented.add(patientId);
 }
 
 const realFetch = globalThis.fetch.bind(globalThis);
@@ -230,6 +243,7 @@ beforeEach(() => {
   fake.tokens.clear();
   fake.authOutage = false;
   fake.patients.length = 0;
+  fake.consented.clear();
   fake.mediaRows.length = 0;
   fake.failLedger = false;
   seedSignedInPatient("tok-1", PATIENT_ID);

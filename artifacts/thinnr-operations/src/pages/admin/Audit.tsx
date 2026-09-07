@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { useGetHqAuditEvents, getGetHqAuditEventsQueryKey } from '@workspace/api-client-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
-import { Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/admin/primitives';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AUDIT_ACTION_LABELS, auditActionLabel, auditDetails } from '@/lib/audit-labels';
 import { format } from 'date-fns';
+import { Filter, ChevronLeft, ChevronRight, ShieldOff } from 'lucide-react';
+import { Link } from 'wouter';
 
 const ALL = '__all__';
 
@@ -67,6 +68,15 @@ export default function Audit() {
         kicker="System Log"
         title="Audit Log"
         sub="Review system actions and events across the THINNR network."
+        action={(
+          <Link
+            href="/admin/audit/deletions"
+            data-testid="link-account-deletions"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ShieldOff size={14} aria-hidden="true" />Account deletions
+          </Link>
+        )}
       />
 
       <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card shadow-soft">

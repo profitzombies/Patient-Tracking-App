@@ -41,6 +41,8 @@ import {
 import { buildCopyWithExtras, cloneEntriesForCopy } from '@/data/diary-entries';
 import { setPatientMediaToken } from '@/lib/media-token-holder';
 import { localTodayKey } from '@/lib/live-patient-entry';
+import type { PrivacyState } from '@/lib/patient-privacy';
+import { PatientDataError } from '@/lib/patient-data-error';
 import {
   applyRemoveEntries,
   applyRemoveEntry,
@@ -351,6 +353,21 @@ interface PatientContextValue {
    */
   hydratedFlags: HydratedOnboardingFlags | null;
   /**
+   * Consent, export, and deletion state exactly as the account's hydration
+   * delivered it — null before a real hydration and always null for the demo
+   * persona. The route gate reads consent from here; the account and consent
+   * screens replace it after each privacy write via applyPrivacy.
+   */
+  hydratedPrivacy: PrivacyState | null;
+  applyPrivacy: (next: PrivacyState | ((previous: PrivacyState | null) => PrivacyState | null)) => void;
+  /**
+   * Re-runs the live hydration for the current account. The consent screen
+   * calls it after recording consent: the server refused the data slice
+   * until then (CONSENT_REQUIRED), so the account still has no diary,
+   * flags, or profile in memory.
+   */
+  rehydrate: () => void;
+  /**
    * Canonical "today" for every patient surface. The demo persona pins the
    * seeded anchor (TODAY_KEY) so seeded suites stay byte-identical; a real
    * account rides the device's local calendar day, recomputed on foreground
@@ -506,6 +523,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // Onboarding answers/prefs as hydrated from the account, for
   // OnboardingProvider to reconcile from (demo persona: always null).
   const [hydratedFlags, setHydratedFlags] = useState<HydratedOnboardingFlags | null>(null);
+  const [hydratedPrivacy, setHydratedPrivacy] = useState<PrivacyState | null>(null);
   const [entryFacts, setEntryFacts] = useState<PatientEntryFacts | null>(null);
   const [profile, setProfile] = useState<PatientProfile | null>(null);
 
@@ -784,6 +802,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       // account's own token arrives with its hydration (demo never has one).
       setPatientMediaToken(null);
       setHydratedFlags(null);
+      setHydratedPrivacy(null);
       setEntryFacts(null);
       setProfile(null);
     }
@@ -868,8 +887,52 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             notificationPrefs: server.flags.notificationPrefs ?? null,
             onboardingComplete: server.flags.onboardingComplete,
           });
+          // Absent privacy = older test server: treat as "no consent yet"
+          // with nothing pending, never as satisfied.
+          setHydratedPrivacy(
+            server.privacy ?? {
+              consent: {
+                requiredVersion: 'unknown',
+                recordedVersion: null,
+                satisfied: false,
+                photoAnalysis: null,
+                recordedAt: null,
+              },
+              export: null,
+              deletion: null,
+            },
+          );
           setEntryFacts(server.entry);
           setProfile(profileResult.value);
+        } else if (
+          serverResult.status === 'rejected' &&
+          serverResult.reason instanceof PatientDataError &&
+          serverResult.reason.code === 'CONSENT_REQUIRED'
+        ) {
+          // The server refuses every data route until the current policy
+          // version is on record — this is the gate, not an outage. Fetch
+          // the (exempt) privacy state so the consent screen can act, open
+          // seedless with writes still BLOCKED, and show no error notice:
+          // the entry guard parks the account on /consent, which
+          // rehydrates once consent lands.
+          let privacy: PrivacyState | null = null;
+          try {
+            privacy = await acct.api.privacy.fetchPrivacy();
+          } catch (privacyFailure) {
+            if (epochRef.current !== epoch) return;
+            setSyncNotice({
+              message:
+                privacyFailure instanceof Error && privacyFailure.message
+                  ? privacyFailure.message
+                  : HYDRATE_FAILED_MESSAGE,
+              action: 'retry-hydration',
+            });
+            finish(local);
+            return;
+          }
+          if (epochRef.current !== epoch) return;
+          setHydratedPrivacy(privacy);
+          finish(local);
         } else {
           const failure =
             serverResult.status === 'rejected'
@@ -2075,6 +2138,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       saveOnboardingFlags,
       completeOnboarding,
       hydratedFlags,
+      hydratedPrivacy,
+      applyPrivacy: setHydratedPrivacy,
+      rehydrate,
       todayKey,
       entryFacts,
       profile,
@@ -2135,6 +2201,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       saveOnboardingFlags,
       completeOnboarding,
       hydratedFlags,
+      hydratedPrivacy,
+      rehydrate,
       todayKey,
       entryFacts,
       profile,

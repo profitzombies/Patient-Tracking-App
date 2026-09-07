@@ -14,6 +14,7 @@
  * conversation as it originally appeared.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { CONSENT_POLICY_VERSION } from "../privacy/consent";
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -39,6 +40,8 @@ function eqParam(url: URL, col: string): string | null {
 
 class FakeChatBackend {
   patients: Row[] = [];
+  /** Consent rows — every chat route enforces the current policy version. */
+  consents: Row[] = [];
   conversations: Row[] = [];
   messages: Row[] = [];
   /** access token → auth user id */
@@ -52,6 +55,7 @@ class FakeChatBackend {
 
   reset() {
     this.patients = [];
+    this.consents = [];
     this.conversations = [];
     this.messages = [];
     this.tokens.clear();
@@ -77,6 +81,18 @@ class FakeChatBackend {
       ...overrides,
     };
     this.patients.push(row);
+    this.consents.push({
+      id: crypto.randomUUID(),
+      patient_id: row.id,
+      policy_version: CONSENT_POLICY_VERSION,
+      terms_accepted: true,
+      privacy_accepted: true,
+      health_data_accepted: true,
+      photo_analysis_accepted: true,
+      app_version: null,
+      platform: null,
+      recorded_at: "2026-09-01T00:00:00Z",
+    });
     return { patientId: String(row.id), userId };
   }
 
@@ -164,6 +180,11 @@ class FakeChatBackend {
           (byId === null || String(p.id) === byId),
       );
       return json(200, rows);
+    }
+
+    if (url.pathname === "/rest/v1/patient_consents" && method === "GET") {
+      const byPatient = eqParam(url, "patient_id");
+      return json(200, this.consents.filter(c => String(c.patient_id) === byPatient));
     }
 
     if (url.pathname === "/rest/v1/patient_chat_conversations" && method === "GET") {

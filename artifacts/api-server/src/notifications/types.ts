@@ -11,6 +11,9 @@ export const NOTIFICATION_CATEGORIES = [
   "coach_outreach",
   "check_in_reminders",
   "office_reminders",
+  // Account-level notices (export ready, deletion scheduled): not a patient
+  // preference — always allowed, quiet hours still apply.
+  "account",
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 

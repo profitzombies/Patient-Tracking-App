@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startExportWorker } from "./exports/worker";
 import { startNotificationWorker } from "./notifications/worker";
+import { startPrivacyWorker } from "./privacy/worker";
 
 const rawPort = process.env["PORT"];
 
@@ -29,4 +30,6 @@ app.listen(port, (err) => {
   // Push outbox + coach outreach evaluation; NOTIFICATIONS_DISABLED=1 leaves it
   // to the external scheduler trigger.
   startNotificationWorker();
+  // Patient data exports + due account purges.
+  startPrivacyWorker();
 });

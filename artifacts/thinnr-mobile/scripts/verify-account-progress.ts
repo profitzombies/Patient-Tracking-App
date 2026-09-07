@@ -508,6 +508,7 @@ async function main() {
       accountResolving: false,
       accountKind: 'real',
       patientHydrated: true,
+      consentSatisfied: true,
       onboardingComplete: ctx.hydratedFlags?.onboardingComplete ?? null,
       pathname: '/today',
     }).kind === 'redirect');
@@ -518,6 +519,7 @@ async function main() {
       accountResolving: false,
       accountKind: 'real',
       patientHydrated: true,
+      consentSatisfied: true,
       onboardingComplete: false,
       pathname: '/onboarding/welcome',
     }).kind === 'allow');
@@ -881,6 +883,7 @@ async function main() {
       accountResolving: false,
       accountKind: 'real',
       patientHydrated: true,
+      consentSatisfied: true,
       onboardingComplete: ctx.hydratedFlags?.onboardingComplete ?? null,
       pathname: '/today',
     }).kind === 'redirect');
@@ -907,6 +910,7 @@ async function main() {
       accountResolving: false,
       accountKind: 'real',
       patientHydrated: true,
+      consentSatisfied: true,
       onboardingComplete: ctx.hydratedFlags?.onboardingComplete ?? null,
       pathname: '/today',
     }).kind === 'allow');

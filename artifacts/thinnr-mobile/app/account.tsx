@@ -13,6 +13,7 @@ import { usePatientAccount } from '@/context/PatientAccountContext';
 import { formatPhoneNumber, isValidContact, isValidDateKey } from '@/data/onboarding-data';
 import { supabase } from '@/lib/supabase';
 import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
+import { PrivacyDataControls } from '@/components/account/PrivacyDataControls';
 import {
   buildNotificationPrefsPatch,
   parseNotificationPrefs,
@@ -93,6 +94,11 @@ export default function AccountScreen() {
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <Text style={[styles.body, { color: colors.bodyText }]}>
           Account settings are available for signed-in patient accounts.
+        </Text>
+        <Text testID="account-privacy-unavailable" style={[styles.body, { color: colors.subtleText }]}>
+          {account.kind === 'demo'
+            ? 'Consent records, data export, and account deletion apply to real patient accounts. The guided demo holds no personal data to export or delete.'
+            : 'Consent, data export, and account deletion become available once your account has finished loading.'}
         </Text>
         <PrimaryButton label="Go back" onPress={() => router.back()} />
       </View>
@@ -500,6 +506,9 @@ export default function AccountScreen() {
           </View>
           {device.message ? <View style={styles.gap}><Text style={[styles.body, { color: colors.subtleText }]}>{device.message}</Text></View> : null}
         </LedgerCard>
+
+        <Text style={[styles.section, { color: colors.labelText }]}>PRIVACY & DATA</Text>
+        <PrivacyDataControls />
 
         <Pressable
           testID="account-signout"

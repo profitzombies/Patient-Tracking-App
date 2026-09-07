@@ -11,6 +11,7 @@
  * slice adds.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { CONSENT_POLICY_VERSION } from "../privacy/consent";
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -71,6 +72,9 @@ class FakeBackend {
       patient_progress_photos: [],
       patient_check_ins: [],
       patient_flags: [],
+      patient_consents: [],
+      patient_data_exports: [],
+      patient_deletion_requests: [],
     };
     this.tokens.clear();
     this.failOnce.clear();
@@ -79,11 +83,26 @@ class FakeBackend {
   }
 
   /** Signed-in patient: auth user + token + linked patients row. */
-  seedSignedInPatient(token: string): { patientId: string; userId: string } {
+  seedSignedInPatient(token: string, options: { consent?: boolean } = {}): { patientId: string; userId: string } {
     const userId = crypto.randomUUID();
     this.tokens.set(token, userId);
     const patientId = crypto.randomUUID();
     this.tables.patients.push({ id: patientId, auth_user_id: userId, name: "Casey Patient" });
+    // Every data route enforces the current consent policy version.
+    if (options.consent !== false) {
+      this.tables.patient_consents.push({
+        id: crypto.randomUUID(),
+        patient_id: patientId,
+        policy_version: CONSENT_POLICY_VERSION,
+        terms_accepted: true,
+        privacy_accepted: true,
+        health_data_accepted: true,
+        photo_analysis_accepted: true,
+        app_version: "1.0.0",
+        platform: "ios",
+        recorded_at: "2026-09-01T00:00:00Z",
+      });
+    }
     return { patientId, userId };
   }
 

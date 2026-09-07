@@ -31,6 +31,8 @@ import officeNotificationsRouter from "./office-notifications";
 import officeSettingsRouter from "./office-settings";
 import officeTeamRouter from "./office-team";
 import officeAuditEventsRouter from "./office-audit-events";
+import patientPrivacyRouter from "./patient-privacy";
+import hqPatientDeletionsRouter from "./hq-patient-deletions";
 
 const router: IRouter = Router();
 
@@ -49,6 +51,7 @@ router.use(staffLoginsRouter);
 router.use(claimRouter);
 router.use(authRouter);
 router.use(patientDataRouter);
+router.use(patientPrivacyRouter);
 router.use(patientMediaRouter);
 router.use(patientChatRouter);
 router.use(patientNotificationsRouter);
@@ -62,6 +65,7 @@ router.use(officeSettingsRouter);
 router.use(officeTeamRouter);
 router.use(officeAuditEventsRouter);
 router.use(hqAuditEventsRouter);
+router.use(hqPatientDeletionsRouter);
 router.use(operationalRollupsRouter);
 router.use(staffConversationsRouter);
 router.use(hqSettingsFilesRouter);

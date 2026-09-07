@@ -40,7 +40,7 @@ export interface ParsedPrefs {
   quietHours: QuietHours | null;
 }
 
-const CATEGORY_KEY: Record<NotificationCategory, keyof CategoryPrefs> = {
+const CATEGORY_KEY: Record<Exclude<NotificationCategory, "account">, keyof CategoryPrefs> = {
   coach_outreach: "coachOutreach",
   check_in_reminders: "checkInReminders",
   office_reminders: "officeReminders",
@@ -284,7 +284,7 @@ export function evaluateSendPolicy(input: {
   if (input.category === "coach_outreach" && input.context.nudgeOptOut) {
     return { action: "opt_out", reason: "nudge_opt_out" };
   }
-  if (!parsed.categories[CATEGORY_KEY[input.category]]) {
+  if (input.category !== "account" && !parsed.categories[CATEGORY_KEY[input.category]]) {
     return { action: "opt_out", reason: "category_off" };
   }
   if (parsed.quietHours) {

@@ -1469,6 +1469,31 @@ paths:
         "200":
           description: Paginated allowlisted administrative audit events
           content: { application/json: { schema: { $ref: "#/components/schemas/HqAuditEventsResult" } } }
+  /hq/patient-deletions:
+    get:
+      operationId: getHqPatientDeletions
+      tags: [hq]
+      summary: Patient-requested account deletions across the network, with purge progress and failures surfaced for HQ
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, cancelled, purging, purged, failed] } }
+        - { name: limit, in: query, schema: { type: number } }
+      responses:
+        "200":
+          description: Deletion requests newest first plus a status summary
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqPatientDeletionsResult" } } }
+  /hq/patient-deletions/{id}/retry:
+    post:
+      operationId: retryHqPatientDeletion
+      tags: [hq]
+      summary: Re-queue a failed purge (idempotent; only failed requests can be retried)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The request back in the purge queue
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqPatientDeletionResult" } } }
+        "404": { description: Deletion request not found }
+        "409": { description: Only a failed purge can be retried }
 components:
   securitySchemes:
     bearerAuth:
@@ -2084,6 +2109,44 @@ components:
         targetName: { type: ["string", "null"], description: "Kind label plus resolved record name when available" }
         requestId: { type: ["string", "null"] }
         metadata: { type: object, additionalProperties: true }
+    HqPatientDeletion:
+      type: object
+      description: One patient-initiated deletion request. Steps records each purge stage (storage, rows, auth) with its outcome; no PII is carried.
+      required: [id, patientId, providerId, status, requestedAt, purgeAfter, cancelledAt, startedAt, purgedAt, attempts, nextAttemptAt, lastError, steps]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        providerId: { type: ["string", "null"] }
+        status: { type: string, enum: [pending, cancelled, purging, purged, failed] }
+        requestedAt: { type: string, format: date-time }
+        purgeAfter: { type: string, format: date-time }
+        cancelledAt: { type: ["string", "null"], format: date-time }
+        startedAt: { type: ["string", "null"], format: date-time }
+        purgedAt: { type: ["string", "null"], format: date-time }
+        attempts: { type: number }
+        nextAttemptAt: { type: ["string", "null"], format: date-time }
+        lastError: { type: ["string", "null"] }
+        steps: { type: object, additionalProperties: true }
+    HqPatientDeletionsSummary:
+      type: object
+      required: [pending, cancelled, purging, purged, failed]
+      properties:
+        pending: { type: number }
+        cancelled: { type: number }
+        purging: { type: number }
+        purged: { type: number }
+        failed: { type: number }
+    HqPatientDeletionsResult:
+      type: object
+      required: [deletions, summary]
+      properties:
+        deletions: { type: array, items: { $ref: "#/components/schemas/HqPatientDeletion" } }
+        summary: { $ref: "#/components/schemas/HqPatientDeletionsSummary" }
+    HqPatientDeletionResult:
+      type: object
+      required: [deletion]
+      properties:
+        deletion: { $ref: "#/components/schemas/HqPatientDeletion" }
     HqAuditEventsResult:
       type: object
       required: [events]

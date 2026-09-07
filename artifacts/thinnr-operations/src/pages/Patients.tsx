@@ -13,6 +13,7 @@ import { resendInvitation, type OfficePatient, type OutreachRoster } from "@/lib
 import { compareLiveLogging, isLiveLapsed, rosterActivityFor, type RosterActivity } from "@/lib/roster-activity";
 import { LiveEngagementCell, LiveLoggingCell } from "@/components/office/RosterActivity";
 import { OutreachChip } from "@/components/office/NotificationTimeline";
+import { DeletedAccountsSection, DeletionChip } from "@/components/office/AccountDeletion";
 import {
   useUpdateOfficePatientFollowUp,
   type PatientOperationalFollowUpReason,
@@ -477,6 +478,7 @@ export default function Patients() {
                   <div className="flex flex-col items-end gap-1.5">
                     {patient.isLive && patient.rawLive?.invitation && <InvitationChip patient={patient.rawLive} />}
                     {!patient.showResend && <StatusChip status={patient.status} />}
+                    {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
 
                     {patient.isLive && patient.rawLive?.operational?.reasons.map((reason) => {
                       const followUp = patient.rawLive?.operational?.followUps?.find((item) => item.reason === reason);
@@ -625,6 +627,7 @@ export default function Patients() {
                       <div className="flex flex-col items-start gap-1">
                         {patient.isLive && patient.rawLive?.invitation && <InvitationChip patient={patient.rawLive} />}
                         {!patient.showResend && <StatusChip status={patient.status} />}
+                        {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
 
                         {patient.isLive && patient.rawLive?.operational?.reasons.map((reason) => {
                           const followUp = patient.rawLive?.operational?.followUps?.find((item) => item.reason === reason);
@@ -727,6 +730,10 @@ export default function Patients() {
           </div>
         </div>
       </div>
+
+      {liveEnabled && liveRosterData?.deletedAccounts && (
+        <DeletedAccountsSection accounts={liveRosterData.deletedAccounts} />
+      )}
     </div>
   );
 }

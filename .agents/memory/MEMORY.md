@@ -101,3 +101,4 @@
 - [Organization-wide send caps](outreach-daily-cap.md) — caps are reserved by one DB RPC under an advisory lock, never a worker-local tally; prove with real-PG lock test + mutation-proven memory test.
 - [Coach paused state](coach-paused-state.md) — HQ availability toggle → probe on open + paused 503 on send is terminal and non-retryable; one probe source for every coach entry point.
 - [Office team roles & audit read layer](office-team-and-audit.md) — owner/admin/staff with DB last-owner guard, fail-closed disabled members, app-side audit allowlists; DOM-free Radix stubs + form onSubmit for RTR suites.
+- [Patient purge lifecycle](patient-purge-lifecycle.md) — tombstone-first FK-ordered idempotent purge; null-patient_id guard skip + analytics detach carve-out; grace fixtures ride the real clock.

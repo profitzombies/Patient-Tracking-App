@@ -244,6 +244,18 @@ args = "office-team-web"
 task = "workflow.run"
 args = "office-audit-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "privacy-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "privacy-controls"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "account-deletion"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -867,6 +879,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:office-audit"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "privacy-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/privacy src/routes/patient-privacy.test.ts src/routes/hq-patient-deletions.test.ts src/routes/office-roster.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "privacy-controls"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:privacy-controls"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "account-deletion"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:account-deletion"
 
 [workflows.workflow.metadata]
 isValidation = true

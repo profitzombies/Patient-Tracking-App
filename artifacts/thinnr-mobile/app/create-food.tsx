@@ -34,6 +34,7 @@ import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
 import { LabelScanError, scanLabelPhoto } from '@/lib/coach-api';
 import type { LabelDraft } from '@/lib/label-food';
@@ -66,6 +67,13 @@ export default function CreateFoodScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
+  const patientAccount = usePatientAccount();
+  // Signed-in accounts authenticate the scan so the server can honor the
+  // account's consent and photo-analysis choice; the demo stays tokenless.
+  const scanAuth =
+    patientAccount.account.kind === 'demo'
+      ? {}
+      : { getAuthToken: patientAccount.getAccessToken ?? (async () => null) };
   const pathname = usePathname();
   const params = useLocalSearchParams<{ id?: string }>();
   const editId = typeof params.id === 'string' && params.id ? params.id : undefined;
@@ -263,7 +271,7 @@ export default function CreateFoodScreen() {
     abortRef.current = controller;
     setScan({ kind: 'scanning', photo });
     try {
-      const result = await scanLabelPhoto(photo.uri, { signal: controller.signal });
+      const result = await scanLabelPhoto(photo.uri, { signal: controller.signal, ...scanAuth });
       if (controller.signal.aborted) return;
       if (result.result === 'ok' && result.label) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

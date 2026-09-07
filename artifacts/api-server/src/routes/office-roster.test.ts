@@ -58,6 +58,8 @@ let operationalFacts: Row[] | null = null;
 let activityRequests: Array<{ p_provider_id: string; p_at: string }> = [];
 let operationalFollowUps: Row[] = [];
 let outreachStates: Row[] = [];
+let deletionRequests: Row[] = [];
+let tombstones: Row[] = [];
 
 function response(json: unknown, status = 200): Response {
   return new Response(json == null ? "" : JSON.stringify(json), {
@@ -170,6 +172,8 @@ beforeEach(() => {
   activityRequests = [];
   operationalFollowUps = [];
   outreachStates = [];
+  deletionRequests = [];
+  tombstones = [];
 
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -236,6 +240,10 @@ beforeEach(() => {
     }
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") return response(null, 204);
     if (url.pathname === "/rest/v1/rpc/provider_outreach_states") return response(outreachStates);
+    if (url.pathname === "/rest/v1/patient_deletion_requests" || url.pathname === "/rest/v1/patient_tombstones") {
+      const source = url.pathname.endsWith("requests") ? deletionRequests : tombstones;
+      return response(source.filter((row) => [...url.searchParams.entries()].every(([key, raw]) => !raw.startsWith("eq.") || String(row[key]) === raw.slice(3))));
+    }
     if (url.pathname === "/rest/v1/patient_operational_follow_ups") {
       const providerId = url.searchParams.get("provider_id")?.replace("eq.", "");
       return response(operationalFollowUps.filter((row) => !providerId || row.provider_id === providerId));
@@ -352,6 +360,47 @@ describe("office scope", () => {
       state: "sent_awaiting", eligible: true, crossedOnKey: "2026-06-20", evaluatedAt: "2026-07-01T00:00:00Z", lastSentKey: "2026-06-21",
       delivery: "suppressed", deliveryDetail: "No registered device", notificationId: "n-1",
     });
+  });
+
+  it("shows a pending deletion on the roster and record, lists purged accounts as tombstones, and keeps them out of the patient totals", async () => {
+    const GONE_1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+    const GONE_2 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+    deletionRequests = [{ patient_id: "pat-own", provider_id: "office-1", status: "pending", requested_at: "2026-07-01T00:00:00Z", purge_after: "2026-07-08T00:00:00Z" }];
+    patients[0].deletion_requested_at = "2026-07-01T00:00:00Z";
+    tombstones = [
+      { id: GONE_1, provider_id: "office-1", requested_at: "2026-06-01T00:00:00Z", purged_at: "2026-06-08T00:00:00Z", was_activated: true, program_id: "thinnr", enrolled_on: "2026-01-15" },
+      { id: GONE_2, provider_id: "office-2", requested_at: "2026-06-01T00:00:00Z", purged_at: "2026-06-08T00:00:00Z", was_activated: false, program_id: null, enrolled_on: null },
+    ];
+    const res = await api("/office/roster", "provider-token");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { patients: Row[]; deletedAccounts: Row[]; summary: Row };
+    expect(body.patients[0].deletion).toEqual({ state: "requested", requestedAt: "2026-07-01T00:00:00Z", purgeAfter: "2026-07-08T00:00:00Z" });
+    // Only this office's tombstones, and nothing but the PII-free shape.
+    expect(body.deletedAccounts).toEqual([
+      { id: GONE_1, requestedAt: "2026-06-01T00:00:00Z", purgedAt: "2026-06-08T00:00:00Z", wasActivated: true, programId: "thinnr", enrolledOn: "2026-01-15" },
+    ]);
+    expect(body.summary).toMatchObject({ totalPatients: 1, deletionRequested: 1, deletedAccounts: 1 });
+
+    // The record carries the same pending state.
+    const record = await api("/office/patients/pat-own", "provider-token");
+    expect(record.status).toBe(200);
+    expect(((await record.json()) as { patient: Row }).patient.deletion).toEqual({ state: "requested", requestedAt: "2026-07-01T00:00:00Z", purgeAfter: "2026-07-08T00:00:00Z" });
+
+    // A purged patient's record answers 410 with the tombstone, never a 404 or a half-record.
+    const gone = await api(`/office/patients/${GONE_1}`, "provider-token");
+    expect(gone.status).toBe(410);
+    const goneBody = await gone.json() as { error: string; deleted: Row };
+    expect(goneBody.error).toMatch(/deleted their account/);
+    expect(goneBody.deleted).toMatchObject({ id: GONE_1, wasActivated: true });
+    // Another office's tombstone is invisible.
+    expect((await api(`/office/patients/${GONE_2}`, "provider-token")).status).toBe(404);
+  });
+
+  it("reports no deletion state for an untouched roster", async () => {
+    const body = await (await api("/office/roster", "provider-token")).json() as { patients: Row[]; deletedAccounts: Row[]; summary: Row };
+    expect(body.patients[0].deletion).toBeNull();
+    expect(body.deletedAccounts).toEqual([]);
+    expect(body.summary).toMatchObject({ deletionRequested: 0, deletedAccounts: 0 });
   });
 
   it("passes the aggregate's activity signals through as explicit nullable families", async () => {

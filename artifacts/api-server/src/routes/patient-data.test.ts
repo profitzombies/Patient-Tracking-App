@@ -9,6 +9,7 @@
  * file focuses on what the diary rail adds on top.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { CONSENT_POLICY_VERSION } from "../privacy/consent";
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -50,6 +51,9 @@ class FakeBackend {
       patient_check_ins: [],
       patient_health_measurements: [],
       patient_flags: [],
+      patient_consents: [],
+      patient_data_exports: [],
+      patient_deletion_requests: [],
       claim_verifications: [],
     };
     this.tokens.clear();
@@ -71,12 +75,35 @@ class FakeBackend {
     return row;
   }
 
-  /** Signed-in patient: auth user + token + linked patients row. */
-  seedSignedInPatient(token: string): { patientId: string; userId: string } {
+  /**
+   * Signed-in patient: auth user + token + linked patients row, with the
+   * CURRENT consent policy on record (every data route enforces it).
+   * `{ consent: false }` seeds a patient who has not consented yet.
+   */
+  seedSignedInPatient(token: string, options: { consent?: boolean } = {}): { patientId: string; userId: string } {
     const userId = crypto.randomUUID();
     this.tokens.set(token, userId);
     const patient = this.seedPatient({ auth_user_id: userId });
+    if (options.consent !== false) this.seedConsent(String(patient.id));
     return { patientId: String(patient.id), userId };
+  }
+
+  seedConsent(patientId: string, overrides: Row = {}): Row {
+    const row: Row = {
+      id: crypto.randomUUID(),
+      patient_id: patientId,
+      policy_version: CONSENT_POLICY_VERSION,
+      terms_accepted: true,
+      privacy_accepted: true,
+      health_data_accepted: true,
+      photo_analysis_accepted: true,
+      app_version: "1.0.0",
+      platform: "ios",
+      recorded_at: "2026-09-01T00:00:00Z",
+      ...overrides,
+    };
+    this.tables.patient_consents.push(row);
+    return row;
   }
 
   private parseFilters(url: URL): Array<[string, string, string]> {
@@ -397,7 +424,9 @@ class FakeBackend {
 
     if (method === "POST") {
       const conflictCols = (url.searchParams.get("on_conflict") ?? "").split(",").filter(Boolean);
-      const payload = JSON.parse(String(init?.body ?? "[]")) as Row[];
+      const raw = JSON.parse(String(init?.body ?? "[]")) as Row[] | Row;
+      const payload = Array.isArray(raw) ? raw : [raw];
+      const written: Row[] = [];
       for (const incoming of payload) {
         const existing = conflictCols.length
           ? this.tables[table].find(row =>
@@ -407,11 +436,15 @@ class FakeBackend {
         if (existing) {
           // PostgREST merge-duplicates: update ONLY the payload's columns.
           Object.assign(existing, incoming);
+          written.push(existing);
         } else {
-          this.tables[table].push({ created_at: stampAt(this.seq++), ...incoming });
+          const row = { id: crypto.randomUUID(), created_at: stampAt(this.seq++), ...incoming };
+          this.tables[table].push(row);
+          written.push(row);
         }
       }
-      return json(201, []);
+      const prefer = headers.get("prefer") ?? "";
+      return json(201, prefer.includes("return=representation") ? written : []);
     }
 
     if (method === "PATCH") {
@@ -499,6 +532,9 @@ beforeAll(async () => {
   });
 
   const { default: patientDataRouter } = await import("./patient-data");
+  // The consent/privacy rail is mounted too so the enforcement tests prove
+  // the exemption (a patient with no consent can still record it).
+  const { default: patientPrivacyRouter } = await import("./patient-privacy");
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -509,6 +545,7 @@ beforeAll(async () => {
     next();
   });
   app.use("/api", patientDataRouter);
+  app.use("/api", patientPrivacyRouter);
   server = app.listen(0);
   const address = server.address() as AddressInfo;
   base = `http://127.0.0.1:${address.port}`;
@@ -734,6 +771,80 @@ describe("canonical patient profile", () => {
   });
 });
 
+describe("consent enforcement (server-side gate)", () => {
+  const CONSENT_FAILURE = {
+    error: expect.any(String),
+    code: "CONSENT_REQUIRED",
+    consent: expect.objectContaining({ requiredVersion: CONSENT_POLICY_VERSION, satisfied: false }),
+  };
+
+  it("refuses every data read and write for a patient with no consent on record", async () => {
+    backend.seedSignedInPatient("tok-1", { consent: false });
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.status).toBe(403);
+    expect(state.json).toEqual({ ...CONSENT_FAILURE, consent: expect.objectContaining({ recordedVersion: null }) });
+    // No diary, water, targets, library, profile, or flag payload leaks.
+    expect(Object.keys(state.json).sort()).toEqual(["code", "consent", "error"]);
+
+    const diary = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload()] },
+    });
+    expect(diary.status).toBe(403);
+    expect(diary.json.code).toBe("CONSENT_REQUIRED");
+    expect(backend.tables.patient_diary_entries).toHaveLength(0);
+    expect(backend.rpcCalls).toBe(0);
+
+    const profile = await api("GET", "/api/patient-data/profile", { token: "tok-1" });
+    expect(profile.status).toBe(403);
+    expect(profile.json.code).toBe("CONSENT_REQUIRED");
+  });
+
+  it("treats a record for an OLDER policy version as no consent", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1", { consent: false });
+    backend.seedConsent(patientId, { policy_version: "2020-01-01", recorded_at: "2020-01-02T00:00:00Z" });
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.status).toBe(403);
+    expect(state.json).toEqual({
+      ...CONSENT_FAILURE,
+      consent: expect.objectContaining({ recordedVersion: "2020-01-01", satisfied: false }),
+    });
+  });
+
+  it("keeps the consent and privacy endpoints reachable so the patient can act", async () => {
+    backend.seedSignedInPatient("tok-1", { consent: false });
+    const privacy = await api("GET", "/api/patient-data/privacy", { token: "tok-1" });
+    expect(privacy.status).toBe(200);
+    expect(privacy.json.consent.satisfied).toBe(false);
+
+    const recorded = await api("PUT", "/api/patient-data/consent", {
+      token: "tok-1",
+      body: {
+        policyVersion: CONSENT_POLICY_VERSION,
+        terms: true,
+        privacy: true,
+        healthData: true,
+        photoAnalysis: false,
+        appVersion: "1.4.0",
+        platform: "ios",
+      },
+    });
+    expect(recorded.status).toBe(200);
+    expect(recorded.json.consent.satisfied).toBe(true);
+
+    // The very next data call opens.
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.status).toBe(200);
+    expect(state.json.privacy.consent).toMatchObject({ satisfied: true, photoAnalysis: false });
+  });
+
+  it("never touches demo or unauthenticated callers (401 stays 401)", async () => {
+    const res = await api("GET", "/api/patient-data/state");
+    expect(res.status).toBe(401);
+    expect(res.json.code).toBeUndefined();
+  });
+});
+
 describe("GET /patient-data/state", () => {
   it("mints a media read token scoped to the caller only", async () => {
     const { verifyPatientMediaToken } = await import("../lib/media-token");
@@ -773,6 +884,11 @@ describe("GET /patient-data/state", () => {
         programStartDate: "2026-08-31",
         todayKey: "2026-08-31",
         programDay: 1,
+      },
+      privacy: {
+        consent: { requiredVersion: CONSENT_POLICY_VERSION, recordedVersion: CONSENT_POLICY_VERSION, satisfied: true, photoAnalysis: true, recordedAt: "2026-09-01T00:00:00Z" },
+        export: null,
+        deletion: null,
       },
       mediaToken: expect.any(String),
     });
@@ -951,6 +1067,11 @@ describe("GET /patient-data/state", () => {
         programStartDate: "2026-08-31",
         todayKey: "2026-08-31",
         programDay: 1,
+      },
+      privacy: {
+        consent: { requiredVersion: CONSENT_POLICY_VERSION, recordedVersion: CONSENT_POLICY_VERSION, satisfied: true, photoAnalysis: true, recordedAt: "2026-09-01T00:00:00Z" },
+        export: null,
+        deletion: null,
       },
       mediaToken: expect.any(String),
     });

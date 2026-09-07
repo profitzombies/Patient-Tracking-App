@@ -196,7 +196,10 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     if (bearerToken(req) !== null) {
       let auth;
       try {
-        auth = await resolvePatient(req);
+        // Consent is enforced at the identity choke point. A photo turn also
+        // needs the patient's optional photo-analysis opt-in: declining it
+        // must keep every image away from the model, not just hide a button.
+        auth = await resolvePatient(req, { consent: image !== undefined ? "photo-analysis" : "required" });
       } catch (error) {
         req.log.error({ err: error }, "coach chat patient resolution failed");
         res.status(502).json({
@@ -225,8 +228,14 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           });
           return;
         }
-      } else if (auth.status !== 403) {
-        res.status(auth.status).json({ error: auth.error, retryable: true });
+      } else if (auth.status !== 403 || auth.code !== undefined) {
+        // 401/503 are retryable session problems; a consent refusal is a
+        // real patient who must act first (never the staff→demo fallback).
+        res.status(auth.status).json({
+          error: auth.error,
+          ...auth.details,
+          retryable: auth.code === undefined,
+        });
         return;
       }
     }

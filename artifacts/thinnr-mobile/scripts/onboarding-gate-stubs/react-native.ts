@@ -85,3 +85,14 @@ export const AccessibilityInfo = {
 export function useColorScheme(): 'light' | 'dark' | null {
   return 'light';
 }
+
+/** URLs the app asked the platform to open (privacy export downloads). */
+export const openedUrls: string[] = [];
+export const Linking = {
+  async openURL(url: string): Promise<void> {
+    openedUrls.push(url);
+  },
+  async canOpenURL(): Promise<boolean> {
+    return true;
+  },
+};

@@ -263,7 +263,7 @@ router.get("/patient-chat/:thread", async (req, res) => {
     }
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
 
@@ -334,7 +334,7 @@ router.post("/patient-chat/:thread/messages", async (req, res) => {
     }
     const auth = await resolvePatient(req);
     if (!auth.ok) {
-      res.status(auth.status).json({ error: auth.error });
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
       return;
     }
 

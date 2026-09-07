@@ -30,6 +30,7 @@ import {
   PHOTO_TOO_LARGE_MESSAGE,
   decodedPhotoBytes,
 } from "../lib/photo-guards";
+import { gatePhotoAnalysis } from "../lib/patient-auth";
 
 const router: IRouter = Router();
 
@@ -59,6 +60,15 @@ router.post("/coach/label-scan", express.json({ limit: PHOTO_BODY_LIMIT }), asyn
   }
 
   try {
+    // Consent gate: a signed-in patient who declined photo analysis (or has
+    // not accepted the current policy) never gets a photo to the model.
+    // The lookup can throw when the patients table is unreachable; that
+    // falls through to the route's generic failure answer below.
+    const gate = await gatePhotoAnalysis(req);
+    if (!gate.ok) {
+      res.status(gate.status).json(gate.body);
+      return;
+    }
     const parsed = CoachLabelScanBody.safeParse(req.body);
     if (!parsed.success || !PHOTO_DATA_URI_PATTERN.test(parsed.data.image)) {
       res.status(400).json({ error: INVALID_PHOTO_MESSAGE });

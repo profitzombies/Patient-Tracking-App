@@ -13,6 +13,8 @@ export type AuditActorKind =
   | "hq"
   | "anonymous"
   | "learner"
+  | "patient"
+  | "system"
   | "unknown";
 
 export type AuditMetadata = Record<string, string | number | boolean | null>;
@@ -27,6 +29,7 @@ export function requestIdOf(req: Pick<Request, "headers">): string | null {
 /** Best-effort, deliberately metadata-only audit write for staff actions. */
 export async function recordAdminAuditEvent(input: {
   action: string;
+  /** Null for system-run steps (purge worker) that no signed-in user triggered. */
   actorUserId: string | null;
   actorKind: AuditActorKind;
   providerId: string | null;

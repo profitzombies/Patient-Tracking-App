@@ -24,6 +24,7 @@ import type {
   SavedRecipe,
 } from '@/data/patient-data';
 import type { HealthMeasurement } from '@/lib/device-feature-core';
+import type { PrivacyApi, PrivacyState } from '@/lib/patient-privacy';
 
 /**
  * One progress-photo grid row as it rides the wire: always a stored object
@@ -132,6 +133,11 @@ export interface PatientServerState {
   entry: PatientEntryFacts;
   /** Optional only for compatibility with older test servers during rollout. */
   profile?: PatientProfile;
+  /**
+   * Consent / export / deletion state. Optional for older in-memory test
+   * servers; the route gate treats absence as "consent not yet recorded".
+   */
+  privacy?: PrivacyState;
 }
 
 /**
@@ -259,6 +265,8 @@ export interface PatientDataApi {
     requestId: string;
     code: string;
   }): Promise<{ profile: PatientProfile }>;
+  /** Consent, data export, and account deletion (lib/patient-privacy.ts). */
+  privacy: PrivacyApi;
 }
 
 export type PatientAccount =

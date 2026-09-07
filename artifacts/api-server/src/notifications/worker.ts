@@ -19,6 +19,7 @@ import { logger } from "../lib/logger";
 import { createExpoPushClient, type ExpoPushClient } from "./expo-push";
 import { runOutreachEvaluation, type OutreachRunSummary } from "./stall-outreach";
 import { runNotificationTick, type TickSummary } from "./sender";
+import { loadTickPolicy, type TickPolicy } from "./tick-policy";
 import { supabaseNotificationStore, type NotificationStore } from "./store";
 
 /** Blank-safe env knob: unset or blank means the fallback, never zero. */
@@ -71,6 +72,11 @@ export function runScheduledTick(
       options.outreach === true ||
       (options.outreach !== false && nowMs - lastOutreachAt >= envMs("NOTIFICATIONS_OUTREACH_EVERY_MS", 15 * 60_000));
     let outreach: OutreachRunSummary | null = null;
+    // One policy read per tick: HQ settings + office overrides, shared by the
+    // outreach evaluation (cooldown, cap) and the sender (defaults, quiet hours).
+    const policyLog = (event: string, detail: Record<string, unknown>) => logger.warn(detail, event);
+    let tickPolicy: Promise<TickPolicy> | null = null;
+    const policy = () => (tickPolicy ??= loadTickPolicy(policyLog));
     if (outreachDue) {
       lastOutreachAt = nowMs;
       try {
@@ -78,6 +84,7 @@ export function runScheduledTick(
           store,
           now,
           log: (event, detail) => logger.warn(detail, event),
+          policy,
         });
       } catch (error) {
         // The outbox still drains when the evaluation's reads fail.
@@ -90,6 +97,7 @@ export function runScheduledTick(
       now,
       config: { owner: OWNER },
       log: (event, detail) => logger.warn(detail, event),
+      policy,
     });
     if (outbox.claimed > 0 || outbox.receiptsChecked > 0 || (outreach && outreach.sent > 0)) {
       logger.info({ outbox, outreach }, "notification tick");

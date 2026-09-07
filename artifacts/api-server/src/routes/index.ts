@@ -28,6 +28,7 @@ import exportsRouter from "./exports";
 import officePatientEditsRouter from "./office-patient-edits";
 import patientNotificationsRouter from "./patient-notifications";
 import officeNotificationsRouter from "./office-notifications";
+import officeSettingsRouter from "./office-settings";
 
 const router: IRouter = Router();
 
@@ -55,6 +56,7 @@ router.use(officeRosterRouter);
 router.use(officeOperationsRouter);
 router.use(officePatientEditsRouter);
 router.use(officeNotificationsRouter);
+router.use(officeSettingsRouter);
 router.use(hqAuditEventsRouter);
 router.use(operationalRollupsRouter);
 router.use(staffConversationsRouter);

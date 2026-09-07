@@ -13,6 +13,8 @@ import {
 } from "../../../thinnr-mobile/data/stall-nudge";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { MemoryNotificationStore, type MemoryPatient } from "./memory-store";
+import { DEFAULT_ORG_POLICY } from "../lib/org-policy";
+import type { TickPolicy } from "./tick-policy";
 import {
   composeOutreachMessage,
   evaluateAndSendOutreach,
@@ -220,17 +222,109 @@ describe("outreach send side effects", () => {
     expect(text).not.toContain("pounds down");
   });
 
+  describe("organization policy", () => {
+    const policyWith = (org: Partial<TickPolicy["org"]>): TickPolicy => ({
+      org: { ...DEFAULT_ORG_POLICY, ...org },
+      overrides: new Map(),
+    });
+    const cooledFlags = (crossing: string, sentDaysAgo: number) => ({
+      nudgeOptOut: false,
+      nudgeEngaged: false,
+      nudgeLastSentKey: shiftDayKey(TODAY, -sentDaysAgo),
+      nudgeLastCrossingKey: shiftDayKey(crossing, -30),
+    });
+
+    it("uses HQ's outreach cooldown instead of the app constant", async () => {
+      const store = new MemoryNotificationStore(() => NOW);
+      store.addPatient(patient());
+      const crossing = (await evaluateAndSendOutreach(store, P1, NOW))!.evaluation.assessment.crossedOnKey!;
+      // Sent 5 days ago: inside the 14-day default, past a 3-day HQ cooldown.
+      store.patients.get(P1)!.flags = cooledFlags(crossing, 5);
+      expect((await evaluateAndSendOutreach(store, P1, NOW))!.evaluation.decision).toBe("cooldown");
+      expect((await evaluateAndSendOutreach(store, P1, NOW, { cooldownDays: 3, dailyCap: null }))!.evaluation.decision).toBe("send");
+      // Longer than the default: 20 days ago still cools down under a 30-day policy.
+      store.patients.get(P1)!.flags = cooledFlags(crossing, 20);
+      expect((await evaluateAndSendOutreach(store, P1, NOW, { cooldownDays: 30, dailyCap: null }))!.evaluation.decision).toBe("cooldown");
+    });
+
+    it("stops enqueueing once the organization's daily cap is reached and resumes the next UTC day", async () => {
+      const store = new MemoryNotificationStore(() => NOW);
+      store.addPatient(patient());
+      store.addPatient(patient({ patientId: P2 }));
+      const summary = await runOutreachEvaluation({ store, now: () => NOW, policy: policyWith({ outreachDailyCap: 1 }) });
+      expect(summary).toEqual({ evaluated: 2, sent: 1, capped: 1, errors: 0 });
+      expect(store.notifications.size).toBe(1);
+      const decisions = [...store.outreachStates.values()].map((row) => row.decision).sort();
+      expect(decisions).toEqual(["capped", "send"]);
+      // The capped patient's gate was NOT stamped, so it is still due, and no
+      // coach message was seeded for a nudge that never went out.
+      const capped = [...store.outreachStates.values()].find((row) => row.decision === "capped")!;
+      expect(store.patients.get(capped.patient_id)!.flags?.nudgeLastSentKey).toBeUndefined();
+      expect(store.seededMessages.map((entry) => entry.patientId)).not.toContain(capped.patient_id);
+      // Next UTC day the count resets and the held patient sends.
+      const tomorrow = new Date(NOW.getTime() + 24 * 3600_000);
+      const next = await runOutreachEvaluation({ store, now: () => tomorrow, policy: policyWith({ outreachDailyCap: 1 }) });
+      expect(next.sent).toBe(1);
+      expect(next.capped).toBe(0);
+      expect(store.notifications.size).toBe(2);
+    });
+
+    it("counts sends from earlier ticks the same UTC day toward the cap", async () => {
+      const store = new MemoryNotificationStore(() => NOW);
+      store.addPatient(patient());
+      store.addPatient(patient({ patientId: P2 }));
+      expect((await runOutreachEvaluation({ store, now: () => NOW, limit: 1, policy: policyWith({ outreachDailyCap: 1 }) })).sent).toBe(1);
+      const second = await runOutreachEvaluation({ store, now: () => new Date(NOW.getTime() + 60_000), policy: policyWith({ outreachDailyCap: 1 }) });
+      expect(second).toMatchObject({ sent: 0, capped: 1 });
+    });
+
+    it("never overshoots the cap when two worker processes tick at once", async () => {
+      // A store whose cap count is read, then yields to the event loop before
+      // the insert, the way separate round-trips do: without the reservation
+      // being one serialized unit, both workers read "0 sent today" and both
+      // insert. (Proven: dropping the memory store's gate fails this test.)
+      class SlowCountStore extends MemoryNotificationStore {
+        countCalls = 0;
+        protected override async countKindSince(kind: string, since: Date) {
+          this.countCalls += 1;
+          const count = await super.countKindSince(kind, since);
+          await new Promise((resolve) => setImmediate(resolve));
+          await new Promise((resolve) => setImmediate(resolve));
+          return count;
+        }
+      }
+      const store = new SlowCountStore(() => NOW);
+      store.addPatient(patient());
+      store.addPatient(patient({ patientId: P2 }));
+      store.addPatient(patient({ patientId: "00000000-0000-4000-8000-000000000003" }));
+      const policy = policyWith({ outreachDailyCap: 1 });
+      const [a, b] = await Promise.all([
+        runOutreachEvaluation({ store, now: () => NOW, policy }),
+        runOutreachEvaluation({ store, now: () => NOW, policy }),
+      ]);
+      expect(store.countCalls).toBeGreaterThanOrEqual(2);
+      expect(a.sent + b.sent).toBe(1);
+      expect(store.notifications.size).toBe(1);
+      expect([...store.notifications.values()].filter((row) => row.kind === "coach_outreach")).toHaveLength(1);
+      // Only the patient who got the row was stamped; the others stay due.
+      const stamped = [...store.patients.values()].filter((row) => row.flags?.nudgeLastSentKey);
+      expect(stamped).toHaveLength(1);
+      expect(store.seededMessages).toHaveLength(1);
+      expect(store.seededMessages[0].patientId).toBe(stamped[0].patientId);
+    });
+  });
+
   it("evaluates only stale candidates on a run and skips paused patients", async () => {
     const store = new MemoryNotificationStore(() => NOW);
     store.addPatient(patient());
     store.addPatient(patient({ patientId: P2, activated: false }));
     let summary = await runOutreachEvaluation({ store, now: () => NOW });
-    expect(summary).toEqual({ evaluated: 1, sent: 1, errors: 0 });
+    expect(summary).toEqual({ evaluated: 1, sent: 1, capped: 0, errors: 0 });
     // Fresh evaluation: nothing to do an hour later.
     summary = await runOutreachEvaluation({ store, now: () => new Date(NOW.getTime() + 3600_000) });
     expect(summary.evaluated).toBe(0);
     // Stale after the interval: re-evaluated, standing, no new send.
     summary = await runOutreachEvaluation({ store, now: () => new Date(NOW.getTime() + 7 * 3600_000) });
-    expect(summary).toEqual({ evaluated: 1, sent: 0, errors: 0 });
+    expect(summary).toEqual({ evaluated: 1, sent: 0, capped: 0, errors: 0 });
   });
 });

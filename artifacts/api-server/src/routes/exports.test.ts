@@ -16,6 +16,7 @@ vi.mock("../lib/staff-auth", async () => {
   return { ...actual, verifyStaffToken: (token: string) => Promise.resolve(mocks.staff(token)) };
 });
 import router, { availableKinds, exportJobDto } from "./exports";
+import { invalidateOrgPolicyCache } from "../lib/org-policy";
 
 let server: http.Server; let base = "";
 beforeAll(async () => { const app = express(); app.use(express.json()); app.use(router); await new Promise<void>(r => { server = app.listen(0, () => r()); }); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`; });
@@ -36,8 +37,12 @@ const jobRow = (overrides: Record<string, unknown> = {}) => ({
 });
 
 /** Route the PostgREST calls the request handler makes by path prefix. */
-function adminScript(handlers: { pending?: unknown[]; inserted?: Record<string, unknown>; job?: Record<string, unknown> | null }) {
+function adminScript(handlers: { pending?: unknown[]; inserted?: Record<string, unknown>; job?: Record<string, unknown> | null; exportLinkHours?: number }) {
   mocks.admin.mockReset().mockImplementation(async (method: string, path: string, body?: unknown) => {
+    if (path.startsWith("/rest/v1/hq_organization_settings")) {
+      if (handlers.exportLinkHours === undefined) throw new Error("policy unavailable");
+      return response([{ export_link_hours: handlers.exportLinkHours, version: 1 }]);
+    }
     if (path.startsWith("/rest/v1/data_exports?requested_by=") && path.includes("status=in.(queued,running)")) return response(handlers.pending ?? []);
     if (method === "POST" && path === "/rest/v1/data_exports") return response([{ ...jobRow({ status: "queued", object_path: null, completed_at: null }), ...(body as Record<string, unknown>), ...(handlers.inserted ?? {}) }], 201);
     if (method === "GET" && path.startsWith(`/rest/v1/data_exports?id=eq.${JOB_ID}`)) return response(handlers.job === null ? [] : [handlers.job ?? jobRow()]);
@@ -48,6 +53,7 @@ function adminScript(handlers: { pending?: unknown[]; inserted?: Record<string, 
 }
 
 beforeEach(() => {
+  invalidateOrgPolicyCache();
   mocks.audit.mockReset().mockResolvedValue(undefined);
   mocks.drain.mockReset().mockResolvedValue(0);
   mocks.scope.mockReset();
@@ -125,6 +131,19 @@ describe("requesting exports", () => {
     mocks.staff.mockReturnValue(hq("admin"));
     adminScript({ pending: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }, { id: 5 }] });
     expect((await call("/exports", "POST", { kind: "provider_directory" })).status).toBe(429);
+  });
+  it("uses the organization's export link lifetime for new jobs and the list", async () => {
+    mocks.staff.mockReturnValue(hq("clinical"));
+    adminScript({ exportLinkHours: 48 });
+    const before = Date.now();
+    const res = await call("/exports", "POST", { kind: "office_comparison", start: "2026-08-01", end: "2026-09-06" });
+    expect(res.status).toBe(202);
+    const insert = mocks.admin.mock.calls.find(([method, path]) => method === "POST" && path === "/rest/v1/data_exports")!;
+    const expiresAt = Date.parse((insert[2] as { expires_at: string }).expires_at);
+    expect(expiresAt - before).toBeGreaterThanOrEqual(48 * 3_600_000 - 5_000);
+    expect(expiresAt - before).toBeLessThanOrEqual(48 * 3_600_000 + 60_000);
+    const json = await (await call("/exports")).json() as { ttlHours: number };
+    expect(json.ttlHours).toBe(48);
   });
   it("lists only the caller's jobs and the kinds their role may request", async () => {
     mocks.staff.mockReturnValue(hq("clinical"));

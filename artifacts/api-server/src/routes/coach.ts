@@ -6,6 +6,7 @@ import { buildSystemPrompt, toModelMessages } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
 import { realPatientContext } from "../coach/real-patient";
 import { bearerToken, resolvePatient } from "../lib/patient-auth";
+import { loadOrgPolicy } from "../lib/org-policy";
 import { detectBackOnTrackFollowUp, generateBackOnTrackTurn } from "../coach/back-on-track";
 import { acquireChatSlot, acquireMenuScanSlot } from "../coach/limits";
 import { findProduct, matchProducts, productCardPayload } from "../coach/products";
@@ -53,6 +54,52 @@ export const COACH_CHAT_PATH = "/api/coach/chat";
 
 /** Most recent messages kept per request; the client sends session history. */
 const MAX_HISTORY = 12;
+
+/** What a paused coach tells the patient (the app shows it verbatim). */
+export const COACH_PAUSED_MESSAGE =
+  "Your care team has paused the coach for now. Your diary, check-ins, and photos keep working, and the coach will be back as soon as they turn it on again.";
+
+/**
+ * HQ policy read for the pause gate. A policy read failure never blocks
+ * coaching: the loader serves its last-known-good policy, and with none at
+ * all the coach stays available (logged) rather than failing every patient
+ * because a settings read hiccuped.
+ */
+async function coachAvailable(req: { log: { error: (obj: unknown, msg: string) => void } }): Promise<boolean> {
+  try {
+    return (await loadOrgPolicy()).coachAvailable;
+  } catch (error) {
+    req.log.error({ err: error }, "coach availability policy read failed");
+    return true;
+  }
+}
+
+router.get("/coach/availability", async (req, res) => {
+  // Only sessions that resolve to a real patient are subject to the pause;
+  // the demo persona and staff browsing it always see an available coach.
+  if (bearerToken(req) === null) {
+    res.json({ available: true, message: null });
+    return;
+  }
+  let auth;
+  try {
+    auth = await resolvePatient(req);
+  } catch (error) {
+    req.log.error({ err: error }, "coach availability patient resolution failed");
+    res.status(502).json({ error: "Couldn't load your account right now. Please try again.", retryable: true });
+    return;
+  }
+  if (!auth.ok) {
+    if (auth.status === 403) {
+      res.json({ available: true, message: null });
+      return;
+    }
+    res.status(auth.status).json({ error: auth.error, retryable: true });
+    return;
+  }
+  const available = await coachAvailable(req);
+  res.json({ available, message: available ? null : COACH_PAUSED_MESSAGE });
+});
 
 router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req, res) => {
   const startedAt = Date.now();
@@ -159,6 +206,14 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         return;
       }
       if (auth.ok) {
+        // Organization policy: the care team can pause the coach for real
+        // patients. Checked before any model call so a paused coach costs
+        // nothing and answers the same honest JSON the app renders as its
+        // "paused by your care team" state. The demo persona is never paused.
+        if (!(await coachAvailable(req))) {
+          res.status(503).json({ error: COACH_PAUSED_MESSAGE, retryable: false, coachPaused: true });
+          return;
+        }
         try {
           patientContext = await realPatientContext(auth.patientId, parsed.data.localDate);
           realPatient = true;

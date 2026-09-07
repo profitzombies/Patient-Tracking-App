@@ -9,6 +9,18 @@ import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { objectStorage, ObjectNotFoundError, UPLOAD_URL_TTL_SEC } from "../lib/objectStorage";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import {
+  POLICY_SECTIONS,
+  SETTINGS_SELECT,
+  policyFromRow,
+  policyToColumns,
+  primeOrgPolicyCache,
+  readOrgSettingsRow,
+  sectionChangesFromRow,
+} from "../lib/org-policy";
+import { INVALID_SETTINGS, diffPolicy, hqActorName, mergePolicyInput, settingsDto, validHqTimezone } from "../lib/org-policy-edit";
+
+export { validHqTimezone };
 
 const router: IRouter = Router();
 const requireAdmin = requireHqPermission("settings_manage");
@@ -72,15 +84,6 @@ export function hqFileNameMatchesContentType(name: string, contentType: string):
   ) ?? false;
 }
 
-export function validHqTimezone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function starts(head: Buffer, signature: number[]): boolean {
   return head.length >= signature.length && signature.every((byte, index) => head[index] === byte);
 }
@@ -124,16 +127,6 @@ export function validateHqFileHead(contentType: string, head: Buffer): boolean {
   }
 }
 
-function settingsDto(row: Record<string, unknown>) {
-  return {
-    organizationName: String(row.organization_name),
-    supportEmail: row.support_email ? String(row.support_email) : null,
-    supportPhone: row.support_phone ? String(row.support_phone) : null,
-    defaultTimezone: String(row.default_timezone),
-    updatedAt: String(row.updated_at),
-  };
-}
-
 function fileDto(row: Record<string, unknown>) {
   return {
     id: String(row.id),
@@ -147,9 +140,8 @@ function fileDto(row: Record<string, unknown>) {
 
 router.get("/hq/settings", async (req, res) => {
   try {
-    const result = await supabaseAdmin("GET", "/rest/v1/hq_organization_settings?singleton=eq.true&select=organization_name,support_email,support_phone,default_timezone,updated_at&limit=1");
-    if (result.status >= 300 || !Array.isArray(result.json) || !result.json[0]) throw new Error(`settings read failed (${result.status})`);
-    res.json(settingsDto(result.json[0] as Record<string, unknown>));
+    const row = await readOrgSettingsRow();
+    res.json(settingsDto(row));
   } catch (error) {
     req.log?.error({ err: error }, "HQ settings read failed");
     res.status(502).json({ error: "Could not load organization settings right now." });
@@ -157,41 +149,66 @@ router.get("/hq/settings", async (req, res) => {
 });
 
 router.put("/hq/settings", async (req, res) => {
-  const parsed = UpdateHqSettingsBody.safeParse(req.body);
+  const parsed = UpdateHqSettingsBody.strict().safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Check the organization settings." });
-    return;
-  }
-  const input = parsed.data;
-  const organizationName = input.organizationName.trim();
-  const supportEmail = input.supportEmail?.trim().toLowerCase() || null;
-  const supportPhone = input.supportPhone?.trim() || null;
-  const defaultTimezone = input.defaultTimezone.trim();
-  if (
-    !organizationName ||
-    (supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supportEmail)) ||
-    (supportPhone && !/^[+()0-9 .-]{7,40}$/.test(supportPhone)) ||
-    !validHqTimezone(defaultTimezone)
-  ) {
-    res.status(400).json({ error: "Check the organization settings." });
+    res.status(400).json({ error: INVALID_SETTINGS });
     return;
   }
   try {
     const actor = identity(res);
+    const currentRow = await readOrgSettingsRow();
+    const current = policyFromRow(currentRow);
+    if (parsed.data.expectedVersion !== undefined && parsed.data.expectedVersion !== current.version) {
+      res.status(409).json({ error: "Someone else saved these settings first. Reload to see the latest values.", version: current.version });
+      return;
+    }
+    const merged = mergePolicyInput(current, parsed.data);
+    if (!merged.ok) {
+      res.status(400).json({ error: merged.error });
+      return;
+    }
+    const changes = diffPolicy(current, merged.policy);
+    if (changes.length === 0) {
+      res.json(settingsDto(currentRow));
+      return;
+    }
     const now = new Date().toISOString();
-    const result = await supabaseAdmin("POST", "/rest/v1/hq_organization_settings?on_conflict=singleton", {
-      singleton: true, organization_name: organizationName, support_email: supportEmail,
-      support_phone: supportPhone, default_timezone: defaultTimezone, updated_at: now, updated_by: actor.userId,
-    }, "resolution=merge-duplicates,return=representation");
+    const actorName = await hqActorName(actor.userId);
+    const sections = sectionChangesFromRow(currentRow);
+    const nextSections: Record<string, { at: string; by: string; name: string | null }> = {};
+    for (const section of POLICY_SECTIONS) {
+      const prior = sections[section];
+      if (prior) nextSections[section] = { at: prior.changedAt, by: prior.changedBy ?? "", name: prior.changedByName };
+    }
+    for (const change of changes) {
+      nextSections[change.section] = { at: now, by: actor.userId, name: actorName };
+    }
+    const nextVersion = current.version + 1;
+    const result = await supabaseAdmin(
+      "PATCH",
+      `/rest/v1/hq_organization_settings?singleton=eq.true&version=eq.${current.version}&select=${SETTINGS_SELECT}`,
+      { ...policyToColumns(merged.policy), version: nextVersion, updated_at: now, updated_by: actor.userId, section_changes: nextSections },
+      "return=representation",
+    );
     if (result.status >= 300) throw new Error(`settings update failed (${result.status})`);
-    const row = Array.isArray(result.json) ? result.json[0] : result.json;
-    await recordAdminAuditEvent({
-      action: "hq_settings_updated", actorUserId: actor.userId, actorKind: "hq",
-      providerId: null, targetKind: "organization_settings", targetId: "singleton",
-      requestId: req.headers["x-request-id"]?.toString() ?? null,
-      metadata: { field: "organization_settings" },
-    }).catch(error => req.log?.error({ err: error }, "HQ settings audit failed"));
-    res.json(settingsDto(row as Record<string, unknown>));
+    const row = Array.isArray(result.json) ? (result.json[0] as Record<string, unknown> | undefined) : undefined;
+    if (!row) {
+      // The guarded PATCH matched nothing: a concurrent save won the version race.
+      res.status(409).json({ error: "Someone else saved these settings first. Reload to see the latest values.", version: current.version });
+      return;
+    }
+    primeOrgPolicyCache(policyFromRow(row));
+    const requestId = req.headers["x-request-id"]?.toString() ?? null;
+    await Promise.all(
+      changes.map(change =>
+        recordAdminAuditEvent({
+          action: "hq_settings_updated", actorUserId: actor.userId, actorKind: "hq",
+          providerId: null, targetKind: "organization_settings", targetId: "singleton", requestId,
+          metadata: { field: change.field, section: change.section, from: change.from, to: change.to, version: nextVersion },
+        }).catch(error => req.log?.error({ err: error, field: change.field }, "HQ settings audit failed")),
+      ),
+    );
+    res.json(settingsDto(row));
   } catch (error) {
     req.log?.error({ err: error }, "HQ settings update failed");
     res.status(502).json({ error: "Could not save organization settings right now." });

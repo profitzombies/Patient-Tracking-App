@@ -15,3 +15,8 @@ export function useRouter() {
 export function usePathname(): string {
   return '/';
 }
+
+/** The coach screen reads its entry params; the suite opens it bare. */
+export function useLocalSearchParams(): Record<string, string | undefined> {
+  return {};
+}

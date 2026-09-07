@@ -7,7 +7,8 @@
   // the stored transcript, finalized-message appends, restart-resume, and
   // the demo persona staying byte-identical. Same stub set as the
   // live-diary suite, plus expo-router hooks and a reanimated shim for the
-  // support screen's thinking indicator.
+  // support screen's thinking indicator, and the camera/image stubs the
+  // coach screen needs for the coach-paused section.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",
@@ -20,6 +21,15 @@
       "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
       "expo-router": ["./scripts/chat-account-stubs/expo-router.ts"],
       "react-native-reanimated": ["./scripts/chat-account-stubs/react-native-reanimated.ts"],
+      "@/components/ui/AppModal": ["./scripts/meal-photo-stubs/app-modal.ts"],
+      "@/data/product-images": ["./scripts/chat-account-stubs/product-images.ts"],
+      "@/data/recipe-images": ["./scripts/guided-photo-stubs/recipe-images.ts"],
+      "expo-camera": ["./scripts/meal-photo-stubs/expo-camera.ts"],
+      "expo-media-library": ["./scripts/meal-photo-stubs/expo-media-library.ts"],
+      "expo-media-library/legacy": ["./scripts/meal-photo-stubs/expo-media-library.ts"],
+      "expo-image": ["./scripts/label-scan-stubs/expo-image.ts"],
+      "expo-image-picker": ["./scripts/label-scan-stubs/expo-image-picker.ts"],
+      "expo-image-manipulator": ["./scripts/label-scan-stubs/expo-image-manipulator.ts"],
       "react-native-safe-area-context": [
         "./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"
       ],

@@ -6,9 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * One day of an office's series. engagedPatients is a rolling 7-day count (active patients with activity in [date-6, date]); enrollments and checkIns are exact-day counts.
+ */
 export interface OfficeSeriesPoint {
   date: Date;
   activePatients: number;
+  /** Active patients with any activity in the 7 days ending on this date */
   engagedPatients: number;
   enrollments: number;
   checkIns: number;

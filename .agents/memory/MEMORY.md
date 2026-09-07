@@ -97,3 +97,6 @@
 - [Tester sign-in without tokens](tester-session-injection.md) — never paste JWTs to the tester; throwaway identities + temporary self-deleting session helper that seeds the app's own storage keys.
 - [Live patient record edits](live-record-edits.md) — legacy rows are name-only (derive the untouched half), staff weights own table + trigger, expectedVersion null ≠ skip, e2e fixtures need mgmt-API cleanup.
 - [Push notification outbox](push-notification-outbox.md) — suppression decided at send time (reason on the row); lease proven on real PG; quiet-hours end uses the offset AT the end wall time (DST).
+- [Organization policy settings](org-policy-settings.md) — one versioned HQ row with section-scoped PUTs (409 on stale); null-inherit office overrides, tri-state quiet hours; signed-in never sees demo.
+- [Organization-wide send caps](outreach-daily-cap.md) — caps are reserved by one DB RPC under an advisory lock, never a worker-local tally; prove with real-PG lock test + mutation-proven memory test.
+- [Coach paused state](coach-paused-state.md) — HQ availability toggle → probe on open + paused 503 on send is terminal and non-retryable; one probe source for every coach entry point.

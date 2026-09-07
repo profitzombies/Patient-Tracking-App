@@ -143,7 +143,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 navigate('/');
               }
         }
-        onSettings={() => toast({ title: 'Settings opened' })}
+        onSettings={() => navigate('/settings')}
       />
 
       {/* Main Content Area */}

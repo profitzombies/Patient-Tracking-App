@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { GetOfficeConversationsStatus } from './getOfficeConversationsStatus';
 import type { GetOfficeConversationsThread } from './getOfficeConversationsThread';
 import type { OfficeIdParameter } from './officeIdParameter';
 
@@ -14,6 +15,10 @@ export type GetOfficeConversationsParams = {
  */
 office?: OfficeIdParameter;
 thread?: GetOfficeConversationsThread;
+/**
+ * Auto-close filter. A conversation is closed once it has been idle for the organization's conversation auto-close window (HQ settings).
+ */
+status?: GetOfficeConversationsStatus;
 /**
  * @minimum 1
  * @maximum 100

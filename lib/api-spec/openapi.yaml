@@ -120,6 +120,25 @@ paths:
           description: Invalid request body
         "429":
           description: Rate limited
+        "503":
+          description: >-
+            The care team has paused the coach (organization policy). JSON
+            body {"error", "retryable": false, "coachPaused": true}. Only
+            real patient sessions are paused; the demo persona is unaffected.
+  /coach/availability:
+    get:
+      operationId: getCoachAvailability
+      tags: [coach]
+      summary: Whether the AI coach is currently available to this patient
+      description: >-
+        Reads the HQ coach-availability policy. Unauthenticated (demo) callers
+        are always available; a real patient session answers the live policy
+        so the app can show an honest "coach paused by your care team" state
+        before the patient types.
+      responses:
+        "200":
+          description: Availability
+          content: { application/json: { schema: { $ref: "#/components/schemas/CoachAvailability" } } }
   /coach/recipe-image:
     post:
       operationId: coachRecipeImage
@@ -1192,6 +1211,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/OfficeId"
         - { name: thread, in: query, schema: { type: string, enum: [coach, support] } }
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, closed, all], default: all }
+          description: >-
+            Auto-close filter. A conversation is closed once it has been idle for
+            the organization's conversation auto-close window (HQ settings).
         - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
         - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
       responses:
@@ -1308,15 +1333,20 @@ paths:
     get:
       operationId: getHqSettings
       tags: [hq]
-      summary: Read persisted organization settings
+      summary: Read the persisted organization settings and policy contract
       responses:
         "200":
-          description: Organization settings
+          description: Organization settings with per-section last-changed metadata
           content: { application/json: { schema: { $ref: "#/components/schemas/HqOrganizationSettings" } } }
     put:
       operationId: updateHqSettings
       tags: [hq]
-      summary: Replace persisted organization settings
+      summary: Update organization settings and policies
+      description: >-
+        Merge update: fields left out keep their current values, so a client
+        may save one section at a time. Every changed field is audited with
+        field-level metadata (section, from, to) and bumps the settings
+        version; pass expectedVersion to refuse overwriting a newer save.
       requestBody:
         required: true
         content:
@@ -1327,6 +1357,39 @@ paths:
           description: Updated organization settings
           content: { application/json: { schema: { $ref: "#/components/schemas/HqOrganizationSettings" } } }
         "400": { description: Invalid settings }
+        "409": { description: Settings changed since expectedVersion }
+  /office/settings:
+    get:
+      operationId: getOfficeSettings
+      tags: [office]
+      summary: Read the effective policy for an office with its permitted overrides
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: HQ policy, the office's overrides, and the effective values
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeSettings" } } }
+        "404": { description: Office unavailable }
+  /office/settings/overrides:
+    put:
+      operationId: updateOfficeSettingsOverrides
+      tags: [office]
+      summary: Replace the office-local overrides HQ marks overridable
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OfficeOverridesInput" }
+      responses:
+        "200":
+          description: Updated office settings
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeSettings" } } }
+        "400": { description: Invalid overrides }
+        "404": { description: Office unavailable }
+        "409": { description: Overrides changed since expectedVersion }
+        "423": { description: Office locked }
   /hq/files/upload-url:
     post:
       operationId: createHqFileUpload
@@ -1598,7 +1661,7 @@ components:
         metrics: { $ref: "#/components/schemas/OperationalRollup" }
     ConversationSummary:
       type: object
-      required: [id, patientId, patientName, thread, messageCount, lastMessageAt, createdAt]
+      required: [id, patientId, patientName, thread, messageCount, lastMessageAt, createdAt, status]
       properties:
         id: { type: string }
         patientId: { type: string }
@@ -1607,10 +1670,15 @@ components:
         messageCount: { type: number }
         lastMessageAt: { type: ["string", "null"] }
         createdAt: { type: string }
+        status:
+          type: string
+          enum: [open, closed]
+          description: Derived from lastMessageAt against the organization's auto-close window
     ConversationSummaryResult:
       type: object
       required: [conversations, total]
       properties:
+        autoCloseDays: { type: number, description: The auto-close window the statuses were derived with }
         conversations: { type: array, items: { $ref: "#/components/schemas/ConversationSummary" } }
         total: { type: number }
     ConversationEvent:
@@ -1629,24 +1697,154 @@ components:
         conversation: { $ref: "#/components/schemas/ConversationSummary" }
         events: { type: array, items: { $ref: "#/components/schemas/ConversationEvent" } }
         nextBefore: { type: ["number", "null"] }
+    QuietHoursWindow:
+      type: object
+      required: [start, end]
+      properties:
+        start: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        end: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+    NotificationCategoryDefaults:
+      type: object
+      required: [coachOutreach, checkInReminders, officeReminders]
+      properties:
+        coachOutreach: { type: boolean }
+        checkInReminders: { type: boolean }
+        officeReminders: { type: boolean }
+    RetentionPolicy:
+      type: object
+      required: [chatTranscriptDays, progressPhotoDays, notificationHistoryDays, auditEventDays]
+      properties:
+        chatTranscriptDays: { type: number, minimum: 30, maximum: 3650 }
+        progressPhotoDays: { type: number, minimum: 30, maximum: 3650 }
+        notificationHistoryDays: { type: number, minimum: 7, maximum: 3650 }
+        auditEventDays: { type: number, minimum: 365, maximum: 3650 }
+    PolicySectionChange:
+      type: object
+      required: [changedAt, changedBy, changedByName]
+      properties:
+        changedAt: { type: string }
+        changedBy: { type: ["string", "null"] }
+        changedByName: { type: ["string", "null"] }
+    PolicySectionChanges:
+      type: object
+      required: [organization, coach, notifications, conversations, retention]
+      properties:
+        organization: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
+        coach: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
+        notifications: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
+        conversations: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
+        retention: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
     HqOrganizationSettings:
       type: object
-      required: [organizationName, supportEmail, supportPhone, defaultTimezone, updatedAt]
+      required:
+        - organizationName
+        - supportEmail
+        - supportPhone
+        - defaultTimezone
+        - coachAvailable
+        - escalationEmail
+        - defaultCategories
+        - defaultQuietHours
+        - outreachCooldownDays
+        - outreachDailyCap
+        - conversationAutoCloseDays
+        - retention
+        - exportLinkHours
+        - version
+        - updatedAt
+        - sections
       properties:
         organizationName: { type: string }
         supportEmail: { type: ["string", "null"] }
         supportPhone: { type: ["string", "null"] }
         defaultTimezone: { type: string }
+        coachAvailable: { type: boolean }
+        escalationEmail: { type: ["string", "null"] }
+        defaultCategories: { $ref: "#/components/schemas/NotificationCategoryDefaults" }
+        defaultQuietHours: { oneOf: [{ $ref: "#/components/schemas/QuietHoursWindow" }, { type: "null" }] }
+        outreachCooldownDays: { type: number }
+        outreachDailyCap: { type: number }
+        conversationAutoCloseDays: { type: number }
+        retention: { $ref: "#/components/schemas/RetentionPolicy" }
+        exportLinkHours: { type: number }
+        version: { type: number }
         updatedAt: { type: string }
+        sections: { $ref: "#/components/schemas/PolicySectionChanges" }
     HqOrganizationSettingsInput:
       type: object
       additionalProperties: false
-      required: [organizationName, supportEmail, supportPhone, defaultTimezone]
       properties:
+        expectedVersion: { type: number, minimum: 1 }
         organizationName: { type: string, minLength: 1, maxLength: 160 }
         supportEmail: { type: ["string", "null"], maxLength: 320 }
         supportPhone: { type: ["string", "null"], maxLength: 40 }
         defaultTimezone: { type: string, minLength: 1, maxLength: 80 }
+        coachAvailable: { type: boolean }
+        escalationEmail: { type: ["string", "null"], maxLength: 320 }
+        defaultCategories: { $ref: "#/components/schemas/NotificationCategoryDefaults" }
+        defaultQuietHours: { oneOf: [{ $ref: "#/components/schemas/QuietHoursWindow" }, { type: "null" }] }
+        outreachCooldownDays: { type: number, minimum: 1, maximum: 90 }
+        outreachDailyCap: { type: number, minimum: 1, maximum: 10000 }
+        conversationAutoCloseDays: { type: number, minimum: 1, maximum: 365 }
+        retention: { $ref: "#/components/schemas/RetentionPolicy" }
+        exportLinkHours: { type: number, minimum: 1, maximum: 168 }
+    OfficeQuietHoursOverride:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [inherit, none, custom] }
+        start: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        end: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+    OfficeOverrides:
+      type: object
+      required: [quietHours, escalationEmail, version, updatedAt, updatedBy, updatedByName]
+      properties:
+        quietHours: { $ref: "#/components/schemas/OfficeQuietHoursOverride" }
+        escalationEmail: { type: ["string", "null"] }
+        version: { type: number }
+        updatedAt: { type: ["string", "null"] }
+        updatedBy: { type: ["string", "null"] }
+        updatedByName: { type: ["string", "null"] }
+    OfficeOverridesInput:
+      type: object
+      additionalProperties: false
+      required: [quietHours, escalationEmail]
+      properties:
+        expectedVersion: { type: number, minimum: 0 }
+        quietHours: { $ref: "#/components/schemas/OfficeQuietHoursOverride" }
+        escalationEmail: { type: ["string", "null"], maxLength: 320 }
+    OfficeEffectivePolicy:
+      type: object
+      required: [quietHours, escalationEmail, source]
+      properties:
+        quietHours: { oneOf: [{ $ref: "#/components/schemas/QuietHoursWindow" }, { type: "null" }] }
+        escalationEmail: { type: ["string", "null"] }
+        source:
+          type: object
+          required: [quietHours, escalationEmail]
+          properties:
+            quietHours: { type: string, enum: [office, hq] }
+            escalationEmail: { type: string, enum: [office, hq] }
+    OfficeSettings:
+      type: object
+      required: [office, hq, overrides, effective, canEdit]
+      properties:
+        office:
+          type: object
+          required: [providerId, officeName]
+          properties:
+            providerId: { type: string }
+            officeName: { type: string }
+        hq: { $ref: "#/components/schemas/HqOrganizationSettings" }
+        overrides: { $ref: "#/components/schemas/OfficeOverrides" }
+        effective: { $ref: "#/components/schemas/OfficeEffectivePolicy" }
+        canEdit: { type: boolean }
+    CoachAvailability:
+      type: object
+      required: [available, message]
+      properties:
+        available: { type: boolean }
+        message: { type: ["string", "null"] }
     HqFileUploadInput:
       type: object
       additionalProperties: false

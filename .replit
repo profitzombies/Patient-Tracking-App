@@ -220,6 +220,14 @@ args = "push-notifications-mobile"
 task = "workflow.run"
 args = "notification-timeline"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "org-policies-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "org-policies-api"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -780,6 +788,28 @@ args = "pnpm --filter @workspace/thinnr-operations run test:notification-timelin
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "org-policies-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:org-policies"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "org-policies-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/hq-org-policy.test.ts src/routes/staff-conversations.test.ts src/routes/coach-real-grounding.test.ts src/routes/exports.test.ts src/notifications/policy.test.ts src/notifications/stall-outreach.test.ts src/notifications/sender.test.ts src/notifications/claim.sql.test.ts"
 
 [agent]
 stack = "PNPM_WORKSPACE"

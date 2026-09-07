@@ -28,16 +28,28 @@ import {
   type ExportRequester,
 } from "../exports/kinds";
 import { drainQueuedExports, type ExportJobRow } from "../exports/worker";
+import { loadOrgPolicy } from "../lib/org-policy";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
 
-/** How long a finished export stays downloadable. */
-export function exportTtlHours(): number {
+/**
+ * How long a finished export stays downloadable: the organization's export
+ * link lifetime policy (HQ settings). EXPORT_TTL_HOURS remains only as the
+ * value used when the policy cannot be read at all.
+ */
+export function exportTtlHoursFallback(): number {
   const raw = process.env.EXPORT_TTL_HOURS;
   if (raw === undefined || raw.trim() === "") return 24;
   const value = Number(raw);
   return Number.isFinite(value) && value >= 1 && value <= 24 * 7 ? value : 24;
+}
+export async function exportTtlHours(): Promise<number> {
+  try {
+    return (await loadOrgPolicy()).exportLinkHours;
+  } catch {
+    return exportTtlHoursFallback();
+  }
 }
 /** Signed download links are single-use in spirit: minutes, not hours. */
 export const DOWNLOAD_URL_TTL_SEC = 300;
@@ -149,7 +161,7 @@ router.post("/exports", async (req, res) => {
       return;
     }
 
-    const expiresAt = new Date(Date.now() + exportTtlHours() * 3_600_000).toISOString();
+    const expiresAt = new Date(Date.now() + (await exportTtlHours()) * 3_600_000).toISOString();
     const inserted = await supabaseAdmin(
       "POST",
       "/rest/v1/data_exports",
@@ -204,7 +216,7 @@ router.get("/exports", async (req, res) => {
     res.json({
       jobs: (rows.json as ExportJobRow[]).map((row) => exportJobDto(row, now)),
       available: availableKinds(who),
-      ttlHours: exportTtlHours(),
+      ttlHours: await exportTtlHours(),
     });
   } catch (error) {
     req.log?.error({ err: error }, "export list failed");

@@ -139,6 +139,23 @@ export interface EnqueueInput {
   expiresAt?: Date;
 }
 
+/** Organization-wide send cap a capped enqueue reserves against. */
+export interface DailyCap {
+  /** Maximum rows of this kind per cap window. */
+  limit: number;
+  /** Start of the cap window (rows created at or after it count). */
+  since: Date;
+}
+
+/**
+ * Result of a capped enqueue: `created` inserted a row (one cap slot taken),
+ * `existing` found the dedupe key already queued (no slot taken), `capped`
+ * means the window is full and nothing was inserted.
+ */
+export type CappedEnqueueResult =
+  | { outcome: "created" | "existing"; row: NotificationRow }
+  | { outcome: "capped"; row: null };
+
 /** The per-patient facts the send policy reads. */
 export interface PolicyContext {
   /** patient_flags.notification_prefs, as stored (opaque object or null). */
@@ -147,4 +164,6 @@ export interface PolicyContext {
   timezone: string | null;
   /** patient_flags.nudge_opt_out — the coach-outreach master switch. */
   nudgeOptOut: boolean;
+  /** The patient's office, for office-local policy overrides (quiet hours). */
+  providerId: string | null;
 }

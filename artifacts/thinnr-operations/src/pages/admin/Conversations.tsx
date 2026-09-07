@@ -25,6 +25,7 @@ import {
   getGetOfficeConversationsQueryKey,
   getGetOfficeConversationEventsQueryKey,
   type GetOfficeConversationsThread,
+  type GetOfficeConversationsStatus,
   type ConversationEvent,
 } from '@workspace/api-client-react';
 
@@ -547,6 +548,10 @@ function LiveConversations({ role }: { role: HqRole }) {
     role === 'Support' ? 'support' : 'coach'
   );
 
+  // Open vs closed is derived server-side from HQ's auto-close window, so the
+  // inbox shows the same state every consumer of the policy sees.
+  const [statusFilter, setStatusFilter] = useState<GetOfficeConversationsStatus>('open');
+
   const [offset, setOffset] = useState(0);
   const limit = 20;
 
@@ -577,17 +582,23 @@ function LiveConversations({ role }: { role: HqRole }) {
   const resolvedOffice = accountFilter !== 'all' ? accountFilter : undefined;
 
   const { data: convData, isFetching: isConvFetching, error: convError } = useGetOfficeConversations(
-    { office: resolvedOffice, thread: threadFilter, limit, offset },
+    { office: resolvedOffice, thread: threadFilter, status: statusFilter, limit, offset },
     {
       query: {
         enabled: !!resolvedOffice,
-        queryKey: [...getGetOfficeConversationsQueryKey({ office: resolvedOffice, thread: threadFilter, limit, offset }), authUser?.id],
+        queryKey: [...getGetOfficeConversationsQueryKey({ office: resolvedOffice, thread: threadFilter, status: statusFilter, limit, offset }), authUser?.id],
       }
     }
   );
 
   const conversations = convData?.conversations ?? [];
   const total = convData?.total ?? 0;
+  const autoCloseDays = convData?.autoCloseDays;
+  const handleStatusChange = (next: GetOfficeConversationsStatus) => {
+    setOffset(0);
+    setStatusFilter(next);
+    navigate(buildUrl({ c: null }), { replace: true });
+  };
   const hasMore = offset + limit < total;
   const hasPrev = offset > 0;
 
@@ -597,7 +608,7 @@ function LiveConversations({ role }: { role: HqRole }) {
   useEffect(() => {
     setBeforeCursor(undefined);
     setAllEvents([]);
-  }, [openId, accountFilter, threadFilter]);
+  }, [openId, accountFilter, threadFilter, statusFilter]);
 
   const { data: eventsData, isFetching: isEventsFetching, error: eventsError } = useGetOfficeConversationEvents(
     openId ?? '',
@@ -656,6 +667,26 @@ function LiveConversations({ role }: { role: HqRole }) {
           </div>
         )}
 
+        <div className="flex items-center gap-2" role="group" aria-label="Conversation status">
+          {(['open', 'closed', 'all'] as const).map((status) => (
+            <button
+              key={status}
+              type="button"
+              aria-pressed={statusFilter === status}
+              onClick={() => handleStatusChange(status)}
+              data-testid={`filter-conversation-status-${status}`}
+              className={`rounded-sm border px-2 py-1 text-[10px] font-bold uppercase tracking-[.06em] transition ${statusFilter === status ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`}
+            >
+              {status === 'all' ? 'All' : status === 'open' ? 'Open' : 'Closed'}
+            </button>
+          ))}
+          {autoCloseDays !== undefined && (
+            <span className="ml-auto text-[10px] text-muted-foreground" data-testid="text-auto-close-window">
+              Closes after {autoCloseDays}d quiet
+            </span>
+          )}
+        </div>
+
         <Select value={accountFilter} onValueChange={setAccountFilter}>
           <SelectTrigger className="h-9 w-full text-xs">
             <SelectValue>{accountFilter === 'all' ? 'Select a provider account...' : findAccount(accountFilter)?.officeName}</SelectValue>
@@ -709,8 +740,9 @@ function LiveConversations({ role }: { role: HqRole }) {
                             {conv.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : ''}
                           </span>
                         </span>
-                        <span className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
-                          {conv.messageCount} message{conv.messageCount !== 1 ? 's' : ''}
+                        <span className="mt-0.5 flex items-center gap-2 text-[11px] leading-snug text-muted-foreground">
+                          <span>{conv.messageCount} message{conv.messageCount !== 1 ? 's' : ''}</span>
+                          {conv.status === 'closed' && <span className={CHIP_WARM} data-testid={`chip-conversation-closed-${conv.id}`}>Closed</span>}
                         </span>
                       </span>
                     </button>
@@ -742,7 +774,11 @@ function LiveConversations({ role }: { role: HqRole }) {
             <MessagesSquare size={18} className="mx-auto text-muted-foreground" aria-hidden="true" />
             <p className="mt-2 text-xs font-semibold text-navy">No conversations</p>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              No live {threadFilter} transcripts for this account yet.
+              {statusFilter === 'open'
+                ? `No open ${threadFilter} conversations for this account. Threads quiet for ${autoCloseDays ?? 'the auto-close'} days are filed under Closed.`
+                : statusFilter === 'closed'
+                  ? `No closed ${threadFilter} conversations for this account yet.`
+                  : `No live ${threadFilter} transcripts for this account yet.`}
             </p>
           </div>
         )}

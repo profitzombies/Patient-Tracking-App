@@ -134,7 +134,8 @@ export default function CoachChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { messages, isStreaming, send, sendPhoto, stop } = useCoachChat();
+  const { messages, isStreaming, send, sendPhoto, stop, coachPaused } =
+    useCoachChat();
   const [draft, setDraft] = useState("");
   const [photoOptionsOpen, setPhotoOptionsOpen] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -217,9 +218,16 @@ export default function CoachChatScreen() {
     }
   }, [photoError]);
 
+  // iOS has no live regions: announce the paused notice explicitly there.
+  useEffect(() => {
+    if (coachPaused && Platform.OS === "ios") {
+      AccessibilityInfo.announceForAccessibility(coachPaused.message);
+    }
+  }, [coachPaused]);
+
   const submitDraft = () => {
     const text = draft.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming || coachPaused) return;
     Haptics.selectionAsync();
     setDraft("");
     send(text);
@@ -568,7 +576,37 @@ export default function CoachChatScreen() {
             },
           ]}
         >
-          {photoError ? (
+          {coachPaused ? (
+            <View
+              testID="coach-paused-notice"
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={[
+                styles.pausedBox,
+                {
+                  backgroundColor: colors.warnBg,
+                  borderColor: colors.warnBorder,
+                  borderRadius: colors.radiusSm,
+                },
+              ]}
+            >
+              <Feather
+                name="pause-circle"
+                size={14}
+                color={colors.warnText}
+                style={styles.photoErrorIcon}
+              />
+              <View style={styles.pausedCopy}>
+                <Text style={[styles.pausedTitle, { color: colors.warnText }]}>
+                  Coach paused by your care team
+                </Text>
+                <Text style={[styles.pausedText, { color: colors.warnText }]}>
+                  {coachPaused.message}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+          {photoError && !coachPaused ? (
             <View
               testID="coach-photo-error"
               accessibilityRole="alert"
@@ -593,7 +631,7 @@ export default function CoachChatScreen() {
               </Text>
             </View>
           ) : null}
-          {photoOptionsOpen ? (
+          {photoOptionsOpen && !coachPaused ? (
             <View style={styles.photoOptionsRow}>
               {Platform.OS !== "web" ? (
                 <Pressable
@@ -653,10 +691,10 @@ export default function CoachChatScreen() {
               accessibilityRole="button"
               accessibilityLabel="Send a photo"
               accessibilityState={{
-                disabled: isStreaming || preparing,
+                disabled: isStreaming || preparing || !!coachPaused,
                 expanded: photoOptionsOpen,
               }}
-              disabled={isStreaming || preparing}
+              disabled={isStreaming || preparing || !!coachPaused}
               onPress={() => {
                 Haptics.selectionAsync();
                 setPhotoError(null);
@@ -682,7 +720,11 @@ export default function CoachChatScreen() {
                 <Feather
                   name="camera"
                   size={17}
-                  color={isStreaming ? colors.subtleText : colors.cobalt}
+                  color={
+                    isStreaming || coachPaused
+                      ? colors.subtleText
+                      : colors.cobalt
+                  }
                 />
               )}
             </Pressable>
@@ -690,9 +732,12 @@ export default function CoachChatScreen() {
               testID="coach-input"
               value={draft}
               onChangeText={setDraft}
-              placeholder="Message your coach"
+              placeholder={
+                coachPaused ? "Coach paused by your care team" : "Message your coach"
+              }
               placeholderTextColor={colors.subtleText}
-              editable={!isStreaming}
+              editable={!isStreaming && !coachPaused}
+              accessibilityState={{ disabled: !!coachPaused }}
               returnKeyType="send"
               onSubmitEditing={submitDraft}
               submitBehavior="submit"
@@ -736,13 +781,16 @@ export default function CoachChatScreen() {
                 testID="coach-send"
                 accessibilityRole="button"
                 accessibilityLabel="Send message"
-                disabled={draft.trim().length === 0}
+                accessibilityState={{
+                  disabled: draft.trim().length === 0 || !!coachPaused,
+                }}
+                disabled={draft.trim().length === 0 || !!coachPaused}
                 onPress={submitDraft}
                 style={({ pressed }) => [
                   styles.sendBtn,
                   {
                     backgroundColor:
-                      draft.trim().length === 0
+                      draft.trim().length === 0 || coachPaused
                         ? colors.cobaltMuted
                         : colors.cobalt,
                     borderRadius: colors.radiusSm,
@@ -1316,6 +1364,28 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     padding: 10,
+  },
+  pausedBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderWidth: 1,
+    padding: 10,
+    marginBottom: 8,
+  },
+  pausedCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  pausedTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: "Inter_600SemiBold",
+  },
+  pausedText: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontFamily: "Inter_400Regular",
   },
   photoErrorIcon: {
     marginTop: 2,

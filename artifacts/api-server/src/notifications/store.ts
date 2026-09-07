@@ -10,6 +10,8 @@
 import { supabaseAdmin } from "../lib/supabase-admin";
 import type {
   AttemptRow,
+  CappedEnqueueResult,
+  DailyCap,
   EnqueueInput,
   NotificationRow,
   NotificationStatus,
@@ -93,6 +95,12 @@ export interface CoachSeedMessage {
 export interface NotificationStore {
   // ── Outbox ────────────────────────────────────────────────────────────
   enqueue(input: EnqueueInput): Promise<{ row: NotificationRow; created: boolean }>;
+  /**
+   * Deduped enqueue that also reserves a slot in an organization-wide daily
+   * cap, atomically: implementations must make the cap count and the insert
+   * one serialized unit so concurrent workers cannot overshoot the cap.
+   */
+  enqueueCapped(input: EnqueueInput & { dedupeKey: string }, cap: DailyCap): Promise<CappedEnqueueResult>;
   claimDue(owner: string, limit: number, leaseSeconds: number): Promise<NotificationRow[]>;
   /** Returns the updated row, or null when the guard no longer matched. */
   updateNotification(id: string, patch: NotificationPatch, guard?: UpdateGuard): Promise<NotificationRow | null>;
@@ -124,6 +132,8 @@ export interface NotificationStore {
 
   // ── Policy ────────────────────────────────────────────────────────────
   policyContext(patientId: string): Promise<PolicyContext>;
+  /** Coach outreach rows enqueued at or after `since` (the daily send cap). */
+  countOutreachSince(since: Date): Promise<number>;
 
   // ── Coach outreach ────────────────────────────────────────────────────
   outreachCandidates(evaluatedBefore: Date, limit: number): Promise<OutreachCandidate[]>;
@@ -201,6 +211,32 @@ export const supabaseNotificationStore: NotificationStore = {
     );
     if (!inserted[0]) throw new Error("notification enqueue returned no row");
     return { row: inserted[0], created: true };
+  },
+
+  async enqueueCapped(input, cap) {
+    // One RPC = one transaction under an advisory lock (see the
+    // enqueue_outreach_capped migration): the count and the insert cannot
+    // interleave with another worker's.
+    const res = await supabaseAdmin("POST", "/rest/v1/rpc/enqueue_outreach_capped", {
+      p_patient_id: input.patientId,
+      p_kind: input.kind,
+      p_category: input.category,
+      p_title: input.title,
+      p_body: input.body,
+      p_data: input.data ?? {},
+      p_dedupe_key: input.dedupeKey,
+      p_scheduled_at: (input.scheduledAt ?? new Date()).toISOString(),
+      p_expires_at: input.expiresAt ? input.expiresAt.toISOString() : null,
+      p_cap: cap.limit,
+      p_since: cap.since.toISOString(),
+    });
+    expectOk(res, "capped notification enqueue");
+    const payload = res.json as { outcome?: string; row?: NotificationRow | null } | null;
+    if (payload?.outcome === "capped") return { outcome: "capped", row: null };
+    if ((payload?.outcome === "created" || payload?.outcome === "existing") && payload.row) {
+      return { outcome: payload.outcome, row: payload.row };
+    }
+    throw new Error("capped notification enqueue returned an unexpected shape");
   },
 
   async claimDue(owner, limit, leaseSeconds) {
@@ -401,7 +437,7 @@ export const supabaseNotificationStore: NotificationStore = {
         "GET",
         `/rest/v1/patient_flags?patient_id=eq.${enc(patientId)}&select=notification_prefs,nudge_opt_out&limit=1`,
       ),
-      supabaseAdmin("GET", `/rest/v1/patients?id=eq.${enc(patientId)}&select=timezone&limit=1`),
+      supabaseAdmin("GET", `/rest/v1/patients?id=eq.${enc(patientId)}&select=timezone,provider_id&limit=1`),
     ]);
     const flag = rowsOf<Record<string, unknown>>(flags, "policy flags")[0];
     const row = rowsOf<Record<string, unknown>>(patient, "policy patient")[0];
@@ -412,7 +448,20 @@ export const supabaseNotificationStore: NotificationStore = {
           : null,
       timezone: typeof row?.timezone === "string" && row.timezone ? row.timezone : null,
       nudgeOptOut: flag?.nudge_opt_out === true,
+      providerId: typeof row?.provider_id === "string" && row.provider_id ? row.provider_id : null,
     };
+  },
+
+  async countOutreachSince(since) {
+    const res = await supabaseAdmin(
+      "GET",
+      `/rest/v1/patient_notifications?kind=eq.coach_outreach&created_at=gte.${enc(since.toISOString())}&select=id&limit=1`,
+      undefined,
+      "count=exact",
+    );
+    expectOk(res, "outreach count");
+    const total = res.contentRange?.match(/\/(\d+)$/)?.[1];
+    return total === undefined ? (Array.isArray(res.json) ? res.json.length : 0) : Number(total);
   },
 
   async outreachCandidates(evaluatedBefore, limit) {

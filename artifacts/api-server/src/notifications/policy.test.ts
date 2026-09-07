@@ -98,7 +98,7 @@ describe("quiet hours in the patient's timezone", () => {
 });
 
 describe("send policy", () => {
-  const base = { prefs: null, timezone: NY, nudgeOptOut: false };
+  const base = { prefs: null, timezone: NY, nudgeOptOut: false, providerId: "prov-1" };
   const expires = new Date("2026-07-03T00:00:00Z");
 
   it("sends by default", () => {
@@ -127,5 +127,35 @@ describe("send policy", () => {
       evaluateSendPolicy({ category: "coach_outreach", context: ctx, now: late, expiresAt: new Date("2026-07-01T10:00:00Z") }),
     ).toEqual({ action: "suppress", reason: "quiet_hours" });
     expect(evaluateSendPolicy({ category: "coach_outreach", context: ctx, now: new Date("2026-07-01T16:00:00Z"), expiresAt: expires })).toEqual({ action: "send" });
+  });
+
+  describe("organization defaults for unset preferences", () => {
+    const defaults = {
+      categories: { coachOutreach: true, checkInReminders: false, officeReminders: true },
+      quietHours: { start: "22:00", end: "07:00" },
+    };
+    const late = new Date("2026-07-01T03:30:00Z"); // 23:30 EDT
+
+    it("applies HQ default categories and quiet hours to a patient with no prefs", () => {
+      expect(evaluateSendPolicy({ category: "check_in_reminders", context: base, now: new Date("2026-07-01T16:00:00Z"), expiresAt: expires, defaults }))
+        .toEqual({ action: "opt_out", reason: "category_off" });
+      expect(evaluateSendPolicy({ category: "coach_outreach", context: base, now: late, expiresAt: expires, defaults }))
+        .toMatchObject({ action: "defer", reason: "quiet_hours_deferred" });
+    });
+
+    it("lets the patient's own explicit choices beat the defaults, including an explicit no-quiet-hours", () => {
+      const ctx = { ...base, prefs: { categories: { checkInReminders: true }, quietHours: null } };
+      expect(evaluateSendPolicy({ category: "check_in_reminders", context: ctx, now: late, expiresAt: expires, defaults })).toEqual({ action: "send" });
+      const custom = { ...base, prefs: { quietHours: { start: "01:00", end: "02:00" } } };
+      expect(evaluateSendPolicy({ category: "coach_outreach", context: custom, now: late, expiresAt: expires, defaults })).toEqual({ action: "send" });
+    });
+
+    it("keeps everything default-on when no defaults are supplied", () => {
+      expect(parseNotificationPrefs(null)).toEqual({
+        categories: { coachOutreach: true, checkInReminders: true, officeReminders: true },
+        quietHours: null,
+      });
+      expect(parseNotificationPrefs(null, defaults).quietHours).toMatchObject({ start: "22:00", end: "07:00" });
+    });
   });
 });

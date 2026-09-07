@@ -33,7 +33,8 @@
     "test:body-measurements": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-body-measurements.tsx",
     "test:office-comparison": "TZ=UTC tsx scripts/verify-office-comparison.ts && TZ=Pacific/Kiritimati tsx scripts/verify-office-comparison.ts",
     "test:exports": "tsx scripts/verify-exports.ts",
-    "test:live-patient-edits": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-live-patient-edits.ts"
+    "test:live-patient-edits": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-live-patient-edits.ts",
+    "test:org-policies": "TZ=UTC tsx --tsconfig tsconfig.org-policies.json scripts/verify-org-policies.tsx"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

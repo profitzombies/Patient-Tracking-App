@@ -17,7 +17,7 @@
  *   5. The demo-only back-on-track pipeline never fires for real accounts.
  *
  * The OpenAI client and the Supabase surfaces are mocked — no credits, no
- * network. Budget: 6 chat requests (per-IP burst 10) — no limiter friction.
+ * network. Budget: 12 chat requests (per-IP burst lifted to 40 for this file).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
@@ -30,6 +30,9 @@ import crypto from "node:crypto";
 vi.hoisted(() => {
   process.env.SUPABASE_URL = "http://fake.supabase.local";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
+  // Twelve chat posts in one file: lift the per-IP burst so the limiter never
+  // interferes (its own behavior is covered elsewhere).
+  process.env.COACH_CHAT_BURST = "40";
 });
 
 const modelState = vi.hoisted(() => ({
@@ -76,6 +79,8 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
 
 import app from "../app";
 import { BACK_ON_TRACK_OFFER } from "../coach/back-on-track";
+import { COACH_PAUSED_MESSAGE } from "./coach";
+import { invalidateOrgPolicyCache } from "../lib/org-policy";
 
 // ── Fake Supabase account data ───────────────────────────────────────────────
 
@@ -91,6 +96,8 @@ const fake = {
   authOutage: false,
   /** pathname substrings that fail once with a 500 */
   failOnce: new Set<string>(),
+  /** HQ policy row served for hq_organization_settings; null = table unreachable (404). */
+  coachAvailable: null as boolean | null,
 };
 
 function json(status: number, body: unknown): Response {
@@ -139,6 +146,9 @@ function handleSupabase(url: URL, init?: RequestInit): Response {
   if (url.pathname === "/rest/v1/patient_target_overrides") {
     return json(200, [{ calories: 1400 }]);
   }
+  if (url.pathname === "/rest/v1/hq_organization_settings" && fake.coachAvailable !== null) {
+    return json(200, [{ coach_available: fake.coachAvailable, version: 1 }]);
+  }
   return json(404, { message: `fake: no route ${url.pathname}` });
 }
 
@@ -175,7 +185,15 @@ afterEach(() => {
   modelState.calls = [];
   fake.authOutage = false;
   fake.failOnce.clear();
+  fake.coachAvailable = null;
+  invalidateOrgPolicyCache();
 });
+
+function getAvailability(token?: string) {
+  return realFetch(`${baseUrl}/api/coach/availability`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
 
 function postChat(body: unknown, token?: string) {
   return realFetch(`${baseUrl}/api/coach/chat`, {
@@ -257,6 +275,31 @@ describe("coach chat grounding ladder", () => {
       retryable: true,
     });
     expect(modelState.calls).toHaveLength(0);
+  });
+
+  it("honors the HQ coach-availability policy for real patients only, before any model call", async () => {
+    fake.coachAvailable = false;
+    const paused = await postChat({ ...QUESTION, localDate: "2026-08-22" }, "tok-patient");
+    expect(paused.status).toBe(503);
+    expect(paused.headers.get("content-type")).toContain("application/json");
+    expect(await paused.json()).toEqual({ error: COACH_PAUSED_MESSAGE, retryable: false, coachPaused: true });
+    expect(modelState.calls).toHaveLength(0);
+
+    // The demo persona (no token) and staff browsing it are never paused.
+    expect((await postChat(QUESTION)).status).toBe(200);
+    expect((await postChat(QUESTION, "tok-staff")).status).toBe(200);
+
+    // The availability probe mirrors the gate so the app can show the state up front.
+    expect(await (await getAvailability("tok-patient")).json()).toEqual({ available: false, message: COACH_PAUSED_MESSAGE });
+    expect(await (await getAvailability()).json()).toEqual({ available: true, message: null });
+    expect(await (await getAvailability("tok-staff")).json()).toEqual({ available: true, message: null });
+    expect((await getAvailability("tok-nobody")).status).toBe(401);
+
+    // Turned back on: the policy cache was invalidated by the save path; a
+    // fresh read serves the patient again.
+    invalidateOrgPolicyCache();
+    fake.coachAvailable = true;
+    expect(await (await getAvailability("tok-patient")).json()).toEqual({ available: true, message: null });
   });
 
   it("keeps the back-on-track pipeline demo-only", async () => {

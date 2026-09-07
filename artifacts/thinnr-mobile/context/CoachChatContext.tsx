@@ -48,6 +48,7 @@ import { ENROLLMENT_DAYS, PATIENT_PROFILE, type MealSlot } from '@/data/patient-
 import { localTodayKey } from '@/lib/live-patient-entry';
 import { BACK_ON_TRACK_OFFER, isOutreachMessageId, type NudgeAssessment } from '@/data/stall-nudge';
 import {
+  fetchCoachAvailability,
   streamCoachChat,
   type CoachChatRequestBody,
   type CoachRequestMessage,
@@ -238,9 +239,21 @@ interface CoachChatContextValue {
   markLabelFoodAdded: (cardMessageId: string, slot: MealSlot, quantity?: number) => void;
   /** Drops the session-only patient conversation before signing out. */
   clearLocalState: () => void;
+  /**
+   * Set while the care team has the coach switched off for every patient
+   * (an HQ policy read from the server — never inferred locally). Carries
+   * the server's own patient-facing explanation. Only real accounts can be
+   * paused; the demo persona always chats. While set, send/sendPhoto are
+   * no-ops and the screen closes the composer with the paused notice.
+   */
+  coachPaused: { message: string } | null;
 }
 
 const CoachChatContext = createContext<CoachChatContextValue | null>(null);
+
+/** Used only if the server pauses the coach without its own wording. */
+const COACH_PAUSED_FALLBACK =
+  'Your coach is paused by your care team right now. Your diary and progress still work as usual.';
 
 /**
  * Client keeps its request in step with the server-side history cap. Patient
@@ -646,6 +659,13 @@ export function CoachChatProvider({
     !resolving && account.kind === 'demo' ? [buildGreetingMessage()] : [],
   );
   const [isStreaming, setIsStreaming] = useState(false);
+  // HQ coach-availability policy for this account. Two sources, both the
+  // server: the availability probe on open/account switch (so the notice
+  // shows before the first send) and a 503 `coachPaused` answer on a send
+  // (the authority — a stale probe can never let a paused turn through).
+  const [coachPaused, setCoachPaused] = useState<{ message: string } | null>(null);
+  const coachPausedRef = useRef<{ message: string } | null>(null);
+  coachPausedRef.current = coachPaused;
   // Photo-turn narration for the waiting bubble (see the interface note).
   // Plain state, not part of the reveal bookkeeping: stages only ever
   // relabel the wait, so losing one is cosmetic by design.
@@ -867,6 +887,29 @@ export function CoachChatProvider({
       void flushOutbox();
     }
   }, [storedPhotoPath]);
+
+  // Coach availability: ask the server on open and whenever the account
+  // changes. The demo persona is never paused; a probe that cannot answer
+  // leaves the state alone (the chat request reports a pause on send).
+  useEffect(() => {
+    if (!realAccount) {
+      setCoachPaused(null);
+      return;
+    }
+    const controller = new AbortController();
+    const getToken = getAccessToken ?? (async () => null);
+    void fetchCoachAvailability(getToken, controller.signal).then(availability => {
+      if (controller.signal.aborted || !availability) return;
+      setCoachPaused(
+        availability.available
+          ? null
+          : { message: availability.message ?? COACH_PAUSED_FALLBACK },
+      );
+    });
+    return () => controller.abort();
+    // The account key names the owner; the token getter follows it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountKey]);
 
   // Real-account hydration: on open (or account switch) load the stored
   // transcript and resume it. Runs once per accountKey; a failure retries a
@@ -1143,7 +1186,7 @@ export function CoachChatProvider({
               finalizeReveal(reveal);
             }
           },
-          onError: (message, retryable) => {
+          onError: (message, retryable, details) => {
             if (isStale()) return;
             // The error replaces the reply wholesale — drop the unrevealed
             // buffer and any held card/quick replies with it.
@@ -1153,11 +1196,19 @@ export function CoachChatProvider({
             }
             revealRef.current = null;
             abortRef.current = null;
-            setMessages(current =>
-              current.map(m =>
-                m.id === assistantId ? { ...m, status: 'error', text: message, retryable } : m,
-              ),
-            );
+            // A pause is policy, not a fault: the notice takes over the
+            // composer, and the waiting bubble is withdrawn rather than
+            // shown as an error the patient might retry.
+            if (details?.coachPaused) {
+              setCoachPaused({ message });
+              setMessages(current => current.filter(m => m.id !== assistantId));
+            } else {
+              setMessages(current =>
+                current.map(m =>
+                  m.id === assistantId ? { ...m, status: 'error', text: message, retryable } : m,
+                ),
+              );
+            }
             inFlightRef.current = false;
             setPendingStage(null);
             setIsStreaming(false);
@@ -1272,6 +1323,9 @@ export function CoachChatProvider({
       // is about to be reseeded for its owner, and a turn fired now would
       // ground on the wrong patient and then vanish in the reset.
       if (accountRef.current.resolving) return;
+      // Care team has the coach paused: the composer is closed on screen;
+      // a stray submit (keyboard "send") must not open a turn either.
+      if (coachPausedRef.current) return;
       // An active label flow answers this text client-side — the name
       // conversation is deterministic state, never a model exchange.
       const flow = labelFlowRef.current;
@@ -1450,6 +1504,7 @@ export function CoachChatProvider({
     ) => {
       if (!photo.uri || inFlightRef.current) return;
       if (accountRef.current.resolving) return;
+      if (coachPausedRef.current) return;
       // A photo reply counts as engagement exactly like a text reply.
       if (messagesRef.current.some(m => isOutreachMessageId(m.id))) {
         void markNudgeEngaged();
@@ -1791,6 +1846,7 @@ export function CoachChatProvider({
       beginLabelRename,
       markLabelFoodAdded,
       clearLocalState,
+      coachPaused,
     }),
     [
       messages,
@@ -1806,6 +1862,7 @@ export function CoachChatProvider({
       beginLabelRename,
       markLabelFoodAdded,
       clearLocalState,
+      coachPaused,
     ],
   );
 

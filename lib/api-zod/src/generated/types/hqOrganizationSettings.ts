@@ -5,6 +5,10 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { NotificationCategoryDefaults } from './notificationCategoryDefaults';
+import type { PolicySectionChanges } from './policySectionChanges';
+import type { QuietHoursWindow } from './quietHoursWindow';
+import type { RetentionPolicy } from './retentionPolicy';
 
 export interface HqOrganizationSettings {
   organizationName: string;
@@ -13,5 +17,17 @@ export interface HqOrganizationSettings {
   /** @nullable */
   supportPhone: string | null;
   defaultTimezone: string;
+  coachAvailable: boolean;
+  /** @nullable */
+  escalationEmail: string | null;
+  defaultCategories: NotificationCategoryDefaults;
+  defaultQuietHours: QuietHoursWindow | null;
+  outreachCooldownDays: number;
+  outreachDailyCap: number;
+  conversationAutoCloseDays: number;
+  retention: RetentionPolicy;
+  exportLinkHours: number;
+  version: number;
   updatedAt: string;
+  sections: PolicySectionChanges;
 }

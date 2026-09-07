@@ -19,7 +19,7 @@ import type {
   ReceiptCandidate,
   UpdateGuard,
 } from "./store";
-import type { AttemptRow, NotificationRow, OutreachStateRow, PolicyContext, PushTokenRow } from "./types";
+import type { AttemptRow, CappedEnqueueResult, DailyCap, EnqueueInput, NotificationRow, OutreachStateRow, PolicyContext, PushTokenRow } from "./types";
 
 export interface MemoryPatient {
   patientId: string;
@@ -81,6 +81,51 @@ export class MemoryNotificationStore implements NotificationStore {
     };
     this.tokens.set(row.id, row);
     return row;
+  }
+
+  /**
+   * Mirrors the enqueue_outreach_capped RPC. The body is synchronous on
+   * purpose: like the RPC's advisory lock, nothing can interleave between the
+   * dedupe lookup, the cap count, and the insert. Tests may wrap it with
+   * `capGate` to hold the critical section open across a tick boundary.
+   */
+  async enqueueCapped(input: EnqueueInput & { dedupeKey: string }, cap: DailyCap): Promise<CappedEnqueueResult> {
+    const release = await this.capGate();
+    try {
+      for (const row of this.notifications.values()) {
+        if (row.dedupe_key === input.dedupeKey) return { outcome: "existing", row };
+      }
+      const sent = await this.countKindSince(input.kind, cap.since);
+      if (sent >= cap.limit) return { outcome: "capped", row: null };
+      const { row } = await this.enqueue(input);
+      return { outcome: "created", row };
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Serializes capped enqueues the way the RPC's transaction lock does. The
+   * default lock is a simple promise chain, so overlapping async callers
+   * (two worker ticks in one process, or a test driving two ticks at once)
+   * queue up instead of both reading the same count.
+   */
+  private capChain: Promise<void> = Promise.resolve();
+  protected async capGate(): Promise<() => void> {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const previous = this.capChain;
+    this.capChain = previous.then(() => held);
+    await previous;
+    return release;
+  }
+
+  protected async countKindSince(kind: string, since: Date): Promise<number> {
+    let count = 0;
+    for (const row of this.notifications.values()) {
+      if (row.kind === kind && new Date(row.created_at).getTime() >= since.getTime()) count += 1;
+    }
+    return count;
   }
 
   async enqueue(input: Parameters<NotificationStore["enqueue"]>[0]) {
@@ -285,7 +330,17 @@ export class MemoryNotificationStore implements NotificationStore {
       prefs: patient?.prefs ?? null,
       timezone: patient?.timezone ?? null,
       nudgeOptOut: patient?.flags?.nudgeOptOut === true,
+      providerId: patient?.providerId ?? null,
     };
+  }
+
+  async countOutreachSince(since: Date): Promise<number> {
+    const cutoff = since.getTime();
+    let total = 0;
+    for (const row of this.notifications.values()) {
+      if (row.kind === "coach_outreach" && new Date(row.created_at).getTime() >= cutoff) total += 1;
+    }
+    return total;
   }
 
   async outreachCandidates(evaluatedBefore: Date, limit: number) {

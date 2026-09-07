@@ -96,6 +96,57 @@ export interface CoachCardEvent {
 /** Server-narrated photo-turn progress stages, in arrival order. */
 export type CoachStage = 'received' | 'reading_meal' | 'reading_menu' | 'reading_label';
 
+/**
+ * Extra machine-readable context on a pre-stream failure. `coachPaused`
+ * means the care team switched the coach off for every patient (an HQ
+ * policy, not a fault) — the screen shows the paused state and closes the
+ * composer instead of offering a retry.
+ */
+export interface CoachErrorDetails {
+  coachPaused?: boolean;
+}
+
+/** Server-declared coach availability for the signed-in patient. */
+export interface CoachAvailability {
+  available: boolean;
+  /** Patient-facing explanation when unavailable; null when available. */
+  message: string | null;
+}
+
+/**
+ * Asks the server whether the care team currently has the coach switched on
+ * for this account. Resolves `null` when the answer cannot be obtained (no
+ * token, offline, non-2xx): callers keep their current state — the chat
+ * request itself is the authority and reports a pause on send.
+ */
+export async function fetchCoachAvailability(
+  getAuthToken: () => Promise<string | null>,
+  signal?: AbortSignal,
+): Promise<CoachAvailability | null> {
+  let token: string | null = null;
+  try {
+    token = await getAuthToken();
+  } catch {
+    token = null;
+  }
+  if (!token) return null;
+  try {
+    const response = await fetch(`${apiBase()}/coach/availability`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { available?: unknown; message?: unknown };
+    if (typeof body.available !== 'boolean') return null;
+    return {
+      available: body.available,
+      message: typeof body.message === 'string' && body.message.trim() ? body.message.trim() : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface CoachStreamCallbacks {
   onDelta: (text: string) => void;
   onDone: () => void;
@@ -105,7 +156,7 @@ export interface CoachStreamCallbacks {
    * tomorrow). Callers should hide their retry affordances then. Transient
    * failures (busy, rapid-fire, outages) always pass true.
    */
-  onError: (message: string, retryable: boolean) => void;
+  onError: (message: string, retryable: boolean, details?: CoachErrorDetails) => void;
   /** Rich card attached to this reply (sent by the server before done). */
   onCard?: (card: CoachCardEvent) => void;
   /**
@@ -287,15 +338,17 @@ export async function streamCoachChat(
       // budget spent) — only that explicit signal downgrades retryability.
       let message = FRIENDLY_ERROR;
       let retryable = true;
+      const details: CoachErrorDetails = {};
       try {
-        const body = (await response.json()) as { error?: unknown; retryable?: unknown };
+        const body = (await response.json()) as { error?: unknown; retryable?: unknown; coachPaused?: unknown };
         if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
         if (body.retryable === false) retryable = false;
+        if (body.coachPaused === true) details.coachPaused = true;
       } catch {
         // keep the generic message
       }
       state.finished = true;
-      if (!signal?.aborted) callbacks.onError(message, retryable);
+      if (!signal?.aborted) callbacks.onError(message, retryable, details);
       return;
     }
 

@@ -98,13 +98,14 @@ export function shouldSendOutreach(
   assessment: NudgeAssessment,
   gate: OutreachGateState,
   todayKey: string,
+  cooldownDays: number = NUDGE_COOLDOWN_DAYS,
 ): boolean {
   if (!assessment.active || gate.optOut) return false;
   const crossing = assessment.crossedOnKey;
   if (crossing === null) return false;
   if (gate.lastCrossingKey === crossing) return false;
   return (
-    gate.lastSentKey === null || dayDiff(gate.lastSentKey, todayKey) >= NUDGE_COOLDOWN_DAYS
+    gate.lastSentKey === null || dayDiff(gate.lastSentKey, todayKey) >= cooldownDays
   );
 }
 

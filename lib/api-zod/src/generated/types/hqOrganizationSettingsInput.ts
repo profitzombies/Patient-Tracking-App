@@ -5,26 +5,60 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { NotificationCategoryDefaults } from './notificationCategoryDefaults';
+import type { QuietHoursWindow } from './quietHoursWindow';
+import type { RetentionPolicy } from './retentionPolicy';
 
 export interface HqOrganizationSettingsInput {
+  /** @minimum 1 */
+  expectedVersion?: number;
   /**
      * @minLength 1
      * @maxLength 160
      */
-  organizationName: string;
+  organizationName?: string;
   /**
      * @maxLength 320
      * @nullable
      */
-  supportEmail: string | null;
+  supportEmail?: string | null;
   /**
      * @maxLength 40
      * @nullable
      */
-  supportPhone: string | null;
+  supportPhone?: string | null;
   /**
      * @minLength 1
      * @maxLength 80
      */
-  defaultTimezone: string;
+  defaultTimezone?: string;
+  coachAvailable?: boolean;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  escalationEmail?: string | null;
+  defaultCategories?: NotificationCategoryDefaults;
+  defaultQuietHours?: QuietHoursWindow | null;
+  /**
+     * @minimum 1
+     * @maximum 90
+     */
+  outreachCooldownDays?: number;
+  /**
+     * @minimum 1
+     * @maximum 10000
+     */
+  outreachDailyCap?: number;
+  /**
+     * @minimum 1
+     * @maximum 365
+     */
+  conversationAutoCloseDays?: number;
+  retention?: RetentionPolicy;
+  /**
+     * @minimum 1
+     * @maximum 168
+     */
+  exportLinkHours?: number;
 }

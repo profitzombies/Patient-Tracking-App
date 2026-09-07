@@ -32,13 +32,14 @@ const allowedActions = new Set([
   "hq_team_updated",
   "hq_team_revoked",
   "hq_settings_updated",
+  "office_policy_override_updated",
   "hq_file_uploaded",
   "hq_file_deleted",
   "conversation_transcript_read",
   "data_export_requested",
   "data_export_downloaded",
 ]);
-const allowedMetadata = new Set(["reason", "role", "status", "field", "fields", "from", "to", "size", "contentType", "thread", "kind", "office", "rows", "noteId", "weightId", "visitId", "areaCount", "dateKey"]);
+const allowedMetadata = new Set(["reason", "role", "status", "field", "fields", "section", "version", "from", "to", "size", "contentType", "thread", "kind", "office", "rows", "noteId", "weightId", "visitId", "areaCount", "dateKey"]);
 const enc = encodeURIComponent;
 function utcDate(value: string | undefined): number | null {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;

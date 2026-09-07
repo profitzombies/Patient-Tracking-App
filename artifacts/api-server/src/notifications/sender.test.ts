@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import { FakePushClient, MemoryNotificationStore } from "./memory-store";
 import { backoffMs, DEFAULT_SENDER_CONFIG, PUSH_CHANNEL_ID, runNotificationTick } from "./sender";
 import type { NotificationRow } from "./types";
+import { DEFAULT_ORG_POLICY, NO_OVERRIDES, type OfficeOverrides } from "../lib/org-policy";
+import type { TickPolicy } from "./tick-policy";
 
 const P1 = "11111111-1111-4111-8111-111111111111";
 const TOKEN_A = "ExponentPushToken[aaaaaaaaaaaaaaaaaaaaaa]";
@@ -21,7 +23,8 @@ function harness(start = "2026-07-01T16:00:00Z") {
   const advance = (ms: number) => {
     now = new Date(now.getTime() + ms);
   };
-  const tick = (owner = "worker-a") => runNotificationTick({ store, push, now: clock, config: { owner } });
+  const tick = (owner = "worker-a", policy?: TickPolicy) =>
+    runNotificationTick({ store, push, now: clock, config: { owner }, policy });
   const enqueue = (overrides: Partial<Parameters<MemoryNotificationStore["enqueue"]>[0]> = {}) =>
     store.enqueue({
       patientId: P1,
@@ -115,6 +118,67 @@ describe("outbox sender", () => {
     summary = await h.tick();
     expect(summary.sent).toBe(1);
     expect(h.row(row.id).status).toBe("sent");
+  });
+
+  describe("organization policy defaults", () => {
+    const hqQuiet: TickPolicy = {
+      org: { ...DEFAULT_ORG_POLICY, defaultQuietHours: { start: "22:00", end: "07:00" } },
+      overrides: new Map(),
+    };
+    const withOverride = (quietHours: OfficeOverrides["quietHours"]): TickPolicy => ({
+      ...hqQuiet,
+      overrides: new Map([[
+        "prov-1",
+        { ...NO_OVERRIDES("prov-1"), quietHours },
+      ]]),
+    });
+
+    it("applies HQ default quiet hours to a patient who never set their own", async () => {
+      const h = harness("2026-07-01T03:30:00Z"); // 23:30 New York
+      h.store.addToken(P1, TOKEN_A);
+      const { row } = await h.enqueue();
+      const summary = await h.tick("worker-a", hqQuiet);
+      expect(summary.deferred).toBe(1);
+      expect(h.row(row.id)).toMatchObject({ status: "queued", suppression_reason: "quiet_hours_deferred" });
+    });
+
+    it("applies HQ default categories (a category HQ defaults off is opted out until the patient turns it on)", async () => {
+      const h = harness();
+      h.store.addToken(P1, TOKEN_A);
+      const policy: TickPolicy = {
+        org: { ...DEFAULT_ORG_POLICY, defaultCategories: { coachOutreach: true, checkInReminders: false, officeReminders: true } },
+        overrides: new Map(),
+      };
+      const { row } = await h.enqueue({ kind: "check_in_reminder", category: "check_in_reminders", dedupeKey: "cr-1" });
+      await h.tick("worker-a", policy);
+      expect(h.row(row.id)).toMatchObject({ status: "opted_out", suppression_reason: "category_off" });
+      h.store.patients.get(P1)!.prefs = { categories: { checkInReminders: true } };
+      const { row: second } = await h.enqueue({ kind: "check_in_reminder", category: "check_in_reminders", dedupeKey: "cr-2" });
+      await h.tick("worker-a", policy);
+      expect(h.row(second.id).status).toBe("sent");
+    });
+
+    it("lets an office override beat the HQ default, and the patient's own setting beat both", async () => {
+      const h = harness("2026-07-01T03:30:00Z");
+      h.store.addToken(P1, TOKEN_A);
+      // Office says "no quiet hours": HQ's window no longer applies.
+      const { row: a } = await h.enqueue({ dedupeKey: "a" });
+      await h.tick("worker-a", withOverride({ mode: "none" }));
+      expect(h.row(a.id).status).toBe("sent");
+      // Office custom window that does not cover 23:30 local: sends.
+      const { row: b } = await h.enqueue({ dedupeKey: "b" });
+      await h.tick("worker-a", withOverride({ mode: "custom", start: "01:00", end: "02:00" }));
+      expect(h.row(b.id).status).toBe("sent");
+      // Office inherits HQ: deferred.
+      const { row: c } = await h.enqueue({ dedupeKey: "c" });
+      await h.tick("worker-a", withOverride({ mode: "inherit" }));
+      expect(h.row(c.id)).toMatchObject({ status: "queued", suppression_reason: "quiet_hours_deferred" });
+      // Patient explicitly chose no quiet hours: beats HQ and office.
+      h.store.patients.get(P1)!.prefs = { quietHours: null };
+      const { row: d } = await h.enqueue({ dedupeKey: "d" });
+      await h.tick("worker-a", withOverride({ mode: "custom", start: "22:00", end: "07:00" }));
+      expect(h.row(d.id).status).toBe("sent");
+    });
   });
 
   it("suppresses outright when quiet hours run past the expiry", async () => {

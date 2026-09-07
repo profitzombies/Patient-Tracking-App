@@ -28,6 +28,12 @@
  *   6. Hydration failures retry rather than silently forking the thread.
  *   7. The support screen persists its thread per account with the same
  *      hydrate/append pattern, and stays session-only for the demo persona.
+ *   8. HQ's coach-availability policy: a signed-in patient whose care team
+ *      paused the coach sees the paused state up front (availability probe
+ *      on open), a paused 503 on send withdraws the waiting bubble instead
+ *      of an error, send/sendPhoto stay no-ops while paused, the coach
+ *      screen closes its composer with the notice, and the demo persona
+ *      never probes or pauses.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:chat-account
  */
@@ -57,6 +63,7 @@ import {
 } from '../context/CoachChatContext';
 import { AppModeProvider } from '../context/AppModeContext';
 import SupportChatScreen from '../app/support-chat';
+import CoachChatScreen from '../app/coach-chat';
 import { TODAY_KEY } from '../data/patient-data';
 import { localTodayKey } from '../lib/live-patient-entry';
 import { patientMediaDisplayUrl } from '../lib/patient-data-api';
@@ -191,6 +198,10 @@ const patientFacts = new Map<string, { firstName: string; programDay: number }>(
 const tokenRoles = new Map<string, { kind: string; patientId?: string }>();
 const apiCalls: ApiCall[] = [];
 const failNext = new Map<string, Scripted | 'network'>();
+/** HQ policy stand-in: patient ids whose care team has the coach paused. */
+const coachPausedFor = new Set<string>();
+const PAUSED_MESSAGE =
+  'Your care team has paused the coach for now. Your diary, check-ins, and photos keep working, and the coach will be back as soon as they turn it on again.';
 const uploadPuts: string[] = [];
 const mintedPaths: string[] = [];
 let uploadCounter = 0;
@@ -233,6 +244,11 @@ function routeCall(call: ApiCall): Scripted {
     return { status: role ? 403 : 401, body: { error: 'Sign in required.' } };
   }
   const patientId = role.patientId;
+
+  if (key === 'GET coach/availability') {
+    const paused = coachPausedFor.has(patientId);
+    return { status: 200, body: { available: !paused, message: paused ? PAUSED_MESSAGE : null } };
+  }
 
   if (key === 'GET patient-data/state') {
     return {
@@ -301,8 +317,20 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   const auth = headers.Authorization ?? null;
   const path = url.pathname.slice('/api/'.length);
 
-  // Chat streams answer with a hand-fed SSE body.
+  // Chat streams answer with a hand-fed SSE body — unless HQ has the coach
+  // paused for this patient, in which case the server answers 503 JSON
+  // before any model work (the demo persona is never paused).
   if (path === 'coach/chat' || path === 'support/chat') {
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    const patientId = token ? tokenRoles.get(token)?.patientId : undefined;
+    if (path === 'coach/chat' && patientId && coachPausedFor.has(patientId)) {
+      apiCalls.push({ method, path: 'coach/chat[paused]', query: url.searchParams, token, body: null });
+      return {
+        ok: false,
+        status: 503,
+        json: async () => ({ error: PAUSED_MESSAGE, retryable: false, coachPaused: true }),
+      } as Response;
+    }
     return scriptedSse(path, auth, init as { body?: unknown; signal?: AbortSignal | null });
   }
 
@@ -720,6 +748,94 @@ async function main() {
   assert('demo support screen never reads the account', callsTo('patient-chat/support').length === supportReadsBefore);
   assert('demo support screen starts empty', JSON.stringify(supportTree.toJSON()).includes('Try reinstalling') === false);
   await unmount(supportTree);
+
+  // ── 9 · HQ coach-availability policy ──────────────────────────────────────
+  section('coach paused by the care team: probe on open, 503 on send, composer closed');
+  // A stale probe must never let a paused turn through: the server's answer
+  // on send is the authority. Start un-paused, pause between open and send.
+  await signIn(P1);
+  tree = await mountLive();
+  await waitUntil('paused-section account resolves', () => chat.messages.length >= 1);
+  await waitUntil('availability probed on open', () => callsTo('coach/availability').length >= 1);
+  assert('probe carries the bearer token', callsTo('coach/availability').at(-1)?.token === 'tok-p1');
+  assert('coach available: no paused state', chat.coachPaused === null);
+  coachPausedFor.add('p-1');
+  const countBefore = chat.messages.length;
+  await sendText('are you there?');
+  await waitUntil('paused answer lands', () => chat.coachPaused !== null);
+  assert('paused state carries the server wording', chat.coachPaused?.message === PAUSED_MESSAGE);
+  assert('no coach stream opened for the paused turn', openedStreams.length === 0);
+  assert('paused turn hit the chat route (server is the authority)', callsTo('coach/chat[paused]').length === 1);
+  assert(
+    'the waiting bubble is withdrawn, not shown as an error',
+    chat.messages.length === countBefore + 1 &&
+      chat.messages.at(-1)?.role === 'user' &&
+      chat.messages.every(m => m.status !== 'error'),
+  );
+  assert('chat is unlocked after the pause', chat.isStreaming === false);
+  const pausedCalls = callsTo('coach/chat[paused]').length;
+  await sendText('hello?');
+  await settle();
+  assert('send is a no-op while paused', callsTo('coach/chat[paused]').length === pausedCalls && chat.messages.length === countBefore + 1);
+  await act(async () => {
+    chat.sendPhoto({ uri: 'data:image/jpeg;base64,/9j/4AAQ', width: 10, height: 10 });
+  });
+  await settle();
+  assert('sendPhoto is a no-op while paused', chat.messages.length === countBefore + 1 && openedStreams.length === 0);
+  await unmount(tree);
+
+  // Reopen while still paused: the probe shows the state before any send.
+  tree = await mountLive();
+  await waitUntil('reopen probe reports paused', () => chat.coachPaused !== null);
+  assert('reopen state carries the server wording', chat.coachPaused?.message === PAUSED_MESSAGE);
+  await unmount(tree);
+
+  // The coach screen: notice rendered, composer closed.
+  let screenTree!: ReactTestRenderer;
+  await act(async () => {
+    screenTree = create(
+      React.createElement(
+        AppModeProvider,
+        null,
+        React.createElement(
+          PatientAccountProvider,
+          null,
+          React.createElement(
+            PatientProvider,
+            null,
+            React.createElement(CoachChatProvider, null, React.createElement(CoachChatScreen)),
+          ),
+        ),
+      ),
+    );
+  });
+  await settle();
+  await waitUntil('coach screen shows the paused notice', () =>
+    screenTree.root.findAll(n => (n.props as { testID?: string }).testID === 'coach-paused-notice').length > 0,
+  );
+  const screenJson = JSON.stringify(screenTree.toJSON());
+  assert('notice names the care team', screenJson.includes('Coach paused by your care team'));
+  assert('notice carries the server wording', screenJson.includes(PAUSED_MESSAGE));
+  const byTestId = (id: string) =>
+    screenTree.root.findAll(n => (n.props as { testID?: string }).testID === id)[0]?.props as
+      | Record<string, unknown>
+      | undefined;
+  assert('input is not editable', byTestId('coach-input')?.editable === false);
+  assert('send button is disabled', byTestId('coach-send')?.disabled === true);
+  assert('photo button is disabled', byTestId('coach-photo')?.disabled === true);
+  await act(async () => {
+    screenTree.unmount();
+  });
+
+  // Care team turns the coach back on: the demo persona was never affected.
+  coachPausedFor.delete('p-1');
+  await signIn(null);
+  const probesBefore = callsTo('coach/availability').length;
+  tree = await mountDemo();
+  await settle();
+  assert('demo persona never probes availability', callsTo('coach/availability').length === probesBefore);
+  assert('demo persona is never paused', chat.coachPaused === null);
+  await unmount(tree);
 
   console.log(`\n${checks} checks, ${failures} failure${failures === 1 ? '' : 's'}`);
   process.exit(failures > 0 ? 1 : 0);

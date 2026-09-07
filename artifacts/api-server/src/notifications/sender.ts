@@ -28,6 +28,7 @@ import {
   type PushMessage,
 } from "./expo-push";
 import { evaluateSendPolicy } from "./policy";
+import { DEFAULT_TICK_POLICY, defaultsFor, type TickPolicy } from "./tick-policy";
 import type { AttemptInsert, NotificationStore } from "./store";
 import type { NotificationRow, NotificationStatus } from "./types";
 
@@ -80,6 +81,12 @@ export interface SenderDeps {
   now?: () => Date;
   config: Partial<SenderConfig> & { owner: string };
   log?: (event: string, detail: Record<string, unknown>) => void;
+  /**
+   * Organization policy for this tick (HQ defaults + office overrides). The
+   * worker loads it once per tick; when omitted the built-in defaults apply
+   * (default-on categories, no quiet hours) — unit tests exercise both.
+   */
+  policy?: TickPolicy | (() => Promise<TickPolicy>);
 }
 
 export function backoffMs(attempt: number, config: Pick<SenderConfig, "baseBackoffMs" | "maxBackoffMs">): number {
@@ -115,9 +122,12 @@ export async function runNotificationTick(deps: SenderDeps): Promise<TickSummary
 
   const claimed = await deps.store.claimDue(config.owner, config.claimLimit, config.leaseSeconds);
   summary.claimed = claimed.length;
+  const policy = claimed.length
+    ? typeof deps.policy === "function" ? await deps.policy() : deps.policy ?? DEFAULT_TICK_POLICY
+    : DEFAULT_TICK_POLICY;
   for (const row of claimed) {
     try {
-      await processClaimed(row, { ...deps, config, now, log, summary });
+      await processClaimed(row, { ...deps, config, now, log, summary, policy });
     } catch (error) {
       // Unexpected store failure: leave the row leased; the lease expires and
       // another tick re-claims it. Never let one row abort the batch.
@@ -125,7 +135,7 @@ export async function runNotificationTick(deps: SenderDeps): Promise<TickSummary
     }
   }
   try {
-    await processReceipts({ ...deps, config, now, log, summary });
+    await processReceipts({ ...deps, config, now, log, summary, policy });
   } catch (error) {
     log("notification_receipts_error", { error: error instanceof Error ? error.message : String(error) });
   }
@@ -139,6 +149,7 @@ interface Ctx {
   now: () => Date;
   log: (event: string, detail: Record<string, unknown>) => void;
   summary: TickSummary;
+  policy: TickPolicy;
 }
 
 async function finalize(
@@ -210,6 +221,7 @@ async function processClaimed(row: NotificationRow, ctx: Ctx): Promise<void> {
     context,
     now,
     expiresAt: new Date(row.expires_at),
+    defaults: defaultsFor(ctx.policy, context.providerId),
   });
   if (decision.action === "opt_out") {
     if (await finalize(ctx, row, "opted_out", { suppression_reason: decision.reason })) ctx.summary.optedOut += 1;

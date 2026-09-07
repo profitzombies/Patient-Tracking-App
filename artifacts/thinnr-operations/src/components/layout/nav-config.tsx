@@ -11,6 +11,7 @@ import {
   Box,
   GraduationCap,
   LayoutDashboard,
+  Settings,
   Sparkles,
   Trophy,
   Users,
@@ -38,6 +39,14 @@ export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/ai-support', label: 'AI Support', mobileLabel: 'Support', icon: Sparkles },
 ];
 
+/**
+ * Reached from the header gear, not the menu: the office Settings page shows
+ * the effective organization policy and the office's own overrides. It lives
+ * outside OFFICE_NAV_ITEMS so no menu design grows an extra tab, but the
+ * header title and document title still resolve it.
+ */
+export const OFFICE_SETTINGS_NAV_ITEM: OfficeNavItem = { path: '/settings', label: 'Settings', mobileLabel: 'Settings', icon: Settings };
+
 /** The Porcelain menu's section grouping, shared by the live Shell and the lab. */
 export const OFFICE_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/'] },
@@ -55,7 +64,7 @@ export function isOfficeNavItemActive(itemPath: string, location: string): boole
 export function findActiveOfficeNavItem(location: string): OfficeNavItem {
   return (
     OFFICE_NAV_ITEMS.find((item) => isOfficeNavItemActive(item.path, location)) ??
-    OFFICE_NAV_ITEMS[0]
+    (isOfficeNavItemActive(OFFICE_SETTINGS_NAV_ITEM.path, location) ? OFFICE_SETTINGS_NAV_ITEM : OFFICE_NAV_ITEMS[0])
   );
 }
 

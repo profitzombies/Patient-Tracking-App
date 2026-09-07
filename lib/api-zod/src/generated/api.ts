@@ -17,6 +17,7 @@ export const supportChatBodyMessagesItemContentMax = 8000;
 export const supportChatBodyMessagesMax = 30;
 
 
+
 export const SupportChatBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant']),
@@ -63,12 +64,23 @@ export const CoachChatResponse = zod.unknown()
 
 
 /**
+ * Reads the HQ coach-availability policy. Unauthenticated (demo) callers are always available; a real patient session answers the live policy so the app can show an honest "coach paused by your care team" state before the patient types.
+ * @summary Whether the AI coach is currently available to this patient
+ */
+export const GetCoachAvailabilityResponse = zod.object({
+  "available": zod.boolean(),
+  "message": zod.string().nullable()
+})
+
+
+/**
  * Generates a single appetizing dish photo for a coach recipe suggestion and returns it as a JPEG data URI, small enough for the client to persist alongside a saved recipe. Rate limited separately from chat.
  * @summary Generate a dish photo for an AI-suggested recipe
  */
 export const coachRecipeImageBodyNameMax = 80;
 
 export const coachRecipeImageBodyDescriptionMax = 200;
+
 
 
 export const CoachRecipeImageBody = zod.object({
@@ -86,6 +98,7 @@ export const CoachRecipeImageResponse = zod.object({
  * @summary Scan a restaurant menu photo for THINNR-compatible orders
  */
 export const coachMenuScanBodyImageMax = 8000000;
+
 
 
 export const CoachMenuScanBody = zod.object({
@@ -113,6 +126,7 @@ export const CoachMenuScanResponse = zod.object({
  * @summary Read a Nutrition Facts photo into per-serving values
  */
 export const coachLabelScanBodyImageMax = 8000000;
+
 
 
 export const CoachLabelScanBody = zod.object({
@@ -145,6 +159,7 @@ export const CoachLabelScanResponse = zod.object({
  */
 export const barcodeLookupPathCodeMin = 8;
 export const barcodeLookupPathCodeMax = 24;
+
 
 
 export const BarcodeLookupParams = zod.object({
@@ -223,6 +238,7 @@ export const CatalogSearchResponse = zod.object({
 export const catalogSelectBodyIdMax = 100;
 
 
+
 export const CatalogSelectBody = zod.object({
   "id": zod.string().min(1).max(catalogSelectBodyIdMax)
 })
@@ -265,6 +281,7 @@ export const CatalogSelectResponse = zod.object({
 export const progressPhotoFileQueryPathMax = 500;
 
 
+
 export const ProgressPhotoFileQueryParams = zod.object({
   "path": zod.coerce.string().max(progressPhotoFileQueryPathMax).describe('Canonical object path returned by finalize')
 })
@@ -285,6 +302,7 @@ export const trainingVideoUploadUrlBodyFileNameMax = 300;
 export const trainingVideoUploadUrlBodyContentTypeMax = 100;
 
 export const trainingVideoUploadUrlBodySizeBytesMax = 524288000;
+
 
 
 export const TrainingVideoUploadUrlBody = zod.object({
@@ -308,6 +326,7 @@ export const TrainingVideoFinalizeParams = zod.object({
 })
 
 export const trainingVideoFinalizeBodyObjectPathMax = 500;
+
 
 
 export const TrainingVideoFinalizeBody = zod.object({
@@ -347,6 +366,7 @@ export const trainingThumbnailUploadUrlBodyFileNameMax = 300;
 export const trainingThumbnailUploadUrlBodySizeBytesMax = 10485760;
 
 
+
 export const TrainingThumbnailUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingThumbnailUploadUrlBodyFileNameMax).describe('Original file name, for browser metadata only'),
   "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp']).describe('MIME type sent on the presigned PUT'),
@@ -371,6 +391,7 @@ export const TrainingThumbnailUploadParams = zod.object({
 export const trainingThumbnailUploadBodyObjectPathMax = 500;
 
 export const trainingThumbnailUploadBodyVideoSourceMax = 500;
+
 
 
 export const TrainingThumbnailUploadBody = zod.object({
@@ -400,6 +421,7 @@ export const trainingAttachmentUploadUrlBodyContentTypeMax = 100;
 export const trainingAttachmentUploadUrlBodySizeBytesMax = 26214400;
 
 
+
 export const TrainingAttachmentUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingAttachmentUploadUrlBodyFileNameMax).describe('Original file name, for logs and error copy only'),
   "contentType": zod.string().max(trainingAttachmentUploadUrlBodyContentTypeMax).describe('MIME type the browser will send on the PUT (PDF, Word, Excel, PowerPoint, text, CSV, or common image types)'),
@@ -425,6 +447,7 @@ export const trainingAttachmentFinalizeBodyObjectPathMax = 500;
 export const trainingAttachmentFinalizeBodyNameMax = 300;
 
 export const trainingAttachmentFinalizeBodyContentTypeMax = 100;
+
 
 
 export const TrainingAttachmentFinalizeBody = zod.object({
@@ -533,6 +556,7 @@ export const trainingVideoThumbnailBodyAtSecondsMin = 0;
 export const trainingVideoThumbnailBodyAtSecondsMax = 86400;
 
 
+
 export const TrainingVideoThumbnailBody = zod.object({
   "atSeconds": zod.number().min(trainingVideoThumbnailBodyAtSecondsMin).max(trainingVideoThumbnailBodyAtSecondsMax).describe('Video time of the frame to capture, clamped to the duration')
 })
@@ -554,6 +578,7 @@ export const TrainingVideoProcessParams = zod.object({
 export const trainingVideoProcessBodyStepsMax = 4;
 
 
+
 export const TrainingVideoProcessBody = zod.object({
   "steps": zod.array(zod.enum(['transcribe', 'describe', 'chapters', 'thumbnail'])).max(trainingVideoProcessBodyStepsMax).optional().describe('Subset of steps to run, in pipeline order; omit for the full pass. Used by retries to resume from a failed step without re-spending the ones that succeeded.')
 })
@@ -568,6 +593,7 @@ export const TrainingVideoProcessResponse = zod.unknown()
 export const knowledgeUploadUrlBodyFileNameMax = 300;
 
 export const knowledgeUploadUrlBodySizeBytesMax = 26214400;
+
 
 
 export const KnowledgeUploadUrlBody = zod.object({
@@ -614,6 +640,7 @@ export const knowledgeCreateDocumentBodyDocumentIdMax = 60;
 export const knowledgeCreateDocumentBodyObjectPathMax = 500;
 
 export const knowledgeCreateDocumentBodyFileNameMax = 300;
+
 
 
 export const KnowledgeCreateDocumentBody = zod.object({
@@ -673,6 +700,7 @@ export const KnowledgeRenameDocumentParams = zod.object({
 export const knowledgeRenameDocumentBodyTitleMax = 200;
 
 
+
 export const KnowledgeRenameDocumentBody = zod.object({
   "title": zod.string().min(1).max(knowledgeRenameDocumentBodyTitleMax)
 })
@@ -718,6 +746,7 @@ export const knowledgeReplaceUploadUrlBodyFileNameMax = 300;
 export const knowledgeReplaceUploadUrlBodySizeBytesMax = 26214400;
 
 
+
 export const KnowledgeReplaceUploadUrlBody = zod.object({
   "fileName": zod.string().min(1).max(knowledgeReplaceUploadUrlBodyFileNameMax).describe('Original file name; becomes the document title (sans extension)'),
   "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown']).describe('Canonical MIME type the browser will send on the PUT'),
@@ -742,6 +771,7 @@ export const KnowledgeReplaceFileParams = zod.object({
 export const knowledgeReplaceFileBodyObjectPathMax = 500;
 
 export const knowledgeReplaceFileBodyFileNameMax = 300;
+
 
 
 export const KnowledgeReplaceFileBody = zod.object({
@@ -800,6 +830,7 @@ export const getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast
 export const getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast7TwoMax = 7;
 
 export const getOfficeRosterResponsePatientsItemOperationalActivityTwoTopSideEffectsTwoMax = 3;
+
 
 
 export const GetOfficeRosterResponse = zod.object({
@@ -907,6 +938,7 @@ export const getOfficePatientRecordResponseEngagementLoggedLast7TwoMin = 7;
 export const getOfficePatientRecordResponseEngagementLoggedLast7TwoMax = 7;
 
 export const getOfficePatientRecordResponseEngagementTopSideEffectsTwoMax = 3;
+
 
 
 export const GetOfficePatientRecordResponse = zod.object({
@@ -1125,6 +1157,7 @@ export const GetOfficeOverviewResponse = zod.object({
 /**
  * @summary List privacy-safe patient conversation summaries for an authorized office
  */
+export const getOfficeConversationsQueryStatusDefault = `all`;
 export const getOfficeConversationsQueryLimitDefault = 50;
 export const getOfficeConversationsQueryLimitMax = 100;
 
@@ -1132,14 +1165,17 @@ export const getOfficeConversationsQueryOffsetDefault = 0;
 export const getOfficeConversationsQueryOffsetMin = 0;
 
 
+
 export const GetOfficeConversationsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "thread": zod.enum(['coach', 'support']).optional(),
+  "status": zod.enum(['open', 'closed', 'all']).default(getOfficeConversationsQueryStatusDefault).describe('Auto-close filter. A conversation is closed once it has been idle for the organization\'s conversation auto-close window (HQ settings).'),
   "limit": zod.coerce.number().min(1).max(getOfficeConversationsQueryLimitMax).default(getOfficeConversationsQueryLimitDefault),
   "offset": zod.coerce.number().min(getOfficeConversationsQueryOffsetMin).default(getOfficeConversationsQueryOffsetDefault)
 })
 
 export const GetOfficeConversationsResponse = zod.object({
+  "autoCloseDays": zod.number().optional().describe('The auto-close window the statuses were derived with'),
   "conversations": zod.array(zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
@@ -1147,7 +1183,8 @@ export const GetOfficeConversationsResponse = zod.object({
   "thread": zod.enum(['coach', 'support']),
   "messageCount": zod.number(),
   "lastMessageAt": zod.string().nullable(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "status": zod.enum(['open', 'closed']).describe('Derived from lastMessageAt against the organization\'s auto-close window')
 })),
   "total": zod.number()
 })
@@ -1165,6 +1202,7 @@ export const getOfficeConversationEventsQueryLimitDefault = 50;
 export const getOfficeConversationEventsQueryLimitMax = 100;
 
 
+
 export const GetOfficeConversationEventsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "before": zod.coerce.number().min(1).optional(),
@@ -1179,7 +1217,8 @@ export const GetOfficeConversationEventsResponse = zod.object({
   "thread": zod.enum(['coach', 'support']),
   "messageCount": zod.number(),
   "lastMessageAt": zod.string().nullable(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "status": zod.enum(['open', 'closed']).describe('Derived from lastMessageAt against the organization\'s auto-close window')
 }),
   "events": zod.array(zod.object({
   "seq": zod.number(),
@@ -1191,6 +1230,7 @@ export const GetOfficeConversationEventsResponse = zod.object({
   "nextBefore": zod.number().nullable()
 })
 
+
 /**
  * @summary Live office figures for a date range (own office or HQ by office id)
  */
@@ -1199,6 +1239,214 @@ export const GetOfficeAnalyticsQueryParams = zod.object({
   "end": zod.date(),
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
 })
+
+export const GetOfficeAnalyticsResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string()
+}),
+  "range": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "asOf": zod.string(),
+  "firstPatientDate": zod.coerce.date().nullable(),
+  "available": zod.boolean(),
+  "metrics": zod.union([zod.object({
+  "totalPatients": zod.number().describe('Patients on the roster as of the range end'),
+  "activePatients": zod.number().describe('Activated patients as of the range end'),
+  "enrollments": zod.number().describe('Patients created inside the range'),
+  "engaged": zod.number().describe('Active patients with any activity in the 7 days ending on the range end'),
+  "needsAttention": zod.number(),
+  "inactive": zod.number(),
+  "invited": zod.number(),
+  "loggingLapsed": zod.number(),
+  "checkInsOverdue": zod.number(),
+  "loggingPatients": zod.number().describe('Active patients with a meal log in the 7 days ending on the range end'),
+  "checkInPatients": zod.number().describe('Active patients with a check-in in the 7 days ending on the range end'),
+  "loggingAdherencePct": zod.number().nullable().describe('loggingPatients \/ activePatients'),
+  "checkInAdherencePct": zod.number().nullable().describe('checkInPatients \/ activePatients'),
+  "avgPoundsLost": zod.number().nullable().describe('Average pounds lost across active patients with recorded weights; null when none')
+}).describe('Office figures for a date range. Point-in-time counts are as of the range end; enrollments count inside the range; engaged, loggingPatients and checkInPatients use the trailing 7-day window ending on the range end (same contract as the network rollup\'s engaged7d); avgPoundsLost averages active patients with a recorded starting and current weight.'),zod.null()]),
+  "series": zod.array(zod.object({
+  "date": zod.coerce.date(),
+  "activePatients": zod.number(),
+  "engagedPatients": zod.number().describe('Active patients with any activity in the 7 days ending on this date'),
+  "enrollments": zod.number(),
+  "checkIns": zod.number()
+}).describe('One day of an office\'s series. engagedPatients is a rolling 7-day count (active patients with activity in [date-6, date]); enrollments and checkIns are exact-day counts.'))
+})
+
+
+/**
+ * @summary Per-office operational figures and daily series for a date range
+ */
+export const GetHqOfficeComparisonQueryParams = zod.object({
+  "start": zod.date(),
+  "end": zod.date()
+})
+
+export const GetHqOfficeComparisonResponse = zod.object({
+  "range": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "asOf": zod.string(),
+  "offices": zod.array(zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "providerName": zod.string(),
+  "firstPatientDate": zod.coerce.date().nullable(),
+  "available": zod.boolean().describe('False when the whole range predates the first patient record'),
+  "metrics": zod.union([zod.object({
+  "totalPatients": zod.number().describe('Patients on the roster as of the range end'),
+  "activePatients": zod.number().describe('Activated patients as of the range end'),
+  "enrollments": zod.number().describe('Patients created inside the range'),
+  "engaged": zod.number().describe('Active patients with any activity in the 7 days ending on the range end'),
+  "needsAttention": zod.number(),
+  "inactive": zod.number(),
+  "invited": zod.number(),
+  "loggingLapsed": zod.number(),
+  "checkInsOverdue": zod.number(),
+  "loggingPatients": zod.number().describe('Active patients with a meal log in the 7 days ending on the range end'),
+  "checkInPatients": zod.number().describe('Active patients with a check-in in the 7 days ending on the range end'),
+  "loggingAdherencePct": zod.number().nullable().describe('loggingPatients \/ activePatients'),
+  "checkInAdherencePct": zod.number().nullable().describe('checkInPatients \/ activePatients'),
+  "avgPoundsLost": zod.number().nullable().describe('Average pounds lost across active patients with recorded weights; null when none')
+}).describe('Office figures for a date range. Point-in-time counts are as of the range end; enrollments count inside the range; engaged, loggingPatients and checkInPatients use the trailing 7-day window ending on the range end (same contract as the network rollup\'s engaged7d); avgPoundsLost averages active patients with a recorded starting and current weight.'),zod.null()]),
+  "series": zod.array(zod.object({
+  "date": zod.coerce.date(),
+  "activePatients": zod.number(),
+  "engagedPatients": zod.number().describe('Active patients with any activity in the 7 days ending on this date'),
+  "enrollments": zod.number(),
+  "checkIns": zod.number()
+}).describe('One day of an office\'s series. engagedPatients is a rolling 7-day count (active patients with activity in [date-6, date]); enrollments and checkIns are exact-day counts.'))
+}))
+})
+
+
+/**
+ * @summary The caller's recent export jobs and the kinds they may request
+ */
+export const ListExportsResponse = zod.object({
+  "jobs": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean()
+})),
+  "available": zod.array(zod.object({
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "label": zod.string(),
+  "ranged": zod.boolean(),
+  "needsOffice": zod.boolean()
+})),
+  "ttlHours": zod.number()
+})
+
+
+/**
+ * @summary Queue a CSV export scoped to the caller's permissions and office
+ */
+export const RequestExportBody = zod.object({
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "office": zod.string().nullish().describe('Office account id (HQ only) - office staff are pinned to their own office'),
+  "start": zod.coerce.date().optional(),
+  "end": zod.coerce.date().optional()
+})
+
+export const RequestExportResponse = zod.object({
+  "job": zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Poll one of the caller's export jobs
+ */
+export const GetExportParams = zod.object({
+  "exportId": zod.coerce.string()
+})
+
+export const GetExportResponse = zod.object({
+  "job": zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Mint a short-lived signed download link for a ready export
+ */
+export const GetExportDownloadUrlParams = zod.object({
+  "exportId": zod.coerce.string()
+})
+
+export const GetExportDownloadUrlResponse = zod.object({
+  "url": zod.string(),
+  "fileName": zod.string().nullable(),
+  "expiresInSeconds": zod.number()
+})
+
+
 /**
  * @summary Read aggregate-only operational metrics across the HQ umbrella
  */
@@ -1227,20 +1475,87 @@ export const GetHqOverviewResponse = zod.object({
 
 
 /**
- * @summary Read persisted organization settings
+ * @summary Read the persisted organization settings and policy contract
  */
+export const getHqSettingsResponseDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const getHqSettingsResponseDefaultQuietHoursOneEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const getHqSettingsResponseRetentionChatTranscriptDaysMin = 30;
+export const getHqSettingsResponseRetentionChatTranscriptDaysMax = 3650;
+
+export const getHqSettingsResponseRetentionProgressPhotoDaysMin = 30;
+export const getHqSettingsResponseRetentionProgressPhotoDaysMax = 3650;
+
+export const getHqSettingsResponseRetentionNotificationHistoryDaysMin = 7;
+export const getHqSettingsResponseRetentionNotificationHistoryDaysMax = 3650;
+
+export const getHqSettingsResponseRetentionAuditEventDaysMin = 365;
+export const getHqSettingsResponseRetentionAuditEventDaysMax = 3650;
+
+
+
 export const GetHqSettingsResponse = zod.object({
   "organizationName": zod.string(),
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
-  "updatedAt": zod.string()
+  "coachAvailable": zod.boolean(),
+  "escalationEmail": zod.string().nullable(),
+  "defaultCategories": zod.object({
+  "coachOutreach": zod.boolean(),
+  "checkInReminders": zod.boolean(),
+  "officeReminders": zod.boolean()
+}),
+  "defaultQuietHours": zod.union([zod.object({
+  "start": zod.string().regex(getHqSettingsResponseDefaultQuietHoursOneStartRegExp),
+  "end": zod.string().regex(getHqSettingsResponseDefaultQuietHoursOneEndRegExp)
+}),zod.null()]),
+  "outreachCooldownDays": zod.number(),
+  "outreachDailyCap": zod.number(),
+  "conversationAutoCloseDays": zod.number(),
+  "retention": zod.object({
+  "chatTranscriptDays": zod.number().min(getHqSettingsResponseRetentionChatTranscriptDaysMin).max(getHqSettingsResponseRetentionChatTranscriptDaysMax),
+  "progressPhotoDays": zod.number().min(getHqSettingsResponseRetentionProgressPhotoDaysMin).max(getHqSettingsResponseRetentionProgressPhotoDaysMax),
+  "notificationHistoryDays": zod.number().min(getHqSettingsResponseRetentionNotificationHistoryDaysMin).max(getHqSettingsResponseRetentionNotificationHistoryDaysMax),
+  "auditEventDays": zod.number().min(getHqSettingsResponseRetentionAuditEventDaysMin).max(getHqSettingsResponseRetentionAuditEventDaysMax)
+}),
+  "exportLinkHours": zod.number(),
+  "version": zod.number(),
+  "updatedAt": zod.string(),
+  "sections": zod.object({
+  "organization": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "coach": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "notifications": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "conversations": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "retention": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()])
+})
 })
 
 
 /**
- * @summary Replace persisted organization settings
+ * Merge update: fields left out keep their current values, so a client may save one section at a time. Every changed field is audited with field-level metadata (section, from, to) and bumps the settings version; pass expectedVersion to refuse overwriting a newer save.
+ * @summary Update organization settings and policies
  */
+
 export const updateHqSettingsBodyOrganizationNameMax = 160;
 
 export const updateHqSettingsBodySupportEmailMax = 320;
@@ -1249,20 +1564,380 @@ export const updateHqSettingsBodySupportPhoneMax = 40;
 
 export const updateHqSettingsBodyDefaultTimezoneMax = 80;
 
+export const updateHqSettingsBodyEscalationEmailMax = 320;
+
+export const updateHqSettingsBodyDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateHqSettingsBodyDefaultQuietHoursOneEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateHqSettingsBodyOutreachCooldownDaysMax = 90;
+
+export const updateHqSettingsBodyOutreachDailyCapMax = 10000;
+
+export const updateHqSettingsBodyConversationAutoCloseDaysMax = 365;
+
+export const updateHqSettingsBodyRetentionChatTranscriptDaysMin = 30;
+export const updateHqSettingsBodyRetentionChatTranscriptDaysMax = 3650;
+
+export const updateHqSettingsBodyRetentionProgressPhotoDaysMin = 30;
+export const updateHqSettingsBodyRetentionProgressPhotoDaysMax = 3650;
+
+export const updateHqSettingsBodyRetentionNotificationHistoryDaysMin = 7;
+export const updateHqSettingsBodyRetentionNotificationHistoryDaysMax = 3650;
+
+export const updateHqSettingsBodyRetentionAuditEventDaysMin = 365;
+export const updateHqSettingsBodyRetentionAuditEventDaysMax = 3650;
+
+export const updateHqSettingsBodyExportLinkHoursMax = 168;
+
+
 
 export const UpdateHqSettingsBody = zod.object({
-  "organizationName": zod.string().min(1).max(updateHqSettingsBodyOrganizationNameMax),
-  "supportEmail": zod.string().max(updateHqSettingsBodySupportEmailMax).nullable(),
-  "supportPhone": zod.string().max(updateHqSettingsBodySupportPhoneMax).nullable(),
-  "defaultTimezone": zod.string().min(1).max(updateHqSettingsBodyDefaultTimezoneMax)
+  "expectedVersion": zod.number().min(1).optional(),
+  "organizationName": zod.string().min(1).max(updateHqSettingsBodyOrganizationNameMax).optional(),
+  "supportEmail": zod.string().max(updateHqSettingsBodySupportEmailMax).nullish(),
+  "supportPhone": zod.string().max(updateHqSettingsBodySupportPhoneMax).nullish(),
+  "defaultTimezone": zod.string().min(1).max(updateHqSettingsBodyDefaultTimezoneMax).optional(),
+  "coachAvailable": zod.boolean().optional(),
+  "escalationEmail": zod.string().max(updateHqSettingsBodyEscalationEmailMax).nullish(),
+  "defaultCategories": zod.object({
+  "coachOutreach": zod.boolean(),
+  "checkInReminders": zod.boolean(),
+  "officeReminders": zod.boolean()
+}).optional(),
+  "defaultQuietHours": zod.union([zod.object({
+  "start": zod.string().regex(updateHqSettingsBodyDefaultQuietHoursOneStartRegExp),
+  "end": zod.string().regex(updateHqSettingsBodyDefaultQuietHoursOneEndRegExp)
+}),zod.null()]).optional(),
+  "outreachCooldownDays": zod.number().min(1).max(updateHqSettingsBodyOutreachCooldownDaysMax).optional(),
+  "outreachDailyCap": zod.number().min(1).max(updateHqSettingsBodyOutreachDailyCapMax).optional(),
+  "conversationAutoCloseDays": zod.number().min(1).max(updateHqSettingsBodyConversationAutoCloseDaysMax).optional(),
+  "retention": zod.object({
+  "chatTranscriptDays": zod.number().min(updateHqSettingsBodyRetentionChatTranscriptDaysMin).max(updateHqSettingsBodyRetentionChatTranscriptDaysMax),
+  "progressPhotoDays": zod.number().min(updateHqSettingsBodyRetentionProgressPhotoDaysMin).max(updateHqSettingsBodyRetentionProgressPhotoDaysMax),
+  "notificationHistoryDays": zod.number().min(updateHqSettingsBodyRetentionNotificationHistoryDaysMin).max(updateHqSettingsBodyRetentionNotificationHistoryDaysMax),
+  "auditEventDays": zod.number().min(updateHqSettingsBodyRetentionAuditEventDaysMin).max(updateHqSettingsBodyRetentionAuditEventDaysMax)
+}).optional(),
+  "exportLinkHours": zod.number().min(1).max(updateHqSettingsBodyExportLinkHoursMax).optional()
 })
+
+export const updateHqSettingsResponseDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateHqSettingsResponseDefaultQuietHoursOneEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateHqSettingsResponseRetentionChatTranscriptDaysMin = 30;
+export const updateHqSettingsResponseRetentionChatTranscriptDaysMax = 3650;
+
+export const updateHqSettingsResponseRetentionProgressPhotoDaysMin = 30;
+export const updateHqSettingsResponseRetentionProgressPhotoDaysMax = 3650;
+
+export const updateHqSettingsResponseRetentionNotificationHistoryDaysMin = 7;
+export const updateHqSettingsResponseRetentionNotificationHistoryDaysMax = 3650;
+
+export const updateHqSettingsResponseRetentionAuditEventDaysMin = 365;
+export const updateHqSettingsResponseRetentionAuditEventDaysMax = 3650;
+
+
 
 export const UpdateHqSettingsResponse = zod.object({
   "organizationName": zod.string(),
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
-  "updatedAt": zod.string()
+  "coachAvailable": zod.boolean(),
+  "escalationEmail": zod.string().nullable(),
+  "defaultCategories": zod.object({
+  "coachOutreach": zod.boolean(),
+  "checkInReminders": zod.boolean(),
+  "officeReminders": zod.boolean()
+}),
+  "defaultQuietHours": zod.union([zod.object({
+  "start": zod.string().regex(updateHqSettingsResponseDefaultQuietHoursOneStartRegExp),
+  "end": zod.string().regex(updateHqSettingsResponseDefaultQuietHoursOneEndRegExp)
+}),zod.null()]),
+  "outreachCooldownDays": zod.number(),
+  "outreachDailyCap": zod.number(),
+  "conversationAutoCloseDays": zod.number(),
+  "retention": zod.object({
+  "chatTranscriptDays": zod.number().min(updateHqSettingsResponseRetentionChatTranscriptDaysMin).max(updateHqSettingsResponseRetentionChatTranscriptDaysMax),
+  "progressPhotoDays": zod.number().min(updateHqSettingsResponseRetentionProgressPhotoDaysMin).max(updateHqSettingsResponseRetentionProgressPhotoDaysMax),
+  "notificationHistoryDays": zod.number().min(updateHqSettingsResponseRetentionNotificationHistoryDaysMin).max(updateHqSettingsResponseRetentionNotificationHistoryDaysMax),
+  "auditEventDays": zod.number().min(updateHqSettingsResponseRetentionAuditEventDaysMin).max(updateHqSettingsResponseRetentionAuditEventDaysMax)
+}),
+  "exportLinkHours": zod.number(),
+  "version": zod.number(),
+  "updatedAt": zod.string(),
+  "sections": zod.object({
+  "organization": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "coach": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "notifications": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "conversations": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "retention": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()])
+})
+})
+
+
+/**
+ * @summary Read the effective policy for an office with its permitted overrides
+ */
+export const GetOfficeSettingsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const getOfficeSettingsResponseHqDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const getOfficeSettingsResponseHqDefaultQuietHoursOneEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const getOfficeSettingsResponseHqRetentionChatTranscriptDaysMin = 30;
+export const getOfficeSettingsResponseHqRetentionChatTranscriptDaysMax = 3650;
+
+export const getOfficeSettingsResponseHqRetentionProgressPhotoDaysMin = 30;
+export const getOfficeSettingsResponseHqRetentionProgressPhotoDaysMax = 3650;
+
+export const getOfficeSettingsResponseHqRetentionNotificationHistoryDaysMin = 7;
+export const getOfficeSettingsResponseHqRetentionNotificationHistoryDaysMax = 3650;
+
+export const getOfficeSettingsResponseHqRetentionAuditEventDaysMin = 365;
+export const getOfficeSettingsResponseHqRetentionAuditEventDaysMax = 3650;
+
+export const getOfficeSettingsResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const getOfficeSettingsResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const getOfficeSettingsResponseEffectiveQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const getOfficeSettingsResponseEffectiveQuietHoursOneEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+
+
+export const GetOfficeSettingsResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string()
+}),
+  "hq": zod.object({
+  "organizationName": zod.string(),
+  "supportEmail": zod.string().nullable(),
+  "supportPhone": zod.string().nullable(),
+  "defaultTimezone": zod.string(),
+  "coachAvailable": zod.boolean(),
+  "escalationEmail": zod.string().nullable(),
+  "defaultCategories": zod.object({
+  "coachOutreach": zod.boolean(),
+  "checkInReminders": zod.boolean(),
+  "officeReminders": zod.boolean()
+}),
+  "defaultQuietHours": zod.union([zod.object({
+  "start": zod.string().regex(getOfficeSettingsResponseHqDefaultQuietHoursOneStartRegExp),
+  "end": zod.string().regex(getOfficeSettingsResponseHqDefaultQuietHoursOneEndRegExp)
+}),zod.null()]),
+  "outreachCooldownDays": zod.number(),
+  "outreachDailyCap": zod.number(),
+  "conversationAutoCloseDays": zod.number(),
+  "retention": zod.object({
+  "chatTranscriptDays": zod.number().min(getOfficeSettingsResponseHqRetentionChatTranscriptDaysMin).max(getOfficeSettingsResponseHqRetentionChatTranscriptDaysMax),
+  "progressPhotoDays": zod.number().min(getOfficeSettingsResponseHqRetentionProgressPhotoDaysMin).max(getOfficeSettingsResponseHqRetentionProgressPhotoDaysMax),
+  "notificationHistoryDays": zod.number().min(getOfficeSettingsResponseHqRetentionNotificationHistoryDaysMin).max(getOfficeSettingsResponseHqRetentionNotificationHistoryDaysMax),
+  "auditEventDays": zod.number().min(getOfficeSettingsResponseHqRetentionAuditEventDaysMin).max(getOfficeSettingsResponseHqRetentionAuditEventDaysMax)
+}),
+  "exportLinkHours": zod.number(),
+  "version": zod.number(),
+  "updatedAt": zod.string(),
+  "sections": zod.object({
+  "organization": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "coach": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "notifications": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "conversations": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "retention": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()])
+})
+}),
+  "overrides": zod.object({
+  "quietHours": zod.object({
+  "mode": zod.enum(['inherit', 'none', 'custom']),
+  "start": zod.string().regex(getOfficeSettingsResponseOverridesQuietHoursStartRegExp).optional(),
+  "end": zod.string().regex(getOfficeSettingsResponseOverridesQuietHoursEndRegExp).optional()
+}),
+  "escalationEmail": zod.string().nullable(),
+  "version": zod.number(),
+  "updatedAt": zod.string().nullable(),
+  "updatedBy": zod.string().nullable(),
+  "updatedByName": zod.string().nullable()
+}),
+  "effective": zod.object({
+  "quietHours": zod.union([zod.object({
+  "start": zod.string().regex(getOfficeSettingsResponseEffectiveQuietHoursOneStartRegExp),
+  "end": zod.string().regex(getOfficeSettingsResponseEffectiveQuietHoursOneEndRegExp)
+}),zod.null()]),
+  "escalationEmail": zod.string().nullable(),
+  "source": zod.object({
+  "quietHours": zod.enum(['office', 'hq']),
+  "escalationEmail": zod.enum(['office', 'hq'])
+})
+}),
+  "canEdit": zod.boolean()
+})
+
+
+/**
+ * @summary Replace the office-local overrides HQ marks overridable
+ */
+export const UpdateOfficeSettingsOverridesQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const updateOfficeSettingsOverridesBodyExpectedVersionMin = 0;
+
+export const updateOfficeSettingsOverridesBodyQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateOfficeSettingsOverridesBodyQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateOfficeSettingsOverridesBodyEscalationEmailMax = 320;
+
+
+
+export const UpdateOfficeSettingsOverridesBody = zod.object({
+  "expectedVersion": zod.number().min(updateOfficeSettingsOverridesBodyExpectedVersionMin).optional(),
+  "quietHours": zod.object({
+  "mode": zod.enum(['inherit', 'none', 'custom']),
+  "start": zod.string().regex(updateOfficeSettingsOverridesBodyQuietHoursStartRegExp).optional(),
+  "end": zod.string().regex(updateOfficeSettingsOverridesBodyQuietHoursEndRegExp).optional()
+}),
+  "escalationEmail": zod.string().max(updateOfficeSettingsOverridesBodyEscalationEmailMax).nullable()
+})
+
+export const updateOfficeSettingsOverridesResponseHqDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateOfficeSettingsOverridesResponseHqDefaultQuietHoursOneEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateOfficeSettingsOverridesResponseHqRetentionChatTranscriptDaysMin = 30;
+export const updateOfficeSettingsOverridesResponseHqRetentionChatTranscriptDaysMax = 3650;
+
+export const updateOfficeSettingsOverridesResponseHqRetentionProgressPhotoDaysMin = 30;
+export const updateOfficeSettingsOverridesResponseHqRetentionProgressPhotoDaysMax = 3650;
+
+export const updateOfficeSettingsOverridesResponseHqRetentionNotificationHistoryDaysMin = 7;
+export const updateOfficeSettingsOverridesResponseHqRetentionNotificationHistoryDaysMax = 3650;
+
+export const updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMin = 365;
+export const updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMax = 3650;
+
+export const updateOfficeSettingsOverridesResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateOfficeSettingsOverridesResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateOfficeSettingsOverridesResponseEffectiveQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+export const updateOfficeSettingsOverridesResponseEffectiveQuietHoursOneEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+
+
+export const UpdateOfficeSettingsOverridesResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string()
+}),
+  "hq": zod.object({
+  "organizationName": zod.string(),
+  "supportEmail": zod.string().nullable(),
+  "supportPhone": zod.string().nullable(),
+  "defaultTimezone": zod.string(),
+  "coachAvailable": zod.boolean(),
+  "escalationEmail": zod.string().nullable(),
+  "defaultCategories": zod.object({
+  "coachOutreach": zod.boolean(),
+  "checkInReminders": zod.boolean(),
+  "officeReminders": zod.boolean()
+}),
+  "defaultQuietHours": zod.union([zod.object({
+  "start": zod.string().regex(updateOfficeSettingsOverridesResponseHqDefaultQuietHoursOneStartRegExp),
+  "end": zod.string().regex(updateOfficeSettingsOverridesResponseHqDefaultQuietHoursOneEndRegExp)
+}),zod.null()]),
+  "outreachCooldownDays": zod.number(),
+  "outreachDailyCap": zod.number(),
+  "conversationAutoCloseDays": zod.number(),
+  "retention": zod.object({
+  "chatTranscriptDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionChatTranscriptDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionChatTranscriptDaysMax),
+  "progressPhotoDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionProgressPhotoDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionProgressPhotoDaysMax),
+  "notificationHistoryDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionNotificationHistoryDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionNotificationHistoryDaysMax),
+  "auditEventDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMax)
+}),
+  "exportLinkHours": zod.number(),
+  "version": zod.number(),
+  "updatedAt": zod.string(),
+  "sections": zod.object({
+  "organization": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "coach": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "notifications": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "conversations": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "retention": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()])
+})
+}),
+  "overrides": zod.object({
+  "quietHours": zod.object({
+  "mode": zod.enum(['inherit', 'none', 'custom']),
+  "start": zod.string().regex(updateOfficeSettingsOverridesResponseOverridesQuietHoursStartRegExp).optional(),
+  "end": zod.string().regex(updateOfficeSettingsOverridesResponseOverridesQuietHoursEndRegExp).optional()
+}),
+  "escalationEmail": zod.string().nullable(),
+  "version": zod.number(),
+  "updatedAt": zod.string().nullable(),
+  "updatedBy": zod.string().nullable(),
+  "updatedByName": zod.string().nullable()
+}),
+  "effective": zod.object({
+  "quietHours": zod.union([zod.object({
+  "start": zod.string().regex(updateOfficeSettingsOverridesResponseEffectiveQuietHoursOneStartRegExp),
+  "end": zod.string().regex(updateOfficeSettingsOverridesResponseEffectiveQuietHoursOneEndRegExp)
+}),zod.null()]),
+  "escalationEmail": zod.string().nullable(),
+  "source": zod.object({
+  "quietHours": zod.enum(['office', 'hq']),
+  "escalationEmail": zod.enum(['office', 'hq'])
+})
+}),
+  "canEdit": zod.boolean()
 })
 
 
@@ -1274,6 +1949,7 @@ export const createHqFileUploadBodyNameMax = 240;
 export const createHqFileUploadBodyContentTypeMax = 120;
 
 export const createHqFileUploadBodySizeMax = 52428800;
+
 
 
 export const CreateHqFileUploadBody = zod.object({
@@ -1315,6 +1991,7 @@ export const finalizeHqFileBodyContentTypeMax = 120;
 export const finalizeHqFileBodySizeMax = 52428800;
 
 export const finalizeHqFileBodyObjectPathMax = 500;
+
 
 
 export const FinalizeHqFileBody = zod.object({
@@ -1388,203 +2065,3 @@ export const GetHqAuditEventsResponse = zod.object({
 })
 
 
-/**
- * @summary Queue a CSV export scoped to the caller's permissions and office
- */
-export const RequestExportBody = zod.object({
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
-  "office": zod.string().nullish().describe('Office account id (HQ only) - office staff are pinned to their own office'),
-  "start": zod.coerce.date().optional(),
-  "end": zod.coerce.date().optional()
-})
-
-export const GetOfficeAnalyticsResponse = zod.object({
-  "office": zod.object({
-  "providerId": zod.string(),
-  "officeName": zod.string()
-}),
-  "range": zod.object({
-  "start": zod.coerce.date(),
-  "end": zod.coerce.date()
-}),
-  "asOf": zod.string(),
-  "firstPatientDate": zod.coerce.date().nullable(),
-  "available": zod.boolean(),
-  "metrics": zod.union([zod.object({
-  "totalPatients": zod.number(),
-  "activePatients": zod.number(),
-  "enrollments": zod.number(),
-  "engaged": zod.number(),
-  "needsAttention": zod.number(),
-  "inactive": zod.number(),
-  "invited": zod.number(),
-  "loggingLapsed": zod.number(),
-  "checkInsOverdue": zod.number(),
-  "loggingPatients": zod.number(),
-  "checkInPatients": zod.number(),
-  "loggingAdherencePct": zod.number().nullable(),
-  "checkInAdherencePct": zod.number().nullable(),
-  "avgPoundsLost": zod.number().nullable()
-}),zod.null()]),
-  "series": zod.array(zod.object({
-  "date": zod.coerce.date(),
-  "activePatients": zod.number(),
-  "engagedPatients": zod.number(),
-  "enrollments": zod.number(),
-  "checkIns": zod.number()
-}))
-})
-
-/**
- * @summary Poll one of the caller's export jobs
- */
-export const GetExportParams = zod.object({
-  "exportId": zod.coerce.string()
-})
-
-export const GetExportResponse = zod.object({
-  "job": zod.object({
-  "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
-  "label": zod.string(),
-  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
-  "scope": zod.object({
-  "providerId": zod.string().nullable(),
-  "officeName": zod.string().nullable()
-}),
-  "range": zod.union([zod.object({
-  "start": zod.coerce.date(),
-  "end": zod.coerce.date()
-}),zod.null()]),
-  "fileName": zod.string().nullable(),
-  "sizeBytes": zod.number().nullable(),
-  "rowCount": zod.number().nullable(),
-  "error": zod.string().nullable(),
-  "createdAt": zod.string(),
-  "completedAt": zod.string().nullable(),
-  "expiresAt": zod.string(),
-  "downloadCount": zod.number(),
-  "downloadable": zod.boolean()
-})
-})
-
-/**
- * @summary Mint a short-lived signed download link for a ready export
- */
-export const GetExportDownloadUrlParams = zod.object({
-  "exportId": zod.coerce.string()
-})
-
-export const GetExportDownloadUrlResponse = zod.object({
-  "url": zod.string(),
-  "fileName": zod.string().nullable(),
-  "expiresInSeconds": zod.number()
-})
-
-/**
- * @summary Per-office operational figures and daily series for a date range
- */
-export const GetHqOfficeComparisonQueryParams = zod.object({
-  "start": zod.date(),
-  "end": zod.date()
-})
-
-export const GetHqOfficeComparisonResponse = zod.object({
-  "range": zod.object({
-  "start": zod.coerce.date(),
-  "end": zod.coerce.date()
-}),
-  "asOf": zod.string(),
-  "offices": zod.array(zod.object({
-  "providerId": zod.string(),
-  "officeName": zod.string(),
-  "providerName": zod.string(),
-  "firstPatientDate": zod.coerce.date().nullable(),
-  "available": zod.boolean().describe('False when the whole range predates the first patient record'),
-  "metrics": zod.union([zod.object({
-  "totalPatients": zod.number(),
-  "activePatients": zod.number(),
-  "enrollments": zod.number(),
-  "engaged": zod.number(),
-  "needsAttention": zod.number(),
-  "inactive": zod.number(),
-  "invited": zod.number(),
-  "loggingLapsed": zod.number(),
-  "checkInsOverdue": zod.number(),
-  "loggingPatients": zod.number(),
-  "checkInPatients": zod.number(),
-  "loggingAdherencePct": zod.number().nullable(),
-  "checkInAdherencePct": zod.number().nullable(),
-  "avgPoundsLost": zod.number().nullable()
-}),zod.null()]),
-  "series": zod.array(zod.object({
-  "date": zod.coerce.date(),
-  "activePatients": zod.number(),
-  "engagedPatients": zod.number(),
-  "enrollments": zod.number(),
-  "checkIns": zod.number()
-}))
-}))
-})
-
-/**
- * @summary The caller's recent export jobs and the kinds they may request
- */
-export const ListExportsResponse = zod.object({
-  "jobs": zod.array(zod.object({
-  "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
-  "label": zod.string(),
-  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
-  "scope": zod.object({
-  "providerId": zod.string().nullable(),
-  "officeName": zod.string().nullable()
-}),
-  "range": zod.union([zod.object({
-  "start": zod.coerce.date(),
-  "end": zod.coerce.date()
-}),zod.null()]),
-  "fileName": zod.string().nullable(),
-  "sizeBytes": zod.number().nullable(),
-  "rowCount": zod.number().nullable(),
-  "error": zod.string().nullable(),
-  "createdAt": zod.string(),
-  "completedAt": zod.string().nullable(),
-  "expiresAt": zod.string(),
-  "downloadCount": zod.number(),
-  "downloadable": zod.boolean()
-})),
-  "available": zod.array(zod.object({
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
-  "label": zod.string(),
-  "ranged": zod.boolean(),
-  "needsOffice": zod.boolean()
-})),
-  "ttlHours": zod.number()
-})
-
-export const RequestExportResponse = zod.object({
-  "job": zod.object({
-  "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
-  "label": zod.string(),
-  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
-  "scope": zod.object({
-  "providerId": zod.string().nullable(),
-  "officeName": zod.string().nullable()
-}),
-  "range": zod.union([zod.object({
-  "start": zod.coerce.date(),
-  "end": zod.coerce.date()
-}),zod.null()]),
-  "fileName": zod.string().nullable(),
-  "sizeBytes": zod.number().nullable(),
-  "rowCount": zod.number().nullable(),
-  "error": zod.string().nullable(),
-  "createdAt": zod.string(),
-  "completedAt": zod.string().nullable(),
-  "expiresAt": zod.string(),
-  "downloadCount": zod.number(),
-  "downloadable": zod.boolean()
-})
-})

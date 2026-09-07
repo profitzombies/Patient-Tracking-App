@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ConversationSummaryStatus } from './conversationSummaryStatus';
 import type { ConversationSummaryThread } from './conversationSummaryThread';
 
 export interface ConversationSummary {
@@ -16,4 +17,6 @@ export interface ConversationSummary {
   /** @nullable */
   lastMessageAt: string | null;
   createdAt: string;
+  /** Derived from lastMessageAt against the organization's auto-close window */
+  status: ConversationSummaryStatus;
 }

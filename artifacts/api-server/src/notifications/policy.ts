@@ -55,20 +55,50 @@ export function parseClockMinutes(value: unknown): number | null {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-/** Tolerant parse: unknown/missing keys fall back to the default-on shape. */
-export function parseNotificationPrefs(raw: unknown): ParsedPrefs {
+/**
+ * Organization defaults for patients who never set a preference themselves:
+ * HQ's default categories and (office-effective) quiet hours. A patient's own
+ * explicit choice always wins — including an explicit `quietHours: null`.
+ */
+export interface PolicyDefaults {
+  categories: CategoryPrefs;
+  quietHours: { start: string; end: string } | null;
+}
+
+export const DEFAULT_ON: PolicyDefaults = {
+  categories: { coachOutreach: true, checkInReminders: true, officeReminders: true },
+  quietHours: null,
+};
+
+export function parseQuietHours(raw: unknown): QuietHours | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const q = raw as Record<string, unknown>;
+  const startMinutes = parseClockMinutes(q.start);
+  const endMinutes = parseClockMinutes(q.end);
+  if (startMinutes === null || endMinutes === null || startMinutes === endMinutes) return null;
+  return { startMinutes, endMinutes, start: String(q.start).trim(), end: String(q.end).trim() };
+}
+
+/**
+ * Tolerant parse: unknown/missing keys fall back to the organization
+ * defaults (default-on, no quiet hours, unless HQ or the office set others).
+ */
+export function parseNotificationPrefs(raw: unknown, defaults: PolicyDefaults = DEFAULT_ON): ParsedPrefs {
   const prefs = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const rawCategories =
     prefs.categories && typeof prefs.categories === "object" && !Array.isArray(prefs.categories)
       ? (prefs.categories as Record<string, unknown>)
       : {};
-  const flag = (key: keyof CategoryPrefs): boolean => rawCategories[key] !== false;
+  const flag = (key: keyof CategoryPrefs): boolean =>
+    typeof rawCategories[key] === "boolean" ? (rawCategories[key] as boolean) : defaults.categories[key];
   const categories: CategoryPrefs = {
     coachOutreach: flag("coachOutreach"),
     checkInReminders: flag("checkInReminders"),
     officeReminders: flag("officeReminders"),
   };
-  let quietHours: QuietHours | null = null;
+  // `quietHours` absent → organization default; present (even null) → the
+  // patient's own choice.
+  let quietHours: QuietHours | null = "quietHours" in prefs ? null : parseQuietHours(defaults.quietHours);
   const rawQuiet = prefs.quietHours;
   if (rawQuiet && typeof rawQuiet === "object" && !Array.isArray(rawQuiet)) {
     const q = rawQuiet as Record<string, unknown>;
@@ -247,8 +277,10 @@ export function evaluateSendPolicy(input: {
   context: PolicyContext;
   now: Date;
   expiresAt: Date;
+  /** Organization/office defaults for unset preferences (default-on when omitted). */
+  defaults?: PolicyDefaults;
 }): PolicyDecision {
-  const parsed = parseNotificationPrefs(input.context.prefs);
+  const parsed = parseNotificationPrefs(input.context.prefs, input.defaults ?? DEFAULT_ON);
   if (input.category === "coach_outreach" && input.context.nudgeOptOut) {
     return { action: "opt_out", reason: "nudge_opt_out" };
   }

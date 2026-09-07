@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260927000000_push_notifications.sql");
+const CAP_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260928100000_outreach_daily_cap.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -76,7 +77,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("claim_patient_notifications (real PostgreS
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, CAP_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
   }, 60_000);
@@ -156,6 +157,69 @@ describe.skipIf(!POSTGRES_AVAILABLE)("claim_patient_notifications (real PostgreS
       { id: uuid(102), lease_owner: "worker-b" },
     ]);
   }, 20_000);
+
+  describe("enqueue_outreach_capped", () => {
+    const CAP_FN = "public.enqueue_outreach_capped(uuid,text,text,text,text,jsonb,text,timestamptz,timestamptz,integer,timestamptz)";
+    const reserveSql = (patient: number, key: string, cap: number, since = "date_trunc('day', now())") =>
+      `select public.enqueue_outreach_capped('${uuid(patient)}', 'coach_outreach', 'coach_outreach', 'Coach', 'body', '{"route":"/coach-chat"}'::jsonb, '${key}', now(), null, ${cap}, ${since})`;
+    const reserve = (patient: number, key: string, cap: number, since?: string) =>
+      JSON.parse(psql(reserveSql(patient, key, cap, since)).trim()) as { outcome: string; row: { id: string; dedupe_key: string } | null; sent?: number };
+
+    it("is service-role only", () => {
+      expect(rows<{ ok: boolean }>(`select has_function_privilege('anon', '${CAP_FN}', 'execute') as ok`)[0].ok).toBe(false);
+      expect(rows<{ ok: boolean }>(`select has_function_privilege('authenticated', '${CAP_FN}', 'execute') as ok`)[0].ok).toBe(false);
+      expect(rows<{ ok: boolean }>(`select has_function_privilege('service_role', '${CAP_FN}', 'execute') as ok`)[0].ok).toBe(true);
+    });
+
+    it("reserves up to the cap, dedupes without taking a slot, and resets with the window", () => {
+      psql("truncate public.patient_notifications cascade");
+      psql(`insert into public.patients (id, provider_id) values ('${uuid(11)}', 'prov'), ('${uuid(12)}', 'prov'), ('${uuid(13)}', 'prov') on conflict do nothing`);
+      const first = reserve(11, "coach_outreach:p1:2026-06-20", 2);
+      expect(first.outcome).toBe("created");
+      expect(first.row?.dedupe_key).toBe("coach_outreach:p1:2026-06-20");
+      // Same key again: the existing row, no second slot consumed.
+      const again = reserve(11, "coach_outreach:p1:2026-06-20", 2);
+      expect(again.outcome).toBe("existing");
+      expect(again.row?.id).toBe(first.row?.id);
+      expect(reserve(12, "coach_outreach:p2:2026-06-20", 2).outcome).toBe("created");
+      const capped = reserve(13, "coach_outreach:p3:2026-06-20", 2);
+      expect(capped).toMatchObject({ outcome: "capped", row: null, sent: 2 });
+      expect(rows(`select id from public.patient_notifications`)).toHaveLength(2);
+      // A window that starts after those rows sees a fresh cap.
+      expect(reserve(13, "coach_outreach:p3:2026-06-20", 2, "now() + interval '1 minute'").outcome).toBe("created");
+      // Only rows of the same kind count.
+      psql(`insert into public.patient_notifications (patient_id, kind, category, title, body) values ('${uuid(11)}', 'check_in_reminder', 'check_in_reminders', 't', 'b')`);
+      expect(reserve(12, "coach_outreach:p2:2026-06-21", 4).outcome).toBe("created");
+      expect(() => psql(reserveSql(11, "", 2))).toThrow(/dedupe key is required/);
+      expect(() => psql(reserveSql(11, "k", 0))).toThrow(/daily cap must be at least 1/);
+    });
+
+    it("serializes concurrent workers so two processes cannot both take the last slot", async () => {
+      psql("truncate public.patient_notifications cascade");
+      psql(`insert into public.patients (id, provider_id) values ('${uuid(11)}', 'prov'), ('${uuid(12)}', 'prov') on conflict do nothing`);
+      // Worker A reserves the only slot inside an open transaction and lingers
+      // before committing — the window in which a count-then-insert worker
+      // would also see zero rows.
+      const holder = spawn("psql", [
+        ...PSQL_ARGS(),
+        "-c",
+        `begin; ${reserveSql(11, "coach_outreach:p1:2026-06-20", 1)}; select pg_sleep(1.5); commit;`,
+      ]);
+      let holderOut = "";
+      holder.stdout.on("data", (chunk) => (holderOut += String(chunk)));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Worker B, concurrently: blocks on the reservation lock until A commits,
+      // then counts A's committed row and is capped.
+      const startedAt = Date.now();
+      const b = reserve(12, "coach_outreach:p2:2026-06-20", 1);
+      const waitedMs = Date.now() - startedAt;
+      await new Promise<void>((resolve) => holder.on("close", () => resolve()));
+      expect(holderOut).toContain('"outcome": "created"');
+      expect(b).toMatchObject({ outcome: "capped", row: null, sent: 1 });
+      expect(waitedMs).toBeGreaterThan(500);
+      expect(rows(`select id from public.patient_notifications`)).toHaveLength(1);
+    }, 20_000);
+  });
 
   it("projects the office outreach state for the roster chip", () => {
     psql("truncate public.patient_notifications, public.patient_outreach_state, public.patient_flags cascade");

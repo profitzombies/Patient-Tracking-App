@@ -4,12 +4,14 @@ import { resolveOfficeScope } from "../auth/office-scope";
 import { hasHqPermission, verifyStaffToken } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { loadOrgPolicy } from "../lib/org-policy";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
 const listQuery = z.object({
   office: z.string().trim().min(1).max(240).optional(),
   thread: z.enum(["coach", "support"]).optional(),
+  status: z.enum(["open", "closed", "all"]).default("all"),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -34,16 +36,40 @@ function patientName(patient: Record<string, unknown>): string {
   return split || String(patient.name ?? "Patient");
 }
 
-function summary(row: Record<string, unknown>) {
+/**
+ * Inbox auto-close: a conversation with no activity for the organization's
+ * auto-close window is "closed" — derived at read time from the last message
+ * timestamp against the policy, so changing the window in HQ settings
+ * reclassifies the inbox immediately and reopens threads the moment a patient
+ * writes again. Nothing is written to the thread itself.
+ */
+export function conversationStatus(
+  lastMessageAt: string | null,
+  now: Date,
+  autoCloseDays: number,
+): "open" | "closed" {
+  if (!lastMessageAt) return "open";
+  const last = Date.parse(lastMessageAt);
+  if (!Number.isFinite(last)) return "open";
+  return now.getTime() - last >= autoCloseDays * 86_400_000 ? "closed" : "open";
+}
+
+export function autoCloseCutoff(now: Date, autoCloseDays: number): string {
+  return new Date(now.getTime() - autoCloseDays * 86_400_000).toISOString();
+}
+
+function summary(row: Record<string, unknown>, now: Date, autoCloseDays: number) {
   const patient = (row.patients ?? {}) as Record<string, unknown>;
+  const lastMessageAt = row.last_message_at ? String(row.last_message_at) : null;
   return {
     id: String(row.id),
     patientId: String(row.patient_id),
     patientName: patientName(patient),
     thread: String(row.thread),
     messageCount: Number(row.message_count ?? 0),
-    lastMessageAt: row.last_message_at ? String(row.last_message_at) : null,
+    lastMessageAt,
     createdAt: String(row.created_at),
+    status: conversationStatus(lastMessageAt, now, autoCloseDays),
   };
 }
 
@@ -92,14 +118,18 @@ router.get("/office/conversations", async (req, res) => {
     ];
     if (q.thread) filters.push(`thread=eq.${q.thread}`);
     else if (allowedThreads.length === 1) filters.push(`thread=eq.${allowedThreads[0]}`);
+    const now = new Date();
+    const autoCloseDays = (await loadOrgPolicy()).conversationAutoCloseDays;
+    if (q.status === "open") filters.push(`updated_at=gte.${enc(autoCloseCutoff(now, autoCloseDays))}`);
+    if (q.status === "closed") filters.push(`updated_at=lt.${enc(autoCloseCutoff(now, autoCloseDays))}`);
     const result = await supabaseAdmin("GET", `/rest/v1/patient_chat_conversations?${filters.join("&")}`, undefined, "count=exact");
     if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`conversation list failed (${result.status})`);
     const rows = (result.json as Record<string, unknown>[]).map(row => {
       const aggregate = Array.isArray(row.patient_chat_messages) ? row.patient_chat_messages[0] as Record<string, unknown> : {};
-      return summary({ ...row, message_count: aggregate?.count ?? 0, last_message_at: row.updated_at });
+      return summary({ ...row, message_count: aggregate?.count ?? 0, last_message_at: row.updated_at }, now, autoCloseDays);
     });
     const total = Number(result.contentRange?.match(/\/(\d+)$/)?.[1] ?? rows.length);
-    res.json({ conversations: rows, total });
+    res.json({ conversations: rows, total, autoCloseDays });
   } catch (error) {
     req.log?.error({ err: error }, "conversation list failed");
     res.status(502).json({ error: "Could not load conversations right now." });
@@ -157,7 +187,7 @@ router.get("/office/conversations/:conversationId/events", async (req, res) => {
       metadata: { thread: String(conversation.thread) },
     }).catch(error => req.log?.error({ err: error }, "conversation read audit failed"));
     res.json({
-      conversation: summary({ ...conversation, message_count: 0, last_message_at: null }),
+      conversation: summary({ ...conversation, message_count: 0, last_message_at: null }, new Date(), (await loadOrgPolicy()).conversationAutoCloseDays),
       events: kept.reverse().map(row => ({
         seq: Number(row.seq), role: String(row.role), text: String(row.text ?? ""),
         stopped: row.stopped === true, createdAt: String(row.created_at),

@@ -6,22 +6,40 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Office figures for a date range. Point-in-time counts are as of the range end; enrollments count inside the range; engaged, loggingPatients and checkInPatients use the trailing 7-day window ending on the range end (same contract as the network rollup's engaged7d); avgPoundsLost averages active patients with a recorded starting and current weight.
+ */
 export interface OfficeRangeMetrics {
+  /** Patients on the roster as of the range end */
   totalPatients: number;
+  /** Activated patients as of the range end */
   activePatients: number;
+  /** Patients created inside the range */
   enrollments: number;
+  /** Active patients with any activity in the 7 days ending on the range end */
   engaged: number;
   needsAttention: number;
   inactive: number;
   invited: number;
   loggingLapsed: number;
   checkInsOverdue: number;
+  /** Active patients with a meal log in the 7 days ending on the range end */
   loggingPatients: number;
+  /** Active patients with a check-in in the 7 days ending on the range end */
   checkInPatients: number;
-  /** @nullable */
+  /**
+     * loggingPatients / activePatients
+     * @nullable
+     */
   loggingAdherencePct: number | null;
-  /** @nullable */
+  /**
+     * checkInPatients / activePatients
+     * @nullable
+     */
   checkInAdherencePct: number | null;
-  /** @nullable */
+  /**
+     * Average pounds lost across active patients with recorded weights; null when none
+     * @nullable
+     */
   avgPoundsLost: number | null;
 }

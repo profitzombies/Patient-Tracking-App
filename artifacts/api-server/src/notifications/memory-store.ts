@@ -15,6 +15,7 @@ import type {
   CoachSeedMessage,
   NotificationPatch,
   NotificationStore,
+  MedicationDoseFacts,
   OutreachFacts,
   ReceiptCandidate,
   UpdateGuard,
@@ -32,6 +33,8 @@ export interface MemoryPatient {
   flags?: Partial<OutreachFacts["flags"]>;
   entries?: OutreachFacts["entries"];
   weighIns?: OutreachFacts["weighIns"];
+  medications?: MedicationDoseFacts["medications"];
+  doseLogs?: MedicationDoseFacts["logs"];
 }
 
 export class MemoryNotificationStore implements NotificationStore {
@@ -386,6 +389,19 @@ export class MemoryNotificationStore implements NotificationStore {
     const patient = this.patients.get(patientId);
     if (!patient) throw new Error(`unknown patient ${patientId}`);
     patient.flags = { ...patient.flags, ...flags };
+  }
+
+  async medicationDoseFacts(fromDateKey: string): Promise<MedicationDoseFacts[]> {
+    return [...this.patients.values()]
+      .filter((patient) => patient.activated !== false && (patient.medications ?? []).length > 0)
+      .map((patient) => ({
+        patientId: patient.patientId,
+        providerId: patient.providerId,
+        timezone: patient.timezone ?? null,
+        medications: (patient.medications ?? []).filter((m) => m.stopDate === null || m.stopDate >= fromDateKey),
+        logs: (patient.doseLogs ?? []).filter((log) => log.dueDate >= fromDateKey),
+      }))
+      .filter((facts) => facts.medications.length > 0);
   }
 
   async seedCoachMessage(patientId: string, message: CoachSeedMessage) {

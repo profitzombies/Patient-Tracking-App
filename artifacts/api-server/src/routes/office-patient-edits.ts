@@ -41,6 +41,8 @@ import {
   type PatientRosterRow,
 } from "./office-roster";
 import { BODY_AREAS, MEASUREMENT_COLUMNS, inchesIssue, type BodyAreaKey } from "../lib/body-measurements";
+import { shiftDateKey, validateMedicationInput, type MedicationInput } from "../medications/schedule";
+import { adherenceLast30, DOSE_LOG_LOOKBACK_DAYS, getMedication, listDoseLogs, listMedications, updateMedicationVersioned, upsertMedication } from "../medications/store";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -674,6 +676,128 @@ router.delete("/office/patients/:id/measurements/:visitId", async (req, res) => 
     res.json({ deleted: true, patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
   } catch (error) {
     req.log?.error({ err: error }, "office body measurement delete failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
+
+// ── Medications ─────────────────────────────────────────────────────────────
+//
+// The office reads the same list the phone's reminders are built from and
+// can add a medication or edit one (a stop is an edit that sets stopDate).
+// Nothing is hard-deleted — dose logs keep their meaning — and edits are
+// preconditioned on the medication's own version exactly like weigh-ins.
+// Audit rows carry the medication id and the field summary only: never the
+// name, dose, or notes.
+
+const MedicationOffice = z.object({ office: z.string().trim().max(120).optional() });
+const MedicationUpdateInput = z.object({
+  expectedVersion: Version,
+  office: z.string().trim().max(120).optional(),
+}).passthrough();
+
+/** Patient-local "today" for the adherence window. */
+function patientToday(patient: PatientRosterRow): string {
+  return dayKeyInTimeZone(typeof patient.timezone === "string" ? patient.timezone : null);
+}
+
+async function medicationView(patient: PatientRosterRow) {
+  const patientId = String(patient.id);
+  const today = patientToday(patient);
+  const [medications, doseLogs] = await Promise.all([
+    listMedications(patientId),
+    listDoseLogs(patientId, shiftDateKey(today, -DOSE_LOG_LOOKBACK_DAYS)),
+  ]);
+  const timeZone = typeof patient.timezone === "string" ? patient.timezone : null;
+  return {
+    medications,
+    doseLogs,
+    adherence: adherenceLast30(medications, doseLogs, timeZone),
+    timeZone,
+    today,
+  };
+}
+
+router.get("/office/patients/:id/medications", async (req, res) => {
+  try {
+    const scoped = await scopedPatient(req);
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
+    res.json(await medicationView(scoped.patient));
+  } catch (error) {
+    req.log?.error({ err: error }, "office medication view failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
+
+router.post("/office/patients/:id/medications", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const officeParsed = MedicationOffice.safeParse(body);
+    if (!officeParsed.success) { res.status(400).json(firstIssue(officeParsed.error)); return; }
+    const parsed = validateMedicationInput({ ...(body.medication as object ?? {}), id: crypto.randomUUID() });
+    if (!parsed.ok) { res.status(400).json({ error: parsed.error, field: parsed.field }); return; }
+    const scoped = await scopedPatient(req);
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
+    const { scope, patient } = scoped;
+    const patientId = String(patient.id);
+    const medication = await upsertMedication(patientId, parsed.value, {
+      source: "office",
+      createdBy: scope.actorUserId,
+      createdByName: await actorDisplayName(scope),
+    });
+    await audit(req, scope, "patient_medication_added", patientId, { medicationId: medication.id, kind: medication.scheduleKind });
+    res.status(201).json({ medication, ...(await medicationView(patient)) });
+  } catch (error) {
+    req.log?.error({ err: error }, "office medication add failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
+
+const MEDICATION_EDITABLE = ["name", "form", "dose", "scheduleKind", "times", "weekday", "notes", "startDate", "stopDate"] as const;
+
+router.patch("/office/patients/:id/medications/:medicationId", async (req, res) => {
+  try {
+    const parsed = MedicationUpdateInput.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json(firstIssue(parsed.error)); return; }
+    const body = parsed.data as Record<string, unknown>;
+    const changed = MEDICATION_EDITABLE.filter((key) => body[key] !== undefined);
+    if (changed.length === 0) { res.status(400).json({ error: "Change at least one field." }); return; }
+    const scoped = await scopedPatient(req);
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
+    const { scope, patient } = scoped;
+    const patientId = String(patient.id);
+    const medicationId = String(req.params.medicationId ?? "");
+    const existing = await getMedication(patientId, medicationId);
+    if (!existing) { res.status(404).json({ error: "That medication is no longer on this record." }); return; }
+    // Validate the merged record so a partial edit can never leave an
+    // inconsistent row (weekly without a weekday, stop before start, ...).
+    const merged: Record<string, unknown> = {
+      id: existing.id,
+      name: existing.name,
+      form: existing.form,
+      dose: existing.dose,
+      scheduleKind: existing.scheduleKind,
+      times: existing.times,
+      weekday: existing.weekday,
+      notes: existing.notes,
+      startDate: existing.startDate,
+      stopDate: existing.stopDate,
+    };
+    for (const key of changed) merged[key] = body[key];
+    const valid = validateMedicationInput(merged);
+    if (!valid.ok) { res.status(400).json({ error: valid.error, field: valid.field }); return; }
+    const patch: Partial<MedicationInput> = {};
+    for (const key of changed) (patch as Record<string, unknown>)[key] = valid.value[key];
+    if (patch.scheduleKind !== undefined) patch.weekday = valid.value.weekday;
+    const updated = await updateMedicationVersioned(patientId, medicationId, body.expectedVersion as string | null, patch);
+    if (!updated) { res.status(409).json({ error: RECORD_CHANGED, code: "record_changed" }); return; }
+    const stopped = existing.stopDate === null && updated.stopDate !== null;
+    await audit(req, scope, stopped ? "patient_medication_stopped" : "patient_medication_updated", patientId, {
+      medicationId,
+      fields: changed.join(","),
+    });
+    res.json({ medication: updated, ...(await medicationView(patient)) });
+  } catch (error) {
+    req.log?.error({ err: error }, "office medication update failed");
     res.status(502).json({ error: SERVER_ERROR });
   }
 });

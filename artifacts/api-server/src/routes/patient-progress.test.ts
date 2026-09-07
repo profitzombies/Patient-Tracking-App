@@ -71,6 +71,8 @@ class FakeBackend {
       patient_media: [],
       patient_progress_photos: [],
       patient_check_ins: [],
+      patient_medications: [],
+      patient_medication_dose_logs: [],
       patient_flags: [],
       patient_consents: [],
       patient_data_exports: [],

@@ -26,7 +26,8 @@ import type {
   SavedRecipe,
 } from '@/data/patient-data';
 import { PatientDataError } from '@/lib/patient-data-error';
-import type { LibraryWrite, PatientFlagsWrite } from '@/context/PatientAccountContext';
+import type { DoseLogWrite, LibraryWrite, PatientFlagsWrite } from '@/context/PatientAccountContext';
+import type { DoseLogRecord, MedicationRecord } from '@/lib/medication-schedule';
 
 // ─── Shapes ─────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,10 @@ export type QueuedWritePayload =
   | { kind: 'prefs'; favorites?: string[]; recents?: string[] }
   | { kind: 'library'; input: LibraryWrite }
   | { kind: 'checkIn'; checkIn: CheckIn }
+  /** Create-or-replace of one medication on the patient's list (keyed by id). */
+  | { kind: 'medication'; medication: MedicationRecord }
+  /** One dose decision per scheduled occurrence; `status: null` clears it. */
+  | { kind: 'doseLog'; log: DoseLogWrite; loggedAt: string }
   | { kind: 'flags'; flags: Partial<PatientFlagsWrite> }
   /** Grid rows whose bytes are already on the media rail (objectPath set). */
   | { kind: 'photos'; photos: ProgressPhoto[] }
@@ -80,6 +85,8 @@ export interface WriteProjectionState {
   addedEntries: MealLogEntry[];
   waterOverrides: Record<string, number>;
   addedCheckIns: CheckIn[];
+  medications: MedicationRecord[];
+  doseLogs: DoseLogRecord[];
   photos: ProgressPhoto[];
   favorites: string[];
   customFoods: FoodItem[];
@@ -231,6 +238,30 @@ export function projectWrite<S extends WriteProjectionState>(base: S, item: Queu
           write.checkIn,
         ],
       };
+    case 'medication':
+      return { ...base, medications: upsertById(base.medications, [write.medication]) };
+    case 'doseLog': {
+      const { log } = write;
+      const rest = base.doseLogs.filter(
+        row => !(row.medicationId === log.medicationId && row.dueDate === log.dueDate && row.dueTime === log.dueTime),
+      );
+      if (log.status === null) return { ...base, doseLogs: rest };
+      return {
+        ...base,
+        doseLogs: [
+          ...rest,
+          {
+            id: log.id,
+            medicationId: log.medicationId,
+            dueDate: log.dueDate,
+            dueTime: log.dueTime,
+            status: log.status,
+            source: log.source,
+            loggedAt: write.loggedAt,
+          },
+        ],
+      };
+    }
     case 'flags': {
       const flags = write.flags;
       return {
@@ -336,7 +367,8 @@ function pruneMissingEdits(item: QueuedWrite, missing: Set<string>): QueuedWrite
 
 /**
  * Keys the UI asks about: `entry:<id>`, `water:<dateKey>`, `checkIn:<dateKey>`,
- * `photo:<id>`, `food:<id>`, `recipe:<id>`, plus the singletons `targets`,
+ * `photo:<id>`, `food:<id>`, `recipe:<id>`, `medication:<id>`,
+ * `dose:<medicationId>:<dueDate>:<dueTime>`, plus the singletons `targets`,
  * `prefs`, `flags`.
  */
 export function pendingEntityKeys(queue: readonly QueuedWrite[]): Set<string> {
@@ -364,6 +396,12 @@ export function pendingEntityKeys(queue: readonly QueuedWrite[]): Set<string> {
         break;
       case 'checkIn':
         keys.add(`checkIn:${write.checkIn.dateKey}`);
+        break;
+      case 'medication':
+        keys.add(`medication:${write.medication.id}`);
+        break;
+      case 'doseLog':
+        keys.add(`dose:${write.log.medicationId}:${write.log.dueDate}:${write.log.dueTime}`);
         break;
       case 'flags':
         keys.add('flags');

@@ -8,6 +8,8 @@
  * contracts (lease ownership guards, dedupe keys, status filters).
  */
 import { supabaseAdmin } from "../lib/supabase-admin";
+import type { DoseLogRecord, MedicationRecord } from "../medications/schedule";
+import { DOSE_LOG_SELECT, MEDICATION_SELECT, doseLogFromRow, medicationFromRow } from "../medications/store";
 import type {
   AttemptRow,
   CappedEnqueueResult,
@@ -81,6 +83,15 @@ export interface OutreachFacts {
   };
 }
 
+/** Everything the missed-dose evaluation reads for one patient. */
+export interface MedicationDoseFacts {
+  patientId: string;
+  providerId: string;
+  timezone: string | null;
+  medications: MedicationRecord[];
+  logs: DoseLogRecord[];
+}
+
 export interface OutreachCandidate {
   patientId: string;
   providerId: string;
@@ -144,6 +155,14 @@ export interface NotificationStore {
     flags: { nudgeLastSentKey: string; nudgeLastCrossingKey: string; nudgeEngaged: boolean },
   ): Promise<void>;
   seedCoachMessage(patientId: string, message: CoachSeedMessage): Promise<void>;
+
+  // ── Medication backup reminders ───────────────────────────────────────
+  /**
+   * Activated, unarchived patients with at least one medication that is not
+   * stopped before `fromDateKey`, each with their dose logs due on or after
+   * that date. The evaluation derives the occurrences itself.
+   */
+  medicationDoseFacts(fromDateKey: string): Promise<MedicationDoseFacts[]>;
 }
 
 // ── Supabase-backed implementation ─────────────────────────────────────────
@@ -569,6 +588,49 @@ export const supabaseNotificationStore: NotificationStore = {
       ),
       "nudge flags stamp",
     );
+  },
+
+  async medicationDoseFacts(fromDateKey) {
+    const medications = rowsOf<Record<string, unknown>>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_medications?select=${MEDICATION_SELECT},patients!inner(provider_id,timezone,activation_status,archived_at)` +
+          `&or=(stop_date.is.null,stop_date.gte.${enc(fromDateKey)})` +
+          `&patients.activation_status=eq.activated&patients.archived_at=is.null&order=patient_id.asc,created_at.asc&limit=5000`,
+      ),
+      "medication facts",
+    );
+    if (!medications.length) return [];
+    const logs = rowsOf<Record<string, unknown>>(
+      await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_medication_dose_logs?due_date=gte.${enc(fromDateKey)}&select=${DOSE_LOG_SELECT}&limit=20000`,
+      ),
+      "medication dose logs",
+    );
+    const byPatient = new Map<string, MedicationDoseFacts>();
+    for (const row of medications) {
+      const patient = row.patients as Record<string, unknown> | null;
+      if (!patient) continue;
+      const patientId = String(row.patient_id);
+      let facts = byPatient.get(patientId);
+      if (!facts) {
+        facts = {
+          patientId,
+          providerId: String(patient.provider_id),
+          timezone: typeof patient.timezone === "string" && patient.timezone ? patient.timezone : null,
+          medications: [],
+          logs: [],
+        };
+        byPatient.set(patientId, facts);
+      }
+      facts.medications.push(medicationFromRow(row));
+    }
+    for (const row of logs) {
+      const facts = byPatient.get(String(row.patient_id));
+      if (facts) facts.logs.push(doseLogFromRow(row));
+    }
+    return [...byPatient.values()];
   },
 
   async seedCoachMessage(patientId, message) {

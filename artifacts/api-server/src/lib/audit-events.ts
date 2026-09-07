@@ -30,6 +30,9 @@ export const AUDIT_ACTIONS = [
   "patient_weight_removed",
   "patient_measurements_recorded",
   "patient_measurements_removed",
+  "patient_medication_added",
+  "patient_medication_updated",
+  "patient_medication_stopped",
   "provider_account_created",
   "provider_account_updated",
   "office_policy_override_updated",
@@ -95,7 +98,7 @@ export const allowedActions: ReadonlySet<string> = new Set(AUDIT_ACTIONS);
  */
 export const AUDIT_METADATA_KEYS = [
   "reason", "role", "status", "field", "fields", "from", "to", "size", "contentType",
-  "thread", "kind", "office", "rows", "noteId", "weightId", "visitId", "areaCount", "dateKey",
+  "thread", "kind", "office", "rows", "noteId", "weightId", "visitId", "medicationId", "areaCount", "dateKey",
   "route", "method", "turn", "attachmentId", "mediaKind", "version", "section",
   "policyVersion", "photoAnalysis", "attempt", "step", "objects", "tables", "purgeAfter", "exportId", "requestId",
   "page", "assigneeUserId", "previousAssigneeUserId", "self", "messageClientId", "length", "department", "escalationId", "hasNote",
@@ -117,6 +120,9 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "patient_weight_removed",
   "patient_measurements_recorded",
   "patient_measurements_removed",
+  "patient_medication_added",
+  "patient_medication_updated",
+  "patient_medication_stopped",
   "provider_account_created",
   "provider_account_updated",
   "office_policy_override_updated",

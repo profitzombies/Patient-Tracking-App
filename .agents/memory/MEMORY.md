@@ -107,3 +107,4 @@
 - [Offline patient write queue](offline-write-queue.md) — state=project(base,queue), head-first drain, cached launches refresh truth first; receipts claimed BEFORE the write; photo uploads pinned by client id.
 - [Scoped style font reset trap](scoped-style-font-reset.md) — `.root button{font:inherit}` (0,1,1) beats class font-size rules; use font-family:inherit in mockup <style> blocks; verify subagent captures yourself.
 - [Account security & session ledger](account-security-sessions.md) — client attaches signInId after token redeem; report links fire only on explicit tap; send cap 429 ≠ forced-reset; pin delivery modes in vitest.
+- [Medication records & reminders](medication-records.md) — one schedule core copied byte-identical (parity test); reminders derive from records; notification actions MUST foreground the app; adherence is a nullable extra roster input.

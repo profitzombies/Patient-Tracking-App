@@ -13,9 +13,14 @@ import {
   approvedMeasurements,
   AccountOperationEpoch,
   biometricEligibility,
+  REMINDER_ACTION_SKIPPED,
+  REMINDER_ACTION_TAKEN,
+  REMINDER_CATEGORY,
   ReminderCoordinator,
+  reminderPlanFor,
   type HealthMeasurement,
-  type ReminderPrefs,
+  type ReminderItem,
+  type ReminderPlan,
   type ReminderRecord,
 } from '@/lib/device-feature-core';
 import { getSessionAccessToken } from '@/lib/patient-data-api';
@@ -46,7 +51,13 @@ interface FeatureState {
   };
   retryPush(): Promise<void>;
   unregisterBeforeSignOut(reason?: 'signed_out' | 'account_switch'): Promise<void>;
-  enableNotifications(prefs?: ReminderPrefs): Promise<boolean>;
+  /**
+   * Turns per-medication local reminders on for the signed-in account (asks
+   * for permission when needed) and records the choice on the account.
+   * Schedules are derived from the medication list, so an empty list
+   * enables nothing yet and fills in as medications are added.
+   */
+  enableNotifications(): Promise<boolean>;
   disableNotifications(): Promise<void>;
   enableBiometrics(): Promise<boolean>;
   disableBiometrics(): Promise<void>;
@@ -81,25 +92,47 @@ const notificationDriver = {
     const p = await Notifications.requestPermissionsAsync();
     return p.granted ? 'granted' as const : 'denied' as const;
   },
-  async schedule(slot: 'morning' | 'afternoon' | 'evening', hour: number, minute: number) {
+  async schedule(item: ReminderItem) {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('medication-reminders', {
         name: 'Medication reminders',
         importance: Notifications.AndroidImportance.HIGH,
       });
     }
+    // Taken / Skip ride the notification itself. Both actions bring the app
+    // to the foreground on purpose: there is no background response task,
+    // so only a foregrounded JS runtime (the response bridge in
+    // app/_layout.tsx, or getLastNotificationResponseAsync on a cold start)
+    // can turn the action into a dose log. A background-only action would be
+    // silently dropped whenever the app was suspended or terminated.
+    await Notifications.setNotificationCategoryAsync(REMINDER_CATEGORY, [
+      { identifier: REMINDER_ACTION_TAKEN, buttonTitle: 'Taken', options: { opensAppToForeground: true } },
+      { identifier: REMINDER_ACTION_SKIPPED, buttonTitle: 'Skip', options: { opensAppToForeground: true } },
+    ]);
+    const channel = Platform.OS === 'android' ? { channelId: 'medication-reminders' } : {};
     return Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Medication reminder',
-        body: `It’s time for your ${slot} medication.`,
-        data: { feature: 'medication-reminder', slot },
+        title: item.title,
+        body: item.body,
+        categoryIdentifier: REMINDER_CATEGORY,
+        data: { ...item.data },
       },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DAILY,
-        hour,
-        minute,
-        ...(Platform.OS === 'android' ? { channelId: 'medication-reminders' } : {}),
-      },
+      trigger:
+        item.weekday === null
+          ? {
+              type: Notifications.SchedulableTriggerInputTypes.DAILY,
+              hour: item.hour,
+              minute: item.minute,
+              ...channel,
+            }
+          : {
+              type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+              // Expo counts weekdays 1 (Sunday) … 7 (Saturday); records use 0 … 6.
+              weekday: item.weekday + 1,
+              hour: item.hour,
+              minute: item.minute,
+              ...channel,
+            },
     });
   },
   cancel(identifier: string) {
@@ -107,15 +140,18 @@ const notificationDriver = {
   },
 };
 
-function prefsFrom(raw: Record<string, unknown> | null): ReminderPrefs {
-  return {
-    enabled: raw?.notifications === 'enabled',
-    times: {
-      morning: typeof raw?.reminderMorning === 'string' ? raw.reminderMorning : '8:00 AM',
-      afternoon: typeof raw?.reminderAfternoon === 'string' ? raw.reminderAfternoon : '3:00 PM',
-      evening: typeof raw?.reminderEvening === 'string' ? raw.reminderEvening : '9:00 PM',
-    },
-  };
+function remindersEnabled(raw: Record<string, unknown> | null): boolean {
+  return raw?.notifications === 'enabled';
+}
+
+function notificationStateFor(
+  result: { status: string; count: number },
+  previous: FeatureState['notification'],
+): FeatureState['notification'] {
+  if (result.status === 'denied' || result.status === 'undetermined') return result.status;
+  if (result.status === 'disabled') return 'available';
+  if (result.status === 'stale') return previous;
+  return 'enabled';
 }
 
 export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
@@ -141,6 +177,17 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   operationEpochRef.current.activate(accountId);
   const coordinatorRef = useRef(new ReminderCoordinator(notificationDriver, store));
   const flags = patient.hydratedFlags?.notificationPrefs ?? null;
+  const medications = patient.medications;
+  const todayKey = patient.todayKey;
+  // The device plan follows the medication list: every list edit, day
+  // rollover (start/stop dates), or preference flip re-derives it and the
+  // coordinator replaces schedules only when the signature moved.
+  const plan = useMemo<ReminderPlan | null>(
+    () => (flags ? reminderPlanFor(medications, remindersEnabled(flags), todayKey) : null),
+    [flags, medications, todayKey],
+  );
+  const planRef = useRef(plan);
+  planRef.current = plan;
 
   const retryPush = useCallback(async () => {
     if (!accountId || account.kind !== 'real') return;
@@ -251,26 +298,30 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   }, [accountId]);
 
   useEffect(() => {
-    if (!accountId || !flags || Platform.OS === 'web') return;
+    if (!accountId || !plan || Platform.OS === 'web') return;
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    void coordinatorRef.current.reconcile(accountId, prefsFrom(flags), timezone, false)
-      .then(result => accountRef.current === accountId && setNotification(result.status === 'denied' || result.status === 'undetermined' ? result.status : result.count ? 'enabled' : 'available'))
+    void coordinatorRef.current.reconcile(accountId, plan, timezone, false)
+      .then(result => accountRef.current === accountId && setNotification(previous => notificationStateFor(result, previous)))
       .catch(cause => setMessage(cause instanceof Error ? cause.message : 'Couldn’t reconcile reminders.'));
-  }, [accountId, flags]);
+  }, [accountId, plan]);
 
   useEffect(() => {
     if (!accountId || Platform.OS === 'web') return;
     const sub = AppState.addEventListener('change', state => {
-      if (state === 'active' && flags) {
+      const current = planRef.current;
+      if (state === 'active' && current) {
+        // Foreground: the timezone may have changed and the day may have
+        // rolled over (start/stop dates); today's key is re-derived here
+        // because the provider's day tick can lag the AppState event.
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-        void coordinatorRef.current.reconcile(accountId, prefsFrom(flags), timezone, false);
+        void coordinatorRef.current.reconcile(accountId, current, timezone, false);
       }
       if (state !== 'active' && biometric === 'enabled') setLocked(true);
     });
     return () => sub.remove();
-  }, [accountId, flags, biometric]);
+  }, [accountId, biometric]);
 
-  const enableNotifications = useCallback(async (provided?: ReminderPrefs) => {
+  const enableNotifications = useCallback(async () => {
     if (!accountId || Platform.OS === 'web') {
       setMessage('Local medication reminders are available only in the signed-in mobile app.');
       return false;
@@ -280,7 +331,7 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
       const operation = operationEpochRef.current.capture(accountId);
       const result = await coordinatorRef.current.reconcile(
         accountId,
-        provided ?? prefsFrom(flags),
+        reminderPlanFor(medications, true, todayKey),
         Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
         true,
         true,
@@ -289,27 +340,20 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
       setNotification(result.status === 'denied' || result.status === 'undetermined' ? result.status : 'enabled');
       setMessage(result.status === 'denied' ? 'Notifications are off. Enable them in device Settings to receive medication reminders.' : null);
       if (result.status !== 'denied' && result.status !== 'undetermined' && result.status !== 'stale') {
-        const saved = provided ?? prefsFrom(flags);
         patient.saveOnboardingFlags({
-          notificationPrefs: {
-            ...(flags ?? {}),
-            notifications: 'enabled',
-            reminderMorning: saved.times.morning,
-            reminderAfternoon: saved.times.afternoon,
-            reminderEvening: saved.times.evening,
-          },
+          notificationPrefs: { ...(flags ?? {}), notifications: 'enabled' },
         });
       }
       return result.status !== 'denied' && result.status !== 'undetermined' && result.status !== 'stale';
     } finally {
       if (accountRef.current === accountId) setBusy(false);
     }
-  }, [accountId, flags, patient]);
+  }, [accountId, flags, medications, patient, todayKey]);
 
   const disableNotifications = useCallback(async () => {
     if (!accountId || Platform.OS === 'web') return;
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    const disabled = { ...prefsFrom(flags), enabled: false };
+    const disabled: ReminderPlan = { enabled: false, items: [] };
     await coordinatorRef.current.cancel(accountId, disabled, timezone);
     if (accountRef.current !== accountId) return;
     patient.saveOnboardingFlags({

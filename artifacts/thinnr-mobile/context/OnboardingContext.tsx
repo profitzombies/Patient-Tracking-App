@@ -251,6 +251,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         reminderMorning: final.reminderMorning,
         reminderAfternoon: final.reminderAfternoon,
         reminderEvening: final.reminderEvening,
+        injectionDay: final.injectionDay,
+        injectionTime: final.injectionTime,
       },
     };
     if (accountRef.current.kind !== 'real') {

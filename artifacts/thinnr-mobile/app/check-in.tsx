@@ -14,6 +14,7 @@ import { useColors } from '@/hooks/useColors';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
+import { TodaysMedicationsCard } from '@/components/patient/TodaysMedicationsCard';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
 import {
@@ -151,6 +152,9 @@ export default function CheckInScreen() {
             </Text>
           </View>
         )}
+
+        {/* ── Today's medications (real accounts with a medication list) ── */}
+        <TodaysMedicationsCard />
 
         {/* ── Weight ── */}
         <LedgerCard style={{ padding: 16, marginBottom: 14 }}>

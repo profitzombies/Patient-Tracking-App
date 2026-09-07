@@ -43,6 +43,14 @@ import { setPatientMediaToken } from '@/lib/media-token-holder';
 import { localTodayKey } from '@/lib/live-patient-entry';
 import type { PrivacyState } from '@/lib/patient-privacy';
 import { PatientDataError } from '@/lib/patient-data-error';
+import { newUuid } from '@/lib/uuid';
+import {
+  validateMedicationInput,
+  type DoseLogRecord,
+  type MedicationInput,
+  type MedicationRecord,
+} from '@/lib/medication-schedule';
+import type { DoseLogWrite } from '@/context/PatientAccountContext';
 import { isOnline, subscribeConnectivity } from '@/lib/connectivity';
 import {
   backoffDelay,
@@ -181,6 +189,9 @@ interface PersistedState {
   removedEntryIds: string[];
   waterOverrides: Record<string, number>;
   addedCheckIns: CheckIn[];
+  /** The account's medication list and trailing dose decisions (server-backed; empty for the demo persona). */
+  medications: MedicationRecord[];
+  doseLogs: DoseLogRecord[];
   photos: ProgressPhoto[];
   favorites: string[];
   customFoods: FoodItem[];
@@ -204,6 +215,8 @@ const EMPTY_STATE: PersistedState = {
   removedEntryIds: [],
   waterOverrides: {},
   addedCheckIns: [],
+  medications: [],
+  doseLogs: [],
   photos: [],
   favorites: [],
   customFoods: [],
@@ -246,12 +259,20 @@ function baseFromServer(server: PatientServerState): PersistedState {
     customFoods: server.customFoods,
     savedRecipes: server.savedRecipes,
     addedCheckIns: server.checkIns,
+    medications: server.medications,
+    doseLogs: server.doseLogs,
     photos: server.photos.map(photoFromWire),
     nudgeOptOut: server.flags.nudgeOptOut,
     nudgeEngaged: server.flags.nudgeEngaged,
     nudgeLastSentKey: server.flags.nudgeLastSentKey,
     nudgeLastCrossingKey: server.flags.nudgeLastCrossingKey,
   };
+}
+
+/** Medication record → the write shape (source/version are server-owned). */
+function medicationInputOf(record: MedicationRecord): MedicationInput {
+  const { source: _source, version: _version, ...input } = record;
+  return input;
 }
 
 /** Grid row → wire shape (display-only fields like uri stay behind). */
@@ -332,6 +353,22 @@ interface PatientContextValue {
    * awaited call landed.
    */
   addCheckIn: (checkIn: Omit<CheckIn, 'id'>) => Promise<boolean>;
+  /** The account's medication list (every record, stopped ones included) and trailing dose decisions. */
+  medications: MedicationRecord[];
+  doseLogs: DoseLogRecord[];
+  /**
+   * Creates (no id) or replaces (id) one medication. Resolves the saved
+   * record, or null when the input was invalid (message in `error`) or the
+   * account write failed (sync notice posted).
+   */
+  saveMedication: (
+    input: Omit<MedicationInput, 'id'> & { id?: string },
+  ) => Promise<{ medication: MedicationRecord } | { error: string; field: string | null }>;
+  /**
+   * Records one dose decision for a scheduled occurrence (null clears it).
+   * Same truth contract as addCheckIn: true only when safely recorded.
+   */
+  logDose: (input: Omit<DoseLogWrite, 'id'>) => Promise<boolean>;
   addPhoto: (photo: {
     dateKey: string;
     label: string;
@@ -886,6 +923,12 @@ export function PatientProvider({ children }: { children: ReactNode }) {
           return item;
         case 'checkIn':
           await api.writeCheckIn(write.checkIn, options);
+          return item;
+        case 'medication':
+          await api.writeMedication(medicationInputOf(write.medication), options);
+          return item;
+        case 'doseLog':
+          await api.writeDoseLog(write.log, options);
           return item;
         case 'flags':
           await api.writeFlags(write.flags, options);
@@ -1914,6 +1957,74 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
+  const saveMedication = useCallback(async (
+    input: Omit<MedicationInput, 'id'> & { id?: string },
+  ): Promise<{ medication: MedicationRecord } | { error: string; field: string | null }> => {
+    await hydrationGate.current!.promise;
+    const startEpoch = epochRef.current;
+    return await runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      if (!run || !requireWritableAccount(run)) return { error: 'Your account is not ready to save yet.', field: null };
+      const prev = stateRef.current;
+      const existing = input.id ? prev.medications.find(row => row.id === input.id) : undefined;
+      const parsed = validateMedicationInput({ ...input, id: input.id ?? newUuid() });
+      if (!parsed.ok) return { error: parsed.error, field: parsed.field };
+      const medication: MedicationRecord = {
+        ...parsed.value,
+        source: existing?.source ?? 'patient',
+        version: existing?.version ?? null,
+      };
+      const next = {
+        ...prev,
+        medications: [...prev.medications.filter(row => row.id !== medication.id), medication],
+      };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return { medication };
+      }
+      const ok = await commitQueued(run, next, {
+        payload: { kind: 'medication', medication },
+        summary: existing ? `Updated ${medication.name}` : `Added ${medication.name}`,
+      });
+      return ok ? { medication } : { error: 'Couldn’t save that medication yet.', field: null };
+    });
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
+
+  const logDose = useCallback(async (input: Omit<DoseLogWrite, 'id'>): Promise<boolean> => {
+    await hydrationGate.current!.promise;
+    const startEpoch = epochRef.current;
+    return await runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      if (!run || !requireWritableAccount(run)) return false;
+      const prev = stateRef.current;
+      const medication = prev.medications.find(row => row.id === input.medicationId);
+      if (!medication) return false;
+      const loggedAt = new Date().toISOString();
+      const log: DoseLogWrite = { ...input, id: newUuid() };
+      const rest = prev.doseLogs.filter(
+        row => !(row.medicationId === log.medicationId && row.dueDate === log.dueDate && row.dueTime === log.dueTime),
+      );
+      const next = {
+        ...prev,
+        doseLogs: log.status === null
+          ? rest
+          : [...rest, { id: log.id, medicationId: log.medicationId, dueDate: log.dueDate, dueTime: log.dueTime, status: log.status, source: log.source, loggedAt }],
+      };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return true;
+      }
+      // The server keys decisions by occurrence, so a correction replaces
+      // the earlier row there exactly as the filter above replaces it here.
+      return await commitQueued(run, next, {
+        payload: { kind: 'doseLog', log, loggedAt },
+        summary: log.status === null
+          ? `Cleared ${medication.name} dose`
+          : `${log.status === 'taken' ? 'Took' : 'Skipped'} ${medication.name}`,
+      });
+    });
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
+
   const addPhoto = useCallback(async (photo: {
     dateKey: string;
     label: string;
@@ -2833,6 +2944,10 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       updateEntry,
       setWater,
       addCheckIn,
+      medications: state.medications,
+      doseLogs: state.doseLogs,
+      saveMedication,
+      logDose,
       addPhoto,
       addPhotos,
       removePhoto,
@@ -2896,6 +3011,10 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       updateEntry,
       setWater,
       addCheckIn,
+      state.medications,
+      state.doseLogs,
+      saveMedication,
+      logDose,
       addPhoto,
       addPhotos,
       removePhoto,

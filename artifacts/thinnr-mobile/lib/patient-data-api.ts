@@ -27,15 +27,16 @@ import type {
   ChatThreadSnapshot,
   ChatWireMessage,
   ChatWirePhoto,
+  DoseLogWrite,
   LibraryWrite,
   PatientDataApi,
+  PatientEntryFacts,
   PatientFlags,
   PatientFlagsWrite,
-  PatientEntryFacts,
   PatientProfile,
   PatientProfileWrite,
-  PatientSetupWrite,
   PatientServerState,
+  PatientSetupWrite,
   ProgressPhotoWire,
   WriteOptions,
 } from '@/context/PatientAccountContext';
@@ -59,6 +60,14 @@ import {
 } from '@/lib/patient-privacy';
 
 import { PatientDataError, patientDataErrorCode } from '@/lib/patient-data-error';
+import {
+  MEDICATION_FORMS,
+  isClockTime,
+  isDateKey,
+  type DoseLogRecord,
+  type MedicationInput,
+  type MedicationRecord,
+} from '@/lib/medication-schedule';
 
 export { PatientDataError, patientDataErrorCode, type PatientDataErrorCode } from '@/lib/patient-data-error';
 
@@ -597,6 +606,61 @@ function parseCheckInWire(raw: unknown): CheckIn {
   return checkIn;
 }
 
+function parseMedicationWire(raw: unknown): MedicationRecord {
+  if (typeof raw !== 'object' || raw === null) throw new PatientDataError(MALFORMED_MESSAGE);
+  const m = raw as Record<string, unknown>;
+  if (
+    typeof m.id !== 'string' ||
+    typeof m.name !== 'string' ||
+    !(MEDICATION_FORMS as readonly string[]).includes(String(m.form)) ||
+    (m.scheduleKind !== 'daily' && m.scheduleKind !== 'weekly') ||
+    !Array.isArray(m.times) ||
+    !m.times.every(isClockTime) ||
+    !isDateKey(m.startDate) ||
+    (m.stopDate !== null && m.stopDate !== undefined && !isDateKey(m.stopDate))
+  ) {
+    throw new PatientDataError(MALFORMED_MESSAGE);
+  }
+  return {
+    id: m.id,
+    name: m.name,
+    form: m.form as MedicationRecord['form'],
+    dose: typeof m.dose === 'string' && m.dose ? m.dose : null,
+    scheduleKind: m.scheduleKind,
+    times: m.times as string[],
+    weekday: typeof m.weekday === 'number' && Number.isInteger(m.weekday) ? m.weekday : null,
+    notes: typeof m.notes === 'string' && m.notes ? m.notes : null,
+    startDate: m.startDate,
+    stopDate: typeof m.stopDate === 'string' ? m.stopDate : null,
+    source: m.source === 'office' || m.source === 'onboarding' ? m.source : 'patient',
+    version: typeof m.version === 'string' ? m.version : null,
+  };
+}
+
+function parseDoseLogWire(raw: unknown): DoseLogRecord {
+  if (typeof raw !== 'object' || raw === null) throw new PatientDataError(MALFORMED_MESSAGE);
+  const d = raw as Record<string, unknown>;
+  if (
+    typeof d.id !== 'string' ||
+    typeof d.medicationId !== 'string' ||
+    !isDateKey(d.dueDate) ||
+    !isClockTime(d.dueTime) ||
+    (d.status !== 'taken' && d.status !== 'skipped')
+  ) {
+    throw new PatientDataError(MALFORMED_MESSAGE);
+  }
+  return {
+    id: d.id,
+    medicationId: d.medicationId,
+    dueDate: d.dueDate,
+    dueTime: d.dueTime,
+    status: d.status,
+    source:
+      d.source === 'reminder' || d.source === 'check_in' || d.source === 'office' ? d.source : 'account',
+    loggedAt: typeof d.loggedAt === 'string' ? d.loggedAt : '',
+  };
+}
+
 /**
  * Tolerant by design: an absent or partial flags object yields defaults, so
  * this client keeps working against older in-memory test servers that don't
@@ -706,6 +770,8 @@ function parseServerState(json: unknown): PatientServerState {
   // Progress slices tolerate absence (older in-memory test servers).
   const photos = Array.isArray(data.photos) ? data.photos.map(parseProgressPhoto) : [];
   const checkIns = Array.isArray(data.checkIns) ? data.checkIns.map(parseCheckInWire) : [];
+  const medications = Array.isArray(data.medications) ? data.medications.map(parseMedicationWire) : [];
+  const doseLogs = Array.isArray(data.doseLogs) ? data.doseLogs.map(parseDoseLogWire) : [];
   const flags = parseFlags(data.flags);
   const entry = parseEntryFacts(data.entry);
   const profile = data.profile === undefined ? undefined : parsePatientProfile(data.profile);
@@ -729,6 +795,8 @@ function parseServerState(json: unknown): PatientServerState {
     savedRecipes,
     photos,
     checkIns,
+    medications,
+    doseLogs,
     flags,
     entry,
     ...(profile ? { profile } : {}),
@@ -900,6 +968,16 @@ export const patientDataApi: PatientDataApi = {
       sideEffects: checkIn.sideEffects,
       ...(checkIn.notes ? { notes: checkIn.notes } : {}),
     }, options);
+  },
+
+  async writeMedication(medication: MedicationInput, options?: WriteOptions): Promise<{ medication: MedicationRecord }> {
+    const json = await authedRequest('PUT', '/patient-data/medications', { medication }, options);
+    const record = (json as { medication?: unknown } | null)?.medication;
+    return { medication: parseMedicationWire(record) };
+  },
+
+  async writeDoseLog(log: DoseLogWrite, options?: WriteOptions): Promise<void> {
+    await authedRequest('POST', '/patient-data/medication-doses', log, options);
   },
 
   async importHealthMeasurements(measurements: HealthMeasurement[], accessToken?: string): Promise<{ imported: number }> {

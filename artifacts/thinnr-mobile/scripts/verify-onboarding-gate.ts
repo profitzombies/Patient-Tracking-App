@@ -44,7 +44,7 @@ import {
   StartedStep,
   WeightStep,
 } from '../components/onboarding/StepsProfile';
-import { DietsStep } from '../components/onboarding/StepsPrefs';
+import { DietsStep, InjectionDayStep } from '../components/onboarding/StepsPrefs';
 import {
   ContactStep,
   PasswordStep,
@@ -482,6 +482,13 @@ const SPECS: GatedStepSpec[] = [
     component: DietsStep,
     expectedNext: 'complete',
     makeValid: root => tap(root, 'ob-diet-vegan', 'diets valid'),
+  },
+  {
+    key: 'injection-day',
+    component: InjectionDayStep,
+    prep: { program: 'glp1' },
+    expectedNext: 'diets',
+    makeValid: root => tap(root, 'ob-injection-day-1', 'injection day valid'),
   },
 ];
 

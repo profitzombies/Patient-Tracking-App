@@ -1,12 +1,36 @@
-export type ReminderSlot = 'morning' | 'afternoon' | 'evening';
+import { isClockTime, medicationLine, normalizeTimes, type MedicationRecord } from './medication-schedule';
 
-export interface ReminderPrefs {
+/**
+ * One local notification to keep on the device: a daily alarm (weekday
+ * null) or a weekly one (weekday 0 = Sunday … 6 = Saturday), naming the
+ * medication and dose in its content. `key` is stable across reconciles so
+ * a plan can be diffed by signature.
+ */
+export interface ReminderItem {
+  key: string;
+  title: string;
+  body: string;
+  hour: number;
+  minute: number;
+  weekday: number | null;
+  data: ReminderData;
+}
+
+/** Payload every medication reminder carries so a tap or action can log the dose. */
+export interface ReminderData {
+  feature: 'medication-reminder';
+  medicationId: string;
+  dueTime: string;
+  weekday: number | null;
+}
+
+export interface ReminderPlan {
   enabled: boolean;
-  times: Record<ReminderSlot, string>;
+  items: ReminderItem[];
 }
 
 export interface ScheduledReminder {
-  slot: ReminderSlot;
+  key: string;
   identifier: string;
 }
 
@@ -25,13 +49,18 @@ export interface ReminderStore {
 export interface NotificationDriver {
   permission(): Promise<'granted' | 'denied' | 'undetermined'>;
   requestPermission(): Promise<'granted' | 'denied'>;
-  schedule(slot: ReminderSlot, hour: number, minute: number): Promise<string>;
+  schedule(item: ReminderItem): Promise<string>;
   cancel(identifier: string): Promise<void>;
 }
 
 export type ReminderResult =
   | { status: 'scheduled' | 'unchanged' | 'disabled'; count: number }
   | { status: 'denied' | 'undetermined' | 'stale'; count: 0 };
+
+/** Notification action identifiers on a medication reminder. */
+export const REMINDER_ACTION_TAKEN = 'taken';
+export const REMINDER_ACTION_SKIPPED = 'skipped';
+export const REMINDER_CATEGORY = 'medication-dose';
 
 export function parseClock(value: string): { hour: number; minute: number } | null {
   const match = /^\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*$/i.exec(value);
@@ -44,27 +73,74 @@ export function parseClock(value: string): { hour: number; minute: number } | nu
   return { hour, minute };
 }
 
-function signatureFor(prefs: ReminderPrefs, timezone: string): string {
-  return JSON.stringify([timezone, prefs.enabled, prefs.times.morning, prefs.times.afternoon, prefs.times.evening]);
+/**
+ * The device reminders a medication list calls for on `todayKey`: one
+ * repeating alarm per (medication, time), weekly ones pinned to the
+ * medication's weekday. Stopped medications and ones not started yet are
+ * left out; because the plan is re-derived on every foreground, a start or
+ * stop date crossing midnight changes the signature and the schedules
+ * follow. Ordering is deterministic so the signature is too.
+ */
+export function reminderPlanFor(
+  medications: readonly MedicationRecord[],
+  enabled: boolean,
+  todayKey: string,
+): ReminderPlan {
+  const items: ReminderItem[] = [];
+  const sorted = [...medications].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const medication of sorted) {
+    if (medication.stopDate && medication.stopDate < todayKey) continue;
+    if (medication.startDate > todayKey) continue;
+    const weekday =
+      medication.scheduleKind === 'weekly' &&
+      medication.weekday !== null &&
+      medication.weekday >= 0 &&
+      medication.weekday <= 6
+        ? medication.weekday
+        : null;
+    if (medication.scheduleKind === 'weekly' && weekday === null) continue;
+    for (const time of normalizeTimes(medication.times)) {
+      if (!isClockTime(time)) continue;
+      const [hour, minute] = time.split(':').map(Number);
+      items.push({
+        key: `${medication.id}:${time}${weekday === null ? '' : `:w${weekday}`}`,
+        title: weekday === null ? 'Time for your medication' : 'Time for your weekly dose',
+        body: medicationLine(medication),
+        hour,
+        minute,
+        weekday,
+        data: { feature: 'medication-reminder', medicationId: medication.id, dueTime: time, weekday },
+      });
+    }
+  }
+  return { enabled, items };
 }
 
-/** Cancel-first replacement makes a retry idempotent and prevents duplicate daily alarms. */
+function signatureFor(plan: ReminderPlan, timezone: string): string {
+  return JSON.stringify([
+    timezone,
+    plan.enabled,
+    plan.items.map(item => [item.key, item.title, item.body, item.hour, item.minute, item.weekday]),
+  ]);
+}
+
+/** Cancel-first replacement makes a retry idempotent and prevents duplicate alarms. */
 export async function reconcileReminders(
   accountId: string,
-  prefs: ReminderPrefs,
+  plan: ReminderPlan,
   timezone: string,
   driver: NotificationDriver,
   store: ReminderStore,
   requestPermission: boolean,
 ): Promise<ReminderResult> {
   const previous = await store.read(accountId);
-  const signature = signatureFor(prefs, timezone);
+  const signature = signatureFor(plan, timezone);
   if (previous?.signature === signature) {
-    return { status: prefs.enabled ? 'unchanged' : 'disabled', count: previous.scheduled.length };
+    return { status: plan.enabled ? 'unchanged' : 'disabled', count: previous.scheduled.length };
   }
   for (const item of previous?.scheduled ?? []) await driver.cancel(item.identifier);
   await store.write(accountId, null);
-  if (!prefs.enabled) {
+  if (!plan.enabled) {
     await store.write(accountId, { accountId, timezone, signature, scheduled: [] });
     return { status: 'disabled', count: 0 };
   }
@@ -74,10 +150,8 @@ export async function reconcileReminders(
 
   const scheduled: ScheduledReminder[] = [];
   try {
-    for (const slot of ['morning', 'afternoon', 'evening'] as const) {
-      const clock = parseClock(prefs.times[slot]);
-      if (!clock) throw new Error(`Invalid ${slot} reminder time.`);
-      scheduled.push({ slot, identifier: await driver.schedule(slot, clock.hour, clock.minute) });
+    for (const item of plan.items) {
+      scheduled.push({ key: item.key, identifier: await driver.schedule(item) });
     }
   } catch (error) {
     for (const item of scheduled) await driver.cancel(item.identifier);
@@ -93,7 +167,14 @@ export class ReminderCoordinator {
   private chain: Promise<void> = Promise.resolve();
   private active: string | null = null;
   private generation = 0;
-  private desired = new Map<string, { signature: string; revision: number }>();
+  /**
+   * Latest intent per account. `revision` orders queued work so an older
+   * reconcile can never land over a newer one; `pinnedEnabled` remembers the
+   * last user-initiated (authoritative) enable/disable so that lagging
+   * server flags cannot undo it, while ordinary plan changes (medication
+   * edits, day rollovers, timezone changes) always supersede the prior plan.
+   */
+  private desired = new Map<string, { signature: string; revision: number; pinnedEnabled: boolean | null }>();
   constructor(private readonly driver: NotificationDriver, private readonly store: ReminderStore) {}
 
   activate(accountId: string | null): Promise<void> {
@@ -111,20 +192,25 @@ export class ReminderCoordinator {
 
   reconcile(
     accountId: string,
-    prefs: ReminderPrefs,
+    plan: ReminderPlan,
     timezone: string,
     requestPermission: boolean,
     authoritative = false,
   ): Promise<ReminderResult> {
     const generation = this.generation;
-    const signature = signatureFor(prefs, timezone);
+    const signature = signatureFor(plan, timezone);
     const current = this.desired.get(accountId);
-    if (!authoritative && current && current.signature !== signature) {
+    // Observed (server-flag) plans that contradict the user's latest local
+    // enable/disable are lagging data, not a new intent: refuse them.
+    if (!authoritative && current && current.pinnedEnabled !== null && plan.enabled !== current.pinnedEnabled) {
       return Promise.resolve({ status: 'stale', count: 0 });
     }
-    const desired = authoritative
-      ? { signature, revision: (current?.revision ?? 0) + 1 }
-      : current ?? { signature, revision: 0 };
+    const changed = !current || current.signature !== signature || authoritative;
+    const desired = {
+      signature,
+      revision: changed ? (current?.revision ?? 0) + 1 : current.revision,
+      pinnedEnabled: authoritative ? plan.enabled : current?.pinnedEnabled ?? null,
+    };
     this.desired.set(accountId, desired);
     return this.enqueue(async () => {
       const latest = this.desired.get(accountId);
@@ -135,15 +221,15 @@ export class ReminderCoordinator {
         latest.revision !== desired.revision ||
         latest.signature !== signature
       ) return { status: 'stale', count: 0 };
-      return reconcileReminders(accountId, prefs, timezone, this.driver, this.store, requestPermission);
+      return reconcileReminders(accountId, plan, timezone, this.driver, this.store, requestPermission);
     });
   }
 
-  cancel(accountId: string, disabledPrefs: ReminderPrefs, timezone: string): Promise<void> {
+  cancel(accountId: string, disabledPlan: ReminderPlan, timezone: string): Promise<void> {
     const generation = this.generation;
-    const signature = signatureFor(disabledPrefs, timezone);
+    const signature = signatureFor({ ...disabledPlan, enabled: false }, timezone);
     const current = this.desired.get(accountId);
-    const desired = { signature, revision: (current?.revision ?? 0) + 1 };
+    const desired = { signature, revision: (current?.revision ?? 0) + 1, pinnedEnabled: false };
     this.desired.set(accountId, desired);
     return this.enqueue(async () => {
       const latest = this.desired.get(accountId);

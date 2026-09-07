@@ -19,6 +19,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   patient_weight_removed: 'Removed a patient weight',
   patient_measurements_recorded: 'Recorded body measurements',
   patient_measurements_removed: 'Removed body measurements',
+  patient_medication_added: 'Added a patient medication',
+  patient_medication_updated: 'Updated a patient medication',
+  patient_medication_stopped: 'Stopped a patient medication',
   provider_account_created: 'Created an office account',
   provider_account_updated: 'Updated an office account',
   office_team_invited: 'Invited a teammate',
@@ -101,7 +104,7 @@ const METADATA_LABELS: Record<string, string> = {
 };
 
 /** Keys that are internal record ids: hidden from the office page, shown as fine print at HQ. */
-const ID_KEYS = new Set(['noteId', 'weightId', 'visitId', 'attachmentId', 'assigneeUserId', 'previousAssigneeUserId', 'messageClientId', 'escalationId']);
+const ID_KEYS = new Set(['noteId', 'weightId', 'visitId', 'medicationId', 'attachmentId', 'assigneeUserId', 'previousAssigneeUserId', 'messageClientId', 'escalationId']);
 
 export interface AuditDetail {
   label: string;

@@ -51,6 +51,8 @@ class FakeBackend {
       patient_progress_photos: [],
       patient_check_ins: [],
       patient_health_measurements: [],
+      patient_medications: [],
+      patient_medication_dose_logs: [],
       patient_flags: [],
       patient_consents: [],
       patient_data_exports: [],
@@ -557,6 +559,7 @@ beforeAll(async () => {
   // The consent/privacy rail is mounted too so the enforcement tests prove
   // the exemption (a patient with no consent can still record it).
   const { default: patientPrivacyRouter } = await import("./patient-privacy");
+  const { default: patientMedicationsRouter } = await import("./patient-medications");
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -568,6 +571,7 @@ beforeAll(async () => {
   });
   app.use("/api", patientDataRouter);
   app.use("/api", patientPrivacyRouter);
+  app.use("/api", patientMedicationsRouter);
   server = app.listen(0);
   const address = server.address() as AddressInfo;
   base = `http://127.0.0.1:${address.port}`;
@@ -894,6 +898,8 @@ describe("GET /patient-data/state", () => {
       savedRecipes: [],
       photos: [],
       checkIns: [],
+      medications: [],
+      doseLogs: [],
       flags: {
         nudgeOptOut: false,
         nudgeEngaged: false,
@@ -1077,6 +1083,8 @@ describe("GET /patient-data/state", () => {
       savedRecipes: [],
       photos: [],
       checkIns: [],
+      medications: [],
+      doseLogs: [],
       flags: {
         nudgeOptOut: false,
         nudgeEngaged: false,
@@ -2091,5 +2099,153 @@ describe("POST /patient-data/library", () => {
     const res = await api("GET", "/api/patient-data/state", { token: "tok-1" });
     expect(res.status).toBe(502);
     expect(res.json.error).toBe("Couldn't load your diary right now. Please try again.");
+  });
+});
+
+describe("medications and dose logs", () => {
+  const MED = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const LOG = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const NY = "America/New_York";
+  const todayNY = () => new Intl.DateTimeFormat("en-CA", { timeZone: NY, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const shift = (key: string, days: number) => {
+    const [y, m, d] = key.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  };
+  const dailyMed = (over: Record<string, unknown> = {}) => ({
+    id: MED, name: "THINNR Protocol drops", form: "drops", dose: "1 mL", scheduleKind: "daily", times: ["08:00", "15:00", "22:00"],
+    weekday: null, notes: null, startDate: "2026-01-01", stopDate: null, ...over,
+  });
+
+  const withContact = (patientId: string, n: number) =>
+    Object.assign(backend.tables.patients.find(row => row.id === patientId)!, { email: `p${n}@example.com`, phone: `+1555000${1000 + n}` });
+
+  it("completing setup seeds the list from the program choice once, and the state read carries it", async () => {
+    const mine = backend.seedSignedInPatient("tok-1");
+    withContact(mine.patientId, 1);
+    const profile = {
+      firstName: "Casey", lastName: "Ortiz", dateOfBirth: "1985-04-03", heightInches: 66, startingWeight: 200, currentWeight: 200,
+      goalWeight: 160, timezone: NY, programId: "thinnr", programStartDate: "2026-08-20",
+    };
+    const done = await api("POST", "/api/patient-data/setup/complete", {
+      token: "tok-1",
+      body: { profile, onboardingAnswers: { program: "thinnr", reminderMorning: "7:30 AM", reminderAfternoon: "2:30 PM", reminderEvening: "9:30 PM" } },
+    });
+    expect(done.status, JSON.stringify(done.json)).toBe(200);
+    expect(backend.tables.patient_medications).toHaveLength(1);
+    expect(backend.tables.patient_medications[0]).toMatchObject({
+      patient_id: mine.patientId, name: "THINNR Protocol drops", form: "drops", schedule_kind: "daily", times: ["07:30", "14:30", "21:30"],
+      start_date: "2026-08-20", source: "onboarding",
+    });
+    // A re-run (retry after a lost response) never duplicates the record.
+    await api("POST", "/api/patient-data/setup/complete", { token: "tok-1", body: { profile, onboardingAnswers: { program: "thinnr" } } });
+    expect(backend.tables.patient_medications).toHaveLength(1);
+
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.status).toBe(200);
+    expect(state.json.medications).toEqual([expect.objectContaining({ name: "THINNR Protocol drops", times: ["07:30", "14:30", "21:30"] })]);
+    expect(state.json.doseLogs).toEqual([]);
+
+    // GLP-1 seeds a weekly injection on the chosen day; without a day nothing is seeded.
+    withContact(backend.seedSignedInPatient("tok-2").patientId, 2);
+    await api("POST", "/api/patient-data/setup/complete", {
+      token: "tok-2",
+      body: { profile: { ...profile, programId: "glp1" }, onboardingAnswers: { program: "glp1", injectionDay: 3, injectionTime: "9:00 AM" } },
+    });
+    const shot = backend.tables.patient_medications.find(row => row.patient_id !== mine.patientId);
+    expect(shot).toMatchObject({ name: "GLP-1 injection", form: "injection", schedule_kind: "weekly", weekday: 3, times: ["09:00"] });
+    withContact(backend.seedSignedInPatient("tok-3").patientId, 3);
+    await api("POST", "/api/patient-data/setup/complete", {
+      token: "tok-3",
+      body: { profile: { ...profile, programId: "glp1" }, onboardingAnswers: { program: "glp1" } },
+    });
+    expect(backend.tables.patient_medications).toHaveLength(2);
+  });
+
+  it("upserts a medication owned by the caller, validates it, and refuses an id that belongs to someone else", async () => {
+    const mine = backend.seedSignedInPatient("tok-1");
+    const other = backend.seedSignedInPatient("tok-2");
+    const created = await api("PUT", "/api/patient-data/medications", { token: "tok-1", body: { medication: dailyMed() } });
+    expect(created.status).toBe(200);
+    expect(created.json.medication).toMatchObject({ id: MED, name: "THINNR Protocol drops", source: "patient", stopDate: null });
+    expect(backend.tables.patient_medications[0]).toMatchObject({ patient_id: mine.patientId, source: "patient" });
+
+    const edited = await api("PUT", "/api/patient-data/medications", { token: "tok-1", body: { medication: dailyMed({ dose: "2 mL", stopDate: "2026-12-31" }) } });
+    expect(edited.status).toBe(200);
+    expect(backend.tables.patient_medications).toHaveLength(1);
+    expect(backend.tables.patient_medications[0]).toMatchObject({ dose: "2 mL", stop_date: "2026-12-31", source: "patient" });
+
+    const stolen = await api("PUT", "/api/patient-data/medications", { token: "tok-2", body: { medication: dailyMed({ name: "Mine now" }) } });
+    expect(stolen.status).toBe(400);
+    expect(stolen.json.field).toBe("id");
+    expect(backend.tables.patient_medications[0]).toMatchObject({ patient_id: mine.patientId, name: "THINNR Protocol drops" });
+    expect(backend.tables.patient_medications.some(row => row.patient_id === other.patientId)).toBe(false);
+
+    for (const bad of [
+      dailyMed({ id: "not-a-uuid" }),
+      dailyMed({ name: "   " }),
+      dailyMed({ times: ["25:00"] }),
+      dailyMed({ scheduleKind: "weekly", weekday: 7 }),
+      dailyMed({ startDate: "2026-02-30" }),
+      dailyMed({ stopDate: "2025-01-01" }),
+    ]) {
+      const res = await api("PUT", "/api/patient-data/medications", { token: "tok-1", body: { medication: bad } });
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+      expect(typeof res.json.field).toBe("string");
+    }
+
+    const list = await api("GET", "/api/patient-data/medications", { token: "tok-1" });
+    expect(list.status).toBe(200);
+    expect(list.json.medications).toHaveLength(1);
+    const otherList = await api("GET", "/api/patient-data/medications", { token: "tok-2" });
+    expect(otherList.json.medications).toEqual([]);
+  });
+
+  it("logs, corrects, and clears a dose within the seven-day window, one decision per scheduled occurrence", async () => {
+    const mine = backend.seedSignedInPatient("tok-1");
+    backend.tables.patients.find(row => row.id === mine.patientId)!.timezone = NY;
+    backend.seedSignedInPatient("tok-2");
+    await api("PUT", "/api/patient-data/medications", { token: "tok-1", body: { medication: dailyMed() } });
+    const today = todayNY();
+    const dose = (over: Record<string, unknown> = {}) => ({ id: LOG, medicationId: MED, dueDate: today, dueTime: "08:00", status: "taken", source: "reminder", ...over });
+
+    const taken = await api("POST", "/api/patient-data/medication-doses", { token: "tok-1", body: dose() });
+    expect(taken.status).toBe(200);
+    expect(taken.json.log).toMatchObject({ id: LOG, medicationId: MED, dueDate: today, dueTime: "08:00", status: "taken", source: "reminder" });
+    expect(backend.tables.patient_medication_dose_logs).toEqual([expect.objectContaining({ patient_id: mine.patientId, status: "taken" })]);
+
+    // A second decision for the same occurrence merges rather than duplicating (unique per occurrence).
+    const corrected = await api("POST", "/api/patient-data/medication-doses", { token: "tok-1", body: dose({ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", status: "skipped", source: "check_in" }) });
+    expect(corrected.status).toBe(200);
+    expect(backend.tables.patient_medication_dose_logs).toHaveLength(1);
+    expect(backend.tables.patient_medication_dose_logs[0]).toMatchObject({ status: "skipped", source: "check_in" });
+
+    // Six days back is a correction; eight days back is outside the window; tomorrow+1 is future.
+    expect((await api("POST", "/api/patient-data/medication-doses", { token: "tok-1", body: dose({ id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", dueDate: shift(today, -6) }) })).status).toBe(200);
+    const late = await api("POST", "/api/patient-data/medication-doses", { token: "tok-1", body: dose({ id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", dueDate: shift(today, -8) }) });
+    expect(late.status).toBe(400);
+    expect(late.json.field).toBe("dueDate");
+    const future = await api("POST", "/api/patient-data/medication-doses", { token: "tok-1", body: dose({ id: "ffffffff-ffff-4fff-8fff-ffffffffffff", dueDate: shift(today, 2) }) });
+    expect(future.status).toBe(400);
+    expect(future.json.error).toMatch(/isn't due yet/);
+    // Not a scheduled time for this medication.
+    const offSchedule = await api("POST", "/api/patient-data/medication-doses", { token: "tok-1", body: dose({ id: "ffffffff-ffff-4fff-8fff-fffffffffff0", dueTime: "09:00" }) });
+    expect(offSchedule.status).toBe(400);
+    expect(offSchedule.json.field).toBe("dueTime");
+    // Another account cannot log against this medication.
+    expect((await api("POST", "/api/patient-data/medication-doses", { token: "tok-2", body: dose() })).status).toBe(404);
+    expect(backend.tables.patient_medication_dose_logs).toHaveLength(2);
+
+    // Clearing a decision removes the row; the same idempotency key replays without a second write.
+    const cleared = await api("POST", "/api/patient-data/medication-doses", {
+      token: "tok-1", headers: { "Idempotency-Key": "q_dose.clear:1" }, body: dose({ status: null }),
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.json).toEqual({ deleted: true });
+    expect(backend.tables.patient_medication_dose_logs).toHaveLength(1);
+    const replay = await api("POST", "/api/patient-data/medication-doses", {
+      token: "tok-1", headers: { "Idempotency-Key": "q_dose.clear:1" }, body: dose({ status: null }),
+    });
+    expect(replay.headers.get("idempotency-replayed")).toBe("true");
+    expect(backend.tables.patient_write_receipts.filter(row => row.patient_id === mine.patientId)).toHaveLength(1);
   });
 });

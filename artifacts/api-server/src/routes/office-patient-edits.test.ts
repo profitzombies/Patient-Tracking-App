@@ -34,6 +34,8 @@ let patients: Row[] = [];
 let notes: Row[] = [];
 let staffWeights: Row[] = [];
 let measurementVisits: Row[] = [];
+let medications: Row[] = [];
+let doseLogs: Row[] = [];
 let checkIns: Row[] = [];
 let audits: Row[] = [];
 let requests: string[] = [];
@@ -116,6 +118,8 @@ beforeEach(() => {
   notes = [];
   staffWeights = [];
   measurementVisits = [];
+  medications = [];
+  doseLogs = [];
   checkIns = [];
   audits = [];
   requests = [];
@@ -221,6 +225,18 @@ beforeEach(() => {
         return response(gone);
       }
     }
+    if (url.pathname === "/rest/v1/patient_medications") {
+      if (method === "GET") return response(matching(medications, url.searchParams, ["id", "patient_id"]));
+      if (method === "POST") { medications.push(body); return response([body], 201); }
+      if (method === "PATCH") {
+        const rows = matching(medications, url.searchParams, ["id", "patient_id", "updated_at"]);
+        for (const row of rows) Object.assign(row, body);
+        return response(rows);
+      }
+    }
+    if (url.pathname === "/rest/v1/patient_medication_dose_logs") {
+      if (method === "GET") return response(matching(doseLogs, url.searchParams, ["patient_id", "medication_id"]));
+    }
     if (url.pathname === "/rest/v1/patient_check_ins") return response(checkIns.filter((row) => row.patient_id === (url.searchParams.get("patient_id") ?? "").replace("eq.", "")));
     if (url.pathname.startsWith("/rest/v1/patient_")) return response([]);
     throw new Error(`Unexpected fake request: ${method} ${url}`);
@@ -246,6 +262,8 @@ describe("scope and permissions", () => {
     ["DELETE", "/weights/w-1", { expectedVersion: V1 }],
     ["POST", "/measurements", { dateKey: "2026-01-02", measurements: { waist: 34.5 } }],
     ["DELETE", "/measurements/m-1", { expectedVersion: V1 }],
+    ["POST", "/medications", { medication: { name: "Vitamin D", form: "capsule", scheduleKind: "daily", times: ["08:00"], startDate: "2026-01-02" } }],
+    ["PATCH", "/medications/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", { expectedVersion: V1, stopDate: "2026-01-10" }],
   ];
 
   it("answers cross-office ids and unknown ids with the identical neutral 404 and writes nothing", async () => {
@@ -258,6 +276,7 @@ describe("scope and permissions", () => {
     expect(notes).toEqual([]);
     expect(staffWeights).toEqual([]);
     expect(measurementVisits).toEqual([]);
+    expect(medications).toEqual([]);
     expect(patients[1]).toMatchObject({ first_name: "Riley", activation_status: "activated" });
     expect(audits).toEqual([]);
     expect(requests.filter((line) => !line.startsWith("GET "))).toEqual([]);
@@ -655,5 +674,103 @@ describe("patient-facing boundary", () => {
     expect(patientData).not.toContain("patient_staff_weights");
     expect(patientData).not.toContain("patient_body_measurements");
     expect(patientData).not.toContain("activation_reason");
+  });
+});
+
+describe("medications", () => {
+  const MED = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const V_MED = "2026-01-05T09:00:00+00:00";
+  function seedMedication(over: Row = {}) {
+    medications.push({
+      id: MED, patient_id: OWN, name: "THINNR Protocol drops", form: "drops", dose: "1 mL under the tongue", schedule_kind: "daily",
+      times: ["08:00", "15:00", "22:00"], weekday: null, notes: null, start_date: "2026-01-01", stop_date: null, source: "onboarding",
+      created_by_name: null, created_at: "2026-01-01T00:00:00+00:00", updated_at: V_MED, ...over,
+    });
+  }
+
+  it("lists the medication record with a 30-day adherence view computed in the patient's zone", async () => {
+    seedMedication();
+    // The adherence window ends on the patient's local today (real clock), so
+    // the logs sit two days back to land inside it and past the grace period.
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+    doseLogs.push(
+      { id: "l1", patient_id: OWN, medication_id: MED, due_date: twoDaysAgo, due_time: "08:00", status: "taken", source: "reminder", logged_at: `${twoDaysAgo}T13:05:00Z` },
+      { id: "l2", patient_id: OWN, medication_id: MED, due_date: twoDaysAgo, due_time: "15:00", status: "skipped", source: "check_in", logged_at: `${twoDaysAgo}T20:05:00Z` },
+    );
+    const res = await api(`/office/patients/${OWN}/medications`, "member-token");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { medications: Row[]; doseLogs: Row[]; adherence: Row; timeZone: string };
+    expect(body.timeZone).toBe("America/New_York");
+    expect(body.medications).toEqual([expect.objectContaining({ id: MED, name: "THINNR Protocol drops", scheduleKind: "daily", times: ["08:00", "15:00", "22:00"], version: V_MED, stopDate: null })]);
+    expect(body.doseLogs.map((row) => row.status)).toEqual(["taken", "skipped"]);
+    expect(body.adherence).toMatchObject({ taken: 1, skipped: 1 });
+    expect(Number(body.adherence.missed)).toBeGreaterThan(0);
+    expect(Array.isArray(body.adherence.days)).toBe(true);
+    // Other office: neutral 404, no read of the record.
+    expect((await api(`/office/patients/${OTHER}/medications`, "provider-token")).status).toBe(404);
+  });
+
+  it("adds a medication on the patient's behalf (office source, staff attribution) and audits the id only", async () => {
+    const res = await api(`/office/patients/${OWN}/medications`, "member-token", {
+      method: "POST",
+      ...json({ medication: { name: "Vitamin D", form: "capsule", dose: "2000 IU", scheduleKind: "weekly", weekday: 1, times: ["09:00"], startDate: "2026-01-02", notes: "With food" } }),
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json() as { medication: Row; medications: Row[] };
+    expect(body.medication).toMatchObject({ name: "Vitamin D", form: "capsule", dose: "2000 IU", scheduleKind: "weekly", weekday: 1, times: ["09:00"], source: "office", stopDate: null });
+    expect(medications[0]).toMatchObject({ patient_id: OWN, source: "office", created_by: "member-user", created_by_name: "Sam Front Desk" });
+    expect(body.medications).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(audits.at(-1)).toMatchObject({ p_action: "patient_medication_added", p_target_id: OWN, p_metadata: { medicationId: body.medication.id, kind: "weekly" } });
+    expect(JSON.stringify(audits.at(-1)?.p_metadata)).not.toMatch(/Vitamin|2000|food/);
+  });
+
+  it("rejects incomplete or inconsistent records before touching the store", async () => {
+    const bad = [
+      { medication: { name: "", form: "capsule", scheduleKind: "daily", times: ["08:00"], startDate: "2026-01-02" } },
+      { medication: { name: "X", form: "pill", scheduleKind: "daily", times: ["08:00"], startDate: "2026-01-02" } },
+      { medication: { name: "X", form: "capsule", scheduleKind: "weekly", times: ["08:00"], startDate: "2026-01-02" } },
+      { medication: { name: "X", form: "capsule", scheduleKind: "daily", times: [], startDate: "2026-01-02" } },
+      { medication: { name: "X", form: "capsule", scheduleKind: "daily", times: ["8am"], startDate: "2026-01-02" } },
+      { medication: { name: "X", form: "capsule", scheduleKind: "daily", times: ["08:00"], startDate: "2026-01-02", stopDate: "2026-01-01" } },
+    ];
+    for (const body of bad) {
+      const res = await api(`/office/patients/${OWN}/medications`, "provider-token", { method: "POST", ...json(body) });
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(typeof ((await res.json()) as { field?: string }).field).toBe("string");
+    }
+    expect(medications).toEqual([]);
+  });
+
+  it("edits with a version precondition, validates the merged record, and audits a stop as its own action", async () => {
+    seedMedication();
+    // Partial edit that would leave a weekly record without a weekday is refused.
+    const inconsistent = await api(`/office/patients/${OWN}/medications/${MED}`, "provider-token", { method: "PATCH", ...json({ expectedVersion: V_MED, scheduleKind: "weekly" }) });
+    expect(inconsistent.status).toBe(400);
+    expect(await inconsistent.json()).toMatchObject({ field: "weekday" });
+
+    const stale = await api(`/office/patients/${OWN}/medications/${MED}`, "provider-token", { method: "PATCH", ...json({ expectedVersion: "2020-01-01T00:00:00+00:00", dose: "2 mL" }) });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: "record_changed" });
+    expect(medications[0].dose).toBe("1 mL under the tongue");
+
+    const edit = await api(`/office/patients/${OWN}/medications/${MED}`, "provider-token", { method: "PATCH", ...json({ expectedVersion: V_MED, dose: "2 mL", times: ["07:30", "21:30"] }) });
+    expect(edit.status).toBe(200);
+    const edited = (await edit.json() as { medication: Row }).medication;
+    expect(edited).toMatchObject({ dose: "2 mL", times: ["07:30", "21:30"], stopDate: null });
+    expect(edited.version).not.toBe(V_MED);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(audits.at(-1)).toMatchObject({ p_action: "patient_medication_updated", p_metadata: { medicationId: MED, fields: "dose,times" } });
+
+    const stop = await api(`/office/patients/${OWN}/medications/${MED}`, "provider-token", { method: "PATCH", ...json({ expectedVersion: edited.version, stopDate: "2026-01-20" }) });
+    expect(stop.status).toBe(200);
+    expect((await stop.json() as { medication: Row }).medication.stopDate).toBe("2026-01-20");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(audits.at(-1)).toMatchObject({ p_action: "patient_medication_stopped", p_metadata: { medicationId: MED, fields: "stopDate" } });
+
+    const missing = await api(`/office/patients/${OWN}/medications/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee`, "provider-token", { method: "PATCH", ...json({ expectedVersion: V_MED, dose: "x" }) });
+    expect(missing.status).toBe(404);
+    const noChange = await api(`/office/patients/${OWN}/medications/${MED}`, "provider-token", { method: "PATCH", ...json({ expectedVersion: V_MED }) });
+    expect(noChange.status).toBe(400);
   });
 });

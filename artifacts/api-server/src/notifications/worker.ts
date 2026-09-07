@@ -3,7 +3,9 @@
  *
  *   * in-process: `startNotificationWorker()` from the API server's listen
  *     callback ticks every NOTIFICATIONS_TICK_MS (default 30 s) and evaluates
- *     coach outreach every NOTIFICATIONS_OUTREACH_EVERY_MS (default 15 min);
+ *     coach outreach every NOTIFICATIONS_OUTREACH_EVERY_MS (default 15 min)
+ *     and missed-dose backups every NOTIFICATIONS_MISSED_DOSE_EVERY_MS
+ *     (default 10 min);
  *   * externally: POST /api/internal/notifications/tick with the
  *     NOTIFICATIONS_INTERNAL_TOKEN bearer runs one tick synchronously, so a
  *     scheduled deployment can drive the outbox without a long-lived process.
@@ -18,6 +20,7 @@ import { hostname } from "os";
 import { logger } from "../lib/logger";
 import { createExpoPushClient, type ExpoPushClient } from "./expo-push";
 import { runOutreachEvaluation, type OutreachRunSummary } from "./stall-outreach";
+import { runMissedDoseEvaluation, type MissedDoseRunSummary } from "./missed-dose";
 import { runNotificationTick, type TickSummary } from "./sender";
 import { loadTickPolicy, type TickPolicy } from "./tick-policy";
 import { supabaseNotificationStore, type NotificationStore } from "./store";
@@ -50,17 +53,19 @@ export interface ScheduledTickResult {
   owner: string;
   outbox: TickSummary;
   outreach: OutreachRunSummary | null;
+  missedDoses: MissedDoseRunSummary | null;
 }
 
 let inFlight: Promise<ScheduledTickResult> | null = null;
 let lastOutreachAt = 0;
+let lastMissedDoseAt = 0;
 
 /**
  * One scheduler pass. `outreach: true` forces the coach evaluation; otherwise
  * it runs when its interval has elapsed since the last pass in this process.
  */
 export function runScheduledTick(
-  options: { outreach?: boolean; store?: NotificationStore; pushClient?: ExpoPushClient; now?: () => Date } = {},
+  options: { outreach?: boolean; missedDoses?: boolean; store?: NotificationStore; pushClient?: ExpoPushClient; now?: () => Date } = {},
 ): Promise<ScheduledTickResult> {
   if (inFlight) return inFlight;
   const store = options.store ?? supabaseNotificationStore;
@@ -71,7 +76,11 @@ export function runScheduledTick(
     const outreachDue =
       options.outreach === true ||
       (options.outreach !== false && nowMs - lastOutreachAt >= envMs("NOTIFICATIONS_OUTREACH_EVERY_MS", 15 * 60_000));
+    const missedDue =
+      options.missedDoses === true ||
+      (options.missedDoses !== false && nowMs - lastMissedDoseAt >= envMs("NOTIFICATIONS_MISSED_DOSE_EVERY_MS", 10 * 60_000));
     let outreach: OutreachRunSummary | null = null;
+    let missedDoses: MissedDoseRunSummary | null = null;
     // One policy read per tick: HQ settings + office overrides, shared by the
     // outreach evaluation (cooldown, cap) and the sender (defaults, quiet hours).
     const policyLog = (event: string, detail: Record<string, unknown>) => logger.warn(detail, event);
@@ -91,6 +100,18 @@ export function runScheduledTick(
         logger.error({ err: error }, "coach outreach evaluation failed");
       }
     }
+    if (missedDue) {
+      lastMissedDoseAt = nowMs;
+      try {
+        missedDoses = await runMissedDoseEvaluation({
+          store,
+          now,
+          log: (event, detail) => logger.warn(detail, event),
+        });
+      } catch (error) {
+        logger.error({ err: error }, "missed-dose evaluation failed");
+      }
+    }
     const outbox = await runNotificationTick({
       store,
       push: client,
@@ -99,10 +120,10 @@ export function runScheduledTick(
       log: (event, detail) => logger.warn(detail, event),
       policy,
     });
-    if (outbox.claimed > 0 || outbox.receiptsChecked > 0 || (outreach && outreach.sent > 0)) {
-      logger.info({ outbox, outreach }, "notification tick");
+    if (outbox.claimed > 0 || outbox.receiptsChecked > 0 || (outreach && outreach.sent > 0) || (missedDoses && missedDoses.sent > 0)) {
+      logger.info({ outbox, outreach, missedDoses }, "notification tick");
     }
-    return { owner: OWNER, outbox, outreach };
+    return { owner: OWNER, outbox, outreach, missedDoses };
   })();
   inFlight = run.finally(() => {
     inFlight = null;

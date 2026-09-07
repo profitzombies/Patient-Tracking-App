@@ -25,6 +25,7 @@ import type {
 } from '@/data/patient-data';
 import type { HealthMeasurement } from '@/lib/device-feature-core';
 import type { PrivacyApi, PrivacyState } from '@/lib/patient-privacy';
+import type { DoseLogRecord, MedicationInput, MedicationRecord } from '@/lib/medication-schedule';
 
 /**
  * One progress-photo grid row as it rides the wire: always a stored object
@@ -129,6 +130,9 @@ export interface PatientServerState {
   savedRecipes: SavedRecipe[];
   photos: ProgressPhotoWire[];
   checkIns: CheckIn[];
+  /** The medication list and the trailing dose decisions (absent on older test servers → empty). */
+  medications: MedicationRecord[];
+  doseLogs: DoseLogRecord[];
   flags: PatientFlags;
   entry: PatientEntryFacts;
   /** Optional only for compatibility with older test servers during rollout. */
@@ -138,6 +142,16 @@ export interface PatientServerState {
    * servers; the route gate treats absence as "consent not yet recorded".
    */
   privacy?: PrivacyState;
+}
+
+/** One dose decision as it rides the wire (null status = clear the decision). */
+export interface DoseLogWrite {
+  id: string;
+  medicationId: string;
+  dueDate: string;
+  dueTime: string;
+  status: 'taken' | 'skipped' | null;
+  source: 'reminder' | 'check_in' | 'account';
 }
 
 /**
@@ -268,6 +282,14 @@ export interface PatientDataApi {
   cleanupProgressUploads(paths: string[]): Promise<void>;
   /** Records one check-in (one row per day — a same-day re-submit replaces). */
   writeCheckIn(checkIn: CheckIn, options?: WriteOptions): Promise<void>;
+  /** Creates or replaces one medication on the patient's own list (keyed by its client id). */
+  writeMedication(medication: MedicationInput, options?: WriteOptions): Promise<{ medication: MedicationRecord }>;
+  /**
+   * Records one dose decision for a scheduled occurrence — `status: null`
+   * clears an earlier decision. The server rejects occurrences outside the
+   * seven-day correction window or not on the medication's schedule.
+   */
+  writeDoseLog(log: DoseLogWrite, options?: WriteOptions): Promise<void>;
   /** Idempotently imports only the approved device-health measurement kinds. */
   importHealthMeasurements(measurements: HealthMeasurement[], accessToken?: string): Promise<{ imported: number }>;
   /** Merges the provided account flags (stall-nudge / onboarding / prefs). */

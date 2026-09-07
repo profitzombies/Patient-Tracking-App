@@ -288,6 +288,22 @@ args = "account-security-mobile"
 task = "workflow.run"
 args = "account-security-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "medications-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "device-features"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "medication-reminders"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "medications-web"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -1032,6 +1048,50 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:account-security"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "medications-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/medications src/notifications/missed-dose.test.ts src/routes/office-patient-edits.test.ts src/routes/patient-data.test.ts src/routes/patient-privacy.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "device-features"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:device-features"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "medication-reminders"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:medication-reminders"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "medications-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:medications"
 
 [workflows.workflow.metadata]
 isValidation = true

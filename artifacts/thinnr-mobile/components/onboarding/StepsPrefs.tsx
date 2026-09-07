@@ -17,6 +17,8 @@ import {
   DIET_NONE_KEY,
   DIET_OPTIONS,
   HEALTH_APP_BENEFITS,
+  INJECTION_DAY_OPTIONS,
+  injectionTimeOptions,
   MONTH_LABELS,
   NOTIFICATION_ITEMS,
   programTitle,
@@ -99,7 +101,6 @@ export function NotificationsStep() {
   const { patch } = useOnboarding();
   const flow = useOnboardingFlow('notifications');
   const device = useDeviceFeatures();
-  const { answers } = useOnboarding();
 
   const choose = (notifications: 'enabled' | 'later') => {
     patch({ notifications });
@@ -118,14 +119,7 @@ export function NotificationsStep() {
         testID="ob-notif-enable"
         label="Enable notifications"
         disabled={device.busy || device.notification === 'web'}
-        onPress={() => void device.enableNotifications({
-          enabled: true,
-          times: {
-            morning: answers.reminderMorning,
-            afternoon: answers.reminderAfternoon,
-            evening: answers.reminderEvening,
-          },
-        }).then(ok => { if (ok) choose('enabled'); })}
+        onPress={() => void device.enableNotifications().then(ok => { if (ok) choose('enabled'); })}
         style={styles.btnGap}
       />
       <GhostButton testID="ob-notif-later" label="Maybe later" onPress={() => choose('later')} />
@@ -135,6 +129,39 @@ export function NotificationsStep() {
             ? 'Local medication reminders are unavailable on web.'
             : 'Your phone will ask for notification permission. You can change this anytime in settings.'
         )} />
+      </View>
+    </OnboardingFrame>
+  );
+}
+
+// ─── Weekly injection day ────────────────────────────────────────────────────
+
+export function InjectionDayStep() {
+  const colors = useColors();
+  const { answers, patch } = useOnboarding();
+  return (
+    <OnboardingFrame
+      stepKey="injection-day"
+      title="Your injection day"
+      coach="Which day do you take your GLP-1 injection? We’ll remind you that morning."
+      nextDisabled={answers.injectionDay === null}
+      nextBlockedHint="Pick the day you take your injection."
+    >
+      <ChipGrid
+        options={INJECTION_DAY_OPTIONS.map(d => ({ label: d.label, value: String(d.value) }))}
+        value={answers.injectionDay === null ? '' : String(answers.injectionDay)}
+        onChange={v => patch({ injectionDay: Number(v) })}
+        testIDPrefix="ob-injection-day"
+      />
+      <Text style={[styles.scheduleLabel, styles.noteGap, { color: colors.labelText }]}>REMINDER TIME</Text>
+      <ChipGrid
+        options={injectionTimeOptions().map(t => ({ label: t, value: t }))}
+        value={answers.injectionTime}
+        onChange={v => patch({ injectionTime: v })}
+        testIDPrefix="ob-injection-time"
+      />
+      <View style={styles.noteGap}>
+        <InfoCard label="Same day each week" body="Most people pick the day they started. Your reminder names the medication and can be changed anytime from your account." />
       </View>
     </OnboardingFrame>
   );
@@ -292,11 +319,14 @@ export function CompleteStep() {
     });
   }
   rows.push({ label: 'GOAL', value: `${answers.goalWeight} ${unit}` });
-  if (onMeds) {
+  if (answers.program === 'thinnr') {
     rows.push({
       label: 'REMINDERS',
       value: `${answers.reminderMorning} · ${answers.reminderAfternoon} · ${answers.reminderEvening}`,
     });
+  } else if (answers.program === 'glp1') {
+    const day = INJECTION_DAY_OPTIONS.find(d => d.value === answers.injectionDay)?.label ?? '—';
+    rows.push({ label: 'INJECTION', value: `${day} · ${answers.injectionTime}` });
   }
   rows.push(
     {

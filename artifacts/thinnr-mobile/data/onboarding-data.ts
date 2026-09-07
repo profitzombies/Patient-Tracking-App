@@ -51,6 +51,9 @@ export interface OnboardingAnswers {
   reminderMorning: string;
   reminderAfternoon: string;
   reminderEvening: string;
+  /** GLP-1 only: weekly injection day (0 = Sunday … 6 = Saturday) and clock label. */
+  injectionDay: number | null;
+  injectionTime: string;
   diets: string[];
 }
 
@@ -82,6 +85,8 @@ export const DEFAULT_ANSWERS: OnboardingAnswers = {
   reminderMorning: '8:00 AM',
   reminderAfternoon: '3:00 PM',
   reminderEvening: '10:00 PM',
+  injectionDay: null,
+  injectionTime: '9:00 AM',
   diets: [],
 };
 
@@ -105,6 +110,7 @@ export type StepKey =
   | 'goal-weight'
   | 'health-app'
   | 'notifications'
+  | 'injection-day'
   | 'reminder-morning'
   | 'reminder-afternoon'
   | 'reminder-evening'
@@ -113,6 +119,8 @@ export type StepKey =
 
 const onMedication = (a: OnboardingAnswers): boolean =>
   a.program === 'thinnr' || a.program === 'glp1';
+const onProtocol = (a: OnboardingAnswers): boolean => a.program === 'thinnr';
+const onInjection = (a: OnboardingAnswers): boolean => a.program === 'glp1';
 
 interface StepDef {
   key: StepKey;
@@ -139,9 +147,12 @@ export const STEP_FLOW: StepDef[] = [
   { key: 'goal-weight' },
   { key: 'health-app' },
   { key: 'notifications' },
-  { key: 'reminder-morning', when: onMedication },
-  { key: 'reminder-afternoon', when: onMedication },
-  { key: 'reminder-evening', when: onMedication },
+  // Weekly injections ask for the day; the daily protocol asks for its
+  // three dose times. Both seed the account's medication list at completion.
+  { key: 'injection-day', when: onInjection },
+  { key: 'reminder-morning', when: onProtocol },
+  { key: 'reminder-afternoon', when: onProtocol },
+  { key: 'reminder-evening', when: onProtocol },
   { key: 'diets' },
   { key: 'complete' },
 ];
@@ -345,6 +356,26 @@ function formatTime(h24: number, minutes: 0 | 30): string {
   let h = h24 % 12;
   if (h === 0) h = 12;
   return `${h}:${minutes === 0 ? '00' : '30'} ${suffix}`;
+}
+
+export const INJECTION_DAY_OPTIONS: { label: string; value: number }[] = [
+  { label: 'Sunday', value: 0 },
+  { label: 'Monday', value: 1 },
+  { label: 'Tuesday', value: 2 },
+  { label: 'Wednesday', value: 3 },
+  { label: 'Thursday', value: 4 },
+  { label: 'Friday', value: 5 },
+  { label: 'Saturday', value: 6 },
+];
+
+/** Injection reminder clock choices: every half hour from 6:00 AM to 10:00 PM. */
+export function injectionTimeOptions(): string[] {
+  const out: string[] = [];
+  for (let h = 6; h <= 22; h++) {
+    out.push(formatTime(h, 0));
+    if (h < 22) out.push(formatTime(h, 30));
+  }
+  return out;
 }
 
 export function reminderOptions(slot: ReminderSlot): string[] {

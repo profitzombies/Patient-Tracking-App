@@ -164,6 +164,10 @@ export interface PatientArchiveSections {
     bodyMeasurements: Array<Record<string, unknown>>;
     clinicWeights: Array<Record<string, unknown>>;
   };
+  medications: {
+    list: Array<Record<string, unknown>>;
+    doseLogs: Array<Record<string, unknown>>;
+  };
   photos: Array<Record<string, unknown>>;
   media: Array<Record<string, unknown>>;
   chat: Array<{ conversation: Record<string, unknown>; messages: Array<Record<string, unknown>> }>;
@@ -174,7 +178,7 @@ const MAX_ROWS = 20_000;
 export async function loadPatientArchiveSections(patientId: string): Promise<PatientArchiveSections> {
   const pid = enc(patientId);
   const scope = `patient_id=eq.${pid}`;
-  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, photos, media, conversations] =
+  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, medications, doseLogs, photos, media, conversations] =
     await Promise.all([
       rows(`/rest/v1/patients?id=eq.${pid}&select=${PROFILE_FIELDS}&limit=1`, "profile"),
       rows(`/rest/v1/patient_consents?${scope}&select=${CONSENT_SELECT}&order=recorded_at.asc`, "consents"),
@@ -189,6 +193,8 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       rows(`/rest/v1/patient_health_measurements?${scope}&select=source,source_id,kind,value,measured_at,imported_at&order=measured_at.asc&limit=${MAX_ROWS}`, "health measurements"),
       rows(`/rest/v1/patient_body_measurements?${scope}&select=visit_id,date_key,note,neck,chest,left_arm,right_arm,waist,hips,left_thigh,right_thigh,left_calf,right_calf,recorded_by_name,created_at,updated_at&order=date_key.asc&limit=${MAX_ROWS}`, "body measurements"),
       rows(`/rest/v1/patient_staff_weights?${scope}&select=weight_id,date_key,weight,note,recorded_by_name,created_at,updated_at&order=date_key.asc&limit=${MAX_ROWS}`, "clinic weights"),
+      rows(`/rest/v1/patient_medications?${scope}&select=id,name,form,dose,schedule_kind,times,weekday,notes,start_date,stop_date,source,created_by_name,created_at,updated_at&order=created_at.asc&limit=${MAX_ROWS}`, "medications"),
+      rows(`/rest/v1/patient_medication_dose_logs?${scope}&select=id,medication_id,due_date,due_time,status,source,logged_at,created_at,updated_at&order=due_date.asc,due_time.asc&limit=${MAX_ROWS}`, "medication dose logs"),
       rows(`/rest/v1/patient_progress_photos?${scope}&select=photo_id,date_key,label,angle,object_path,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "progress photos"),
       rows(`/rest/v1/patient_media?${scope}&select=object_path,kind,content_type,size_bytes,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "media ledger"),
       rows(`/rest/v1/patient_chat_conversations?${scope}&select=id,thread,created_at,updated_at&order=created_at.asc&limit=200`, "chat conversations"),
@@ -218,6 +224,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     },
     checkIns,
     measurements: { healthImports: health, bodyMeasurements: body, clinicWeights: staffWeights },
+    medications: { list: medications, doseLogs },
     photos,
     media,
     chat,
@@ -270,6 +277,7 @@ export async function buildPatientArchive(
   zip.file("library.json", json(sections.library));
   zip.file("check-ins.json", json(sections.checkIns));
   zip.file("measurements.json", json(sections.measurements));
+  zip.file("medications.json", json(sections.medications));
   zip.file("photos.json", json(sections.photos));
   zip.file("chat.json", json(sections.chat));
 
@@ -321,6 +329,7 @@ export async function buildPatientArchive(
       "library.json        Custom foods, saved recipes, favorites, recents",
       "check-ins.json      Check-ins (weight, mood, side effects, notes)",
       "measurements.json   Imported health data, body measurements, clinic-recorded weights",
+      "medications.json    Medication list and dose logs (taken / skipped)",
       "photos.json         Progress photo records (bytes under media/)",
       "chat.json           Coach chat transcripts",
       "media.json          Stored photo files included in media/ and any skipped",

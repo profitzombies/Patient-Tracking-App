@@ -249,6 +249,7 @@ export default function Patients() {
           percentLossDisplay: weightLoss ? `${percentLoss}%` : '',
           stats: null as LoggingStats | null,
           activity: activity as RosterActivity | null,
+          medicationAdherence: p.medicationAdherence ?? null,
           outreachChip: !p.outreach || p.outreach.state === 'none' ? null : p.outreach,
           isLive: true as boolean,
           showResend,
@@ -277,6 +278,7 @@ export default function Patients() {
         percentLossDisplay: `${percentLoss}%`,
         stats: stats as LoggingStats | null,
         activity: null as RosterActivity | null,
+        medicationAdherence: null,
         outreachChip: getNudgeAssessment(p).active ? DEMO_ELIGIBLE_OUTREACH : null,
         isLive: false as boolean,
         showResend: false,
@@ -580,6 +582,7 @@ export default function Patients() {
                   </button>
                 </th>
                 {liveEnabled && <th className="px-4 py-3 font-semibold">Check-ins &amp; wellbeing</th>}
+                {liveEnabled && <th className="px-4 py-3 font-semibold">Meds</th>}
                 <th className="px-4 py-3 font-semibold text-right">
                   <button onClick={() => handleSort('weightLoss')} className="flex items-center justify-end gap-1 w-full rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Weight Loss {sortField === 'weightLoss' && <ArrowUpDown size={12} className="text-primary" />}
@@ -661,6 +664,15 @@ export default function Patients() {
                     {liveEnabled && (
                       <td className="px-4 py-3 min-w-[240px]">
                         {patient.activity && <LiveEngagementCell activity={patient.activity} />}
+                      </td>
+                    )}
+                    {liveEnabled && (
+                      <td
+                        className="px-4 py-3 font-mono font-semibold text-navy"
+                        data-testid={`medication-adherence-${patient.id}`}
+                        title={patient.medicationAdherence ? `${patient.medicationAdherence.taken}/${patient.medicationAdherence.due} in 30 days` : undefined}
+                      >
+                        {patient.medicationAdherence?.rate == null ? '—' : `${patient.medicationAdherence.rate}%`}
                       </td>
                     )}
                     <td className="px-4 py-3 text-right">

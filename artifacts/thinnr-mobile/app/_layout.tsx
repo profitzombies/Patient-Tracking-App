@@ -47,6 +47,7 @@ import { liveEntryDecision } from '@/lib/live-patient-entry';
 import { supabase } from '@/lib/supabase';
 import { markNotificationOpened } from '@/lib/push-notifications-api';
 import { resolveNotificationRoute } from '@/lib/push-notification-core';
+import { reminderDoseFromResponse, type ReminderDoseIntent } from '@/lib/reminder-response';
 
 const publicDomain = process.env.EXPO_PUBLIC_DOMAIN;
 if (publicDomain) setBaseUrl(`https://${publicDomain}`);
@@ -337,6 +338,7 @@ function PushResponseBridge() {
   const { resolving, account } = usePatientAccount();
   const patient = usePatient();
   const pending = useRef<{ route: string; notificationId: string | null } | null>(null);
+  const pendingDoses = useRef<ReminderDoseIntent[]>([]);
   const opened = useRef(new Set<string>());
   const handledResponses = useRef(new Set<string>());
   const admitted = modeHydrated && mode === 'patient' && !resolving &&
@@ -353,11 +355,27 @@ function PushResponseBridge() {
     });
   }, []);
 
+  const logDose = patient.logDose;
+
   const consume = useCallback((response: Notifications.NotificationResponse) => {
-    const responseId = response.notification.request.identifier;
+    const responseId = `${response.notification.request.identifier}:${response.notification.date}:${response.actionIdentifier}`;
     if (handledResponses.current.has(responseId)) return;
     handledResponses.current.add(responseId);
     const data = response.notification.request.content.data;
+    const dose = reminderDoseFromResponse(response, Intl.DateTimeFormat().resolvedOptions().timeZone);
+    if (dose) {
+      // A medication reminder: "Taken" / "Skip" log the dose straight from
+      // the notification; a plain tap opens the check-in card instead.
+      // Actions foreground the app (there is no background response task),
+      // so log first and then land on the card where the dose now shows.
+      if (dose.status) {
+        if (admitted) void logDose({ ...dose.log, status: dose.status });
+        else pendingDoses.current.push(dose);
+      }
+      if (admitted) router.push('/check-in' as Href);
+      else pending.current = { route: '/check-in', notificationId: null };
+      return;
+    }
     if (
       data?.kind === 'care_team_reply' &&
       (data.thread === 'coach' || data.thread === 'support')
@@ -396,12 +414,18 @@ function PushResponseBridge() {
   }, [consume]);
 
   useEffect(() => {
-    if (!admitted || !pending.current) return;
+    if (!admitted) return;
+    const doses = pendingDoses.current;
+    pendingDoses.current = [];
+    for (const dose of doses) {
+      if (dose.status) void logDose({ ...dose.log, status: dose.status });
+    }
+    if (!pending.current) return;
     const { route, notificationId } = pending.current;
     pending.current = null;
     recordOpened(notificationId);
     router.push(route as Href);
-  }, [admitted, recordOpened, router]);
+  }, [admitted, logDose, recordOpened, router]);
   return null;
 }
 

@@ -179,6 +179,8 @@ beforeEach(() => {
     if (url.pathname === "/rest/v1/patient_operational_follow_ups") return response([]);
     if (url.pathname === "/rest/v1/patient_deletion_requests") return response([]);
     if (url.pathname === "/rest/v1/patient_tombstones") return response([]);
+    if (url.pathname === "/rest/v1/patient_medications") return response([]);
+    if (url.pathname === "/rest/v1/patient_medication_dose_logs") return response([]);
     throw new Error(`unexpected ${method} ${url.pathname}${url.search}`);
   }) as typeof fetch;
 });

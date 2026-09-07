@@ -82,7 +82,7 @@ beforeEach(() => {
     { id: P1, provider_id: "office-1", auth_user_id: "auth-1", activation_status: "activated", program_id: "thinnr", program_start_date: "2026-06-01", first_name: "Pat", last_name: "Example", email: "pat@example.com", deletion_requested_at: null },
     { id: P2, provider_id: "office-1", auth_user_id: "auth-2", activation_status: "activated", program_id: "glp", first_name: "Other", deletion_requested_at: null },
   );
-  for (const table of ["patient_diary_entries", "patient_water_days", "patient_target_overrides", "patient_food_prefs", "patient_custom_foods", "patient_saved_recipes", "patient_check_ins", "patient_health_measurements", "patient_body_measurements", "patient_staff_weights", "patient_progress_photos", "patient_media", "patient_chat_conversations", "patient_chat_messages", "patient_flags"]) {
+  for (const table of ["patient_diary_entries", "patient_water_days", "patient_target_overrides", "patient_food_prefs", "patient_custom_foods", "patient_saved_recipes", "patient_check_ins", "patient_health_measurements", "patient_body_measurements", "patient_staff_weights", "patient_medications", "patient_medication_dose_logs", "patient_progress_photos", "patient_media", "patient_chat_conversations", "patient_chat_messages", "patient_flags"]) {
     mocks.supabase.tables[table] = [];
   }
   mocks.supabase.tables.patient_diary_entries.push(
@@ -91,6 +91,14 @@ beforeEach(() => {
   );
   mocks.supabase.tables.patient_progress_photos.push({ patient_id: P1, photo_id: "ph1", date_key: "2026-09-01", object_path: `/objects/patient-media/${P1}/photo-1.jpg` });
   mocks.supabase.tables.patient_flags.push({ patient_id: P1, onboarding_answers: { goal: "lose", password: "hunter2" }, notification_prefs: {} });
+  mocks.supabase.tables.patient_medications.push(
+    { id: fakeUuid(701), patient_id: P1, name: "THINNR Protocol drops", form: "drops", schedule_kind: "daily", times: ["08:00"], start_date: "2026-09-01" },
+    { id: fakeUuid(702), patient_id: P2, name: "SECRET OTHER MED", form: "other", schedule_kind: "daily", times: ["08:00"], start_date: "2026-09-01" },
+  );
+  mocks.supabase.tables.patient_medication_dose_logs.push(
+    { id: fakeUuid(711), patient_id: P1, medication_id: fakeUuid(701), due_date: "2026-09-01", due_time: "08:00", status: "taken" },
+    { id: fakeUuid(712), patient_id: P2, medication_id: fakeUuid(702), due_date: "2026-09-01", due_time: "08:00", status: "taken" },
+  );
   mocks.supabase.tables.patient_chat_conversations.push({ id: fakeUuid(501), patient_id: P1, thread: "coach" });
   mocks.supabase.tables.patient_chat_messages.push({ conversation_id: fakeUuid(501), client_id: "m1", seq: 1, role: "user", text: "hello coach", photo: { path: `/objects/patient-media/${P1}/chat-1.jpg` } });
   mocks.saved.set(`/objects/patient-media/${P1}/photo-1.jpg`, { buffer: Buffer.from("PHOTO-BYTES"), contentType: "image/jpeg" });
@@ -184,12 +192,15 @@ describe("data export", () => {
     const names = Object.keys(zip.files).sort();
     expect(names).toEqual(expect.arrayContaining([
       "README.txt", "profile.json", "consents.json", "preferences.json", "diary.json", "water.json", "targets.json", "library.json",
-      "check-ins.json", "measurements.json", "photos.json", "chat.json", "media.json", "media/photo-1.jpg", "media/chat-1.jpg",
+      "check-ins.json", "measurements.json", "medications.json", "photos.json", "chat.json", "media.json", "media/photo-1.jpg", "media/chat-1.jpg",
     ]));
     const diary = JSON.parse(await zip.file("diary.json")!.async("string")) as Array<{ name: string }>;
     expect(diary.map((d) => d.name)).toEqual(["Eggs"]);
+    const medications = JSON.parse(await zip.file("medications.json")!.async("string")) as { list: Array<{ name: string }>; doseLogs: Array<{ status: string }> };
+    expect(medications.list.map((m) => m.name)).toEqual(["THINNR Protocol drops"]);
+    expect(medications.doseLogs.map((d) => d.status)).toEqual(["taken"]);
     const all = await Promise.all(names.filter((n) => n.endsWith(".json")).map((n) => zip.file(n)!.async("string")));
-    expect(all.join("\n")).not.toMatch(/SECRET OTHER FOOD|hunter2/);
+    expect(all.join("\n")).not.toMatch(/SECRET OTHER FOOD|SECRET OTHER MED|hunter2/);
     expect(await zip.file("preferences.json")!.async("string")).toContain('"goal": "lose"');
     expect(await zip.file("media/photo-1.jpg")!.async("string")).toBe("PHOTO-BYTES");
     const chat = JSON.parse(await zip.file("chat.json")!.async("string")) as Array<{ messages: Array<{ text: string }> }>;

@@ -8,6 +8,22 @@
  */
 import { supabase } from '@/lib/supabase';
 import type { MeasurementValues } from '@/lib/body-measurements';
+import type {
+  AdherenceSummary,
+  DoseLogRecord,
+  MedicationInput,
+  MedicationRecord,
+} from '@/lib/medication-schedule';
+
+export interface MedicationAdherenceDto {
+  fromDate: string;
+  toDate: string;
+  due: number;
+  taken: number;
+  skipped: number;
+  missed: number;
+  rate: number | null;
+}
 
 export class OfficeRosterError extends Error {
   constructor(
@@ -95,6 +111,8 @@ export interface OfficePatient {
 
   loggedDays7?: number | null;
 
+  medicationAdherence?: MedicationAdherenceDto | null;
+
   program?: {
     id: string | null;
     day?: number;
@@ -141,6 +159,9 @@ export interface OfficePatient {
     }[];
   };
 }
+
+/** Roster endpoint row (kept as an alias for existing OfficePatient consumers). */
+export type OfficePatientRow = OfficePatient;
 
 export type MoodKey = '1' | '2' | '3' | '4' | '5';
 
@@ -298,6 +319,8 @@ export interface OfficePatientDetail {
   checkIns: OfficeCheckIn[];
   /** Same definitions as the roster's operational.activity, over the rows above. */
   engagement?: PatientActivitySignals;
+  medicationAdherence?: MedicationAdherenceDto | null;
+  medications: MedicationRecord[];
   weights: OfficeWeightEntry[];
   /** Staff-only notes — never part of the patient app's own-record contract. */
   providerNotes: OfficeProviderNote[];
@@ -386,6 +409,49 @@ export async function fetchOfficePatient(patientId: string, office?: string | nu
   return request<OfficePatientDetail>(
     `/api/office/patients/${encodeURIComponent(patientId)}${officeQuery(office)}`,
   );
+}
+
+export interface OfficePatientMedications {
+  medications: MedicationRecord[];
+  doseLogs: DoseLogRecord[];
+  adherence: AdherenceSummary;
+  timeZone: string | null;
+  today: string;
+}
+
+export async function fetchPatientMedications(
+  patientId: string,
+  office?: string | null,
+): Promise<OfficePatientMedications> {
+  const payload = await request<OfficePatientMedications>(patientPath(patientId, '/medications', office));
+  if (!payload || !Array.isArray(payload.medications) || !Array.isArray(payload.doseLogs)
+    || !payload.adherence || !Array.isArray(payload.adherence.days) || typeof payload.today !== 'string') {
+    throw new Error('Medication record returned an unexpected response');
+  }
+  return payload;
+}
+
+export async function addPatientMedication(
+  patientId: string,
+  office: string | null | undefined,
+  medication: Omit<MedicationInput, 'id'>,
+): Promise<{ medication: MedicationRecord } & OfficePatientMedications> {
+  return request(patientPath(patientId, '/medications', office), {
+    method: 'POST',
+    body: JSON.stringify({ medication }),
+  });
+}
+
+export async function updatePatientMedication(
+  patientId: string,
+  office: string | null | undefined,
+  medicationId: string,
+  patch: Partial<MedicationInput> & { expectedVersion: string | null },
+): Promise<{ medication: MedicationRecord } & OfficePatientMedications> {
+  return request(patientPath(patientId, `/medications/${encodeURIComponent(medicationId)}`, office), {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
 }
 
 export async function fetchOfficePatientNotifications(

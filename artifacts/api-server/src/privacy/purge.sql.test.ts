@@ -86,6 +86,8 @@ create table public.patient_media (object_path text primary key, patient_id uuid
 create table public.patient_chat_conversations (id uuid primary key default gen_random_uuid(), patient_id uuid not null references public.patients(id) on delete cascade);
 create table public.patient_chat_messages (conversation_id uuid not null references public.patient_chat_conversations(id) on delete cascade, client_id text not null, text text, primary key (conversation_id, client_id));
 create table public.patient_body_measurements (visit_id text primary key, patient_id uuid not null references public.patients(id) on delete cascade, provider_id text not null references public.providers(provider_id) on delete cascade);
+create table public.patient_medications (id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade, name text not null);
+create table public.patient_medication_dose_logs (id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade, medication_id uuid not null references public.patient_medications(id) on delete cascade, status text not null);
 -- Legacy billing shape: a NO ACTION chain between two patient-owned tables.
 create table public.product_subscriptions (id uuid primary key default gen_random_uuid(), patient_id uuid references public.patients(id));
 create table public.transactions (id uuid primary key default gen_random_uuid(), patient_id uuid references public.patients(id), subscription_id uuid references public.product_subscriptions(id));
@@ -114,7 +116,8 @@ const AUTH_USER = uuid(901);
 
 function seedPatients() {
   psql(`
-    truncate public.transactions, public.product_subscriptions, public.patient_body_measurements, public.patient_chat_messages,
+    truncate public.transactions, public.product_subscriptions, public.patient_medication_dose_logs, public.patient_medications,
+      public.patient_body_measurements, public.patient_chat_messages,
       public.patient_chat_conversations, public.patient_media, public.patient_diary_entries, public.patient_flags,
       public.patient_push_tokens, public.patient_notifications, public.patient_consents, public.patient_data_exports,
       public.patient_deletion_requests, public.patient_tombstones, public.analytics_events, public.patients cascade;
@@ -139,6 +142,8 @@ function seedEverything() {
       insert into public.patient_chat_conversations (id, patient_id) values ('${uuid(pid === PATIENT ? 501 : 502)}', '${pid}');
       insert into public.patient_chat_messages (conversation_id, client_id, text) values ('${uuid(pid === PATIENT ? 501 : 502)}', 'm1', 'hi');
       insert into public.patient_body_measurements (visit_id, patient_id, provider_id) values ('${tag}-v1', '${pid}', 'office-1');
+      insert into public.patient_medications (id, patient_id, name) values ('${uuid(pid === PATIENT ? 701 : 702)}', '${pid}', 'Protocol drops');
+      insert into public.patient_medication_dose_logs (id, patient_id, medication_id, status) values ('${uuid(pid === PATIENT ? 711 : 712)}', '${pid}', '${uuid(pid === PATIENT ? 701 : 702)}', 'taken');
       insert into public.product_subscriptions (id, patient_id) values ('${uuid(pid === PATIENT ? 601 : 602)}', '${pid}');
       insert into public.transactions (patient_id, subscription_id) values ('${pid}', '${uuid(pid === PATIENT ? 601 : 602)}');
       insert into public.patient_consents (patient_id, policy_version, terms_accepted, privacy_accepted, health_data_accepted, photo_analysis_accepted)

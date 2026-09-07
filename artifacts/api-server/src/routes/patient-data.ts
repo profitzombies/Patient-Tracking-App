@@ -59,6 +59,8 @@ import { validateNotificationPrefsInput } from "../notifications/policy";
 import { supabaseNotificationStore } from "../notifications/store";
 import { OUTREACH_KIND } from "../notifications/stall-outreach";
 import { loadPrivacyState } from "./patient-privacy";
+import { seedMedicationsFromOnboarding } from "../medications/seed";
+import { loadMedicationState } from "../medications/store";
 import {
   assertLiveChannelReady,
   checkTwilioVerification,
@@ -876,6 +878,18 @@ async function saveProfile(req: any, res: any, setup: boolean): Promise<void> {
     if (saved.status >= 300 || !savedRow || typeof savedRow !== "object") {
       throw new Error(`profile update failed (${saved.status})`);
     }
+    if (setup) {
+      // Finishing setup seeds the medication list from the program choice
+      // (protocol drops three times a day / weekly GLP-1 injection). Only an
+      // empty list is seeded, so a retry or a re-run of setup never
+      // duplicates records the patient has since edited.
+      const row = savedRow as Record<string, unknown>;
+      const startDate =
+        typeof row.program_start_date === "string" && isDateKey(row.program_start_date.slice(0, 10))
+          ? row.program_start_date.slice(0, 10)
+          : dayKeyInTimeZone(typeof row.timezone === "string" ? row.timezone : null);
+      await seedMedicationsFromOnboarding(auth.patientId, body.onboardingAnswers ?? {}, startDate);
+    }
     res.json({ profile: profileDto(savedRow as Record<string, unknown>) });
   } catch (error) {
     req.log?.error({ err: error }, "patient profile write failed");
@@ -1095,7 +1109,7 @@ router.get("/patient-data/state", async (req, res) => {
     // Photos, check-ins, and flags are deliberately NOT range-filtered: the
     // grid shows every photo the account owns, the weight chart wants the
     // whole weigh-in history, and flags are a singleton.
-    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, profile, privacy] = await Promise.all([
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, profile, privacy, medicationState] = await Promise.all([
       supabaseAdmin(
         "GET",
         `/rest/v1/patient_diary_entries?${rangeFilters([`patient_id=eq.${pid}`])}` +
@@ -1147,6 +1161,9 @@ router.get("/patient-data/state", async (req, res) => {
       // Consent / export / deletion facts ride the same hydration so the
       // route guard can gate on server truth before any screen renders.
       loadPrivacyState(auth.patientId),
+      // Medication list + trailing dose logs (reminders and the check-in
+      // card are derived from these on the device).
+      loadMedicationState(auth.patientId, todayParam ?? dayKeyInTimeZone(null)),
     ]);
     for (const r of [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags]) {
       if (r.status >= 300 || !Array.isArray(r.json)) throw new Error(`state fetch failed (${r.status})`);
@@ -1307,6 +1324,8 @@ router.get("/patient-data/state", async (req, res) => {
       photos: photoList,
       checkIns: checkInList,
       flags: flagsOut,
+      medications: medicationState.medications,
+      doseLogs: medicationState.doseLogs,
       entry: {
         firstName: firstNameOf(canonicalProfile.name),
         programStartDate,

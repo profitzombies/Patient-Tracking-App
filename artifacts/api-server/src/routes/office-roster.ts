@@ -37,6 +37,8 @@ import { programDayFor } from "../coach/real-patient";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { activityFromSummaryRow, computePatientActivity } from "../lib/patient-activity";
+import { ADHERENCE_WINDOW_DAYS, listDoseLogs, listMedications, loadOfficeMedicationState, medicationAdherenceDto } from "../medications/store";
+import { shiftDateKey } from "../medications/schedule";
 import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/timeline";
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 
@@ -418,7 +420,7 @@ router.get("/office/roster", async (req, res) => {
     // UTC date for the summary counters.
     const now = new Date();
     const asOf = now.toISOString().slice(0, 10);
-    const [rows, operational, followUps, outreachStates, pendingDeletions, tombstones] = await Promise.all([
+    const [rows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
@@ -431,6 +433,9 @@ router.get("/office/roster", async (req, res) => {
       supabaseAdmin("POST", "/rest/v1/rpc/provider_outreach_states", { p_provider_id: scope.providerId }),
       supabaseAdmin("GET", `/rest/v1/patient_deletion_requests?provider_id=eq.${enc(scope.providerId)}&status=eq.pending&select=patient_id,requested_at,purge_after&limit=500`),
       supabaseAdmin("GET", `/rest/v1/patient_tombstones?provider_id=eq.${enc(scope.providerId)}&select=id,requested_at,purged_at,was_activated,program_id,enrolled_on&order=purged_at.desc&limit=200`),
+      // Medication adherence is an additional roster input (own field,
+      // own null semantics); the engagement definitions above are untouched.
+      loadOfficeMedicationState(scope.providerId, shiftDateKey(asOf, -(ADHERENCE_WINDOW_DAYS + 1))),
     ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
     if (pendingDeletions.status >= 300) throw new Error(`deletion roster load failed (${pendingDeletions.status})`);
@@ -463,9 +468,13 @@ router.get("/office/roster", async (req, res) => {
         : pending
           ? { state: "requested", requestedAt: String(pending.requested_at), purgeAfter: typeof pending.purge_after === "string" ? pending.purge_after : null }
           : null;
+      const meds = medicationState.get(String(row.id));
       return {
         ...rosterOperationalDto({ ...base, deletion }, facts.get(String(row.id)), asOf, followUpByPatient.get(String(row.id))),
         outreach: outreachRosterDto(outreachByPatient.get(String(row.id))),
+        medicationAdherence: meds
+          ? medicationAdherenceDto(meds.medications, meds.doseLogs, typeof row.timezone === "string" ? row.timezone : null, now)
+          : null,
       };
     });
     // Purged accounts are tombstones only: listed separately, never counted
@@ -620,6 +629,12 @@ router.get("/office/patients/:id", async (req, res) => {
     if (results.some((result) => result.status >= 300 || !Array.isArray(result.json))) {
       throw new Error("patient record history load failed");
     }
+    const patientTz = typeof patient.timezone === "string" ? patient.timezone : null;
+    const patientToday = dayKeyInTimeZone(patientTz);
+    const [medications, doseLogs] = await Promise.all([
+      listMedications(patientId),
+      listDoseLogs(patientId, shiftDateKey(patientToday, -(ADHERENCE_WINDOW_DAYS + 1))),
+    ]);
 
     const entryList = (entries.json as PatientRosterRow[]).map((row) => ({
       id: String(row.entry_id),
@@ -758,8 +773,12 @@ router.get("/office/patients/:id", async (req, res) => {
       // above for the patient's own local day (see lib/patient-activity).
       engagement: computePatientActivity(
         { diary: entryList, water: waterDays, checkIns: checkInList },
-        dayKeyInTimeZone(typeof patient.timezone === "string" ? patient.timezone : null),
+        patientToday,
       ),
+      // Additional adherence input, separate from the engagement signals:
+      // null until a dose has come due in the trailing 30 days.
+      medicationAdherence: medicationAdherenceDto(medications, doseLogs, patientTz, new Date()),
+      medications,
       weights: mergedWeights(checkInList, staffWeightList),
       progressPhotos: photoList,
       account: {

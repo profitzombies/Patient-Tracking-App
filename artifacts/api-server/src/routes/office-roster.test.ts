@@ -161,6 +161,8 @@ beforeEach(() => {
     patient_provider_notes: [],
     patient_staff_weights: [],
     patient_body_measurements: [],
+    patient_medications: [],
+    patient_medication_dose_logs: [],
   };
   locks = [];
   hqMemberships = [{ department_role: "admin", status: "active" }];
@@ -302,6 +304,12 @@ beforeEach(() => {
     }
     const patientTable = url.pathname.replace("/rest/v1/", "");
     if (patientTable in patientTables) {
+      // Office-wide reads (roster adherence) filter on the embedded patients row.
+      const officeId = (url.searchParams.get("patients.provider_id") ?? "").replace("eq.", "");
+      if (officeId) {
+        const ids = new Set(patients.filter((row) => row.provider_id === officeId).map((row) => row.id));
+        return response(patientTables[patientTable].filter((row) => ids.has(row.patient_id)));
+      }
       const patientId = (url.searchParams.get("patient_id") ?? "").replace("eq.", "");
       return response(patientTables[patientTable].filter((row) => row.patient_id === patientId));
     }
@@ -401,6 +409,43 @@ describe("office scope", () => {
     expect(body.patients[0].deletion).toBeNull();
     expect(body.deletedAccounts).toEqual([]);
     expect(body.summary).toMatchObject({ deletionRequested: 0, deletedAccounts: 0 });
+  });
+
+  it("adds medication adherence as its own roster and record input, null until a dose has come due, without touching the engagement families", async () => {
+    const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    const before = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    expect(before.patients[0].medicationAdherence).toBeNull();
+
+    patientTables.patient_medications.push({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", patient_id: "pat-own", name: "THINNR Protocol drops", form: "drops", dose: "1 mL",
+      schedule_kind: "daily", times: ["08:00"], weekday: null, notes: null, start_date: day(3), stop_date: null, source: "onboarding",
+      created_by_name: null, created_at: `${day(3)}T00:00:00Z`, updated_at: `${day(3)}T00:00:00Z`,
+    }, {
+      // Another office's patient never leaks into this roster's input.
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", patient_id: "pat-other", name: "Other", form: "tablet", dose: null,
+      schedule_kind: "daily", times: ["08:00"], weekday: null, notes: null, start_date: day(3), stop_date: null, source: "patient",
+      created_by_name: null, created_at: `${day(3)}T00:00:00Z`, updated_at: `${day(3)}T00:00:00Z`,
+    });
+    patientTables.patient_medication_dose_logs.push(
+      { id: "l1", patient_id: "pat-own", medication_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", due_date: day(3), due_time: "08:00", status: "taken", source: "reminder", logged_at: `${day(3)}T13:00:00Z` },
+      { id: "l2", patient_id: "pat-own", medication_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", due_date: day(2), due_time: "08:00", status: "skipped", source: "check_in", logged_at: `${day(2)}T13:00:00Z` },
+    );
+    const body = await (await api("/office/roster", "provider-token")).json() as { patients: Array<Row & { operational: Row; medicationAdherence: Row }> };
+    const own = body.patients.find((row) => row.id === "pat-own")!;
+    expect(own.medicationAdherence).toMatchObject({ taken: 1, skipped: 1 });
+    expect(own.medicationAdherence.due).toBeGreaterThanOrEqual(3);
+    expect(own.medicationAdherence.missed).toBe(own.medicationAdherence.due - 2);
+    expect(own.medicationAdherence.rate).toBe(Math.round((100 * 1) / Number(own.medicationAdherence.due)));
+    // Engagement signals keep their own definitions and shape: the untouched
+    // activity aggregate still reads as no-activity-yet regardless of doses.
+    const beforeOwn = before.patients.find((row) => row.id === "pat-own")!;
+    expect(own.operational).toEqual(beforeOwn.operational);
+    expect(Object.keys(own.operational.activity as Row)).not.toContain("medicationAdherence");
+
+    const record = await (await api("/office/patients/pat-own", "provider-token")).json() as { medicationAdherence: Row; medications: Row[]; engagement: Row };
+    expect(record.medicationAdherence).toEqual(own.medicationAdherence);
+    expect(record.medications).toEqual([expect.objectContaining({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "THINNR Protocol drops" })]);
+    expect(Object.keys(record.engagement)).not.toContain("medicationAdherence");
   });
 
   it("passes the aggregate's activity signals through as explicit nullable families", async () => {

@@ -21,6 +21,7 @@ import { ADHERENCE_WINDOW_DAYS, NUDGE_COOLDOWN_DAYS, getNudgeAssessment } from "
 import { WeightTrend } from "@/components/patient/WeightTrend";
 import { BodyMeasurementsCard } from "@/components/patient/BodyMeasurements";
 import { LiveBodyMeasurements } from "@/components/office/LiveBodyMeasurements";
+import { LiveMedications } from "@/components/office/LiveMedications";
 import { DeletedRecordNotice, DeletionBanner } from "@/components/office/AccountDeletion";
 import type { MeasurementVisit } from "@/lib/body-measurements";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
@@ -483,11 +484,20 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
             </div>
           </SectionCard>
           <LiveBodyMeasurements patient={record.patient} visits={record.bodyMeasurements ?? []} office={office} canEdit={canRecordWeight} />
+          <LiveMedications patient={record.patient} office={office} canEdit={canEdit} />
           <SectionCard title="Provider notes" sub="Internal care-team notes on this record.">
             <ProviderNotes patient={record.patient} notes={providerNotes} office={office} canEdit={canEdit} />
           </SectionCard>
           <SectionCard title="Engagement" sub="Logging, check-in, and wellbeing signals — identical to this patient's roster row.">
-            <div className="p-5">{record.engagement ? <EngagementSummary signals={record.engagement} /> : <EmptyState>Engagement signals are not available for this record.</EmptyState>}</div>
+            <div className="p-5">
+              {record.engagement ? <EngagementSummary signals={record.engagement} /> : <EmptyState>Engagement signals are not available for this record.</EmptyState>}
+              <div className="mt-4 border-t border-border pt-3 text-xs">
+                <span className="text-muted-foreground">Medication adherence (30d)</span>
+                <b className="float-right font-mono text-navy" data-testid="detail-medication-adherence">
+                  {record.medicationAdherence?.rate == null ? '—' : `${record.medicationAdherence.rate}%`}
+                </b>
+              </div>
+            </div>
           </SectionCard>
           <SectionCard title="Nutrition, water, and diary" sub="Entries recorded in the patient companion app.">
             <div className="space-y-3 p-5">{diary.length ? <><div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-4">{Object.entries(record.diary.nutritionTotals.overall).map(([name, value]) => <div key={name} className="bg-card p-3"><p className={MICRO_LABEL}>{name}</p><p className="mt-1 font-mono text-sm text-navy">{value}{name === 'calories' ? ' cal' : ' g'}</p></div>)}</div>{diary.map((day) => <LiveDiaryDay key={day.dateKey} day={day} totals={totalsByDate.get(day.dateKey)} />)}</> : <EmptyState>No nutrition or water entries have been recorded.</EmptyState>}</div>

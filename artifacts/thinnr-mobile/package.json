@@ -42,6 +42,7 @@
     "test:stall-nudge": "tsx scripts/verify-stall-nudge.ts",
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
     "test:device-features": "tsx scripts/verify-device-features.ts",
+    "test:medication-reminders": "tsx --tsconfig tsconfig.offline-queue.json scripts/verify-medication-reminders.ts",
     "test:push-notifications": "tsx scripts/verify-push-notifications.ts",
     "test:editable-text-typography": "tsx --tsconfig tsconfig.editable-text-typography.json scripts/verify-editable-text-typography.ts",
     "test:food-catalog": "tsx scripts/verify-food-catalog.ts"

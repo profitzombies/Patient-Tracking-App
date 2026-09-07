@@ -1,0 +1,46 @@
+import { useState, type FormEvent } from 'react';
+import { ArrowRight, Building2, ChevronDown, Stethoscope } from 'lucide-react';
+import './_group.css';
+
+function Mark() {
+  return <span className="fd-mark" aria-label="THINNR">TH</span>;
+}
+
+export function FrontDeskWeb() {
+  const [phase, setPhase] = useState<'email' | 'code'>('email');
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [message, setMessage] = useState('');
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (phase === 'email') {
+      setMessage('If that address has an account, a sign-in code is on its way.');
+      setPhase('code');
+    } else setMessage('Thank you. Your code is being checked.');
+  };
+
+  return (
+    <main className="thinnr-login front-desk-web">
+      <style>{`
+        .front-desk-web{--line:var(--th-hairline);height:100vh;min-height:800px;min-width:960px;overflow:hidden;background:var(--th-paper);color:var(--th-ink);position:relative}.front-desk-web *{box-sizing:border-box}.front-desk-web button,.front-desk-web input{font-family:inherit}.front-desk-web button{cursor:pointer}.front-desk-web:before{content:"";position:absolute;width:610px;height:610px;border-radius:50%;background:var(--th-accent);opacity:.42;right:-250px;top:135px}
+        .fd-head{height:88px;padding:0 58px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1}.fd-brand{display:flex;gap:12px;align-items:center;color:var(--th-navy);font-size:14px;font-weight:650;letter-spacing:-.01em}.fd-mark{display:grid;place-items:center;width:37px;height:37px;border-radius:8px;background:var(--th-navy);color:var(--th-brand-fg);font-family:var(--th-font-display);font-size:14px;font-weight:bold;letter-spacing:.04em;box-shadow:var(--th-shadow-soft)}.fd-head-note{color:var(--th-label);font-size:11px;letter-spacing:.04em}
+        .fd-layout{height:calc(100% - 128px);max-width:1100px;margin:0 auto;display:grid;grid-template-columns:430px 1fr;gap:130px;align-items:center;position:relative;z-index:1;padding:25px 0}.fd-eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:17px}.fd-eyebrow i{width:24px;height:1px;background:var(--th-warm);display:block}.fd-copy h1{font-family:var(--th-font-display);font-size:39px;line-height:1.08;letter-spacing:-.035em;color:var(--th-navy);margin:0}.fd-copy>p{font-size:13.5px;line-height:1.6;color:var(--th-body);max-width:365px;margin:12px 0 25px}
+        .fd-card{background:var(--th-card);border:1px solid var(--line);border-radius:9px;padding:25px;box-shadow:var(--th-shadow-soft)}.fd-card label{display:block;font-size:12px;font-weight:700;color:var(--th-navy);margin-bottom:8px}.fd-card input{height:45px;width:100%;border:1px solid var(--th-hairline);border-radius:7px;background:var(--th-paper-alt);padding:0 12px;color:var(--th-ink);outline:none;font-size:14px}.fd-card input:focus{border-color:var(--th-cobalt);box-shadow:0 0 0 3px var(--th-accent)}.fd-card input::placeholder{color:var(--th-label)}.fd-helper{font-size:11.5px;line-height:1.55;color:var(--th-label);margin:8px 0 18px}.fd-primary{height:44px;width:100%;border:0;border-radius:7px;background:var(--th-cobalt);color:#f8fafc;font-size:13px;font-weight:700;transition:transform .18s ease,background .18s ease}.fd-primary:hover{background:var(--th-navy);transform:translateY(-1px)}.fd-code-title{font-family:var(--th-font-display);font-size:23px;line-height:1.15;color:var(--th-navy);margin:0 0 7px}.fd-code-copy{font-size:12px;line-height:1.55;color:var(--th-body);margin:0 0 17px}.fd-code{letter-spacing:.42em;text-align:center;font-weight:700;font-size:17px}.fd-under{display:flex;gap:16px;margin-top:15px}.fd-link{border:0;background:none;color:var(--th-cobalt);padding:0;font-size:11.5px;font-weight:700;text-decoration:underline;text-underline-offset:3px}.fd-message{border-left:2px solid var(--th-warm);padding-left:9px;margin:14px 0 0;color:var(--th-body);font-size:11px;line-height:1.45}
+        .fd-demo-toggle{margin:20px 0 0;border:0;background:none;padding:0;color:var(--th-label);font-size:11.5px;font-weight:650;display:flex;gap:7px;align-items:center}.fd-demo-toggle:hover{color:var(--th-navy)}.fd-demos{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.fd-demo{border:1px solid var(--line);border-radius:7px;background:rgba(253,252,249,.7);padding:12px}.fd-demo svg{color:var(--th-cobalt);margin-bottom:8px}.fd-demo strong{display:block;font-size:12px;color:var(--th-navy)}.fd-demo p{font-size:10.5px;line-height:1.45;color:var(--th-label);margin:5px 0 9px}.fd-demo button{border:0;background:none;padding:0;color:var(--th-cobalt);font-size:10.5px;font-weight:700;display:flex;align-items:center;gap:4px}
+        .fd-medallion{width:424px;height:424px;border:1px solid var(--th-cobalt);border-radius:50%;padding:13px;background:var(--th-card);box-shadow:var(--th-shadow-soft);position:relative}.fd-medallion:after{content:"";position:absolute;width:11px;height:11px;border-radius:50%;background:var(--th-warm);right:55px;top:30px;border:3px solid var(--th-paper)}.fd-medallion img{display:block;width:100%;height:100%;object-fit:cover;border-radius:50%;background:var(--th-accent)}.fd-plate-caption{font-family:var(--th-font-display);font-size:17px;color:var(--th-navy);line-height:1.3;margin:16px 28px 4px}.fd-plate small{display:block;margin:0 28px;color:var(--th-label);font-size:10px;letter-spacing:.08em;text-transform:uppercase}.fd-foot{height:40px;border-top:1px solid var(--line);position:relative;z-index:1;display:flex;align-items:center;justify-content:center;text-transform:uppercase;color:var(--th-label);font-size:9.5px;font-weight:700;letter-spacing:.13em}
+      `}</style>
+      <header className="fd-head"><div className="fd-brand"><Mark /><span>THINNR Operations</span></div><span className="fd-head-note">A considered desk for care teams</span></header>
+      <section className="fd-layout">
+        <div className="fd-copy"><div className="fd-eyebrow"><i /><span className="th-kicker">Staff sign in</span></div><h1>Take your place at<br />the front desk.</h1><p>The day begins with a few quiet details, kept ready for every person in your care.</p>
+          <div className="fd-card">{phase === 'email' ? <form onSubmit={submit}><label htmlFor="fd-email">Work email</label><input id="fd-email" type="email" autoComplete="email" placeholder="you@yourclinic.com" value={email} onChange={(event) => setEmail(event.target.value)} /><p className="fd-helper">We'll email you a 6-digit sign-in code. No password needed.</p><button className="fd-primary" type="submit">Email me a code</button></form> : <form onSubmit={submit}><h2 className="fd-code-title">Enter the code we emailed</h2><p className="fd-code-copy">If that address has an account, a 6-digit code is on its way.</p><label htmlFor="fd-code">6-digit sign-in code</label><input className="fd-code" id="fd-code" inputMode="numeric" maxLength={6} autoComplete="one-time-code" placeholder="000000" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))} /><button className="fd-primary" style={{ marginTop: 18 }} type="submit">Verify and sign in</button><div className="fd-under"><button type="button" className="fd-link" onClick={() => setMessage('A fresh code is on its way.')}>Send a fresh code</button><button type="button" className="fd-link" onClick={() => { setPhase('email'); setMessage(''); }}>Use a different email</button></div></form>}{message && <p className="fd-message" role="status">{message}</p>}</div>
+          <button className="fd-demo-toggle" onClick={() => setDemoOpen(!demoOpen)} aria-expanded={demoOpen}>Browse the guided demo without an account <ChevronDown size={14} style={{ transform: demoOpen ? 'rotate(180deg)' : undefined }} /></button>
+          {demoOpen && <div className="fd-demos"><article className="fd-demo"><Building2 size={16} /><strong>THINNR HQ admin</strong><p>The umbrella above every office: rollups, provider accounts, and org tools.</p><button onClick={() => setMessage('The HQ admin guided demo is ready to enter.')}>Enter HQ admin <ArrowRight size={12} /></button></article><article className="fd-demo"><Stethoscope size={16} /><strong>Office staff</strong><p>Today's operations desk for the med spa team, exactly as it runs day to day.</p><button onClick={() => setMessage('The office guided demo is ready to enter.')}>Enter the office <ArrowRight size={12} /></button></article></div>}
+          <p className="fd-helper" style={{ marginTop: 18, marginBottom: 0 }}>Staff sign in with a one-time email code. Patients sign in with their cell phone in the THINNR mobile app.</p>
+        </div>
+        <aside className="fd-plate"><div className="fd-medallion"><img src="/__mockup/images/login-front-desk-plate.png" alt="Illustrated reception desk with bell, appointment book, vase, cards and glasses" /></div><p className="fd-plate-caption">Everything in its place; someone expected.</p><small>Reception notes for the day ahead</small></aside>
+      </section>
+      <footer className="fd-foot">Synthetic Demo Data • Not Medical Advice</footer>
+    </main>
+  );
+}

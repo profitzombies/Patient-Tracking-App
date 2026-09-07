@@ -24,7 +24,7 @@ export function IllustratedStoryWeb() {
     <main className="thinnr-login story-web">
       <style>{`
         .story-web{--line:var(--th-hairline);min-height:800px;height:100vh;min-width:960px;overflow:hidden;background:var(--th-paper);position:relative;color:var(--th-ink)}
-        .story-web *{box-sizing:border-box}.story-web button,.story-web input{font:inherit}.story-web button{cursor:pointer}.story-web:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent 0 62%,rgba(227,236,247,.45) 62% 100%);pointer-events:none}
+        .story-web *{box-sizing:border-box}.story-web button,.story-web input{font-family:inherit}.story-web button{cursor:pointer}.story-web:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent 0 62%,rgba(227,236,247,.45) 62% 100%);pointer-events:none}
         .web-head{height:88px;padding:0 58px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);position:relative;z-index:1}
         .brand{display:flex;align-items:center;gap:12px;font-size:14px;font-weight:650;color:var(--th-navy);letter-spacing:-.01em}.mark{display:grid;place-items:center;width:37px;height:37px;border-radius:8px;background:var(--th-navy);color:var(--th-brand-fg);font-family:var(--th-font-display);font-size:14px;font-weight:bold;letter-spacing:.04em;box-shadow:var(--th-shadow-soft)}
         .head-note{font-size:11px;color:var(--th-label);letter-spacing:.04em}.web-layout{height:calc(100% - 128px);max-width:1090px;margin:0 auto;display:grid;grid-template-columns:430px 1fr;gap:132px;align-items:center;position:relative;z-index:1;padding:35px 0 18px}

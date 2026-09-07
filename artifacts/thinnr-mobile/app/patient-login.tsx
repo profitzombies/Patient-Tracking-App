@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View, type TextInput } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -11,6 +11,7 @@ import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { completeRecovery, requestPatientPasswordLogin, signInWithTokenHash, startRecovery, verifyLoginCode, verifyRecovery } from '@/lib/auth-api';
 import { normalizePhone, supabaseConfigured } from '@/lib/supabase';
+import { attachSignIn } from '@/lib/security-api';
 
 type Channel = 'phone' | 'email';
 type Phase = 'login' | 'mfa' | 'recovery-identify' | 'recovery-code' | 'recovery-password';
@@ -18,6 +19,7 @@ const validEmail = (value: string) => /^\S+@\S+\.\S+$/.test(value.trim());
 
 export default function PatientLoginScreen() {
   const colors = useColors(); const insets = useSafeAreaInsets(); const { setMode, admitDemo, leaveDemo } = useAppMode();
+  const params = useLocalSearchParams<{ notice?: string | string[] }>();
   const [channel, setChannel] = useState<Channel>('phone');
   const [phase, setPhase] = useState<Phase>('login');
   // iOS never swaps an already-presented keyboard in place, so the identifier
@@ -31,7 +33,8 @@ export default function PatientLoginScreen() {
   const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState('');
   const [code, setCode] = useState(''); const [requestId, setRequestId] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState<string | null>(null);
-  const [devCode, setDevCode] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const initialNotice = Array.isArray(params.notice) ? params.notice[0] : params.notice;
+  const [devCode, setDevCode] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
   const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const identifier = () => channel === 'phone' ? normalizePhone(phone) : validEmail(email) ? email.trim() : null;
   const clear = () => { setError(null); setNotice(null); };
@@ -61,7 +64,11 @@ export default function PatientLoginScreen() {
     try {
       const result = recovery ? await startRecovery(value) : await requestPatientPasswordLogin({ identifier: value, password: submittedPassword });
       if (genRef.current !== gen) return;
-      if (!result.ok) { setError(result.error); return; }
+      if (!result.ok) {
+        setError(result.error);
+        if (result.code === 'PASSWORD_RESET_REQUIRED') setPhase('recovery-identify');
+        return;
+      }
       if (!recovery) setPassword('');
       setRequestId(result.requestId); setDevCode(result.devCode); setNotice(result.message); setCode('');
       setPhase(recovery ? 'recovery-code' : 'mfa');
@@ -76,10 +83,17 @@ export default function PatientLoginScreen() {
       if (phase === 'mfa') {
         const result = await verifyLoginCode({ requestId, code });
         if (genRef.current !== gen) return;
-        if (!result.ok) { setError(result.error); return; }
+        if (!result.ok) {
+          setError(result.error);
+          if (result.code === 'PASSWORD_RESET_REQUIRED') setPhase('recovery-identify');
+          return;
+        }
         const sessionError = await signInWithTokenHash(result.tokenHash);
         if (genRef.current !== gen) return;
-        if (sessionError) setError(sessionError); else await done();
+        if (sessionError) setError(sessionError); else {
+          if (result.signInId) void attachSignIn(result.signInId).catch(cause => console.warn('Could not attach sign-in ledger row:', cause));
+          await done();
+        }
       } else {
         const result = await verifyRecovery({ requestId, code });
         if (genRef.current !== gen) return;

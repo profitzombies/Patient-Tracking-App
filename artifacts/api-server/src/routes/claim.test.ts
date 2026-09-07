@@ -27,6 +27,8 @@ class FakeBackend {
   failEmailSend = false;
   failAuthUpdate = false;
   failAuthDelete = false;
+  failAdminLogout = false;
+  adminLogouts: string[] = [];
   failTestStatePrepare = false;
   deletedUsers: string[] = [];
   /** One-shot hook fired right after a login is created — simulates a rival
@@ -51,6 +53,8 @@ class FakeBackend {
     this.failEmailSend = false;
     this.failAuthUpdate = false;
     this.failAuthDelete = false;
+    this.failAdminLogout = false;
+    this.adminLogouts = [];
     this.failTestStatePrepare = false;
     this.deletedUsers = [];
     this.onUserCreate = null;
@@ -238,6 +242,13 @@ class FakeBackend {
         user.password = String(body.password);
       }
       return json(200, user);
+    }
+    const logoutMatch = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)\/logout$/);
+    if (logoutMatch && method === "POST") {
+      if (this.failAdminLogout) return json(500, { msg: "simulated logout failure" });
+      this.adminLogouts.push(logoutMatch[1]);
+      for (const [token, userId] of this.sessions) if (userId === logoutMatch[1]) this.sessions.delete(token);
+      return json(200, {});
     }
     if (idMatch && method === "DELETE") {
       if (this.failAuthDelete) return json(500, { msg: "simulated auth delete failure" });
@@ -824,6 +835,39 @@ describe("verify + claim completion", () => {
     expect(complete.json.mode).toBe("reset");
     expect(backend.authUsers.get(authId)!.password).toBe("Fresh!Passphrase");
     expect(backend.authUsers.size).toBe(1); // no duplicate login
+    // A reset is a recovery: every existing session on that login is gone.
+    expect(backend.adminLogouts).toEqual([authId]);
+  });
+
+  it("refuses to reset the password when existing sessions cannot be signed out, and lets the same proof retry", async () => {
+    const authId = crypto.randomUUID();
+    backend.authUsers.set(authId, { id: authId, phone: "+15552013344", password: "Old!Password" });
+    seedPatient({ auth_user_id: authId, claimed_at: new Date().toISOString() });
+    const { verify } = await identifyAndVerify("5552013344");
+    expect(verify.json.mode).toBe("reset");
+
+    backend.failAdminLogout = true;
+    const refused = await api("POST", "/api/claim/complete", {
+      claimToken: verify.json.claimToken,
+      password: "Fresh!Passphrase",
+      passwordConfirm: "Fresh!Passphrase",
+    });
+    expect(refused.status).toBe(502);
+    expect(refused.json).toMatchObject({ code: "SESSION_SIGN_OUT_FAILED", retryable: true });
+    expect(refused.json.error).not.toMatch(/signed out\./i);
+    // Nothing moved: old password still set, proof still live.
+    expect(backend.authUsers.get(authId)!.password).toBe("Old!Password");
+    expect(backend.tables.claim_verifications.every((row) => !row.consumed_at)).toBe(true);
+
+    backend.failAdminLogout = false;
+    const retry = await api("POST", "/api/claim/complete", {
+      claimToken: verify.json.claimToken,
+      password: "Fresh!Passphrase",
+      passwordConfirm: "Fresh!Passphrase",
+    });
+    expect(retry.status).toBe(200);
+    expect(backend.authUsers.get(authId)!.password).toBe("Fresh!Passphrase");
+    expect(backend.adminLogouts).toEqual([authId]);
   });
 
   it("enforces the password rules with specific guidance", async () => {

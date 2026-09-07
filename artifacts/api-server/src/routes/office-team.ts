@@ -38,6 +38,7 @@ import {
 } from "../auth/office-scope";
 import { recordAccessDenied, recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
 import {
   OFFICE_ROLES,
   PROVISIONING_FAILED_MESSAGE,
@@ -388,12 +389,49 @@ async function setStatus(req: Request, res: Response, active: boolean): Promise<
 router.post(`${OFFICE_TEAM_PATH}/:memberId/deactivate`, (req, res) => setStatus(req, res, false));
 router.post(`${OFFICE_TEAM_PATH}/:memberId/reactivate`, (req, res) => setStatus(req, res, true));
 
+// ── Sessions ─────────────────────────────────────────────────────────────────
+
+/**
+ * A teammate's recent sign-ins and live sessions — the same view the
+ * teammate sees on their own Security page, minus the "current" marker.
+ * Same authority as force sign-out (owners/admins, owner-only for owners).
+ */
+router.get(`${OFFICE_TEAM_PATH}/:memberId/sessions`, async (req, res) => {
+  try {
+    const scope = await manager(req, res);
+    if (!scope) return;
+    const target = await loadMember(scope, String(req.params.memberId));
+    if (!target) {
+      res.status(404).json({ error: "That teammate isn't on this office's team." });
+      return;
+    }
+    if (target.office_role === "owner" && scope.officeRole !== "owner") {
+      res.status(403).json({ error: OWNERS_ONLY_MESSAGE });
+      return;
+    }
+    const overview = target.auth_user_id ? await securityOverview(target.auth_user_id, null) : { signIns: [], sessions: [] };
+    audit(req, scope, "office_team_sessions_viewed", target.id, { sessions: overview.sessions.length });
+    res.json({ member: memberDto(target, scope), linked: Boolean(target.auth_user_id), sessions: overview.sessions, signIns: overview.signIns });
+  } catch (error) {
+    req.log?.error({ err: error }, "office team sessions read failed");
+    res.status(502).json({ error: "Could not load that teammate's sessions right now." });
+  }
+});
+
 // ── Force sign-out ───────────────────────────────────────────────────────────
+
+export const FORCE_SIGN_OUT_REASONS = ["lost_device", "suspicious_activity", "staff_request", "other"] as const;
+const SignOutBody = z.object({ reason: z.enum(FORCE_SIGN_OUT_REASONS).optional() });
 
 router.post(`${OFFICE_TEAM_PATH}/:memberId/sign-out`, async (req, res) => {
   try {
     const scope = await manager(req, res);
     if (!scope) return;
+    const parsed = SignOutBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "Choose a reason for signing this teammate out.", field: "reason" });
+      return;
+    }
     const target = await loadMember(scope, String(req.params.memberId));
     if (!target) {
       res.status(404).json({ error: "That teammate isn't on this office's team." });
@@ -405,7 +443,13 @@ router.post(`${OFFICE_TEAM_PATH}/:memberId/sign-out`, async (req, res) => {
       res.status(502).json({ error: "Could not sign that teammate out right now." });
       return;
     }
-    audit(req, scope, "office_team_signed_out", target.id, { status: memberStatus(target) });
+    const reason = parsed.data.reason ?? "other";
+    if (target.auth_user_id) {
+      await markRevoked({ userId: target.auth_user_id, reason: (reason === "staff_request" ? "staff_forced" : reason) as RevokeReason }).catch((error) =>
+        req.log?.error({ err: error }, "office sign-out ledger mark failed"),
+      );
+    }
+    audit(req, scope, "office_team_signed_out", target.id, { status: memberStatus(target), reason });
     res.json({ member: memberDto(target, scope), sessionInvalidation });
   } catch (error) {
     req.log?.error({ err: error }, "office sign-out failed");

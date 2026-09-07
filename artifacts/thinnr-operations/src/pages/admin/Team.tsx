@@ -4,7 +4,10 @@
  * The roster and every mutation are backed by the authenticated HQ API.
  */
 import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { UserPlus } from 'lucide-react';
+import { ManagedSessionsState } from '@/components/team/ManagedSessions';
+import { fetchHqTeamMemberSessions, signOutHqTeamMember, type SecurityReason } from '@/lib/office-api';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -52,6 +55,22 @@ export default function Team() {
   const [editTitle, setEditTitle] = useState('');
 
   const [removing, setRemoving] = useState<HqTeamMember | null>(null);
+  const [sessionMember, setSessionMember] = useState<HqTeamMember | null>(null);
+  const [signOutReason, setSignOutReason] = useState<Exclude<SecurityReason, 'patient_request'>>('staff_request');
+  const sessionsQuery = useQuery({
+    queryKey: ['hq-team-sessions', sessionMember?.id],
+    queryFn: () => fetchHqTeamMemberSessions(sessionMember!.id),
+    enabled: Boolean(sessionMember),
+    retry: false,
+  });
+  const forceSignOut = useMutation({
+    mutationFn: () => signOutHqTeamMember(sessionMember!.id, signOutReason),
+    onSuccess: async () => {
+      toast({ variant: 'success', title: `${sessionMember?.name} signed out everywhere`, description: 'They will need to sign in again on every device. Their access stays on.' });
+      await sessionsQuery.refetch();
+    },
+    onError: (error) => toast({ variant: 'destructive', title: 'Could not force sign-out', description: error instanceof Error ? error.message : 'Try again.' }),
+  });
 
   const submitInvite = async () => {
     const name = inviteName.trim();
@@ -170,6 +189,14 @@ export default function Team() {
                         onClick={() => openEdit(member)}
                       >
                         Edit
+                      </button>
+                      <button
+                        type="button"
+                        className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
+                        data-testid={`button-sessions-${member.id}`}
+                        onClick={() => { setSignOutReason('staff_request'); setSessionMember(member); }}
+                      >
+                        Sessions
                       </button>
                       {member.role === 'Super Admin' ? (
                         <span className="text-[10px] text-muted-foreground" title="Super Admin access is protected.">
@@ -299,6 +326,43 @@ export default function Team() {
             </button>
             <button type="button" className={`${BTN_PRIMARY} h-9 px-3.5`} data-testid="button-edit-submit" onClick={() => void submitEdit()} disabled={teamMutationPending || editing?.role === 'Super Admin'}>
               {teamMutationPending ? 'Saving…' : 'Save changes'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sessions + force sign-out */}
+      <Dialog open={sessionMember !== null} onOpenChange={(open) => !open && setSessionMember(null)}>
+        <DialogContent className="sm:max-w-[620px]">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">{sessionMember?.name}&apos;s sessions</DialogTitle>
+            <DialogDescription>Recent sign-ins and devices that can still reach THINNR HQ. Forcing a sign-out keeps their access; they simply sign in again.</DialogDescription>
+          </DialogHeader>
+          <ManagedSessionsState data={sessionsQuery.data} loading={sessionsQuery.isPending} error={sessionsQuery.error} />
+          {sessionsQuery.data?.linked && (
+            <div>
+              <span className={PANEL_LABEL}>Reason</span>
+              <Select value={signOutReason} onValueChange={(value) => setSignOutReason(value as Exclude<SecurityReason, 'patient_request'>)}>
+                <SelectTrigger className="mt-1 h-9 text-xs" data-testid="select-hq-sign-out-reason" aria-label="Reason"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="staff_request" className="text-xs">Staff request</SelectItem>
+                  <SelectItem value="lost_device" className="text-xs">Lost device</SelectItem>
+                  <SelectItem value="suspicious_activity" className="text-xs">Suspicious activity</SelectItem>
+                  <SelectItem value="other" className="text-xs">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <DialogFooter>
+            <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setSessionMember(null)}>Close</button>
+            <button
+              type="button"
+              className={`${BTN_SECONDARY} h-9 px-3.5 text-destructive`}
+              data-testid="button-hq-force-sign-out"
+              disabled={!sessionsQuery.data?.linked || forceSignOut.isPending}
+              onClick={() => forceSignOut.mutate()}
+            >
+              {forceSignOut.isPending ? 'Signing out…' : 'Sign out everywhere'}
             </button>
           </DialogFooter>
         </DialogContent>

@@ -86,3 +86,103 @@ export function officeQuery(office?: string | null, extra?: URLSearchParams): st
   const text = params.toString();
   return text ? `?${text}` : '';
 }
+
+export type SignInMethod = 'email_code' | 'sms_code' | 'password_sms_code' | 'password_email_code' | 'signup' | 'claim';
+export type SecurityPlatform = 'ios' | 'android' | 'web' | 'unknown';
+export type SecurityReason = 'lost_device' | 'suspicious_activity' | 'staff_request' | 'patient_request' | 'other';
+
+export interface SecuritySignIn {
+  id: string;
+  at: string;
+  method: SignInMethod;
+  methodLabel: string;
+  platform: SecurityPlatform;
+  device: string;
+  region: string | null;
+  newDevice: boolean;
+  current: boolean;
+  active: boolean;
+  revokedAt: string | null;
+  revokedReason: string | null;
+  reportedAt: string | null;
+}
+
+export interface SecuritySession {
+  ref: string;
+  createdAt: string;
+  lastSeenAt: string;
+  platform: SecurityPlatform;
+  device: string;
+  region: string | null;
+  current: boolean;
+  signInId: string | null;
+}
+
+export interface MySecurity {
+  realm: 'patient' | 'staff';
+  canChangePassword: boolean;
+  contact: { phone: string | null; email: string | null };
+  passwordChangedAt: string | null;
+  currentSessionKnown: boolean;
+  sessions: SecuritySession[];
+  signIns: SecuritySignIn[];
+}
+
+export interface ManagedSecurity {
+  linked: boolean;
+  sessions: SecuritySession[];
+  signIns: SecuritySignIn[];
+}
+
+const SECURITY_MESSAGES: OfficeRequestMessages = {
+  unconfigured: 'Account security is not configured in this environment.',
+  signedOut: 'Your session has ended. Sign in again to continue.',
+  unreachable: 'Could not reach account security. Check your connection and try again.',
+  failed: 'The security request failed',
+};
+
+export const fetchMySecurity = () => officeRequest<MySecurity>('/api/security/me', SECURITY_MESSAGES);
+export const signOutMyOtherSessions = () => officeRequest<{ ok: true }>('/api/security/me/sign-out-others', SECURITY_MESSAGES, { method: 'POST' });
+export const reportMySignIn = (id: string) => officeRequest<{ ok: true; signedOut: true; forcedReset: boolean }>(
+  `/api/security/me/sign-ins/${encodeURIComponent(id)}/report`,
+  SECURITY_MESSAGES,
+  { method: 'POST' },
+);
+export const fetchOfficeTeamMemberSessions = (memberId: string) => officeRequest<ManagedSecurity & { member: unknown }>(
+  `/api/office/team/${encodeURIComponent(memberId)}/sessions`,
+  SECURITY_MESSAGES,
+);
+export const fetchHqTeamMemberSessions = (id: string) => officeRequest<ManagedSecurity>(
+  `/api/hq-team/${encodeURIComponent(id)}/sessions`,
+  SECURITY_MESSAGES,
+);
+export const signOutHqTeamMember = (id: string, reason?: Exclude<SecurityReason, 'patient_request'>) => officeRequest<{ ok: true; sessionInvalidation: string }>(
+  `/api/hq-team/${encodeURIComponent(id)}/sign-out`,
+  SECURITY_MESSAGES,
+  { method: 'POST', body: JSON.stringify({ ...(reason ? { reason } : {}) }) },
+);
+export const fetchPatientSessions = (id: string, office: string) => officeRequest<ManagedSecurity>(
+  `/api/office/patients/${encodeURIComponent(id)}/sessions${officeQuery(office)}`,
+  SECURITY_MESSAGES,
+);
+export const signOutPatientSessions = (id: string, office: string, reason: Exclude<SecurityReason, 'staff_request'>) => officeRequest<{ ok: true; sessionInvalidation: string }>(
+  `/api/office/patients/${encodeURIComponent(id)}/sign-out${officeQuery(office)}`,
+  SECURITY_MESSAGES,
+  { method: 'POST', body: JSON.stringify({ reason }) },
+);
+
+export async function submitSecurityReport(token: string): Promise<{ ok: true; signedOut: true; realm: 'patient' | 'staff'; forcedReset: boolean }> {
+  let response: Response;
+  try {
+    response = await fetch('/api/security/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+  } catch {
+    throw new OfficeApiError('Could not reach account security. Check your connection and try again.', 0);
+  }
+  const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) throw new OfficeApiError(typeof body?.error === 'string' ? body.error : `The security report failed (${response.status}).`, response.status);
+  return body as unknown as { ok: true; signedOut: true; realm: 'patient' | 'staff'; forcedReset: boolean };
+}

@@ -68,6 +68,8 @@ import { findSeededAccount } from '@/data/hq/accounts';
 import { canHq, firstAllowedAdminPath, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 import Escalations from '@/pages/admin/Escalations';
 import SystemHealth from '@/pages/admin/SystemHealth';
+import Security from '@/pages/Security';
+import SecurityReport from '@/pages/SecurityReport';
 
 const queryClient = new QueryClient();
 
@@ -191,6 +193,7 @@ function ScopedOfficeApp() {
 
 function PersonaRouter() {
   const { persona, authStatus, authRole, roleStatus, claimedWorkspace } = useSession();
+  const [location] = useLocation();
 
   if (authStatus === 'loading') return <BootScreen />;
   if (authStatus === 'signed-in') {
@@ -206,6 +209,10 @@ function PersonaRouter() {
         <Route component={SignIn} />
       </Switch>
     );
+  }
+
+  if (location === '/security' && persona === 'hq-admin') {
+    return <HqDataProvider><AdminShell><Security /></AdminShell></HqDataProvider>;
   }
 
   if (persona === 'office') {
@@ -240,6 +247,7 @@ function App() {
         <WouterRouter base={import.meta.env.BASE_URL?.replace(/\/$/, '') || ''}>
           <Switch>
             <Route path="/email" component={EmailStudio} />
+            <Route path="/security/report" component={SecurityReport} />
             <Route>
               <SessionProvider>
                 <PatientSessionProvider>

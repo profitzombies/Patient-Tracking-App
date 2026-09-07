@@ -27,6 +27,7 @@
     "test:offline-queue": "tsx --tsconfig tsconfig.offline-queue.json scripts/verify-offline-queue.ts",
     "test:account-progress": "tsx --tsconfig tsconfig.account-progress.json scripts/verify-account-progress.ts",
     "test:privacy-controls": "tsx --tsconfig tsconfig.privacy-controls.json scripts/verify-privacy-controls.ts",
+    "test:account-security": "tsx --tsconfig tsconfig.account-security.json scripts/verify-account-security.ts",
     "test:meal-photo": "tsx --tsconfig tsconfig.meal-photo.json scripts/verify-meal-photo.ts",
     "test:onboarding-gate": "tsx --tsconfig tsconfig.onboarding-gate.json scripts/verify-onboarding-gate.ts",
     "test:onboarding-hints": "tsx --tsconfig tsconfig.onboarding-hints.json scripts/verify-onboarding-hints.ts",

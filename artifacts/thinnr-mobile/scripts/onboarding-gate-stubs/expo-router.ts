@@ -14,6 +14,10 @@ export interface RouterCall {
 }
 
 export const routerCalls: RouterCall[] = [];
+const targetOf = (href: unknown): string =>
+  href && typeof href === 'object' && 'pathname' in href
+    ? String((href as { pathname: unknown }).pathname)
+    : String(href);
 
 export function clearRouterCalls(): void {
   routerCalls.length = 0;
@@ -21,10 +25,10 @@ export function clearRouterCalls(): void {
 
 export const router = {
   push(href: unknown): void {
-    routerCalls.push({ method: 'push', target: String(href) });
+    routerCalls.push({ method: 'push', target: targetOf(href) });
   },
   replace(href: unknown): void {
-    routerCalls.push({ method: 'replace', target: String(href) });
+    routerCalls.push({ method: 'replace', target: targetOf(href) });
   },
   back(): void {
     routerCalls.push({ method: 'back', target: '' });
@@ -36,4 +40,12 @@ export const router = {
 
 export function Redirect(_props: { href: string }) {
   return null;
+}
+
+export function useLocalSearchParams<T extends Record<string, unknown>>(): T {
+  return {} as T;
+}
+
+export function usePathname(): string {
+  return '/';
 }

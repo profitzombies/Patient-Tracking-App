@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import {
   ArrowLeft,
@@ -47,6 +47,11 @@ import {
   type OfficeDiaryEntry,
   type OfficePatientDetail,
 } from "@/lib/office-roster";
+import {
+  fetchPatientSessions,
+  signOutPatientSessions,
+  type SecurityReason,
+} from "@/lib/office-api";
 import { EngagementSummary } from "@/components/office/RosterActivity";
 import { CoachOutreachTimeline } from "@/components/office/NotificationTimeline";
 import {
@@ -377,9 +382,11 @@ function LiveDiaryDay({ day, totals }: { day: { dateKey: string; waterOz?: numbe
   );
 }
 
-function LivePatientDetail({ id, office }: { id: string; office: string | null }) {
+function LivePatientDetail({ id, office, isHq }: { id: string; office: string | null; isHq: boolean }) {
   const canEdit = useCanEditLiveRecord();
+  const { toast } = useToast();
   const [weightEntryOpen, setWeightEntryOpen] = useState(false);
+  const [securityReason, setSecurityReason] = useState<Exclude<SecurityReason, 'staff_request'>>('patient_request');
   const detail = useQuery({
     queryKey: livePatientQueryKey(office, id),
     queryFn: () => fetchOfficePatient(id, office),
@@ -389,6 +396,20 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
     queryKey: ['office-patient-notifications', office ?? 'own', id],
     queryFn: () => fetchOfficePatientNotifications(id, office),
     refetchInterval: 30_000,
+  });
+  const security = useQuery({
+    queryKey: ['patient-security', office, id],
+    queryFn: () => fetchPatientSessions(id, office!),
+    enabled: isHq && Boolean(office),
+    retry: false,
+  });
+  const forceSignOut = useMutation({
+    mutationFn: () => signOutPatientSessions(id, office!, securityReason),
+    onSuccess: async () => {
+      toast({ variant: 'success', title: 'Patient signed out', description: 'Every active device will need to sign in again.' });
+      await security.refetch();
+    },
+    onError: (error) => toast({ variant: 'destructive', title: 'Could not force sign-out', description: error instanceof Error ? error.message : 'Try again.' }),
   });
 
   if (detail.isLoading) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center text-sm text-muted-foreground">Loading patient record…</div>;
@@ -473,6 +494,26 @@ function LivePatientDetail({ id, office }: { id: string; office: string | null }
           </SectionCard>
         </div>
         <aside className="space-y-5">
+          {isHq && (
+            <SectionCard title="Sessions" sub="Patient account access. Visible to HQ only.">
+              <div className="p-5" data-testid="patient-security-card">
+                {security.isPending && <p className="text-xs text-muted-foreground">Loading sessions…</p>}
+                {security.isError && <div role="alert"><p className="text-xs text-destructive">{security.error instanceof Error ? security.error.message : 'Sessions could not be loaded.'}</p><button type="button" className={`${BTN_SECONDARY} mt-3 h-8 px-3`} onClick={() => void security.refetch()}>Try again</button></div>}
+                {security.data && <>
+                  {!security.data.linked ? <p className="text-xs text-muted-foreground">This patient has not linked a sign-in account yet.</p> : <div className="space-y-4">
+                    <div><p className={MICRO_LABEL}>Active sessions</p>{security.data.sessions.length ? <ul className="mt-2 divide-y divide-border rounded-md border border-border">{security.data.sessions.map((row) => <li key={row.ref} className="p-3"><b className="text-xs text-navy">{row.device}</b><p className="mt-1 text-[10px] text-muted-foreground">{row.region ?? 'Region unavailable'} · Last seen {formatDate(row.lastSeenAt, true, true)}</p></li>)}</ul> : <p className="mt-2 text-xs text-muted-foreground">No active sessions.</p>}</div>
+                    <div><p className={MICRO_LABEL}>Recent sign-ins</p>{security.data.signIns.length ? <ul className="mt-2 divide-y divide-border rounded-md border border-border">{security.data.signIns.map((row) => <li key={row.id} className="p-3"><b className="text-xs text-navy">{row.device}</b><p className="mt-1 text-[10px] text-muted-foreground">{formatDate(row.at, true, true)} · {row.region ?? 'Region unavailable'} · {row.methodLabel}</p></li>)}</ul> : <p className="mt-2 text-xs text-muted-foreground">No recent sign-ins.</p>}</div>
+                  </div>}
+                  <label className={`mt-4 block ${PANEL_LABEL}`}>Force sign-out reason
+                    <select data-testid="select-patient-sign-out-reason" className={`${INPUT_CLASS} mt-1 block h-9 w-full px-2`} value={securityReason} onChange={(event) => setSecurityReason(event.target.value as Exclude<SecurityReason, 'staff_request'>)}>
+                      <option value="lost_device">Lost device</option><option value="suspicious_activity">Suspicious activity</option><option value="patient_request">Patient request</option><option value="other">Other</option>
+                    </select>
+                  </label>
+                  <button type="button" data-testid="button-patient-force-sign-out" className={`${BTN_SECONDARY} mt-3 h-9 w-full text-destructive`} disabled={forceSignOut.isPending || !security.data.linked} onClick={() => forceSignOut.mutate()}>{forceSignOut.isPending ? 'Signing out…' : 'Force sign-out'}</button>
+                </>}
+              </div>
+            </SectionCard>
+          )}
           <CoachOutreachTimeline
             payload={notificationTimeline.data}
             isLoading={notificationTimeline.isLoading}
@@ -540,6 +581,6 @@ export default function PatientDetail() {
   const { authStatus, authRole } = useSession();
   const scope = useProviderScope();
   const liveEnabled = authStatus === 'signed-in' && (authRole === 'provider_staff' || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
-  if (liveEnabled && id) return <LivePatientDetail id={id} office={authRole === 'hq_admin' ? scope?.providerId ?? null : null} />;
+  if (liveEnabled && id) return <LivePatientDetail id={id} office={authRole === 'hq_admin' ? scope?.providerId ?? null : null} isHq={authRole === 'hq_admin'} />;
   return <DemoPatientDetail />;
 }

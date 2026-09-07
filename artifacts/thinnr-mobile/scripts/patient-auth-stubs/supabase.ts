@@ -20,6 +20,11 @@ export const verifyOtpCalls: RecordedVerifyOtp[] = [];
 export const signOutCalls: number[] = [];
 
 let nextVerifyOtpError: { message: string } | null = null;
+let stubAccessToken: string | null = null;
+
+export function setStubAccessToken(token: string | null): void {
+  stubAccessToken = token;
+}
 
 /** Make the next verifyOtp fail with this raw GoTrue-style message (one-shot). */
 export function failNextVerifyOtp(message: string): void {
@@ -50,10 +55,11 @@ export const supabase = {
     },
     async signOut() {
       signOutCalls.push(Date.now());
+      stubAccessToken = null;
       return { error: null };
     },
     async getSession() {
-      return { data: { session: null } };
+      return { data: { session: stubAccessToken ? { access_token: stubAccessToken } : null } };
     },
   },
 };

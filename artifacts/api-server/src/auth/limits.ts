@@ -57,6 +57,24 @@ export const acquireInviteSlot = createLimiter({
   rapidMessage: WAIT_MESSAGE,
 });
 
+/**
+ * Password recovery starts per identity per day (phone or email), on top of
+ * the shared per-identifier hourly send pot and the per-IP limits. Hits are
+ * absorbed silently (neutral body) so the cap cannot confirm an account.
+ */
+export const RECOVERY_PER_IDENTITY_PER_DAY = envLimit("AUTH_RECOVERY_PER_IDENTITY_PER_DAY", 6);
+
+/** Authenticated security actions (change password, sign out others, reports). */
+export const acquireSecuritySlot = createLimiter({
+  burst: envLimit("AUTH_SECURITY_BURST", 10),
+  refillPerMinute: 4,
+  maxConcurrent: 4,
+  dailyBudget: envLimit("AUTH_SECURITY_DAILY_BUDGET", 300),
+  dailyMessage: DAILY_MESSAGE,
+  busyMessage: BUSY_MESSAGE,
+  rapidMessage: WAIT_MESSAGE,
+});
+
 /** Signup completion — creates accounts, so the tightest budget of the set. */
 export const acquireFinishSlot = createLimiter({
   burst: envLimit("AUTH_FINISH_BURST", 6),

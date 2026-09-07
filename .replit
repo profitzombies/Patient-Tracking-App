@@ -276,6 +276,18 @@ args = "system-health-web"
 task = "workflow.run"
 args = "offline-queue"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "security-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "account-security-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "account-security-web"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -987,6 +999,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:offline-queue"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "security-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/security.test.ts src/routes/auth.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "account-security-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:account-security"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "account-security-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:account-security"
 
 [workflows.workflow.metadata]
 isValidation = true

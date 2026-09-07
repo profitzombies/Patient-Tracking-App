@@ -14,6 +14,7 @@ import { formatPhoneNumber, isValidContact, isValidDateKey } from '@/data/onboar
 import { supabase } from '@/lib/supabase';
 import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
 import { PrivacyDataControls } from '@/components/account/PrivacyDataControls';
+import { AccountSecurity } from '@/components/account/AccountSecurity';
 import {
   buildNotificationPrefsPatch,
   parseNotificationPrefs,
@@ -90,15 +91,32 @@ export default function AccountScreen() {
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
   if (account.kind !== 'real' || !profile) {
+    if (account.kind === 'demo') {
+      return (
+        <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <Pressable testID="account-back" onPress={() => router.back()} hitSlop={10}><Feather name="chevron-left" size={22} color={colors.navy} /></Pressable>
+            <Text style={[styles.title, { color: colors.navy }]}>Account & Settings</Text><View style={styles.spacer} />
+          </View>
+          <KeyboardAwareScrollViewCompat contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}>
+            <AccountSecurity demo />
+            <Text style={[styles.body, { color: colors.bodyText }]}>
+              Account settings are available for signed-in patient accounts.
+            </Text>
+            <Text testID="account-privacy-unavailable" style={[styles.body, { color: colors.subtleText }]}>
+              Consent records, data export, and account deletion apply to real patient accounts. The guided demo holds no personal data to export or delete.
+            </Text>
+          </KeyboardAwareScrollViewCompat>
+        </View>
+      );
+    }
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <Text style={[styles.body, { color: colors.bodyText }]}>
           Account settings are available for signed-in patient accounts.
         </Text>
         <Text testID="account-privacy-unavailable" style={[styles.body, { color: colors.subtleText }]}>
-          {account.kind === 'demo'
-            ? 'Consent records, data export, and account deletion apply to real patient accounts. The guided demo holds no personal data to export or delete.'
-            : 'Consent, data export, and account deletion become available once your account has finished loading.'}
+          Consent, data export, and account deletion become available once your account has finished loading.
         </Text>
         <PrimaryButton label="Go back" onPress={() => router.back()} />
       </View>
@@ -227,6 +245,7 @@ export default function AccountScreen() {
         bottomOffset={72}
       >
         {error ? <ErrorBox testID="account-error" message={error} /> : null}
+        <AccountSecurity />
         <Text style={[styles.section, { color: colors.labelText }]}>PROFILE</Text>
         <LedgerCard style={styles.card}>
           <FieldLabel text="Full name" />

@@ -27,6 +27,13 @@
 import crypto from "node:crypto";
 import { Router, type IRouter } from "express";
 import { supabaseAdmin, fetchAuthUser } from "../lib/supabase-admin";
+import { requestIdOf } from "../lib/admin-audit";
+import {
+  afterRecoveryCompleted,
+  respondSessionContainmentFailed,
+  SessionContainmentError,
+  sweepSessionsBeforeRecovery,
+} from "../security/sign-in-hooks";
 import {
   normalizeIdentifier,
   passwordIssue,
@@ -467,8 +474,20 @@ router.post(CLAIM_COMPLETE_PATH, async (req, res) => {
       return;
     }
 
-    // Already linked → this is a password reset on the existing login.
+    // Already linked → this is a password reset on the existing login. It is
+    // a recovery path, so every existing session must be gone before the new
+    // password exists; a refused sweep fails honestly with nothing consumed.
     if (freshRow.auth_user_id) {
+      const resetUserId = String(freshRow.auth_user_id);
+      try {
+        await sweepSessionsBeforeRecovery(req, resetUserId);
+      } catch (error) {
+        if (error instanceof SessionContainmentError) {
+          respondSessionContainmentFailed(res);
+          return;
+        }
+        throw error;
+      }
       const updated = await supabaseAdmin("PUT", `/auth/v1/admin/users/${freshRow.auth_user_id}`, {
         password,
       });
@@ -482,7 +501,13 @@ router.post(CLAIM_COMPLETE_PATH, async (req, res) => {
       if (updated.status >= 300) throw new Error(`password reset failed (${updated.status})`);
       await patchRow(row.id, {
         consumed_at: new Date().toISOString(),
-        auth_user_id: String(freshRow.auth_user_id),
+        auth_user_id: resetUserId,
+      });
+      await afterRecoveryCompleted(req, {
+        userId: resetUserId,
+        patientId: String(target.ref),
+        providerId: null,
+        requestId: requestIdOf(req),
       });
       res.json({ ok: true, mode: "reset" as const, signIn });
       return;

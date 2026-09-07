@@ -51,6 +51,7 @@ function isPatientAccessRoute(pathname: string): boolean {
     '/patient-signup',
     '/provider-login',
     '/persona',
+    '/security-report',
   ].includes(pathname);
 }
 
@@ -59,6 +60,9 @@ function isPatientAccessRoute(pathname: string): boolean {
  * the navigator; known-incomplete real accounts may use only onboarding.
  */
 export function liveEntryDecision(input: LiveEntryGateInput): LiveEntryDecision {
+  // Alert-email security links are deliberately public and must not wait for
+  // persona, account, consent, or patient-data hydration.
+  if (input.pathname === '/security-report') return { kind: 'allow' };
   if (
     !input.modeHydrated ||
     input.accountResolving ||

@@ -73,6 +73,15 @@ export const AUDIT_ACTIONS = [
   "patient_deletion_purged",
   "patient_deletion_failed",
   "patient_deletion_retried",
+  "security_password_changed",
+  "security_sessions_signed_out",
+  "security_sign_in_reported",
+  "security_recovery_completed",
+  "office_team_sessions_viewed",
+  "hq_team_sessions_viewed",
+  "hq_team_signed_out",
+  "patient_sessions_viewed",
+  "patient_signed_out",
   "access_denied",
 ] as const;
 
@@ -135,6 +144,13 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "patient_deletion_purged",
   "patient_deletion_failed",
   "patient_deletion_retried",
+  "security_password_changed",
+  "security_sessions_signed_out",
+  "security_sign_in_reported",
+  "security_recovery_completed",
+  "office_team_sessions_viewed",
+  "patient_sessions_viewed",
+  "patient_signed_out",
   "access_denied",
 ] as const satisfies readonly AuditAction[];
 export const officeVisibleActions: ReadonlySet<string> = new Set(OFFICE_VISIBLE_ACTIONS);

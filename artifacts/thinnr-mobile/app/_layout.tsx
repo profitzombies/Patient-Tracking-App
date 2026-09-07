@@ -260,6 +260,8 @@ function RootLayoutNav() {
       <Stack.Screen name="claim-test" options={{ headerShown: false }} />
       <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
       <Stack.Screen name="account" options={{ headerShown: false }} />
+      <Stack.Screen name="security" options={{ headerShown: false }} />
+      <Stack.Screen name="security-report" options={{ headerShown: false }} />
       <Stack.Screen name="consent" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="recipe/[id]" options={{ headerShown: false }} />

@@ -105,3 +105,4 @@
 - [Staff inbox over patient chat](staff-inbox-workflow.md) — workflow state is trigger-derived (upsert replays are safe); staff rows are server-owned and refresh-delivered; coach folds staff turns to context; HQ auto-close window is a read-time overlay via RPC cutoff.
 - [System jobs framework](system-jobs-framework.md) — all clean-up rides the leased job ledger (intents, two-way reconcile flags, dry-run neutrality); live traps: pg-safeupdate bare DELETE, locate("/objects/"), real-HQ tester login recipe.
 - [Offline patient write queue](offline-write-queue.md) — state=project(base,queue), head-first drain, cached launches refresh truth first; receipts claimed BEFORE the write; photo uploads pinned by client id.
+- [Account security & session ledger](account-security-sessions.md) — client attaches signInId after token redeem; report links fire only on explicit tap; send cap 429 ≠ forced-reset; pin delivery modes in vitest.

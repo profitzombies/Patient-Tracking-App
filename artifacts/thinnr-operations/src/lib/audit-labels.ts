@@ -52,6 +52,15 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   conversation_escalation_resolved: 'Resolved a conversation escalation',
   data_export_requested: 'Requested a data export',
   data_export_downloaded: 'Downloaded a data export',
+  security_password_changed: 'Changed their password',
+  security_sessions_signed_out: 'Signed out other devices',
+  security_sign_in_reported: 'Reported a sign-in as not theirs',
+  security_recovery_completed: 'Recovered their account',
+  office_team_sessions_viewed: 'Viewed a teammate\'s sessions',
+  hq_team_sessions_viewed: 'Viewed an HQ member\'s sessions',
+  hq_team_signed_out: 'Signed an HQ member out everywhere',
+  patient_sessions_viewed: 'Viewed a patient\'s sessions',
+  patient_signed_out: 'Signed a patient out everywhere',
   access_denied: 'Was refused access',
 };
 
@@ -61,6 +70,9 @@ export function auditActionLabel(action: string): string {
 
 const METADATA_LABELS: Record<string, string> = {
   reason: 'Reason',
+  channel: 'Channel',
+  sessions: 'Sessions',
+  scope: 'Scope',
   role: 'Role',
   status: 'Status',
   field: 'Field',

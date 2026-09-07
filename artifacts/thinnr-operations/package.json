@@ -39,7 +39,8 @@
     "test:system-health": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-system-health.tsx",
     "test:office-team": "TZ=UTC tsx --tsconfig tsconfig.office-admin.json scripts/verify-office-team.tsx",
     "test:office-audit": "TZ=UTC tsx --tsconfig tsconfig.office-admin.json scripts/verify-office-audit.tsx",
-    "test:staff-inbox": "tsx scripts/verify-staff-inbox.ts"
+    "test:staff-inbox": "tsx scripts/verify-staff-inbox.ts",
+    "test:account-security": "TZ=UTC tsx --tsconfig tsconfig.account-security.json scripts/verify-account-security.tsx"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

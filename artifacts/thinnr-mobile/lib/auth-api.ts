@@ -11,17 +11,20 @@
  */
 import { apiBase } from '@/lib/coach-api';
 import { describeAuthError, supabase } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import { getOrCreateDeviceId } from '@/lib/push-notification-core';
 
 const NOT_CONFIGURED = 'Real sign-in isn’t configured in this environment.';
 const NETWORK_ERROR = 'Could not reach the sign-in service. Check your connection and try again.';
 
 export type CodeRequestResult =
   | { ok: true; requestId: string; message: string | null; devCode: string | null }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: string };
 
 export type LoginVerifyResult =
-  | { ok: true; realm: 'staff' | 'patient'; tokenHash: string }
-  | { ok: false; error: string };
+  | { ok: true; realm: 'staff' | 'patient'; tokenHash: string; signInId: string | null }
+  | { ok: false; error: string; code?: string };
 
 export type OfficeLookupResult =
   | { ok: true; officeName: string }
@@ -32,7 +35,7 @@ export type SignupVerifyResult =
   | { ok: false; error: string };
 
 export type SignupCompleteResult =
-  | { ok: true; tokenHash: string }
+  | { ok: true; tokenHash: string; signInId: string | null }
   | { ok: false; error: string; field: 'password' | 'name' | 'email' | null };
 
 export type ResetVerifyResult =
@@ -42,6 +45,7 @@ export type ResetVerifyResult =
 async function postJson(
   path: string,
   body: unknown,
+  deviceHeaders = false,
 ): Promise<{ status: number; json: Record<string, unknown> | null } | { failed: string }> {
   let base: string;
   try {
@@ -50,9 +54,17 @@ async function postJson(
     return { failed: NOT_CONFIGURED };
   }
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (deviceHeaders) {
+      headers['x-thinnr-device'] = await getOrCreateDeviceId({
+        get: key => AsyncStorage.getItem(key),
+        set: (key, value) => AsyncStorage.setItem(key, value),
+      });
+      headers['x-thinnr-platform'] = Platform.OS === 'ios' || Platform.OS === 'android' ? Platform.OS : 'web';
+    }
     const response = await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
     let json: Record<string, unknown> | null = null;
@@ -92,11 +104,11 @@ export async function requestPatientPasswordLogin(input: {
   identifier: string;
   password: string;
 }): Promise<CodeRequestResult> {
-  const result = await postJson('/auth/patient/password/login', input);
+  const result = await postJson('/auth/patient/password/login', input, true);
   if ('failed' in result) return { ok: false, error: result.failed };
   const { status, json } = result;
   if (status !== 200 || json?.ok !== true || typeof json.requestId !== 'string') {
-    return { ok: false, error: errorFrom(json, 'Could not sign in right now. Try again in a moment.') };
+    return { ok: false, error: errorFrom(json, 'Could not sign in right now. Try again in a moment.'), ...(typeof json?.code === 'string' ? { code: json.code } : {}) };
   }
   return {
     ok: true, requestId: json.requestId,
@@ -137,19 +149,21 @@ export async function verifyLoginCode(input: {
   requestId: string;
   code: string;
 }): Promise<LoginVerifyResult> {
-  const result = await postJson('/auth/login/verify', input);
+  const result = await postJson('/auth/login/verify', input, true);
   if ('failed' in result) return { ok: false, error: result.failed };
   const { status, json } = result;
   if (status !== 200 || typeof json?.tokenHash !== 'string') {
     return {
       ok: false,
       error: errorFrom(json, 'That code didn’t work. Request a fresh one and try again.'),
+      ...(typeof json?.code === 'string' ? { code: json.code } : {}),
     };
   }
   return {
     ok: true,
     realm: json.realm === 'staff' ? 'staff' : 'patient',
     tokenHash: json.tokenHash,
+    signInId: typeof json.signInId === 'string' ? json.signInId : null,
   };
 }
 
@@ -210,7 +224,7 @@ export async function completeSignup(input: {
   name?: string;
   email?: string;
 }): Promise<SignupCompleteResult> {
-  const result = await postJson('/auth/signup/complete', input);
+  const result = await postJson('/auth/signup/complete', input, true);
   if ('failed' in result) return { ok: false, error: result.failed, field: null };
   const { status, json } = result;
   if (status !== 200 || typeof json?.tokenHash !== 'string') {
@@ -223,7 +237,7 @@ export async function completeSignup(input: {
       field,
     };
   }
-  return { ok: true, tokenHash: json.tokenHash };
+  return { ok: true, tokenHash: json.tokenHash, signInId: typeof json.signInId === 'string' ? json.signInId : null };
 }
 
 /**

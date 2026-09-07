@@ -36,6 +36,7 @@ const STAFF_ROLE_POLL_MS = 10_000;
  * The stamp lives in localStorage next to Supabase's own persisted session.
  */
 const DEVICE_MEMORY_KEY = 'thinnr-ops-code-login-at';
+const DEVICE_ID_KEY = 'thinnr.device-id';
 const DEVICE_MEMORY_MS = 30 * 24 * 60 * 60 * 1000;
 
 function deviceMemoryExpired(): boolean {
@@ -62,6 +63,20 @@ function clearDeviceMemory() {
     window.localStorage.removeItem(DEVICE_MEMORY_KEY);
   } catch {
     // Best-effort.
+  }
+}
+
+function getOrCreateDeviceId(): string {
+  try {
+    const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+    if (existing && /^[A-Za-z0-9_.:-]{8,80}$/.test(existing)) return existing;
+    const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `web-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    window.localStorage.setItem(DEVICE_ID_KEY, id);
+    return id;
+  } catch {
+    return `web-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
   }
 }
 
@@ -565,7 +580,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch('/api/auth/login/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-thinnr-device': getOrCreateDeviceId(),
+          'x-thinnr-platform': 'web',
+        },
         body: JSON.stringify({ requestId: input.requestId, code: input.code }),
       });
       const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
@@ -582,6 +601,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         type: 'email',
       });
       if (error) return { error: describeAuthError(error.message) };
+      if (typeof body.signInId === 'string') {
+        void supabase.auth.getSession().then(({ data }) => {
+          const accessToken = data.session?.access_token;
+          if (!accessToken) return;
+          return fetch('/api/security/me/attach', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ signInId: body.signInId }),
+          }).catch(() => undefined);
+        });
+      }
       stampDeviceMemory();
       return { error: null };
     } catch {

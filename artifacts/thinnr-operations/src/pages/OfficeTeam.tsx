@@ -63,6 +63,11 @@ import {
   type OfficeTeam,
   type OfficeTeamMember,
 } from '@/lib/office-team';
+import { ManagedSessionsState } from '@/components/team/ManagedSessions';
+import {
+  fetchOfficeTeamMemberSessions,
+  type SecurityReason,
+} from '@/lib/office-api';
 
 const NEUTRAL_CHIP =
   'inline-flex items-center gap-1.5 rounded-sm border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.06em] text-foreground';
@@ -113,6 +118,14 @@ export default function OfficeTeam() {
   const [editing, setEditing] = useState<OfficeTeamMember | null>(null);
   const [editRole, setEditRole] = useState<OfficeRole>('staff');
   const [confirming, setConfirming] = useState<{ member: OfficeTeamMember; action: 'deactivate' | 'reactivate' | 'sign-out' } | null>(null);
+  const [sessionMember, setSessionMember] = useState<OfficeTeamMember | null>(null);
+  const [signOutReason, setSignOutReason] = useState<Exclude<SecurityReason, 'patient_request'>>('staff_request');
+  const sessionsQuery = useQuery({
+    queryKey: ['office-team-sessions', sessionMember?.id],
+    queryFn: () => fetchOfficeTeamMemberSessions(sessionMember!.id),
+    enabled: Boolean(sessionMember),
+    retry: false,
+  });
 
   const failure = (title: string, error: unknown) =>
     toast({ variant: 'destructive', title, description: error instanceof Error ? error.message : 'Try again.' });
@@ -144,7 +157,7 @@ export default function OfficeTeam() {
 
   const statusMutation = useMutation({
     mutationFn: ({ member, action }: NonNullable<typeof confirming>) =>
-      action === 'sign-out' ? signOutTeammate(member.id, liveOffice) : setTeammateActive(member.id, action === 'reactivate', liveOffice),
+      action === 'sign-out' ? signOutTeammate(member.id, liveOffice, signOutReason) : setTeammateActive(member.id, action === 'reactivate', liveOffice),
     onSuccess: (result, variables) => {
       const name = result.member.name;
       const signedOut = result.sessionInvalidation === 'complete';
@@ -275,9 +288,12 @@ export default function OfficeTeam() {
                               ) : (
                                 <>
                                   {member.status === 'active' && (
-                                    <button type="button" className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`} data-testid={`button-sign-out-${member.id}`} onClick={() => setConfirming({ member, action: 'sign-out' })} disabled={busy}>
-                                      Sign out
-                                    </button>
+                                     <>
+                                       <button type="button" className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`} data-testid={`button-sessions-${member.id}`} onClick={() => setSessionMember(member)} disabled={busy}>Sessions</button>
+                                       <button type="button" className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`} data-testid={`button-sign-out-${member.id}`} onClick={() => { setSignOutReason('staff_request'); setConfirming({ member, action: 'sign-out' }); }} disabled={busy}>
+                                         Sign out
+                                       </button>
+                                     </>
                                   )}
                                   <button type="button" className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px] text-destructive`} data-testid={`button-deactivate-${member.id}`} onClick={() => setConfirming({ member, action: 'deactivate' })} disabled={busy}>
                                     Deactivate
@@ -355,6 +371,17 @@ export default function OfficeTeam() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={sessionMember !== null} onOpenChange={(open) => !open && setSessionMember(null)}>
+        <DialogContent className="sm:max-w-[620px]">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">{sessionMember?.name}&apos;s sessions</DialogTitle>
+            <DialogDescription>Recent sign-ins and devices that can still access this office.</DialogDescription>
+          </DialogHeader>
+          <ManagedSessionsState data={sessionsQuery.data} loading={sessionsQuery.isPending} error={sessionsQuery.error} />
+          <DialogFooter><button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setSessionMember(null)}>Close</button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Change role dialog */}
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="sm:max-w-[440px]">
@@ -400,6 +427,20 @@ export default function OfficeTeam() {
               {confirming?.action === 'sign-out' && 'Every signed-in device is signed out now. Their access stays on — they simply sign in again.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
+           {confirming?.action === 'sign-out' && (
+             <div>
+               <span className={PANEL_LABEL}>Reason</span>
+               <Select value={signOutReason} onValueChange={(value) => setSignOutReason(value as Exclude<SecurityReason, 'patient_request'>)}>
+                 <SelectTrigger className="mt-1 h-9 text-xs" data-testid="select-sign-out-reason" aria-label="Reason"><SelectValue /></SelectTrigger>
+                 <SelectContent>
+                   <SelectItem value="lost_device">Lost device</SelectItem>
+                   <SelectItem value="suspicious_activity">Suspicious activity</SelectItem>
+                   <SelectItem value="staff_request">Staff request</SelectItem>
+                   <SelectItem value="other">Other</SelectItem>
+                 </SelectContent>
+               </Select>
+             </div>
+           )}
           <AlertDialogFooter>
             <AlertDialogCancel className="text-xs">Cancel</AlertDialogCancel>
             <AlertDialogAction

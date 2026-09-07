@@ -52,7 +52,10 @@ export function PatientFabMenu() {
           icon: { family: 'feather', name: 'clipboard' },
           action: { kind: 'navigate', href: '/plan' },
         },
-        ...(account.kind === 'real'
+        // Real accounts manage their profile here; the guided demo opens the
+        // same screen as a read-only security preview. Unresolved accounts
+        // (still hydrating) get no row rather than a screen that bounces.
+        ...(account.kind !== 'unresolved'
           ? [
               {
                 key: 'account',

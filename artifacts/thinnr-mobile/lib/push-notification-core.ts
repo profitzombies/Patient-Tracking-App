@@ -30,6 +30,7 @@ const NOTIFICATION_ROUTES = new Set([
   '/diary',
   '/plan',
   '/recipes',
+  '/security',
 ]);
 
 export function resolveNotificationRoute(data: unknown): string | null {

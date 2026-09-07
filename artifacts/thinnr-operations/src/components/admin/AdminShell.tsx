@@ -26,6 +26,7 @@ import {
   HeartPulse,
   type LucideIcon,
   FileDown,
+  ShieldCheck,
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
@@ -56,13 +57,14 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/exports', label: 'Exports', icon: FileDown },
   { path: '/admin/settings', label: 'Settings', icon: Settings2 },
   { path: '/admin/system-health', label: 'System health', mobileLabel: 'Health', icon: HeartPulse },
+  { path: '/security', label: 'Security', icon: ShieldCheck },
 ];
 
 const ADMIN_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/admin'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/escalations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
-  { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/files', '/admin/settings', '/admin/system-health'] },
+  { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/files', '/admin/settings', '/admin/system-health', '/security'] },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {
@@ -72,7 +74,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const effectiveRole: HqRole | null = authStatus === 'signed-out' ? 'Super Admin' : hqRole;
   const visibleNavItems = NAV_ITEMS.filter(
     (item) =>
-      canHq(effectiveRole, permissionForAdminPath(item.path)) &&
+      (item.path === '/security' ? effectiveRole !== null : canHq(effectiveRole, permissionForAdminPath(item.path))) &&
       ((item.path !== '/admin/audit' && item.path !== '/admin/system-health') || authStatus === 'signed-in'),
   );
   const [menuMode, setMenuMode] = useMenuMode();
@@ -83,7 +85,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const activeItem =
     NAV_ITEMS.find((item) => (item.path === '/admin' ? location === '/admin' : location.startsWith(item.path))) ??
     NAV_ITEMS[0];
-  const authorized = canHq(effectiveRole, permissionForAdminPath(location));
+  const authorized = location === '/security'
+    ? effectiveRole !== null
+    : canHq(effectiveRole, permissionForAdminPath(location));
 
   // Admin pages are short-lived browse views — landing at the top of each
   // page beats restoring scroll (the office shell keeps its own restoration).

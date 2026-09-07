@@ -25,6 +25,7 @@ import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { requestStaffLoginCode, signInWithTokenHash, verifyLoginCode } from '@/lib/auth-api';
 import { supabaseConfigured } from '@/lib/supabase';
+import { attachSignIn } from '@/lib/security-api';
 
 type Phase = 'email' | 'code';
 
@@ -106,6 +107,7 @@ export default function ProviderLoginScreen() {
         setError(sessionError);
         return;
       }
+      if (result.signInId) void attachSignIn(result.signInId).catch(cause => console.warn('Could not attach sign-in ledger row:', cause));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await setMode('staff');
       router.replace('/');

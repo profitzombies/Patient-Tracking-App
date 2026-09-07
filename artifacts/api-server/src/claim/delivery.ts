@@ -222,3 +222,19 @@ export async function sendStaffLoginInvitation(
 ): Promise<void> {
   await sendTransactionalEmail(to, "provider-staff-invitation", input);
 }
+
+/** Security: the account was signed in to from a device it had not seen before. */
+export async function sendNewSignInAlertEmail(
+  to: string,
+  input: { name: string; device: string; region: string; when: string; method: string; reportLink: string },
+): Promise<void> {
+  await sendTransactionalEmail(to, "new-sign-in-alert", input);
+}
+
+/** Security: the password changed and every other device was signed out. */
+export async function sendPasswordChangedEmail(
+  to: string,
+  input: { name: string; when: string; reportLink: string },
+): Promise<void> {
+  await sendTransactionalEmail(to, "password-changed", input);
+}

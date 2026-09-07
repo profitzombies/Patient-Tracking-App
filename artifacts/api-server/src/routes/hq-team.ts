@@ -12,6 +12,7 @@ import { requireHqPermission, requireStaff, type StaffIdentity } from "../lib/st
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { DeliveryNotConfiguredError, sendHqTeamInvitation } from "../claim/delivery";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
 
 const router: IRouter = Router();
 const ROLES = ["super_admin", "admin", "clinical", "support", "content"] as const;
@@ -359,6 +360,110 @@ router.delete(
     } catch (error) {
       req.log?.error({ err: error }, "HQ team revocation failed");
       res.status(502).json({ error: "Could not revoke that HQ team member." });
+    }
+  },
+);
+
+// ── Sessions ─────────────────────────────────────────────────────────────────
+
+/**
+ * An HQ member's recent sign-ins and live sessions, and a force sign-out
+ * that keeps their access (unlike revoke). Super Admins are visible only to
+ * Super Admins, matching the mutation safeguards.
+ */
+const HQ_SIGN_OUT_REASONS = ["lost_device", "suspicious_activity", "staff_request", "other"] as const;
+const HqSignOutBody = z.object({ reason: z.enum(HQ_SIGN_OUT_REASONS).optional() });
+
+router.get(
+  "/hq-team/:id/sessions",
+  requireHqPermission("team_manage"),
+  requireTeamManager,
+  async (req, res): Promise<void> => {
+    try {
+      const members = await loadMembers();
+      const target = members.find((member) => member.id === String(req.params.id));
+      if (!target) {
+        res.status(404).json({ error: "HQ team member not found." });
+        return;
+      }
+      const actor = res.locals.hqMember as { id: string; role: HqRole };
+      if (target.role === "super_admin" && actor.role !== "super_admin") {
+        res.status(403).json({ error: "Only a Super Admin can view a Super Admin's sessions." });
+        return;
+      }
+      const overview = target.authUserId ? await securityOverview(target.authUserId, null) : { signIns: [], sessions: [] };
+      await recordAdminAuditEvent({
+        action: "hq_team_sessions_viewed",
+        actorUserId: (res.locals.staff as StaffIdentity).userId,
+        actorKind: "hq",
+        providerId: null,
+        targetKind: "hq_member",
+        targetId: target.id,
+        requestId: req.headers["x-request-id"]?.toString() ?? null,
+        metadata: { sessions: overview.sessions.length },
+      }).catch((error) => req.log?.error({ err: error }, "HQ sessions audit failed"));
+      res.json({ linked: Boolean(target.authUserId), sessions: overview.sessions, signIns: overview.signIns });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ team sessions read failed");
+      res.status(502).json({ error: "Could not load that member's sessions." });
+    }
+  },
+);
+
+router.post(
+  "/hq-team/:id/sign-out",
+  requireHqPermission("team_manage"),
+  requireTeamManager,
+  async (req, res): Promise<void> => {
+    try {
+      const parsed = HqSignOutBody.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        res.status(400).json({ error: "Choose a reason for signing this member out.", field: "reason" });
+        return;
+      }
+      const members = await loadMembers();
+      const target = members.find((member) => member.id === String(req.params.id));
+      if (!target) {
+        res.status(404).json({ error: "HQ team member not found." });
+        return;
+      }
+      const actor = res.locals.hqMember as { id: string; role: HqRole };
+      if (target.id === actor.id) {
+        res.status(409).json({ error: "Use your own Security page to sign out your other devices." });
+        return;
+      }
+      if (target.role === "super_admin" && actor.role !== "super_admin") {
+        res.status(403).json({ error: "Only a Super Admin can sign out a Super Admin." });
+        return;
+      }
+      let sessionInvalidation: "not_applicable" | "complete" | "failed" = "not_applicable";
+      const reason = parsed.data.reason ?? "other";
+      if (target.authUserId) {
+        const logout = await supabaseAdmin("POST", `/auth/v1/admin/users/${encode(target.authUserId)}/logout`, { scope: "global" });
+        if (logout.status >= 300) {
+          req.log?.error({ status: logout.status }, "HQ member session logout failed");
+          res.status(502).json({ error: "Could not sign that member out right now." });
+          return;
+        }
+        sessionInvalidation = "complete";
+        await markRevoked({ userId: target.authUserId, reason: (reason === "staff_request" ? "hq_forced" : reason) as RevokeReason }).catch((error) =>
+          req.log?.error({ err: error }, "HQ sign-out ledger mark failed"),
+        );
+      }
+      await recordAdminAuditEvent({
+        action: "hq_team_signed_out",
+        actorUserId: (res.locals.staff as StaffIdentity).userId,
+        actorKind: "hq",
+        providerId: null,
+        targetKind: "hq_member",
+        targetId: target.id,
+        requestId: req.headers["x-request-id"]?.toString() ?? null,
+        metadata: { reason, sessions: sessionInvalidation },
+      }).catch((error) => req.log?.error({ err: error }, "HQ sign-out audit failed"));
+      res.json({ ok: true, sessionInvalidation });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ team sign-out failed");
+      res.status(502).json({ error: "Could not sign that member out." });
     }
   },
 );

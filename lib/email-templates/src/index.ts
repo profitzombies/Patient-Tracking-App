@@ -4,6 +4,8 @@ export const EMAIL_TEMPLATE_IDS = [
   "hq-team-invitation",
   "provider-staff-invitation",
   "patient-invitation",
+  "new-sign-in-alert",
+  "password-changed",
 ] as const;
 
 export type EmailTemplateId = (typeof EMAIL_TEMPLATE_IDS)[number];
@@ -92,6 +94,46 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       providerCode: "Provider code",
       phone: "Invited phone number",
       appLink: "App link",
+    },
+  },
+  {
+    id: "new-sign-in-alert",
+    name: "New sign-in alert",
+    purpose: "Tells an account holder that their account was just signed in to from a device or platform it had not been seen on before, and offers a one-tap way to lock it down.",
+    trigger: "A successful sign-in whose device fingerprint has never been seen on that account (patients without a push-capable device, and all staff).",
+    audience: "Patients and staff whose account just signed in somewhere new.",
+    sampleVariables: {
+      name: "Riley",
+      device: "Chrome on Windows",
+      region: "Austin, Texas, US",
+      when: "Monday, September 7 at 4:12 PM",
+      method: "Password + texted code",
+      reportLink: "https://example.test/security/report?token=sample",
+    },
+    variableLabels: {
+      name: "Recipient first name",
+      device: "Device description",
+      region: "Approximate location",
+      when: "Sign-in time",
+      method: "Sign-in method",
+      reportLink: "\u201cThis wasn\u2019t me\u201d link",
+    },
+  },
+  {
+    id: "password-changed",
+    name: "Password changed",
+    purpose: "Confirms that the account password was changed and that every other device was signed out.",
+    trigger: "A signed-in patient completes the change-password flow, or a password recovery completes.",
+    audience: "The patient whose password changed.",
+    sampleVariables: {
+      name: "Riley",
+      when: "Monday, September 7 at 4:20 PM",
+      reportLink: "https://example.test/security/report?token=sample",
+    },
+    variableLabels: {
+      name: "Recipient first name",
+      when: "Change time",
+      reportLink: "\u201cThis wasn\u2019t me\u201d link",
     },
   },
 ] as const;
@@ -331,6 +373,93 @@ export function renderEmailTemplate(
           ${infoPanel("Provider code", providerCode)}
           ${paragraph(`Signing in with your invited phone number connects you to <strong>${escapeHtml(officeName)}</strong> automatically, so you shouldn’t need to enter the provider code. Keep it handy in case you’re ever asked for it.`)}`,
         closing: "If you were not expecting this invitation, you can safely ignore this email.",
+      }),
+    };
+  }
+
+  if (id === "new-sign-in-alert") {
+    const name = requireVariable(variables, "name");
+    const device = requireVariable(variables, "device");
+    const region = variables.region?.trim() || "Location unavailable";
+    const when = requireVariable(variables, "when");
+    const method = requireVariable(variables, "method");
+    const reportLink = requireVariable(variables, "reportLink");
+    const subject = "New sign-in to your THINNR account";
+    const previewText = `Your account was just signed in to from ${device}. If that wasn\u2019t you, lock it down now.`;
+    const text = [
+      `Hello ${name},`,
+      "",
+      "Your THINNR account was just signed in to from a device we had not seen before.",
+      `Device: ${device}`,
+      `Approximate location: ${region}`,
+      `When: ${when}`,
+      `Sign-in method: ${method}`,
+      "",
+      "If this was you, there is nothing to do.",
+      `If this wasn't you, open this link to sign out every device right away: ${reportLink}`,
+      "Patients will then be asked to choose a new password the next time they sign in.",
+      "",
+      "This link works for 7 days and can only be used once. THINNR will never ask you for your password or codes by email.",
+    ].join("\n");
+    return {
+      subject,
+      previewText,
+      text,
+      html: shell({
+        previewText,
+        eyebrow: "Account security",
+        heading: "New sign-in to your account",
+        greeting: name,
+        bodyHtml: `${paragraph("Your THINNR account was just signed in to from a device we had not seen before.")}
+          ${infoPanel("Device", device)}
+          ${paragraph(`<strong>Approximate location:</strong> ${escapeHtml(region)}<br><strong>When:</strong> ${escapeHtml(when)}<br><strong>Sign-in method:</strong> ${escapeHtml(method)}`)}
+          ${paragraph("If this was you, there\u2019s nothing to do.")}
+          ${paragraph("<strong>If this wasn\u2019t you</strong>, sign out every device right away. Patients will then be asked to choose a new password the next time they sign in.")}
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+            <tr><td style="background:#a33a2e;border-radius:9px;">
+              <a href="${escapeHtml(reportLink)}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;">This wasn\u2019t me \u2014 sign out everywhere</a>
+            </td></tr>
+          </table>`,
+        closing: "This link works for 7 days and can only be used once. THINNR will never ask you for your password or codes by email.",
+      }),
+    };
+  }
+
+  if (id === "password-changed") {
+    const name = requireVariable(variables, "name");
+    const when = requireVariable(variables, "when");
+    const reportLink = requireVariable(variables, "reportLink");
+    const subject = "Your THINNR password was changed";
+    const previewText = "Your password was changed and other devices were signed out.";
+    const text = [
+      `Hello ${name},`,
+      "",
+      `Your THINNR password was changed on ${when}. Every other device was signed out.`,
+      "",
+      "If this was you, there is nothing to do.",
+      `If this wasn't you, open this link to sign out every device right away: ${reportLink}`,
+      "You will then be asked to choose a new password the next time you sign in.",
+      "",
+      "This link works for 7 days and can only be used once. THINNR will never ask you for your password or codes by email.",
+    ].join("\n");
+    return {
+      subject,
+      previewText,
+      text,
+      html: shell({
+        previewText,
+        eyebrow: "Account security",
+        heading: "Your password was changed",
+        greeting: name,
+        bodyHtml: `${paragraph(`Your THINNR password was changed on <strong>${escapeHtml(when)}</strong>. Every other device was signed out.`)}
+          ${paragraph("If this was you, there\u2019s nothing to do.")}
+          ${paragraph("<strong>If this wasn\u2019t you</strong>, sign out every device right away. You\u2019ll then be asked to choose a new password the next time you sign in.")}
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+            <tr><td style="background:#a33a2e;border-radius:9px;">
+              <a href="${escapeHtml(reportLink)}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;">This wasn\u2019t me \u2014 sign out everywhere</a>
+            </td></tr>
+          </table>`,
+        closing: "This link works for 7 days and can only be used once. THINNR will never ask you for your password or codes by email.",
       }),
     };
   }

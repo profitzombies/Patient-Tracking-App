@@ -11,6 +11,7 @@ import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { completeSignup, signInWithTokenHash, startSignup, verifySignupCode } from '@/lib/auth-api';
 import { normalizePhone, supabaseConfigured } from '@/lib/supabase';
+import { attachSignIn } from '@/lib/security-api';
 type Flow = 'invited' | 'new'; type Phase = 'choose' | 'contact' | 'code' | 'details';
 const emailOK = (x: string) => /^\S+@\S+\.\S+$/.test(x.trim());
 export default function PatientSignupScreen() {
@@ -73,7 +74,10 @@ export default function PatientSignupScreen() {
       if (!r.ok) { setError(r.error); return; }
       const se = await signInWithTokenHash(r.tokenHash);
       if (genRef.current !== gen) return;
-      if (se) setError(se); else { leaveDemo(); await setMode('patient'); router.replace('/today'); }
+      if (se) setError(se); else {
+        if (r.signInId) void attachSignIn(r.signInId).catch(cause => console.warn('Could not attach sign-in ledger row:', cause));
+        leaveDemo(); await setMode('patient'); router.replace('/today');
+      }
     } finally { if (genRef.current === gen) setBusy(false); }
   };
   return <View style={[s.page, { backgroundColor: colors.background, paddingTop: Platform.OS === 'web' ? Math.max(insets.top, 44) : insets.top + 12 }]}>

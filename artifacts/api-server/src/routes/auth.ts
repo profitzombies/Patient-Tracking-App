@@ -24,6 +24,17 @@ import { Router, type IRouter } from "express";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { normalizeIdentifier, type NormalizedIdentifier } from "../claim/normalize";
 import {
+  PASSWORD_RESET_REQUIRED_CODE,
+  PASSWORD_RESET_REQUIRED_MESSAGE,
+  afterRecoveryCompleted,
+  respondSessionContainmentFailed,
+  SessionContainmentError,
+  sweepSessionsBeforeRecovery,
+  forcedResetPending,
+  noteSignIn,
+} from "../security/sign-in-hooks";
+import { requestIdOf } from "../lib/admin-audit";
+import {
   deliveryMode,
   DeliveryNotConfiguredError,
   assertLiveChannelReady,
@@ -77,6 +88,7 @@ import {
   acquireCheckSlot,
   acquireOfficeSlot,
   acquireFinishSlot,
+  RECOVERY_PER_IDENTITY_PER_DAY,
 } from "../auth/limits";
 
 const router: IRouter = Router();
@@ -138,7 +150,7 @@ function neutralBody(requestId: string, devCode: string | null, message = NEUTRA
 }
 
 /** SMS is acknowledged before response on identity-neutral code-start rails. */
-async function deliverSmsRegistered(
+export async function deliverSmsRegistered(
   row: VerificationRow,
 ): Promise<void> {
   if (row.delivery === "twilio_verify") {
@@ -185,7 +197,7 @@ function deliverEmailAfterResponse(
   });
 }
 
-async function spendUndelivered(row: VerificationRow): Promise<void> {
+export async function spendUndelivered(row: VerificationRow): Promise<void> {
   const spent = await patchRow(
     row.id,
     { consumed_at: new Date().toISOString() },
@@ -194,8 +206,10 @@ async function spendUndelivered(row: VerificationRow): Promise<void> {
   if (spent !== 1) throw new Error("undelivered auth send could not be spent");
 }
 
-interface RegisterSendInput {
-  purpose: "login" | "signup" | "recovery";
+export type CodePurpose = "login" | "signup" | "recovery" | "password_change";
+
+export interface RegisterSendInput {
+  purpose: CodePurpose;
   identifier: NormalizedIdentifier;
   accountType: VerificationRow["account_type"];
   candidates: Candidate[];
@@ -209,7 +223,7 @@ interface RegisterSendInput {
  * the cap. Cap hits come back as null and are absorbed silently so the cap
  * itself cannot become an existence oracle.
  */
-async function registerSend(
+export async function registerSend(
   input: RegisterSendInput,
 ): Promise<{ row: VerificationRow; localCode: string | null } | null> {
   const kind = input.identifier.kind;
@@ -242,8 +256,25 @@ async function registerSend(
 }
 
 /** Shared code-check preamble: row guards, attempt counting, code matching. */
-async function checkCode(
-  purpose: "login" | "signup" | "recovery",
+export async function checkCode(
+  purpose: CodePurpose,
+  requestId: unknown,
+  code: unknown,
+): Promise<VerificationRow | null> {
+  const row = await matchCode(purpose, requestId, code);
+  return row && (await claimCode(row)) ? row : null;
+}
+
+/**
+ * Match without claiming: spends an attempt and answers whether the code is
+ * right, but leaves the one-time claim to claimCode. Only for callers that
+ * must do a reversible pre-step (e.g. sign out other sessions) BEFORE the
+ * proof is spent, so a refused pre-step leaves the same code retryable.
+ * Between match and claim the code is still redeemable exactly once: the
+ * claim below is the single conditional UPDATE, so a parallel matcher loses.
+ */
+export async function matchCode(
+  purpose: CodePurpose,
   requestId: unknown,
   code: unknown,
 ): Promise<VerificationRow | null> {
@@ -269,7 +300,11 @@ async function checkCode(
     matched = codeMatches(row, code);
   }
   if (!matched) return null;
+  return row;
+}
 
+/** The one-time claim; see checkCode. True when this caller won the row. */
+export async function claimCode(row: VerificationRow): Promise<boolean> {
   // A one-time code is redeemable exactly ONCE: atomically claim the row
   // while it is still unclaimed (a single conditional UPDATE — concurrent
   // claimers serialize on the row lock and exactly one sees the guard
@@ -283,7 +318,7 @@ async function checkCode(
     { verified_at: new Date().toISOString() },
     "&verified_at=is.null&consumed_at=is.null",
   );
-  return claimed === 1 ? row : null;
+  return claimed === 1;
 }
 
 /**
@@ -306,6 +341,23 @@ async function resolveEligibleLinkedPatient(identifier: NormalizedIdentifier) {
   if (hits.length !== 1) return null;
   const patient = await loadPatientById(hits[0].ref);
   return eligibleLinkedPatient(patient) ? patient : null;
+}
+
+/**
+ * Per-identity recovery cap: how many recovery codes this phone/email has
+ * asked for in the last 24 hours, regardless of which connection asked. The
+ * shared hourly send pot already slows a burst; this stops a patient day-long
+ * drip and, with the per-IP limits, closes the distributed-guessing angle.
+ */
+async function recoveryBudgetSpent(identifier: NormalizedIdentifier): Promise<boolean> {
+  const stored = identifier.kind === "phone" ? identifier.e164 : identifier.email;
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const counted = await supabaseAdmin(
+    "GET",
+    `/rest/v1/claim_verifications?purpose=eq.recovery&identifier=eq.${encodeURIComponent(stored)}&created_at=gt.${encodeURIComponent(since)}&select=id&limit=${RECOVERY_PER_IDENTITY_PER_DAY + 1}`,
+  );
+  if (counted.status >= 300 || !Array.isArray(counted.json)) throw new Error(`recovery budget read failed (${counted.status})`);
+  return counted.json.length >= RECOVERY_PER_IDENTITY_PER_DAY;
 }
 
 async function patientCodeStart(
@@ -342,11 +394,14 @@ async function patientCodeStart(
     res.json(neutralBody(crypto.randomUUID(), mode === "dev" ? generateCode() : null));
     return;
   }
-  const registered = await registerSend({
-    purpose, identifier, accountType: "patient",
-    candidates: [{ type: "patient", ref: patient.id, name: patient.name, dob: null, claimed: true, auth_user_id: patient.auth_user_id }],
-    scopeKey: purpose === "login" ? `patient-password:${patient.id}` : null,
-  });
+  const registered =
+    purpose === "recovery" && (await recoveryBudgetSpent(identifier))
+      ? null
+      : await registerSend({
+          purpose, identifier, accountType: "patient",
+          candidates: [{ type: "patient", ref: patient.id, name: patient.name, dob: null, claimed: true, auth_user_id: patient.auth_user_id }],
+          scopeKey: purpose === "login" ? `patient-password:${patient.id}` : null,
+        });
   if (!registered) {
     await holdUntilFloor(started);
     if (identifier.kind === "phone") await holdUntilSmsDeliveryFloor(started);
@@ -584,8 +639,22 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
       auth_user_id: userId,
     });
 
+    // A "this wasn't me" report holds the account until a recovery lands a
+    // fresh password. The code is already spent, so the person restarts via
+    // "Forgot password" rather than retrying this one.
+    if (realm === "patient" && (await forcedResetPending(userId))) {
+      res.status(403).json({ error: PASSWORD_RESET_REQUIRED_MESSAGE, code: PASSWORD_RESET_REQUIRED_CODE });
+      return;
+    }
+
+    const signInId = await noteSignIn(req, {
+      userId,
+      realm,
+      method:
+        realm === "staff" ? "email_code" : identifier.kind === "phone" ? "password_sms_code" : "password_email_code",
+    });
     const tokenHash = await mintSessionTokenHash(await getAuthUserEmail(userId));
-    res.json({ ok: true, realm, tokenHash });
+    res.json({ ok: true, realm, tokenHash, signInId });
   } catch (error) {
     req.log?.error({ err: error }, "auth login verify failed");
     res.status(502).json({ error: SERVER_ERROR });
@@ -618,6 +687,14 @@ router.post(AUTH_PATIENT_PASSWORD_LOGIN_PATH, async (req, res) => {
       // Wrong credentials and unknown accounts stay byte-for-byte identical,
       // but neither can masquerade as a code that was actually delivered.
       res.status(401).json({ error: PATIENT_PASSWORD_ERROR });
+      return;
+    }
+    // Only a proven password reaches this branch, so the answer reveals
+    // nothing about unknown identifiers.
+    if (await forcedResetPending(String(patient.auth_user_id))) {
+      await holdUntilFloor(started);
+      if (identifier.kind === "phone") await holdUntilSmsDeliveryFloor(started);
+      res.status(403).json({ error: PASSWORD_RESET_REQUIRED_MESSAGE, code: PASSWORD_RESET_REQUIRED_CODE });
       return;
     }
     await patientCodeStart(req, res, "login", started, {
@@ -678,9 +755,24 @@ router.post(AUTH_PATIENT_RECOVERY_COMPLETE_PATH, async (req, res) => {
     ) {
       res.status(400).json({ error: SESSION_EXPIRED }); return;
     }
+    // Containment comes first and is required: whoever held the old password
+    // (or a lost phone) must be out before the new password exists. A refused
+    // sweep leaves the proof unconsumed so the same request can be retried.
+    try {
+      await sweepSessionsBeforeRecovery(req, patient!.auth_user_id!);
+    } catch (error) {
+      if (error instanceof SessionContainmentError) { respondSessionContainmentFailed(res); return; }
+      throw error;
+    }
     const consumed = await patchRow(row.id, { consumed_at: new Date().toISOString() }, "&consumed_at=is.null");
     if (consumed !== 1) { res.status(400).json({ error: SESSION_EXPIRED }); return; }
     await updatePatientPassword(patient!.auth_user_id!, password as string);
+    await afterRecoveryCompleted(req, {
+      userId: patient!.auth_user_id!,
+      patientId: String(patient!.id),
+      providerId: patient!.provider_id ? String(patient!.provider_id) : null,
+      requestId: requestIdOf(req),
+    });
     res.json({ ok: true });
   } catch (error) { req.log?.error({ err: error }, "patient recovery complete failed"); res.status(502).json({ error: SERVER_ERROR }); }
   finally { slot.ok && slot.release(); }
@@ -976,8 +1068,9 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       }
       const userId = await ensurePatientAuthUser({ ...patient, ...fill });
       await updatePatientPassword(userId, password as string);
+      const signInId = await noteSignIn(req, { userId, realm: "patient", method: "signup" });
       const tokenHash = await mintSessionTokenHash(await getAuthUserEmail(userId));
-      res.json({ ok: true, tokenHash });
+      res.json({ ok: true, tokenHash, signInId });
       return;
     }
 
@@ -1085,8 +1178,9 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       auth_user_id: userId,
     });
 
+    const signInId = await noteSignIn(req, { userId, realm: "patient", method: "signup" });
     const tokenHash = await mintSessionTokenHash(patientSyntheticEmail(patientId));
-    res.json({ ok: true, tokenHash });
+    res.json({ ok: true, tokenHash, signInId });
   } catch (error) {
     req.log?.error({ err: error, patientId: createdPatientId }, "auth signup complete failed");
     res.status(502).json({ error: SERVER_ERROR });

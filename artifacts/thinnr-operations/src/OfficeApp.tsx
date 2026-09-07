@@ -30,6 +30,7 @@ import OfficeSettings from '@/pages/OfficeSettings';
 import MenuLab from '@/pages/MenuLab';
 import OfficeTeam from '@/pages/OfficeTeam';
 import OfficeAudit from '@/pages/OfficeAudit';
+import Security from '@/pages/Security';
 
 export function OfficeApp() {
   return (
@@ -57,6 +58,7 @@ export function OfficeApp() {
               <Route path="/settings" component={OfficeSettings} />
               <Route path="/team" component={OfficeTeam} />
               <Route path="/audit" component={OfficeAudit} />
+              <Route path="/security" component={Security} />
               <Route component={NotFound} />
             </Switch>
           </Shell>

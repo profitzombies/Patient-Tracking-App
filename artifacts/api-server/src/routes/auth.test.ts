@@ -25,6 +25,7 @@ class FakeBackend {
   twilioApprovedCode: string | null = null;
   twilioStartFailure: { status: number; code?: number } | null = null;
   deletedUsers: string[] = [];
+  adminLogouts: string[] = [];
   failHqAccept = false;
   failProvision = false;
   failRejectedSendSpend = false;
@@ -46,6 +47,8 @@ class FakeBackend {
       staff_role_assignments: [],
       provider_account_locks: [],
       profiles: [],
+      auth_sign_ins: [],
+      account_security_state: [],
     };
     this.authUsers.clear();
     this.sentEmails = [];
@@ -53,6 +56,7 @@ class FakeBackend {
     this.twilioApprovedCode = null;
     this.twilioStartFailure = null;
     this.deletedUsers = [];
+    this.adminLogouts = [];
     this.failHqAccept = false;
     this.failProvision = false;
     this.failRejectedSendSpend = false;
@@ -214,6 +218,11 @@ class FakeBackend {
       };
       this.authUsers.set(id, user);
       return json(200, user);
+    }
+    const logoutMatch = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)\/logout$/);
+    if (logoutMatch && method === "POST") {
+      this.adminLogouts.push(logoutMatch[1]);
+      return json(200, {});
     }
     const idMatch = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)$/);
     if (idMatch && method === "GET") {
@@ -451,7 +460,20 @@ class FakeBackend {
             });
           }
         }
-        const row: Row = { ...body };
+        if (table === "account_security_state") {
+          // Upsert on user_id (Prefer: resolution=merge-duplicates).
+          const existing = this.tables[table].find((row) => row.user_id === body?.user_id);
+          if (existing) {
+            Object.assign(existing, body);
+            return json(200, [existing]);
+          }
+        }
+        const row: Row = {
+          ...(table === "auth_sign_ins"
+            ? { id: crypto.randomUUID(), created_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), session_id: null, revoked_at: null, revoked_reason: null, reported_at: null }
+            : {}),
+          ...body,
+        };
         this.tables[table].push(row);
         return json(201, [row]);
       }
@@ -987,6 +1009,14 @@ describe("staff login verify", () => {
       ok: true,
       realm: "staff",
       tokenHash: "hashed-rivera@clinic.example",
+      signInId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
+    expect(backend.tables.auth_sign_ins).toHaveLength(1);
+    expect(backend.tables.auth_sign_ins[0]).toMatchObject({
+      realm: "staff",
+      method: "email_code",
+      new_device: false,
+      user_id: provider.auth_user_id,
     });
     expect(provider.auth_user_id).toBeTruthy();
     const user = backend.authUsers.get(String(provider.auth_user_id))!;

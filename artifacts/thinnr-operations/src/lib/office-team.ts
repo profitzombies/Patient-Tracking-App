@@ -95,9 +95,11 @@ export async function setTeammateActive(
 export async function signOutTeammate(
   memberId: string,
   office?: string | null,
+  reason?: 'lost_device' | 'suspicious_activity' | 'staff_request' | 'other',
 ): Promise<{ member: OfficeTeamMember; sessionInvalidation: SessionInvalidation }> {
   return officeRequest(`${base}/${encodeURIComponent(memberId)}/sign-out${officeQuery(office)}`, MESSAGES, {
     method: 'POST',
+    body: JSON.stringify({ ...(reason ? { reason } : {}) }),
   });
 }
 

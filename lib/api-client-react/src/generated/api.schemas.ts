@@ -840,12 +840,21 @@ export interface HqAuditEvent {
   /** @nullable */
   actorUserId: string | null;
   actorKind: string;
+  /** Resolved HQ member / office / teammate name, or a kind label */
+  actorName: string;
   /** @nullable */
   providerId: string | null;
+  /** @nullable */
+  officeName: string | null;
   /** @nullable */
   targetKind: string | null;
   /** @nullable */
   targetId: string | null;
+  /**
+     * Kind label plus resolved record name when available
+     * @nullable
+     */
+  targetName: string | null;
   /** @nullable */
   requestId: string | null;
   metadata: HqAuditEventMetadata;
@@ -1995,6 +2004,9 @@ office?: OfficeIdParameter;
 export type GetHqAuditEventsParams = {
 limit?: number;
 offset?: number;
+/**
+ * Office (provider) id chosen from the office picker
+ */
 provider?: string;
 action?: string;
 from?: string;

@@ -1,0 +1,27 @@
+{
+  // tsx config for scripts/verify-office-team.tsx and
+  // scripts/verify-office-audit.tsx ONLY (not part of typecheck —
+  // tsconfig.json includes src/**/* alone).
+  //
+  // The suites render the REAL OfficeTeam / OfficeAudit / HQ Audit pages
+  // under react-test-renderer against a scripted global fetch. Session,
+  // provider-scope and hq-data contexts are the a11y stubs, lib/supabase is
+  // the invite-suite stub (poses as a signed-in staffer), and the three
+  // Radix primitives that need a document (select, dialog, alert-dialog)
+  // are DOM-free stand-ins with the same prop contract. Exact path keys win
+  // over the '@/*' wildcard; every other '@/…' import resolves to real code.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
+      "@/contexts/hq-data": ["./scripts/a11y-stubs/hq-data.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
+      "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
+      "@/components/ui/alert-dialog": ["./scripts/office-admin-stubs/alert-dialog.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

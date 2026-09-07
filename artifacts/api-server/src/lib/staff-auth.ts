@@ -17,6 +17,7 @@
  * server-side, which hop 1 sees on the next cold check).
  */
 import type { NextFunction, Request, Response } from "express";
+import { recordAccessDenied } from "./admin-audit";
 
 export type StaffRole = "hq_admin";
 export type HqDepartmentRole = "super_admin" | "admin" | "clinical" | "support" | "content";
@@ -185,6 +186,12 @@ export function requireHqPermission(permission: HqPermission) {
     }
     if (!hasHqPermission(identity, permission)) {
       res.status(403).json({ error: "Your HQ role does not have permission to do this." });
+      recordAccessDenied(req, {
+        actorUserId: identity.userId,
+        actorKind: "hq",
+        reason: "permission",
+        status: 403,
+      });
       return;
     }
     res.locals.staff = identity;

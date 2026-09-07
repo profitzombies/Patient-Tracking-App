@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { resolveOfficeScope } from "../auth/office-scope";
+import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { requireHqPermission } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 
@@ -188,7 +188,7 @@ router.get("/office/overview", async (req, res) => {
       requireUnlocked: false,
     });
     if (resolved.kind !== "ok") {
-      res.status(resolved.status).json({ error: resolved.message });
+      respondOfficeScopeDenied(req, res, resolved);
       return;
     }
     res.json({
@@ -253,7 +253,7 @@ router.get("/office/analytics", async (req, res) => {
       requireUnlocked: false,
     });
     if (resolved.kind !== "ok") {
-      res.status(resolved.status).json({ error: resolved.message });
+      respondOfficeScopeDenied(req, res, resolved);
       return;
     }
     const providerId = resolved.scope.providerId;

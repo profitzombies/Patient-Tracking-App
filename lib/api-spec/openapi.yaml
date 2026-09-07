@@ -1461,7 +1461,7 @@ paths:
       parameters:
         - { name: limit, in: query, schema: { type: number } }
         - { name: offset, in: query, schema: { type: number } }
-        - { name: provider, in: query, schema: { type: string } }
+        - { name: provider, in: query, description: "Office (provider) id chosen from the office picker", schema: { type: string } }
         - { name: action, in: query, schema: { type: string } }
         - { name: from, in: query, schema: { type: string, format: date } }
         - { name: to, in: query, schema: { type: string, format: date } }
@@ -2069,16 +2069,19 @@ components:
         points: { type: array, items: { $ref: "#/components/schemas/EngagementTrendPoint" } }
     HqAuditEvent:
       type: object
-      required: [id, occurredAt, action, actorUserId, actorKind, providerId, targetKind, targetId, requestId, metadata]
+      required: [id, occurredAt, action, actorUserId, actorKind, actorName, providerId, officeName, targetKind, targetId, targetName, requestId, metadata]
       properties:
         id: { type: number }
         occurredAt: { type: string }
         action: { type: string }
         actorUserId: { type: ["string", "null"] }
         actorKind: { type: string }
+        actorName: { type: string, description: "Resolved HQ member / office / teammate name, or a kind label" }
         providerId: { type: ["string", "null"] }
+        officeName: { type: ["string", "null"] }
         targetKind: { type: ["string", "null"] }
         targetId: { type: ["string", "null"] }
+        targetName: { type: ["string", "null"], description: "Kind label plus resolved record name when available" }
         requestId: { type: ["string", "null"] }
         metadata: { type: object, additionalProperties: true }
     HqAuditEventsResult:

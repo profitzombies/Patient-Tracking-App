@@ -4,11 +4,30 @@ import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
 import { Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/admin/primitives';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AUDIT_ACTION_LABELS, auditActionLabel, auditDetails } from '@/lib/audit-labels';
 import { format } from 'date-fns';
+
+const ALL = '__all__';
+
+const ACTOR_KIND_LABELS: Record<string, string> = {
+  hq: 'HQ staff',
+  provider: 'Office account holder',
+  team_member: 'Office teammate',
+  anonymous: 'Anonymous visitor',
+  learner: 'Training learner',
+  unknown: 'Signed-in user',
+  system: 'System',
+};
+
+function actorKindLabel(kind: string): string {
+  return ACTOR_KIND_LABELS[kind] ?? kind.replace(/_/g, ' ');
+}
 
 export default function Audit() {
   const { authStatus, authUser, hqRole } = useSession();
-  const { findAccount } = useHqData();
+  const { accounts } = useHqData();
+  const officeOptions = [...accounts].sort((a, b) => a.officeName.localeCompare(b.officeName));
   const [page, setPage] = useState(0);
   const limit = 50;
 
@@ -56,20 +75,28 @@ export default function Audit() {
             <div className="flex items-center text-xs font-semibold text-muted-foreground">
               <Filter size={14} className="mr-1.5" /> Filters:
             </div>
-            <input
-              type="text"
-              placeholder="Filter by Action..."
-              value={actionFilter}
-              onChange={(e) => { setActionFilter(e.target.value); setPage(0); }}
-              className="h-9 rounded-md border border-border bg-card px-3 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring"
-            />
-            <input
-              type="text"
-              placeholder="Filter by Provider ID..."
-              value={providerFilter}
-              onChange={(e) => { setProviderFilter(e.target.value); setPage(0); }}
-              className="h-9 rounded-md border border-border bg-card px-3 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring"
-            />
+            <Select value={actionFilter || ALL} onValueChange={(value) => { setActionFilter(value === ALL ? '' : value); setPage(0); }}>
+              <SelectTrigger className="h-9 w-56 text-xs" aria-label="Filter by action" data-testid="select-audit-action">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL} className="text-xs">All actions</SelectItem>
+                {Object.entries(AUDIT_ACTION_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value} className="text-xs">{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={providerFilter || ALL} onValueChange={(value) => { setProviderFilter(value === ALL ? '' : value); setPage(0); }}>
+              <SelectTrigger className="h-9 w-56 text-xs" aria-label="Filter by office" data-testid="select-audit-office">
+                <SelectValue placeholder="All offices" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL} className="text-xs">All offices</SelectItem>
+                {officeOptions.map((account) => (
+                  <SelectItem key={account.id} value={account.id} className="text-xs">{account.officeName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <div className="flex items-center gap-1">
               <input
                 type="date"
@@ -97,7 +124,7 @@ export default function Audit() {
                 <th className="px-4 py-3 font-semibold">Timestamp</th>
                 <th className="px-4 py-3 font-semibold">Action</th>
                 <th className="px-4 py-3 font-semibold">Actor</th>
-                <th className="px-4 py-3 font-semibold">Provider</th>
+                <th className="px-4 py-3 font-semibold">Office</th>
                 <th className="px-4 py-3 font-semibold">Target</th>
                 <th className="px-4 py-3 font-semibold text-right">Details</th>
               </tr>
@@ -121,23 +148,24 @@ export default function Audit() {
                 </tr>
               )}
               {!isLoading && !isError && data?.events.map((event) => {
-                const account = event.providerId ? findAccount(event.providerId) : undefined;
+                const details = auditDetails(event.metadata as Record<string, string | number | boolean | null>, { includeIds: true });
                 return (
                 <tr key={event.id} className="border-b border-border last:border-0 hover:bg-accent/40 transition-colors">
                   <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
                     {format(new Date(event.occurredAt), 'MMM d, yyyy HH:mm:ss')}
                   </td>
-                  <td className="px-4 py-3 font-mono font-medium text-navy">
-                    {event.action}
+                  <td className="px-4 py-3">
+                    <span className={`block font-medium ${event.action === 'access_denied' ? 'text-destructive' : 'text-navy'}`}>{auditActionLabel(event.action)}</span>
+                    <span className="block font-mono text-[10px] text-muted-foreground">{event.action}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="block text-foreground">{event.actorKind}</span>
-                    <span className="block text-[10px] text-muted-foreground font-mono">{event.actorUserId ?? 'System'}</span>
+                    <span className="block text-foreground" data-testid={`text-actor-${event.id}`}>{event.actorName}</span>
+                    <span className="block text-[10px] text-muted-foreground">{actorKindLabel(event.actorKind)}</span>
                   </td>
                   <td className="px-4 py-3">
                     {event.providerId ? (
                       <>
-                        <span className="block text-foreground">{account?.officeName ?? 'Provider'}</span>
+                        <span className="block text-foreground" data-testid={`text-office-${event.id}`}>{event.officeName ?? 'Office'}</span>
                         <span className="block font-mono text-[10px] text-muted-foreground">{event.providerId}</span>
                       </>
                     ) : (
@@ -147,8 +175,10 @@ export default function Audit() {
                   <td className="px-4 py-3">
                     {event.targetKind ? (
                       <>
-                        <span className="block text-foreground">{event.targetKind}</span>
-                        <span className="block text-[10px] text-muted-foreground font-mono">{event.targetId}</span>
+                        <span className="block text-foreground">{event.targetName ?? event.targetKind}</span>
+                        {event.targetId && event.targetKind !== 'route' && (
+                          <span className="block text-[10px] text-muted-foreground font-mono">{event.targetId}</span>
+                        )}
                       </>
                     ) : (
                       <span className="text-muted-foreground/50">—</span>
@@ -156,13 +186,18 @@ export default function Audit() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex flex-col items-end gap-1">
+                      {details.length > 0 && (
+                        <dl className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-[11px]">
+                          {details.map((detail) => (
+                            <div key={detail.label} className="flex gap-1">
+                              <dt className="text-muted-foreground">{detail.label}:</dt>
+                              <dd className="text-foreground">{detail.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
                       {event.requestId && (
                         <span className="text-[9px] font-mono text-muted-foreground/70 uppercase">REQ: {event.requestId}</span>
-                      )}
-                      {Object.keys(event.metadata).length > 0 && (
-                        <pre className="text-left text-[10px] text-muted-foreground bg-secondary px-2 py-1 rounded max-w-[250px] overflow-x-auto">
-                          {JSON.stringify(event.metadata, null, 2)}
-                        </pre>
                       )}
                     </div>
                   </td>

@@ -17,6 +17,8 @@
  * `requireUnlocked` so invitations into a locked office are refused for HQ
  * too.
  */
+import type { Request, Response } from "express";
+import { recordAccessDenied } from "../lib/admin-audit";
 import { fetchAuthUser, supabaseAdmin } from "../lib/supabase-admin";
 import { providerLocked } from "./directory";
 import {
@@ -38,28 +40,55 @@ export interface OfficeScope {
   /** Auth user id of the caller — recorded as the inviter. */
   actorUserId: string;
   actorKind: "provider" | "team_member" | "hq";
+  /**
+   * Office-level authority. The provider account holder and HQ drill-ins act
+   * as owners; team members carry their team_members.office_role.
+   */
+  officeRole: OfficeRole;
+  /** The caller's own team_members row, when they are a teammate. */
+  teamMemberId: string | null;
 }
 
-export type OfficeScopeResult =
-  | { kind: "ok"; scope: OfficeScope }
-  | { kind: "denied"; status: number; message: string };
+export type OfficeRole = "owner" | "admin" | "staff";
 
-const SIGN_IN = { kind: "denied", status: 401, message: "Sign in to continue." } as const;
-const STAFF_ONLY = {
-  kind: "denied",
-  status: 403,
-  message: "Only office staff can use this.",
-} as const;
-const OFFICE_LOCKED = {
-  kind: "denied",
-  status: 403,
-  message: "This office's account is locked. Contact THINNR support.",
-} as const;
-const OFFICE_UNAVAILABLE = {
-  kind: "denied",
-  status: 404,
-  message: "That office isn't available.",
-} as const;
+export type OfficeScopeDenialReason =
+  | "sign_in"
+  | "staff_only"
+  | "office_locked"
+  | "office_unavailable"
+  | "deactivated"
+  | "permission"
+  | "office_required";
+
+export type OfficeScopeDenied = {
+  kind: "denied";
+  status: number;
+  message: string;
+  reason: OfficeScopeDenialReason;
+  /** The authenticated caller behind the refusal, when the token was live. */
+  actorUserId: string | null;
+  /** The office the refusal concerned, when one resolved. */
+  providerId: string | null;
+};
+
+export type OfficeScopeResult = { kind: "ok"; scope: OfficeScope } | OfficeScopeDenied;
+
+function denied(
+  status: number,
+  message: string,
+  reason: OfficeScopeDenialReason,
+  actorUserId: string | null = null,
+  providerId: string | null = null,
+): OfficeScopeDenied {
+  return { kind: "denied", status, message, reason, actorUserId, providerId };
+}
+
+const SIGN_IN_MESSAGE = "Sign in to continue.";
+const STAFF_ONLY_MESSAGE = "Only office staff can use this.";
+const OFFICE_LOCKED_MESSAGE = "This office's account is locked. Contact THINNR support.";
+const OFFICE_UNAVAILABLE_MESSAGE = "That office isn't available.";
+export const STAFF_DEACTIVATED_MESSAGE =
+  "Your office access has been deactivated. Ask an office owner to reactivate it.";
 
 interface OfficeRow {
   provider_id: string;
@@ -85,6 +114,7 @@ function officeScopeFrom(
   row: OfficeRow,
   actorUserId: string,
   actorKind: OfficeScope["actorKind"],
+  member: { id: string; officeRole: OfficeRole } | null = null,
 ): OfficeScope {
   return {
     providerId: row.provider_id,
@@ -93,7 +123,18 @@ function officeScopeFrom(
     onboardingCode: row.onboarding_code ? String(row.onboarding_code) : null,
     actorUserId,
     actorKind,
+    officeRole: member ? member.officeRole : "owner",
+    teamMemberId: member ? member.id : null,
   };
+}
+
+export function isOfficeRole(value: unknown): value is OfficeRole {
+  return value === "owner" || value === "admin" || value === "staff";
+}
+
+/** Owners and admins run the office: team changes and the office audit trail. */
+export function canManageOffice(scope: Pick<OfficeScope, "officeRole">): boolean {
+  return scope.officeRole === "owner" || scope.officeRole === "admin";
 }
 
 /** Office account ids arrive bare or seeded (`acct-<id>`); locks and the HQ UI use bare. */
@@ -112,11 +153,11 @@ export async function resolveOfficeScope(input: {
 }): Promise<OfficeScopeResult> {
   const header = input.authorization ?? "";
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
-  if (!token) return SIGN_IN;
+  if (!token) return denied(401, SIGN_IN_MESSAGE, "sign_in");
 
   // Hop 1: GoTrue confirms the token is live and yields the auth user id.
   const user = await fetchAuthUser(token);
-  if (!user) return SIGN_IN;
+  if (!user) return denied(401, SIGN_IN_MESSAGE, "sign_in");
 
   // Provider owner? The office is their own — explicit input is ignored.
   const providers = await supabaseAdmin(
@@ -127,52 +168,94 @@ export async function resolveOfficeScope(input: {
   const providerRows = Array.isArray(providers.json) ? (providers.json as OfficeRow[]) : [];
   if (providerRows.length === 1) {
     const row = providerRows[0];
-    if (row.access_disabled === true) return OFFICE_UNAVAILABLE;
-    if (await providerLocked(row.provider_id)) return OFFICE_LOCKED;
+    if (row.access_disabled === true) {
+      return denied(404, OFFICE_UNAVAILABLE_MESSAGE, "office_unavailable", user.id, row.provider_id);
+    }
+    if (await providerLocked(row.provider_id)) {
+      return denied(403, OFFICE_LOCKED_MESSAGE, "office_locked", user.id, row.provider_id);
+    }
     return { kind: "ok", scope: officeScopeFrom(row, user.id, "provider") };
   }
 
-  // Office team member? Same rule — always their own office.
+  // Office team member? Same rule — always their own office. A deactivated
+  // teammate fails closed HERE, before any HQ fallback could be consulted.
   const members = await supabaseAdmin(
     "GET",
-    `/rest/v1/team_members?auth_user_id=eq.${enc(user.id)}&select=id,provider_id,activation_status&limit=2`,
+    `/rest/v1/team_members?auth_user_id=eq.${enc(user.id)}&select=id,provider_id,activation_status,office_role&limit=2`,
   );
   if (members.status >= 300) throw new Error(`team member lookup failed (${members.status})`);
   const memberRows = (Array.isArray(members.json) ? members.json : []) as Array<{
+    id: string;
     provider_id: string | null;
     activation_status: string | null;
+    office_role: string | null;
   }>;
-  if (memberRows.length === 1 && memberRows[0].activation_status !== "disabled") {
-    const providerId = memberRows[0].provider_id;
-    if (!providerId) return STAFF_ONLY;
+  if (memberRows.length === 1) {
+    const member = memberRows[0];
+    const providerId = member.provider_id;
+    if (member.activation_status === "disabled") {
+      return denied(403, STAFF_DEACTIVATED_MESSAGE, "deactivated", user.id, providerId);
+    }
+    if (!providerId) return denied(403, STAFF_ONLY_MESSAGE, "staff_only", user.id);
     const office = await loadOffice(providerId);
-    if (!office || office.access_disabled === true) return OFFICE_UNAVAILABLE;
-    if (await providerLocked(office.provider_id)) return OFFICE_LOCKED;
-    return { kind: "ok", scope: officeScopeFrom(office, user.id, "team_member") };
+    if (!office || office.access_disabled === true) {
+      return denied(404, OFFICE_UNAVAILABLE_MESSAGE, "office_unavailable", user.id, providerId);
+    }
+    if (await providerLocked(office.provider_id)) {
+      return denied(403, OFFICE_LOCKED_MESSAGE, "office_locked", user.id, providerId);
+    }
+    return {
+      kind: "ok",
+      scope: officeScopeFrom(office, user.id, "team_member", {
+        id: String(member.id),
+        officeRole: isOfficeRole(member.office_role) ? member.office_role : "staff",
+      }),
+    };
   }
 
   // HQ — must name the office explicitly and hold the permission.
   const identity = await verifyStaffToken(token);
-  if (!identity) return STAFF_ONLY;
+  if (!identity) return denied(403, STAFF_ONLY_MESSAGE, "staff_only", user.id);
   if (!hasHqPermission(identity, input.hqPermission)) {
-    return {
-      kind: "denied",
-      status: 403,
-      message: "Your HQ role does not have permission to do this.",
-    };
+    return denied(
+      403,
+      "Your HQ role does not have permission to do this.",
+      "permission",
+      identity.userId,
+    );
   }
   const explicit = (input.explicitOfficeId ?? "").trim();
   if (!explicit) {
-    return {
-      kind: "denied",
-      status: 400,
-      message: "Choose an office before managing its patients.",
-    };
+    return denied(400, "Choose an office before managing its patients.", "office_required", identity.userId);
   }
   const office = await loadOffice(canonicalOfficeId(explicit));
-  if (!office || office.access_disabled === true) return OFFICE_UNAVAILABLE;
+  if (!office || office.access_disabled === true) {
+    return denied(404, OFFICE_UNAVAILABLE_MESSAGE, "office_unavailable", identity.userId);
+  }
   if (input.requireUnlocked && (await providerLocked(office.provider_id))) {
-    return OFFICE_LOCKED;
+    return denied(403, OFFICE_LOCKED_MESSAGE, "office_locked", identity.userId, office.provider_id);
   }
   return { kind: "ok", scope: officeScopeFrom(office, identity.userId, "hq") };
+}
+
+/**
+ * Answer a refused office-scope resolution and, when an authenticated caller
+ * was turned away from a sensitive route, leave an audit trail of the
+ * attempt. Anonymous / expired tokens (401) are not recorded.
+ */
+export function respondOfficeScopeDenied(req: Request, res: Response, result: OfficeScopeDenied): void {
+  res.status(result.status).json({ error: result.message });
+  if (result.status !== 403 || !result.actorUserId) return;
+  const reason =
+    result.reason === "deactivated" || result.reason === "office_locked" ||
+    result.reason === "office_unavailable" || result.reason === "staff_only"
+      ? result.reason
+      : "permission";
+  recordAccessDenied(req, {
+    actorUserId: result.actorUserId,
+    actorKind: result.reason === "permission" ? "hq" : "unknown",
+    providerId: result.providerId,
+    reason,
+    status: result.status,
+  });
 }

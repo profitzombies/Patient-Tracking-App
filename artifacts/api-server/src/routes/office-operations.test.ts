@@ -6,8 +6,11 @@ import type { AddressInfo } from "node:net";
 const mocks = vi.hoisted(() => ({ admin: vi.fn(), audit: vi.fn(), scope: vi.fn() }));
 const { admin, audit, scope } = mocks;
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: mocks.admin }));
-vi.mock("../auth/office-scope", () => ({ resolveOfficeScope: mocks.scope }));
-vi.mock("../lib/admin-audit", () => ({ recordAdminAuditEvent: mocks.audit }));
+vi.mock("../auth/office-scope", async () => {
+  const actual = await vi.importActual<typeof import("../auth/office-scope")>("../auth/office-scope");
+  return { ...actual, resolveOfficeScope: mocks.scope };
+});
+vi.mock("../lib/admin-audit", () => ({ recordAdminAuditEvent: mocks.audit, recordAccessDenied: vi.fn(), requestIdOf: () => null }));
 import router from "./office-operations";
 
 let server: http.Server; let base = "";

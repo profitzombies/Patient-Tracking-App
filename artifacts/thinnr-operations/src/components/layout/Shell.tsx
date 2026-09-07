@@ -44,12 +44,17 @@ export function Shell({ children }: { children: ReactNode }) {
   const patients = useScopedPatients();
   const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const activeTabRef = useRef<HTMLAnchorElement>(null);
   const scrollPositionsRef = useRef(new Map<string, number>());
   const isHistoryNavigationRef = useRef(false);
 
   // One shared item list drives this menu and the /menu design lab.
   const navItems = OFFICE_NAV_ITEMS;
   const activeItem = findActiveOfficeNavItem(location);
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeItem.path]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -207,7 +212,9 @@ export function Shell({ children }: { children: ReactNode }) {
           {children}
         </div>
 
-        <nav aria-label="Mobile primary navigation" className="grid shrink-0 grid-cols-7 border-t border-border bg-paper-alt md:hidden">
+        {/* Phone tab bar: nine destinations don't fit a 390px row, so the bar
+            scrolls sideways and keeps the active tab in view. */}
+        <nav aria-label="Mobile primary navigation" className="flex shrink-0 overflow-x-auto border-t border-border bg-paper-alt [scrollbar-width:none] md:hidden">
           {navItems.map((item) => {
             const isActive = activeItem.path === item.path;
             const mobileLabel = item.mobileLabel;
@@ -216,7 +223,8 @@ export function Shell({ children }: { children: ReactNode }) {
                 key={item.path}
                 href={item.path}
                 aria-current={isActive ? 'page' : undefined}
-                className={`flex min-h-14 flex-col items-center justify-center gap-1 border-t-2 px-1 py-2 text-center text-[9px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                ref={isActive ? activeTabRef : undefined}
+                className={`flex min-h-14 min-w-[64px] flex-1 flex-col items-center justify-center gap-1 border-t-2 px-1 py-2 text-center text-[9px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
                   isActive
                     ? 'border-primary bg-accent text-navy'
                     : 'border-transparent text-muted-foreground hover:bg-secondary'

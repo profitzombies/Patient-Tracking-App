@@ -2041,7 +2041,7 @@ export const DeleteHqFileResponse = zod.object({
 export const GetHqAuditEventsQueryParams = zod.object({
   "limit": zod.coerce.number().optional(),
   "offset": zod.coerce.number().optional(),
-  "provider": zod.coerce.string().optional(),
+  "provider": zod.coerce.string().optional().describe('Office (provider) id chosen from the office picker'),
   "action": zod.coerce.string().optional(),
   "from": zod.date().optional(),
   "to": zod.date().optional()
@@ -2054,9 +2054,12 @@ export const GetHqAuditEventsResponse = zod.object({
   "action": zod.string(),
   "actorUserId": zod.string().nullable(),
   "actorKind": zod.string(),
+  "actorName": zod.string().describe('Resolved HQ member \/ office \/ teammate name, or a kind label'),
   "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
   "targetKind": zod.string().nullable(),
   "targetId": zod.string().nullable(),
+  "targetName": zod.string().nullable().describe('Kind label plus resolved record name when available'),
   "requestId": zod.string().nullable(),
   "metadata": zod.record(zod.string(), zod.unknown())
 })),

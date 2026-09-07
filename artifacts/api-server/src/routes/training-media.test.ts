@@ -15,6 +15,17 @@ const CUSTOM_THUMB_PATH = `/objects/training-videos/${VIDEO_ID}/thumb-22222222-2
 const ATTACHMENT_PATH = `/objects/training-attachments/${VIDEO_ID}/file-33333333-3333-4333-8333-333333333333`;
 const SECOND_ATTACHMENT_PATH = `/objects/training-attachments/${VIDEO_ID}/file-44444444-4444-4444-8444-444444444444`;
 
+const auditState = vi.hoisted(() => ({ events: [] as Array<Record<string, unknown>> }));
+vi.mock("../lib/admin-audit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/admin-audit")>();
+  return {
+    ...actual,
+    recordAdminAuditEvent: vi.fn(async (event: Record<string, unknown>) => {
+      auditState.events.push(event);
+    }),
+  };
+});
+
 const state = vi.hoisted(() => ({
   record: {
     id: "11111111-1111-4111-8111-111111111111",
@@ -266,6 +277,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  auditState.events = [];
   state.record.video_source = VIDEO_PATH;
   state.record.thumbnail_source = OLD_THUMB_PATH;
   state.record.duration_seconds = 120;
@@ -632,6 +644,16 @@ describe("lesson attachments", () => {
       `/training/videos/${VIDEO_ID}/attachments/att-nope/download-url`,
     );
     expect(unknown.status).toBe(404);
+
+    // Only the download that actually happened is audited — by ids, never
+    // by URL or file name. The open download route has no staff identity,
+    // so the actor is a learner.
+    expect(auditState.events).toHaveLength(1);
+    expect(auditState.events[0]).toMatchObject({
+      action: "training_attachment_downloaded", actorKind: "learner", actorUserId: null,
+      targetKind: "training_video", targetId: VIDEO_ID, metadata: { mediaKind: "attachment", attachmentId: "att-hosted" },
+    });
+    expect(JSON.stringify(auditState.events[0])).not.toContain("storage.test");
   });
 
   it("removing an attachment deletes its stored file; legacy removals skip storage", async () => {
@@ -658,6 +680,11 @@ describe("lesson attachments", () => {
 
     const gone = await del(`/training/videos/${VIDEO_ID}/attachments/att-legacy`);
     expect(gone.status).toBe(404);
+
+    expect(auditState.events.map((event) => [event.action, (event.metadata as Record<string, unknown>).attachmentId])).toEqual([
+      ["training_media_deleted", "att-hosted"],
+      ["training_media_deleted", "att-legacy"],
+    ]);
   });
 
   it("a refused storage delete keeps the entry retryable — never an invisible orphan", async () => {

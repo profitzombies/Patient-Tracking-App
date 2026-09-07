@@ -17,11 +17,11 @@
  * Profile edits run through one SQL function so a claimed account's login
  * identifiers move in the same transaction as the patients row.
  */
-import { Router, type IRouter, type Request } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase-admin";
-import { resolveOfficeScope, type OfficeScope } from "../auth/office-scope";
+import { resolveOfficeScope, respondOfficeScopeDenied, type OfficeScope, type OfficeScopeDenied } from "../auth/office-scope";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { normalizeUsPhone } from "./provider-accounts";
 import { dayKeyInTimeZone } from "../lib/local-day";
@@ -53,7 +53,12 @@ const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 type Scoped =
   | { kind: "ok"; scope: OfficeScope; patient: PatientRosterRow }
-  | { kind: "denied"; status: number; message: string };
+  | { kind: "denied"; status: number; message: string; denial?: OfficeScopeDenied };
+
+function respondScoped(req: Request, res: Response, scoped: Extract<Scoped, { kind: "denied" }>): void {
+  if (scoped.denial) { respondOfficeScopeDenied(req, res, scoped.denial); return; }
+  res.status(scoped.status).json({ error: scoped.message });
+}
 
 /**
  * Manage-scope + scoped patient lookup. Office staff get their own office;
@@ -71,7 +76,7 @@ async function scopedPatient(req: Request): Promise<Scoped> {
     hqPermission: "provider_manage",
     requireUnlocked: true,
   });
-  if (resolved.kind !== "ok") return { kind: "denied", status: resolved.status, message: resolved.message };
+  if (resolved.kind !== "ok") return { kind: "denied", status: resolved.status, message: resolved.message, denial: resolved };
   const patientId = String(req.params.id ?? "");
   const found = await supabaseAdmin(
     "GET",
@@ -229,7 +234,7 @@ router.patch("/office/patients/:id", async (req, res) => {
     if (fields.length === 0) { res.status(400).json({ error: "Change at least one field." }); return; }
 
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
 
@@ -279,7 +284,7 @@ router.patch("/office/patients/:id/status", async (req, res) => {
       res.status(400).json({ error: "Give a reason for pausing or discharging this patient.", field: "reason" }); return;
     }
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
     const current = String(patient.activation_status ?? "");
@@ -325,7 +330,7 @@ router.post("/office/patients/:id/notes", async (req, res) => {
     const parsed = NoteInput.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json(firstIssue(parsed.error)); return; }
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
     const noteId = crypto.randomUUID();
@@ -358,7 +363,7 @@ router.post("/office/patients/:id/notes", async (req, res) => {
 router.delete("/office/patients/:id/notes/:noteId", async (req, res) => {
   try {
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
     const noteId = String(req.params.noteId ?? "");
@@ -419,7 +424,7 @@ router.post("/office/patients/:id/weights", async (req, res) => {
     const parsed = WeightCreateInput.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json(firstIssue(parsed.error)); return; }
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
     const issue = weightIssue(parsed.data.weight, parsed.data.dateKey, patient);
@@ -467,7 +472,7 @@ router.patch("/office/patients/:id/weights/:weightId", async (req, res) => {
       res.status(400).json({ error: "Change at least one field." }); return;
     }
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
     const issue = weightIssue(input.weight, input.dateKey, patient);
@@ -515,7 +520,7 @@ router.delete("/office/patients/:id/weights/:weightId", async (req, res) => {
     const parsed = WeightDeleteInput.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json(firstIssue(parsed.error)); return; }
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
     const weightId = String(req.params.weightId ?? "");
@@ -595,7 +600,7 @@ router.post("/office/patients/:id/measurements", async (req, res) => {
     const parsed = MeasurementCreateInput.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json(measurementParseIssue(parsed.error)); return; }
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
     const issue = measurementIssue(parsed.data, patient);
@@ -646,7 +651,7 @@ router.delete("/office/patients/:id/measurements/:visitId", async (req, res) => 
     const parsed = MeasurementDeleteInput.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json(firstIssue(parsed.error)); return; }
     const scoped = await scopedPatient(req);
-    if (scoped.kind !== "ok") { res.status(scoped.status).json({ error: scoped.message }); return; }
+    if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
     const { scope, patient } = scoped;
     const patientId = String(patient.id);
     const visitId = String(req.params.visitId ?? "");

@@ -74,7 +74,8 @@ import {
   writeDescription,
 } from "../training/pipeline";
 import { keepaliveIntervalMs, UpstreamTimeoutError } from "../coach/upstream";
-import { requireHqPermission } from "../lib/staff-auth";
+import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
+import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 const requireContentManager = requireHqPermission("content_manage");
@@ -96,6 +97,32 @@ router.use((req, res, next) => {
   }
   void requireContentManager(req, res, next);
 });
+
+/**
+ * Training media/attachment changes and attachment downloads are audited by
+ * lesson id + attachment id only — never file names or contents. Downloads
+ * come from the open learner surface, so the actor is the learner, not a
+ * staff login.
+ */
+function auditTrainingMedia(
+  req: Request,
+  res: Response,
+  action: "training_media_deleted" | "training_attachment_downloaded",
+  videoId: string,
+  metadata: { mediaKind: "video" | "attachment" | "attachments"; attachmentId?: string; rows?: number },
+): void {
+  const actor = res.locals.staff as StaffIdentity | undefined;
+  void recordAdminAuditEvent({
+    action,
+    actorUserId: actor?.userId ?? null,
+    actorKind: actor ? "hq" : "learner",
+    providerId: null,
+    targetKind: "training_video",
+    targetId: videoId,
+    requestId: requestIdOf(req),
+    metadata,
+  }).catch((error) => req.log?.error({ err: error }, "training media audit failed"));
+}
 
 export const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
 export const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
@@ -725,6 +752,7 @@ router.delete(
         return;
       }
       await deleteTranscript(record.id);
+      auditTrainingMedia(req, res, "training_media_deleted", record.id, { mediaKind: "video" });
       res.json({ removed: true });
     } catch (error) {
       req.log?.error({ err: error }, "training remove file failed");
@@ -1101,6 +1129,7 @@ router.delete(
         res.status(409).json({ error: "The lesson changed while removing the attachment — try again." });
         return;
       }
+      auditTrainingMedia(req, res, "training_media_deleted", record.id, { mediaKind: "attachment", attachmentId });
       res.json({ removed: true });
     } catch (error) {
       req.log?.error({ err: error }, "training attachment remove failed");
@@ -1178,6 +1207,9 @@ router.delete(
         });
         return;
       }
+      if (removableIds.size > 0) {
+        auditTrainingMedia(req, res, "training_media_deleted", record.id, { mediaKind: "attachments", rows: removableIds.size });
+      }
       res.json({ removed: removableIds.size, deletedObjects });
     } catch (error) {
       req.log?.error({ err: error }, "training attachments clear failed");
@@ -1208,6 +1240,10 @@ router.get(
         return;
       }
       const downloadUrl = await objectStorage.signedDownloadURL(source, ATTACHMENT_DOWNLOAD_TTL_SEC);
+      auditTrainingMedia(req, res, "training_attachment_downloaded", record.id, {
+        mediaKind: "attachment",
+        attachmentId: String(entry.id),
+      });
       res.json({
         downloadUrl,
         name: typeof entry.name === "string" && entry.name ? entry.name : "Attachment",

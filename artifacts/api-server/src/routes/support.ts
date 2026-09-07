@@ -54,6 +54,7 @@ import {
 import { acquireSupportSlot } from "../support/limits";
 import { BrandSpellingSmoother } from "../lib/brand-spelling";
 import { EmojiSmoother } from "../support/text-guards";
+import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 
@@ -217,6 +218,24 @@ router.post("/support/chat", async (req, res) => {
       },
       "support chat documents selected",
     );
+
+    // Usage is audited as a count only — which turn of an anonymous chat
+    // this is and how many documents were consulted. No transcript text,
+    // no message bodies, ever.
+    void recordAdminAuditEvent({
+      action: "ai_support_used",
+      actorUserId: null,
+      actorKind: "anonymous",
+      providerId: null,
+      targetKind: "support_chat",
+      targetId: null,
+      requestId: requestIdOf(req),
+      metadata: {
+        turn: history.filter((m) => m.role === "user").length,
+        rows: selection.primaryIds.length,
+        kind: selection.broadened ? "full" : "primary",
+      },
+    }).catch((error) => req.log?.warn({ err: error }, "support usage audit failed"));
 
     // Replies the provider stopped mid-stream arrive flagged; annotate them
     // once so the model never continues cut-off text.

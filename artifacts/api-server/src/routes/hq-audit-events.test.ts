@@ -30,3 +30,51 @@ describe("HQ audit events", () => {
     expect((await fetch(`${base}/hq/audit-events?action=future_unapproved_action`, { headers: { authorization: "Bearer admin" } })).status).toBe(400);
   });
 });
+describe("HQ audit name resolution", () => {
+  it("adds actor, office, and target names from the lookup tables and keeps raw ids for HQ", async () => {
+    mocks.admin.mockReset().mockImplementation(async (_method: string, path: string) => {
+      if (path.startsWith("/rest/v1/admin_audit_events")) {
+        return { status: 200, contentRange: "0-2/3", json: [
+          { id: 1, occurred_at: "2026-01-02T10:00:00Z", action: "office_team_deactivated", actor_user_id: "u-provider", actor_kind: "provider", provider_id: "p1", target_kind: "team_member", target_id: "tm-1", request_id: "r1", metadata: { role: "staff", status: "disabled" } },
+          { id: 2, occurred_at: "2026-01-02T11:00:00Z", action: "knowledge_document_deleted", actor_user_id: "u-hq", actor_kind: "hq", provider_id: null, target_kind: "knowledge_document", target_id: "kd-1", request_id: null, metadata: { size: 1024, contentType: "application/pdf", body: "leak" } },
+          { id: 3, occurred_at: "2026-01-02T12:00:00Z", action: "access_denied", actor_user_id: "u-gone", actor_kind: "team_member", provider_id: "p1", target_kind: "route", target_id: "GET /office/team", request_id: null, metadata: { reason: "permission", route: "/office/team", method: "GET", status: 403 } },
+        ] };
+      }
+      if (path.startsWith("/rest/v1/hq_memberships")) return { status: 200, json: [{ auth_user_id: "u-hq", display_name: "Avery HQ" }] };
+      if (path.startsWith("/rest/v1/providers?auth_user_id")) return { status: 200, json: [{ auth_user_id: "u-provider", provider_name: "Dr. Reyes" }] };
+      if (path.startsWith("/rest/v1/team_members?auth_user_id")) return { status: 200, json: [] };
+      if (path.startsWith("/rest/v1/providers?provider_id")) return { status: 200, json: [{ provider_id: "p1", provider_name: "Dr. Reyes", office_name: "Harbor Med Spa" }] };
+      if (path.startsWith("/rest/v1/team_members?id")) return { status: 200, json: [{ id: "tm-1", name: "Sam Front Desk" }] };
+      if (path.startsWith("/rest/v1/knowledge_documents?id")) return { status: 200, json: [{ id: "kd-1", title: "Program FAQ" }] };
+      throw new Error(`unexpected lookup ${path}`);
+    });
+    const res = await fetch(`${base}/hq/audit-events`, { headers: { authorization: "Bearer admin" } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { events: Array<Record<string, unknown>> };
+    expect(body.events.map((e) => [e.actorName, e.officeName, e.targetName])).toEqual([
+      ["Dr. Reyes", "Harbor Med Spa", "Teammate: Sam Front Desk"],
+      ["Avery HQ", null, "Knowledge document: Program FAQ"],
+      // Unresolvable actors fall back to a kind label; routes are shown as-is.
+      ["Office teammate", "Harbor Med Spa", "Protected route: GET /office/team"],
+    ]);
+    // HQ keeps the raw ids alongside the names, and the allowlist still strips stray keys.
+    expect(body.events[0]).toMatchObject({ actorUserId: "u-provider", providerId: "p1", targetId: "tm-1" });
+    expect(body.events[1].metadata).toEqual({ size: 1024, contentType: "application/pdf" });
+    expect(body.events[2].metadata).toEqual({ reason: "permission", route: "/office/team", method: "GET", status: 403 });
+  });
+
+  it("still answers the page when a name lookup fails", async () => {
+    mocks.admin.mockReset().mockImplementation(async (_method: string, path: string) => {
+      if (path.startsWith("/rest/v1/admin_audit_events")) {
+        return { status: 200, contentRange: "0-0/1", json: [
+          { id: 1, occurred_at: "2026-01-02T10:00:00Z", action: "patient_note_added", actor_user_id: "u-x", actor_kind: "team_member", provider_id: "p1", target_kind: "patient", target_id: "pt-1", request_id: null, metadata: { noteId: "n-1" } },
+        ] };
+      }
+      return { status: 500, json: null };
+    });
+    const res = await fetch(`${base}/hq/audit-events`, { headers: { authorization: "Bearer admin" } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { events: Array<Record<string, unknown>> };
+    expect(body.events[0]).toMatchObject({ actorName: "Office teammate", officeName: null, targetName: "Patient" });
+  });
+});

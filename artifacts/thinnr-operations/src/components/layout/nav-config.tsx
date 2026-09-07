@@ -9,11 +9,13 @@
  */
 import {
   Box,
+  ClipboardList,
   GraduationCap,
   LayoutDashboard,
   Settings,
   Sparkles,
   Trophy,
+  UserCog,
   Users,
   WalletCards,
   type LucideIcon,
@@ -37,6 +39,8 @@ export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/subscriptions', label: 'Subscriptions', mobileLabel: 'Plans', icon: Box },
   { path: '/training', label: 'Training', mobileLabel: 'Training', icon: GraduationCap },
   { path: '/ai-support', label: 'AI Support', mobileLabel: 'Support', icon: Sparkles },
+  { path: '/team', label: 'Team', mobileLabel: 'Team', icon: UserCog },
+  { path: '/audit', label: 'Audit trail', mobileLabel: 'Audit', icon: ClipboardList },
 ];
 
 /**
@@ -53,6 +57,7 @@ export const OFFICE_NAV_SECTION_DEFS = [
   { label: 'Operations', paths: ['/patients', '/subscriptions'] },
   { label: 'Insights', paths: ['/analytics', '/leaderboard'] },
   { label: 'Learning', paths: ['/training', '/ai-support'] },
+  { label: 'Administration', paths: ['/team', '/audit'] },
 ];
 
 /** Overview is an exact match; every other section owns its subtree. */

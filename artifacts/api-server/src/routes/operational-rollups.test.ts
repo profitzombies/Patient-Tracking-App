@@ -5,7 +5,10 @@ import type { AddressInfo } from "node:net";
 
 const mocks = vi.hoisted(() => ({ admin: vi.fn(), scope: vi.fn(), staff: vi.fn() }));
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: mocks.admin }));
-vi.mock("../auth/office-scope", () => ({ resolveOfficeScope: mocks.scope }));
+vi.mock("../auth/office-scope", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../auth/office-scope")>()),
+  resolveOfficeScope: mocks.scope,
+}));
 vi.mock("../lib/staff-auth", async () => {
   const actual = await vi.importActual<typeof import("../lib/staff-auth")>("../lib/staff-auth");
   return {

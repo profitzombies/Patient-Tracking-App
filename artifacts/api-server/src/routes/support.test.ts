@@ -20,7 +20,18 @@ import type { AddressInfo } from "node:net";
 const streamState = vi.hoisted(() => ({
   queue: [] as string[][],
   fallback: ["Grounded ", "answer."],
+  audits: [] as Array<Record<string, unknown>>,
 }));
+
+vi.mock("../lib/admin-audit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/admin-audit")>();
+  return {
+    ...actual,
+    recordAdminAuditEvent: vi.fn(async (event: Record<string, unknown>) => {
+      streamState.audits.push(event);
+    }),
+  };
+});
 
 vi.mock("@workspace/integrations-openai-ai-server", () => ({
   openai: {
@@ -106,6 +117,7 @@ beforeEach(() => {
   // mockClear (not mockReset) keeps the queue-driven factory implementation.
   createMock.mockClear();
   streamState.queue = [];
+  streamState.audits = [];
   docsState.docs = [...docsState.library];
   docsState.error = null;
 });
@@ -229,6 +241,12 @@ describe("POST /api/support/chat", () => {
     expect(prompt).not.toContain("CLINICAL-TEXT");
     // Stage 1 offers the broaden escape hatch.
     expect(prompt).toContain("[[broaden:all]]");
+
+    // Usage is audited as counts only — no transcript text ever reaches the log.
+    expect(streamState.audits).toHaveLength(1);
+    expect(streamState.audits[0]).toMatchObject({ action: "ai_support_used", actorKind: "anonymous", actorUserId: null, targetKind: "support_chat" });
+    expect(streamState.audits[0].metadata).toEqual({ turn: 1, rows: 1, kind: "primary" });
+    expect(JSON.stringify(streamState.audits[0])).not.toContain("grapefruit");
   });
 
   it("embeds the verbatim persona rules with the company slot filled", async () => {

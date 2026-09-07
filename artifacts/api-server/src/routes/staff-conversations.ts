@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
-import { resolveOfficeScope } from "../auth/office-scope";
+import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { hasHqPermission, verifyStaffToken } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
@@ -90,7 +90,7 @@ router.get("/office/conversations", async (req, res) => {
     let resolved = await scoped(req, parsed.data.thread ?? "coach");
     if (resolved.kind !== "ok" && !parsed.data.thread) resolved = await scoped(req, "support");
     if (resolved.kind !== "ok") {
-      res.status(resolved.status).json({ error: resolved.message });
+      respondOfficeScopeDenied(req, res, resolved);
       return;
     }
     const q = parsed.data;
@@ -149,7 +149,7 @@ router.get("/office/conversations/:conversationId/events", async (req, res) => {
     let resolved = await scoped(req, "coach");
     if (resolved.kind !== "ok") resolved = await scoped(req, "support");
     if (resolved.kind !== "ok") {
-      res.status(resolved.status).json({ error: resolved.message });
+      respondOfficeScopeDenied(req, res, resolved);
       return;
     }
     const conversation = await findConversation(id.data, resolved.scope.providerId);

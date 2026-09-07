@@ -283,7 +283,19 @@ describe("scope and permissions", () => {
     hqMemberships = [{ department_role: "admin", status: "active", display_name: "Avery HQ" }];
     expect((await api(`/office/patients/${OWN}/notes`, "hq-token", { method: "POST", ...json({ body: "x" }) })).status).toBe(400);
     expect(notes).toEqual([]);
-    expect(audits).toEqual([]);
+    // Refused attempts leave only denial events — never a note-write event.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const denials = audits.filter((a) => a.p_action === "access_denied");
+    expect(audits.length).toBe(denials.length);
+    expect(denials.length).toBeGreaterThan(0);
+    for (const denial of denials) {
+      expect(denial.p_target_kind).toBe("route");
+      expect(denial.p_target_id).toBe("/office/patients/:id/notes");
+      expect(denial.p_metadata).toMatchObject({ status: 403, method: "POST" });
+      expect(["permission", "office_locked", "staff_only"]).toContain((denial.p_metadata as { reason?: string }).reason);
+      expect(JSON.stringify(denial)).not.toContain(OWN);
+    }
+    audits.length = 0;
   });
 
   it("lets a team member and a permitted HQ admin write to the named office", async () => {

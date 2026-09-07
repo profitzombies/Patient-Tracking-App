@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
-import { resolveOfficeScope } from "../auth/office-scope";
+import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { supabaseAdmin } from "../lib/supabase-admin";
 
@@ -44,7 +44,7 @@ router.put("/office/patients/:patientId/follow-ups/:reason", async (req, res) =>
   }
   try {
     const resolved = await scope(req, "provider_manage");
-    if (resolved.kind !== "ok") { res.status(resolved.status).json({ error: resolved.message }); return; }
+    if (resolved.kind !== "ok") { respondOfficeScopeDenied(req, res, resolved); return; }
     const office = resolved.scope, patientId = String(req.params.patientId);
     const patient = await supabaseAdmin("GET", `/rest/v1/patients?id=eq.${enc(patientId)}&provider_id=eq.${enc(office.providerId)}&select=id&limit=1`);
     if (patient.status >= 300) throw new Error(`follow-up patient lookup failed (${patient.status})`);
@@ -95,7 +95,7 @@ router.get("/office/engagement-trends", async (req, res) => {
   }
   try {
     const resolved = await scope(req, "provider_read");
-    if (resolved.kind !== "ok") { res.status(resolved.status).json({ error: resolved.message }); return; }
+    if (resolved.kind !== "ok") { respondOfficeScopeDenied(req, res, resolved); return; }
     const office = resolved.scope;
     const result = await supabaseAdmin("POST", "/rest/v1/rpc/provider_engagement_daily", { p_provider_id: office.providerId, p_start: start, p_end: end });
     if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`engagement trends failed (${result.status})`);

@@ -9,6 +9,9 @@
 export type GetHqAuditEventsParams = {
 limit?: number;
 offset?: number;
+/**
+ * Office (provider) id chosen from the office picker
+ */
 provider?: string;
 action?: string;
 from?: Date;

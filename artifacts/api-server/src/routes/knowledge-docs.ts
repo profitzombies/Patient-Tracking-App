@@ -39,7 +39,8 @@ import {
 } from "../knowledge/docs-store";
 import { DOCUMENT_CONTENT_TYPES } from "../knowledge/extract";
 import { isExtractionActive, startExtraction } from "../knowledge/ingest";
-import { requireHqPermission } from "../lib/staff-auth";
+import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
+import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 // The knowledge library is a global service-role catalog; both reads and
@@ -176,6 +177,30 @@ async function verifyUploadedObject(objectPath: string, res: Response): Promise<
   return sizeBytes;
 }
 
+/**
+ * Knowledge-library changes are audited by document id, size, and content
+ * type only — never the title, file name, or any extracted text.
+ */
+function auditDocument(
+  req: Request,
+  res: Response,
+  action: "knowledge_document_uploaded" | "knowledge_document_replaced" | "knowledge_document_deleted",
+  documentId: string,
+  metadata: { size?: number; contentType?: string } = {},
+): void {
+  const actor = res.locals.staff as StaffIdentity | undefined;
+  void recordAdminAuditEvent({
+    action,
+    actorUserId: actor?.userId ?? null,
+    actorKind: "hq",
+    providerId: null,
+    targetKind: "knowledge_document",
+    targetId: documentId,
+    requestId: requestIdOf(req),
+    metadata,
+  }).catch((error) => req.log?.error({ err: error }, "knowledge audit failed"));
+}
+
 // ---------------------------------------------------------------------------
 // Presigned upload (new document)
 // ---------------------------------------------------------------------------
@@ -254,6 +279,7 @@ router.post(
         return;
       }
       startExtraction(row);
+      auditDocument(req, res, "knowledge_document_uploaded", row.id, { size: sizeBytes, contentType });
       res.json(toDocumentDto(row));
     } catch (error) {
       req.log?.error({ err: error }, "knowledge create failed");
@@ -344,6 +370,7 @@ router.delete(
       if (!record) return;
       await objectStorage.deleteObject(record.object_path);
       await deleteDocumentRecord(record.id);
+      auditDocument(req, res, "knowledge_document_deleted", record.id);
       res.json({ deleted: true });
     } catch (error) {
       req.log?.error({ err: error }, "knowledge delete failed");
@@ -429,6 +456,7 @@ router.post(
       }
       await objectStorage.deleteObject(record.object_path);
       startExtraction(updated);
+      auditDocument(req, res, "knowledge_document_replaced", updated.id, { size: sizeBytes, contentType });
       res.json(toDocumentDto(updated));
     } catch (error) {
       req.log?.error({ err: error }, "knowledge replace failed");

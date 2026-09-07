@@ -22,7 +22,7 @@ import { Router, type IRouter } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase-admin";
-import { resolveOfficeScope, type OfficeScope } from "../auth/office-scope";
+import { resolveOfficeScope, respondOfficeScopeDenied, type OfficeScope } from "../auth/office-scope";
 import { acquireInviteSlot } from "../auth/limits";
 import { clientIp } from "../auth/ledger";
 import { lookupPatients } from "../auth/directory";
@@ -365,7 +365,7 @@ router.get("/office/roster", async (req, res) => {
       requireUnlocked: false,
     });
     if (resolved.kind !== "ok") {
-      res.status(resolved.status).json({ error: resolved.message });
+      respondOfficeScopeDenied(req, res, resolved);
       return;
     }
     const scope = resolved.scope;
@@ -449,7 +449,7 @@ router.get("/office/patients/:id", async (req, res) => {
       requireUnlocked: false,
     });
     if (resolved.kind !== "ok") {
-      res.status(resolved.status).json({ error: resolved.message });
+      respondOfficeScopeDenied(req, res, resolved);
       return;
     }
     const scope = resolved.scope;
@@ -763,7 +763,7 @@ router.post("/office/invitations", async (req, res) => {
       requireUnlocked: true,
     });
     if (resolved.kind !== "ok") {
-      res.status(resolved.status).json({ error: resolved.message });
+      respondOfficeScopeDenied(req, res, resolved);
       return;
     }
     const scope = resolved.scope;
@@ -874,7 +874,7 @@ router.post("/office/invitations/:id/resend", async (req, res) => {
       requireUnlocked: true,
     });
     if (resolved.kind !== "ok") {
-      res.status(resolved.status).json({ error: resolved.message });
+      respondOfficeScopeDenied(req, res, resolved);
       return;
     }
     const scope = resolved.scope;

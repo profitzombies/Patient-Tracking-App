@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  signedDownloadURL: vi.fn(),
   admin: vi.fn(),
   audit: vi.fn(),
   deleted: vi.fn(),
@@ -29,7 +30,7 @@ vi.mock("../lib/objectStorage", () => ({
     deleteObject: vi.fn(),
     entityFile: mocks.entityFile,
     hqFileUploadURL: vi.fn(),
-    signedDownloadURL: vi.fn(),
+    signedDownloadURL: mocks.signedDownloadURL,
   },
 }));
 import router from "./hq-settings-files";
@@ -108,5 +109,25 @@ describe("HQ settings and file finalization", () => {
     expect(response.status).toBe(413);
     expect(mocks.deleted).toHaveBeenCalledWith(objectPath);
     expect(mocks.admin).not.toHaveBeenCalled();
+  });
+});
+
+describe("HQ file downloads", () => {
+  it("records an audit event naming the file, never the URL", async () => {
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: [{ name: "Playbook.pdf", object_path: objectPath }] });
+    mocks.signedDownloadURL.mockReset().mockResolvedValue("https://signed.example/secret");
+    const res = await fetch(`${base}/hq/files/${fileId}/download-url`, { headers: { authorization: "Bearer admin" } });
+    expect(res.status).toBe(200);
+    expect(mocks.audit).toHaveBeenCalledTimes(1);
+    const event = mocks.audit.mock.calls[0][0];
+    expect(event).toMatchObject({ action: "hq_file_downloaded", actorKind: "hq", targetKind: "hq_file", targetId: fileId });
+    expect(JSON.stringify(event)).not.toContain("signed.example");
+  });
+
+  it("does not audit a download that never happened", async () => {
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: [] });
+    const res = await fetch(`${base}/hq/files/${fileId}/download-url`, { headers: { authorization: "Bearer admin" } });
+    expect(res.status).toBe(404);
+    expect(mocks.audit).not.toHaveBeenCalled();
   });
 });

@@ -345,6 +345,11 @@ router.get("/hq/files/:fileId/download-url", async (req, res) => {
       return;
     }
     const url = await objectStorage.signedDownloadURL(String(row.object_path), DOWNLOAD_TTL_SEC);
+    const actor = identity(res);
+    await recordAdminAuditEvent({
+      action: "hq_file_downloaded", actorUserId: actor.userId, actorKind: "hq", providerId: null,
+      targetKind: "hq_file", targetId: req.params.fileId, requestId: req.headers["x-request-id"]?.toString() ?? null,
+    }).catch(error => req.log?.error({ err: error }, "HQ file download audit failed"));
     res.json({ url, expiresIn: DOWNLOAD_TTL_SEC, name: String(row.name) });
   } catch (error) {
     if (error instanceof ObjectNotFoundError) {

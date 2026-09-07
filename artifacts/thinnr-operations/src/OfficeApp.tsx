@@ -28,6 +28,8 @@ import OfficeTeammate from '@/pages/OfficeTeammate';
 import OfficeAiSupport from '@/pages/OfficeAiSupport';
 import OfficeSettings from '@/pages/OfficeSettings';
 import MenuLab from '@/pages/MenuLab';
+import OfficeTeam from '@/pages/OfficeTeam';
+import OfficeAudit from '@/pages/OfficeAudit';
 
 export function OfficeApp() {
   return (
@@ -53,6 +55,8 @@ export function OfficeApp() {
               <Route path="/training/:courseId" component={OfficeTrainingCourse} />
               <Route path="/ai-support" component={OfficeAiSupport} />
               <Route path="/settings" component={OfficeSettings} />
+              <Route path="/team" component={OfficeTeam} />
+              <Route path="/audit" component={OfficeAudit} />
               <Route component={NotFound} />
             </Switch>
           </Shell>

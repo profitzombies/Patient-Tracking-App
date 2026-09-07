@@ -228,6 +228,22 @@ args = "org-policies-web"
 task = "workflow.run"
 args = "org-policies-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-team-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-audit-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-team-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-audit-web"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -810,6 +826,50 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run src/routes/hq-org-policy.test.ts src/routes/staff-conversations.test.ts src/routes/coach-real-grounding.test.ts src/routes/exports.test.ts src/notifications/policy.test.ts src/notifications/stall-outreach.test.ts src/notifications/sender.test.ts src/notifications/claim.sql.test.ts"
+
+[[workflows.workflow]]
+name = "office-team-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/office-team.test.ts src/routes/operational-rollups.test.ts src/routes/office-roster.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-audit-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/office-audit-events.test.ts src/routes/hq-audit-events.test.ts src/lib/audit-events.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-team-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:office-team"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-audit-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:office-audit"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 stack = "PNPM_WORKSPACE"

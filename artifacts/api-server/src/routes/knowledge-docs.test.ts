@@ -46,7 +46,18 @@ const state = vi.hoisted(() => ({
   extractActive: false,
   extractionStarts: [] as Array<{ id: string; object_path: string }>,
   startResult: true,
+  audits: [] as Array<Record<string, unknown>>,
 }));
+
+vi.mock("../lib/admin-audit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/admin-audit")>();
+  return {
+    ...actual,
+    recordAdminAuditEvent: vi.fn(async (event: Record<string, unknown>) => {
+      state.audits.push(event);
+    }),
+  };
+});
 
 vi.mock("../lib/staff-auth", () => ({
   requireHqPermission: () => (req: Request, res: ExpressResponse, next: NextFunction) => {
@@ -55,6 +66,7 @@ vi.mock("../lib/staff-auth", () => ({
     if (token !== "content-token" && token !== "admin-token") {
       return void res.status(403).json({ error: "Your HQ role does not have permission to do this." });
     }
+    res.locals.staff = { userId: "hq-user-1", role: "Content" };
     next();
   },
 }));
@@ -186,6 +198,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   state.rows.clear();
+  state.audits = [];
   state.deleted = [];
   state.minted = [];
   state.objectExists = true;
@@ -299,6 +312,10 @@ describe("POST /knowledge/documents (finalize-create)", () => {
     });
     expect(json).not.toHaveProperty("extractedText");
     expect(state.extractionStarts).toEqual([{ id: DOC_ID, object_path: DOC_PATH }]);
+    // Uploads are audited with size/type only — never the title, path, or text.
+    expect(state.audits).toHaveLength(1);
+    expect(state.audits[0]).toMatchObject({ action: "knowledge_document_uploaded", actorUserId: "hq-user-1", actorKind: "hq", targetKind: "knowledge_document", targetId: DOC_ID });
+    expect(state.audits[0].metadata).toEqual({ size: 2048, contentType: "application/pdf" });
   });
 
   it("rejects an object path outside the document's prefix", async () => {
@@ -404,6 +421,8 @@ describe("rename and delete", () => {
     expect(json).toEqual({ deleted: true });
     expect(state.deleted).toEqual([DOC_PATH]);
     expect(state.rows.size).toBe(0);
+    expect(state.audits.map((event) => event.action)).toEqual(["knowledge_document_deleted"]);
+    expect(state.audits[0]).toMatchObject({ targetId: DOC_ID, metadata: {} });
   });
 
   it("404s deleting a document that does not exist", async () => {
@@ -448,6 +467,8 @@ describe("replace flow", () => {
     expect(row?.extracted_text).toBeNull();
     expect(state.deleted).toEqual([DOC_PATH]);
     expect(state.extractionStarts).toEqual([{ id: DOC_ID, object_path: newPath }]);
+    expect(state.audits.map((event) => event.action)).toEqual(["knowledge_document_replaced"]);
+    expect(JSON.stringify(state.audits[0])).not.toContain(newPath);
   });
 
   it("409s a stale swap and deletes the just-uploaded object instead", async () => {

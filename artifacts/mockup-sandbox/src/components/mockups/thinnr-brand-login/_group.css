@@ -1,0 +1,12 @@
+@font-face {
+  font-family: "GT America Mono";
+  src: url("/__mockup/fonts/gt-america-mono-bold.otf") format("opentype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+.b4w-head img,
+.b4m-head img {
+  filter: none !important;
+}

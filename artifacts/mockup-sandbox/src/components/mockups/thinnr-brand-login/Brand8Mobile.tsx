@@ -1,0 +1,1 @@
+import { BrandLogin } from "./BrandLogin"; export function Brand8Mobile(){return <BrandLogin variant={8} mobile/>;}

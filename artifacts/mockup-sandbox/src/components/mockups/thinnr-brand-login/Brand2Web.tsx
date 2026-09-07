@@ -1,0 +1,1 @@
+import { BrandLogin } from "./BrandLogin"; export function Brand2Web(){return <BrandLogin variant={2}/>;}

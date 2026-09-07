@@ -1,0 +1,65 @@
+import { useState, type FormEvent } from "react";
+import { ArrowLeft, ArrowRight, Eye, EyeOff, ChevronDown } from "lucide-react";
+import "./_group.css";
+
+type Props = { variant: number; mobile?: boolean };
+
+const directions = [
+  ["THE DAILY PROTOCOL.", "Aqua route", "A clear point of entry for the work that keeps care moving."],
+  ["WORK, IN FOCUS.", "Focus sheet", "One protected sign-in for today’s patient work."],
+  ["A PRACTICAL START.", "Field notes", "A quiet start to a well-organized day."],
+  ["THE CARE DESK.", "System grid", "Secure access for the people holding the details."],
+  ["YOUR NEXT STEP.", "Patient path", "A small, useful space for your day."],
+  ["KEEP GOING.", "Progress mark", "Your plan, ready when you are."],
+  ["ONE CLEAR PLACE.", "Daily index", "A focused entry to the THINNR companion."],
+  ["READY FOR TODAY.", "Check-in", "The essentials, in one protected space."],
+  ["THE ROUTINE, HELD.", "Care rhythm", "A calm return to the things that matter."],
+  ["ACCESS WITH CLARITY.", "Protocol portal", "Straight into the work, without friction."],
+];
+
+export function BrandLogin({ variant, mobile = false }: Props) {
+  const [emailMode, setEmailMode] = useState(false);
+  const [show, setShow] = useState(false);
+  const [note, setNote] = useState("");
+  const [demo, setDemo] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [sent, setSent] = useState(false);
+  const [title, label, subhead] = directions[variant - 1];
+  const submitStaff = (e: FormEvent) => { e.preventDefault(); setSent(true); setNote(`A sign-in code will be sent to ${email}.`); };
+  const submitPatient = (e: FormEvent) => { e.preventDefault(); setNote("Your sign-in is ready to continue."); };
+  if (mobile) {
+    return <main className={`b4 b4m b4v${variant}`}>
+      <style>{styles}</style>
+      <header className="b4m-head"><button aria-label="Go back" type="button" onClick={() => setNote("Returning to the previous screen.")}><ArrowLeft size={18}/></button><img src="/__mockup/images/brand4-thinnr-logo.png" alt="THINNR"/><span>01 / 01</span></header>
+      <section className="b4m-hero"><p><i/> {label}</p><h1>{title}</h1><div className="b4m-mark"><b/><b/><b/></div></section>
+      <section className="b4m-body"><p className="b4-kicker">Patient access</p><form onSubmit={submitPatient}>
+        <label htmlFor={`id-${variant}`}>{emailMode ? "Email address" : "Phone number"}</label>
+        <input id={`id-${variant}`} type={emailMode ? "email" : "tel"} inputMode={emailMode ? "email" : "tel"} autoComplete={emailMode ? "email" : "tel"} placeholder={emailMode ? "you@example.com" : "(555) 000-0000"} required />
+        <button className="b4-link" type="button" onClick={() => setEmailMode(!emailMode)}>{emailMode ? "Use phone number instead" : "Use email instead"}</button>
+        <label htmlFor={`pass-${variant}`}>Password</label><div className="b4-pass"><input id={`pass-${variant}`} type={show ? "text" : "password"} autoComplete="current-password" placeholder="Enter password" value={password} onChange={e => setPassword(e.target.value)} required/><button aria-label={show ? "Hide password" : "Show password"} type="button" onClick={() => setShow(!show)}>{show ? <EyeOff size={17}/> : <Eye size={17}/>}</button></div>
+        <button className="b4-link" type="button" onClick={() => setNote("Password recovery is ready when you are.")}>Forgot password?</button>
+        <button className="b4-primary" type="submit">Continue <ArrowRight size={16}/></button>
+      </form>{note && <p className="b4-note" role="status">{note}</p>}
+      <button className="b4-create" type="button" onClick={() => setNote("Account creation begins with your care team.")}>Create new account</button>
+      <p className="b4-minor"><button type="button" onClick={() => setNote("Demo access selected.")}>Explore demo</button><span>/</span><button type="button" onClick={() => setNote("Provider sign-in selected.")}>Provider login</button></p></section>
+      <footer>THINNR / PATIENT ACCESS</footer>
+    </main>;
+  }
+  return <main className={`b4 b4w b4v${variant}`}>
+    <style>{styles}</style>
+    <header className="b4w-head"><img src="/__mockup/images/brand4-thinnr-logo.png" alt="THINNR"/><span>THINNR Operations</span><b><i/> Secure staff access</b></header>
+    <aside className="b4w-art"><p>{label}</p><h1>{title}</h1><span className="b4-orbit"/><div className="b4-tags"><em>Protocol</em><em>Care team</em><em>Daily desk</em></div></aside>
+    <section className="b4w-form"><p className="b4-kicker">Staff sign in / 01</p><h2>Sign in to your workspace.</h2><p className="b4-sub">{subhead}</p>
+      <form onSubmit={submitStaff}><label htmlFor={`email-${variant}`}>Work email</label><input id={`email-${variant}`} type="email" autoComplete="email" placeholder="you@yourclinic.com" value={email} onChange={e => setEmail(e.target.value)} required/><p className="b4-help">We’ll email a one-time code. No password required.</p><button className="b4-primary" type="submit">Email me a code <ArrowRight size={16}/></button></form>
+      {note && <p className="b4-note" role="status">{note}</p>}
+      <button className="b4-demo" type="button" aria-expanded={demo} onClick={() => setDemo(!demo)}>Open a guided demo <ChevronDown size={15}/></button>
+      {demo && <div className="b4-demo-open"><button type="button" onClick={() => setNote("Office staff demo selected.")}>Office staff</button><button type="button" onClick={() => setNote("THINNR HQ demo selected.")}>THINNR HQ</button></div>}
+      {sent && <span className="b4-sent">Code request received</span>}
+    </section><footer>THINNR OPERATIONS / PROTECTED ACCESS</footer>
+  </main>;
+}
+
+const styles = `
+.b4{--ink:#0a0a0a;--paper:#fafbf8;--aqua:#8fd4d5;--boost:#f58131;--control:#d4d95e;--detox:#bacdea;--regulate:#68ba97;color:var(--ink);background:var(--paper);font-family:Inter,system-ui,sans-serif;overflow:hidden;position:relative}.b4 *{box-sizing:border-box}.b4 button,.b4 input{font-family:inherit}.b4 button{cursor:pointer}.b4w{width:1280px;height:800px}.b4w-head{height:74px;border-bottom:1px solid var(--ink);display:flex;align-items:center;padding:0 48px;gap:18px;font:700 10px/1 "GT America Mono","Courier New",monospace;letter-spacing:.1em;text-transform:uppercase}.b4w-head img{width:136px;height:31px;object-fit:contain;filter:invert(1)}.b4w-head b{margin-left:auto;font-weight:700}.b4w-head i,.b4-kicker i{width:7px;height:7px;background:var(--aqua);border-radius:50%;display:inline-block;margin-right:7px}.b4w-art{position:absolute;inset:74px 50% 40px 0;padding:110px 68px;background:var(--ink);color:var(--paper);overflow:hidden}.b4w-art:before{content:"";position:absolute;width:620px;height:620px;border:1px solid rgba(143,212,213,.55);border-radius:50%;right:-370px;bottom:-315px}.b4w-art p,.b4-kicker,footer{font:700 10px/1 "GT America Mono","Courier New",monospace;letter-spacing:.12em;text-transform:uppercase}.b4w-art p{color:var(--aqua);margin:0 0 25px}.b4w-art h1{font:700 60px/.9 "GT America Mono","Courier New",monospace;letter-spacing:-.09em;margin:0;max-width:490px}.b4-orbit{position:absolute;right:75px;top:160px;width:105px;height:105px;border-radius:50%;background:var(--aqua)}.b4-tags{display:flex;position:absolute;bottom:58px;left:68px;gap:8px}.b4-tags em{font:700 9px "GT America Mono","Courier New",monospace;font-style:normal;text-transform:uppercase;letter-spacing:.07em;border:1px solid rgba(255,255,255,.55);padding:9px 11px}.b4w-form{position:absolute;left:calc(50% + 86px);top:175px;width:394px}.b4-kicker{margin:0 0 15px}.b4w-form h2{font:700 28px/.98 "GT America Mono","Courier New",monospace;letter-spacing:-.06em;margin:0 0 13px;text-transform:uppercase}.b4-sub{font-size:14px;line-height:1.45;color:#4d5753;margin:0 0 28px}.b4 label{display:block;font:700 10px "GT America Mono","Courier New",monospace;text-transform:uppercase;letter-spacing:.09em;margin:0 0 8px}.b4 input{height:48px;width:100%;border:1px solid var(--ink);border-radius:6px;padding:0 12px;background:#fff;font-size:14px;outline:none}.b4 input:focus{box-shadow:0 0 0 3px var(--aqua)}.b4-help{font-size:11px;line-height:1.4;margin:9px 0 16px;color:#53605a}.b4-primary{height:48px;border:1px solid var(--ink);border-radius:6px;background:var(--aqua);color:var(--ink);width:100%;font:700 12px "GT America Mono","Courier New",monospace;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;justify-content:center;gap:9px;transition:transform .16s}.b4-primary:hover{transform:translateY(-2px)}.b4-demo{margin-top:23px;border:0;border-bottom:1px solid var(--ink);background:none;padding:0 0 8px;width:100%;display:flex;justify-content:space-between;font:700 11px "GT America Mono","Courier New",monospace;text-transform:uppercase}.b4-demo-open{display:flex;gap:8px;margin-top:11px}.b4-demo-open button{background:#fff;border:1px solid var(--ink);padding:9px;font-size:11px}.b4-note{font-size:11px;line-height:1.4;border-left:3px solid var(--regulate);padding-left:8px;margin:12px 0}.b4-sent{display:block;font:700 9px "GT America Mono","Courier New",monospace;text-transform:uppercase;margin-top:13px;color:#39735d}.b4w footer{height:40px;border-top:1px solid var(--ink);position:absolute;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:center;color:#59625d;font-size:9px}.b4v2 .b4w-art,.b4v5 .b4w-art,.b4v8 .b4w-art{background:var(--aqua);color:var(--ink)}.b4v2 .b4w-art p,.b4v5 .b4w-art p,.b4v8 .b4w-art p{color:var(--ink)}.b4v3 .b4w-art{background:var(--detox)}.b4v4 .b4w-art{background:var(--paper);color:var(--ink);border-right:1px solid var(--ink)}.b4v4 .b4-tags em{border-color:var(--ink)}.b4v6 .b4w-art{background:var(--regulate)}.b4v7 .b4w-art{background:var(--control)}.b4v9 .b4w-art{background:var(--paper);color:var(--ink);border-right:1px solid var(--ink)}.b4v9 .b4-tags em{border-color:var(--ink)}.b4v10 .b4w-art{background:var(--detox)}.b4v2 .b4w-form,.b4v6 .b4w-form{left:calc(50% + 48px);width:440px}.b4v4 .b4w-form,.b4v9 .b4w-form{top:204px}.b4m{width:393px;height:852px}.b4m-head{height:93px;padding:32px 21px 0;display:flex;align-items:center;justify-content:space-between}.b4m-head button{width:36px;height:36px;border:1px solid var(--ink);border-radius:6px;background:#fff;display:grid;place-items:center}.b4m-head img{width:100px;height:25px;object-fit:contain;filter:invert(1)}.b4m-head span{font:700 9px "GT America Mono","Courier New",monospace}.b4m-hero{height:164px;margin:10px 20px 0;background:var(--ink);color:var(--paper);padding:19px 17px;position:relative;overflow:hidden}.b4m-hero:after{content:"";position:absolute;border:1px solid rgba(143,212,213,.6);width:220px;height:220px;border-radius:50%;right:-104px;bottom:-138px}.b4m-hero p{font:700 9px "GT America Mono","Courier New",monospace;letter-spacing:.1em;text-transform:uppercase;margin:0;color:var(--aqua)}.b4m-hero p i{display:inline-block;width:6px;height:6px;background:var(--regulate);margin-right:5px}.b4m-hero h1{font:700 32px/.91 "GT America Mono","Courier New",monospace;letter-spacing:-.08em;margin:16px 0 0;max-width:250px}.b4m-mark{position:absolute;right:16px;bottom:17px;display:flex;gap:5px}.b4m-mark b{width:7px;height:7px;background:var(--aqua);border-radius:50%}.b4m-mark b:nth-child(2){background:var(--control)}.b4m-mark b:nth-child(3){background:var(--regulate)}.b4m-body{padding:22px 27px 0}.b4m-body .b4-kicker{margin-bottom:13px}.b4m label{margin-top:13px}.b4m input{height:43px}.b4-link{padding:6px 0 0;border:0;background:none;color:var(--ink);font-size:11px;text-decoration:underline;text-underline-offset:3px}.b4-pass{position:relative}.b4-pass input{padding-right:44px}.b4-pass button{position:absolute;right:1px;top:1px;width:40px;height:41px;border:0;background:none;display:grid;place-items:center}.b4m .b4-primary{margin-top:16px;height:45px;background:var(--ink);color:#fff}.b4-create{display:block;margin:18px auto 0;border:0;background:none;font-size:12px;font-weight:800;text-decoration:underline;text-underline-offset:4px}.b4-minor{display:flex;gap:11px;justify-content:center;margin:14px 0 0;font-size:11px;color:#53605a}.b4-minor button{border:0;background:none;padding:0;text-decoration:underline;text-underline-offset:3px;color:inherit}.b4m footer{position:absolute;left:27px;right:27px;bottom:23px;border-top:1px solid #c9cfca;padding-top:11px;font-size:9px;text-align:center;color:#64706a}.b4v2.b4m .b4m-hero,.b4v5.b4m .b4m-hero,.b4v8.b4m .b4m-hero{background:var(--aqua);color:var(--ink)}.b4v2.b4m .b4m-hero p,.b4v5.b4m .b4m-hero p,.b4v8.b4m .b4m-hero p{color:var(--ink)}.b4v3.b4m .b4m-hero{background:var(--detox);color:var(--ink)}.b4v4.b4m .b4m-hero{background:var(--paper);color:var(--ink);border:1px solid var(--ink)}.b4v6.b4m .b4m-hero{background:var(--regulate);color:var(--ink)}.b4v7.b4m .b4m-hero{background:var(--control);color:var(--ink)}.b4v9.b4m .b4m-hero{background:var(--paper);color:var(--ink);border:1px solid var(--ink)}.b4v10.b4m .b4m-hero{background:var(--detox);color:var(--ink)}
+`;

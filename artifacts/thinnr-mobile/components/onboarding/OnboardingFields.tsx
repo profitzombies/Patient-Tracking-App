@@ -21,6 +21,7 @@ import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInpu
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import { space } from '@/constants/spacing';
 
 const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
 const CALLOUT_SHADOW = '0 6px 15px rgba(34, 58, 88, 0.08)';
@@ -149,6 +150,50 @@ export function LedgerInput(props: TextInputProps & { testID?: string; ref?: Rea
         props.style,
       ]}
     />
+  );
+}
+
+/**
+ * Password field with a secure-by-default value and an accessible reveal
+ * control. The control lives over the input rather than inside it so the
+ * native password keyboard/autofill behavior stays intact.
+ */
+export function PasswordInput(
+  props: TextInputProps & {
+    testID?: string;
+    ref?: React.Ref<NativeTextInput>;
+    accessibilityLabel?: string;
+  },
+) {
+  const colors = useColors();
+  const [visible, setVisible] = useState(false);
+  const label = props.accessibilityLabel ?? 'Password';
+  const toggleLabel = visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`;
+
+  return (
+    <View style={styles.passwordWrap}>
+      <LedgerInput
+        {...props}
+        secureTextEntry={!visible}
+        style={[styles.passwordInput, props.style]}
+      />
+      <Pressable
+        testID={props.testID ? `${props.testID}-toggle` : undefined}
+        accessibilityRole="button"
+        accessibilityLabel={toggleLabel}
+        accessibilityHint={visible ? 'Hides the password text' : 'Shows the password text'}
+        accessibilityState={{ selected: visible }}
+        aria-pressed={visible}
+        onPress={() => {
+          Haptics.selectionAsync();
+          setVisible(current => !current);
+        }}
+        style={({ pressed }) => [styles.passwordToggle, pressed && { opacity: 0.6 }]}
+        hitSlop={space.xs}
+      >
+        <Feather name={visible ? 'eye-off' : 'eye'} size={18} color={colors.subtleText} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -583,6 +628,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     letterSpacing: 0,
     fontFamily: 'Inter_500Medium',
+  },
+  passwordWrap: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 52,
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 1,
+    top: 1,
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   codeInput: {
     textAlign: 'center',

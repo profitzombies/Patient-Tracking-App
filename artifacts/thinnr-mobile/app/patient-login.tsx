@@ -18,7 +18,7 @@ import {
   FooterLink,
   SegmentedToggle,
 } from '@/components/auth/AuthPrimitives';
-import { CodeInput, ErrorBox, LedgerInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
+import { CodeInput, ErrorBox, LedgerInput, PasswordInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { usePatientLogin, type LoginChannel, type LoginPhase } from '@/hooks/usePatientLogin';
 import { supabaseConfigured } from '@/lib/supabase';
 import { authLayout, space } from '@/constants/spacing';
@@ -131,12 +131,11 @@ export default function PatientLoginScreen() {
                 label="Password"
                 labelAction={{ testID: 'login-forgot', label: 'Forgot password?', onPress: login.startRecoveryFlow }}
               >
-                <LedgerInput
+                <PasswordInput
                   testID="login-password"
                   accessibilityLabel="Password"
                   value={login.password}
                   onChangeText={login.setPassword}
-                  secureTextEntry
                   autoComplete="current-password"
                   textContentType="password"
                   autoCapitalize="none"
@@ -185,24 +184,22 @@ export default function PatientLoginScreen() {
         <View>
           <FieldStack>
             <Field label="New password">
-              <LedgerInput
+              <PasswordInput
                 testID="recovery-password"
                 accessibilityLabel="New password"
                 value={login.password}
                 onChangeText={login.setPassword}
-                secureTextEntry
                 autoComplete="new-password"
                 textContentType="newPassword"
                 placeholder="At least 8 characters"
               />
             </Field>
             <Field label="Confirm new password">
-              <LedgerInput
+              <PasswordInput
                 testID="recovery-confirm"
                 accessibilityLabel="Confirm new password"
                 value={login.confirm}
                 onChangeText={login.setConfirm}
-                secureTextEntry
                 autoComplete="new-password"
                 textContentType="newPassword"
                 placeholder="Same password again"

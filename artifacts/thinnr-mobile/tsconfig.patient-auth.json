@@ -8,12 +8,15 @@
   // and JSX is compiled with the automatic runtime. The one auth-specific
   // stub replaces @/lib/supabase so verifyOtp is recorded instead of hitting
   // GoTrue; the stub re-exports the REAL normalizePhone/describeAuthError,
-  // and the real lib/auth-api runs against the suite's scripted fetch.
+  // and the real lib/auth-api runs against the suite's scripted fetch. The
+  // Framed Plate hero's photo require() is a binary asset, so data/recipe-images
+  // maps to the guided-photos sentinel stub.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",
     "paths": {
       "@/lib/supabase": ["./scripts/patient-auth-stubs/supabase.ts"],
+      "@/data/recipe-images": ["./scripts/guided-photo-stubs/recipe-images.ts"],
       "@/*": ["./*"],
       "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
       "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],

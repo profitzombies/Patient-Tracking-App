@@ -109,3 +109,4 @@
 - [Account security & session ledger](account-security-sessions.md) — client attaches signInId after token redeem; report links fire only on explicit tap; send cap 429 ≠ forced-reset; pin delivery modes in vitest.
 - [Medication records & reminders](medication-records.md) — one schedule core copied byte-identical (parity test); reminders derive from records; notification actions MUST foreground the app; adherence is a nullable extra roster input.
 - [Live office leaderboard](office-leaderboard-live.md) — facts RPC + server ranks/adherence, clients only re-sort; branch by auth state; demo-staff script login is a decoy under passwordless directory.
+- [Auth hero photo crop](auth-hero-crop.md) — square plate image needs a measured focus-point crop (cover centre-crops to tablecloth); copy on a strip under the photo, never over it.

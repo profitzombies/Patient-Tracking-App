@@ -1,203 +1,219 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View, type TextInput } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
-import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
-import { LedgerCard } from '@/components/ui/LedgerPrimitives';
-import { CodeInput, ErrorBox, FieldLabel, LedgerInput, NoteText, PrimaryButton } from '@/components/onboarding/OnboardingFields';
-import { useColors } from '@/hooks/useColors';
-import { useAppMode } from '@/context/AppModeContext';
-import { completeRecovery, requestPatientPasswordLogin, signInWithTokenHash, startRecovery, verifyLoginCode, verifyRecovery } from '@/lib/auth-api';
-import { normalizePhone, supabaseConfigured } from '@/lib/supabase';
-import { attachSignIn } from '@/lib/security-api';
-import { FramedPlateHeader } from '@/components/auth/FramedPlateHeader';
+/**
+ * Patient login — pure view over usePatientLogin. Phases: login (phone/email
+ * + password), mfa, recovery-identify, recovery-code, recovery-password.
+ */
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
+import { AuthPageFrame } from '@/components/auth/AuthPageFrame';
+import { PlateHero } from '@/components/auth/PlateHero';
+import {
+  ActionGroup,
+  FeedbackSlot,
+  Field,
+  FieldStack,
+  FooterLink,
+  Footnote,
+  FormCard,
+  QuietLinkRow,
+} from '@/components/auth/AuthPrimitives';
+import { CodeInput, ErrorBox, LedgerInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
+import { usePatientLogin, type LoginPhase } from '@/hooks/usePatientLogin';
+import { supabaseConfigured } from '@/lib/supabase';
+import { space } from '@/constants/spacing';
 
-type Channel = 'phone' | 'email';
-type Phase = 'login' | 'mfa' | 'recovery-identify' | 'recovery-code' | 'recovery-password';
-const validEmail = (value: string) => /^\S+@\S+\.\S+$/.test(value.trim());
+const HEADINGS: Record<LoginPhase, { kicker: string; title: string; subtitle: string }> = {
+  login: {
+    kicker: 'PATIENT ACCESS',
+    title: 'Welcome back',
+    subtitle: 'Sign in with the phone or email on your account.',
+  },
+  mfa: {
+    kicker: 'PATIENT ACCESS',
+    title: 'Verify your sign-in',
+    subtitle: 'Enter the 6-digit code we sent. If the account details match, a code is on its way.',
+  },
+  'recovery-identify': {
+    kicker: 'PASSWORD RECOVERY',
+    title: 'Reset your password',
+    subtitle: 'Enter the phone or email on your account and we’ll send a 6-digit reset code.',
+  },
+  'recovery-code': {
+    kicker: 'PASSWORD RECOVERY',
+    title: 'Enter your reset code',
+    subtitle: 'Enter the 6-digit code we sent. If the account details match, a code is on its way.',
+  },
+  'recovery-password': {
+    kicker: 'PASSWORD RECOVERY',
+    title: 'Create a new password',
+    subtitle: 'Choose at least 8 characters you don’t use anywhere else.',
+  },
+};
 
 export default function PatientLoginScreen() {
-  const colors = useColors(); const insets = useSafeAreaInsets(); const { setMode, admitDemo, leaveDemo } = useAppMode();
-  const params = useLocalSearchParams<{ notice?: string | string[] }>();
-  const [channel, setChannel] = useState<Channel>('phone');
-  const [phase, setPhase] = useState<Phase>('login');
-  // iOS never swaps an already-presented keyboard in place, so the identifier
-  // input gets a fresh mount per channel (key={channel} below) and, after an
-  // explicit switch, this refocuses the new mount so the matching keyboard
-  // (email vs phone pad) presents immediately.
-  const identifierRef = useRef<TextInput>(null);
-  const switchedChannel = useRef(false);
-  useEffect(() => { if (!switchedChannel.current) return; switchedChannel.current = false; identifierRef.current?.focus(); }, [channel]);
-  const [phone, setPhone] = useState(''); const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState('');
-  const [code, setCode] = useState(''); const [requestId, setRequestId] = useState<string | null>(null);
-  const [resetToken, setResetToken] = useState<string | null>(null);
-  const initialNotice = Array.isArray(params.notice) ? params.notice[0] : params.notice;
-  const [devCode, setDevCode] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
-  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  const identifier = () => channel === 'phone' ? normalizePhone(phone) : validEmail(email) ? email.trim() : null;
-  const clear = () => { setError(null); setNotice(null); };
-  // Every user navigation bumps this generation so an in-flight request that
-  // settles late can never yank the screen into a stale phase. Submits bump it
-  // too, so a fresh attempt orphans any older one.
-  const genRef = useRef(0);
-  const invalidate = () => { genRef.current += 1; setBusy(false); };
-  const done = async () => { leaveDemo(); await setMode('patient'); router.replace('/today'); };
-  const backToSignIn = () => { invalidate(); clear(); setCode(''); setPassword(''); setConfirm(''); setPhase('login'); };
-  const goBack = () => {
-    Haptics.selectionAsync();
-    invalidate();
-    clear();
-    if (phase === 'mfa') { setCode(''); setPhase('login'); return; }
-    if (phase === 'recovery-code') { setCode(''); setPhase('recovery-identify'); return; }
-    if (phase === 'recovery-identify' || phase === 'recovery-password') { backToSignIn(); return; }
-    router.back();
-  };
-  const request = async (recovery = false) => {
-    const value = identifier(); clear();
-    if (!value) { setError(channel === 'phone' ? 'Enter your cell phone number.' : 'Enter the email on your account.'); return; }
-    if (!recovery && !password) { setError('Enter your password.'); return; }
-    const submittedPassword = password;
-    const gen = ++genRef.current;
-    setBusy(true);
-    try {
-      const result = recovery ? await startRecovery(value) : await requestPatientPasswordLogin({ identifier: value, password: submittedPassword });
-      if (genRef.current !== gen) return;
-      if (!result.ok) {
-        setError(result.error);
-        if (result.code === 'PASSWORD_RESET_REQUIRED') setPhase('recovery-identify');
-        return;
-      }
-      if (!recovery) setPassword('');
-      setRequestId(result.requestId); setDevCode(result.devCode); setNotice(result.message); setCode('');
-      setPhase(recovery ? 'recovery-code' : 'mfa');
-    } finally { if (genRef.current === gen) setBusy(false); }
-  };
-  const verify = async () => {
-    if (!requestId || code.length !== 6) { setError('Enter the 6-digit verification code.'); return; }
-    clear();
-    const gen = ++genRef.current;
-    setBusy(true);
-    try {
-      if (phase === 'mfa') {
-        const result = await verifyLoginCode({ requestId, code });
-        if (genRef.current !== gen) return;
-        if (!result.ok) {
-          setError(result.error);
-          if (result.code === 'PASSWORD_RESET_REQUIRED') setPhase('recovery-identify');
-          return;
-        }
-        const sessionError = await signInWithTokenHash(result.tokenHash);
-        if (genRef.current !== gen) return;
-        if (sessionError) setError(sessionError); else {
-          if (result.signInId) void attachSignIn(result.signInId).catch(cause => console.warn('Could not attach sign-in ledger row:', cause));
-          await done();
-        }
-      } else {
-        const result = await verifyRecovery({ requestId, code });
-        if (genRef.current !== gen) return;
-        if (!result.ok) setError(result.error); else { setResetToken(result.resetToken); setCode(''); setPhase('recovery-password'); }
-      }
-    } finally { if (genRef.current === gen) setBusy(false); }
-  };
-  const resetPassword = async () => {
-    if (!resetToken || !password) { setError('Enter a new password.'); return; }
-    if (password !== confirm) { setError('Passwords do not match.'); return; }
-    const submittedPassword = password;
-    setPassword(''); setConfirm('');
-    const gen = ++genRef.current;
-    setBusy(true); clear();
-    try {
-      const result = await completeRecovery({ resetToken, password: submittedPassword });
-      if (genRef.current !== gen) return;
-      if (!result.ok) setError(result.error); else { setNotice('Password updated. You can sign in now.'); setPhase('login'); }
-    } finally { if (genRef.current === gen) setBusy(false); }
-  };
-  const isCode = phase === 'mfa' || phase === 'recovery-code';
+  const login = usePatientLogin();
+  const { phase, channel, busy } = login;
+  const heading = HEADINGS[phase];
   const recovery = phase.startsWith('recovery');
-  return <View style={[s.page, { backgroundColor: colors.background, paddingTop: Platform.OS === 'web' ? Math.max(insets.top, 44) : insets.top + 12 }]}>
-    <View style={s.headerRow}>
-      <Pressable testID="login-back" accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack} style={({ pressed }) => [s.backBtn, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }, pressed && { backgroundColor: colors.accent }]}>
-        <Feather name="chevron-left" size={18} color={colors.navy} />
-      </Pressable>
-      <Text style={[s.wordmark, { color: colors.navy }]}>THINNR</Text>
-      <View style={s.backSpacer} />
-    </View>
-    <KeyboardAwareScrollViewCompat contentContainerStyle={s.content}>
-      {!supabaseConfigured ? <ErrorBox testID="login-not-configured" message="Real sign-in isn’t configured in this environment." /> : null}
-      <LedgerCard style={s.card}>
-        <FramedPlateHeader
-          audience={recovery ? 'PASSWORD RECOVERY' : 'PATIENT ACCESS'}
-          title={isCode ? 'Verify your sign-in' : phase === 'recovery-password' ? 'Create a new password' : recovery ? 'Reset your password' : 'Welcome back'}
-        />
-        <View style={s.formBody}>
-        {!isCode && phase !== 'recovery-password' ? <>
-          {phase === 'recovery-identify' ? <Text style={[s.body, s.introBody, { color: colors.subtleText }]}>Enter the phone or email on your account and we’ll send a 6-digit reset code.</Text> : null}
-          <FieldLabel text={channel === 'phone' ? 'Cell phone number' : 'Email address'} />
-          <LedgerInput key={channel} ref={identifierRef} testID={channel === 'phone' ? 'login-phone' : 'login-email'} accessibilityLabel={channel === 'phone' ? 'Cell phone number' : 'Email address'} value={channel === 'phone' ? phone : email} onChangeText={channel === 'phone' ? setPhone : setEmail} keyboardType={channel === 'phone' ? 'phone-pad' : 'email-address'} autoComplete={channel === 'phone' ? 'tel' : 'email'} textContentType={channel === 'phone' ? 'telephoneNumber' : 'emailAddress'} autoCapitalize="none" placeholder={channel === 'phone' ? 'Your cell number' : 'you@example.com'} style={channel === 'email' ? s.emailInput : undefined} />
-          <View style={s.linkRow}><Pressable testID="login-switch-channel" accessibilityRole="button" onPress={() => { invalidate(); switchedChannel.current = true; setChannel(channel === 'phone' ? 'email' : 'phone'); }} style={s.linkHit}><Text style={[s.inlineLink, { color: colors.cobalt }]}>{channel === 'phone' ? 'Use email instead' : 'Use phone instead'}</Text></Pressable></View>
-          {!recovery ? <>
-            <FieldLabel text="Password" />
-            <LedgerInput testID="login-password" accessibilityLabel="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" autoCapitalize="none" placeholder="Your password" />
-            <View style={s.linkRow}><Pressable testID="login-forgot" accessibilityRole="button" onPress={() => { invalidate(); clear(); setPhase('recovery-identify'); }} style={s.linkHit}><Text style={[s.inlineLink, { color: colors.cobalt }]}>Forgot password?</Text></Pressable></View>
-          </> : null}
-          <PrimaryButton testID={recovery ? 'recovery-start' : 'login-submit'} label={busy ? 'Please wait…' : recovery ? 'Send recovery code' : 'Continue'} onPress={() => request(recovery)} disabled={busy || !supabaseConfigured} style={s.gap} />
-        </> : isCode ? <>
-          <Text style={[s.body, s.introBody, { color: colors.subtleText }]}>Enter the 6-digit code we sent. If the account details match, a code is on its way.</Text>
-          <FieldLabel text="Verification code" />
-          <CodeInput
-            testID={phase === 'mfa' ? 'login-otp' : 'recovery-otp'}
-            value={code}
-            onChangeText={setCode}
-            autoFocus
-          />
-          <PrimaryButton testID={phase === 'mfa' ? 'login-verify' : 'recovery-verify'} label={busy ? 'Verifying…' : 'Verify'} onPress={verify} disabled={busy} style={s.gap} />
-        </> : <>
-          <FieldLabel text="New password" />
-          <LedgerInput testID="recovery-password" accessibilityLabel="New password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" placeholder="At least 8 characters" />
-          <View style={s.gap}><FieldLabel text="Confirm new password" /><LedgerInput testID="recovery-confirm" accessibilityLabel="Confirm new password" value={confirm} onChangeText={setConfirm} secureTextEntry autoComplete="new-password" textContentType="newPassword" placeholder="Same password again" /></View>
-          <PrimaryButton testID="recovery-complete" label={busy ? 'Updating…' : 'Update password'} onPress={resetPassword} disabled={busy} style={s.gap} />
-        </>}
-        {devCode ? <Text testID="login-devcode" style={[s.body, { color: colors.subtleText }]}>Dev delivery mode — your code is {devCode}.</Text> : null}
-        {notice ? <Text accessibilityLiveRegion="polite" style={[s.body, { color: colors.activeGreen }]}>{notice}</Text> : null}
-        {error ? <View style={s.gap}><ErrorBox testID="login-error" message={error} /></View> : null}
-        </View>
-      </LedgerCard>
-      {phase === 'login' ? <>
-        <Pressable testID="login-signup" accessibilityRole="button" onPress={() => { invalidate(); router.push('/patient-signup'); }} style={s.footerHit}><Text style={[s.footerCta, { color: colors.cobalt }]}>Create new account</Text></Pressable>
-        <View style={s.quietRow}>
-          <Pressable testID="login-demo" accessibilityRole="button" onPress={async () => { invalidate(); await admitDemo(); router.push('/patient-entry'); }} style={s.linkHit}><Text style={[s.quietLink, { color: colors.subtleText }]}>Explore demo</Text></Pressable>
-          <Text style={[s.quietDot, { color: colors.labelText }]}>·</Text>
-          <Pressable testID="login-provider" accessibilityRole="button" onPress={() => { invalidate(); router.push('/provider-login'); }} style={s.linkHit}><Text style={[s.quietLink, { color: colors.subtleText }]}>Provider login</Text></Pressable>
-        </View>
-        <NoteText center text="Your health journey, supported by your care team." />
-      </> : <Pressable testID="login-back-to-signin" accessibilityRole="button" onPress={backToSignIn} style={s.footerHit}><Text style={[s.footerCta, { color: colors.cobalt }]}>Back to sign in</Text></Pressable>}
-    </KeyboardAwareScrollViewCompat>
-  </View>;
+  const isCode = phase === 'mfa' || phase === 'recovery-code';
+  const isPhone = channel === 'phone';
+
+  const feedback = (
+    <FeedbackSlot
+      devCode={login.devCode}
+      devCodeTestID="login-devcode"
+      notice={login.notice}
+      error={login.error}
+      errorTestID="login-error"
+    />
+  );
+
+  return (
+    <AuthPageFrame
+      testID="patient-login"
+      onBack={login.goBack}
+      backTestID="login-back"
+      banner={!supabaseConfigured ? <ErrorBox testID="login-not-configured" message="Real sign-in isn’t configured in this environment." /> : null}
+      hero={<PlateHero />}
+      kicker={heading.kicker}
+      title={heading.title}
+      subtitle={heading.subtitle}
+      footer={
+        phase === 'login' ? (
+          <View style={styles.footer}>
+            <FooterLink testID="login-signup" label="Create new account" onPress={login.openSignup} />
+            <QuietLinkRow>
+              <FooterLink quiet testID="login-demo" label="Explore demo" onPress={login.openDemo} />
+              <FooterLink quiet testID="login-provider" label="Provider login" onPress={login.openProviderLogin} />
+            </QuietLinkRow>
+            <Footnote text="Your health journey, supported by your care team." />
+          </View>
+        ) : (
+          <FooterLink testID="login-back-to-signin" label="Back to sign in" onPress={login.backToSignIn} />
+        )
+      }
+    >
+      {phase === 'login' || phase === 'recovery-identify' ? (
+        <FormCard>
+          <FieldStack>
+            <Field
+              label={isPhone ? 'Cell phone number' : 'Email address'}
+              link={{
+                testID: 'login-switch-channel',
+                label: isPhone ? 'Use email instead' : 'Use phone instead',
+                onPress: login.switchChannel,
+              }}
+            >
+              <LedgerInput
+                key={channel}
+                ref={login.identifierRef}
+                testID={isPhone ? 'login-phone' : 'login-email'}
+                accessibilityLabel={isPhone ? 'Cell phone number' : 'Email address'}
+                value={isPhone ? login.phone : login.email}
+                onChangeText={isPhone ? login.setPhone : login.setEmail}
+                keyboardType={isPhone ? 'phone-pad' : 'email-address'}
+                autoComplete={isPhone ? 'tel' : 'email'}
+                textContentType={isPhone ? 'telephoneNumber' : 'emailAddress'}
+                autoCapitalize="none"
+                placeholder={isPhone ? 'Your cell number' : 'you@example.com'}
+                style={!isPhone ? styles.emailInput : undefined}
+              />
+            </Field>
+            {!recovery ? (
+              <Field label="Password" link={{ testID: 'login-forgot', label: 'Forgot password?', onPress: login.startRecoveryFlow }}>
+                <LedgerInput
+                  testID="login-password"
+                  accessibilityLabel="Password"
+                  value={login.password}
+                  onChangeText={login.setPassword}
+                  secureTextEntry
+                  autoComplete="current-password"
+                  textContentType="password"
+                  autoCapitalize="none"
+                  placeholder="Your password"
+                />
+              </Field>
+            ) : null}
+          </FieldStack>
+          <ActionGroup>
+            <PrimaryButton
+              testID={recovery ? 'recovery-start' : 'login-submit'}
+              label={busy ? 'Please wait…' : recovery ? 'Send recovery code' : 'Continue'}
+              onPress={() => login.request(recovery)}
+              disabled={busy || !supabaseConfigured}
+            />
+          </ActionGroup>
+          {feedback}
+        </FormCard>
+      ) : null}
+
+      {isCode ? (
+        <FormCard>
+          <FieldStack>
+            <Field label="Verification code">
+              <CodeInput
+                testID={phase === 'mfa' ? 'login-otp' : 'recovery-otp'}
+                value={login.code}
+                onChangeText={login.setCode}
+                autoFocus
+              />
+            </Field>
+          </FieldStack>
+          <ActionGroup>
+            <PrimaryButton
+              testID={phase === 'mfa' ? 'login-verify' : 'recovery-verify'}
+              label={busy ? 'Verifying…' : 'Verify'}
+              onPress={login.verify}
+              disabled={busy}
+            />
+          </ActionGroup>
+          {feedback}
+        </FormCard>
+      ) : null}
+
+      {phase === 'recovery-password' ? (
+        <FormCard>
+          <FieldStack>
+            <Field label="New password">
+              <LedgerInput
+                testID="recovery-password"
+                accessibilityLabel="New password"
+                value={login.password}
+                onChangeText={login.setPassword}
+                secureTextEntry
+                autoComplete="new-password"
+                textContentType="newPassword"
+                placeholder="At least 8 characters"
+              />
+            </Field>
+            <Field label="Confirm new password">
+              <LedgerInput
+                testID="recovery-confirm"
+                accessibilityLabel="Confirm new password"
+                value={login.confirm}
+                onChangeText={login.setConfirm}
+                secureTextEntry
+                autoComplete="new-password"
+                textContentType="newPassword"
+                placeholder="Same password again"
+              />
+            </Field>
+          </FieldStack>
+          <ActionGroup>
+            <PrimaryButton
+              testID="recovery-complete"
+              label={busy ? 'Updating…' : 'Update password'}
+              onPress={login.resetPassword}
+              disabled={busy}
+            />
+          </ActionGroup>
+          {feedback}
+        </FormCard>
+      ) : null}
+    </AuthPageFrame>
+  );
 }
-const s = StyleSheet.create({
-  page: { flex: 1 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, maxWidth: 520, width: '100%', alignSelf: 'center' },
-  backBtn: { width: 44, height: 44, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  backSpacer: { width: 44 },
-  wordmark: { fontSize: 23, fontFamily: 'PlayfairDisplay_600SemiBold', letterSpacing: -0.5 },
-  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 28, gap: 14, maxWidth: 520, width: '100%', alignSelf: 'center' },
-  kicker: { fontSize: 10.5, fontFamily: 'Inter_700Bold', letterSpacing: 1.5 },
-  title: { fontSize: 30, fontFamily: 'PlayfairDisplay_700Bold' },
-  card: { padding: 0 },
-  formBody: { paddingHorizontal: 18, paddingBottom: 18, paddingTop: 14 },
-  gap: { marginTop: 14 },
-  linkRow: { alignItems: 'flex-end', marginTop: 6, marginBottom: 10 },
-  linkHit: { paddingVertical: 4, paddingHorizontal: 4 },
-  inlineLink: { fontSize: 12.5, fontFamily: 'Inter_600SemiBold' },
-  footerHit: { alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 8 },
-  footerCta: { fontSize: 13.5, fontFamily: 'Inter_700Bold', textAlign: 'center' },
-  quietRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  quietLink: { fontSize: 12.5, fontFamily: 'Inter_600SemiBold' },
-  quietDot: { fontSize: 13, fontFamily: 'Inter_700Bold' },
-  introBody: { marginTop: 0, marginBottom: 14 },
+
+const styles = StyleSheet.create({
+  footer: { alignItems: 'center', gap: space.xs },
   emailInput: { fontSize: 15, letterSpacing: 0 },
-  body: { fontSize: 13.5, lineHeight: 20, fontFamily: 'Inter_400Regular', marginTop: 12 },
 });

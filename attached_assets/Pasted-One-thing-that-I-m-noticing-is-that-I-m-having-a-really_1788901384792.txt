@@ -1,0 +1,28 @@
+One thing that I'm noticing is that I'm having a really hard time finding common foods. For example, if I'm in the app and I'm searching to add a food, like chicken wing, it shows:
+- roasted meat and skin
+- meat only
+- meat and skin
+- chicken wings raw
+- chicken wings fried
+- chicken wings battered
+That's great! If I type in ground beef, I just feel like it says "no results" a lot, and it's searching and says "beef grass-fed ground raw." I feel like there is a lot of mumbo jumbo here. It's important to put lean and fat. I just don't know.
+Open Food Facts also has "Ultra Moleo" and "Boeuche B O E U F H A C H E." It's a bunch of mumbo jumbo, and it almost reads like French or something. A lot of those are French for branded products. We don't need that, so maybe you want to filter through that.
+When I type in something like Heinz ketchup, nothing shows up. I feel like a lot of basic searches, like ground beef, should have very simple answers that pop up, and they can be from USDA Food Data Central. That's fine, but we almost need to scrape an even more comprehensive list than what we already have. In addition to this, we need to continue to dumb down the stuff that's listed there.
+We don't actually need the calorie count on the right-hand side next to it. We can just have it be a star or a plus. The food details page, I think, is okay. I think that we could definitely stylize this better to have essentially a nutrition label that we can edit. I just fear that there are going to be lots of people that attempt to log foods that are going to be confused by the interface or find it very difficult to find the food that they want.
+What I'm thinking about doing is maybe having you overhaul what actually is named there. If I type in ground beef, I'm just looking for one that says "ground beef," right? If I'm looking for 70% or 90%, it would be like, "Okay, 70% or 90%," right? We could have two, but we don't need raw and cooked, baked and broiled, and this and that. I understand it is pretty accurate, and it's better to have that accurate stuff, but we don't have chicken wings, like baked chicken wings or fried chicken wings, and it shouldn't have a huge, long title. It should just say "baked chicken wings," and then it should say how many ounces or how many pieces of chicken, right?
+I just want to really think through this much more in depth. I want to make it so that 98% of the stuff that people would go to type in, let's say meatballs, right? I don't know, I've never actually typed in meatballs. Let's say meatballs, meatball. If I type in meatballs, the first thing that pops up says "meatballs, meatless." Next one is "meatballs, frozen, Italian style." Then "hot pockets" pops up. Then "turkey meatballs and zoodles, a Thinnr recipe" pops up. I just don't know what to think about this.
+For example, I scanned Core Power, and it says serving 1, portion 414 mL. We're in the United States, right, so why are we using milliliters?
+- It should show fluid analysis.
+- It should have a nutrition label, not a nutrition tab, with 230 calories, 42 g of protein, 8 g of carbs, and 4 g of fat.
+It should have more stuff. I'm literally sitting here looking at the nutrition facts that we're used to seeing in the United States. It should look just like a nutrition facts thing where it has:
+- Total fat
+- Saturated fat
+- Trans fat
+- Cholesterol
+- Sodium
+- Carbs
+- Dietary fiber
+- Sugars (includes 0 g added sugar)
+- Protein
+- Any vitamins and their daily percentage values
+Why can we not have that? I think that we really should have this. Not only am I wanting to update the food details when we tap on it and be able to see those specifics, but I also want to improve the search. I think that you may need to scan the database. I think what I'm figuring out is we may need to just store these internally in Supabase to make everything faster, because every time I search, it's literally all coming from the USDA food site, and I just feel like it's very difficult. Maybe we just need to store them locally and improve them. Yeah, I don't know. Chat with me on this! Don't forget.

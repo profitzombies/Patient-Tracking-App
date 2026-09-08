@@ -16,10 +16,13 @@ export function FramedPlateHeader({
   audience,
   title,
   caption = `${greeting()} — your plate is waiting on your Today tab.`,
+  imageHeight = 176,
 }: {
   audience: string;
   title: string;
   caption?: string;
+  /** Taller photo for hero-style uses such as the welcome screen. */
+  imageHeight?: number;
 }) {
   const colors = useColors();
   return (
@@ -28,7 +31,7 @@ export function FramedPlateHeader({
         source={HERO}
         accessibilityLabel="Grilled chicken bowl with greens"
         resizeMode="cover"
-        style={styles.image}
+        style={[styles.image, { height: imageHeight }]}
       >
         <View style={[styles.scrim, { backgroundColor: `${colors.card}E8` }]} />
         <View style={styles.imageCopy}>

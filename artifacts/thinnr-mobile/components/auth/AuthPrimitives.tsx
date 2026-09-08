@@ -29,23 +29,47 @@ export function FieldStack({ children }: { children: React.ReactNode }) {
   return <View style={styles.fieldStack}>{children}</View>;
 }
 
+type InlineAction = { label: string; onPress: () => void; testID?: string };
+
 export function Field({
   label,
   children,
   hint,
   link,
+  labelAction,
 }: {
   label: string;
   children: React.ReactNode;
   /** Quiet helper line under the input. */
   hint?: React.ReactNode;
   /** Right-aligned inline text action under the input (switch channel, forgot). */
-  link?: { label: string; onPress: () => void; testID?: string };
+  link?: InlineAction;
+  /**
+   * Right-aligned text action on the label row itself (e.g. "Forgot
+   * password?"). Keeps the stack label → input → label → input with nothing
+   * hanging between fields.
+   */
+  labelAction?: InlineAction;
 }) {
   const colors = useColors();
   return (
     <View>
-      <FieldLabel text={label} />
+      {labelAction ? (
+        <View style={styles.labelRow}>
+          <FieldLabel text={label} />
+          <Pressable
+            testID={labelAction.testID}
+            accessibilityRole="button"
+            onPress={labelAction.onPress}
+            style={styles.labelActionHit}
+            hitSlop={space.sm}
+          >
+            <Text style={[styles.inlineLink, { color: colors.cobalt }]}>{labelAction.label}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <FieldLabel text={label} />
+      )}
       {children}
       {hint ? <View style={styles.hint}>{hint}</View> : null}
       {link ? (
@@ -135,6 +159,68 @@ export function FeedbackSlot({
         </Text>
       ) : null}
       {error ? <ErrorBox testID={errorTestID} message={error} /> : null}
+    </View>
+  );
+}
+
+/**
+ * Two-way segmented choice (e.g. Phone | Email) that sits above a field
+ * stack. One decision, made once, instead of a "use X instead" link hanging
+ * under the input. The inactive segment carries `switchTestID` so pressing
+ * it is always "switch to the other channel".
+ *
+ * Semantics: a named group of toggle buttons (aria-pressed), not a tablist.
+ * Buttons get Enter AND Space activation from RN-web's press responder for
+ * free; tabs would owe roving focus + arrow keys that nothing here provides.
+ */
+export function SegmentedToggle<T extends string>({
+  options,
+  value,
+  onChange,
+  accessibilityLabel,
+  testIDPrefix,
+  switchTestID,
+}: {
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (next: T) => void;
+  accessibilityLabel: string;
+  testIDPrefix: string;
+  switchTestID?: string;
+}) {
+  const colors = useColors();
+  return (
+    <View
+      role="group"
+      accessibilityLabel={accessibilityLabel}
+      style={[styles.segmented, { backgroundColor: colors.accent, borderRadius: colors.radius }]}
+    >
+      {options.map(option => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            testID={selected ? `${testIDPrefix}-${option.value}` : switchTestID ?? `${testIDPrefix}-${option.value}`}
+            accessibilityRole="button"
+            accessibilityLabel={option.label}
+            accessibilityState={{ selected }}
+            aria-pressed={selected}
+            onPress={() => {
+              if (selected) return;
+              Haptics.selectionAsync();
+              onChange(option.value);
+            }}
+            style={({ pressed }) => [
+              styles.segment,
+              { borderRadius: colors.radiusSm },
+              selected && { backgroundColor: colors.card, boxShadow: '0 1px 2px rgba(32, 59, 100, 0.10)' },
+              pressed && !selected && { opacity: 0.7 },
+            ]}
+          >
+            <Text style={[styles.segmentText, { color: selected ? colors.navy : colors.bodyText }]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -236,7 +322,14 @@ const styles = StyleSheet.create({
   hint: { marginTop: space.sm },
   linkRow: { alignItems: 'flex-end', marginTop: space.sm },
   linkHit: { paddingVertical: space.xs, paddingHorizontal: space.xs },
+  // The label carries its own sm bottom margin; the action pads to the same
+  // baseline so both sit on one line above the input.
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  labelActionHit: { paddingTop: space.xs, paddingBottom: space.sm, paddingHorizontal: space.xs, marginRight: -space.xs },
   inlineLink: { fontSize: 13, fontFamily: fonts.sansSemiBold },
+  segmented: { flexDirection: 'row', padding: space.xs, gap: space.xs },
+  segment: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm },
+  segmentText: { fontSize: 14, fontFamily: fonts.sansSemiBold },
   actions: { marginTop: space.lg, gap: space.md },
   secondary: { borderWidth: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingVertical: 14 },
   secondaryText: { fontSize: 14, fontFamily: fonts.sansBold, letterSpacing: 0.3 },

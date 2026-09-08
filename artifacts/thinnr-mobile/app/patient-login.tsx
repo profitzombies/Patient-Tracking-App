@@ -1,34 +1,37 @@
 /**
  * Patient login — pure view over usePatientLogin. Phases: login (phone/email
  * + password), mfa, recovery-identify, recovery-code, recovery-password.
+ *
+ * Layout: no hero, no card. Fields sit directly on the page at the page
+ * margin; the channel choice is a Phone | Email toggle above the identifier;
+ * "Forgot password?" rides the password label row; the footer sinks to the
+ * bottom on tall phones.
  */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { AuthPageFrame } from '@/components/auth/AuthPageFrame';
-import { PlateHero } from '@/components/auth/PlateHero';
 import {
   ActionGroup,
   FeedbackSlot,
   Field,
   FieldStack,
   FooterLink,
-  Footnote,
-  FormCard,
   QuietLinkRow,
+  SegmentedToggle,
 } from '@/components/auth/AuthPrimitives';
 import { CodeInput, ErrorBox, LedgerInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
-import { usePatientLogin, type LoginPhase } from '@/hooks/usePatientLogin';
+import { usePatientLogin, type LoginChannel, type LoginPhase } from '@/hooks/usePatientLogin';
 import { supabaseConfigured } from '@/lib/supabase';
 import { space } from '@/constants/spacing';
 
 const HEADINGS: Record<LoginPhase, { kicker: string; title: string; subtitle: string }> = {
   login: {
-    kicker: 'PATIENT ACCESS',
+    kicker: 'SIGN IN',
     title: 'Welcome back',
     subtitle: 'Sign in with the phone or email on your account.',
   },
   mfa: {
-    kicker: 'PATIENT ACCESS',
+    kicker: 'SIGN IN',
     title: 'Verify your sign-in',
     subtitle: 'Enter the 6-digit code we sent. If the account details match, a code is on its way.',
   },
@@ -48,6 +51,11 @@ const HEADINGS: Record<LoginPhase, { kicker: string; title: string; subtitle: st
     subtitle: 'Choose at least 8 characters you don’t use anywhere else.',
   },
 };
+
+const CHANNELS: readonly { value: LoginChannel; label: string }[] = [
+  { value: 'phone', label: 'Phone' },
+  { value: 'email', label: 'Email' },
+];
 
 export default function PatientLoginScreen() {
   const login = usePatientLogin();
@@ -73,19 +81,18 @@ export default function PatientLoginScreen() {
       onBack={login.goBack}
       backTestID="login-back"
       banner={!supabaseConfigured ? <ErrorBox testID="login-not-configured" message="Real sign-in isn’t configured in this environment." /> : null}
-      hero={<PlateHero />}
       kicker={heading.kicker}
       title={heading.title}
       subtitle={heading.subtitle}
+      pinFooter
       footer={
         phase === 'login' ? (
           <View style={styles.footer}>
-            <FooterLink testID="login-signup" label="Create new account" onPress={login.openSignup} />
+            <FooterLink testID="login-signup" label="New to THINNR? Create an account" onPress={login.openSignup} />
             <QuietLinkRow>
               <FooterLink quiet testID="login-demo" label="Explore demo" onPress={login.openDemo} />
               <FooterLink quiet testID="login-provider" label="Provider login" onPress={login.openProviderLogin} />
             </QuietLinkRow>
-            <Footnote text="Your health journey, supported by your care team." />
           </View>
         ) : (
           <FooterLink testID="login-back-to-signin" label="Back to sign in" onPress={login.backToSignIn} />
@@ -93,16 +100,21 @@ export default function PatientLoginScreen() {
       }
     >
       {phase === 'login' || phase === 'recovery-identify' ? (
-        <FormCard>
-          <FieldStack>
-            <Field
-              label={isPhone ? 'Cell phone number' : 'Email address'}
-              link={{
-                testID: 'login-switch-channel',
-                label: isPhone ? 'Use email instead' : 'Use phone instead',
-                onPress: login.switchChannel,
+        <View>
+          <View style={styles.toggle}>
+            <SegmentedToggle
+              options={CHANNELS}
+              value={channel}
+              onChange={next => {
+                if (next !== channel) login.switchChannel();
               }}
-            >
+              accessibilityLabel="Sign in with"
+              testIDPrefix="login-channel"
+              switchTestID="login-switch-channel"
+            />
+          </View>
+          <FieldStack>
+            <Field label={isPhone ? 'Cell phone number' : 'Email address'}>
               <LedgerInput
                 key={channel}
                 ref={login.identifierRef}
@@ -119,7 +131,10 @@ export default function PatientLoginScreen() {
               />
             </Field>
             {!recovery ? (
-              <Field label="Password" link={{ testID: 'login-forgot', label: 'Forgot password?', onPress: login.startRecoveryFlow }}>
+              <Field
+                label="Password"
+                labelAction={{ testID: 'login-forgot', label: 'Forgot password?', onPress: login.startRecoveryFlow }}
+              >
                 <LedgerInput
                   testID="login-password"
                   accessibilityLabel="Password"
@@ -143,11 +158,11 @@ export default function PatientLoginScreen() {
             />
           </ActionGroup>
           {feedback}
-        </FormCard>
+        </View>
       ) : null}
 
       {isCode ? (
-        <FormCard>
+        <View>
           <FieldStack>
             <Field label="Verification code">
               <CodeInput
@@ -167,11 +182,11 @@ export default function PatientLoginScreen() {
             />
           </ActionGroup>
           {feedback}
-        </FormCard>
+        </View>
       ) : null}
 
       {phase === 'recovery-password' ? (
-        <FormCard>
+        <View>
           <FieldStack>
             <Field label="New password">
               <LedgerInput
@@ -207,13 +222,14 @@ export default function PatientLoginScreen() {
             />
           </ActionGroup>
           {feedback}
-        </FormCard>
+        </View>
       ) : null}
     </AuthPageFrame>
   );
 }
 
 const styles = StyleSheet.create({
+  toggle: { marginBottom: space.md },
   footer: { alignItems: 'center', gap: space.xs },
   emailInput: { fontSize: 15, letterSpacing: 0 },
 });

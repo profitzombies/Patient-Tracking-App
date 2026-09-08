@@ -37,6 +37,11 @@ interface AuthPageFrameProps {
    * simply scroll from the top.
    */
   balance?: boolean;
+  /**
+   * Keep the content top-anchored but let the footer sink to the bottom of
+   * the viewport on tall phones (login). Ignored when `balance` is set.
+   */
+  pinFooter?: boolean;
   testID?: string;
 }
 
@@ -53,6 +58,7 @@ export function AuthPageFrame({
   children,
   footer,
   balance = false,
+  pinFooter = false,
   testID,
 }: AuthPageFrameProps) {
   const colors = useColors();
@@ -102,6 +108,7 @@ export function AuthPageFrame({
           {subtitle ? <Text style={[styles.subtitle, { color: colors.bodyText }]}>{subtitle}</Text> : null}
         </View>
         <View>{children}</View>
+        {footer && pinFooter && !balance ? <View style={styles.slackTop} /> : null}
         {footer ? <View style={styles.footer}>{footer}</View> : null}
         {balance ? <View style={styles.slackBottom} /> : null}
       </KeyboardAwareScrollViewCompat>

@@ -12,6 +12,7 @@ import { useAppMode } from '@/context/AppModeContext';
 import { completeSignup, signInWithTokenHash, startSignup, verifySignupCode } from '@/lib/auth-api';
 import { normalizePhone, supabaseConfigured } from '@/lib/supabase';
 import { attachSignIn } from '@/lib/security-api';
+import { FramedPlateHeader } from '@/components/auth/FramedPlateHeader';
 type Flow = 'invited' | 'new'; type Phase = 'choose' | 'contact' | 'code' | 'details';
 const emailOK = (x: string) => /^\S+@\S+\.\S+$/.test(x.trim());
 export default function PatientSignupScreen() {
@@ -85,13 +86,13 @@ export default function PatientSignupScreen() {
       <Pressable testID="signup-back" accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack} style={({ pressed }) => [s.backBtn, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }, pressed && { backgroundColor: colors.accent }]}>
         <Feather name="chevron-left" size={18} color={colors.navy} />
       </Pressable>
-      <View style={[s.brandMark, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }]}><Text style={[s.brandMarkText, { color: colors.navy }]}>TH</Text></View>
+      <Text style={[s.wordmark, { color: colors.navy }]}>THINNR</Text>
       <View style={s.backSpacer} />
     </View>
     <KeyboardAwareScrollViewCompat contentContainerStyle={s.content}>
-      <Text style={[s.kicker, { color: colors.labelText }]}>CREATE YOUR ACCOUNT</Text>
-      <Text style={[s.title, { color: colors.navy }]}>{phase === 'choose' ? 'How are you joining?' : phase === 'contact' ? (flow === 'invited' ? 'Your invitation details' : 'Tell us how to reach you') : phase === 'code' ? 'Verify your contact' : 'Secure your account'}</Text>
       <LedgerCard style={s.card}>
+        <FramedPlateHeader audience="CREATE YOUR ACCOUNT" title={phase === 'choose' ? 'How are you joining?' : phase === 'contact' ? (flow === 'invited' ? 'Your invitation details' : 'Tell us how to reach you') : phase === 'code' ? 'Verify your contact' : 'Secure your account'} />
+        <View style={s.formBody}>
         {phase === 'choose' ? <>
           <Text style={[s.body, s.introBody, { color: colors.subtleText }]}>If your med spa invited you, your details are already on file. Brand new? You’ll enter the provider code from your welcome packet.</Text>
           <PrimaryButton testID="signup-invited" label="I have an invitation" onPress={() => { setFlow('invited'); clear(); setPhase('contact'); }} />
@@ -125,6 +126,7 @@ export default function PatientSignupScreen() {
         {devCode ? <Text testID="signup-devcode" style={[s.body, { color: colors.subtleText }]}>Dev delivery mode — your code is {devCode}.</Text> : null}
         {notice ? <Text accessibilityLiveRegion="polite" style={[s.body, { color: colors.activeGreen }]}>{notice}</Text> : null}
         {error ? <View style={s.gap}><ErrorBox testID="signup-error" message={error} /></View> : null}
+        </View>
       </LedgerCard>
       {phase === 'choose' || phase === 'contact' ? <Pressable accessibilityRole="button" onPress={() => { invalidate(); router.push('/patient-login'); }} style={s.footerHit}><Text style={[s.footerCta, { color: colors.cobalt }]}>Already have an account? Log in</Text></Pressable> : null}
     </KeyboardAwareScrollViewCompat>
@@ -135,12 +137,12 @@ const s = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, maxWidth: 520, width: '100%', alignSelf: 'center' },
   backBtn: { width: 44, height: 44, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   backSpacer: { width: 44 },
-  brandMark: { width: 34, height: 34, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  brandMarkText: { fontSize: 13, fontFamily: 'PlayfairDisplay_700Bold', letterSpacing: 1 },
+  wordmark: { fontSize: 23, fontFamily: 'PlayfairDisplay_600SemiBold', letterSpacing: -0.5 },
   content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 28, gap: 14, maxWidth: 520, width: '100%', alignSelf: 'center' },
   kicker: { fontSize: 10.5, fontFamily: 'Inter_700Bold', letterSpacing: 1.4 },
   title: { fontSize: 29, fontFamily: 'PlayfairDisplay_700Bold' },
-  card: { padding: 18 },
+  card: { padding: 0 },
+  formBody: { padding: 18 },
   gap: { marginTop: 14 },
   noteGap: { marginTop: 8 },
   secondaryBtn: { minHeight: 48, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 12 },

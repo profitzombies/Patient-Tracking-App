@@ -10,13 +10,20 @@
  */
 import { useState, type FormEvent } from 'react';
 import { useLocation } from 'wouter';
-import { ArrowRight, Building2, ChevronDown, Stethoscope } from 'lucide-react';
+import { ArrowRight, Building2, ChevronDown, Stethoscope, Utensils } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useSession, type Persona } from '@/contexts/session';
 
 type Phase = 'email' | 'code';
+
+function plateGreeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 
 const DEMO_OPTIONS: Array<{
   persona: Persona;
@@ -140,21 +147,47 @@ export default function SignIn() {
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-background font-sans text-foreground">
-      <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center px-5 py-10">
-        <header className="mb-8 text-center">
-          <span className="mx-auto grid h-12 w-12 place-items-center rounded-md bg-navy text-brand-foreground shadow-soft">
+      <header className="mx-auto flex w-full max-w-[1060px] items-center justify-between px-8 pt-7">
+        <span className="font-serif text-[26px] text-navy">THINNR</span>
+        <span className="text-xs font-semibold text-muted-foreground">Need access? Ask your office admin</span>
+      </header>
+      <main className="mx-auto flex w-full max-w-[1060px] flex-1 items-center px-5 py-8">
+        <section className="grid w-full overflow-hidden rounded-lg border border-card-border bg-card shadow-lifted lg:min-h-[540px] lg:grid-cols-2">
+          <div className="relative hidden overflow-hidden lg:block">
+            <img
+              src="/home-hero.jpg"
+              alt="Grilled chicken bowl with greens"
+              className="absolute inset-0 h-full w-full object-cover object-center"
+            />
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(245,247,249,.15)_0%,rgba(245,247,249,0)_35%,rgba(253,252,249,.92)_100%)]" />
+            <div className="absolute inset-x-0 bottom-0 p-7">
+              <span className="inline-flex items-center gap-1.5 rounded-sm border border-warn-border bg-warn-bg px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-warn">
+                <Utensils size={11} aria-hidden="true" />
+                Approved list
+              </span>
+              <p className="mt-2 font-serif text-[24px] leading-tight text-navy">
+                {plateGreeting()} — grilled chicken, greens, and a plate off the approved list.
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                From the restaurant guide your patients see on the Today tab.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col justify-center p-6 sm:p-10">
+        <header className="mb-6 text-left">
+          <span className="grid h-11 w-11 place-items-center rounded-md bg-navy text-brand-foreground shadow-soft">
             <span className="text-sm font-bold tracking-[.04em]">TH</span>
           </span>
-          <h1 className="mt-4 font-serif text-[34px] font-bold leading-tight tracking-[-.02em] text-navy">
+          <p className="mt-6 text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Staff sign-in</p>
+          <h1 className="mt-2 font-serif text-[32px] font-bold leading-tight tracking-[-.02em] text-navy">
             THINNR Operations
           </h1>
-          <p className="mx-auto mt-2 max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-            Sign in with your work email — we’ll send a one-time code. HQ admins land on the
-            umbrella overview; office teams land on today’s desk.
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            Sign in with your work email — we’ll send a one-time code.
           </p>
         </header>
 
-        <section className="mx-auto w-full max-w-[430px] rounded-lg border border-card-border bg-card p-6 shadow-soft">
+        <section className="w-full">
           {!supabaseEnabled && (
             <p
               role="alert"
@@ -291,7 +324,7 @@ export default function SignIn() {
           )}
         </section>
 
-        <div className="mt-6 text-center">
+        <div className="mt-5 border-t border-border pt-4 text-left">
           <button
             type="button"
             data-testid="button-explore-demo"
@@ -336,10 +369,12 @@ export default function SignIn() {
           </div>
         )}
 
-        <p className="mt-6 text-center text-[11px] text-muted-foreground">
+        <p className="mt-6 text-left text-[11px] text-muted-foreground">
           Staff sign in with a one-time email code. Patients sign in with their cell phone in the
           THINNR mobile app.
         </p>
+          </div>
+        </section>
       </main>
 
       <footer className="border-t border-border bg-sidebar px-5 py-2 text-center">

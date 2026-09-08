@@ -26,6 +26,7 @@ import { useAppMode } from '@/context/AppModeContext';
 import { requestStaffLoginCode, signInWithTokenHash, verifyLoginCode } from '@/lib/auth-api';
 import { supabaseConfigured } from '@/lib/supabase';
 import { attachSignIn } from '@/lib/security-api';
+import { FramedPlateHeader } from '@/components/auth/FramedPlateHeader';
 
 type Phase = 'email' | 'code';
 
@@ -160,9 +161,7 @@ export default function ProviderLoginScreen() {
         >
           <Feather name="chevron-left" size={18} color={colors.navy} />
         </Pressable>
-        <View style={[styles.brandMark, { backgroundColor: colors.navy }]}>
-          <Text style={[styles.brandMarkText, { color: colors.brandMarkText }]}>TH</Text>
-        </View>
+        <Text style={[styles.wordmark, { color: colors.navy }]}>THINNR</Text>
         <View style={styles.backBtnSpacer} />
       </View>
 
@@ -171,11 +170,6 @@ export default function ProviderLoginScreen() {
         showsVerticalScrollIndicator={false}
         bottomOffset={96}
       >
-        <Text style={[styles.kicker, { color: colors.labelText }]}>PROVIDER ACCESS</Text>
-        <Text style={[styles.title, { color: colors.navy }]}>
-          {phase === 'code' ? 'Check your inbox' : 'Provider sign-in'}
-        </Text>
-
         {!supabaseConfigured && (
           <View style={styles.blockGap}>
             <ErrorBox
@@ -187,7 +181,8 @@ export default function ProviderLoginScreen() {
 
         {phase === 'email' && (
           <LedgerCard style={styles.cardPad}>
-            <FormWrap>
+            <FramedPlateHeader audience="PROVIDER ACCESS" title="Provider sign-in" caption={`${new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening'} — care starts with a plate on plan.`} />
+            <View style={styles.formBody}><FormWrap>
               <FieldLabel text="Work email" />
               <LedgerInput
                 testID="provider-email"
@@ -221,13 +216,14 @@ export default function ProviderLoginScreen() {
                 }
                 style={styles.blockGap}
               />
-            </FormWrap>
+            </FormWrap></View>
           </LedgerCard>
         )}
 
         {phase === 'code' && (
           <LedgerCard style={styles.cardPad}>
-            <FormWrap>
+            <FramedPlateHeader audience="PROVIDER ACCESS" title="Check your inbox" caption={`${new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening'} — care starts with a plate on plan.`} />
+            <View style={styles.formBody}><FormWrap>
               <Text style={[styles.sessionSub, { color: colors.subtleText }]}>
                 If {pendingEmail} has an account, a 6-digit code is on its way. It expires in 10
                 minutes.
@@ -280,7 +276,7 @@ export default function ProviderLoginScreen() {
                   </Text>
                 </Pressable>
               </View>
-            </FormWrap>
+            </FormWrap></View>
           </LedgerCard>
         )}
 
@@ -318,18 +314,10 @@ const styles = StyleSheet.create({
   backBtnSpacer: {
     width: 44,
   },
-  brandMark: {
-    width: 34,
-    height: 34,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandMarkText: {
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: 0.5,
+  wordmark: {
+    fontSize: 23,
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    letterSpacing: -0.5,
   },
   content: {
     paddingHorizontal: 20,
@@ -351,9 +339,8 @@ const styles = StyleSheet.create({
     fontFamily: 'PlayfairDisplay_700Bold',
     marginBottom: 16,
   },
-  cardPad: {
-    padding: 16,
-  },
+  cardPad: { padding: 0 },
+  formBody: { padding: 18 },
   fieldGap: {
     marginTop: 12,
   },

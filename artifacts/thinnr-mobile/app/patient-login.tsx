@@ -12,6 +12,7 @@ import { useAppMode } from '@/context/AppModeContext';
 import { completeRecovery, requestPatientPasswordLogin, signInWithTokenHash, startRecovery, verifyLoginCode, verifyRecovery } from '@/lib/auth-api';
 import { normalizePhone, supabaseConfigured } from '@/lib/supabase';
 import { attachSignIn } from '@/lib/security-api';
+import { FramedPlateHeader } from '@/components/auth/FramedPlateHeader';
 
 type Channel = 'phone' | 'email';
 type Phase = 'login' | 'mfa' | 'recovery-identify' | 'recovery-code' | 'recovery-password';
@@ -121,14 +122,17 @@ export default function PatientLoginScreen() {
       <Pressable testID="login-back" accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack} style={({ pressed }) => [s.backBtn, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }, pressed && { backgroundColor: colors.accent }]}>
         <Feather name="chevron-left" size={18} color={colors.navy} />
       </Pressable>
-      <View style={[s.brandMark, { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm }]}><Text style={[s.brandMarkText, { color: colors.navy }]}>TH</Text></View>
+      <Text style={[s.wordmark, { color: colors.navy }]}>THINNR</Text>
       <View style={s.backSpacer} />
     </View>
     <KeyboardAwareScrollViewCompat contentContainerStyle={s.content}>
-      <Text style={[s.kicker, { color: colors.labelText }]}>{recovery ? 'PASSWORD RECOVERY' : 'PATIENT ACCESS'}</Text>
-      <Text style={[s.title, { color: colors.navy }]}>{isCode ? 'Verify your sign-in' : phase === 'recovery-password' ? 'Create a new password' : recovery ? 'Reset your password' : 'Welcome back'}</Text>
       {!supabaseConfigured ? <ErrorBox testID="login-not-configured" message="Real sign-in isn’t configured in this environment." /> : null}
       <LedgerCard style={s.card}>
+        <FramedPlateHeader
+          audience={recovery ? 'PASSWORD RECOVERY' : 'PATIENT ACCESS'}
+          title={isCode ? 'Verify your sign-in' : phase === 'recovery-password' ? 'Create a new password' : recovery ? 'Reset your password' : 'Welcome back'}
+        />
+        <View style={s.formBody}>
         {!isCode && phase !== 'recovery-password' ? <>
           {phase === 'recovery-identify' ? <Text style={[s.body, s.introBody, { color: colors.subtleText }]}>Enter the phone or email on your account and we’ll send a 6-digit reset code.</Text> : null}
           <FieldLabel text={channel === 'phone' ? 'Cell phone number' : 'Email address'} />
@@ -159,6 +163,7 @@ export default function PatientLoginScreen() {
         {devCode ? <Text testID="login-devcode" style={[s.body, { color: colors.subtleText }]}>Dev delivery mode — your code is {devCode}.</Text> : null}
         {notice ? <Text accessibilityLiveRegion="polite" style={[s.body, { color: colors.activeGreen }]}>{notice}</Text> : null}
         {error ? <View style={s.gap}><ErrorBox testID="login-error" message={error} /></View> : null}
+        </View>
       </LedgerCard>
       {phase === 'login' ? <>
         <Pressable testID="login-signup" accessibilityRole="button" onPress={() => { invalidate(); router.push('/patient-signup'); }} style={s.footerHit}><Text style={[s.footerCta, { color: colors.cobalt }]}>Create new account</Text></Pressable>
@@ -177,12 +182,12 @@ const s = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, maxWidth: 520, width: '100%', alignSelf: 'center' },
   backBtn: { width: 44, height: 44, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   backSpacer: { width: 44 },
-  brandMark: { width: 34, height: 34, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  brandMarkText: { fontSize: 13, fontFamily: 'PlayfairDisplay_700Bold', letterSpacing: 1 },
+  wordmark: { fontSize: 23, fontFamily: 'PlayfairDisplay_600SemiBold', letterSpacing: -0.5 },
   content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 28, gap: 14, maxWidth: 520, width: '100%', alignSelf: 'center' },
   kicker: { fontSize: 10.5, fontFamily: 'Inter_700Bold', letterSpacing: 1.5 },
   title: { fontSize: 30, fontFamily: 'PlayfairDisplay_700Bold' },
-  card: { padding: 18 },
+  card: { padding: 0 },
+  formBody: { paddingHorizontal: 18, paddingBottom: 18, paddingTop: 14 },
   gap: { marginTop: 14 },
   linkRow: { alignItems: 'flex-end', marginTop: 6, marginBottom: 10 },
   linkHit: { paddingVertical: 4, paddingHorizontal: 4 },

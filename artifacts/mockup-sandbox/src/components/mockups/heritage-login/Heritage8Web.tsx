@@ -1,5 +1,5 @@
 import { Utensils } from 'lucide-react';
-import { DemoFooter, Field, H, HERO, Kicker, LIFTED, Mark, PrimaryButton, SERIF, StaffFootnote, TextLink, WebPage, Wordmark } from './HeritageKit';
+import { DemoFooter, Field, H, HERO, Kicker, LIFTED, Mark, PrimaryButton, SERIF, StaffFootnote, TextLink, WebPage, Wordmark, plateGreeting } from './HeritageKit';
 
 /** 8 · Framed Plate — one wide cream card: the food photo framed on the left, the form on the right. */
 export function Heritage8Web() {
@@ -21,7 +21,7 @@ export function Heritage8Web() {
                 Approved list
               </span>
               <p className="mt-2 text-[24px] leading-tight" style={{ fontFamily: SERIF, color: H.navy }}>
-                Saturday’s plate: grilled chicken, greens, and a slow afternoon.
+                {plateGreeting()} — grilled chicken, greens, and a plate off the approved list.
               </p>
               <p className="mt-1 text-[11px]" style={{ color: H.body }}>
                 From the restaurant guide your patients see on the Today tab.

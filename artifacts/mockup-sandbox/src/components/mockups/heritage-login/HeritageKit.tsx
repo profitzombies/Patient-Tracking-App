@@ -43,6 +43,13 @@ export const LIFTED = '0 2px 4px rgba(32,59,100,.06), 0 18px 44px -22px rgba(32,
 export const LOGO = '/__mockup/images/thinnr-logo-official.png';
 export const HERO = '/__mockup/images/home-hero.jpg';
 
+/** Time-of-day greeting for the plate caption: morning 5–11, afternoon 12–16, evening otherwise. */
+export function plateGreeting(hour: number = new Date().getHours()): 'Good morning' | 'Good afternoon' | 'Good evening' {
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 /* ─── Shells ─────────────────────────────────────────────────────────── */
 
 export function WebPage({ children, className = '', style }: { children: ReactNode; className?: string; style?: CSSProperties }) {

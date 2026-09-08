@@ -1,5 +1,5 @@
 import { Utensils } from 'lucide-react';
-import { BackTile, Card, Field, H, HERO, Kicker, PatientFooter, PhonePage, PhoneStatusBar, PrimaryButton, SERIF, TextLink, Wordmark } from './HeritageKit';
+import { BackTile, Card, Field, H, HERO, Kicker, PatientFooter, PhonePage, PhoneStatusBar, PrimaryButton, SERIF, TextLink, Wordmark, plateGreeting } from './HeritageKit';
 
 /** 8 · Framed Plate — the food photo framed inside the ledger card itself, form beneath it. */
 export function Heritage8Mobile() {
@@ -23,7 +23,7 @@ export function Heritage8Mobile() {
                 Approved list
               </span>
               <p className="mt-1.5 text-[19px] leading-tight" style={{ fontFamily: SERIF, color: H.navy }}>
-                Saturday’s plate is waiting on your Today tab.
+                {plateGreeting()} — your plate is waiting on your Today tab.
               </p>
             </div>
           </div>

@@ -95,7 +95,8 @@ export function AuthPageFrame({
         {balance ? <View style={styles.slackTop} /> : null}
         {banner ? <View style={styles.block}>{banner}</View> : null}
         {hero ? <View style={styles.block}>{hero}</View> : null}
-        <View style={styles.block}>
+        {/* With nothing above it, the heading takes the hero's share of the gap under the top bar. */}
+        <View style={[styles.block, !hero && !banner && styles.leadingHeading]}>
           <Text style={[styles.kicker, { color: colors.labelText }]}>{kicker}</Text>
           <Text style={[styles.title, { color: colors.navy }]}>{title}</Text>
           {subtitle ? <Text style={[styles.subtitle, { color: colors.bodyText }]}>{subtitle}</Text> : null}
@@ -144,6 +145,7 @@ const styles = StyleSheet.create({
   slackTop: { flexGrow: 1, minHeight: 0 },
   slackBottom: { flexGrow: 1.4, minHeight: space.sm },
   block: { marginBottom: space.lg },
+  leadingHeading: { marginTop: space.md },
   kicker: { fontSize: 10.5, fontFamily: fonts.sansBold, letterSpacing: 1.5 },
   title: { marginTop: space.sm, fontSize: 28, lineHeight: 34, fontFamily: fonts.serifBold },
   subtitle: { marginTop: space.sm, fontSize: 14.5, lineHeight: 22, fontFamily: fonts.sans },

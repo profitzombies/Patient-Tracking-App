@@ -6,7 +6,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { AuthPageFrame } from '@/components/auth/AuthPageFrame';
-import { PlateHero } from '@/components/auth/PlateHero';
 import {
   ActionGroup,
   FeedbackSlot,
@@ -52,7 +51,6 @@ export default function PatientSignupScreen() {
       testID="patient-signup"
       onBack={signup.goBack}
       backTestID="signup-back"
-      hero={<PlateHero />}
       kicker="CREATE YOUR ACCOUNT"
       title={heading.title}
       subtitle={heading.subtitle}

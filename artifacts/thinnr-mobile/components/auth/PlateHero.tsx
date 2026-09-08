@@ -1,6 +1,6 @@
 /**
- * Framed Plate hero — the standalone photo band that opens every auth entry
- * screen. It is its own framed surface (soft radius, hairline border) and
+ * Framed Plate hero — the standalone photo band that opens the welcome and
+ * login screens (signup deliberately goes without it). It is its own framed surface (soft radius, hairline border) and
  * never shares a card with form inputs; the page frame puts real vertical
  * space between it and whatever follows.
  *

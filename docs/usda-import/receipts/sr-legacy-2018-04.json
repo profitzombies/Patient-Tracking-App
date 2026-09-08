@@ -1,0 +1,13 @@
+{
+  "id": "sr-legacy-2018-04",
+  "foods": 7793,
+  "status": "ready",
+  "portions": 14449,
+  "nutrients": 644125,
+  "initiallyReady": false,
+  "inserted": 4938,
+  "verified": 7793,
+  "batches": 330,
+  "sha256": "70d4235ae3a2bdf48a7b9eaa1286a83fa67b6f3270436c9ce8b008213f500129",
+  "completedAt": "2026-09-08T21:48:33.110Z"
+}

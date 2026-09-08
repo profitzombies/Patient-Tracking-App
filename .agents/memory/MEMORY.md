@@ -40,7 +40,7 @@
 - [URL-persisted admin filters](url-state-admin-filters.md) — query string as single source of truth; per-keystroke replace-navigation verified safe (no focus loss, no scroll reset) on HQ pages.
 - [Supabase profile migrations](supabase-profile-migrations.md) — profile RLS migrations must carry their own non-recursive admin helper and tolerate the legacy profile shape.
 - [Supabase DDL via management API](supabase-management-api.md) — no direct pg socket: run migrations through the management API, keep the repo migration file canonical, re-check security advisors after DDL.
-- [Supabase bulk migration size](supabase-bulk-migration-size.md) — management API rejects ~3 MB SQL bodies; split generated bulk seeds into ordered, idempotent transactional chunks.
+- [Supabase bulk imports](supabase-bulk-migration-size.md) — stay below ~3 MB per request; pace sequential batches and respect 429 cooldowns; replay partial imports, never clear and restart.
 - [Training live-data patterns](training-live-data.md) — flat rows + client assembly; edits re-sync contiguous positions; progress = rows ∩ published order; learner writes ride opaque capability tokens, PII out of anon reads.
 - [Training video hosting](training-video-hosting.md) — presigned PUT + finalize probe; paths in DB, signed GETs; derived artifacts clear in lockstep; SSE explicit done; media routes OPEN (demo posture), writes per-IP limited.
 - [Playwright codec gap](playwright-codec-gap.md) — the tester's Chromium can't decode H.264/AAC: use VP9/Opus WebM fixtures for playback e2e, and players must catch play() rejections with an inline error.

@@ -1,0 +1,45 @@
+{
+  "verifiedAt": "2026-09-08T21:48:39.385Z",
+  "releases": [
+    {
+      "id": "fndds-2021-2023",
+      "foods": 5432,
+      "sha256": "2e7eb9fda92adf1d4d784dba5eaa3a7fd4418cd86ccff383c7c9294d79e9b808",
+      "status": "ready",
+      "portions": 22194,
+      "nutrients": 353015
+    },
+    {
+      "id": "foundation-2026-04",
+      "foods": 363,
+      "sha256": "27d1fe3fd89edfbe528ed915da5619320e1d004d4594603a1b19bdb1511590cc",
+      "status": "ready",
+      "portions": 383,
+      "nutrients": 15193
+    },
+    {
+      "id": "sr-legacy-2018-04",
+      "foods": 7793,
+      "sha256": "70d4235ae3a2bdf48a7b9eaa1286a83fa67b6f3270436c9ce8b008213f500129",
+      "status": "ready",
+      "portions": 14449,
+      "nutrients": 644125
+    }
+  ],
+  "alias_count": 339,
+  "catalog_count": 5261,
+  "visible_portions": 37026,
+  "visible_nutrients": 1012333,
+  "catalog_fingerprint": "e268e16a15ad297a0e89954c90b2889b",
+  "source_storage_bytes": 78757888,
+  "catalogUnchanged": true,
+  "anonymousTableReads": "denied for all four source tables/views (HTTP 401)",
+  "anonymousImportFunctions": "denied for all three functions (HTTP 401)",
+  "recordFidelity": "Every batch compared full raw JSONB against input before commit",
+  "tests": {
+    "reader": 11,
+    "importer": 6,
+    "localPostgres": 5
+  },
+  "foundationUploadMatchesOfficialDownload": true
+}

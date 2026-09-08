@@ -1,0 +1,13 @@
+{
+  "id": "fndds-2021-2023",
+  "foods": 5432,
+  "status": "ready",
+  "portions": 22194,
+  "nutrients": 353015,
+  "initiallyReady": false,
+  "inserted": 5432,
+  "verified": 5432,
+  "batches": 102,
+  "sha256": "2e7eb9fda92adf1d4d784dba5eaa3a7fd4418cd86ccff383c7c9294d79e9b808",
+  "completedAt": "2026-09-08T21:38:26.488Z"
+}

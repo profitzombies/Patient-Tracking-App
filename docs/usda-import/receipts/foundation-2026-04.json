@@ -1,0 +1,13 @@
+{
+  "id": "foundation-2026-04",
+  "foods": 363,
+  "status": "ready",
+  "portions": 383,
+  "nutrients": 15193,
+  "initiallyReady": false,
+  "inserted": 363,
+  "verified": 363,
+  "batches": 11,
+  "sha256": "27d1fe3fd89edfbe528ed915da5619320e1d004d4594603a1b19bdb1511590cc",
+  "completedAt": "2026-09-08T21:38:36.206Z"
+}

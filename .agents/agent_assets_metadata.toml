@@ -192,3 +192,17 @@ type = "audio"
 title = "countdown-back"
 description = "Text-to-speech audio: In position. Taking the back photo in 7 seconds. Hold still."
 logical_id = "d1423de7-1900-4da9-afb7-d67d9c108613"
+
+[[outputs]]
+id = "2TNcZhTfCOf6EuviCQu4f"
+uri = "file://docs/food-search-plan.md"
+type = "text"
+title = "Find foods without overwhelm — implementation plan"
+description = "Planning-only handoff covering the calm search flow, reviewed food families, exact portions and nutrition snapshots, account-private favorites, basket/save behavior, and acceptance checks. No implementation or data promotion performed."
+logical_id = "32010f65-8aa3-4b61-b8c1-336cbd4b3e6d"
+content_hash = "sha256:3e7587540417062511276f2399dc79b0a03862b226bddc344cdecb301a47d2f1"
+size = 31937
+mtime_ms = 1788908418612
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:4c78631c-d629-4f46-aa2e-dbe1e90c6e41/32010f65-8aa3-4b61-b8c1-336cbd4b3e6d/244a1d77-0603-4bc0-ab42-e3e6b16fdd4a"
+storage_version_token = "1788908442583092"
+content_type = "text/markdown"

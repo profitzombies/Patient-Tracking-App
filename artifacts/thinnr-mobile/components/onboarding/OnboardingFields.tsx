@@ -169,14 +169,36 @@ export function PasswordInput(
   const [visible, setVisible] = useState(false);
   const label = props.accessibilityLabel ?? 'Password';
   const toggleLabel = visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`;
+  const maskedValue = String(props.value ?? '');
 
   return (
     <View style={styles.passwordWrap}>
       <LedgerInput
         {...props}
         secureTextEntry={!visible}
-        style={[styles.passwordInput, props.style]}
+        selectionColor={visible ? colors.cobalt : 'transparent'}
+        style={[
+          styles.passwordInput,
+          props.style,
+          !visible && styles.passwordInputHidden,
+        ]}
       />
+      {!visible && maskedValue ? (
+        <View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={styles.passwordMask}
+        >
+          <Text
+            accessible={false}
+            numberOfLines={1}
+            style={[styles.passwordMaskText, { color: colors.navy }]}
+          >
+            {'•'.repeat(maskedValue.length)}
+          </Text>
+        </View>
+      ) : null}
       <Pressable
         testID={props.testID ? `${props.testID}-toggle` : undefined}
         accessibilityRole="button"
@@ -634,6 +656,22 @@ const styles = StyleSheet.create({
   },
   passwordInput: {
     paddingRight: 52,
+  },
+  passwordInputHidden: {
+    color: 'transparent',
+  },
+  passwordMask: {
+    position: 'absolute',
+    left: 13,
+    right: 52,
+    top: 1,
+    bottom: 1,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  passwordMaskText: {
+    fontSize: 16,
+    fontFamily: 'Inter_500Medium',
   },
   passwordToggle: {
     position: 'absolute',

@@ -11,7 +11,7 @@
  *   QuietLinkRow    "Explore demo · Provider login" style pair
  */
 import React from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle, type TextStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
@@ -273,12 +273,16 @@ export function FooterLink({
   testID,
   quiet = false,
   disabled = false,
+  style,
+  textStyle,
 }: {
   label: string;
   onPress: () => void;
   testID?: string;
   quiet?: boolean;
   disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 }) {
   const colors = useColors();
   return (
@@ -288,10 +292,10 @@ export function FooterLink({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={[styles.footerHit, disabled && { opacity: 0.5 }]}
+      style={[styles.footerHit, style, disabled && { opacity: 0.5 }]}
       hitSlop={space.xs}
     >
-      <Text style={[quiet ? styles.quietLink : styles.footerCta, { color: quiet ? colors.subtleText : colors.cobalt }]}>{label}</Text>
+      <Text style={[quiet ? styles.quietLink : styles.footerCta, { color: quiet ? colors.subtleText : colors.cobalt }, textStyle]}>{label}</Text>
     </Pressable>
   );
 }
@@ -324,7 +328,7 @@ const styles = StyleSheet.create({
   linkHit: { paddingVertical: space.xs, paddingHorizontal: space.xs },
   // The label carries its own sm bottom margin; the action pads to the same
   // baseline so both sit on one line above the input.
-  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  labelRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: space.sm, justifyContent: 'space-between', alignItems: 'flex-end' },
   labelActionHit: { paddingTop: space.xs, paddingBottom: space.sm, paddingHorizontal: space.xs, marginRight: -space.xs },
   inlineLink: { fontSize: 13, fontFamily: fonts.sansSemiBold },
   segmented: { flexDirection: 'row', padding: space.xs, gap: space.xs },

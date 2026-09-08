@@ -7,7 +7,7 @@ description: Screen-specific intent for welcome versus authentication forms, and
 
 Keep the welcome screen visually distinct from login and account creation. The user wants a prominent, edge-to-edge food image and larger wordmark on welcome, but rejected the photo, approved-list badge, and greeting on the patient login and Create Account forms. Do not interpret hero-less forms as a request to strip imagery from every entry screen.
 
-**Why:** The welcome is the brand introduction; the forms are focused tasks. On 2026-09-08 the user specifically asked to enlarge the welcome artwork after rejecting blanket removal from the remaining entry screens. On login, nested cream cards added inset without meaningful contrast, and under-field links made two fields feel like four rows.
+**Why:** The welcome is the brand introduction; the forms are focused tasks. On 2026-09-08 the user specifically asked to enlarge the welcome artwork, then requested matching polish on login and Create Account and explicitly confirmed those forms must stay photo-free. On login, nested cream cards added inset without meaningful contrast, and under-field links made two fields feel like four rows.
 
 **How to apply:** Preserve welcome's image-led composition when restyling forms, and keep form changes scoped. Group related copy/actions instead of distributing empty space between every block. Provider login is not automatically included in patient-entry redesigns.
 

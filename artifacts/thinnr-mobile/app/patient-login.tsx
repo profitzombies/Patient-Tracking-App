@@ -16,37 +16,32 @@ import {
   Field,
   FieldStack,
   FooterLink,
-  QuietLinkRow,
   SegmentedToggle,
 } from '@/components/auth/AuthPrimitives';
 import { CodeInput, ErrorBox, LedgerInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { usePatientLogin, type LoginChannel, type LoginPhase } from '@/hooks/usePatientLogin';
 import { supabaseConfigured } from '@/lib/supabase';
-import { space } from '@/constants/spacing';
+import { authLayout, space } from '@/constants/spacing';
+import { useColors } from '@/hooks/useColors';
 
-const HEADINGS: Record<LoginPhase, { kicker: string; title: string; subtitle: string }> = {
+const HEADINGS: Record<LoginPhase, { title: string; subtitle: string }> = {
   login: {
-    kicker: 'SIGN IN',
     title: 'Welcome back',
     subtitle: 'Sign in with the phone or email on your account.',
   },
   mfa: {
-    kicker: 'SIGN IN',
     title: 'Verify your sign-in',
     subtitle: 'Enter the 6-digit code we sent. If the account details match, a code is on its way.',
   },
   'recovery-identify': {
-    kicker: 'PASSWORD RECOVERY',
     title: 'Reset your password',
     subtitle: 'Enter the phone or email on your account and we’ll send a 6-digit reset code.',
   },
   'recovery-code': {
-    kicker: 'PASSWORD RECOVERY',
     title: 'Enter your reset code',
     subtitle: 'Enter the 6-digit code we sent. If the account details match, a code is on its way.',
   },
   'recovery-password': {
-    kicker: 'PASSWORD RECOVERY',
     title: 'Create a new password',
     subtitle: 'Choose at least 8 characters you don’t use anywhere else.',
   },
@@ -58,6 +53,7 @@ const CHANNELS: readonly { value: LoginChannel; label: string }[] = [
 ];
 
 export default function PatientLoginScreen() {
+  const colors = useColors();
   const login = usePatientLogin();
   const { phase, channel, busy } = login;
   const heading = HEADINGS[phase];
@@ -78,24 +74,24 @@ export default function PatientLoginScreen() {
   return (
     <AuthPageFrame
       testID="patient-login"
+      variant="patient"
       onBack={login.goBack}
       backTestID="login-back"
       banner={!supabaseConfigured ? <ErrorBox testID="login-not-configured" message="Real sign-in isn’t configured in this environment." /> : null}
-      kicker={heading.kicker}
       title={heading.title}
       subtitle={heading.subtitle}
       pinFooter
       footer={
         phase === 'login' ? (
           <View style={styles.footer}>
-            <FooterLink testID="login-signup" label="New to THINNR? Create an account" onPress={login.openSignup} />
-            <QuietLinkRow>
-              <FooterLink quiet testID="login-demo" label="Explore demo" onPress={login.openDemo} />
-              <FooterLink quiet testID="login-provider" label="Provider login" onPress={login.openProviderLogin} />
-            </QuietLinkRow>
+            <FooterLink testID="login-signup" label="New to THINNR? Create an account" onPress={login.openSignup} style={styles.footerLink} />
+            <View style={styles.quietLinks}>
+              <FooterLink quiet testID="login-demo" label="Explore demo" onPress={login.openDemo} style={styles.footerLink} textStyle={{ color: colors.bodyText }} />
+              <FooterLink quiet testID="login-provider" label="Provider login" onPress={login.openProviderLogin} style={styles.footerLink} textStyle={{ color: colors.bodyText }} />
+            </View>
           </View>
         ) : (
-          <FooterLink testID="login-back-to-signin" label="Back to sign in" onPress={login.backToSignIn} />
+          <FooterLink testID="login-back-to-signin" label="Back to sign in" onPress={login.backToSignIn} style={styles.footerLink} />
         )
       }
     >
@@ -231,5 +227,7 @@ export default function PatientLoginScreen() {
 const styles = StyleSheet.create({
   toggle: { marginBottom: space.md },
   footer: { alignItems: 'center', gap: space.xs },
+  footerLink: { minHeight: authLayout.headerControl, justifyContent: 'center' },
+  quietLinks: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', columnGap: space.md },
   emailInput: { fontSize: 15, letterSpacing: 0 },
 });

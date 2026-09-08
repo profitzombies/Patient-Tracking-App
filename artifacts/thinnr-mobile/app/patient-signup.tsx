@@ -12,13 +12,12 @@ import {
   Field,
   FieldStack,
   FooterLink,
-  FormCard,
   OptionCard,
 } from '@/components/auth/AuthPrimitives';
 import { CodeInput, LedgerInput, NoteText, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { usePatientSignup } from '@/hooks/usePatientSignup';
 import { supabaseConfigured } from '@/lib/supabase';
-import { space } from '@/constants/spacing';
+import { authLayout, space } from '@/constants/spacing';
 
 export default function PatientSignupScreen() {
   const signup = usePatientSignup();
@@ -49,14 +48,15 @@ export default function PatientSignupScreen() {
   return (
     <AuthPageFrame
       testID="patient-signup"
+      variant="patient"
       onBack={signup.goBack}
       backTestID="signup-back"
-      kicker="CREATE YOUR ACCOUNT"
       title={heading.title}
       subtitle={heading.subtitle}
+      pinFooter
       footer={
         phase === 'choose' || phase === 'contact' ? (
-          <FooterLink testID="signup-login" label="Already have an account? Log in" onPress={signup.openLogin} />
+          <FooterLink testID="signup-login" label="Already have an account? Log in" onPress={signup.openLogin} style={styles.footerLink} />
         ) : null
       }
     >
@@ -81,7 +81,7 @@ export default function PatientSignupScreen() {
       ) : null}
 
       {phase === 'contact' ? (
-        <FormCard>
+        <View>
           <FieldStack>
             <Field label={invited ? 'Invited phone number' : 'Cell phone number'}>
               <LedgerInput
@@ -134,11 +134,11 @@ export default function PatientSignupScreen() {
             />
           </ActionGroup>
           {feedback}
-        </FormCard>
+        </View>
       ) : null}
 
       {phase === 'code' ? (
-        <FormCard>
+        <View>
           <FieldStack>
             <Field label="Verification code">
               <CodeInput testID="signup-otp" value={signup.otp} onChangeText={signup.setOtp} />
@@ -148,11 +148,11 @@ export default function PatientSignupScreen() {
             <PrimaryButton testID="signup-verify" label={busy ? 'Verifying…' : 'Verify'} onPress={signup.verify} disabled={busy} />
           </ActionGroup>
           {feedback}
-        </FormCard>
+        </View>
       ) : null}
 
       {phase === 'details' ? (
-        <FormCard>
+        <View>
           <FieldStack>
             <Field label="Password">
               <LedgerInput
@@ -182,7 +182,7 @@ export default function PatientSignupScreen() {
             <PrimaryButton testID="signup-complete" label={busy ? 'Creating…' : 'Create account'} onPress={signup.finish} disabled={busy} />
           </ActionGroup>
           {feedback}
-        </FormCard>
+        </View>
       ) : null}
     </AuthPageFrame>
   );
@@ -190,4 +190,5 @@ export default function PatientSignupScreen() {
 
 const styles = StyleSheet.create({
   options: { gap: space.md },
+  footerLink: { minHeight: authLayout.headerControl, justifyContent: 'center' },
 });

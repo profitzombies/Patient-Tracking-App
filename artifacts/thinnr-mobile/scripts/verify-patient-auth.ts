@@ -8,6 +8,7 @@ import {create,type ReactTestRenderer} from 'react-test-renderer';
 import Login from '../app/patient-login';
 import Signup from '../app/patient-signup';
 import ProviderLogin from '../app/provider-login';
+import {FormCard} from '../components/auth/AuthPrimitives';
 import {AppModeProvider} from '../context/AppModeContext';
 import {liveEntryDecision} from '../lib/live-patient-entry';
 import {DEFAULT_ANSWERS,visibleSteps} from '../data/onboarding-data';
@@ -39,15 +40,28 @@ const err=(t:ReactTestRenderer)=>t.root.findAllByProps({testID:'login-error'}).m
 const inputValue=(t:ReactTestRenderer,id:string)=>hosts(t,id).find(x=>typeof x.props.onChangeText==='function')?.props.value;
 const signupErr=(t:ReactTestRenderer)=>t.root.findAllByProps({testID:'signup-error'}).map(n=>String(n.props.message??'')).join(' ');
 const called=(path:string)=>calls.filter(c=>c.path===path);
+const wordmarkSize=(t:ReactTestRenderer)=>{
+ const mark=t.root.findAll(n=>n.type==='Text'&&n.children.includes('THINNR'))[0];
+ const styles=[mark?.props.style].flat(Infinity).filter(s=>s&&typeof s==='object');
+ return Object.assign({},...styles).fontSize as number|undefined;
+};
+function patientFormLayout(t:ReactTestRenderer,phase:string){
+ assert(`${phase}: patient branding is larger`,Number(wordmarkSize(t))>23);
+ assert(`${phase}: stays photo-free`,t.root.findAll(n=>n.type==='Image').length===0);
+ assert(`${phase}: fields are not double-inset inside a form card`,t.root.findAllByType(FormCard).length===0);
+ assert(`${phase}: retains keyboard-friendly scrolling`,t.root.findAll(n=>n.type==='ScrollView'&&n.props.keyboardShouldPersistTaps==='handled').length===1);
+}
 
 async function loginFlow(){
  console.log('· phone password + MFA, email toggle');
  reset(); let t=await render(Login);
+ patientFormLayout(t,'Login');
  assert('phone is default',exists(t,'login-phone'));assert('phone has a native label',label(t,'login-phone')==='Cell phone number');assert('password collected first',exists(t,'login-password'));assert('password has a native label',label(t,'login-password')==='Password');assert('MFA absent initially',!exists(t,'login-otp'));
  await press(t,'login-switch-channel');assert('email toggle works',exists(t,'login-email')&&!exists(t,'login-phone'));assert('email has a native label',label(t,'login-email')==='Email address');t.unmount();
 reset();on('patient/password/login',()=>({status:200,body:{ok:true,requestId:'lr1',message:'If those details match, a code is on its way.',devCode:'222333'}}));on('login/verify',()=>({status:200,body:{ok:true,realm:'patient',tokenHash:'hash1',signInId:'signin-1'}}));
  t=await render(Login);await type(t,'login-phone','8135551234');await type(t,'login-password','Secret1!');await press(t,'login-submit');
  const c=called('patient/password/login')[0];assert('password login contract',c.body.identifier==='+18135551234'&&c.body.password==='Secret1!');assert('password removed after submit',!exists(t,'login-password'));assert('MFA shown',exists(t,'login-otp'));assert('MFA has a native label',label(t,'login-otp')==='6-digit verification code');assert('MFA field focuses as soon as it mounts',hosts(t,'login-otp').some(n=>n.props.autoFocus===true));
+ patientFormLayout(t,'Login verification');
  await type(t,'login-otp','222333');await press(t,'login-verify');assert('MFA token minted',verifyOtpCalls[0]?.token_hash==='hash1');assert('patient destination',routerCalls.some(x=>x.method==='replace'&&x.target==='/today'));t.unmount();
   reset();on('patient/password/login',()=>({status:401,body:{error:"The phone or email and password you entered don't match. Check them and try again, or reset your password."}}));
   t=await render(Login);await type(t,'login-phone','8135551234');await type(t,'login-password','WrongSecret1!');await press(t,'login-submit');
@@ -94,14 +108,24 @@ async function recovery(){
 async function signupFlows(){
  console.log('· invited and new signup phases');
 reset();on('signup/start',()=>({status:200,body:{ok:true,requestId:'s1',message:'Code sent',devCode:'444555'}}));on('signup/verify',()=>({status:200,body:{ok:true,mode:'enroll',signupToken:'st1'}}));on('signup/complete',()=>({status:200,body:{ok:true,tokenHash:'sh1',signInId:'signin-2'}}));
- let t=await render(Signup);assert('explicit choices',exists(t,'signup-invited')&&exists(t,'signup-new'));await press(t,'signup-invited');assert('signup phone is labeled',label(t,'signup-phone')==='Invited phone number');await type(t,'signup-email','invited@example.com');assert('invited email is labeled',label(t,'signup-email')==='Invited email address');await press(t,'signup-send');assert('invited contract',called('signup/start')[0].body.flow==='invited'&&called('signup/start')[0].body.identifier==='invited@example.com');await type(t,'signup-otp','444555');assert('signup OTP is labeled',label(t,'signup-otp')==='6-digit verification code');await press(t,'signup-verify');assert('invited reaches password details',exists(t,'signup-password'));assert('signup password/name labels',label(t,'signup-password')==='Create password'&&label(t,'signup-name')==='Name');await type(t,'signup-password','Secret1!');await type(t,'signup-name','Casey');await press(t,'signup-complete');assert('completion carries password',called('signup/complete')[0].body.password==='Secret1!');assert('signup token minted',verifyOtpCalls[0]?.token_hash==='sh1');t.unmount();
+  let t=await render(Signup);
+  patientFormLayout(t,'Signup choices');
+  assert('explicit choices',exists(t,'signup-invited')&&exists(t,'signup-new'));await press(t,'signup-invited');
+  patientFormLayout(t,'Signup contact');
+  assert('signup phone is labeled',label(t,'signup-phone')==='Invited phone number');await type(t,'signup-email','invited@example.com');assert('invited email is labeled',label(t,'signup-email')==='Invited email address');await press(t,'signup-send');
+  patientFormLayout(t,'Signup verification');
+  assert('invited contract',called('signup/start')[0].body.flow==='invited'&&called('signup/start')[0].body.identifier==='invited@example.com');await type(t,'signup-otp','444555');assert('signup OTP is labeled',label(t,'signup-otp')==='6-digit verification code');await press(t,'signup-verify');
+  patientFormLayout(t,'Signup details');
+  assert('invited reaches password details',exists(t,'signup-password'));assert('signup password/name labels',label(t,'signup-password')==='Create password'&&label(t,'signup-name')==='Name');await type(t,'signup-password','Secret1!');await type(t,'signup-name','Casey');await press(t,'signup-complete');assert('completion carries password',called('signup/complete')[0].body.password==='Secret1!');assert('signup token minted',verifyOtpCalls[0]?.token_hash==='sh1');t.unmount();
  reset();let attempts=0;on('signup/start',()=>{attempts++;return attempts===1?{status:400,body:{error:'Provider code required'}}:{status:200,body:{ok:true,requestId:'s2',message:null,devCode:null}}});
  t=await render(Signup);await press(t,'signup-new');assert('new requires both contacts',exists(t,'signup-phone')&&exists(t,'signup-email'));assert('new contact/provider inputs are labeled',label(t,'signup-phone')==='Cell phone number'&&label(t,'signup-email')==='Email address'&&label(t,'signup-provider-code')==='Provider code');await type(t,'signup-phone','8135559999');await press(t,'signup-send');assert('missing email stays local',called('signup/start').length===0&&signupErr(t).includes('both'));await type(t,'signup-email','new@example.com');await press(t,'signup-send');assert('missing provider code stays local',called('signup/start').length===0&&signupErr(t).toLowerCase().includes('provider code'));await type(t,'signup-provider-code','654321');await press(t,'signup-send');const nc=called('signup/start')[0];assert('new submit sends both contacts and code',nc.body.flow==='new'&&nc.body.phone==='+18135559999'&&nc.body.email==='new@example.com'&&nc.body.code==='654321');t.unmount();
 }
 async function provider(){
  console.log('· provider route remains staff');
 reset();on('login/start',()=>({status:200,body:{ok:true,requestId:'p1',message:null,devCode:'111111'}}));on('login/verify',()=>({status:200,body:{ok:true,realm:'staff',tokenHash:'ph',signInId:'signin-3'}}));
- const t=await render(ProviderLogin);await type(t,'provider-email','staff@example.com');await press(t,'provider-send');await type(t,'provider-otp','111111');await press(t,'provider-verify');assert('staff mode preserved',storage.get('thinnr_app_mode_v1')==='staff');assert('staff destination preserved',routerCalls.some(x=>x.target==='/'));t.unmount();
+  const t=await render(ProviderLogin);
+  assert('provider branding is unchanged by patient restyling',wordmarkSize(t)===23);
+  await type(t,'provider-email','staff@example.com');await press(t,'provider-send');await type(t,'provider-otp','111111');await press(t,'provider-verify');assert('staff mode preserved',storage.get('thinnr_app_mode_v1')==='staff');assert('staff destination preserved',routerCalls.some(x=>x.target==='/'));t.unmount();
 }
 function routing(){
  console.log('· welcome, deep-link guard, demo admission, onboarding filtering');

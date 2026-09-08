@@ -1,6 +1,6 @@
 /**
- * Shared page frame for the auth entry screens (welcome, patient login,
- * patient signup, provider login).
+ * Shared page frame for patient login, patient signup, and provider login.
+ * The image-led welcome owns a separate layout.
  *
  * One place owns the top bar (back control + THINNR wordmark), safe-area
  * insets, keyboard-aware scrolling, the 520pt content column, and the
@@ -16,7 +16,7 @@ import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import { authLayout, space } from '@/constants/spacing';
 
-interface AuthPageFrameProps {
+export interface AuthPageFrameProps {
   /** Renders a back control on the left of the top bar when provided. */
   onBack?: () => void;
   backTestID?: string;
@@ -26,7 +26,7 @@ interface AuthPageFrameProps {
   /** Anything that must sit above the hero, e.g. an environment warning. */
   banner?: React.ReactNode;
   hero?: React.ReactNode;
-  kicker: string;
+  kicker?: string;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
@@ -43,6 +43,12 @@ interface AuthPageFrameProps {
    */
   pinFooter?: boolean;
   testID?: string;
+  /**
+   * Selects the visual variant. The provider default keeps the legacy
+   * centered-bar and smaller type. The patient variant brings the confident,
+   * edge-to-edge typography of the Heritage aesthetic.
+   */
+  variant?: 'patient' | 'provider';
 }
 
 export function AuthPageFrame({
@@ -60,15 +66,20 @@ export function AuthPageFrame({
   balance = false,
   pinFooter = false,
   testID,
+  variant = 'provider',
 }: AuthPageFrameProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const topPad = Platform.OS === 'web' ? Math.max(insets.top, 44) : insets.top + space.sm;
-  const bottomPad = Math.max(insets.bottom, space.md) + space.md;
+  const topPad = Platform.OS === 'web'
+    ? Math.max(insets.top, variant === 'patient' ? 67 : 44)
+    : insets.top + space.sm;
+  const bottomPad = Platform.OS === 'web' && variant === 'patient'
+    ? Math.max(insets.bottom, 34) + space.md
+    : Math.max(insets.bottom, space.md) + space.md;
 
   return (
     <View testID={testID} style={[styles.page, { backgroundColor: colors.background, paddingTop: topPad }]}>
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, variant === 'patient' && styles.topBarPatient]}>
         {onBack ? (
           <Pressable
             testID={backTestID}
@@ -78,6 +89,7 @@ export function AuthPageFrame({
             style={({ pressed }) => [
               styles.backBtn,
               { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
+              variant === 'patient' && styles.backBtnPatient,
               pressed && { backgroundColor: colors.accent },
             ]}
           >
@@ -86,9 +98,9 @@ export function AuthPageFrame({
         ) : (
           <View style={styles.backSlot} />
         )}
-        <Text style={[styles.wordmark, { color: colors.navy }]}>THINNR</Text>
+        <Text style={[styles.wordmark, variant === 'patient' && styles.wordmarkPatient, { color: colors.navy }]}>THINNR</Text>
         <View style={[styles.backSlot, styles.noteSlot]}>
-          {topNote ? <Text style={[styles.topNote, { color: colors.subtleText }]}>{topNote}</Text> : null}
+          {topNote && variant !== 'patient' ? <Text style={[styles.topNote, { color: colors.subtleText }]}>{topNote}</Text> : null}
         </View>
       </View>
 
@@ -102,14 +114,14 @@ export function AuthPageFrame({
         {banner ? <View style={styles.block}>{banner}</View> : null}
         {hero ? <View style={styles.block}>{hero}</View> : null}
         {/* With nothing above it, the heading takes the hero's share of the gap under the top bar. */}
-        <View style={[styles.block, !hero && !banner && styles.leadingHeading]}>
-          <Text style={[styles.kicker, { color: colors.labelText }]}>{kicker}</Text>
-          <Text style={[styles.title, { color: colors.navy }]}>{title}</Text>
-          {subtitle ? <Text style={[styles.subtitle, { color: colors.bodyText }]}>{subtitle}</Text> : null}
+        <View style={[styles.block, !hero && !banner && styles.leadingHeading, variant === 'patient' && styles.headingPatient]}>
+          {kicker && variant !== 'patient' ? <Text style={[styles.kicker, { color: colors.labelText }]}>{kicker}</Text> : null}
+          <Text accessibilityRole="header" style={[styles.title, variant === 'patient' && styles.titlePatient, { color: colors.navy }]}>{title}</Text>
+          {subtitle ? <Text style={[styles.subtitle, variant === 'patient' && styles.subtitlePatient, { color: colors.bodyText }]}>{subtitle}</Text> : null}
         </View>
         <View>{children}</View>
         {footer && pinFooter && !balance ? <View style={styles.slackTop} /> : null}
-        {footer ? <View style={styles.footer}>{footer}</View> : null}
+        {footer ? <View style={[styles.footer, variant === 'patient' && styles.footerPatient]}>{footer}</View> : null}
         {balance ? <View style={styles.slackBottom} /> : null}
       </KeyboardAwareScrollViewCompat>
     </View>
@@ -129,6 +141,10 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+  topBarPatient: {
+    paddingTop: 0,
+    paddingBottom: space.lg,
+  },
   backBtn: {
     width: authLayout.headerControl,
     height: authLayout.headerControl,
@@ -136,9 +152,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  backBtnPatient: {
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+  },
   backSlot: { width: authLayout.headerControl, height: authLayout.headerControl, justifyContent: 'center' },
   noteSlot: { width: 'auto', minWidth: authLayout.headerControl, alignItems: 'flex-end' },
   wordmark: { fontSize: 23, fontFamily: fonts.serif, letterSpacing: -0.5 },
+  wordmarkPatient: { fontSize: 32 },
   topNote: { fontSize: 12, fontFamily: fonts.sansSemiBold },
   scroll: { flex: 1 },
   content: {
@@ -153,8 +174,12 @@ const styles = StyleSheet.create({
   slackBottom: { flexGrow: 1.4, minHeight: space.sm },
   block: { marginBottom: space.lg },
   leadingHeading: { marginTop: space.md },
+  headingPatient: { marginTop: space.xs, marginBottom: space.xl },
   kicker: { fontSize: 10.5, fontFamily: fonts.sansBold, letterSpacing: 1.5 },
   title: { marginTop: space.sm, fontSize: 28, lineHeight: 34, fontFamily: fonts.serifBold },
+  titlePatient: { marginTop: 0, fontSize: 32, lineHeight: 38 },
   subtitle: { marginTop: space.sm, fontSize: 14.5, lineHeight: 22, fontFamily: fonts.sans },
+  subtitlePatient: { marginTop: space.sm, fontSize: 16, lineHeight: 24 },
   footer: { marginTop: space.lg, alignItems: 'center' },
+  footerPatient: { marginTop: space.xl },
 });

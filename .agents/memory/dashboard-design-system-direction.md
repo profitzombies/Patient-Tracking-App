@@ -9,11 +9,11 @@ Use the Heritage evolution of Cobalt Ledger as the visual foundation across THIN
 
 **How to apply:** Consume shared theme tokens (radius/radiusSm, palette, fonts map) instead of literals; never pair fontWeight with weighted font-family names (Android faux-bold); use boxShadow strings, not shadow* props, on Expo web. Avoid generic EHR styling, organic wellness palettes, and alarm-heavy command-center treatment.
 
-For authentication, the approved pattern is the Heritage “Framed Plate”: the existing Today food photograph framed into the cream login card, an approved-list badge, and a time-of-day greeting rather than weekday-specific copy. Use the same shell for staff web sign-in and the mobile patient login, provider login, and signup flows; later auth phases replace only the form area so the plate stays stable.
+The Heritage “Framed Plate” was the original authentication direction, not an enduring requirement for every entry screen. Later user requests deliberately differentiated the image-led mobile welcome from quieter patient authentication forms; see [Auth entry screen layout](auth-hero-crop.md).
 
-**Why:** The user explicitly approved this pair as an exact production clone and chose a time-of-day greeting to keep one photograph evergreen without implying daily meal rotation.
+**Why:** The user initially approved the framed-food pairing, but subsequently rejected the photo/badge/greeting on patient forms while explicitly wanting a larger welcome image. Applying the older direction globally would undo those choices.
 
-**How to apply:** Preserve each screen’s existing auth state, handlers, routes, accessibility labels, and test hooks. Share the mobile plate header instead of copying it into every auth route, and keep provider wording staff-appropriate.
+**How to apply:** Keep screen-specific design intent while preserving auth state, handlers, routes, accessibility labels, and test hooks. Do not restyle provider or operations sign-in as a side effect of mobile patient-entry work.
 
 Status-chip tones (keep consistent across operations screens until they are centralized): healthy/active = accent chip with cobalt text; warm attention (paused-like) = the approved mockup's amber chip (bg #fff4e6, border #e8b47c, text #b65c22 — no warm theme token exists, accent-warm alone fails small-text contrast); risk/overdue = destructive-tinted chip (bg-destructive/10). Chips stay rounded-sm, tiny bold uppercase.
 

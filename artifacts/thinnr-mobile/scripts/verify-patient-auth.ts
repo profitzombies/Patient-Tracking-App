@@ -111,7 +111,11 @@ function routing(){
  const patientTabsLayout=readFileSync(new URL('../app/(patient)/_layout.tsx',import.meta.url),'utf8');
   const rootLayout=readFileSync(new URL('../app/_layout.tsx',import.meta.url),'utf8');
  assert('welcome exposes primary actions',welcomeSource.includes('testID="welcome-login"')&&welcomeSource.includes('testID="welcome-signup"'));
- assert('welcome preserves subtle demo and provider doors',welcomeSource.includes('testID="welcome-demo"')&&welcomeSource.includes('testID="welcome-provider"'));
+  assert('welcome keeps provider login without the demo door',!welcomeSource.includes('testID="welcome-demo"')&&!welcomeSource.includes('Explore demo')&&welcomeSource.includes('testID="welcome-provider"'));
+  assert('welcome preserves all three navigation destinations',["router.push('/patient-login')","router.push('/patient-signup')","router.push('/provider-login')"].every(target=>welcomeSource.includes(target)));
+  assert('welcome removes the top note and framed greeting',!welcomeSource.includes('Patient app')&&!welcomeSource.includes('<PlateHero')&&!welcomeSource.includes('<Footnote'));
+  const loginSource=readFileSync(new URL('../app/patient-login.tsx',import.meta.url),'utf8');
+  assert('demo remains accessible through patient login',loginSource.includes('testID="login-demo"')&&loginSource.includes('onPress={login.openDemo}'));
  assert('fresh root enters patient welcome',staffTabsLayout.includes("mode === 'patient' ? '/today' : '/patient-welcome'"));
  assert('fresh patient tab enters patient welcome',patientTabsLayout.includes("mode === 'staff' ? '/' : '/patient-welcome'"));
   assert('root navigator stays mounted while a guard redirects',rootLayout.includes('{children}')&&rootLayout.includes("decision.kind === 'redirect' ? <Redirect"));

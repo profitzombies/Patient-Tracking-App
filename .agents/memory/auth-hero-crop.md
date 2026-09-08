@@ -1,20 +1,28 @@
 ---
 name: Auth entry screen layout
-description: Why the mobile sign-in/create-account screens run without the plate hero or a form card, and the focus-point crop rule for wherever the hero still appears.
+description: Screen-specific intent for welcome versus authentication forms, and the food-image crop lesson.
 ---
 
-## Sign-in and Create Account: no hero, no card (user-directed, Sept 2026)
+## Welcome is image-led; forms are quieter
 
-The user explicitly rejected the plate photo + "APPROVED LIST" badge + time-of-day greeting on Create Account and Login, and called the login form "too far out". Login is the reference: kicker → title → subtitle, then fields directly on the page at the 20pt margin with no card. (Create Account lost the hero but still has its card; welcome and provider login still have both.)
+Keep the welcome screen visually distinct from login and account creation. The user wants a prominent, edge-to-edge food image and larger wordmark on welcome, but rejected the photo, approved-list badge, and greeting on the patient login and Create Account forms. Do not interpret hero-less forms as a request to strip imagery from every entry screen.
 
-**Why:** The card was cream-on-cream with the same hairline border as the inputs, so it added no contrast, only a second 16pt inset. Under-field links ("Use email instead", "Forgot password?") made two fields read as four rows. Choices above the stack, secondary actions on the label row, footer pinned low, kicker in plain words ("SIGN IN", not "PATIENT ACCESS").
+**Why:** The welcome is the brand introduction; the forms are focused tasks. On 2026-09-08 the user specifically asked to enlarge the welcome artwork after rejecting blanket removal from the remaining entry screens. On login, nested cream cards added inset without meaningful contrast, and under-field links made two fields feel like four rows.
 
-**How to apply:** New or restyled auth entry screens follow the login pattern rather than re-boxing. Segmented choices are toggle *buttons* (aria-pressed), not tabs: RN-web only gives Space activation to button roles, and tabs would owe roving focus nobody implements. Keep existing testIDs when re-chroming.
+**How to apply:** Preserve welcome's image-led composition when restyling forms, and keep form changes scoped. Group related copy/actions instead of distributing empty space between every block. Provider login is not automatically included in patient-entry redesigns.
+
+## Segmented choices on Expo web
+
+Use toggle buttons for channel choices unless implementing a complete tab interaction.
+
+**Why:** RN-web's press responder gives Space activation to button roles, not arbitrary tab roles. A visually correct tablist can therefore break keyboard selection.
+
+**How to apply:** Expose pressed/selected state appropriate to each platform; use tabs only with their keyboard navigation and focus behavior.
 
 ## Focus-point crop (where the hero remains)
 
-The plate hero lays the square photo out at the band's width and slides it by a fixed focus-point ratio so the plate's centre lands mid-band. Badge + greeting sit on a cream strip under the photo.
+Food artwork needs a crop chosen around the subject, not a default center crop of whichever container happens to hold it.
 
 **Why:** The seeded home-hero illustration is square with the plate low-right; `resizeMode="cover"` centre-crops a short band into pale tablecloth, and the tester reported the hero as "washed out". An overlay caption + bottom scrim made it worse. Percentage `top` in RN is relative to the parent's height, so the offset has to be computed from the measured width (onLayout), not expressed as a percentage.
 
-**How to apply:** Any short banner reusing a square recipe/plate image needs a focus-point crop, not plain cover. Keep text off the photo. Spacing stays on the 8pt scale in `constants/spacing.ts`.
+**How to apply:** Inspect the source before changing its proportions. A short banner needs a subject-aware crop; a tall welcome image can use the pale upper area for the wordmark. Keep other copy off the food and avoid heavy scrims that wash it out.

@@ -9,7 +9,8 @@ import type { FoodNutritionSnapshot } from '../data/food-nutrition';
 import type { LoggableItem } from '../hooks/useLoggableItems';
 import FoodDetailScreen from '../app/food/[id]';
 import {
-  configureCalls, favoriteCalls, resetDetailState, routerCalls,
+  configureCalls, favoriteCalls, resetDetailState, route, routerCalls, savedConfigurations,
+  selectedCatalogFoods, setDetailAccountKind, setSubmitOutcome, submittedEntries,
 } from './food-detail-stubs/state';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -213,6 +214,96 @@ async function main() {
   await press(detail, 'food-detail-back');
   assert.equal(configureCalls.length, 0, 'Back discards the complete local draft');
   assert.equal(routerCalls.at(-1), 'back');
+  await act(async () => detail.unmount());
+
+  resetDetailState(rawItem);
+  route.origin = 'library';
+  route.date = '2026-09-08';
+  route.meal = 'dinner';
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.equal(configureCalls.length, 0, 'opening the actual detail screen from Library does not create a hidden basket selection');
+  await press(detail, 'food-detail-favorite');
+  assert.equal(configureCalls.length, 0, 'favoriting from Library does not create a hidden basket selection');
+  await press(detail, 'food-detail-select');
+  assert.equal(configureCalls.length, 0, 'Library explicit add bypasses the Add Food batch basket');
+  assert.equal(submittedEntries.length, 1, 'Library explicit add submits exactly one visible food');
+  assert.equal(submittedEntries[0].meal, 'dinner', 'Library detail preserves the chosen meal');
+  assert.match(textOf(detail.root), /Added to Dinner/, 'Library explicit add renders an in-screen confirmation');
+  await act(async () => detail.unmount());
+
+  resetDetailState(rawItem);
+  route.origin = 'library';
+  route.meal = 'lunch';
+  setSubmitOutcome({ outcome: 'rejected', message: 'Please review this food.' });
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await press(detail, 'food-detail-select');
+  assert.equal(configureCalls.length, 0, 'a rejected Library add still never leaks into the batch basket');
+  assert.match(textOf(detail.root), /Please review this food/, 'a rejected direct add stays visible and reviewable on details');
+  assert.match(textOf(detail.root), /Add to Lunch/, 'the failed direct add keeps its meal and explicit retry action');
+  await act(async () => detail.unmount());
+
+  const sharedSingleton: LoggableItem = {
+    ...item,
+    refId: 'source-singleton-id',
+    name: 'Friendly Singleton',
+    nutritionSnapshot: undefined,
+    catalog: {
+      catalogId: 'source-singleton-id',
+      group: 'common',
+      source: 'usda',
+      sourceLabel: 'USDA FoodData Central',
+      measures: [],
+    },
+  };
+  resetDetailState(sharedSingleton);
+  setDetailAccountKind('real');
+  route.origin = 'library';
+  route.meal = 'snack';
+  setSubmitOutcome({ outcome: 'queued' });
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  const directAdd = byTestId(detail.root, 'food-detail-select').props.onPress;
+  await act(async () => {
+    await Promise.all([directAdd(), directAdd()]);
+    await Promise.resolve();
+  });
+  assert.equal(selectedCatalogFoods.length, 1, 'rapid repeated taps promote a snapshotless singleton once');
+  assert.equal(savedConfigurations.length, 1, 'snapshotless shared singleton gets one private recents lookup copy');
+  assert.equal(savedConfigurations[0].id, 'stable-singleton-id');
+  assert.equal(savedConfigurations[0].name, 'Friendly Singleton', 'lookup copy retains the shown friendly name');
+  assert.equal(submittedEntries.length, 1, 'rapid repeated queued add submits one recoverable queue entry');
+  assert.equal(submittedEntries[0].refId, 'stable-singleton-id', 'queued entry resolves through the persisted stable lookup id');
+  assert.match(textOf(detail.root), /waiting to sync/, 'queued singleton remains visible as pending recovery');
+  assert.equal(configureCalls.length, 0, 'queued Library singleton never enters the Add Food basket');
+  await act(async () => detail.unmount());
+
+  const demoBroccoli: LoggableItem = {
+    ...sharedSingleton,
+    refId: '30786967-2ada-4c26-b37c-7dd65b9115b7',
+    name: 'Broccoli',
+    serving: '100 g',
+    calories: 34,
+    protein: 2.8,
+    carbs: 6.6,
+    fat: 0.4,
+    catalog: {
+      ...sharedSingleton.catalog!,
+      catalogId: '30786967-2ada-4c26-b37c-7dd65b9115b7',
+    },
+  };
+  resetDetailState(demoBroccoli);
+  // resetDetailState deliberately restores the explicit guided-demo scope.
+  route.origin = 'library';
+  route.date = '2026-08-22';
+  route.meal = 'lunch';
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await press(detail, 'food-detail-select');
+  assert.equal(selectedCatalogFoods.length, 0, 'guided demo never calls the protected catalog-selection transport');
+  assert.equal(savedConfigurations.length, 1, 'guided demo saves a local shared-food lookup copy');
+  assert.equal(savedConfigurations[0].id, demoBroccoli.refId);
+  assert.equal(submittedEntries.length, 1);
+  assert.equal(submittedEntries[0].calories, 34, 'guided demo logs the visible 34 calorie, 100 g singleton');
+  assert.equal(submittedEntries[0].detail, '100 g');
+  assert.match(textOf(detail.root), /Added to Lunch/, 'guided demo receives the normal visible success confirmation');
   await act(async () => detail.unmount());
 
   const legacyItem = { ...item, refId: 'legacy-food' };

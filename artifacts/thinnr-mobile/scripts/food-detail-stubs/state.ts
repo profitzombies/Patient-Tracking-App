@@ -3,10 +3,28 @@ import { parseNutritionSnapshot, scaledSnapshotMacros } from '../../data/food-nu
 
 export type LoggableItem = any;
 export type CatalogFood = any;
-export const route = { id: 'food-test', basketId: undefined as string | undefined, approvedOnly: undefined as string | undefined };
+export const route = {
+  id: 'food-test',
+  basketId: undefined as string | undefined,
+  approvedOnly: undefined as string | undefined,
+  origin: undefined as string | undefined,
+  date: undefined as string | undefined,
+  meal: undefined as string | undefined,
+};
 export const routerCalls: string[] = [];
 export const configureCalls: Array<{ item: any; amount: any; basketId?: string }> = [];
 export const favoriteCalls: Array<{ food: any; options: any }> = [];
+export const submittedEntries: any[] = [];
+export const selectedCatalogFoods: any[] = [];
+export const savedConfigurations: any[] = [];
+export let submitOutcome: { outcome: string; message?: string } = { outcome: 'saved' };
+export let detailAccountKind: 'demo' | 'real' = 'demo';
+export function setDetailAccountKind(kind: 'demo' | 'real') {
+  detailAccountKind = kind;
+}
+export function setSubmitOutcome(outcome: { outcome: string; message?: string }) {
+  submitOutcome = outcome;
+}
 export const selected: any[] = [];
 export let variants: any[] = [];
 export let currentItem: any = null;
@@ -21,6 +39,14 @@ export function resetDetailState(item: any, selection?: any, familyVariants: any
   route.id = item.refId;
   route.basketId = selection?.basketId;
   route.approvedOnly = 'true';
+  route.origin = undefined;
+  route.date = undefined;
+  route.meal = undefined;
+  submittedEntries.length = 0;
+  selectedCatalogFoods.length = 0;
+  savedConfigurations.length = 0;
+  submitOutcome = { outcome: 'saved' };
+  detailAccountKind = 'demo';
 }
 
 export function useAppMode() {
@@ -28,7 +54,14 @@ export function useAppMode() {
 }
 
 export function usePatientAccount() {
-  return { resolving: false, account: { kind: 'demo' }, accountNotice: null, retryResolve() {} };
+  return {
+    resolving: false,
+    account: detailAccountKind === 'real'
+      ? { kind: 'real', patientId: 'patient-test' }
+      : { kind: 'demo' },
+    accountNotice: null,
+    retryResolve() {},
+  };
 }
 
 export function usePatient() {
@@ -37,12 +70,22 @@ export function usePatient() {
     favorites: [],
     allFoods: [],
     savedRecipes: [],
+    todayKey: '2026-09-08',
     async saveFoodConfiguration(food: any, options: any) {
       favoriteCalls.push({ food, options });
+      savedConfigurations.push(food);
       return food;
+    },
+    async saveCatalogFood(food: any) {
+      savedConfigurations.push(food);
+      return true;
     },
     async toggleFavorite(id: string) {
       favoriteCalls.push({ food: { id }, options: { legacy: true } });
+    },
+    async submitFoodEntries(entries: any[]) {
+      submittedEntries.push(...entries);
+      return submitOutcome;
     },
   };
 }
@@ -79,6 +122,24 @@ export function supportsOunces(item: any) {
   return !!item.catalog?.servingGrams;
 }
 
+export function buildFoodLogEntry(selection: any, target: any) {
+  const snapshot = getItemNutritionSnapshot(selection.item);
+  const macros = snapshot ? scaledSnapshotMacros(snapshot) : null;
+  return {
+    ...target,
+    kind: 'food',
+    refId: selection.item.refId,
+    name: selection.item.name,
+    detail: snapshot ? `${snapshot.selected.amount} ${snapshot.selected.unitId}` : selection.item.serving,
+    quantity: snapshot?.selected.scale ?? selection.quantity,
+    calories: macros?.calories ?? selection.item.calories * selection.quantity,
+    protein: macros?.protein ?? selection.item.protein * selection.quantity,
+    carbs: macros?.carbs ?? selection.item.carbs * selection.quantity,
+    fat: macros?.fat ?? selection.item.fat * selection.quantity,
+    ...(snapshot ? { nutritionSnapshot: snapshot } : {}),
+  };
+}
+
 export function useFoodLogging() {
   return {
     selected,
@@ -91,6 +152,22 @@ export function useFoodLogging() {
 
 export async function getFamilyVariants() {
   return variants;
+}
+export async function selectCatalogFood(food: any) {
+  selectedCatalogFoods.push(food);
+  return { ...food, id: 'stable-singleton-id', catalogId: 'stable-singleton-id' };
+}
+export function catalogFoodSnapshot(food: any) {
+  return {
+    id: food.catalogId,
+    name: food.name,
+    serving: food.serving,
+    calories: food.calories,
+    protein: food.protein,
+    carbs: food.carbs,
+    fat: food.fat,
+    category: 'Common Foods',
+  };
 }
 
 export function catalogErrorMessage(error: unknown) {
@@ -108,4 +185,7 @@ export function Redirect() { return null; }
 
 export function LedgerCard(props: { children?: React.ReactNode; style?: unknown }) {
   return React.createElement('LedgerCard', props, props.children);
+}
+export function PillSelector(props: { selected: string; onSelect: (value: any) => void }) {
+  return React.createElement('PillSelector', props);
 }

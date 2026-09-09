@@ -1,0 +1,44 @@
+{
+  "rls": {
+    "usda_source_foods": true,
+    "usda_source_releases": true,
+    "food_catalog_curation": true,
+    "food_catalog_query_resolutions": true
+  },
+  "aliases": 608,
+  "families": 112,
+  "variants": 157,
+  "snapshots": 157,
+  "catalogRows": 5290,
+  "genericRows": 5289,
+  "archivedOnly": 8299,
+  "classification": {
+    "excluded": 12,
+    "safe_singleton": 5121,
+    "reviewed_family": 157
+  },
+  "indexedSourceRows": 5289,
+  "sourceDisposition": {
+    "reviewed_family": 157,
+    "archived_only_no_catalog_link": 8299,
+    "excluded_specialized_or_non_generic": 12,
+    "safe_singleton_exact_all_token_only": 5121
+  },
+  "sourceFingerprint": "919b04e5939305207446fc8f8b6d6688",
+  "archivedSourceFoods": 13588,
+  "readyReleaseCoverage": {
+    "fndds-2021-2023": {
+      "indexed": 19,
+      "archived": 5432
+    },
+    "sr-legacy-2018-04": {
+      "indexed": 5270,
+      "archived": 7793
+    },
+    "foundation-2026-04": {
+      "indexed": 0,
+      "archived": 363
+    }
+  },
+  "storedUnusableMeasureEvidenceSuppressedByApi": 19
+}

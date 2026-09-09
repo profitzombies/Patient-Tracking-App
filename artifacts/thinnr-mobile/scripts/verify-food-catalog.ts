@@ -18,6 +18,7 @@ import {
   catalogFoodSnapshot,
   parseCatalogFood,
   parseCatalogSearch,
+  preserveSelectedCatalogDraft,
   runAccountGuardedSteps,
 } from '../lib/food-catalog';
 import {
@@ -76,6 +77,8 @@ const brandedWire = {
 const parsed = parseCatalogSearch({
   results: [commonWire, personalWire, brandedWire],
   externalUnavailable: true,
+  querySuggestions: ['chicken wings', '', 42, 'wing'],
+  correctedQuery: 'chicken wings',
 });
 assert.equal(parsed.common.length, 1);
 assert.equal(parsed.personal.length, 1);
@@ -88,6 +91,8 @@ assert.equal(parsed.common[0].approved, true, 'approval comes only from explicit
 assert.equal(parsed.common[0].servingGrams, 158, 'serving grams survive mobile parsing');
 assert.equal(parsed.branded[0].approved, false);
 assert.equal(parsed.upstreamUnavailable, true, 'local results survive external failure');
+assert.deepEqual(parsed.querySuggestions, ['chicken wings', 'wing'], 'mobile safely parses compact query suggestions');
+assert.equal(parsed.correctedQuery, 'chicken wings', 'mobile retains a quiet corrected-query hint');
 assert.equal(
   catalogErrorMessage(new Error('HTTP 404: <!DOCTYPE html><pre>Cannot GET /api/catalog/search</pre>')),
   'Shared food search is unavailable right now. Please try again.',
@@ -95,8 +100,13 @@ assert.equal(
 );
 assert.equal(
   includeBrandedFallback(false),
+  false,
+  'basic food search never requests packaged products as filler',
+);
+assert.equal(
+  includeBrandedFallback(false, 'packaged'),
   true,
-  'normal mobile search requests the server-guarded branded fallback',
+  'the explicit packaged intent requests packaged products',
 );
 assert.equal(
   includeBrandedFallback(true),
@@ -245,6 +255,30 @@ const exactSnapshot = {
   selected: { amount: 1, unitId: 'large-egg', scale: 0.5 },
   provenance: 'generic_source' as const,
 };
+const promotedTechnical = {
+  ...parsed.common[0],
+  id: 'stable-promoted-id',
+  catalogId: 'stable-promoted-id',
+  name: 'Chicken, broilers or fryers, wing, meat and skin, cooked, roasted',
+  familyKey: undefined,
+  dimensions: undefined,
+  nutritionSnapshot: undefined,
+};
+const reviewedDraft = {
+  ...parsed.common[0],
+  id: 'source-wing',
+  catalogId: 'source-wing',
+  name: 'Chicken Wings',
+  familyKey: 'chicken-wings',
+  variantSummary: 'Roasted · meat and skin',
+  dimensions: { preparation: 'roasted', skin: 'meat and skin' },
+  nutritionSnapshot: exactSnapshot,
+};
+const promotedDraft = preserveSelectedCatalogDraft(reviewedDraft, promotedTechnical);
+assert.equal(promotedDraft.catalogId, 'stable-promoted-id', 'promotion adopts only the stable selected identity');
+assert.equal(promotedDraft.name, 'Chicken Wings', 'promotion retains the name shown to the patient');
+assert.deepEqual(promotedDraft.dimensions, reviewedDraft.dimensions, 'promotion retains exact family dimensions');
+assert.equal(promotedDraft.nutritionSnapshot, exactSnapshot, 'promotion retains exact source baseline, units, and selected totals');
 const exactEgg = withItemNutritionSnapshot({
   refId: 'egg',
   kind: 'food',
@@ -476,6 +510,35 @@ assert.equal(
   'cfg-90-raw',
   'explicit type constraints are applied before remembered defaults',
 );
+const wholeMilkResult = {
+  ...server90,
+  familyKey: 'milk',
+  name: 'Milk',
+  dimensions: { fat: 'whole' },
+  variantSummary: 'whole',
+};
+const rememberedNonfatMilk = {
+  ...remembered90,
+  familyKey: 'milk',
+  name: 'Milk',
+  variantSummary: 'nonfat',
+  dimensions: { fat: 'nonfat' },
+};
+assert.equal(
+  applyRememberedFamilyConfigurations([wholeMilkResult], [rememberedNonfatMilk], 'whole milk')[0],
+  wholeMilkResult,
+  'expanded-family remembered defaults cannot replace an explicit whole-milk constraint',
+);
+assert.equal(
+  applyRememberedFamilyConfigurations(
+    [{ ...server90, approved: true }],
+    [{ ...remembered90, approved: false }],
+    'ground beef',
+    true,
+  )[0].catalogId,
+  'server-90',
+  'approved-only search retains the authoritative approved row instead of restoring an ineligible sibling',
+);
 const custom: FoodItem = {
   id: 'custom:local',
   name: 'Private Rice',
@@ -604,6 +667,7 @@ await act(async () => {
   });
   await Promise.resolve();
 });
+act(() => searchState!.showMore());
 act(() => searchState!.showMore());
 assert.equal(heldSearches.length, 4, 'Show more starts exactly one held page request');
 searchAccount = {

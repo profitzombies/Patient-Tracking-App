@@ -16,6 +16,7 @@ import {
   type CatalogItem,
 } from "../catalog/store";
 import { catalogDisplay, patientFriendlyCatalogOrder } from "../catalog/presentation";
+import { resolveCatalogQuery } from "../catalog/query-resolution";
 
 const router: IRouter = Router();
 const acquireSlot = createLimiter({
@@ -33,7 +34,7 @@ const CACHE_TTL = 10 * 60 * 1000;
 const CACHE_MAX = 200;
 const OFF_RAW_PAGE_SIZE = 20;
 const MAX_OFF_PAGES_PER_REQUEST = 10;
-const RANKING_VERSION = "food-families-v3";
+const RANKING_VERSION = "food-families-v4";
 interface ExternalItem {
   id: string;
   kind: "branded";
@@ -249,6 +250,9 @@ router.get("/catalog/search", async (req, res) => {
     if (auth.ok) patientId = auth.patientId;
     else if (anonymous) patientId = null;
     else { res.status(auth.status).json({ error: auth.error, ...auth.details }); return; }
+    const recognition = grouped && intent === "basic"
+      ? await resolveCatalogQuery(query, patientId)
+      : { query, suggestions: [] };
     let localOffset = 0;
     let externalPosition: ExternalPosition = { page: 1, index: 0 };
     let externalSeen: string[] = [];
@@ -268,7 +272,9 @@ router.get("/catalog/search", async (req, res) => {
       externalSeen = decoded.externalSeen;
     }
     const groupedRows = grouped && intent === "basic"
-      ? await searchCatalogGrouped(patientId, query, approvedOnly, limit + 1, localOffset)
+      ? recognition.suggestions.length > 0
+        ? []
+        : await searchCatalogGrouped(patientId, recognition.query, approvedOnly, limit + 1, localOffset)
       : null;
     const local = groupedRows ?? (intent === "basic" ? await searchCatalog(patientId, query, limit) : []);
     let brandedResults: ExternalItem[] = [];
@@ -277,7 +283,10 @@ router.get("/catalog/search", async (req, res) => {
     let externalUnavailable = false;
     if (
       !anonymous
-      && (intent === "packaged" || (shouldSearchOff(query, branded) && (branded || local.length === 0)))
+      && !approvedOnly
+      // Basic grouped discovery never fills a weak/empty page with products.
+      // The legacy branded flag meant "allow fallback", not explicit intent.
+      && (intent === "packaged" || (!grouped && shouldSearchOff(query, branded) && (branded || local.length === 0)))
       && (intent === "packaged" || local.length <= limit)
     ) {
       const localForPage = grouped ? local.slice(0, limit) : local;
@@ -320,6 +329,9 @@ router.get("/catalog/search", async (req, res) => {
         version: RANKING_VERSION,
       }) : null,
       rankingVersion: RANKING_VERSION,
+      querySuggestions: recognition.suggestions,
+      ...("correctedQuery" in recognition && recognition.correctedQuery
+        ? { correctedQuery: recognition.correctedQuery } : {}),
     });
   } catch (error) {
     req.log?.error({ err: error }, "catalog search failed");

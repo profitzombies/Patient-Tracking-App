@@ -44,7 +44,7 @@ export async function searchCatalogGrouped(
     p_offset: offset,
   });
   assertOk(response.status, "grouped catalog search");
-  return Array.isArray(response.json) ? response.json as CatalogItem[] : [];
+  return cleanCatalogItems(Array.isArray(response.json) ? response.json as CatalogItem[] : []);
 }
 
 export async function getCatalogFamily(
@@ -56,11 +56,24 @@ export async function getCatalogFamily(
     p_approved_only: approvedOnly,
   });
   assertOk(response.status, "catalog family lookup");
-  return Array.isArray(response.json) ? response.json as CatalogItem[] : [];
+  return cleanCatalogItems(Array.isArray(response.json) ? response.json as CatalogItem[] : []);
 }
 
 function assertOk(status: number, operation: string): void {
   if (status >= 300) throw new Error(`${operation} failed (${status})`);
+}
+
+function cleanCatalogItems(items: CatalogItem[]): CatalogItem[] {
+  return items.map(item => ({
+    ...item,
+    measures: Array.isArray(item.measures)
+      ? item.measures.filter(measure => {
+        if (!measure || typeof measure !== "object") return false;
+        const label = String((measure as Record<string, unknown>).label ?? "").trim().toLowerCase();
+        return label !== "" && label !== "quantity not specified" && label !== "amount not specified";
+      })
+      : [],
+  }));
 }
 
 export async function searchCatalog(
@@ -74,7 +87,7 @@ export async function searchCatalog(
     p_limit: limit,
   });
   assertOk(response.status, "catalog search");
-  return Array.isArray(response.json) ? response.json as CatalogItem[] : [];
+  return cleanCatalogItems(Array.isArray(response.json) ? response.json as CatalogItem[] : []);
 }
 
 export async function getCatalogItem(id: string): Promise<CatalogItem | null> {
@@ -91,11 +104,23 @@ export async function getCatalogItem(id: string): Promise<CatalogItem | null> {
   }
   const response = await supabaseAdmin(
     "GET",
-    `/rest/v1/food_catalog_items?id=eq.${encodeURIComponent(catalogId)}&select=id,kind,name,brand,serving:serving_label,serving_grams,calories,protein,carbs,fat,measures,source,source_id,barcode,quality_status,nutrition_snapshot,food_catalog_approved_links(approved_food_id,official_name,official_portion,phase_guidance,constraints)`,
+    `/rest/v1/food_catalog_items?id=eq.${encodeURIComponent(catalogId)}&select=id,kind,name,brand,serving:serving_label,serving_grams,calories,protein,carbs,fat,measures,source,source_id,barcode,quality_status,nutrition_snapshot,provenance,food_catalog_family_variants(family_key,variant_summary,dimensions,food_catalog_families(name)),food_catalog_approved_links(approved_food_id,official_name,official_portion,phase_guidance,constraints)`,
   );
   assertOk(response.status, "catalog item lookup");
   if (!Array.isArray(response.json) || !response.json[0]) return null;
   const row = response.json[0] as CatalogItem & {
+    provenance?: Record<string, unknown>;
+    food_catalog_family_variants?: {
+      family_key: string;
+      variant_summary: string;
+      dimensions: Record<string, string>;
+      food_catalog_families?: { name?: string } | Array<{ name?: string }>;
+    } | Array<{
+      family_key: string;
+      variant_summary: string;
+      dimensions: Record<string, string>;
+      food_catalog_families?: { name?: string } | Array<{ name?: string }>;
+    }>;
     food_catalog_approved_links?: Array<{
       approved_food_id: string;
       official_name: string;
@@ -104,9 +129,32 @@ export async function getCatalogItem(id: string): Promise<CatalogItem | null> {
       constraints: Record<string, unknown> | null;
     }>;
   };
-  const { food_catalog_approved_links: links = [], ...item } = row;
-  return {
+  const {
+    food_catalog_approved_links: links = [],
+    food_catalog_family_variants: variants = [],
+    provenance,
+    ...item
+  } = row;
+  const variant = Array.isArray(variants) ? variants[0] : variants;
+  const familyRecord = Array.isArray(variant?.food_catalog_families)
+    ? variant.food_catalog_families[0]
+    : variant?.food_catalog_families;
+  const canonicalName = typeof provenance?.canonicalName === "string"
+    ? provenance.canonicalName
+    : undefined;
+  return cleanCatalogItems([{
     ...item,
+    ...(familyRecord?.name ? { name: familyRecord.name } : {}),
+    ...(canonicalName && canonicalName !== (familyRecord?.name ?? item.name)
+      ? { catalogMetadata: { canonicalName } }
+      : {}),
+    ...(variant ? {
+      resultKey: `family:${variant.family_key}:${item.id}`,
+      familyKey: variant.family_key,
+      variantSummary: variant.variant_summary,
+      dimensions: variant.dimensions,
+      choiceRequired: false,
+    } : {}),
     approvals: links.map(link => ({
       id: link.approved_food_id,
       name: link.official_name,
@@ -114,7 +162,7 @@ export async function getCatalogItem(id: string): Promise<CatalogItem | null> {
       phaseGuidance: link.phase_guidance,
       constraints: link.constraints,
     })),
-  };
+  }])[0];
 }
 
 export async function recordSelection(patientId: string, catalogId: string): Promise<void> {

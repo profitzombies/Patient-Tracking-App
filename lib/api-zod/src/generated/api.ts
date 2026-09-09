@@ -329,7 +329,9 @@ export const CatalogSearchResponse = zod.object({
   "externalUnavailable": zod.boolean().describe('Local results remain valid when branded fallback failed'),
   "hasMore": zod.boolean(),
   "nextCursor": zod.string().nullable().describe('Opaque continuation cursor, or null when no more results exist'),
-  "rankingVersion": zod.string().describe('Review\/ranking version that pins continuation ordering')
+  "rankingVersion": zod.string().describe('Review\/ranking version that pins continuation ordering'),
+  "querySuggestions": zod.array(zod.string()).optional().describe('Ambiguous alternate food names offered for explicit selection, never silently searched'),
+  "correctedQuery": zod.string().optional().describe('Reviewed unambiguous spelling correction used for this search')
 })
 
 

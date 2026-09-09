@@ -19,4 +19,8 @@ export interface CatalogSearchResult {
   nextCursor: string | null;
   /** Review/ranking version that pins continuation ordering */
   rankingVersion: string;
+  /** Ambiguous alternate food names offered for explicit selection, never silently searched */
+  querySuggestions?: string[];
+  /** Reviewed unambiguous spelling correction used for this search */
+  correctedQuery?: string;
 }

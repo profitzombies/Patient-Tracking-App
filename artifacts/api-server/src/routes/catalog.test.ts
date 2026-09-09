@@ -25,6 +25,12 @@ const store = vi.hoisted(() => ({
   upsertOffCatalogItem: vi.fn(),
 }));
 vi.mock("../catalog/store", () => store);
+const recognition = vi.hoisted(() => ({
+  resolveCatalogQuery: vi.fn(async (query: string): Promise<{
+    query: string; suggestions: string[]; correctedQuery?: string;
+  }> => ({ query, suggestions: [] })),
+}));
+vi.mock("../catalog/query-resolution", () => recognition);
 
 const off = vi.hoisted(() => ({
   searchOffProducts: vi.fn(),
@@ -71,6 +77,7 @@ afterEach(() => {
   store.searchCatalog.mockResolvedValue([]);
   store.searchCatalogGrouped.mockResolvedValue([]);
   store.getCatalogFamily.mockResolvedValue([]);
+  recognition.resolveCatalogQuery.mockImplementation(async query => ({ query, suggestions: [] }));
 });
 
 describe("catalog fallback guard", () => {
@@ -99,10 +106,11 @@ describe("catalog routes", () => {
       results: unknown[]; hasMore: boolean; nextCursor: string; rankingVersion: string;
     };
     expect(store.searchCatalogGrouped).toHaveBeenCalledWith("patient-1", "chicken", true, 7, 0);
+    expect(recognition.resolveCatalogQuery).toHaveBeenCalledWith("chicken", "patient-1");
     expect(body.results).toHaveLength(6);
     expect(body.hasMore).toBe(true);
     expect(body.nextCursor).toEqual(expect.any(String));
-    expect(body.rankingVersion).toBe("food-families-v3");
+    expect(body.rankingVersion).toBe("food-families-v4");
 
     const next = await fetch(`${base}/catalog/search?q=chicken&grouped=true&limit=6&approvedOnly=true&cursor=${encodeURIComponent(body.nextCursor)}`);
     expect(next.status).toBe(200);
@@ -186,11 +194,14 @@ describe("catalog routes", () => {
     expect(off.searchOffProducts).not.toHaveBeenCalled();
   });
 
-  it("keeps branded results for grouped basic searches with explicit brand intent", async () => {
+  it("keeps packaged products behind the intentional packaged search choice", async () => {
     off.searchOffProducts.mockResolvedValue({ kind: "found", products: [{ ...PRODUCT, brands: "Heinz", product_name: "Heinz Ketchup" }] });
     const response = await fetch(`${base}/catalog/search?q=Heinz%20Ketchup&grouped=true&branded=true`);
     expect(response.status).toBe(200);
-    const body = await response.json() as { results: Array<{ brand: string | null }> };
+    expect(await response.json()).toMatchObject({ results: [], hasMore: false });
+    expect(off.searchOffProducts).not.toHaveBeenCalled();
+    const packaged = await fetch(`${base}/catalog/search?q=Heinz%20Ketchup&grouped=true&intent=packaged`);
+    const body = await packaged.json() as { results: Array<{ brand: string | null }> };
     expect(body.results).toHaveLength(1);
     expect(body.results[0].brand).toBe("Heinz");
     expect(off.searchOffProducts).toHaveBeenCalledWith("Heinz Ketchup", 20, undefined, 1);
@@ -214,7 +225,7 @@ describe("catalog routes", () => {
     expect(off.searchOffProducts).toHaveBeenCalledWith("Heinz", 20, undefined, 1);
   });
 
-  it("pages local and OFF results with independent cursor positions", async () => {
+  it("does not interleave product results into a short basic food page", async () => {
     const local = Array.from({ length: 4 }, (_, index): import("../catalog/store").CatalogItem => ({
       id: `local-${index}`, kind: "generic", name: `Heinz local ${index}`, brand: null,
       serving: "100 g", serving_grams: 100, calories: 1, protein: 1, carbs: 1, fat: 1,
@@ -229,17 +240,58 @@ describe("catalog routes", () => {
       })),
     });
     const first = await fetch(`${base}/catalog/search?q=Heinz&grouped=true&branded=true&limit=6`);
-    const firstBody = await first.json() as { results: Array<{ id: string }>; nextCursor: string };
-    const second = await fetch(`${base}/catalog/search?q=Heinz&grouped=true&branded=true&limit=6&cursor=${encodeURIComponent(firstBody.nextCursor)}`);
-    const secondBody = await second.json() as { results: Array<{ id: string }> };
+    const firstBody = await first.json() as { results: Array<{ id: string }>; nextCursor: string | null; hasMore: boolean };
     expect(firstBody.results.map(row => row.id)).toEqual([
-      "local-0", "local-1", "local-2", "local-3", "off:3017624110000", "off:3017624110001",
+      "local-0", "local-1", "local-2", "local-3",
     ]);
-    expect(secondBody.results.map(row => row.id)).toEqual([
-      "off:3017624110002", "off:3017624110003", "off:3017624110004",
-      "off:3017624110005", "off:3017624110006", "off:3017624110007",
-    ]);
-    expect(store.searchCatalogGrouped).toHaveBeenNthCalledWith(2, "patient-1", "Heinz", false, 7, 4);
+    expect(firstBody.hasMore).toBe(false);
+    expect(firstBody.nextCursor).toBeNull();
+    expect(off.searchOffProducts).not.toHaveBeenCalled();
+  });
+
+  it("offers ambiguous wording for explicit selection rather than searching another food", async () => {
+    recognition.resolveCatalogQuery.mockResolvedValue({
+      query: "pea", suggestions: ["Peas", "Pears"],
+    });
+    const response = await fetch(`${base}/catalog/search?q=pea&grouped=true`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      results: [], querySuggestions: ["Peas", "Pears"], hasMore: false, nextCursor: null,
+    });
+    expect(store.searchCatalogGrouped).not.toHaveBeenCalled();
+    expect(off.searchOffProducts).not.toHaveBeenCalled();
+  });
+
+  it("uses an unambiguous spelling correction without changing the cursor's original input", async () => {
+    recognition.resolveCatalogQuery.mockResolvedValue({
+      query: "broccoli", suggestions: [], correctedQuery: "broccoli",
+    });
+    store.searchCatalogGrouped.mockResolvedValue(Array.from({ length: 7 }, (_, index) => ({
+      id: `food-${index}`, kind: "generic", name: `Food ${index}`, brand: null,
+      serving: "100 g", serving_grams: 100, calories: 1, protein: 1, carbs: 1, fat: 1,
+      measures: [], source: "usda_fdc", source_id: String(index), barcode: null,
+      quality_status: "reviewed", approvals: [],
+    })));
+    const first = await fetch(`${base}/catalog/search?q=brocoli&grouped=true`);
+    const body = await first.json() as { correctedQuery: string; nextCursor: string };
+    expect(body.correctedQuery).toBe("broccoli");
+    expect(store.searchCatalogGrouped).toHaveBeenLastCalledWith("patient-1", "broccoli", false, 7, 0);
+    const next = await fetch(`${base}/catalog/search?q=brocoli&grouped=true&cursor=${encodeURIComponent(body.nextCursor)}`);
+    expect(next.status).toBe(200);
+    expect(store.searchCatalogGrouped).toHaveBeenLastCalledWith("patient-1", "broccoli", false, 7, 6);
+  });
+
+  it("never calls packaged search to fill an unsupported or Approved-only query", async () => {
+    for (const suffix of [
+      "q=raw%20apple%20pie&grouped=true&branded=true",
+      "q=ground%20turkey&grouped=true&branded=true",
+      "q=Heinz&grouped=true&intent=packaged&approvedOnly=true",
+    ]) {
+      const response = await fetch(`${base}/catalog/search?${suffix}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ results: [], hasMore: false });
+    }
+    expect(off.searchOffProducts).not.toHaveBeenCalled();
   });
 
   it("scans past a raw OFF page of invalid rows to find eligible products", async () => {

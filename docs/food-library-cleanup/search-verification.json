@@ -1,0 +1,11 @@
+{
+  "verifiedAt": "2026-09-09T00:59:59.539Z",
+  "cases": 334,
+  "distinctQueries": 332,
+  "assertions": "Every case checks bounded unique identities and limit-one stability; exact names pin source/revision, prepared queries pin available tuples, explicit expectations all enforced. Broad family discovery, exact identity boundaries, and stacked constraints in both word orders are also asserted.",
+  "failures": 0,
+  "paginationFirst": 6,
+  "paginationSecond": 6,
+  "paginationSkippedOrRepeated": 0,
+  "evidenceSource": "Full strengthened live corpus run by backend worker after final forward migration; parent additionally verified final HTTP results."
+}

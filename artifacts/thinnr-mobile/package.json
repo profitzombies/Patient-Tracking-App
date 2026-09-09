@@ -48,6 +48,7 @@
     "test:editable-text-typography": "tsx --tsconfig tsconfig.editable-text-typography.json scripts/verify-editable-text-typography.ts",
     "test:food-catalog": "tsx scripts/verify-food-catalog.ts",
     "test:food-nutrition": "tsx scripts/verify-food-nutrition.ts",
+    "test:food-portions": "tsx scripts/verify-food-portions.ts",
     "test:food-detail": "tsx --tsconfig tsconfig.food-detail.json scripts/verify-food-detail.tsx"
   },
   "devDependencies": {

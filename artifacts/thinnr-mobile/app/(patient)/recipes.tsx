@@ -16,7 +16,6 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { FavoriteStar } from '@/components/patient/FavoriteStar';
-import { FoodAddPanel } from '@/components/patient/FoodAddPanel';
 import { MealPhotoButton } from '@/components/patient/MealPhotoButton';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { Divider, EmptyState, LedgerCard, PillSelector, SectionHeader } from '@/components/ui/LedgerPrimitives';
@@ -28,6 +27,9 @@ import { RECIPE_IMAGES } from '@/data/recipe-images';
 import { type RemovedCustomFood } from '@/data/custom-food-state';
 import { useFoodCatalogSearch } from '@/hooks/useFoodCatalogSearch';
 import { catalogFoodSnapshot, selectCatalogFood, type CatalogFood } from '@/lib/food-catalog';
+import { catalogFoodToLoggable, useLoggableItems } from '@/hooks/useLoggableItems';
+import { useFoodLogging } from '@/context/FoodLoggingContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 
 type MealFilter = 'all' | MealSlot;
 type LibraryView = 'recipes' | 'foods';
@@ -46,6 +48,9 @@ export default function LibraryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  const { account } = usePatientAccount();
+  const basket = useFoodLogging();
+  const { byId: loggableById } = useLoggableItems();
   const [view, setView] = useState<LibraryView>('recipes');
 
   // Recipes view state
@@ -57,6 +62,7 @@ export default function LibraryScreen() {
   const [foodQuery, setFoodQuery] = useState('');
   const [foodFavoritesOnly, setFoodFavoritesOnly] = useState(false);
   const [foodApprovedOnly, setFoodApprovedOnly] = useState(false);
+  const [foodFavoriteLimit, setFoodFavoriteLimit] = useState(6);
   // Selection tracks a row key (section + food id) instead of a bare food id:
   // a favorited food appears both in the pinned Favorites section and in its
   // category, and only the tapped copy should expand.
@@ -112,6 +118,10 @@ export default function LibraryScreen() {
     patient.customFoods,
     foodQuery,
     foodApprovedOnly,
+    'basic',
+    undefined,
+    patient.catalogFoods,
+    patient.recents,
   );
 
   // Starred recipes lead the grid in browse mode, mirroring the Foods view's
@@ -125,13 +135,12 @@ export default function LibraryScreen() {
     return { favoriteRecipes: favs, restRecipes: rest };
   }, [filtered, favoritesOnly, favoriteIds]);
 
-  const { foodSections, foodCount } = useMemo(() => {
+  const { foodSections, foodCount, foodFavoriteTotal } = useMemo(() => {
     const q = foodQuery.trim().toLowerCase();
     if (q) {
+      // Preserve the API's authoritative ranking across result types.
       const groups: Array<{ key: string; title: string; pinned?: boolean; data: FoodItem[] }> = [
-        { key: 'catalog-common', title: 'Common', data: catalogSearch.common },
-        { key: 'catalog-personal', title: 'Personal', data: catalogSearch.personal },
-        { key: 'catalog-branded', title: 'Branded Products', data: catalogSearch.branded },
+        { key: 'catalog-results', title: 'Results', data: catalogSearch.results ?? [] },
       ];
       const filteredGroups = groups
         .map(group => ({
@@ -144,20 +153,22 @@ export default function LibraryScreen() {
       return {
         foodSections: filteredGroups,
         foodCount: filteredGroups.reduce((sum, group) => sum + group.data.length, 0),
+        foodFavoriteTotal: 0,
       };
     }
     // patient.allFoods lists custom foods first, so "My Foods" leads the list.
-    const matches = patient.allFoods.filter(food => {
+    const allMatches = patient.allFoods.filter(food => {
       if (q && !`${food.name} ${food.brand ?? ''} ${food.category}`.toLowerCase().includes(q)) return false;
       if (foodFavoritesOnly && !favoriteIds.has(food.id)) return false;
       if (foodApprovedOnly && !isApprovedFood(food.id)) return false;
       return true;
     });
+    const matches = foodFavoritesOnly ? allMatches.slice(0, foodFavoriteLimit) : allMatches;
     const sections: { key: string; title: string; pinned?: boolean; data: FoodItem[] }[] = [];
     // Pinned Favorites section leads in browse mode; with the star filter on,
     // everything shown is a favorite, so the pin would be redundant.
     if (!foodFavoritesOnly) {
-      const favs = matches.filter(food => favoriteIds.has(food.id));
+      const favs = matches.filter(food => favoriteIds.has(food.id)).slice(0, 6);
       if (favs.length > 0) sections.push({ key: 'pinned-favorites', title: 'Favorites', pinned: true, data: favs });
     }
     const indexByCategory = new Map<string, number>();
@@ -171,16 +182,15 @@ export default function LibraryScreen() {
       sections[at].data.push(food);
     }
     // The count line reports distinct foods; the pinned section repeats rows.
-    return { foodSections: sections, foodCount: matches.length };
+    return { foodSections: sections, foodCount: matches.length, foodFavoriteTotal: allMatches.length };
   }, [
     patient.allFoods,
     foodQuery,
     foodFavoritesOnly,
     foodApprovedOnly,
+    foodFavoriteLimit,
     favoriteIds,
-    catalogSearch.common,
-    catalogSearch.personal,
-    catalogSearch.branded,
+    catalogSearch.results,
   ]);
 
   // Only foods the patient created can be edited or deleted — membership in
@@ -211,10 +221,24 @@ export default function LibraryScreen() {
       await patient.toggleFavorite(food.catalogId);
       return;
     }
-    const selected = await selectCatalogFood(food);
+    if (account.kind !== 'real' && account.kind !== 'demo') return;
+    const selected = account.kind === 'real' ? await selectCatalogFood(food) : food;
     if (await patient.saveCatalogFood(catalogFoodSnapshot(selected))) {
       await patient.toggleFavorite(selected.catalogId);
     }
+  };
+
+  const openFoodDetails = (food: FoodItem) => {
+    const catalogFood = 'catalogId' in food ? food as CatalogFood : null;
+    const item = catalogFood ? catalogFoodToLoggable(catalogFood) : loggableById.get(food.id);
+    if (!item) return;
+    // Recall is a navigation cache only; viewing a Library food never mutates
+    // the Add Food basket (including a basket already in progress).
+    basket.remember(item);
+    router.push({
+      pathname: '/food/[id]',
+      params: { id: item.refId, origin: 'library', date: patient.todayKey },
+    });
   };
 
   const renderRecipeCard = (recipe: Recipe) => {
@@ -360,27 +384,6 @@ export default function LibraryScreen() {
                   color={favoritesOnly ? colors.primaryForeground : colors.bodyText}
                 />
               </Pressable>
-              <Pressable
-                testID="foods-approved-toggle"
-                accessibilityRole="button"
-                accessibilityState={{ selected: foodApprovedOnly }}
-                accessibilityLabel={foodApprovedOnly ? 'Show all foods' : 'Show only approved foods'}
-                onPress={() => {
-                  setFoodApprovedOnly(value => !value);
-                  setSelectedRowKey(null);
-                  setPendingDeleteId(null);
-                }}
-                style={({ pressed }) => [
-                  styles.favBtn,
-                  {
-                    borderColor: foodApprovedOnly ? colors.activeGreen : colors.border,
-                    backgroundColor: foodApprovedOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
-                    borderRadius: colors.radiusSm,
-                  },
-                ]}
-              >
-                <Feather name="check" size={15} color={foodApprovedOnly ? colors.activeGreen : colors.bodyText} />
-              </Pressable>
             </View>
 
             <PillSelector
@@ -451,6 +454,7 @@ export default function LibraryScreen() {
                 accessibilityLabel={foodFavoritesOnly ? 'Show all foods' : 'Show only favorite foods'}
                 onPress={() => {
                   setFoodFavoritesOnly(v => !v);
+                  setFoodFavoriteLimit(6);
                   setSelectedRowKey(null);
                   setPendingDeleteId(null);
                 }}
@@ -469,7 +473,48 @@ export default function LibraryScreen() {
                   color={foodFavoritesOnly ? colors.primaryForeground : colors.bodyText}
                 />
               </Pressable>
+              <Pressable
+                testID="foods-approved-toggle"
+                accessibilityRole="button"
+                accessibilityState={{ selected: foodApprovedOnly }}
+                accessibilityLabel={foodApprovedOnly ? 'Show all foods' : 'Show only approved foods'}
+                onPress={() => {
+                  setFoodApprovedOnly(value => !value);
+                  setSelectedRowKey(null);
+                  setPendingDeleteId(null);
+                }}
+                style={({ pressed }) => [
+                  styles.favBtn,
+                  {
+                    borderColor: foodApprovedOnly ? colors.activeGreen : colors.border,
+                    backgroundColor: foodApprovedOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
+                    borderRadius: colors.radiusSm,
+                  },
+                ]}
+              >
+                <Feather name="check" size={15} color={foodApprovedOnly ? colors.activeGreen : colors.bodyText} />
+              </Pressable>
             </View>
+
+            {!!foodQuery.trim() && !!catalogSearch.querySuggestions?.length && (
+              <View testID="library-search-suggestions" style={styles.suggestions}>
+                {catalogSearch.querySuggestions.map(suggestion => (
+                  <Pressable
+                    key={suggestion}
+                    testID={`library-suggestion-${suggestion}`}
+                    onPress={() => setFoodQuery(suggestion)}
+                    style={[styles.suggestion, { borderColor: colors.border }]}
+                  >
+                    <Text style={[styles.suggestionText, { color: colors.cobalt }]}>{suggestion}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {catalogSearch.correctedQuery && catalogSearch.correctedQuery !== foodQuery.trim() && (
+              <Text testID="library-corrected-query" style={[styles.correctionHint, { color: colors.subtleText }]}>
+                Results for “{catalogSearch.correctedQuery}”
+              </Text>
+            )}
 
             {/* ── Create food entry point ── */}
             <LedgerCard testID="library-create-food" onPress={() => router.push('/create-food')} style={{ marginBottom: 10 }}>
@@ -500,6 +545,11 @@ export default function LibraryScreen() {
                     ? 'Searching the shared catalog… Local matches are ready.'
                     : catalogSearch.error ?? catalogSearch.message ?? 'Branded search is unavailable. Local matches are still shown.'}
                 </Text>
+                {!!catalogSearch.error && (
+                  <Pressable testID="library-catalog-retry" onPress={catalogSearch.retry} hitSlop={8}>
+                    <Text style={[styles.suggestionText, { color: colors.cobalt }]}>Retry</Text>
+                  </Pressable>
+                )}
               </View>
             )}
 
@@ -573,7 +623,7 @@ export default function LibraryScreen() {
                             testID={`food-row-${rowTestId}`}
                             onPress={() => {
                               setPendingDeleteId(null);
-                              setSelectedRowKey(current => (current === rowKey ? null : rowKey));
+                              openFoodDetails(food);
                             }}
                             style={({ pressed }) => [
                               styles.foodRow,
@@ -604,10 +654,20 @@ export default function LibraryScreen() {
                              />
                             <Text style={[styles.foodCals, { color: colors.navyLight }]}>{food.calories}</Text>
                             <Feather
-                              name={isSelected ? 'chevron-up' : 'plus-square'}
+                              name="chevron-right"
                               size={16}
-                              color={isSelected ? colors.cobalt : colors.subtleText}
+                              color={colors.subtleText}
                             />
+                            {customFoodIds.has(food.id) && (
+                              <Pressable
+                                testID={`food-manage-${rowTestId}`}
+                                accessibilityLabel={`Manage ${food.name}`}
+                                onPress={() => setSelectedRowKey(current => current === rowKey ? null : rowKey)}
+                                hitSlop={8}
+                              >
+                                <Feather name="more-horizontal" size={17} color={colors.subtleText} />
+                              </Pressable>
+                            )}
                           </Pressable>
                           {isSelected && (
                             <>
@@ -679,25 +739,6 @@ export default function LibraryScreen() {
                                     </View>
                                   </View>
                                 ))}
-                              {pendingDeleteId !== food.id && (
-                                <FoodAddPanel
-                                  food={food}
-                                  testIDPrefix="library"
-                                   prepareFood={
-                                     catalogFood && catalogFood.group !== 'personal'
-                                       ? async () => {
-                                           const selected = await selectCatalogFood(catalogFood);
-                                           await patient.saveCatalogFood(catalogFoodSnapshot(selected));
-                                           return catalogFoodSnapshot(selected);
-                                         }
-                                       : undefined
-                                   }
-                                  onAdded={message => {
-                                    setSelectedRowKey(null);
-                                    showConfirmation(message);
-                                  }}
-                                />
-                              )}
                             </>
                           )}
                         </View>
@@ -706,6 +747,36 @@ export default function LibraryScreen() {
                   </LedgerCard>
                 </View>
               ))
+            )}
+            {!!foodQuery.trim() && catalogSearch.hasMore && !catalogSearch.pagingError && (
+              <Pressable
+                testID="library-show-more"
+                onPress={catalogSearch.showMore}
+                disabled={catalogSearch.loadingMore}
+                style={[styles.libraryShowMore, { borderColor: colors.border }]}
+              >
+                <Text style={[styles.suggestionText, { color: colors.cobalt }]}>
+                  {catalogSearch.loadingMore ? 'Loading…' : 'Show more results'}
+                </Text>
+              </Pressable>
+            )}
+            {!!foodQuery.trim() && !!catalogSearch.pagingError && (
+              <Pressable
+                testID="library-show-more-retry"
+                onPress={catalogSearch.showMore}
+                style={[styles.libraryShowMore, { borderColor: colors.border }]}
+              >
+                <Text style={[styles.suggestionText, { color: colors.cobalt }]}>Couldn’t load more · Retry</Text>
+              </Pressable>
+            )}
+            {!foodQuery.trim() && foodFavoritesOnly && foodFavoriteTotal > foodCount && (
+              <Pressable
+                testID="library-favorites-show-more"
+                onPress={() => setFoodFavoriteLimit(limit => limit + 6)}
+                style={[styles.libraryShowMore, { borderColor: colors.border }]}
+              >
+                <Text style={[styles.suggestionText, { color: colors.cobalt }]}>Show more favorites</Text>
+              </Pressable>
             )}
           </>
         )}
@@ -893,6 +964,34 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 10.5,
     fontFamily: 'Inter_400Regular',
+  },
+  suggestions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginBottom: 8,
+  },
+  suggestion: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  suggestionText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  correctionHint: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_400Regular',
+    marginBottom: 8,
+  },
+  libraryShowMore: {
+    minHeight: 40,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
   catalogState: {
     flexDirection: 'row',

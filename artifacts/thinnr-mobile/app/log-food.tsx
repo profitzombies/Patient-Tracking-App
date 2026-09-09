@@ -28,8 +28,6 @@ import {
 } from '@/data/patient-data';
 import { catalogFoodToLoggable, useLoggableItems, type LoggableItem } from '@/hooks/useLoggableItems';
 import {
-  applyRememberedFamilyConfigurations,
-  foodItemToCatalogFood,
   useFoodCatalogSearch,
 } from '@/hooks/useFoodCatalogSearch';
 import { catalogFoodSnapshot, runAccountGuardedSteps, selectCatalogFood } from '@/lib/food-catalog';
@@ -157,25 +155,17 @@ export default function LogFoodScreen() {
     query,
     approvedOnly,
     intent === 'recipe' ? 'basic' : intent,
+    undefined,
+    patient.catalogFoods,
+    patient.recents,
   );
   const catalogItems = useMemo(() => {
     const convert = catalogFoodToLoggable;
-    const recentPosition = new Map(patient.recents.map((id, index) => [id, index]));
-    const remembered = patient.catalogFoods
-      .slice()
-      .sort((left, right) =>
-        (recentPosition.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-        (recentPosition.get(right.id) ?? Number.MAX_SAFE_INTEGER)
-      )
-      .map(food => foodItemToCatalogFood(food));
-    const results = intent === 'basic'
-      ? applyRememberedFamilyConfigurations(catalogSearch.results ?? [], remembered, query)
-      : (catalogSearch.results ?? []);
     return {
       common: catalogSearch.common.map(convert),
       personal: catalogSearch.personal.map(convert),
       branded: catalogSearch.branded.map(convert),
-      results: results.map(convert),
+      results: (catalogSearch.results ?? []).map(convert),
     };
   }, [
     catalogSearch.common,
@@ -183,9 +173,6 @@ export default function LogFoodScreen() {
     catalogSearch.branded,
     catalogSearch.results,
     intent,
-    patient.catalogFoods,
-    patient.recents,
-    query,
   ]);
   // "Yesterday's [meal]" — the previous day's entries for the selected slot,
   // offered above the most-logged group as a tap-in review-and-log.
@@ -279,7 +266,7 @@ export default function LogFoodScreen() {
       if (!operationIsCurrent(operation)) return;
       return;
     }
-    const selectedCatalog = await selectCatalogFood({
+    const favoriteDraft = {
       id: item.refId,
       catalogId: item.catalog.catalogId,
       group: item.catalog.group,
@@ -296,13 +283,20 @@ export default function LogFoodScreen() {
       fat: item.fat,
       measures: item.catalog.measures,
       ...(item.catalog.servingGrams ? { servingGrams: item.catalog.servingGrams } : {}),
+      ...(item.catalog.canonicalName ? { canonicalName: item.catalog.canonicalName } : {}),
       ...(item.catalog.resultKey ? { resultKey: item.catalog.resultKey } : {}),
       ...(item.catalog.familyKey ? { familyKey: item.catalog.familyKey } : {}),
       ...(item.catalog.variantSummary ? { variantSummary: item.catalog.variantSummary } : {}),
       ...(item.catalog.dimensions ? { dimensions: item.catalog.dimensions } : {}),
       ...(item.catalog.choiceRequired !== undefined ? { choiceRequired: item.catalog.choiceRequired } : {}),
       ...(item.catalog.nutritionSnapshot ? { nutritionSnapshot: item.catalog.nutritionSnapshot } : {}),
-    });
+    };
+    if (account.kind !== 'real' && account.kind !== 'demo') {
+      throw new Error('Your patient account is unavailable. Please sign in again.');
+    }
+    const selectedCatalog = account.kind === 'real'
+      ? await selectCatalogFood(favoriteDraft)
+      : favoriteDraft;
     if (!operationIsCurrent(operation)) return;
     const itemSnapshot = getItemNutritionSnapshot(item);
     const snapshot = {
@@ -370,17 +364,30 @@ export default function LogFoodScreen() {
         if (!item.catalog || item.catalog.group === 'personal') return selection;
 
         const totals = configuredSnapshot ? scaledSnapshotMacros(configuredSnapshot) : null;
-        const guarded = await runAccountGuardedSteps(
-          () => selectCatalogFood({
+        const selectionDraft = {
             id: item.refId, catalogId: item.catalog!.catalogId, group: item.catalog!.group,
             source: item.catalog!.source, sourceLabel: item.catalog!.sourceLabel,
             ...(item.catalog!.selectionToken ? { selectionToken: item.catalog!.selectionToken } : {}),
+             ...(item.catalog!.lookupId ? { lookupId: item.catalog!.lookupId } : {}),
             approved: item.approved, name: item.name,
             category: item.catalog!.group === 'branded' ? 'Branded Products' : 'Common Foods',
             serving: item.serving, calories: item.calories, protein: item.protein, carbs: item.carbs, fat: item.fat,
             measures: item.catalog!.measures,
             ...(item.catalog!.servingGrams ? { servingGrams: item.catalog!.servingGrams } : {}),
-          }),
+             ...(item.catalog!.canonicalName ? { canonicalName: item.catalog!.canonicalName } : {}),
+             ...(item.catalog!.resultKey ? { resultKey: item.catalog!.resultKey } : {}),
+             ...(item.catalog!.familyKey ? { familyKey: item.catalog!.familyKey } : {}),
+             ...(item.catalog!.variantSummary ? { variantSummary: item.catalog!.variantSummary } : {}),
+             ...(item.catalog!.dimensions ? { dimensions: item.catalog!.dimensions } : {}),
+             ...(item.catalog!.choiceRequired !== undefined ? { choiceRequired: item.catalog!.choiceRequired } : {}),
+             ...(configuredSnapshot ? { nutritionSnapshot: configuredSnapshot } : {}),
+        };
+        const guarded = await runAccountGuardedSteps(
+          () => {
+            if (account.kind === 'real') return selectCatalogFood(selectionDraft);
+            if (account.kind === 'demo') return Promise.resolve(selectionDraft);
+            return Promise.reject(new Error('Your patient account is unavailable. Please sign in again.'));
+          },
           persisted => patient.saveFoodConfiguration({
             ...catalogFoodSnapshot({
               ...persisted,
@@ -530,6 +537,7 @@ export default function LogFoodScreen() {
         </View>
 
         {query.trim().length > 0 && (
+          <>
           <View style={styles.intentLinks}>
             {([
               ['basic', 'Basic foods'],
@@ -545,6 +553,26 @@ export default function LogFoodScreen() {
               </Pressable>
             ))}
           </View>
+          {intent !== 'recipe' && !!catalogSearch.querySuggestions?.length && (
+            <View testID="logfood-search-suggestions" style={styles.intentLinks}>
+              {catalogSearch.querySuggestions.map(suggestion => (
+                <Pressable
+                  key={suggestion}
+                  testID={`logfood-suggestion-${suggestion}`}
+                  onPress={() => setQuery(suggestion)}
+                  style={[styles.suggestion, { borderColor: colors.border }]}
+                >
+                  <Text style={[styles.intentLink, { color: colors.cobalt }]}>{suggestion}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          {intent !== 'recipe' && catalogSearch.correctedQuery && catalogSearch.correctedQuery !== query.trim() && (
+            <Text testID="logfood-corrected-query" style={[styles.correctionHint, { color: colors.subtleText }]}>
+              Results for “{catalogSearch.correctedQuery}”
+            </Text>
+          )}
+          </>
         )}
 
         {approvedOnly && (
@@ -685,6 +713,11 @@ export default function LogFoodScreen() {
                 ? 'Searching the shared catalog… Local matches are ready.'
                 : catalogSearch.error ?? catalogSearch.message ?? 'Branded search is unavailable. Local matches are still shown.'}
             </Text>
+            {!!catalogSearch.error && (
+              <Pressable testID="logfood-catalog-retry" onPress={catalogSearch.retry} hitSlop={8}>
+                <Text style={[styles.showMoreText, { color: colors.cobalt }]}>Retry</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -981,7 +1014,7 @@ export default function LogFoodScreen() {
               </View>
             )}
 
-            {query.trim().length > 0 && catalogSearch.hasMore && (
+            {query.trim().length > 0 && catalogSearch.hasMore && !catalogSearch.pagingError && (
               <View>
                 <Divider />
                 <Pressable
@@ -999,6 +1032,14 @@ export default function LogFoodScreen() {
                   <Text style={[styles.showMoreText, { color: colors.cobalt }]}>
                     {catalogSearch.loadingMore ? 'Loading...' : 'Show more results'}
                   </Text>
+                </Pressable>
+              </View>
+            )}
+            {query.trim().length > 0 && !!catalogSearch.pagingError && (
+              <View>
+                <Divider />
+                <Pressable testID="logfood-show-more-retry" onPress={catalogSearch.showMore} style={styles.showMoreBtn}>
+                  <Text style={[styles.showMoreText, { color: colors.cobalt }]}>Couldn’t load more · Retry</Text>
                 </Pressable>
               </View>
             )}
@@ -1108,6 +1149,17 @@ const styles = StyleSheet.create({
   },
   intentLinkActive: {
     textDecorationLine: 'underline',
+  },
+  suggestion: {
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  correctionHint: {
+    marginTop: 6,
+    fontSize: 10.5,
+    fontFamily: 'Inter_400Regular',
   },
   searchBox: {
     flex: 1,

@@ -1,0 +1,92 @@
+{
+  "verifiedAt": "2026-09-09T00:59:59.539Z",
+  "migrationsApplied": [
+    "20261005000000_everyday_food_catalog_cleanup.sql",
+    "20261005010000_everyday_food_catalog_security_and_aliases.sql",
+    "20261005020000_everyday_food_variant_form_constraints.sql",
+    "20261005030000_everyday_food_snapshot_and_constraint_integrity.sql",
+    "20261005040000_everyday_food_ratio_null_guard.sql",
+    "20261005050000_everyday_food_portion_evidence.sql",
+    "20261005060000_everyday_food_portion_labels_and_apple_pie.sql",
+    "20261005070000_everyday_food_broad_family_discovery.sql",
+    "20261005080000_everyday_food_broad_singleton_boundary.sql",
+    "20261005090000_everyday_food_exact_identity_boundary.sql",
+    "20261005100000_everyday_food_stacked_constraints.sql"
+  ],
+  "archive": {
+    "rows": 13588,
+    "indexed": 5289,
+    "archivedOnly": 8299,
+    "releaseManifestFingerprint": "919b04e5939305207446fc8f8b6d6688",
+    "unchangedReleaseCountsAndHashes": true
+  },
+  "catalog": {
+    "rows": 5290,
+    "genericRows": 5289,
+    "families": 112,
+    "variants": 157,
+    "snapshotBackedRows": 157,
+    "aliases": 608,
+    "classification": {
+      "excluded": 12,
+      "safe_singleton": 5121,
+      "reviewed_family": 157
+    },
+    "eligibleGroupedBasicSourceRecords": 5278
+  },
+  "reviewEvidence": {
+    "reviewedEverydayIdentities": 101,
+    "exactNewSourceVariants": 118,
+    "snapshots": 118,
+    "numericNutrients": 12300,
+    "sourceZeros": 3951,
+    "sourceMissingAmounts": 0,
+    "sourcePortions": 345,
+    "parser": "mobile FoodNutritionSnapshot",
+    "cottageCheeseSourcePortion": {
+      "sourceId": 172179,
+      "label": "4 oz",
+      "grams": 113,
+      "sourcePreserved": true
+    },
+    "syntheticPartialNutrientFixture": "passed separately; no missing-amount nutrient rows were present in this reviewed SR population"
+  },
+  "searchCorpus": {
+    "verifiedAt": "2026-09-09T00:59:59.539Z",
+    "cases": 334,
+    "distinctQueries": 332,
+    "assertions": "Every case checks bounded unique identities and limit-one stability; exact names pin source/revision, prepared queries pin available tuples, explicit expectations all enforced. Broad family discovery, exact identity boundaries, and stacked constraints in both word orders are also asserted.",
+    "failures": 0,
+    "paginationFirst": 6,
+    "paginationSecond": 6,
+    "paginationSkippedOrRepeated": 0,
+    "evidenceSource": "Full strengthened live corpus run by backend worker after final forward migration; parent additionally verified final HTTP results."
+  },
+  "security": {
+    "rlsEnabledOnSourceAndCurationTables": true,
+    "catalogRpcsServiceRoleOnly": true,
+    "advisorCatalogInfo": "RLS-enabled service-only tables intentionally have no client policies",
+    "activeCatalogRpcPrivilegeWarningsAfterHardening": 0,
+    "advisorCachedCatalogWarnings": 4,
+    "unrelatedProjectAdvisorCountsAtReview": {
+      "info": 60,
+      "warn": 17
+    }
+  },
+  "verification": {
+    "apiRoutesAndManifests": "26 focused tests passed",
+    "mobileTypecheck": "passed",
+    "apiTypecheck": "passed",
+    "mobileCatalogDetailNutritionPortions": "passed",
+    "librarySync": "63 checks passed",
+    "offlineQueue": "130 checks passed",
+    "diaryEdit": "120 checks passed",
+    "diaryDeleteUndo": "42 checks passed",
+    "customFoodUndo": "passed",
+    "architecture": "five review findings corrected; focused closure passed",
+    "phoneWidth": "Passed at 393×852 on actual Expo: shared Library/Add Food initial order and unique paging; details without hidden adds; Library Broccoli 100g/34cal saved to Lunch; batch cooked 90/10 Ground Beef 5oz/326cal saved to Dinner exactly once. Demo 401 fixed using explicit account mode; focused real-account promotion/queue regression also passes.",
+    "finalSearchHttp": "Broad chicken begins Chicken Breast, Chicken Thighs, Chicken Wings and Chicken Drumsticks. Both orders of 90/10 + cooked resolve to the same exact source; raw skinless wings supported.",
+    "services": "API and Expo running after focused restarts. Expo debugger-shell optional desktop tooling warning remains unrelated to app execution."
+  },
+  "scope": "Focused checks only. No legacy verification workflow fleet, no source reimport, no automatic publishing."
+}

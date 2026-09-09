@@ -3451,6 +3451,13 @@ components:
         rankingVersion:
           type: string
           description: Review/ranking version that pins continuation ordering
+        querySuggestions:
+          type: array
+          items: { type: string }
+          description: Ambiguous alternate food names offered for explicit selection, never silently searched
+        correctedQuery:
+          type: string
+          description: Reviewed unambiguous spelling correction used for this search
     CatalogFamilyResult:
       type: object
       additionalProperties: false

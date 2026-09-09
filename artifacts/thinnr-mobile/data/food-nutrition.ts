@@ -232,6 +232,73 @@ export function snapshotPortion(
   return snapshot.portions.find(portion => portion.id === unitId);
 }
 
+export type NutritionPortion = FoodNutritionSnapshot['portions'][number];
+
+const VAGUE_PORTION_LABEL = /^(?:(?:quantity|amount)\s+)?(?:not\s+specified|unspecified|undetermined|unknown|not\s+applicable|n\/?a|none)$/i;
+const GENERIC_PORTION_LABEL = /^(?:amount|measure|portion|quantity|serving|unit)$/i;
+const GRAM_OR_OUNCE_UNIT = /^(?:g|gram|grams|oz|ounce|ounces)$/i;
+const GRAM_OR_OUNCE_LABEL = /(?:^|[\s(])(?:\d+(?:\.\d+)?\s*)?(?:g|gram|grams|oz|ounce|ounces)(?=$|[\s,)])/i;
+
+function isUnderstandablePortionLabel(label: string): boolean {
+  const normalized = label.trim().replace(/\s+/g, ' ');
+  return (
+    normalized.length > 0 &&
+    !VAGUE_PORTION_LABEL.test(normalized) &&
+    !GENERIC_PORTION_LABEL.test(normalized)
+  );
+}
+
+/**
+ * Portions suitable for configuring a new food selection.
+ *
+ * The snapshot remains the immutable source record: this returns references to
+ * its supported portions without deleting raw evidence needed to validate old
+ * saved selections. Weight choices are deliberately limited to source-provided
+ * grams and ounces. Count and volume choices rely on the source-classified
+ * dimension and must have a useful household label. Some source DTOs retain
+ * the broader "serving" dimension for a real household/count portion; those
+ * remain available only when documented grams and source evidence accompany
+ * the meaningful label.
+ */
+export function availableNutritionPortions(
+  snapshot: FoodNutritionSnapshot,
+): NutritionPortion[] {
+  return snapshot.portions.filter(portion => {
+    if (!isUnderstandablePortionLabel(portion.label)) return false;
+    if (portion.dimension === 'weight') {
+      return (
+        GRAM_OR_OUNCE_UNIT.test(portion.unit.trim()) ||
+        GRAM_OR_OUNCE_LABEL.test(portion.label.trim())
+      );
+    }
+    if (portion.dimension === 'count' || portion.dimension === 'volume') return true;
+    return (
+      portion.dimension === 'serving' &&
+      portion.grams !== undefined &&
+      finitePositive(portion.grams) &&
+      portion.evidence !== undefined &&
+      text(portion.evidence)
+    );
+  });
+}
+
+/**
+ * UI-facing portions. By default, a historical selected portion is retained
+ * even when its old label is no longer suitable as a new choice. Pass
+ * preserveSelected: false (or call availableNutritionPortions) when starting a
+ * new configuration.
+ */
+export function visibleNutritionPortions(
+  snapshot: FoodNutritionSnapshot,
+  options: { preserveSelected?: boolean } = {},
+): NutritionPortion[] {
+  const preserveSelected = options.preserveSelected ?? true;
+  if (!preserveSelected) return availableNutritionPortions(snapshot);
+  const availableIds = new Set(availableNutritionPortions(snapshot).map(portion => portion.id));
+  return snapshot.portions.filter(portion =>
+    availableIds.has(portion.id) || portion.id === snapshot.selected.unitId);
+}
+
 /** Recomputes from the immutable original basis; edits never compound. */
 export function selectSnapshotPortion(
   snapshot: FoodNutritionSnapshot,

@@ -87,6 +87,7 @@
 - [Patient local day](patient-local-day.md) — real accounts ride the device-local day (demo keeps the anchor); server derives from profile tz, plausibility is upper-bound only; suites stub the hydration profile fetch.
 - [Stale async phase guards](stale-phase-guards.md) — phase-machine screens: every navigation bumps a generation ref; submits re-check it after each await (finally too); test via held-fetch gate + un-awaited act press.
 - [Food catalog search trust](food-catalog-search-trust.md) — external text hits are not usable foods without complete serving macros; curate exact restaurant rows and never surface raw HTTP/HTML errors.
+- [USDA portion semantics](usda-portion-semantics.md) — source amount, descriptor, and grams stay together; standard conversions must not overwrite recorded portions.
 - [Expo SDK upgrade lessons](expo-sdk-upgrade.md) — 54→57: absoluteFillObject gone, media-library needs /legacy (+stub map), TS6 baseUrl bridge, splash→plugin, blank-screenshot hydration race.
 - [Operational follow-up semantics](operational-followups.md) — staff review state never suppresses the live risk; keep rows structured and free of notes or clinical payloads.
 - [PL/pgSQL table-return traps](plpgsql-table-return-contracts.md) — qualify columns sharing OUT names and cast sum(bigint) to declared bigint before live PostgREST probes.

@@ -6,22 +6,26 @@ import { Feather } from '@expo/vector-icons';
 import { Redirect, router, useLocalSearchParams, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NutritionFacts } from '@/components/patient/NutritionFacts';
-import { LedgerCard } from '@/components/ui/LedgerPrimitives';
+import { LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import {
-  getItemNutritionSnapshot, selectionScale, supportsOunces, useFoodLogging,
+  buildFoodLogEntry, getItemNutritionSnapshot, selectionScale, supportsOunces, useFoodLogging,
   withItemNutritionSnapshot,
 } from '@/context/FoodLoggingContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
 import type { FoodItem } from '@/data/patient-data';
+import { MEAL_LABELS, MEAL_SLOTS, type MealSlot } from '@/data/patient-data';
 import {
   scaledSnapshotMacros, selectSnapshotPortion, snapshotConfigurationId, snapshotPortion,
+  visibleNutritionPortions,
 } from '@/data/food-nutrition';
 import type { FoodNutritionSnapshot } from '@/data/food-nutrition';
 import { useColors } from '@/hooks/useColors';
 import { catalogFoodToLoggable, type LoggableItem, useLoggableItems } from '@/hooks/useLoggableItems';
-import { catalogErrorMessage, getFamilyVariants, type CatalogFood } from '@/lib/food-catalog';
+import {
+  catalogErrorMessage, catalogFoodSnapshot, getFamilyVariants, selectCatalogFood, type CatalogFood,
+} from '@/lib/food-catalog';
 
 type Draft = {
   key: string;
@@ -61,6 +65,36 @@ function foodItemForSave(item: LoggableItem, snapshot: FoodNutritionSnapshot): F
   };
 }
 
+function catalogFromItem(item: LoggableItem): CatalogFood | null {
+  if (!item.catalog) return null;
+  return {
+    id: item.refId,
+    catalogId: item.catalog.catalogId,
+    group: item.catalog.group,
+    source: item.catalog.source,
+    sourceLabel: item.catalog.sourceLabel,
+    approved: item.approved,
+    name: item.name,
+    serving: item.serving,
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs,
+    fat: item.fat,
+    category: item.catalog.group === 'branded' ? 'Branded Products' : 'Common Foods',
+    measures: item.catalog.measures,
+    ...(item.catalog.lookupId ? { lookupId: item.catalog.lookupId } : {}),
+    ...(item.catalog.selectionToken ? { selectionToken: item.catalog.selectionToken } : {}),
+    ...(item.catalog.servingGrams ? { servingGrams: item.catalog.servingGrams } : {}),
+    ...(item.catalog.canonicalName ? { canonicalName: item.catalog.canonicalName } : {}),
+    ...(item.catalog.resultKey ? { resultKey: item.catalog.resultKey } : {}),
+    ...(item.catalog.familyKey ? { familyKey: item.catalog.familyKey } : {}),
+    ...(item.catalog.variantSummary ? { variantSummary: item.catalog.variantSummary } : {}),
+    ...(item.catalog.dimensions ? { dimensions: item.catalog.dimensions } : {}),
+    ...(item.catalog.choiceRequired !== undefined ? { choiceRequired: item.catalog.choiceRequired } : {}),
+    ...(item.catalog.nutritionSnapshot ? { nutritionSnapshot: item.catalog.nutritionSnapshot } : {}),
+  };
+}
+
 function visibleOptions(values: string[], current: string | undefined, expanded: boolean): string[] {
   if (expanded || values.length <= 3) return values;
   const common = values.slice(0, 3);
@@ -76,14 +110,19 @@ export default function FoodDetailScreen() {
   const { mode, hydrated } = useAppMode();
   const pathname = usePathname();
   const params = useLocalSearchParams<{
-    id: string; basketId?: string; approvedOnly?: string;
+    id: string; basketId?: string; approvedOnly?: string; origin?: string; date?: string; meal?: string;
   }>();
   const id = params.id;
   const routeBasketId = params.basketId;
+  const libraryOrigin = params.origin === 'library';
+  const targetDate = typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
+    ? params.date
+    : patient.todayKey;
+  const initialMeal = MEAL_SLOTS.includes(params.meal as MealSlot) ? params.meal as MealSlot : 'breakfast';
   const approvedOnly = params.approvedOnly === 'true' || params.approvedOnly === '1';
   const { byId, allItems } = useLoggableItems();
   const basket = useFoodLogging();
-  const selected = routeBasketId
+  const selected = libraryOrigin ? undefined : routeBasketId
     ? basket.selected.find(entry => entry.basketId === routeBasketId)
     : basket.selected.find(entry => entry.item.refId === id);
   const initialItem = selected?.item ?? basket.recalled(id ?? '') ?? byId.get(id ?? '')
@@ -118,6 +157,10 @@ export default function FoodDetailScreen() {
   const [portionNotice, setPortionNotice] = useState<string | null>(null);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [favoriteError, setFavoriteError] = useState<string | null>(null);
+  const [libraryMeal, setLibraryMeal] = useState<MealSlot>(initialMeal);
+  const [librarySaving, setLibrarySaving] = useState(false);
+  const librarySavingRef = useRef(false);
+  const [libraryNotice, setLibraryNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (draft || !initialItem) return;
@@ -198,12 +241,19 @@ export default function FoodDetailScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : Math.max(insets.bottom, 16);
   const configurationId = snapshot ? snapshotConfigurationId(snapshot) : item.refId;
   const isFavorite = patient.favorites.includes(configurationId);
+  const selectablePortions = snapshot
+    ? visibleNutritionPortions(snapshot, {
+        preserveSelected: Boolean(selected || item.catalog?.persisted),
+      })
+    : [];
   const visiblePortions = snapshot
-    ? showAllUnits || snapshot.portions.length <= 3
-      ? snapshot.portions
-      : snapshot.portions.slice(0, 3).some(portion => portion.id === snapshot.selected.unitId)
-        ? snapshot.portions.slice(0, 3)
-        : [...snapshot.portions.slice(0, 2), snapshotPortion(snapshot)!]
+    ? showAllUnits || selectablePortions.length <= 3
+      ? selectablePortions
+      : selectablePortions.slice(0, 3).some(portion => portion.id === snapshot.selected.unitId)
+        ? selectablePortions.slice(0, 3)
+        : [...selectablePortions.slice(0, 2), snapshotPortion(snapshot)!].filter(
+            (portion, index, portions) => !!portion && portions.findIndex(candidate => candidate?.id === portion.id) === index,
+          )
     : [];
 
   const updateVariant = (food: CatalogFood) => {
@@ -272,6 +322,80 @@ export default function FoodDetailScreen() {
       routeBasketId,
     );
     router.back();
+  };
+
+  const addFromLibrary = async () => {
+    if (librarySavingRef.current) return;
+    librarySavingRef.current = true;
+    setLibrarySaving(true);
+    setLibraryNotice(null);
+    const requestAccount = currentAccountKey;
+    const requestPath = pathname;
+    const requestIsCurrent = () =>
+      guardRef.current.accountKey === requestAccount && guardRef.current.pathname === requestPath;
+    try {
+      if (patientAccount.account.kind !== 'real' && patientAccount.account.kind !== 'demo') {
+        throw new Error('Your patient account is unavailable. Please sign in again.');
+      }
+      const finalItem = snapshot ? withItemNutritionSnapshot(item, snapshot) : item;
+      let logItem = finalItem;
+      const catalog = catalogFromItem(finalItem);
+      const shouldPromote = patientAccount.account.kind === 'real';
+      const promoted = shouldPromote && catalog && catalog.group !== 'personal' && !catalog.catalogId.startsWith('cfg_')
+        ? await selectCatalogFood(catalog)
+        : null;
+      if (!requestIsCurrent()) return;
+      if (snapshot) {
+        const saveFood = promoted
+          ? {
+              ...catalogFoodSnapshot(promoted),
+              ...foodItemForSave(finalItem, snapshot),
+              nutritionSnapshot: snapshot,
+            }
+          : foodItemForSave(finalItem, snapshot);
+        const configured = await patient.saveFoodConfiguration(saveFood);
+        if (!requestIsCurrent()) return;
+        if (!configured) throw new Error('Could not save this food configuration.');
+        logItem = { ...finalItem, refId: configured.id };
+      } else if (catalog && catalog.group !== 'personal') {
+        // Snapshotless reviewed singletons still need a private lookup copy so
+        // recents/favorites can resolve them offline. Real accounts first use
+        // the protected promotion endpoint; guided demo accounts explicitly
+        // retain the local source identity and never attempt that endpoint.
+        const selectedCatalog = promoted ?? catalog;
+        const lookupCopy = {
+          ...catalogFoodSnapshot(selectedCatalog),
+          name: finalItem.name,
+          serving: finalItem.serving,
+          calories: finalItem.calories,
+          protein: finalItem.protein,
+          carbs: finalItem.carbs,
+          fat: finalItem.fat,
+        };
+        const saved = await patient.saveCatalogFood(lookupCopy);
+        if (!requestIsCurrent()) return;
+        if (!saved) throw new Error('Could not save this food.');
+        logItem = { ...finalItem, refId: lookupCopy.id };
+      }
+      const result = await patient.submitFoodEntries([buildFoodLogEntry({
+        basketId: 'library-direct',
+        item: logItem,
+        quantity: snapshot?.selected.scale ?? draft.quantity,
+        ...(!snapshot && draft.ounces !== undefined ? { ounces: draft.ounces } : {}),
+      }, { dateKey: targetDate, meal: libraryMeal })]);
+      if (!requestIsCurrent()) return;
+      if (result.outcome === 'rejected') throw new Error(result.message);
+      setLibraryNotice(result.outcome === 'queued'
+        ? `Added to ${MEAL_LABELS[libraryMeal]} on this device; waiting to sync.`
+        : `Added to ${MEAL_LABELS[libraryMeal]}.`);
+    } catch (error) {
+      if (requestIsCurrent()) {
+        setLibraryNotice(error instanceof Error ? error.message : 'Could not add this food. Please try again.');
+      }
+    } finally {
+      librarySavingRef.current = false;
+      if (requestIsCurrent()) setLibrarySaving(false);
+    }
   };
 
   const toggleFavorite = async () => {
@@ -347,7 +471,7 @@ export default function FoodDetailScreen() {
                   </Text>
                 </Pressable>
               ))}
-              {!showAllUnits && snapshot.portions.length > 3 && (
+               {!showAllUnits && selectablePortions.length > 3 && (
                 <Pressable onPress={() => setShowAllUnits(true)} style={styles.more}>
                   <Text style={[styles.moreText, { color: colors.cobalt }]}>More units</Text>
                 </Pressable>
@@ -525,16 +649,35 @@ export default function FoodDetailScreen() {
           </Pressable>
           {favoriteError && <Text style={[styles.note, { color: colors.bodyText }]}>{favoriteError}</Text>}
         </View>
+        {libraryOrigin && (
+          <LedgerCard style={{ padding: 16, marginTop: 12 }}>
+            <Text style={[styles.label, { color: colors.labelText }]}>ADD TO MEAL</Text>
+            <PillSelector
+              options={MEAL_SLOTS.map(meal => ({ label: MEAL_LABELS[meal], value: meal }))}
+              selected={libraryMeal}
+              onSelect={setLibraryMeal}
+              style={{ marginTop: 10 }}
+            />
+            {libraryNotice && (
+              <Text testID="food-detail-library-confirmation" style={[styles.note, { color: colors.bodyText, marginTop: 10 }]}>
+                {libraryNotice}
+              </Text>
+            )}
+          </LedgerCard>
+        )}
       </ScrollView>
       <View style={[styles.footer, { paddingBottom: bottomPad, backgroundColor: colors.card, borderTopColor: colors.border }]}>
         <Pressable
           testID="food-detail-select"
-          accessibilityLabel={`${selected ? 'Update selection' : 'Select food'}: ${item.name}, ${amount}`}
-          onPress={save}
+          accessibilityLabel={`${libraryOrigin ? `Add to ${MEAL_LABELS[libraryMeal]}` : selected ? 'Update selection' : 'Select food'}: ${item.name}, ${amount}`}
+          onPress={libraryOrigin ? addFromLibrary : save}
+          disabled={librarySaving}
           style={[styles.primary, { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm }]}
         >
           <Text style={[styles.primaryText, { color: colors.primaryForeground }]}>
-            {selected ? 'Update selection' : 'Select food'}
+            {libraryOrigin
+              ? librarySaving ? 'Adding…' : `Add to ${MEAL_LABELS[libraryMeal]}`
+              : selected ? 'Update selection' : 'Select food'}
           </Text>
         </Pressable>
       </View>

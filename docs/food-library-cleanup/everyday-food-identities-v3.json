@@ -1,0 +1,22 @@
+{
+  "version": 3,
+  "reviewVersion": "everyday-foods-v3",
+  "reviewedAt": "2026-09-09T00:32:42Z",
+  "categories": ["proteins", "seafood", "vegetables", "fruits", "grains", "legumes", "dairy", "nuts", "condiments", "beverages"],
+  "categorySize": 10,
+  "releaseId": "sr-legacy-2018-04",
+  "sourceIds": [171505,168251,168249,168728,173810,171098,172373,174611,172476,174272,175138,175159,175180,171955,175176,175153,174205,174209,175139,167742,170379,169961,170026,168482,170393,168462,169986,168389,169291,168409,169097,167762,171711,174683,169118,169928,169124,167765,169910,171705,173904,168917,170285,172688,168928,169697,169700,173241,167533,172762,173735,175194,173757,172421,175200,173746,172429,174253,174271,172454,172179,171265,170899,170845,173418,171257,173410,171251,170851,173420,172470,170567,170187,170162,170184,170182,170562,170556,170554,170150,172234,171009,172473,174524,174527,172237,168561,174523,169640,169661,173647,171890,173227,169099,173933,170174,170458,173041,173217,174678],
+  "displayNames": ["Ground Turkey","Pork Chops","Pork Tenderloin","Sirloin Steak","Lamb Chops","Turkey Breast","Chicken Drumsticks","Ham","Tofu","Tempeh","Salmon","Tuna","Shrimp","Cod","Tilapia","Trout","Crab","Lobster","Sardines","Scallops","Broccoli","Green Beans","Potatoes","Sweet Potatoes","Carrots","Spinach","Cauliflower","Asparagus","Zucchini","Cucumber","Oranges","Strawberries","Blueberries","Grapes","Pears","Peaches","Pineapple","Watermelon","Mangoes","Avocados","Oatmeal","Quinoa","Barley","Whole Wheat Bread","Pasta","Cornmeal","Couscous","Corn Tortillas","Bagels","English Muffins","Black Beans","Kidney Beans","Chickpeas","Lentils","Pinto Beans","Navy Beans","Split Peas","Lima Beans","Soybeans","Hummus","Cottage Cheese","Whole Milk","Cheddar Cheese","Mozzarella Cheese","Cream Cheese","Sour Cream","Butter","Swiss Cheese","Ricotta Cheese","Feta Cheese","Peanut Butter","Almonds","Walnuts","Cashews","Pistachios","Pecans","Sunflower Seeds","Pumpkin Seeds","Chia Seeds","Sesame Seeds","Mustard","Mayonnaise","Soy Sauce","Salsa","Hot Sauce","Vinegar","Relish","Barbecue Sauce","Honey","Maple Syrup","Water","Coffee","Tea","Orange Juice","Apple Juice","Coconut Water","Tomato Juice","Grape Juice","Lemonade","Grapefruit Juice"],
+  "sourceEvidence": {
+    "distinctRecords": 100,
+    "numericNutrientsReviewed": 10380,
+    "sourcePortionsReviewed": 301,
+    "orderedRawRecordMd5Sha256": "dba3b68c0ad05e63e522fbc5ba48458dd8808cbfe0efc915fc0147fd44fca7d8",
+    "policy": "Each ordinal pair was checked against its immutable ready release and the aggregate raw-record digest pins the complete original descriptions, nutrients, portions, and zero/missing states. Migration snapshots copy every numeric nutrient in source order, including zero, omit unavailable nutrient amounts, and copy source portions with numeric gramWeight and a usable label. Source amount plus descriptor form the patient label. Grams and ounces are the only derived portions."
+  },
+  "newCatalogEstimate": {
+    "sourceId": 170026,
+    "displayName": "Potatoes",
+    "meaning": "ordinary generic source record; nutrition and portions remain exact source values"
+  }
+}

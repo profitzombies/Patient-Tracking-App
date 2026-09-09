@@ -1,0 +1,5480 @@
+{
+  "source": "immutable ready USDA archive joined to landed catalog variants",
+  "records": [
+    {
+      "family": {
+        "key": "everyday-almonds",
+        "name": "Almonds"
+      },
+      "source": {
+        "id": 170567,
+        "release": "sr-legacy-2018-04",
+        "description": "Nuts, almonds"
+      },
+      "aliases": [
+        "almonds",
+        "almond"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 86867,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz (23 whole kernels)",
+          "description": null
+        },
+        {
+          "id": 86868,
+          "unit": "undetermined",
+          "grams": 1.2,
+          "amount": 1,
+          "modifier": "almond",
+          "description": null
+        },
+        {
+          "id": 86863,
+          "unit": "undetermined",
+          "grams": 143,
+          "amount": 1,
+          "modifier": "cup, whole",
+          "description": null
+        },
+        {
+          "id": 86865,
+          "unit": "undetermined",
+          "grams": 108,
+          "amount": 1,
+          "modifier": "cup, slivered",
+          "description": null
+        },
+        {
+          "id": 86866,
+          "unit": "undetermined",
+          "grams": 95,
+          "amount": 1,
+          "modifier": "cup, ground",
+          "description": null
+        },
+        {
+          "id": 86864,
+          "unit": "undetermined",
+          "grams": 92,
+          "amount": 1,
+          "modifier": "cup, sliced",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-apple-juice",
+        "name": "Apple Juice"
+      },
+      "source": {
+        "id": 173933,
+        "release": "sr-legacy-2018-04",
+        "description": "Apple juice, canned or bottled, unsweetened, without added ascorbic acid"
+      },
+      "aliases": [
+        "apple juice",
+        "apple juices"
+      ],
+      "variant": {
+        "summary": "Prepared",
+        "dimensions": {
+          "state": "prepared"
+        }
+      },
+      "portions": [
+        {
+          "id": 93494,
+          "unit": "undetermined",
+          "grams": 248,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 93496,
+          "unit": "undetermined",
+          "grams": 262,
+          "amount": 1,
+          "modifier": "drink box (8.45 fl oz)",
+          "description": null
+        },
+        {
+          "id": 93495,
+          "unit": "undetermined",
+          "grams": 31,
+          "amount": 1,
+          "modifier": "fl oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-apple-pie",
+        "name": "Apple Pie"
+      },
+      "source": {
+        "id": 173239,
+        "release": "sr-legacy-2018-04",
+        "description": "Pie, apple, commercially prepared, unenriched flour"
+      },
+      "aliases": [
+        "apple pie",
+        "apple pies",
+        "dutch apple pie"
+      ],
+      "variant": {
+        "summary": "Commercially prepared · Unenriched flour",
+        "dimensions": {
+          "dish": "whole pie",
+          "state": "prepared",
+          "style": "classic"
+        }
+      },
+      "portions": [
+        {
+          "id": 92172,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 92173,
+          "unit": "undetermined",
+          "grams": 125,
+          "amount": 1,
+          "modifier": "piece (1/8 of 9\" dia)",
+          "description": null
+        },
+        {
+          "id": 92174,
+          "unit": "undetermined",
+          "grams": 117,
+          "amount": 1,
+          "modifier": "piece (1/6 of 8\" pie)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-apple-pie",
+        "name": "Apple Pie"
+      },
+      "source": {
+        "id": 167522,
+        "release": "sr-legacy-2018-04",
+        "description": "Pie, Dutch Apple, Commercially Prepared"
+      },
+      "aliases": [
+        "apple pie",
+        "apple pies",
+        "dutch apple pie"
+      ],
+      "variant": {
+        "summary": "Commercially prepared · Dutch apple",
+        "dimensions": {
+          "dish": "whole pie",
+          "state": "prepared",
+          "style": "dutch"
+        }
+      },
+      "portions": [
+        {
+          "id": 81564,
+          "unit": "undetermined",
+          "grams": 1137,
+          "amount": 1,
+          "modifier": "pie",
+          "description": null
+        },
+        {
+          "id": 81565,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 81562,
+          "unit": "undetermined",
+          "grams": 131,
+          "amount": 0.12,
+          "modifier": "pie 1 pie (1/8 of 9\" pie)",
+          "description": null
+        },
+        {
+          "id": 81563,
+          "unit": "undetermined",
+          "grams": 137,
+          "amount": 1,
+          "modifier": "slice",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-asparagus",
+        "name": "Asparagus"
+      },
+      "source": {
+        "id": 168389,
+        "release": "sr-legacy-2018-04",
+        "description": "Asparagus, raw"
+      },
+      "aliases": [
+        "asparagus",
+        "asparagu"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 83012,
+          "unit": "undetermined",
+          "grams": 134,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 83016,
+          "unit": "undetermined",
+          "grams": 24,
+          "amount": 1,
+          "modifier": "spear, extra large (8-3/4\" to 10\" long)",
+          "description": null
+        },
+        {
+          "id": 83015,
+          "unit": "undetermined",
+          "grams": 20,
+          "amount": 1,
+          "modifier": "spear, large (7-1/4\" to 8-1/2\")",
+          "description": null
+        },
+        {
+          "id": 83017,
+          "unit": "undetermined",
+          "grams": 3.5,
+          "amount": 1,
+          "modifier": "spear tip (2\" long or less)",
+          "description": null
+        },
+        {
+          "id": 83014,
+          "unit": "undetermined",
+          "grams": 16,
+          "amount": 1,
+          "modifier": "spear, medium (5-1/4\" to 7\" long)",
+          "description": null
+        },
+        {
+          "id": 83013,
+          "unit": "undetermined",
+          "grams": 12,
+          "amount": 1,
+          "modifier": "spear, small (5\" long or less)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-avocados",
+        "name": "Avocados"
+      },
+      "source": {
+        "id": 171705,
+        "release": "sr-legacy-2018-04",
+        "description": "Avocados, raw, all commercial varieties"
+      },
+      "aliases": [
+        "avocados",
+        "avocado"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 89224,
+          "unit": "undetermined",
+          "grams": 230,
+          "amount": 1,
+          "modifier": "cup, pureed",
+          "description": null
+        },
+        {
+          "id": 89223,
+          "unit": "undetermined",
+          "grams": 150,
+          "amount": 1,
+          "modifier": "cup, cubes",
+          "description": null
+        },
+        {
+          "id": 89225,
+          "unit": "undetermined",
+          "grams": 146,
+          "amount": 1,
+          "modifier": "cup, sliced",
+          "description": null
+        },
+        {
+          "id": 89227,
+          "unit": "undetermined",
+          "grams": 50,
+          "amount": 1,
+          "modifier": "NLEA Serving",
+          "description": null
+        },
+        {
+          "id": 89226,
+          "unit": "undetermined",
+          "grams": 201,
+          "amount": 1,
+          "modifier": "avocado, NS as to Florida or California",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-bagels",
+        "name": "Bagels"
+      },
+      "source": {
+        "id": 167533,
+        "release": "sr-legacy-2018-04",
+        "description": "Bagels, wheat"
+      },
+      "aliases": [
+        "bagels",
+        "bagel"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 81582,
+          "unit": "undetermined",
+          "grams": 98,
+          "amount": 1,
+          "modifier": "bagel",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-barbecue-sauce",
+        "name": "Barbecue Sauce"
+      },
+      "source": {
+        "id": 174523,
+        "release": "sr-legacy-2018-04",
+        "description": "Sauce, barbecue"
+      },
+      "aliases": [
+        "barbecue sauce",
+        "barbecue sauces",
+        "bbq sauce"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 94510,
+          "unit": "undetermined",
+          "grams": 17,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 94512,
+          "unit": "undetermined",
+          "grams": 279,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 94511,
+          "unit": "undetermined",
+          "grams": 143,
+          "amount": 0.5,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-barley",
+        "name": "Barley"
+      },
+      "source": {
+        "id": 170285,
+        "release": "sr-legacy-2018-04",
+        "description": "Barley, pearled, cooked"
+      },
+      "aliases": [
+        "barley",
+        "barleys"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 86368,
+          "unit": "undetermined",
+          "grams": 157,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-black-beans",
+        "name": "Black Beans"
+      },
+      "source": {
+        "id": 173735,
+        "release": "sr-legacy-2018-04",
+        "description": "Beans, black, mature seeds, cooked, boiled, without salt"
+      },
+      "aliases": [
+        "black beans",
+        "black bean"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 93200,
+          "unit": "undetermined",
+          "grams": 172,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-blueberries",
+        "name": "Blueberries"
+      },
+      "source": {
+        "id": 171711,
+        "release": "sr-legacy-2018-04",
+        "description": "Blueberries, raw"
+      },
+      "aliases": [
+        "blueberries",
+        "blueberrie"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 89238,
+          "unit": "undetermined",
+          "grams": 148,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 89239,
+          "unit": "undetermined",
+          "grams": 68,
+          "amount": 50,
+          "modifier": "berries",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-broccoli",
+        "name": "Broccoli"
+      },
+      "source": {
+        "id": 170379,
+        "release": "sr-legacy-2018-04",
+        "description": "Broccoli, raw"
+      },
+      "aliases": [
+        "broccoli",
+        "broccolis"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 86529,
+          "unit": "undetermined",
+          "grams": 608,
+          "amount": 1,
+          "modifier": "bunch",
+          "description": null
+        },
+        {
+          "id": 86532,
+          "unit": "undetermined",
+          "grams": 44,
+          "amount": 0.5,
+          "modifier": "cup, chopped or diced",
+          "description": null
+        },
+        {
+          "id": 86531,
+          "unit": "undetermined",
+          "grams": 151,
+          "amount": 1,
+          "modifier": "stalk",
+          "description": null
+        },
+        {
+          "id": 86530,
+          "unit": "undetermined",
+          "grams": 31,
+          "amount": 1,
+          "modifier": "spear (about 5\" long)",
+          "description": null
+        },
+        {
+          "id": 86533,
+          "unit": "undetermined",
+          "grams": 148,
+          "amount": 1,
+          "modifier": "NLEA serving",
+          "description": null
+        },
+        {
+          "id": 86528,
+          "unit": "undetermined",
+          "grams": 91,
+          "amount": 1,
+          "modifier": "cup chopped",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-broccoli",
+        "name": "Broccoli"
+      },
+      "source": {
+        "id": 168510,
+        "release": "sr-legacy-2018-04",
+        "description": "Broccoli, cooked, boiled, drained, with salt"
+      },
+      "aliases": [
+        "broccoli",
+        "broccolis"
+      ],
+      "variant": {
+        "summary": "Cooked · Boiled · Salt added",
+        "dimensions": {
+          "salt": "added",
+          "state": "cooked",
+          "preparation": "boiled"
+        }
+      },
+      "portions": [
+        {
+          "id": 83214,
+          "unit": "undetermined",
+          "grams": 280,
+          "amount": 1,
+          "modifier": "stalk, large (11\"-12\" long)",
+          "description": null
+        },
+        {
+          "id": 83217,
+          "unit": "undetermined",
+          "grams": 37,
+          "amount": 1,
+          "modifier": "spear (about 5\" long)",
+          "description": null
+        },
+        {
+          "id": 83213,
+          "unit": "undetermined",
+          "grams": 78,
+          "amount": 0.5,
+          "modifier": "cup, chopped",
+          "description": null
+        },
+        {
+          "id": 83215,
+          "unit": "undetermined",
+          "grams": 180,
+          "amount": 1,
+          "modifier": "stalk, medium (7-1/2\" - 8\" long)",
+          "description": null
+        },
+        {
+          "id": 83216,
+          "unit": "undetermined",
+          "grams": 140,
+          "amount": 1,
+          "modifier": "stalk, small (5\" long)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-butter",
+        "name": "Butter"
+      },
+      "source": {
+        "id": 173410,
+        "release": "sr-legacy-2018-04",
+        "description": "Butter, salted"
+      },
+      "aliases": [
+        "butter",
+        "butters"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 92456,
+          "unit": "undetermined",
+          "grams": 5,
+          "amount": 1,
+          "modifier": "pat (1\" sq, 1/3\" high)",
+          "description": null
+        },
+        {
+          "id": 92459,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 1,
+          "modifier": "stick",
+          "description": null
+        },
+        {
+          "id": 92458,
+          "unit": "undetermined",
+          "grams": 227,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 92457,
+          "unit": "undetermined",
+          "grams": 14.2,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-carrots",
+        "name": "Carrots"
+      },
+      "source": {
+        "id": 170393,
+        "release": "sr-legacy-2018-04",
+        "description": "Carrots, raw"
+      },
+      "aliases": [
+        "carrots",
+        "carrot"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 86556,
+          "unit": "undetermined",
+          "grams": 110,
+          "amount": 1,
+          "modifier": "cup grated",
+          "description": null
+        },
+        {
+          "id": 86561,
+          "unit": "undetermined",
+          "grams": 3,
+          "amount": 1,
+          "modifier": "slice",
+          "description": null
+        },
+        {
+          "id": 86562,
+          "unit": "undetermined",
+          "grams": 7,
+          "amount": 1,
+          "modifier": "strip large (3\" long)",
+          "description": null
+        },
+        {
+          "id": 86560,
+          "unit": "undetermined",
+          "grams": 50,
+          "amount": 1,
+          "modifier": "small (5-1/2\" long)",
+          "description": null
+        },
+        {
+          "id": 86559,
+          "unit": "undetermined",
+          "grams": 61,
+          "amount": 1,
+          "modifier": "medium",
+          "description": null
+        },
+        {
+          "id": 86558,
+          "unit": "undetermined",
+          "grams": 72,
+          "amount": 1,
+          "modifier": "large (7-1/4\" to 8-/1/2\" long)",
+          "description": null
+        },
+        {
+          "id": 86555,
+          "unit": "undetermined",
+          "grams": 128,
+          "amount": 1,
+          "modifier": "cup chopped",
+          "description": null
+        },
+        {
+          "id": 86563,
+          "unit": "undetermined",
+          "grams": 4,
+          "amount": 1,
+          "modifier": "strip medium",
+          "description": null
+        },
+        {
+          "id": 86557,
+          "unit": "undetermined",
+          "grams": 122,
+          "amount": 1,
+          "modifier": "cup strips or slices",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-carrots",
+        "name": "Carrots"
+      },
+      "source": {
+        "id": 168518,
+        "release": "sr-legacy-2018-04",
+        "description": "Carrots, canned, no salt added, drained solids"
+      },
+      "aliases": [
+        "carrots",
+        "carrot"
+      ],
+      "variant": {
+        "summary": "Canned · No salt added",
+        "dimensions": {
+          "salt": "none added",
+          "state": "prepared",
+          "preparation": "canned"
+        }
+      },
+      "portions": [
+        {
+          "id": 83231,
+          "unit": "undetermined",
+          "grams": 2.8,
+          "amount": 1,
+          "modifier": "slice",
+          "description": null
+        },
+        {
+          "id": 83232,
+          "unit": "undetermined",
+          "grams": 284,
+          "amount": 1,
+          "modifier": "can (303 x 406)",
+          "description": null
+        },
+        {
+          "id": 83230,
+          "unit": "undetermined",
+          "grams": 228,
+          "amount": 1,
+          "modifier": "cup, mashed",
+          "description": null
+        },
+        {
+          "id": 83229,
+          "unit": "undetermined",
+          "grams": 146,
+          "amount": 1,
+          "modifier": "cup, sliced",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-carrots",
+        "name": "Carrots"
+      },
+      "source": {
+        "id": 168519,
+        "release": "sr-legacy-2018-04",
+        "description": "Carrots, frozen, cooked, boiled, drained, with salt"
+      },
+      "aliases": [
+        "carrots",
+        "carrot"
+      ],
+      "variant": {
+        "summary": "Frozen · Cooked · Boiled",
+        "dimensions": {
+          "form": "frozen",
+          "state": "cooked",
+          "preparation": "boiled"
+        }
+      },
+      "portions": [
+        {
+          "id": 83233,
+          "unit": "undetermined",
+          "grams": 146,
+          "amount": 1,
+          "modifier": "cup slices",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cashews",
+        "name": "Cashews"
+      },
+      "source": {
+        "id": 170162,
+        "release": "sr-legacy-2018-04",
+        "description": "Nuts, cashew nuts, raw"
+      },
+      "aliases": [
+        "cashews",
+        "cashew"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 86155,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cauliflower",
+        "name": "Cauliflower"
+      },
+      "source": {
+        "id": 169986,
+        "release": "sr-legacy-2018-04",
+        "description": "Cauliflower, raw"
+      },
+      "aliases": [
+        "cauliflower",
+        "cauliflowers"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 85819,
+          "unit": "undetermined",
+          "grams": 13,
+          "amount": 1,
+          "modifier": "floweret",
+          "description": null
+        },
+        {
+          "id": 85821,
+          "unit": "undetermined",
+          "grams": 588,
+          "amount": 1,
+          "modifier": "head medium (5-6\" dia.)",
+          "description": null
+        },
+        {
+          "id": 85822,
+          "unit": "undetermined",
+          "grams": 265,
+          "amount": 1,
+          "modifier": "head small (4\" dia.)",
+          "description": null
+        },
+        {
+          "id": 85820,
+          "unit": "undetermined",
+          "grams": 840,
+          "amount": 1,
+          "modifier": "head large (6-7\" dia.)",
+          "description": null
+        },
+        {
+          "id": 85818,
+          "unit": "undetermined",
+          "grams": 107,
+          "amount": 1,
+          "modifier": "cup chopped (1/2\" pieces)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cheddar-cheese",
+        "name": "Cheddar Cheese"
+      },
+      "source": {
+        "id": 170899,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, cheddar, sharp, sliced"
+      },
+      "aliases": [
+        "cheddar cheese",
+        "cheddar cheeses"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 87522,
+          "unit": "undetermined",
+          "grams": 28,
+          "amount": 1,
+          "modifier": "slice (1 oz)",
+          "description": null
+        },
+        {
+          "id": 87521,
+          "unit": "undetermined",
+          "grams": 21,
+          "amount": 1,
+          "modifier": "slice (3/4 oz)",
+          "description": null
+        },
+        {
+          "id": 87520,
+          "unit": "undetermined",
+          "grams": 19,
+          "amount": 1,
+          "modifier": "slice (2/3 oz)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-chia-seeds",
+        "name": "Chia Seeds"
+      },
+      "source": {
+        "id": 170554,
+        "release": "sr-legacy-2018-04",
+        "description": "Seeds, chia seeds, dried"
+      },
+      "aliases": [
+        "chia seeds",
+        "chia seed"
+      ],
+      "variant": {
+        "summary": "Dry",
+        "dimensions": {
+          "state": "dry"
+        }
+      },
+      "portions": [
+        {
+          "id": 86844,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-chicken-drumsticks",
+        "name": "Chicken Drumsticks"
+      },
+      "source": {
+        "id": 172373,
+        "release": "sr-legacy-2018-04",
+        "description": "Chicken, broilers or fryers, drumstick, meat and skin, raw"
+      },
+      "aliases": [
+        "chicken drumsticks",
+        "chicken drumstick"
+      ],
+      "variant": {
+        "summary": "Meat and skin · Raw",
+        "dimensions": {
+          "skin": "eaten",
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 90469,
+          "unit": "undetermined",
+          "grams": 130,
+          "amount": 1,
+          "modifier": "drumstick",
+          "description": null
+        },
+        {
+          "id": 90468,
+          "unit": "undetermined",
+          "grams": 133,
+          "amount": 1,
+          "modifier": "drumstick with skin",
+          "description": null
+        },
+        {
+          "id": 90467,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-chickpeas",
+        "name": "Chickpeas"
+      },
+      "source": {
+        "id": 173757,
+        "release": "sr-legacy-2018-04",
+        "description": "Chickpeas (garbanzo beans, bengal gram), mature seeds, cooked, boiled, without salt"
+      },
+      "aliases": [
+        "chickpeas",
+        "chickpea",
+        "garbanzo beans"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 93226,
+          "unit": "undetermined",
+          "grams": 164,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-coconut-water",
+        "name": "Coconut Water"
+      },
+      "source": {
+        "id": 170174,
+        "release": "sr-legacy-2018-04",
+        "description": "Nuts, coconut water (liquid from coconuts)"
+      },
+      "aliases": [
+        "coconut water",
+        "coconut waters"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 86175,
+          "unit": "undetermined",
+          "grams": 206,
+          "amount": 1,
+          "modifier": "coconut yields",
+          "description": null
+        },
+        {
+          "id": 86173,
+          "unit": "undetermined",
+          "grams": 240,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 86174,
+          "unit": "undetermined",
+          "grams": 15,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cod",
+        "name": "Cod"
+      },
+      "source": {
+        "id": 171955,
+        "release": "sr-legacy-2018-04",
+        "description": "Fish, cod, Atlantic, raw"
+      },
+      "aliases": [
+        "cod",
+        "cods"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 89621,
+          "unit": "undetermined",
+          "grams": 231,
+          "amount": 1,
+          "modifier": "fillet",
+          "description": null
+        },
+        {
+          "id": 89620,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-coffee",
+        "name": "Coffee"
+      },
+      "source": {
+        "id": 171890,
+        "release": "sr-legacy-2018-04",
+        "description": "Beverages, coffee, brewed, prepared with tap water"
+      },
+      "aliases": [
+        "coffee",
+        "coffees"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 89520,
+          "unit": "undetermined",
+          "grams": 237,
+          "amount": 1,
+          "modifier": "cup (8 fl oz)",
+          "description": null
+        },
+        {
+          "id": 89518,
+          "unit": "undetermined",
+          "grams": 29.6,
+          "amount": 1,
+          "modifier": "fl oz",
+          "description": null
+        },
+        {
+          "id": 89519,
+          "unit": "undetermined",
+          "grams": 178,
+          "amount": 6,
+          "modifier": "fl oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-corn-tortillas",
+        "name": "Corn Tortillas"
+      },
+      "source": {
+        "id": 173241,
+        "release": "sr-legacy-2018-04",
+        "description": "Tortillas, ready-to-bake or -fry, corn, without added salt"
+      },
+      "aliases": [
+        "corn tortillas",
+        "corn tortilla"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 92178,
+          "unit": "undetermined",
+          "grams": 26,
+          "amount": 1,
+          "modifier": "tortilla, medium (approx 6\" dia)",
+          "description": null
+        },
+        {
+          "id": 92177,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cornmeal",
+        "name": "Cornmeal"
+      },
+      "source": {
+        "id": 169697,
+        "release": "sr-legacy-2018-04",
+        "description": "Cornmeal, whole-grain, yellow"
+      },
+      "aliases": [
+        "cornmeal",
+        "cornmeals"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 85369,
+          "unit": "undetermined",
+          "grams": 122,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cottage-cheese",
+        "name": "Cottage Cheese"
+      },
+      "source": {
+        "id": 172179,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, cottage, creamed, large or small curd"
+      },
+      "aliases": [
+        "cottage cheese",
+        "cottage cheeses",
+        "low fat cottage cheese",
+        "nonfat cottage cheese",
+        "dry curd cottage cheese"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 90034,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 90035,
+          "unit": "undetermined",
+          "grams": 210,
+          "amount": 1,
+          "modifier": "cup, large curd (not packed)",
+          "description": null
+        },
+        {
+          "id": 90036,
+          "unit": "undetermined",
+          "grams": 225,
+          "amount": 1,
+          "modifier": "cup, small curd (not packed)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cottage-cheese",
+        "name": "Cottage Cheese"
+      },
+      "source": {
+        "id": 173417,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, cottage, lowfat, 1% milkfat"
+      },
+      "aliases": [
+        "cottage cheese",
+        "cottage cheeses",
+        "low fat cottage cheese",
+        "nonfat cottage cheese",
+        "dry curd cottage cheese"
+      ],
+      "variant": {
+        "summary": "Low fat · 1% milkfat",
+        "dimensions": {
+          "milkfat": "1%",
+          "fat level": "low fat"
+        }
+      },
+      "portions": [
+        {
+          "id": 92479,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 92480,
+          "unit": "undetermined",
+          "grams": 226,
+          "amount": 1,
+          "modifier": "cup (not packed)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cottage-cheese",
+        "name": "Cottage Cheese"
+      },
+      "source": {
+        "id": 172181,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, cottage, nonfat, uncreamed, dry, large or small curd"
+      },
+      "aliases": [
+        "cottage cheese",
+        "cottage cheeses",
+        "low fat cottage cheese",
+        "nonfat cottage cheese",
+        "dry curd cottage cheese"
+      ],
+      "variant": {
+        "summary": "Nonfat · Dry curd",
+        "dimensions": {
+          "form": "dry curd",
+          "fat level": "nonfat"
+        }
+      },
+      "portions": [
+        {
+          "id": 90039,
+          "unit": "undetermined",
+          "grams": 145,
+          "amount": 1,
+          "modifier": "cup (not packed)",
+          "description": null
+        },
+        {
+          "id": 90040,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-couscous",
+        "name": "Couscous"
+      },
+      "source": {
+        "id": 169700,
+        "release": "sr-legacy-2018-04",
+        "description": "Couscous, cooked"
+      },
+      "aliases": [
+        "couscous",
+        "couscou"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 85373,
+          "unit": "undetermined",
+          "grams": 528,
+          "amount": 1,
+          "modifier": "cup, dry, yields",
+          "description": null
+        },
+        {
+          "id": 85372,
+          "unit": "undetermined",
+          "grams": 157,
+          "amount": 1,
+          "modifier": "cup, cooked",
+          "description": null
+        },
+        {
+          "id": 85374,
+          "unit": "undetermined",
+          "grams": 86,
+          "amount": 1,
+          "modifier": "oz, dry, yields",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-crab",
+        "name": "Crab"
+      },
+      "source": {
+        "id": 174205,
+        "release": "sr-legacy-2018-04",
+        "description": "Crustaceans, crab, blue, cooked, moist heat"
+      },
+      "aliases": [
+        "crab",
+        "crabs"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 93929,
+          "unit": "undetermined",
+          "grams": 135,
+          "amount": 1,
+          "modifier": "cup (not packed)",
+          "description": null
+        },
+        {
+          "id": 93928,
+          "unit": "undetermined",
+          "grams": 118,
+          "amount": 1,
+          "modifier": "cup, flaked and pieces",
+          "description": null
+        },
+        {
+          "id": 93930,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 93931,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cream-cheese",
+        "name": "Cream Cheese"
+      },
+      "source": {
+        "id": 173418,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, cream"
+      },
+      "aliases": [
+        "cream cheese",
+        "cream cheeses"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 92485,
+          "unit": "undetermined",
+          "grams": 16,
+          "amount": 1,
+          "modifier": "cubic inch",
+          "description": null
+        },
+        {
+          "id": 92482,
+          "unit": "undetermined",
+          "grams": 232,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 92483,
+          "unit": "undetermined",
+          "grams": 10,
+          "amount": 1,
+          "modifier": "tbsp, whipped",
+          "description": null
+        },
+        {
+          "id": 92486,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 1,
+          "modifier": "package, small (3 oz)",
+          "description": null
+        },
+        {
+          "id": 92481,
+          "unit": "undetermined",
+          "grams": 14.5,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 92484,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-cucumber",
+        "name": "Cucumber"
+      },
+      "source": {
+        "id": 168409,
+        "release": "sr-legacy-2018-04",
+        "description": "Cucumber, with peel, raw"
+      },
+      "aliases": [
+        "cucumber",
+        "cucumbers"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 83050,
+          "unit": "undetermined",
+          "grams": 301,
+          "amount": 1,
+          "modifier": "cucumber (8-1/4\")",
+          "description": null
+        },
+        {
+          "id": 83049,
+          "unit": "undetermined",
+          "grams": 52,
+          "amount": 0.5,
+          "modifier": "cup slices",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-english-muffins",
+        "name": "English Muffins"
+      },
+      "source": {
+        "id": 172762,
+        "release": "sr-legacy-2018-04",
+        "description": "Muffins, English, whole-wheat"
+      },
+      "aliases": [
+        "english muffins",
+        "english muffin"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 91325,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 91326,
+          "unit": "undetermined",
+          "grams": 66,
+          "amount": 1,
+          "modifier": "muffin",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-feta-cheese",
+        "name": "Feta Cheese"
+      },
+      "source": {
+        "id": 173420,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, feta"
+      },
+      "aliases": [
+        "feta cheese",
+        "feta cheeses"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 92489,
+          "unit": "undetermined",
+          "grams": 150,
+          "amount": 1,
+          "modifier": "cup, crumbled",
+          "description": null
+        },
+        {
+          "id": 92490,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 92491,
+          "unit": "undetermined",
+          "grams": 17,
+          "amount": 1,
+          "modifier": "cubic inch",
+          "description": null
+        },
+        {
+          "id": 92492,
+          "unit": "undetermined",
+          "grams": 38,
+          "amount": 1,
+          "modifier": "wedge (1.33 oz)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-grape-juice",
+        "name": "Grape Juice"
+      },
+      "source": {
+        "id": 173041,
+        "release": "sr-legacy-2018-04",
+        "description": "Grape juice, canned or bottled, unsweetened, with added ascorbic acid"
+      },
+      "aliases": [
+        "grape juice",
+        "grape juices"
+      ],
+      "variant": {
+        "summary": "Prepared",
+        "dimensions": {
+          "state": "prepared"
+        }
+      },
+      "portions": [
+        {
+          "id": 91853,
+          "unit": "undetermined",
+          "grams": 253,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 91854,
+          "unit": "undetermined",
+          "grams": 31.6,
+          "amount": 1,
+          "modifier": "fl oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-grapefruit-juice",
+        "name": "Grapefruit Juice"
+      },
+      "source": {
+        "id": 174678,
+        "release": "sr-legacy-2018-04",
+        "description": "Grapefruit juice, white, canned or bottled, unsweetened"
+      },
+      "aliases": [
+        "grapefruit juice",
+        "grapefruit juices"
+      ],
+      "variant": {
+        "summary": "Prepared",
+        "dimensions": {
+          "state": "prepared"
+        }
+      },
+      "portions": [
+        {
+          "id": 94739,
+          "unit": "undetermined",
+          "grams": 257,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 94740,
+          "unit": "undetermined",
+          "grams": 246,
+          "amount": 8,
+          "modifier": "fl oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-grapes",
+        "name": "Grapes"
+      },
+      "source": {
+        "id": 174683,
+        "release": "sr-legacy-2018-04",
+        "description": "Grapes, red or green (European type, such as Thompson seedless), raw"
+      },
+      "aliases": [
+        "grapes",
+        "grape"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 94748,
+          "unit": "undetermined",
+          "grams": 151,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 94749,
+          "unit": "undetermined",
+          "grams": 49,
+          "amount": 10,
+          "modifier": "grapes",
+          "description": null
+        },
+        {
+          "id": 94750,
+          "unit": "undetermined",
+          "grams": 126,
+          "amount": 1,
+          "modifier": "NLEA serving",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-green-beans",
+        "name": "Green Beans"
+      },
+      "source": {
+        "id": 169961,
+        "release": "sr-legacy-2018-04",
+        "description": "Beans, snap, green, raw"
+      },
+      "aliases": [
+        "green beans",
+        "green bean",
+        "string beans",
+        "snap beans"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 85759,
+          "unit": "undetermined",
+          "grams": 55,
+          "amount": 10,
+          "modifier": "beans (4\" long)",
+          "description": null
+        },
+        {
+          "id": 85758,
+          "unit": "undetermined",
+          "grams": 100,
+          "amount": 1,
+          "modifier": "cup 1/2\" pieces",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-ground-turkey",
+        "name": "Ground Turkey"
+      },
+      "source": {
+        "id": 171505,
+        "release": "sr-legacy-2018-04",
+        "description": "Turkey, Ground, raw"
+      },
+      "aliases": [
+        "ground turkey",
+        "ground turkeys",
+        "turkey mince",
+        "93% ground turkey",
+        "93/7 ground turkey"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 88874,
+          "unit": "undetermined",
+          "grams": 453.6,
+          "amount": 1,
+          "modifier": "lb",
+          "description": null
+        },
+        {
+          "id": 88875,
+          "unit": "undetermined",
+          "grams": 114,
+          "amount": 1,
+          "modifier": "patty, 4 oz",
+          "description": null
+        },
+        {
+          "id": 88873,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-ground-turkey",
+        "name": "Ground Turkey"
+      },
+      "source": {
+        "id": 171506,
+        "release": "sr-legacy-2018-04",
+        "description": "Turkey, Ground, cooked"
+      },
+      "aliases": [
+        "ground turkey",
+        "ground turkeys",
+        "turkey mince",
+        "93% ground turkey",
+        "93/7 ground turkey"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 88876,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 88877,
+          "unit": "undetermined",
+          "grams": 82,
+          "amount": 1,
+          "modifier": "patty (4 oz, raw) (yield after cooking)",
+          "description": null
+        },
+        {
+          "id": 88878,
+          "unit": "undetermined",
+          "grams": 330,
+          "amount": 1,
+          "modifier": "unit, yield from 1 lb raw",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-ground-turkey",
+        "name": "Ground Turkey"
+      },
+      "source": {
+        "id": 172850,
+        "release": "sr-legacy-2018-04",
+        "description": "Turkey, ground, 93% lean, 7% fat, raw"
+      },
+      "aliases": [
+        "ground turkey",
+        "ground turkeys",
+        "turkey mince",
+        "93% ground turkey",
+        "93/7 ground turkey"
+      ],
+      "variant": {
+        "summary": "93% lean / 7% fat · Raw",
+        "dimensions": {
+          "state": "raw",
+          "leanness": "93% lean / 7% fat"
+        }
+      },
+      "portions": [
+        {
+          "id": 91561,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 1,
+          "modifier": "serving (cooked from 4 oz)",
+          "description": null
+        },
+        {
+          "id": 91559,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 91560,
+          "unit": "undetermined",
+          "grams": 453,
+          "amount": 1,
+          "modifier": "lb",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-ground-turkey",
+        "name": "Ground Turkey"
+      },
+      "source": {
+        "id": 172851,
+        "release": "sr-legacy-2018-04",
+        "description": "Turkey, ground, 93% lean, 7% fat, pan-broiled crumbles"
+      },
+      "aliases": [
+        "ground turkey",
+        "ground turkeys",
+        "turkey mince",
+        "93% ground turkey",
+        "93/7 ground turkey"
+      ],
+      "variant": {
+        "summary": "93% lean / 7% fat · Cooked",
+        "dimensions": {
+          "state": "cooked",
+          "leanness": "93% lean / 7% fat",
+          "preparation": "pan-broiled"
+        }
+      },
+      "portions": [
+        {
+          "id": 91562,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-ham",
+        "name": "Ham"
+      },
+      "source": {
+        "id": 174611,
+        "release": "sr-legacy-2018-04",
+        "description": "Ham, honey, smoked, cooked"
+      },
+      "aliases": [
+        "ham",
+        "hams"
+      ],
+      "variant": {
+        "summary": "Honey-smoked · Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 94661,
+          "unit": "undetermined",
+          "grams": 55,
+          "amount": 1.94,
+          "modifier": "oz (1 serving)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-honey",
+        "name": "Honey"
+      },
+      "source": {
+        "id": 169640,
+        "release": "sr-legacy-2018-04",
+        "description": "Honey"
+      },
+      "aliases": [
+        "honey",
+        "honeys"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 85264,
+          "unit": "undetermined",
+          "grams": 339,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 85265,
+          "unit": "undetermined",
+          "grams": 21,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 85266,
+          "unit": "undetermined",
+          "grams": 14,
+          "amount": 1,
+          "modifier": "packet (0.5 oz)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-hot-sauce",
+        "name": "Hot Sauce"
+      },
+      "source": {
+        "id": 174527,
+        "release": "sr-legacy-2018-04",
+        "description": "Sauce, ready-to-serve, pepper or hot"
+      },
+      "aliases": [
+        "hot sauce",
+        "hot sauces"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 94521,
+          "unit": "undetermined",
+          "grams": 1.2,
+          "amount": 0.25,
+          "modifier": "tsp",
+          "description": null
+        },
+        {
+          "id": 94520,
+          "unit": "undetermined",
+          "grams": 4.7,
+          "amount": 1,
+          "modifier": "tsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-hummus",
+        "name": "Hummus"
+      },
+      "source": {
+        "id": 172454,
+        "release": "sr-legacy-2018-04",
+        "description": "Hummus, home prepared"
+      },
+      "aliases": [
+        "hummus",
+        "hummu"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 90652,
+          "unit": "undetermined",
+          "grams": 246,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 90651,
+          "unit": "undetermined",
+          "grams": 15,
+          "amount": 1,
+          "modifier": "tablespoon",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-kidney-beans",
+        "name": "Kidney Beans"
+      },
+      "source": {
+        "id": 175194,
+        "release": "sr-legacy-2018-04",
+        "description": "Beans, kidney, red, mature seeds, cooked, boiled, without salt"
+      },
+      "aliases": [
+        "kidney beans",
+        "kidney bean"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 95823,
+          "unit": "undetermined",
+          "grams": 11,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 95822,
+          "unit": "undetermined",
+          "grams": 177,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-lamb-chops",
+        "name": "Lamb Chops"
+      },
+      "source": {
+        "id": 173810,
+        "release": "sr-legacy-2018-04",
+        "description": "Lamb, New Zealand, imported, loin chop, separable lean only, raw"
+      },
+      "aliases": [
+        "lamb chops",
+        "lamb chop"
+      ],
+      "variant": {
+        "summary": "Loin chop · Lean only · Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 93290,
+          "unit": "undetermined",
+          "grams": 115,
+          "amount": 1,
+          "modifier": "serving",
+          "description": null
+        },
+        {
+          "id": 93289,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-lemonade",
+        "name": "Lemonade"
+      },
+      "source": {
+        "id": 173217,
+        "release": "sr-legacy-2018-04",
+        "description": "Lemonade, frozen concentrate, white, prepared with water"
+      },
+      "aliases": [
+        "lemonade",
+        "lemonades"
+      ],
+      "variant": {
+        "summary": "From frozen concentrate · Prepared with water",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 92126,
+          "unit": "undetermined",
+          "grams": 30.9,
+          "amount": 1,
+          "modifier": "fl oz",
+          "description": null
+        },
+        {
+          "id": 92127,
+          "unit": "undetermined",
+          "grams": 247,
+          "amount": 1,
+          "modifier": "cup 8 fl oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-lentils",
+        "name": "Lentils"
+      },
+      "source": {
+        "id": 172421,
+        "release": "sr-legacy-2018-04",
+        "description": "Lentils, mature seeds, cooked, boiled, without salt"
+      },
+      "aliases": [
+        "lentils",
+        "lentil"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 90596,
+          "unit": "undetermined",
+          "grams": 198,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 90597,
+          "unit": "undetermined",
+          "grams": 12.3,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-lima-beans",
+        "name": "Lima Beans"
+      },
+      "source": {
+        "id": 174253,
+        "release": "sr-legacy-2018-04",
+        "description": "Lima beans, large, mature seeds, cooked, boiled, without salt"
+      },
+      "aliases": [
+        "lima beans",
+        "lima bean"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 94026,
+          "unit": "undetermined",
+          "grams": 188,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 94027,
+          "unit": "undetermined",
+          "grams": 11.7,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-lobster",
+        "name": "Lobster"
+      },
+      "source": {
+        "id": 174209,
+        "release": "sr-legacy-2018-04",
+        "description": "Crustaceans, lobster, northern, cooked, moist heat"
+      },
+      "aliases": [
+        "lobster",
+        "lobsters"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 93937,
+          "unit": "undetermined",
+          "grams": 145,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 93938,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-mangoes",
+        "name": "Mangoes"
+      },
+      "source": {
+        "id": 169910,
+        "release": "sr-legacy-2018-04",
+        "description": "Mangos, raw"
+      },
+      "aliases": [
+        "mangoes",
+        "mangoe",
+        "mango"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 85652,
+          "unit": "undetermined",
+          "grams": 336,
+          "amount": 1,
+          "modifier": "fruit without refuse",
+          "description": null
+        },
+        {
+          "id": 85651,
+          "unit": "undetermined",
+          "grams": 165,
+          "amount": 1,
+          "modifier": "cup pieces",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-maple-syrup",
+        "name": "Maple Syrup"
+      },
+      "source": {
+        "id": 169661,
+        "release": "sr-legacy-2018-04",
+        "description": "Syrups, maple"
+      },
+      "aliases": [
+        "maple syrup",
+        "maple syrups"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 85303,
+          "unit": "undetermined",
+          "grams": 20,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 85305,
+          "unit": "undetermined",
+          "grams": 315,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 85304,
+          "unit": "undetermined",
+          "grams": 83,
+          "amount": 1,
+          "modifier": "serving 1/4 cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-mayonnaise",
+        "name": "Mayonnaise"
+      },
+      "source": {
+        "id": 171009,
+        "release": "sr-legacy-2018-04",
+        "description": "Salad dressing, mayonnaise, regular"
+      },
+      "aliases": [
+        "mayonnaise",
+        "mayonnaises",
+        "mayo"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 87758,
+          "unit": "undetermined",
+          "grams": 13.8,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 87759,
+          "unit": "undetermined",
+          "grams": 220,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 87760,
+          "unit": "undetermined",
+          "grams": 10,
+          "amount": 1,
+          "modifier": "packet",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-mozzarella-cheese",
+        "name": "Mozzarella Cheese"
+      },
+      "source": {
+        "id": 170845,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, mozzarella, whole milk"
+      },
+      "aliases": [
+        "mozzarella cheese",
+        "mozzarella cheeses"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 87382,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 87381,
+          "unit": "undetermined",
+          "grams": 112,
+          "amount": 1,
+          "modifier": "cup, shredded",
+          "description": null
+        },
+        {
+          "id": 87383,
+          "unit": "undetermined",
+          "grams": 170,
+          "amount": 6,
+          "modifier": "slices",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-mustard",
+        "name": "Mustard"
+      },
+      "source": {
+        "id": 172234,
+        "release": "sr-legacy-2018-04",
+        "description": "Mustard, prepared, yellow"
+      },
+      "aliases": [
+        "mustard",
+        "mustards"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 90131,
+          "unit": "undetermined",
+          "grams": 249,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 90130,
+          "unit": "undetermined",
+          "grams": 5,
+          "amount": 1,
+          "modifier": "tsp or 1 packet",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-navy-beans",
+        "name": "Navy Beans"
+      },
+      "source": {
+        "id": 173746,
+        "release": "sr-legacy-2018-04",
+        "description": "Beans, navy, mature seeds, cooked, boiled, without salt"
+      },
+      "aliases": [
+        "navy beans",
+        "navy bean"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 93213,
+          "unit": "undetermined",
+          "grams": 182,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-oatmeal",
+        "name": "Oatmeal"
+      },
+      "source": {
+        "id": 173904,
+        "release": "sr-legacy-2018-04",
+        "description": "Cereals, oats, regular and quick, not fortified, dry"
+      },
+      "aliases": [
+        "oatmeal",
+        "oatmeals",
+        "oats",
+        "porridge"
+      ],
+      "variant": {
+        "summary": "Dry",
+        "dimensions": {
+          "state": "dry"
+        }
+      },
+      "portions": [
+        {
+          "id": 93454,
+          "unit": "undetermined",
+          "grams": 81,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 93455,
+          "unit": "undetermined",
+          "grams": 27,
+          "amount": 0.33,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-orange-juice",
+        "name": "Orange Juice"
+      },
+      "source": {
+        "id": 169099,
+        "release": "sr-legacy-2018-04",
+        "description": "Orange juice, canned, unsweetened"
+      },
+      "aliases": [
+        "orange juice",
+        "orange juices"
+      ],
+      "variant": {
+        "summary": "Canned · Unsweetened",
+        "dimensions": {
+          "state": "prepared"
+        }
+      },
+      "portions": [
+        {
+          "id": 84236,
+          "unit": "undetermined",
+          "grams": 263,
+          "amount": 1,
+          "modifier": "drink box (8.45 fl oz)",
+          "description": null
+        },
+        {
+          "id": 84234,
+          "unit": "undetermined",
+          "grams": 249,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 84235,
+          "unit": "undetermined",
+          "grams": 31.1,
+          "amount": 1,
+          "modifier": "fl oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-oranges",
+        "name": "Oranges"
+      },
+      "source": {
+        "id": 169097,
+        "release": "sr-legacy-2018-04",
+        "description": "Oranges, raw, all commercial varieties"
+      },
+      "aliases": [
+        "oranges",
+        "orange"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 84229,
+          "unit": "undetermined",
+          "grams": 96,
+          "amount": 1,
+          "modifier": "small (2-3/8\" dia)",
+          "description": null
+        },
+        {
+          "id": 84228,
+          "unit": "undetermined",
+          "grams": 184,
+          "amount": 1,
+          "modifier": "large (3-1/16\" dia)",
+          "description": null
+        },
+        {
+          "id": 84227,
+          "unit": "undetermined",
+          "grams": 180,
+          "amount": 1,
+          "modifier": "cup, sections",
+          "description": null
+        },
+        {
+          "id": 84230,
+          "unit": "undetermined",
+          "grams": 131,
+          "amount": 1,
+          "modifier": "fruit (2-5/8\" dia)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pasta",
+        "name": "Pasta"
+      },
+      "source": {
+        "id": 168928,
+        "release": "sr-legacy-2018-04",
+        "description": "Pasta, cooked, unenriched, without added salt"
+      },
+      "aliases": [
+        "pasta",
+        "pastas"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 84012,
+          "unit": "undetermined",
+          "grams": 107,
+          "amount": 1,
+          "modifier": "cup penne",
+          "description": null
+        },
+        {
+          "id": 84014,
+          "unit": "undetermined",
+          "grams": 107,
+          "amount": 1,
+          "modifier": "cup farfalle",
+          "description": null
+        },
+        {
+          "id": 84011,
+          "unit": "undetermined",
+          "grams": 132,
+          "amount": 1,
+          "modifier": "cup elbows packed",
+          "description": null
+        },
+        {
+          "id": 84009,
+          "unit": "undetermined",
+          "grams": 151,
+          "amount": 1,
+          "modifier": "cup spaghetti packed",
+          "description": null
+        },
+        {
+          "id": 84015,
+          "unit": "undetermined",
+          "grams": 105,
+          "amount": 1,
+          "modifier": "cup shells",
+          "description": null
+        },
+        {
+          "id": 84013,
+          "unit": "undetermined",
+          "grams": 107,
+          "amount": 1,
+          "modifier": "cup rotini",
+          "description": null
+        },
+        {
+          "id": 84010,
+          "unit": "undetermined",
+          "grams": 120,
+          "amount": 1,
+          "modifier": "cup elbows not packed",
+          "description": null
+        },
+        {
+          "id": 84016,
+          "unit": "undetermined",
+          "grams": 116,
+          "amount": 1,
+          "modifier": "cup lasagne",
+          "description": null
+        },
+        {
+          "id": 84008,
+          "unit": "undetermined",
+          "grams": 124,
+          "amount": 1,
+          "modifier": "cup spaghetti not packed",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-peaches",
+        "name": "Peaches"
+      },
+      "source": {
+        "id": 169928,
+        "release": "sr-legacy-2018-04",
+        "description": "Peaches, yellow, raw"
+      },
+      "aliases": [
+        "peaches",
+        "peache",
+        "peach"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 85698,
+          "unit": "undetermined",
+          "grams": 130,
+          "amount": 1,
+          "modifier": "small (2-1/2\" dia)",
+          "description": null
+        },
+        {
+          "id": 85702,
+          "unit": "undetermined",
+          "grams": 147,
+          "amount": 1,
+          "modifier": "NLEA serving",
+          "description": null
+        },
+        {
+          "id": 85700,
+          "unit": "undetermined",
+          "grams": 175,
+          "amount": 1,
+          "modifier": "large (2-3/4\" dia)",
+          "description": null
+        },
+        {
+          "id": 85699,
+          "unit": "undetermined",
+          "grams": 150,
+          "amount": 1,
+          "modifier": "medium (2-2/3\" dia)",
+          "description": null
+        },
+        {
+          "id": 85697,
+          "unit": "undetermined",
+          "grams": 154,
+          "amount": 1,
+          "modifier": "cup slices",
+          "description": null
+        },
+        {
+          "id": 85701,
+          "unit": "undetermined",
+          "grams": 224,
+          "amount": 1,
+          "modifier": "extra large (3\" dia)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-peanut-butter",
+        "name": "Peanut Butter"
+      },
+      "source": {
+        "id": 172470,
+        "release": "sr-legacy-2018-04",
+        "description": "Peanut butter, smooth style, without salt"
+      },
+      "aliases": [
+        "peanut butter",
+        "peanut butters",
+        "chunky peanut butter",
+        "smooth peanut butter"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 90674,
+          "unit": "undetermined",
+          "grams": 258,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 90673,
+          "unit": "undetermined",
+          "grams": 32,
+          "amount": 2,
+          "modifier": "tbsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-peanut-butter",
+        "name": "Peanut Butter"
+      },
+      "source": {
+        "id": 172469,
+        "release": "sr-legacy-2018-04",
+        "description": "Peanut butter, chunk style, without salt"
+      },
+      "aliases": [
+        "peanut butter",
+        "peanut butters",
+        "chunky peanut butter",
+        "smooth peanut butter"
+      ],
+      "variant": {
+        "summary": "Chunky · No salt added",
+        "dimensions": {
+          "form": "chunky",
+          "salt": "none added"
+        }
+      },
+      "portions": [
+        {
+          "id": 90671,
+          "unit": "undetermined",
+          "grams": 32,
+          "amount": 2,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 90672,
+          "unit": "undetermined",
+          "grams": 258,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-peanut-butter",
+        "name": "Peanut Butter"
+      },
+      "source": {
+        "id": 174266,
+        "release": "sr-legacy-2018-04",
+        "description": "Peanut butter, smooth style, with salt (Includes foods for USDA's Food Distribution Program)"
+      },
+      "aliases": [
+        "peanut butter",
+        "peanut butters",
+        "chunky peanut butter",
+        "smooth peanut butter"
+      ],
+      "variant": {
+        "summary": "Smooth · Salt added",
+        "dimensions": {
+          "form": "smooth",
+          "salt": "added"
+        }
+      },
+      "portions": [
+        {
+          "id": 94050,
+          "unit": "undetermined",
+          "grams": 258,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 94049,
+          "unit": "undetermined",
+          "grams": 32,
+          "amount": 2,
+          "modifier": "tbsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pears",
+        "name": "Pears"
+      },
+      "source": {
+        "id": 169118,
+        "release": "sr-legacy-2018-04",
+        "description": "Pears, raw"
+      },
+      "aliases": [
+        "pears",
+        "pear"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 84275,
+          "unit": "undetermined",
+          "grams": 178,
+          "amount": 1,
+          "modifier": "medium",
+          "description": null
+        },
+        {
+          "id": 84276,
+          "unit": "undetermined",
+          "grams": 230,
+          "amount": 1,
+          "modifier": "large",
+          "description": null
+        },
+        {
+          "id": 84277,
+          "unit": "undetermined",
+          "grams": 166,
+          "amount": 1,
+          "modifier": "NLEA serving",
+          "description": null
+        },
+        {
+          "id": 84273,
+          "unit": "undetermined",
+          "grams": 161,
+          "amount": 1,
+          "modifier": "cup, cubes",
+          "description": null
+        },
+        {
+          "id": 84274,
+          "unit": "undetermined",
+          "grams": 148,
+          "amount": 1,
+          "modifier": "small",
+          "description": null
+        },
+        {
+          "id": 84272,
+          "unit": "undetermined",
+          "grams": 140,
+          "amount": 1,
+          "modifier": "cup, slices",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pecans",
+        "name": "Pecans"
+      },
+      "source": {
+        "id": 170182,
+        "release": "sr-legacy-2018-04",
+        "description": "Nuts, pecans"
+      },
+      "aliases": [
+        "pecans",
+        "pecan"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 86190,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz (19 halves)",
+          "description": null
+        },
+        {
+          "id": 86188,
+          "unit": "undetermined",
+          "grams": 109,
+          "amount": 1,
+          "modifier": "cup, chopped",
+          "description": null
+        },
+        {
+          "id": 86189,
+          "unit": "undetermined",
+          "grams": 99,
+          "amount": 1,
+          "modifier": "cup, halves",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pineapple",
+        "name": "Pineapple"
+      },
+      "source": {
+        "id": 169124,
+        "release": "sr-legacy-2018-04",
+        "description": "Pineapple, raw, all varieties"
+      },
+      "aliases": [
+        "pineapple",
+        "pineapples"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 84291,
+          "unit": "undetermined",
+          "grams": 56,
+          "amount": 1,
+          "modifier": "slice, thin (3-1/2\" dia x 1/2\" thick)",
+          "description": null
+        },
+        {
+          "id": 84289,
+          "unit": "undetermined",
+          "grams": 166,
+          "amount": 1,
+          "modifier": "slice (4-2/3\" dia x 3/4\" thick)",
+          "description": null
+        },
+        {
+          "id": 84288,
+          "unit": "undetermined",
+          "grams": 905,
+          "amount": 1,
+          "modifier": "fruit",
+          "description": null
+        },
+        {
+          "id": 84287,
+          "unit": "undetermined",
+          "grams": 165,
+          "amount": 1,
+          "modifier": "cup, chunks",
+          "description": null
+        },
+        {
+          "id": 84290,
+          "unit": "undetermined",
+          "grams": 84,
+          "amount": 1,
+          "modifier": "slice (3-1/2\" dia x 3/4\" thick)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pinto-beans",
+        "name": "Pinto Beans"
+      },
+      "source": {
+        "id": 175200,
+        "release": "sr-legacy-2018-04",
+        "description": "Beans, pinto, mature seeds, cooked, boiled, without salt"
+      },
+      "aliases": [
+        "pinto beans",
+        "pinto bean"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 95833,
+          "unit": "undetermined",
+          "grams": 10.6,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 95832,
+          "unit": "undetermined",
+          "grams": 171,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pistachios",
+        "name": "Pistachios"
+      },
+      "source": {
+        "id": 170184,
+        "release": "sr-legacy-2018-04",
+        "description": "Nuts, pistachio nuts, raw"
+      },
+      "aliases": [
+        "pistachios",
+        "pistachio"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 86193,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz (49 kernels)",
+          "description": null
+        },
+        {
+          "id": 86192,
+          "unit": "undetermined",
+          "grams": 123,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 86194,
+          "unit": "undetermined",
+          "grams": 0.7,
+          "amount": 1,
+          "modifier": "kernel",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pork-chops",
+        "name": "Pork Chops"
+      },
+      "source": {
+        "id": 168251,
+        "release": "sr-legacy-2018-04",
+        "description": "Pork, fresh, loin, top loin (chops), boneless, separable lean only, raw"
+      },
+      "aliases": [
+        "pork chops",
+        "pork chop"
+      ],
+      "variant": {
+        "summary": "Top loin · Boneless · Lean only · Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 82754,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 82755,
+          "unit": "undetermined",
+          "grams": 185,
+          "amount": 1,
+          "modifier": "chop",
+          "description": null
+        },
+        {
+          "id": 82756,
+          "unit": "undetermined",
+          "grams": 453.6,
+          "amount": 1,
+          "modifier": "lb",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pork-tenderloin",
+        "name": "Pork Tenderloin"
+      },
+      "source": {
+        "id": 168249,
+        "release": "sr-legacy-2018-04",
+        "description": "Pork, fresh, loin, tenderloin, separable lean only, raw"
+      },
+      "aliases": [
+        "pork tenderloin",
+        "pork tenderloins"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 82750,
+          "unit": "undetermined",
+          "grams": 505,
+          "amount": 1,
+          "modifier": "roast",
+          "description": null
+        },
+        {
+          "id": 82748,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 82749,
+          "unit": "undetermined",
+          "grams": 453.6,
+          "amount": 1,
+          "modifier": "lb",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-potatoes",
+        "name": "Potatoes"
+      },
+      "source": {
+        "id": 170026,
+        "release": "sr-legacy-2018-04",
+        "description": "Potatoes, flesh and skin, raw"
+      },
+      "aliases": [
+        "potatoes",
+        "potatoe",
+        "potato"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "skin": "eaten",
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 85920,
+          "unit": "undetermined",
+          "grams": 170,
+          "amount": 1,
+          "modifier": "Potato small (1-3/4\" to 2-1/2\" dia)",
+          "description": null
+        },
+        {
+          "id": 85917,
+          "unit": "undetermined",
+          "grams": 75,
+          "amount": 0.5,
+          "modifier": "cup, diced",
+          "description": null
+        },
+        {
+          "id": 85918,
+          "unit": "undetermined",
+          "grams": 369,
+          "amount": 1,
+          "modifier": "Potato large (3\" to 4-1/4\" dia)",
+          "description": null
+        },
+        {
+          "id": 85919,
+          "unit": "undetermined",
+          "grams": 213,
+          "amount": 1,
+          "modifier": "Potato medium (2-1/4\" to 3-1/4\" dia)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-potatoes",
+        "name": "Potatoes"
+      },
+      "source": {
+        "id": 170093,
+        "release": "sr-legacy-2018-04",
+        "description": "Potatoes, baked, flesh and skin, without salt"
+      },
+      "aliases": [
+        "potatoes",
+        "potatoe",
+        "potato"
+      ],
+      "variant": {
+        "summary": "Baked · Flesh and skin · No salt added",
+        "dimensions": {
+          "salt": "none added",
+          "skin": "eaten",
+          "state": "cooked",
+          "preparation": "baked"
+        }
+      },
+      "portions": [
+        {
+          "id": 86027,
+          "unit": "undetermined",
+          "grams": 148,
+          "amount": 1,
+          "modifier": "NLEA serving",
+          "description": null
+        },
+        {
+          "id": 86028,
+          "unit": "undetermined",
+          "grams": 299,
+          "amount": 1,
+          "modifier": "potato large",
+          "description": null
+        },
+        {
+          "id": 86029,
+          "unit": "undetermined",
+          "grams": 173,
+          "amount": 1,
+          "modifier": "potato medium",
+          "description": null
+        },
+        {
+          "id": 86030,
+          "unit": "undetermined",
+          "grams": 138,
+          "amount": 1,
+          "modifier": "potato small",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-pumpkin-seeds",
+        "name": "Pumpkin Seeds"
+      },
+      "source": {
+        "id": 170556,
+        "release": "sr-legacy-2018-04",
+        "description": "Seeds, pumpkin and squash seed kernels, dried"
+      },
+      "aliases": [
+        "pumpkin seeds",
+        "pumpkin seed"
+      ],
+      "variant": {
+        "summary": "Dry",
+        "dimensions": {
+          "state": "dry"
+        }
+      },
+      "portions": [
+        {
+          "id": 86847,
+          "unit": "undetermined",
+          "grams": 129,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 86848,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-quinoa",
+        "name": "Quinoa"
+      },
+      "source": {
+        "id": 168917,
+        "release": "sr-legacy-2018-04",
+        "description": "Quinoa, cooked"
+      },
+      "aliases": [
+        "quinoa",
+        "quinoas"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 83990,
+          "unit": "undetermined",
+          "grams": 185,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-relish",
+        "name": "Relish"
+      },
+      "source": {
+        "id": 168561,
+        "release": "sr-legacy-2018-04",
+        "description": "Pickle relish, sweet"
+      },
+      "aliases": [
+        "relish",
+        "relishs"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 83318,
+          "unit": "undetermined",
+          "grams": 15,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 83319,
+          "unit": "undetermined",
+          "grams": 10,
+          "amount": 1,
+          "modifier": "packet (2/3 tbsp)",
+          "description": null
+        },
+        {
+          "id": 83320,
+          "unit": "undetermined",
+          "grams": 245,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-ricotta-cheese",
+        "name": "Ricotta Cheese"
+      },
+      "source": {
+        "id": 170851,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, ricotta, whole milk"
+      },
+      "aliases": [
+        "ricotta cheese",
+        "ricotta cheeses"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 87401,
+          "unit": "undetermined",
+          "grams": 124,
+          "amount": 0.5,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 87402,
+          "unit": "undetermined",
+          "grams": 246,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-salmon",
+        "name": "Salmon"
+      },
+      "source": {
+        "id": 175138,
+        "release": "sr-legacy-2018-04",
+        "description": "Fish, salmon, pink, raw"
+      },
+      "aliases": [
+        "salmon",
+        "salmons"
+      ],
+      "variant": {
+        "summary": "Pink salmon · Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 95720,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 95721,
+          "unit": "undetermined",
+          "grams": 159,
+          "amount": 0.5,
+          "modifier": "fillet",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-salmon",
+        "name": "Salmon"
+      },
+      "source": {
+        "id": 172001,
+        "release": "sr-legacy-2018-04",
+        "description": "Fish, salmon, pink, cooked, dry heat"
+      },
+      "aliases": [
+        "salmon",
+        "salmons"
+      ],
+      "variant": {
+        "summary": "Cooked · Dry heat",
+        "dimensions": {
+          "state": "cooked",
+          "preparation": "dry heat"
+        }
+      },
+      "portions": [
+        {
+          "id": 89715,
+          "unit": "undetermined",
+          "grams": 124,
+          "amount": 0.5,
+          "modifier": "fillet",
+          "description": null
+        },
+        {
+          "id": 89714,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-salmon",
+        "name": "Salmon"
+      },
+      "source": {
+        "id": 173690,
+        "release": "sr-legacy-2018-04",
+        "description": "Fish, salmon, pink, canned, total can contents"
+      },
+      "aliases": [
+        "salmon",
+        "salmons"
+      ],
+      "variant": {
+        "summary": "Canned",
+        "dimensions": {
+          "state": "prepared",
+          "preparation": "canned"
+        }
+      },
+      "portions": [
+        {
+          "id": 93116,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 93117,
+          "unit": "undetermined",
+          "grams": 411,
+          "amount": 1,
+          "modifier": "can",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-salsa",
+        "name": "Salsa"
+      },
+      "source": {
+        "id": 174524,
+        "release": "sr-legacy-2018-04",
+        "description": "Sauce, salsa, ready-to-serve"
+      },
+      "aliases": [
+        "salsa",
+        "salsas"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 94513,
+          "unit": "undetermined",
+          "grams": 36,
+          "amount": 2,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 94515,
+          "unit": "undetermined",
+          "grams": 259,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 94514,
+          "unit": "undetermined",
+          "grams": 130,
+          "amount": 0.5,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-sardines",
+        "name": "Sardines"
+      },
+      "source": {
+        "id": 175139,
+        "release": "sr-legacy-2018-04",
+        "description": "Fish, sardine, Atlantic, canned in oil, drained solids with bone"
+      },
+      "aliases": [
+        "sardines",
+        "sardine"
+      ],
+      "variant": {
+        "summary": "Atlantic · Canned in oil · Bones included",
+        "dimensions": {
+          "state": "prepared"
+        }
+      },
+      "portions": [
+        {
+          "id": 95726,
+          "unit": "undetermined",
+          "grams": 12,
+          "amount": 1,
+          "modifier": "small (2-2/3\" x 1/2\" x 1/4\")",
+          "description": null
+        },
+        {
+          "id": 95725,
+          "unit": "undetermined",
+          "grams": 92,
+          "amount": 1,
+          "modifier": "can (3.75 oz)",
+          "description": null
+        },
+        {
+          "id": 95722,
+          "unit": "undetermined",
+          "grams": 149,
+          "amount": 1,
+          "modifier": "cup, drained",
+          "description": null
+        },
+        {
+          "id": 95727,
+          "unit": "undetermined",
+          "grams": 24,
+          "amount": 2,
+          "modifier": "sardines",
+          "description": null
+        },
+        {
+          "id": 95724,
+          "unit": "undetermined",
+          "grams": 16,
+          "amount": 1,
+          "modifier": "cubic inch",
+          "description": null
+        },
+        {
+          "id": 95723,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-scallops",
+        "name": "Scallops"
+      },
+      "source": {
+        "id": 167742,
+        "release": "sr-legacy-2018-04",
+        "description": "Mollusks, scallop, (bay and sea), cooked, steamed"
+      },
+      "aliases": [
+        "scallops",
+        "scallop"
+      ],
+      "variant": {
+        "summary": "Bay and sea · Steamed",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 81878,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-sesame-seeds",
+        "name": "Sesame Seeds"
+      },
+      "source": {
+        "id": 170150,
+        "release": "sr-legacy-2018-04",
+        "description": "Seeds, sesame seeds, whole, dried"
+      },
+      "aliases": [
+        "sesame seeds",
+        "sesame seed"
+      ],
+      "variant": {
+        "summary": "Dry",
+        "dimensions": {
+          "state": "dry"
+        }
+      },
+      "portions": [
+        {
+          "id": 86135,
+          "unit": "undetermined",
+          "grams": 144,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 86136,
+          "unit": "undetermined",
+          "grams": 9,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-shrimp",
+        "name": "Shrimp"
+      },
+      "source": {
+        "id": 175180,
+        "release": "sr-legacy-2018-04",
+        "description": "Crustaceans, shrimp, cooked"
+      },
+      "aliases": [
+        "shrimp",
+        "shrimps"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 95807,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-sirloin-steak",
+        "name": "Sirloin Steak"
+      },
+      "source": {
+        "id": 168728,
+        "release": "sr-legacy-2018-04",
+        "description": "Beef, top sirloin, steak, separable lean and fat, trimmed to 1/8\" fat, choice, raw"
+      },
+      "aliases": [
+        "sirloin steak",
+        "sirloin steaks"
+      ],
+      "variant": {
+        "summary": "Choice · Lean and fat · Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 83658,
+          "unit": "undetermined",
+          "grams": 453.6,
+          "amount": 1,
+          "modifier": "lb",
+          "description": null
+        },
+        {
+          "id": 83657,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-sour-cream",
+        "name": "Sour Cream"
+      },
+      "source": {
+        "id": 171257,
+        "release": "sr-legacy-2018-04",
+        "description": "Cream, sour, cultured"
+      },
+      "aliases": [
+        "sour cream",
+        "sour creams"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 88296,
+          "unit": "undetermined",
+          "grams": 12,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 88297,
+          "unit": "undetermined",
+          "grams": 230,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-soy-sauce",
+        "name": "Soy Sauce"
+      },
+      "source": {
+        "id": 172473,
+        "release": "sr-legacy-2018-04",
+        "description": "Soy sauce made from soy and wheat (shoyu), low sodium"
+      },
+      "aliases": [
+        "soy sauce",
+        "soy sauces",
+        "shoyu"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 90678,
+          "unit": "undetermined",
+          "grams": 4.5,
+          "amount": 1,
+          "modifier": "tsp",
+          "description": null
+        },
+        {
+          "id": 90677,
+          "unit": "undetermined",
+          "grams": 14.2,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 90679,
+          "unit": "undetermined",
+          "grams": 255,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-soybeans",
+        "name": "Soybeans"
+      },
+      "source": {
+        "id": 174271,
+        "release": "sr-legacy-2018-04",
+        "description": "Soybeans, mature cooked, boiled, without salt"
+      },
+      "aliases": [
+        "soybeans",
+        "soybean"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 94059,
+          "unit": "undetermined",
+          "grams": 172,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 94060,
+          "unit": "undetermined",
+          "grams": 10.7,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-spinach",
+        "name": "Spinach"
+      },
+      "source": {
+        "id": 168462,
+        "release": "sr-legacy-2018-04",
+        "description": "Spinach, raw"
+      },
+      "aliases": [
+        "spinach",
+        "spinachs"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 83133,
+          "unit": "undetermined",
+          "grams": 340,
+          "amount": 1,
+          "modifier": "bunch",
+          "description": null
+        },
+        {
+          "id": 83134,
+          "unit": "undetermined",
+          "grams": 10,
+          "amount": 1,
+          "modifier": "leaf",
+          "description": null
+        },
+        {
+          "id": 83132,
+          "unit": "undetermined",
+          "grams": 30,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 83135,
+          "unit": "undetermined",
+          "grams": 284,
+          "amount": 1,
+          "modifier": "package (10 oz)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-spinach",
+        "name": "Spinach"
+      },
+      "source": {
+        "id": 168463,
+        "release": "sr-legacy-2018-04",
+        "description": "Spinach, cooked, boiled, drained, without salt"
+      },
+      "aliases": [
+        "spinach",
+        "spinachs"
+      ],
+      "variant": {
+        "summary": "Cooked · Boiled · No salt added",
+        "dimensions": {
+          "salt": "none added",
+          "state": "cooked",
+          "preparation": "boiled"
+        }
+      },
+      "portions": [
+        {
+          "id": 83136,
+          "unit": "undetermined",
+          "grams": 180,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-spinach",
+        "name": "Spinach"
+      },
+      "source": {
+        "id": 169287,
+        "release": "sr-legacy-2018-04",
+        "description": "Spinach, frozen, chopped or leaf, unprepared (Includes foods for USDA's Food Distribution Program)"
+      },
+      "aliases": [
+        "spinach",
+        "spinachs"
+      ],
+      "variant": {
+        "summary": "Frozen · Unprepared",
+        "dimensions": {
+          "form": "frozen",
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 84601,
+          "unit": "undetermined",
+          "grams": 284,
+          "amount": 1,
+          "modifier": "package (10 oz)",
+          "description": null
+        },
+        {
+          "id": 84600,
+          "unit": "undetermined",
+          "grams": 156,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-spinach",
+        "name": "Spinach"
+      },
+      "source": {
+        "id": 169285,
+        "release": "sr-legacy-2018-04",
+        "description": "Spinach, canned, regular pack, solids and liquids"
+      },
+      "aliases": [
+        "spinach",
+        "spinachs"
+      ],
+      "variant": {
+        "summary": "Canned",
+        "dimensions": {
+          "state": "prepared",
+          "preparation": "canned"
+        }
+      },
+      "portions": [
+        {
+          "id": 84598,
+          "unit": "undetermined",
+          "grams": 234,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-split-peas",
+        "name": "Split Peas"
+      },
+      "source": {
+        "id": 172429,
+        "release": "sr-legacy-2018-04",
+        "description": "Peas, split, mature seeds, cooked, boiled, without salt"
+      },
+      "aliases": [
+        "split peas",
+        "split pea"
+      ],
+      "variant": {
+        "summary": "Cooked",
+        "dimensions": {
+          "state": "cooked"
+        }
+      },
+      "portions": [
+        {
+          "id": 90607,
+          "unit": "undetermined",
+          "grams": 12.2,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 90606,
+          "unit": "undetermined",
+          "grams": 196,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-strawberries",
+        "name": "Strawberries"
+      },
+      "source": {
+        "id": 167762,
+        "release": "sr-legacy-2018-04",
+        "description": "Strawberries, raw"
+      },
+      "aliases": [
+        "strawberries",
+        "strawberrie"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 81920,
+          "unit": "undetermined",
+          "grams": 232,
+          "amount": 1,
+          "modifier": "cup, pureed",
+          "description": null
+        },
+        {
+          "id": 81924,
+          "unit": "undetermined",
+          "grams": 18,
+          "amount": 1,
+          "modifier": "large (1-3/8\" dia)",
+          "description": null
+        },
+        {
+          "id": 81921,
+          "unit": "undetermined",
+          "grams": 166,
+          "amount": 1,
+          "modifier": "cup, sliced",
+          "description": null
+        },
+        {
+          "id": 81926,
+          "unit": "undetermined",
+          "grams": 357,
+          "amount": 1,
+          "modifier": "pint as purchased, yields",
+          "description": null
+        },
+        {
+          "id": 81919,
+          "unit": "undetermined",
+          "grams": 152,
+          "amount": 1,
+          "modifier": "cup, halves",
+          "description": null
+        },
+        {
+          "id": 81925,
+          "unit": "undetermined",
+          "grams": 12,
+          "amount": 1,
+          "modifier": "medium (1-1/4\" dia)",
+          "description": null
+        },
+        {
+          "id": 81923,
+          "unit": "undetermined",
+          "grams": 27,
+          "amount": 1,
+          "modifier": "extra large (1-5/8\" dia)",
+          "description": null
+        },
+        {
+          "id": 81928,
+          "unit": "undetermined",
+          "grams": 147,
+          "amount": 1,
+          "modifier": "NLEA serving",
+          "description": null
+        },
+        {
+          "id": 81922,
+          "unit": "undetermined",
+          "grams": 144,
+          "amount": 1,
+          "modifier": "cup, whole",
+          "description": null
+        },
+        {
+          "id": 81927,
+          "unit": "undetermined",
+          "grams": 7,
+          "amount": 1,
+          "modifier": "small (1\" dia)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-sunflower-seeds",
+        "name": "Sunflower Seeds"
+      },
+      "source": {
+        "id": 170562,
+        "release": "sr-legacy-2018-04",
+        "description": "Seeds, sunflower seed kernels, dried"
+      },
+      "aliases": [
+        "sunflower seeds",
+        "sunflower seed"
+      ],
+      "variant": {
+        "summary": "Dry",
+        "dimensions": {
+          "state": "dry"
+        }
+      },
+      "portions": [
+        {
+          "id": 86856,
+          "unit": "undetermined",
+          "grams": 140,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 86855,
+          "unit": "undetermined",
+          "grams": 46,
+          "amount": 1,
+          "modifier": "cup, with hulls, edible yield",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-sweet-potatoes",
+        "name": "Sweet Potatoes"
+      },
+      "source": {
+        "id": 168482,
+        "release": "sr-legacy-2018-04",
+        "description": "Sweet potato, raw, unprepared (Includes foods for USDA's Food Distribution Program)"
+      },
+      "aliases": [
+        "sweet potatoes",
+        "sweet potatoe",
+        "sweet potato"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 83166,
+          "unit": "undetermined",
+          "grams": 133,
+          "amount": 1,
+          "modifier": "cup, cubes",
+          "description": null
+        },
+        {
+          "id": 83167,
+          "unit": "undetermined",
+          "grams": 130,
+          "amount": 1,
+          "modifier": "sweetpotato, 5\" long",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-swiss-cheese",
+        "name": "Swiss Cheese"
+      },
+      "source": {
+        "id": 171251,
+        "release": "sr-legacy-2018-04",
+        "description": "Cheese, swiss"
+      },
+      "aliases": [
+        "swiss cheese",
+        "swiss cheeses"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 88272,
+          "unit": "undetermined",
+          "grams": 244,
+          "amount": 1,
+          "modifier": "cup, melted",
+          "description": null
+        },
+        {
+          "id": 88273,
+          "unit": "undetermined",
+          "grams": 108,
+          "amount": 1,
+          "modifier": "cup, shredded",
+          "description": null
+        },
+        {
+          "id": 88275,
+          "unit": "undetermined",
+          "grams": 15,
+          "amount": 1,
+          "modifier": "cubic inch",
+          "description": null
+        },
+        {
+          "id": 88274,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 88271,
+          "unit": "undetermined",
+          "grams": 132,
+          "amount": 1,
+          "modifier": "cup, diced",
+          "description": null
+        },
+        {
+          "id": 88276,
+          "unit": "undetermined",
+          "grams": 28,
+          "amount": 1,
+          "modifier": "slice (1 oz)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-tea",
+        "name": "Tea"
+      },
+      "source": {
+        "id": 173227,
+        "release": "sr-legacy-2018-04",
+        "description": "Beverages, tea, black, brewed, prepared with tap water"
+      },
+      "aliases": [
+        "tea",
+        "teas"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 92145,
+          "unit": "undetermined",
+          "grams": 29.6,
+          "amount": 1,
+          "modifier": "fl oz",
+          "description": null
+        },
+        {
+          "id": 92146,
+          "unit": "undetermined",
+          "grams": 178,
+          "amount": 6,
+          "modifier": "fl oz",
+          "description": null
+        },
+        {
+          "id": 92147,
+          "unit": "undetermined",
+          "grams": 237,
+          "amount": 1,
+          "modifier": "cup (8 fl oz)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-tempeh",
+        "name": "Tempeh"
+      },
+      "source": {
+        "id": 174272,
+        "release": "sr-legacy-2018-04",
+        "description": "Tempeh"
+      },
+      "aliases": [
+        "tempeh",
+        "tempehs"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 94061,
+          "unit": "undetermined",
+          "grams": 166,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-tilapia",
+        "name": "Tilapia"
+      },
+      "source": {
+        "id": 175176,
+        "release": "sr-legacy-2018-04",
+        "description": "Fish, tilapia, raw"
+      },
+      "aliases": [
+        "tilapia",
+        "tilapias"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 95803,
+          "unit": "undetermined",
+          "grams": 116,
+          "amount": 1,
+          "modifier": "fillet",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-tofu",
+        "name": "Tofu"
+      },
+      "source": {
+        "id": 172476,
+        "release": "sr-legacy-2018-04",
+        "description": "Tofu, raw, regular, prepared with calcium sulfate"
+      },
+      "aliases": [
+        "tofu",
+        "tofus"
+      ],
+      "variant": {
+        "summary": "Regular · Calcium-set · Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 90685,
+          "unit": "undetermined",
+          "grams": 124,
+          "amount": 0.5,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 90686,
+          "unit": "undetermined",
+          "grams": 116,
+          "amount": 0.25,
+          "modifier": "block",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-tomato-juice",
+        "name": "Tomato Juice"
+      },
+      "source": {
+        "id": 170458,
+        "release": "sr-legacy-2018-04",
+        "description": "Tomato juice, canned, with salt added"
+      },
+      "aliases": [
+        "tomato juice",
+        "tomato juices"
+      ],
+      "variant": {
+        "summary": "Prepared",
+        "dimensions": {
+          "state": "prepared"
+        }
+      },
+      "portions": [
+        {
+          "id": 86694,
+          "unit": "undetermined",
+          "grams": 243,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 86695,
+          "unit": "undetermined",
+          "grams": 182,
+          "amount": 6,
+          "modifier": "fl oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-trout",
+        "name": "Trout"
+      },
+      "source": {
+        "id": 175153,
+        "release": "sr-legacy-2018-04",
+        "description": "Fish, trout, mixed species, raw"
+      },
+      "aliases": [
+        "trout",
+        "trouts"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 95758,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 95757,
+          "unit": "undetermined",
+          "grams": 79,
+          "amount": 1,
+          "modifier": "fillet",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-tuna",
+        "name": "Tuna"
+      },
+      "source": {
+        "id": 175159,
+        "release": "sr-legacy-2018-04",
+        "description": "Fish, tuna, fresh, yellowfin, raw"
+      },
+      "aliases": [
+        "tuna",
+        "tunas"
+      ],
+      "variant": {
+        "summary": "Yellowfin · Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 95770,
+          "unit": "undetermined",
+          "grams": 16,
+          "amount": 1,
+          "modifier": "cubic inch, boneless",
+          "description": null
+        },
+        {
+          "id": 95771,
+          "unit": "undetermined",
+          "grams": 85,
+          "amount": 3,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 95769,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz, boneless",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-turkey-breast",
+        "name": "Turkey Breast"
+      },
+      "source": {
+        "id": 171098,
+        "release": "sr-legacy-2018-04",
+        "description": "Turkey, whole, breast, meat only, raw"
+      },
+      "aliases": [
+        "turkey breast",
+        "turkey breasts"
+      ],
+      "variant": {
+        "summary": "Meat only · Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 87962,
+          "unit": "undetermined",
+          "grams": 1769,
+          "amount": 1,
+          "modifier": "breast",
+          "description": null
+        },
+        {
+          "id": 87961,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 4,
+          "modifier": "oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-vinegar",
+        "name": "Vinegar"
+      },
+      "source": {
+        "id": 172237,
+        "release": "sr-legacy-2018-04",
+        "description": "Vinegar, distilled"
+      },
+      "aliases": [
+        "vinegar",
+        "vinegars"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 90136,
+          "unit": "undetermined",
+          "grams": 14.9,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 90138,
+          "unit": "undetermined",
+          "grams": 5,
+          "amount": 1,
+          "modifier": "tsp",
+          "description": null
+        },
+        {
+          "id": 90137,
+          "unit": "undetermined",
+          "grams": 238,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-walnuts",
+        "name": "Walnuts"
+      },
+      "source": {
+        "id": 170187,
+        "release": "sr-legacy-2018-04",
+        "description": "Nuts, walnuts, english"
+      },
+      "aliases": [
+        "walnuts",
+        "walnut"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 86202,
+          "unit": "undetermined",
+          "grams": 80,
+          "amount": 1,
+          "modifier": "cup, ground",
+          "description": null
+        },
+        {
+          "id": 86201,
+          "unit": "undetermined",
+          "grams": 117,
+          "amount": 1,
+          "modifier": "cup, chopped",
+          "description": null
+        },
+        {
+          "id": 86203,
+          "unit": "undetermined",
+          "grams": 28,
+          "amount": 1,
+          "modifier": "cup, in shell, edible yield (7 nuts)",
+          "description": null
+        },
+        {
+          "id": 86205,
+          "unit": "undetermined",
+          "grams": 120,
+          "amount": 1,
+          "modifier": "cup pieces or chips",
+          "description": null
+        },
+        {
+          "id": 86204,
+          "unit": "undetermined",
+          "grams": 100,
+          "amount": 1,
+          "modifier": "cup shelled (50 halves)",
+          "description": null
+        },
+        {
+          "id": 86206,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz (14 halves)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-water",
+        "name": "Water"
+      },
+      "source": {
+        "id": 173647,
+        "release": "sr-legacy-2018-04",
+        "description": "Beverages, water, tap, drinking"
+      },
+      "aliases": [
+        "water",
+        "waters"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 93025,
+          "unit": "undetermined",
+          "grams": 1000,
+          "amount": 1,
+          "modifier": "liter",
+          "description": null
+        },
+        {
+          "id": 93024,
+          "unit": "undetermined",
+          "grams": 237,
+          "amount": 1,
+          "modifier": "serving 8 fl oz",
+          "description": null
+        },
+        {
+          "id": 93023,
+          "unit": "undetermined",
+          "grams": 29.6,
+          "amount": 1,
+          "modifier": "fl oz",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-watermelon",
+        "name": "Watermelon"
+      },
+      "source": {
+        "id": 167765,
+        "release": "sr-legacy-2018-04",
+        "description": "Watermelon, raw"
+      },
+      "aliases": [
+        "watermelon",
+        "watermelons"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 81937,
+          "unit": "undetermined",
+          "grams": 280,
+          "amount": 1,
+          "modifier": "NLEA serving",
+          "description": null
+        },
+        {
+          "id": 81933,
+          "unit": "undetermined",
+          "grams": 152,
+          "amount": 1,
+          "modifier": "cup, diced",
+          "description": null
+        },
+        {
+          "id": 81936,
+          "unit": "undetermined",
+          "grams": 122,
+          "amount": 10,
+          "modifier": "watermelon balls",
+          "description": null
+        },
+        {
+          "id": 81932,
+          "unit": "undetermined",
+          "grams": 154,
+          "amount": 1,
+          "modifier": "cup, balls",
+          "description": null
+        },
+        {
+          "id": 81935,
+          "unit": "undetermined",
+          "grams": 286,
+          "amount": 1,
+          "modifier": "wedge (approx 1/16 of melon)",
+          "description": null
+        },
+        {
+          "id": 81934,
+          "unit": "undetermined",
+          "grams": 4518,
+          "amount": 1,
+          "modifier": "melon (15\" long x 7-1/2\" dia)",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-whole-milk",
+        "name": "Whole Milk"
+      },
+      "source": {
+        "id": 171265,
+        "release": "sr-legacy-2018-04",
+        "description": "Milk, whole, 3.25% milkfat, with added vitamin D"
+      },
+      "aliases": [
+        "whole milk",
+        "whole milks"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 88315,
+          "unit": "undetermined",
+          "grams": 30.5,
+          "amount": 1,
+          "modifier": "fl oz",
+          "description": null
+        },
+        {
+          "id": 88314,
+          "unit": "undetermined",
+          "grams": 244,
+          "amount": 1,
+          "modifier": "cup",
+          "description": null
+        },
+        {
+          "id": 88316,
+          "unit": "undetermined",
+          "grams": 15,
+          "amount": 1,
+          "modifier": "tbsp",
+          "description": null
+        },
+        {
+          "id": 88317,
+          "unit": "undetermined",
+          "grams": 976,
+          "amount": 1,
+          "modifier": "quart",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-whole-wheat-bread",
+        "name": "Whole Wheat Bread"
+      },
+      "source": {
+        "id": 172688,
+        "release": "sr-legacy-2018-04",
+        "description": "Bread, whole-wheat, commercially prepared"
+      },
+      "aliases": [
+        "whole wheat bread",
+        "whole wheat breads",
+        "wholemeal bread"
+      ],
+      "variant": {
+        "summary": "Generic",
+        "dimensions": {}
+      },
+      "portions": [
+        {
+          "id": 91109,
+          "unit": "undetermined",
+          "grams": 28.35,
+          "amount": 1,
+          "modifier": "oz",
+          "description": null
+        },
+        {
+          "id": 91108,
+          "unit": "undetermined",
+          "grams": 32,
+          "amount": 1,
+          "modifier": "slice",
+          "description": null
+        }
+      ]
+    },
+    {
+      "family": {
+        "key": "everyday-zucchini",
+        "name": "Zucchini"
+      },
+      "source": {
+        "id": 169291,
+        "release": "sr-legacy-2018-04",
+        "description": "Squash, summer, zucchini, includes skin, raw"
+      },
+      "aliases": [
+        "zucchini",
+        "zucchinis"
+      ],
+      "variant": {
+        "summary": "Raw",
+        "dimensions": {
+          "skin": "eaten",
+          "state": "raw"
+        }
+      },
+      "portions": [
+        {
+          "id": 84609,
+          "unit": "undetermined",
+          "grams": 323,
+          "amount": 1,
+          "modifier": "large",
+          "description": null
+        },
+        {
+          "id": 84610,
+          "unit": "undetermined",
+          "grams": 196,
+          "amount": 1,
+          "modifier": "medium",
+          "description": null
+        },
+        {
+          "id": 84611,
+          "unit": "undetermined",
+          "grams": 9.9,
+          "amount": 1,
+          "modifier": "slice",
+          "description": null
+        },
+        {
+          "id": 84612,
+          "unit": "undetermined",
+          "grams": 118,
+          "amount": 1,
+          "modifier": "small",
+          "description": null
+        },
+        {
+          "id": 84607,
+          "unit": "undetermined",
+          "grams": 124,
+          "amount": 1,
+          "modifier": "cup, chopped",
+          "description": null
+        },
+        {
+          "id": 84608,
+          "unit": "undetermined",
+          "grams": 113,
+          "amount": 1,
+          "modifier": "cup, sliced",
+          "description": null
+        }
+      ]
+    }
+  ],
+  "generatedAt": "2026-09-09T00:44:12.027854+00:00"
+}

@@ -1,0 +1,86 @@
+{
+  "capturedAt": "2026-09-09T00:50:17.862Z",
+  "before": {
+    "archivedSourceFoods": 13588,
+    "readyReleases": 3,
+    "catalogRows": 5288,
+    "genericCatalogRows": 5287,
+    "brandedCatalogRows": 1,
+    "catalogAliases": 364,
+    "families": 11,
+    "familyVariants": 39,
+    "snapshotBackedRows": 39,
+    "genericRowsWithMeasures": 5286,
+    "genericRowsWithoutMeasures": 1,
+    "ungroupedGenericRows": 5248
+  },
+  "sourceArchive": {
+    "fndds-2021-2023": {
+      "foods": 5432,
+      "sha256": "2e7eb9fda92adf1d4d784dba5eaa3a7fd4418cd86ccff383c7c9294d79e9b808"
+    },
+    "sr-legacy-2018-04": {
+      "foods": 7793,
+      "sha256": "70d4235ae3a2bdf48a7b9eaa1286a83fa67b6f3270436c9ce8b008213f500129"
+    },
+    "foundation-2026-04": {
+      "foods": 363,
+      "sha256": "27d1fe3fd89edfbe528ed915da5619320e1d004d4594603a1b19bdb1511590cc"
+    }
+  },
+  "after": {
+    "rls": {
+      "usda_source_foods": true,
+      "usda_source_releases": true,
+      "food_catalog_curation": true,
+      "food_catalog_query_resolutions": true
+    },
+    "aliases": 608,
+    "families": 112,
+    "variants": 157,
+    "snapshots": 157,
+    "catalogRows": 5290,
+    "genericRows": 5289,
+    "archivedOnly": 8299,
+    "classification": {
+      "excluded": 12,
+      "safe_singleton": 5121,
+      "reviewed_family": 157
+    },
+    "indexedSourceRows": 5289,
+    "sourceDisposition": {
+      "reviewed_family": 157,
+      "archived_only_no_catalog_link": 8299,
+      "excluded_specialized_or_non_generic": 12,
+      "safe_singleton_exact_all_token_only": 5121
+    },
+    "sourceFingerprint": "919b04e5939305207446fc8f8b6d6688",
+    "archivedSourceFoods": 13588,
+    "readyReleaseCoverage": {
+      "fndds-2021-2023": {
+        "indexed": 19,
+        "archived": 5432
+      },
+      "sr-legacy-2018-04": {
+        "indexed": 5270,
+        "archived": 7793
+      },
+      "foundation-2026-04": {
+        "indexed": 0,
+        "archived": 363
+      }
+    },
+    "storedUnusableMeasureEvidenceSuppressedByApi": 19,
+    "reviewedEverydayIdentitiesAdded": 101,
+    "reviewedEverydaySourceVariantsAdded": 118,
+    "eligibleGroupedBasicSourceRecords": 5278
+  },
+  "archiveCountsAndReleaseHashesMatchBaseline": true,
+  "notes": [
+    "Archive, catalog, reviewed-family, safe-singleton, excluded, and patient-owned selections are separate populations.",
+    "The observed baseline was 5,288 catalog rows, not the historical import report’s 5,261.",
+    "No archive was imported, replaced or deleted. Existing source-backed historical selections remain exact.",
+    "Safe singletons have conservative whole-query matching and are not claimed as individually reviewed familiar-name mappings.",
+    "Source review and final measured results are in the companion record/audit/search/snapshot files."
+  ]
+}

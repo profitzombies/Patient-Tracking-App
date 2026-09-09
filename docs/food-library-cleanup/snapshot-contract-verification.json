@@ -1,0 +1,10 @@
+{
+  "verifiedAt": "2026-09-09T00:49:21.519Z",
+  "snapshots": 118,
+  "numericNutrients": 12300,
+  "sourceZeros": 3951,
+  "sourceMissingAmounts": 0,
+  "sourcePortions": 345,
+  "parser": "mobile FoodNutritionSnapshot",
+  "syntheticPartialPanelFixture": "Passed separately; an omitted extended nutrient stays absent instead of being synthesized as zero."
+}

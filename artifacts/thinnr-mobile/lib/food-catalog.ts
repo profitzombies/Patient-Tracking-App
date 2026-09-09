@@ -44,6 +44,8 @@ export interface CatalogSearchResult {
   hasMore?: boolean;
   nextCursor?: string;
   rankingVersion?: string;
+  querySuggestions?: string[];
+  correctedQuery?: string;
 }
 
 /** A private lookup copy only; it is never sent through the custom-food rail. */
@@ -257,6 +259,15 @@ export function parseCatalogSearch(raw: unknown): CatalogSearchResult {
     hasMore: value.hasMore === true,
     nextCursor: typeof value.nextCursor === 'string' ? value.nextCursor : undefined,
     rankingVersion: typeof value.rankingVersion === 'string' ? value.rankingVersion : undefined,
+    querySuggestions: Array.isArray(value.querySuggestions)
+      ? value.querySuggestions
+          .filter((suggestion): suggestion is string => typeof suggestion === 'string' && !!suggestion.trim())
+          .map(suggestion => suggestion.trim().slice(0, 80))
+          .slice(0, 4)
+      : undefined,
+    correctedQuery: typeof value.correctedQuery === 'string' && value.correctedQuery.trim()
+      ? value.correctedQuery.trim().slice(0, 80)
+      : undefined,
   };
 }
 
@@ -309,13 +320,37 @@ export async function selectCatalogFood(food: CatalogFood, signal?: AbortSignal)
       catalogId: result.selectedId,
       id: result.selectedId,
     };
-    return { ...selected, ...(food.lookupId ? { lookupId: food.lookupId } : {}) };
+    return preserveSelectedCatalogDraft(food, selected);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error;
     throw new FoodCatalogError(
       error instanceof Error && error.message ? error.message : 'That food could not be selected right now.',
     );
   }
+}
+
+/**
+ * Promotion assigns a stable catalog id, but the exact search/detail draft is
+ * the patient-reviewed nutrition record. A technical lookup projection must
+ * never replace its friendly name, family dimensions, portions, or immutable
+ * source snapshot with a family default.
+ */
+export function preserveSelectedCatalogDraft(
+  draft: CatalogFood,
+  promoted: CatalogFood,
+): CatalogFood {
+  return {
+    ...promoted,
+    ...draft,
+    id: promoted.catalogId,
+    catalogId: promoted.catalogId,
+    ...(draft.lookupId || promoted.lookupId
+      ? { lookupId: draft.lookupId ?? promoted.lookupId }
+      : {}),
+    ...(promoted.selectionToken || draft.selectionToken
+      ? { selectionToken: promoted.selectionToken ?? draft.selectionToken }
+      : {}),
+  };
 }
 
 export async function getFamilyVariants(familyKey: string, approvedOnly?: boolean, signal?: AbortSignal): Promise<CatalogFood[]> {

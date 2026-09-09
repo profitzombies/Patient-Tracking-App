@@ -26,8 +26,10 @@ proven complete.
   profile, staff_role_assignments row, and protected super_admin hq_membership. The two leftover
   test staff logins (dana.frontdesk@…, qa-ui-staff-…) were fully removed, along with a dangling
   staff_role_assignments row for riley-test@… and the stale pre-authorized role_assignments row
-  for andrew+provider@…. Recreate demo staff any time with
-  `pnpm --filter @workspace/thinnr-operations run create:demo-staff`.
+   for andrew+provider@…. The former demo-staff recreation script has since been retired:
+   it provisioned profile-only accounts that the passwordless staff directory does not recognize.
+   Use the operations sign-in page's guided demo for synthetic office data; live checks require
+   a directory-backed staff member in an active office (see “Demo staff login” in `replit.md`).
 - **Program content, untouched:** approved_foods, ingredient_macros, barcode_nutrition_facts,
   craving_foods(+flagged), possible_free_foods, all training content + its App Storage media,
   and knowledge_documents (checksummed counts pinned during the wipe transaction).

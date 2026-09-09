@@ -14,4 +14,4 @@ description: Durable rules for the staff leaderboard that ranks real patients â€
 
 - **office=all is not a separate auth path:** resolve through the shared office ladder and treat only the HQ rung's "office required" outcome as permission for the network-wide board; a dual-role owner/teammate with an HQ membership stays pinned to their own office.
 
-**Why the smoke path is odd:** service-role-gated RPCs cannot be exercised through the management API (it runs as a different role), and the legacy demo-staff login is not part of the passwordless staff directory â€” live checks need a real office identity via the API route.
+**Why the smoke path is odd:** service-role-gated RPCs cannot be exercised through the management API (it runs as a different role); exercise them via the API route with a real office identity.

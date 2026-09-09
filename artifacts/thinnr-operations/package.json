@@ -19,7 +19,6 @@
     "test:stage-pacer": "tsx scripts/verify-stage-pacer.ts",
     "test:toasts": "tsx scripts/verify-toasts.ts",
     "seed:knowledge": "tsx scripts/seed-knowledge.ts",
-    "create:demo-staff": "tsx scripts/create-demo-staff.ts",
     "seed:training": "tsx scripts/seed-training.ts",
     "test:conversations": "TZ=UTC tsx scripts/verify-conversations.ts && TZ=Pacific/Kiritimati tsx scripts/verify-conversations.ts && TZ=America/Anchorage tsx scripts/verify-conversations.ts",
     "test:account-search": "TZ=UTC tsx scripts/verify-accounts-search.ts && TZ=UTC tsx --tsconfig tsconfig.a11y.json scripts/verify-accounts-a11y.tsx",

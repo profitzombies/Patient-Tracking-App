@@ -1284,7 +1284,9 @@ paths:
       summary: Staff inbox — filterable, sortable, searchable conversation summaries for an authorized office
       parameters:
         - $ref: "#/components/parameters/OfficeId"
-        - { name: thread, in: query, schema: { type: string, enum: [coach, support] } }
+        - { name: channel, in: query, schema: { type: string, enum: [all, care_team, ai], default: all } }
+        - { name: patientId, in: query, schema: { type: string } }
+        - { name: thread, in: query, schema: { type: string, enum: [coach, support, care_team] } }
         - name: status
           in: query
           schema: { type: string, enum: [open, waiting_patient, closed] }
@@ -1302,6 +1304,22 @@ paths:
           description: Paginated inbox summaries
           content: { application/json: { schema: { $ref: "#/components/schemas/ConversationSummaryResult" } } }
         "404": { description: Office unavailable }
+  /office/conversations/start:
+    post:
+      operationId: startOfficeConversation
+      tags: [office]
+      summary: Get or create a care-team conversation for a patient in the caller's office
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OfficeConversationStartInput" }
+      responses:
+        "200":
+          description: Existing or newly created care-team conversation
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationStartResult" } } }
+        "403": { description: HQ access is read-only }
+        "404": { description: Patient not found }
   /office/conversations/summary:
     get:
       operationId: getOfficeConversationSummary
@@ -1330,16 +1348,34 @@ paths:
     get:
       operationId: getOfficeConversationEvents
       tags: [office]
-      summary: Read a paginated patient transcript in an authorized office (the newest page marks the thread read for the caller)
+      summary: Read a polling-safe paginated patient transcript without changing read state
       parameters:
         - { name: conversationId, in: path, required: true, schema: { type: string } }
         - $ref: "#/components/parameters/OfficeId"
         - { name: before, in: query, schema: { type: number, minimum: 1 } }
+        - { name: after, in: query, schema: { type: number, minimum: 1 } }
         - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
       responses:
         "200":
-          description: Newest transcript page returned in chronological order
+          description: Transcript page returned in chronological order with nullable cursors
           content: { application/json: { schema: { $ref: "#/components/schemas/ConversationEventsResult" } } }
+        "404": { description: Conversation not found }
+  /office/conversations/{conversationId}/read:
+    post:
+      operationId: readOfficeConversation
+      tags: [office]
+      summary: Advance the caller's private read high-water mark
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationReadInput" }
+      responses:
+        "200":
+          description: Idempotent read position result
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationReadResult" } } }
         "404": { description: Conversation not found }
   /office/conversations/{conversationId}/assign:
     post:
@@ -1445,6 +1481,143 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/ConversationEscalationResult" } } }
         "404": { description: Conversation not found }
         "409": { description: An escalation is already open for this conversation }
+  /patient-care-team:
+    get:
+      operationId: getPatientCareTeam
+      tags: [office]
+      summary: Load the patient's current and retained care-team conversations
+      responses:
+        "200":
+          description: Current-provider conversation and read-only prior-provider conversations
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientCareTeamResult" } } }
+  /patient-care-team/start:
+    post:
+      operationId: startPatientCareTeam
+      tags: [office]
+      summary: Get or create the patient's current-provider care-team conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatientCareTeamStartInput" }
+      responses:
+        "200":
+          description: Existing or newly created care-team conversation
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientCareTeamStartResult" } } }
+  /patient-care-team/{conversationId}/messages:
+    get:
+      operationId: getPatientCareTeamMessages
+      tags: [office]
+      summary: Read patient-safe care-team messages without employee identity
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - { name: before, in: query, schema: { type: number, minimum: 1 } }
+        - { name: after, in: query, schema: { type: number, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200":
+          description: Chronological messages with nullable polling and history cursors
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientCareTeamMessagesResult" } } }
+        "404": { description: Conversation not found }
+    post:
+      operationId: sendPatientCareTeamMessage
+      tags: [office]
+      summary: Send a plain-text message as the authenticated patient
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatientCareTeamMessageInput" }
+      responses:
+        "200":
+          description: Idempotently stored patient message
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientCareTeamMessageResult" } } }
+        "404": { description: Conversation not found }
+        "409": { description: Retained thread or conflicting client message id }
+  /patient-care-team/{conversationId}/read:
+    post:
+      operationId: readPatientCareTeam
+      tags: [office]
+      summary: Advance the patient's private read high-water mark
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationReadInput" }
+      responses:
+        "200":
+          description: Idempotent read position result
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationReadResult" } } }
+        "404": { description: Conversation not found }
+  /hq/conversations:
+    get:
+      operationId: getHqConversations
+      tags: [hq]
+      summary: Read permission-scoped conversation summaries across active offices
+      parameters:
+        - { name: office, in: query, schema: { type: string, maxLength: 240 } }
+        - { name: patientId, in: query, schema: { type: string } }
+        - { name: channel, in: query, schema: { type: string, enum: [all, care_team, ai], default: all } }
+        - { name: thread, in: query, schema: { type: string, enum: [coach, support, care_team] } }
+        - { name: status, in: query, schema: { type: string, enum: [open, waiting_patient, closed] } }
+        - { name: assignee, in: query, schema: { type: string, maxLength: 80 } }
+        - { name: unread, in: query, schema: { type: boolean } }
+        - { name: q, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: sort, in: query, schema: { type: string, enum: [newest, oldest, waiting_longest, unread_first], default: newest } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
+        - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Paginated, permission-scoped HQ summaries
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqConversationSummaryResult" } } }
+  /hq/conversations/{conversationId}/events:
+    get:
+      operationId: getHqConversationEvents
+      tags: [hq]
+      summary: Read a polling-safe, permission-scoped transcript
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - { name: before, in: query, schema: { type: number, minimum: 1 } }
+        - { name: after, in: query, schema: { type: number, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200":
+          description: Chronological events with nullable cursors
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqConversationEventsResult" } } }
+        "404": { description: Conversation unavailable }
+  /hq/conversations/{conversationId}/notes:
+    get:
+      operationId: getHqConversationNotes
+      tags: [hq]
+      summary: Read permission-scoped internal notes
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Notes, oldest first
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationNotesResult" } } }
+        "404": { description: Conversation unavailable }
+  /hq/conversations/{conversationId}/read:
+    post:
+      operationId: readHqConversation
+      tags: [hq]
+      summary: Advance only the HQ viewer's private read high-water mark
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConversationReadInput" }
+      responses:
+        "200":
+          description: Idempotent read position result
+          content: { application/json: { schema: { $ref: "#/components/schemas/ConversationReadResult" } } }
+        "404": { description: Conversation unavailable }
   /hq/escalations:
     get:
       operationId: getHqEscalations
@@ -2290,12 +2463,15 @@ components:
         department: { type: string, enum: [clinical, support] }
     ConversationSummary:
       type: object
-      required: [id, patientId, patientName, thread, status, autoClosed, assignee, unread, messageCount, lastMessageAt, lastPatientMessageAt, lastStaffReplyAt, preview, noteCount, openEscalation, createdAt]
+      required: [id, patientId, patientName, thread, channel, providerId, officeName, status, autoClosed, assignee, unread, messageCount, lastMessageAt, lastPatientMessageAt, lastStaffReplyAt, preview, noteCount, openEscalation, createdAt]
       properties:
         id: { type: string }
         patientId: { type: string }
         patientName: { type: string }
-        thread: { type: string, enum: [coach, support] }
+        thread: { type: string, enum: [coach, support, care_team] }
+        channel: { type: string, enum: [care_team, ai] }
+        providerId: { type: string }
+        officeName: { type: string }
         status: { type: string, enum: [open, waiting_patient, closed], description: "Persisted workflow status; idle threads past the auto-close window read as closed" }
         assignee:
           oneOf:
@@ -2357,21 +2533,145 @@ components:
         staff: { type: array, items: { $ref: "#/components/schemas/ConversationStaffMember" } }
     ConversationEvent:
       type: object
-      required: [seq, role, text, stopped, createdAt]
+      required: [seq, clientId, role, text, stopped, senderLabel, senderUserId, createdAt]
       properties:
         seq: { type: number }
+        clientId: { type: ["string", "null"] }
         role: { type: string, enum: [user, assistant, staff] }
         text: { type: string }
         stopped: { type: boolean }
         senderLabel: { type: ["string", "null"], description: "Staff messages only: who on the care team sent it" }
+        senderUserId: { type: ["string", "null"], description: "Staff messages only: server-derived sender user id" }
         createdAt: { type: string }
     ConversationEventsResult:
       type: object
-      required: [conversation, events, nextBefore]
+      required: [conversation, events, nextBefore, nextAfter]
       properties:
         conversation: { $ref: "#/components/schemas/ConversationSummary" }
         events: { type: array, items: { $ref: "#/components/schemas/ConversationEvent" } }
         nextBefore: { type: ["number", "null"] }
+        nextAfter: { type: ["number", "null"] }
+    HqConversationSummary:
+      type: object
+      required: [id, patientId, patientName, providerId, officeName, thread, channel, status, assignee, lastPatientMessageAt, lastStaffReplyAt, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        patientName: { type: string }
+        providerId: { type: string }
+        officeName: { type: string }
+        thread: { type: string, enum: [coach, support, care_team] }
+        channel: { type: string, enum: [care_team, ai] }
+        status: { type: string, enum: [open, waiting_patient, closed] }
+        assignee:
+          oneOf:
+            - $ref: "#/components/schemas/ConversationAssignee"
+            - type: "null"
+        lastPatientMessageAt: { type: ["string", "null"] }
+        lastStaffReplyAt: { type: ["string", "null"] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    HqConversationSummaryResult:
+      type: object
+      required: [conversations, total, autoCloseDays]
+      properties:
+        conversations: { type: array, items: { $ref: "#/components/schemas/HqConversationSummary" } }
+        total: { type: number }
+        autoCloseDays: { type: number }
+    HqConversationEventsResult:
+      type: object
+      required: [events, nextBefore, nextAfter]
+      properties:
+        events: { type: array, items: { $ref: "#/components/schemas/ConversationEvent" } }
+        nextBefore: { type: ["number", "null"] }
+        nextAfter: { type: ["number", "null"] }
+    PatientCareTeamConversation:
+      type: object
+      required: [id, providerId, businessName, current, canSend, status, unreadCount, lastMessageSeq, lastReadSeq, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        providerId: { type: string }
+        businessName: { type: string }
+        current: { type: boolean }
+        canSend: { type: boolean }
+        status: { type: string, enum: [open, waiting_patient, closed] }
+        unreadCount: { type: number }
+        lastMessageSeq: { type: number }
+        lastReadSeq: { type: number }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    PatientCareTeamResult:
+      type: object
+      required: [current, retained]
+      properties:
+        current:
+          oneOf:
+            - $ref: "#/components/schemas/PatientCareTeamConversation"
+            - type: "null"
+        retained: { type: array, items: { $ref: "#/components/schemas/PatientCareTeamConversation" } }
+    PatientCareTeamStartInput:
+      type: object
+      additionalProperties: false
+    PatientCareTeamStartResult:
+      type: object
+      required: [conversation, created]
+      properties:
+        conversation: { $ref: "#/components/schemas/PatientCareTeamConversation" }
+        created: { type: boolean }
+    PatientCareTeamMessage:
+      type: object
+      required: [seq, clientId, sender, text, createdAt]
+      properties:
+        seq: { type: number }
+        clientId: { type: string }
+        sender: { type: string, enum: [patient, care_team] }
+        text: { type: string }
+        createdAt: { type: string }
+    PatientCareTeamMessagesResult:
+      type: object
+      required: [conversation, messages, nextBefore, nextAfter]
+      properties:
+        conversation: { $ref: "#/components/schemas/PatientCareTeamConversation" }
+        messages: { type: array, items: { $ref: "#/components/schemas/PatientCareTeamMessage" } }
+        nextBefore: { type: ["number", "null"] }
+        nextAfter: { type: ["number", "null"] }
+    PatientCareTeamMessageInput:
+      type: object
+      additionalProperties: false
+      required: [clientId, text]
+      properties:
+        clientId: { type: string, minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._:-]+$" }
+        text: { type: string, minLength: 1, maxLength: 4000 }
+    PatientCareTeamMessageResult:
+      type: object
+      required: [message, created]
+      properties:
+        message: { $ref: "#/components/schemas/PatientCareTeamMessage" }
+        created: { type: boolean }
+    OfficeConversationStartInput:
+      type: object
+      additionalProperties: false
+      required: [patientId]
+      properties:
+        patientId: { type: string }
+    ConversationStartResult:
+      type: object
+      required: [conversation, created]
+      properties:
+        conversation: { $ref: "#/components/schemas/ConversationSummary" }
+        created: { type: boolean }
+    ConversationReadInput:
+      type: object
+      additionalProperties: false
+      required: [throughSeq]
+      properties:
+        throughSeq: { type: number, minimum: 1 }
+    ConversationReadResult:
+      type: object
+      required: [lastReadSeq, changed]
+      properties:
+        lastReadSeq: { type: number }
+        changed: { type: boolean }
     QuietHoursWindow:
       type: object
       required: [start, end]
@@ -2428,9 +2728,11 @@ components:
         conversation: { $ref: "#/components/schemas/ConversationSummary" }
     ConversationReplyInput:
       type: object
+      description: Human Care Team sends require a stable clientId, reused unchanged on retry. Only legacy AI-to-Care-Team redirection may omit it.
       additionalProperties: false
       required: [text]
       properties:
+        clientId: { type: string, minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._:-]+$" }
         text: { type: string, minLength: 1, maxLength: 4000 }
     ConversationReplyResult:
       type: object

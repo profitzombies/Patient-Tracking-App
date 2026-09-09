@@ -9,6 +9,8 @@ import type { ConversationEventRole } from './conversationEventRole';
 
 export interface ConversationEvent {
   seq: number;
+  /** @nullable */
+  clientId: string | null;
   role: ConversationEventRole;
   text: string;
   stopped: boolean;
@@ -16,6 +18,11 @@ export interface ConversationEvent {
      * Staff messages only: who on the care team sent it
      * @nullable
      */
-  senderLabel?: string | null;
+  senderLabel: string | null;
+  /**
+     * Staff messages only: server-derived sender user id
+     * @nullable
+     */
+  senderUserId: string | null;
   createdAt: string;
 }

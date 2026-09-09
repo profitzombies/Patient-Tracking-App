@@ -13,6 +13,7 @@ import {
   approvedMeasurements,
   AccountOperationEpoch,
   biometricEligibility,
+  biometricLockedForAccount,
   isDeviceLocked,
   REMINDER_ACTION_SKIPPED,
   REMINDER_ACTION_TAKEN,
@@ -521,7 +522,10 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<FeatureState>(() => ({
     notification, biometric, health, message, busy, pushState, retryPush, unregisterBeforeSignOut,
-    locked: isDeviceLocked(accountId, biometricLoadedFor, locked), enableNotifications, disableNotifications,
+    locked: Platform.OS === 'web'
+      ? biometricLockedForAccount(Platform.OS, accountId, biometricLoadedFor, locked)
+      : isDeviceLocked(accountId, biometricLoadedFor, locked),
+    enableNotifications, disableNotifications,
     enableBiometrics, disableBiometrics, authenticate, connectAndImportHealth,
     openSettings: async () => { if (Platform.OS !== 'web') await Linking.openSettings(); },
   }), [notification, biometric, health, message, busy, pushState, accountId, biometricLoadedFor, locked, enableNotifications, disableNotifications, enableBiometrics, disableBiometrics, authenticate, connectAndImportHealth, retryPush, unregisterBeforeSignOut]);

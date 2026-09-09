@@ -7,6 +7,7 @@
  */
 import type { ConversationAssignee } from './conversationAssignee';
 import type { ConversationEscalationRef } from './conversationEscalationRef';
+import type { ConversationSummaryChannel } from './conversationSummaryChannel';
 import type { ConversationSummaryStatus } from './conversationSummaryStatus';
 import type { ConversationSummaryThread } from './conversationSummaryThread';
 
@@ -15,6 +16,9 @@ export interface ConversationSummary {
   patientId: string;
   patientName: string;
   thread: ConversationSummaryThread;
+  channel: ConversationSummaryChannel;
+  providerId: string;
+  officeName: string;
   /** Persisted workflow status; idle threads past the auto-close window read as closed */
   status: ConversationSummaryStatus;
   assignee: ConversationAssignee | null;

@@ -12,4 +12,5 @@ export type ConversationSummaryThread = typeof ConversationSummaryThread[keyof t
 export const ConversationSummaryThread = {
   coach: 'coach',
   support: 'support',
+  care_team: 'care_team',
 } as const;

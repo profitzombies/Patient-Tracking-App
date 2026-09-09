@@ -27,7 +27,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { ZoomableImage } from '@/components/bloodwork/ZoomableImage';
 import { AppModal } from '@/components/ui/AppModal';
 import { overlayTopPad } from '@/constants/layout';
 import { useAppWindowDimensions } from '@/hooks/useAppWindowDimensions';
@@ -43,6 +43,8 @@ export interface LightboxPhoto {
   /** Stable identity for the page (angle, photo id, …). */
   key: string;
   uri: string;
+  /** Optional headers for authenticated native fetches. */
+  headers?: Record<string, string>;
   /** Short name shown under the photo and spoken on every page change. */
   label: string;
   /** Optional second line (date, status, weight …). */
@@ -197,11 +199,10 @@ export function PhotoLightbox({
               accessible
               accessibilityLabel={`${photo.label} photo, ${photoIndex + 1} of ${count}`}
             >
-              <Image
-                source={{ uri: photo.uri }}
-                style={styles.image}
-                contentFit="contain"
-                transition={120}
+              <ZoomableImage
+                uri={photo.uri}
+                headers={photo.headers}
+                cachePolicy={photo.headers ? "none" : "disk"}
               />
             </View>
           ))}

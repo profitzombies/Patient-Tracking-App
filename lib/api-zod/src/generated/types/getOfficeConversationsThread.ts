@@ -12,4 +12,5 @@ export type GetOfficeConversationsThread = typeof GetOfficeConversationsThread[k
 export const GetOfficeConversationsThread = {
   coach: 'coach',
   support: 'support',
+  care_team: 'care_team',
 } as const;

@@ -48,9 +48,13 @@ function ordered(rows: Row[], params: URLSearchParams): Row[] {
     const [first] = order.split(",");
     const [column, direction] = first.split(".");
     out.sort((a, b) => {
-      const av = String(a[column] ?? "");
-      const bv = String(b[column] ?? "");
-      return (av < bv ? -1 : av > bv ? 1 : 0) * (direction === "desc" ? -1 : 1);
+      const rawA = a[column];
+      const rawB = b[column];
+      const comparison =
+        typeof rawA === "number" && typeof rawB === "number"
+          ? rawA - rawB
+          : String(rawA ?? "").localeCompare(String(rawB ?? ""));
+      return Math.sign(comparison) * (direction === "desc" ? -1 : 1);
     });
   }
   const limit = params.get("limit");

@@ -34,6 +34,8 @@ import type { NotificationRow, NotificationStatus } from "./types";
 
 /** Android channel the app creates for server-sent messages. */
 export const PUSH_CHANNEL_ID = "thinnr-messages";
+export const CARE_TEAM_PUSH_TITLE = "A message from your care team";
+export const CARE_TEAM_PUSH_BODY = "You have a new care team message.";
 
 export interface SenderConfig {
   owner: string;
@@ -216,6 +218,28 @@ async function processClaimed(row: NotificationRow, ctx: Ctx): Promise<void> {
   }
 
   const context = await ctx.store.policyContext(row.patient_id);
+  if (row.kind === "care_team_reply") {
+    const expectedProviderId =
+      typeof row.data.providerId === "string"
+        ? row.data.providerId
+        : typeof row.data.businessId === "string"
+          ? row.data.businessId
+          : null;
+    const unavailable =
+      context.patientAvailable === false
+        ? "patient_unavailable"
+        : !expectedProviderId || expectedProviderId !== context.providerId
+          ? "office_transferred"
+          : context.officeLocked
+            ? "office_locked"
+            : context.officeAvailable === false
+              ? "office_unavailable"
+              : null;
+    if (unavailable) {
+      if (await finalize(ctx, row, "suppressed", { suppression_reason: unavailable })) ctx.summary.suppressed += 1;
+      return;
+    }
+  }
   const decision = evaluateSendPolicy({
     category: row.category,
     context,
@@ -243,11 +267,19 @@ async function processClaimed(row: NotificationRow, ctx: Ctx): Promise<void> {
   }
 
   const attempt = row.attempts + 1;
+  const careTeamData =
+    row.kind === "care_team_reply"
+      ? {
+          patientId: row.patient_id,
+          thread: "care_team",
+          ...(typeof row.data.conversationId === "string" ? { conversationId: row.data.conversationId } : {}),
+        }
+      : row.data;
   const messages: PushMessage[] = tokens.map((token) => ({
     to: token.token,
-    title: row.title,
-    body: row.body,
-    data: { ...row.data, notificationId: row.id, kind: row.kind, category: row.category },
+    title: row.kind === "care_team_reply" ? CARE_TEAM_PUSH_TITLE : row.title,
+    body: row.kind === "care_team_reply" ? CARE_TEAM_PUSH_BODY : row.body,
+    data: { ...careTeamData, notificationId: row.id, kind: row.kind, category: row.category },
     sound: "default",
     channelId: PUSH_CHANNEL_ID,
     priority: "high",

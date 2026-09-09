@@ -117,13 +117,19 @@ async function rows(path: string, label: string): Promise<Array<Record<string, u
   return result.json as Array<Record<string, unknown>>;
 }
 
-async function allRows(path: string, label: string): Promise<Array<Record<string, unknown>>> {
+/**
+ * PostgREST installations commonly cap a response at 1,000 rows regardless of
+ * the requested limit. Export reads that must be complete therefore continue
+ * until an empty page rather than treating a short response as EOF.
+ */
+async function allRows(path: string, label: string, pageSize = 1_000): Promise<Array<Record<string, unknown>>> {
   const output: Array<Record<string, unknown>> = [];
-  const separator = path.includes("?") ? "&" : "?";
-  for (let offset = 0;; offset += 500) {
-    const page = await rows(`${path}${separator}limit=500&offset=${offset}`, label);
+  for (let offset = 0;;) {
+    const separator = path.includes("?") ? "&" : "?";
+    const page = await rows(`${path}${separator}limit=${pageSize}&offset=${offset}`, label);
     output.push(...page);
-    if (page.length < 500) return output;
+    if (page.length === 0) return output;
+    offset += page.length;
   }
 }
 
@@ -221,16 +227,74 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       rows(`/rest/v1/patient_medication_dose_logs?${scope}&select=id,medication_id,due_date,due_time,status,source,logged_at,created_at,updated_at&order=due_date.asc,due_time.asc&limit=${MAX_ROWS}`, "medication dose logs"),
       rows(`/rest/v1/patient_progress_photos?${scope}&select=photo_id,date_key,label,angle,object_path,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "progress photos"),
       rows(`/rest/v1/patient_media?${scope}&select=object_path,kind,content_type,size_bytes,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "media ledger"),
-      rows(`/rest/v1/patient_chat_conversations?${scope}&select=id,thread,created_at,updated_at&order=created_at.asc&limit=200`, "chat conversations"),
+      allRows(
+        `/rest/v1/patient_chat_conversations?${scope}&select=id,thread,provider_id,created_at,updated_at&order=created_at.asc,id.asc`,
+        "chat conversations",
+      ),
     ]);
+  const businessNames = new Map<string, string>();
+  await Promise.all(
+    [...new Set(conversations.map((conversation) => conversation.provider_id).filter((id): id is string => typeof id === "string" && id !== ""))]
+      .map(async (providerId) => {
+        const provider = await rows(
+          `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=office_name&limit=1`,
+          "chat business",
+        );
+        const officeName = provider[0]?.office_name;
+        businessNames.set(providerId, typeof officeName === "string" && officeName.trim() ? officeName.trim() : "Care Team");
+      }),
+  );
   const chat: PatientArchiveSections["chat"] = [];
   for (const conversation of conversations) {
-    const messages = await rows(
+    const rawMessages = await allRows(
       `/rest/v1/patient_chat_messages?conversation_id=eq.${enc(String(conversation.id))}` +
-        `&select=client_id,seq,role,text,stopped,hidden,card,quick_replies,reply_to_client_id,photo,created_at&order=seq.asc&limit=${MAX_ROWS}`,
+        "&select=client_id,seq,role,text,stopped,hidden,card,quick_replies,reply_to_client_id,photo,created_at&order=seq.asc",
       "chat messages",
     );
-    chat.push({ conversation, messages });
+    const providerId = typeof conversation.provider_id === "string" ? conversation.provider_id : "";
+    const businessName = businessNames.get(providerId) ?? "Care Team";
+    if (conversation.thread === "care_team") {
+      const safeConversation = {
+        id: conversation.id,
+        thread: "care_team",
+        channel: "care_team",
+        businessName,
+        createdAt: conversation.created_at,
+        updatedAt: conversation.updated_at,
+      };
+      const messages = rawMessages.map((message) => ({
+        clientId: message.client_id,
+        seq: message.seq,
+        sender: message.role === "user" ? "patient" : "Care Team",
+        attribution: message.role === "user" ? "Patient" : "Care Team",
+        text: message.text,
+        createdAt: message.created_at,
+      }));
+      chat.push({ conversation: safeConversation, messages });
+      continue;
+    }
+    const safeConversation = {
+      id: conversation.id,
+      thread: conversation.thread,
+      channel: "ai",
+      businessName,
+      createdAt: conversation.created_at,
+      updatedAt: conversation.updated_at,
+    };
+    const messages = rawMessages.map((message) => ({
+      client_id: message.client_id,
+      seq: message.seq,
+      role: message.role,
+      text: message.text,
+      stopped: message.stopped,
+      hidden: message.hidden,
+      card: message.card,
+      quick_replies: message.quick_replies,
+      reply_to_client_id: message.reply_to_client_id,
+      photo: message.photo,
+      created_at: message.created_at,
+    }));
+    chat.push({ conversation: safeConversation, messages });
   }
   const [bloodworkReports, bloodworkFiles, bloodworkResults, bloodworkCorrections] = await Promise.all([
     allRows(
@@ -460,7 +524,7 @@ export async function buildPatientArchive(
       "measurements.json   Imported health data, body measurements, clinic-recorded weights",
       "medications.json    Medication list and dose logs (taken / skipped)",
       "photos.json         Progress photo records (bytes under media/)",
-      "chat.json           Coach chat transcripts",
+      "chat.json           AI and retained human transcripts, labeled by channel and business; human staff are attributed only as Care Team",
       "media.json          Stored photo files included in media/ and any skipped",
       "bloodwork.json      Reports, source omissions, published results, corrections, and distinctly labeled incomplete transcription checkpoints",
       "bloodwork/files/    Original committed bloodwork source files included within the archive size limit",

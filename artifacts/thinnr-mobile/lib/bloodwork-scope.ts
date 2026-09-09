@@ -39,7 +39,7 @@ export function assertSuccessfulUploadStatus(status: number | undefined): void {
 
 export function canOpenProviderBloodwork(input: {
   sessionUserId: string | null;
-  rosterStatus: 'loading' | 'ready' | 'unavailable' | 'error';
+  rosterStatus: 'loading' | 'ready' | 'denied' | 'unavailable' | 'error';
   rosterPatientIds: readonly string[];
   patientId: string;
 }): boolean {

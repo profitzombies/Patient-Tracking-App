@@ -19,6 +19,7 @@ import {
   useOfficeIdentity,
 } from '@/components/layout/nav-config';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
+import { DataDisclaimerFooter } from '@/components/layout/DataDisclaimerFooter';
 
 function ActionButton({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -40,7 +41,7 @@ export function Shell({ children }: { children: ReactNode }) {
   // HQ drill-in scope: null in the standalone office demo. When scoped, the
   // shell rebrands to the drilled-in office and fits under the HQ banner.
   const scope = useProviderScope();
-  const { signOut } = useSession();
+  const { signOut, authStatus } = useSession();
   const patients = useScopedPatients();
   const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -89,8 +90,10 @@ export function Shell({ children }: { children: ReactNode }) {
       ? `${activeItem.label} — ${scope.officeName} · THINNR HQ view`
       : `${activeItem.label} — THINNR Med Spa Operations`;
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-    description?.setAttribute('content', `Synthetic THINNR med spa operations demo: ${activeItem.label.toLowerCase()}, patient progress, outcomes, and recurring deliveries.`);
-  }, [activeItem.label, scope]);
+    description?.setAttribute('content', authStatus === 'signed-out'
+      ? `Synthetic THINNR med spa operations demo: ${activeItem.label.toLowerCase()}, patient progress, outcomes, and recurring deliveries.`
+      : `THINNR med spa operations: ${activeItem.label.toLowerCase()}.`);
+  }, [activeItem.label, authStatus, scope]);
 
   // The account chip identity is shared with the /menu design lab.
   const { accountName, accountRole, initials, workspaceLabel } = useOfficeIdentity();
@@ -237,12 +240,7 @@ export function Shell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        {/* Synthetic Data Disclaimer Footer */}
-        <div className="shrink-0 border-t border-border bg-sidebar px-5 py-2 text-center">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">
-            Synthetic Demo Data • Not Medical Advice
-          </p>
-        </div>
+        <DataDisclaimerFooter />
       </section>
     </div>
   );

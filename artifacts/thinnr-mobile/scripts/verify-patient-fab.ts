@@ -256,6 +256,7 @@ const PATIENT_SECTIONS: SectionSpec[] = [
     rows: [
       { key: 'barcode', label: 'Scan a barcode', iconHost: 'MaterialCommunityIcons', iconName: 'barcode-scan' },
       { key: 'meal-photo', label: 'Snap a meal photo', iconHost: 'Feather', iconName: 'camera' },
+      { key: 'care-team-chat', label: 'Message My Care Team', iconHost: 'Feather', iconName: 'message-square' },
       { key: 'check-in', label: 'Daily check-in', iconHost: 'Feather', iconName: 'check-circle' },
       { key: 'progress-photos', label: 'Progress photos', iconHost: 'Feather', iconName: 'image' },
     ],
@@ -669,6 +670,7 @@ async function main(): Promise<void> {
   await rowNavigates('library', { method: 'navigate', target: '/recipes' });
   await rowNavigates('plan', { method: 'navigate', target: '/plan' });
   await rowNavigates('barcode', { method: 'push', target: '/barcode-scan' });
+  await rowNavigates('care-team-chat', { method: 'push', target: '/care-team-chat' });
   await rowNavigates('check-in', { method: 'push', target: '/check-in' });
   await rowNavigates('log-food', { method: 'push', target: '/log-food' });
   await rowNavigates('progress-photos', { method: 'navigate', target: '/progress' });

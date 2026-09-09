@@ -12,6 +12,7 @@ import {
   ClipboardList,
   GraduationCap,
   LayoutDashboard,
+  MessagesSquare,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -35,6 +36,7 @@ export interface OfficeNavItem {
 export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/', label: 'Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
   { path: '/patients', label: 'Patients', mobileLabel: 'Patients', icon: Users },
+  { path: '/conversations', label: 'Conversations', mobileLabel: 'Inbox', icon: MessagesSquare },
   { path: '/analytics', label: 'Revenue & Outcomes', mobileLabel: 'Outcomes', icon: WalletCards },
   { path: '/leaderboard', label: 'Leaderboard', mobileLabel: 'Leaderboard', icon: Trophy },
   { path: '/subscriptions', label: 'Subscriptions', mobileLabel: 'Plans', icon: Box },
@@ -56,7 +58,7 @@ export const OFFICE_SETTINGS_NAV_ITEM: OfficeNavItem = { path: '/settings', labe
 /** The Porcelain menu's section grouping, shared by the live Shell and the lab. */
 export const OFFICE_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/'] },
-  { label: 'Operations', paths: ['/patients', '/subscriptions'] },
+  { label: 'Operations', paths: ['/patients', '/conversations', '/subscriptions'] },
   { label: 'Insights', paths: ['/analytics', '/leaderboard'] },
   { label: 'Learning', paths: ['/training', '/ai-support'] },
   { label: 'Administration', paths: ['/team', '/audit', '/security'] },

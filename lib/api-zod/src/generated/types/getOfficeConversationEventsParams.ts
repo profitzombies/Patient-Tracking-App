@@ -18,6 +18,10 @@ office?: OfficeIdParameter;
 before?: number;
 /**
  * @minimum 1
+ */
+after?: number;
+/**
+ * @minimum 1
  * @maximum 100
  */
 limit?: number;

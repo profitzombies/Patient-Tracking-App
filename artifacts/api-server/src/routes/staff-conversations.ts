@@ -19,7 +19,6 @@
  * ids, department; never message or note text).
  */
 import { Router, type IRouter, type Request, type Response } from "express";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { resolveOfficeScope, respondOfficeScopeDenied, type OfficeScope } from "../auth/office-scope";
 import { hasHqPermission, verifyStaffToken, type HqPermission, type StaffIdentity } from "../lib/staff-auth";
@@ -29,12 +28,14 @@ import { supabaseNotificationStore, type NotificationStore } from "../notificati
 import { loadOrgPolicy } from "../lib/org-policy";
 
 const enc = encodeURIComponent;
-type Thread = "coach" | "support";
+type Row = Record<string, unknown>;
+type Thread = "coach" | "support" | "care_team";
 type Department = "clinical" | "support";
-const THREADS: Thread[] = ["coach", "support"];
+const THREADS: Thread[] = ["coach", "support", "care_team"];
 const THREAD_PERMISSION: Record<Thread, HqPermission> = {
   coach: "conversation_clinical",
   support: "conversation_support",
+  care_team: "conversation_clinical",
 };
 const DEPARTMENT_PERMISSION: Record<Department, HqPermission> = {
   clinical: "conversation_clinical",
@@ -46,6 +47,7 @@ export const CARE_TEAM_REPLY_TITLE = "A message from your care team";
 export const CARE_TEAM_REPLY_ROUTE: Record<Thread, string> = {
   coach: "/coach-chat",
   support: "/support-chat",
+  care_team: "/care-team-chat",
 };
 const CARE_TEAM_REPLY_BODY_MAX = 140;
 const NOT_FOUND = "Conversation not found.";
@@ -54,7 +56,9 @@ const HQ_FORBIDDEN = "Your HQ role does not have permission to do this.";
 const officeParam = z.string().trim().min(1).max(240).optional();
 const listQuery = z.object({
   office: officeParam,
-  thread: z.enum(["coach", "support"]).optional(),
+  channel: z.enum(["all", "care_team", "ai"]).default("all"),
+  patientId: z.string().uuid().optional(),
+  thread: z.enum(["coach", "support", "care_team"]).optional(),
   status: z.enum(["open", "waiting_patient", "closed"]).optional(),
   assignee: z.string().trim().min(1).max(80).optional(),
   unread: z.enum(["true", "false"]).optional(),
@@ -67,11 +71,17 @@ const officeQuery = z.object({ office: officeParam });
 const eventQuery = z.object({
   office: officeParam,
   before: z.coerce.number().int().positive().optional(),
+  after: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-});
+}).refine(value => !(value.before && value.after));
 const assignBody = z.object({ assigneeUserId: z.string().trim().min(1).max(80).nullable() }).strict();
 const statusBody = z.object({ status: z.enum(["open", "waiting_patient", "closed"]) }).strict();
-const replyBody = z.object({ text: z.string().min(1).max(4000) }).strict();
+const replyBody = z.object({
+  clientId: z.string().regex(/^[A-Za-z0-9._:-]{1,64}$/).optional(),
+  text: z.string().min(1).max(4000),
+}).strict();
+const startBody = z.object({ patientId: z.string().uuid() }).strict();
+const readBody = z.object({ throughSeq: z.number().int().positive() }).strict();
 const noteBody = z.object({ body: z.string().min(1).max(4000) }).strict();
 const escalationBody = z
   .object({ department: z.enum(["clinical", "support"]), reason: z.string().min(1).max(2000) })
@@ -82,6 +92,7 @@ const hqEscalationQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
+const hqConversationQuery = listQuery.extend({ office: z.string().trim().min(1).max(240).optional() });
 const resolveBody = z.object({ note: z.string().max(2000).nullable().optional() }).strict();
 const uuid = z.string().uuid();
 
@@ -97,7 +108,7 @@ async function scoped(req: Request, thread: Thread) {
     authorization: req.headers.authorization,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
     hqPermission: THREAD_PERMISSION[thread],
-    requireUnlocked: false,
+    requireUnlocked: true,
   });
 }
 
@@ -249,6 +260,8 @@ interface InboxRow {
   open_escalation_department: string | null;
   created_at: string;
   total: number | string;
+  provider_id?: string;
+  office_name?: string;
 }
 
 function summary(row: InboxRow) {
@@ -257,6 +270,9 @@ function summary(row: InboxRow) {
     patientId: String(row.patient_id),
     patientName: String(row.patient_name || "Patient"),
     thread: row.thread,
+    channel: row.thread === "care_team" ? "care_team" : "ai",
+    providerId: String(row.provider_id ?? ""),
+    officeName: String(row.office_name ?? ""),
     status: row.status,
     autoClosed: row.auto_closed === true,
     assignee: row.assignee_user_id ? { userId: String(row.assignee_user_id), label: String(row.assignee_label ?? "Staff") } : null,
@@ -285,11 +301,12 @@ interface InboxListArgs {
   limit?: number;
   offset?: number;
   conversationId?: string;
+  patientId?: string;
 }
 
 async function inboxList(scope: OfficeScope, args: InboxListArgs): Promise<{ rows: InboxRow[]; total: number; autoCloseDays: number }> {
   const policy = await autoClosePolicy();
-  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_chat_inbox_list", {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_chat_inbox_list_guarded", {
     p_provider_id: scope.providerId,
     p_staff_user_id: scope.actorUserId,
     p_threads: args.threads,
@@ -302,9 +319,12 @@ async function inboxList(scope: OfficeScope, args: InboxListArgs): Promise<{ row
     p_offset: args.offset ?? 0,
     p_conversation_id: args.conversationId ?? null,
     p_auto_close_before: policy.cutoff,
+    p_patient_id: args.patientId ?? null,
   });
   if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`inbox list failed (${result.status})`);
-  const rows = result.json as InboxRow[];
+  const rows = (result.json as InboxRow[]).map(row => ({
+    ...row, provider_id: scope.providerId, office_name: scope.officeName,
+  }));
   return { rows, total: rows.length ? Number(rows[0].total ?? rows.length) : 0, autoCloseDays: policy.autoCloseDays };
 }
 
@@ -343,11 +363,12 @@ function metricsFromRow(row: Record<string, unknown> | undefined) {
 }
 
 /** Inbox metrics for one office, or the whole fleet when providerId is null. */
-export async function inboxMetrics(providerId: string | null) {
+export async function inboxMetrics(providerId: string | null, threads: Thread[] = THREADS) {
   const policy = await autoClosePolicy();
   const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_chat_inbox_metrics", {
     p_provider_id: providerId,
     p_auto_close_before: policy.cutoff,
+    p_threads: threads,
   });
   if (result.status >= 300) throw new Error(`inbox metrics failed (${result.status})`);
   const row = Array.isArray(result.json) ? (result.json[0] as Record<string, unknown> | undefined) : (result.json as Record<string, unknown>);
@@ -357,10 +378,12 @@ export async function inboxMetrics(providerId: string | null) {
 function eventFromRow(row: Record<string, unknown>) {
   return {
     seq: Number(row.seq),
+    clientId: typeof row.client_id === "string" ? row.client_id : null,
     role: String(row.role),
     text: String(row.text ?? ""),
     stopped: row.stopped === true,
     senderLabel: typeof row.sender_label === "string" ? row.sender_label : null,
+    senderUserId: typeof row.sender_user_id === "string" ? row.sender_user_id : null,
     createdAt: String(row.created_at),
   };
 }
@@ -408,6 +431,9 @@ export function replyPreview(text: string): string {
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export function createStaffConversationsRouter(store: NotificationStore = supabaseNotificationStore): IRouter {
+  // Kept as an injectable compatibility seam for existing callers; care-team
+  // pushes now enqueue in the same database transaction as the message RPC.
+  void store;
   const router: IRouter = Router();
 
   /**
@@ -430,6 +456,21 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     return { ...inbox, conversation };
   }
 
+  function officeMutationOnly(found: { scope: OfficeScope; conversation: ConversationSummary }, res: Response): boolean {
+    if (found.scope.actorKind !== "hq" || found.conversation.thread !== "care_team") return true;
+    res.status(403).json({ error: "HQ care-team access is read-only." });
+    return false;
+  }
+
+  async function mutateWorkflow(found: { scope: OfficeScope; conversation: ConversationSummary },
+    action: string, payload: Record<string, unknown>) {
+    return supabaseAdmin("POST", "/rest/v1/rpc/patient_chat_workflow_mutate", {
+      p_conversation_id: found.conversation.id, p_provider_id: found.scope.providerId,
+      p_actor_user_id: found.scope.actorUserId, p_actor_kind: found.scope.actorKind,
+      p_action: action, p_payload: payload,
+    });
+  }
+
   router.get("/office/conversations", async (req, res) => {
     const parsed = listQuery.safeParse(req.query);
     if (!parsed.success) {
@@ -444,7 +485,12 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         res.status(403).json({ error: HQ_FORBIDDEN });
         return;
       }
-      const threads = q.thread ? [q.thread] : inbox.threads;
+      const requested = q.channel === "care_team"
+        ? ["care_team" as Thread]
+        : q.channel === "ai"
+          ? ["coach" as Thread, "support" as Thread]
+          : inbox.threads;
+      const threads = q.thread ? [q.thread] : requested.filter(thread => inbox.threads.includes(thread));
       if (threads.length === 0) {
         res.json({ conversations: [], total: 0, autoCloseDays: (await autoClosePolicy()).autoCloseDays });
         return;
@@ -463,8 +509,10 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         sort: q.sort,
         limit: q.limit,
         offset: q.offset,
+        patientId: q.patientId,
       });
-      res.json({ conversations: rows.map(summary), total, autoCloseDays });
+      const summaries = rows.map(summary);
+      res.json({ conversations: summaries, total, autoCloseDays });
     } catch (error) {
       req.log?.error({ err: error }, "conversation list failed");
       res.status(502).json({ error: "Could not load conversations right now." });
@@ -479,7 +527,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     try {
       const inbox = await scopeForInbox(req, res);
       if (!inbox) return;
-      const metrics = await inboxMetrics(inbox.scope.providerId);
+      const metrics = await inboxMetrics(inbox.scope.providerId, inbox.threads);
       res.json({
         scope: { providerId: inbox.scope.providerId, officeName: inbox.scope.officeName },
         asOf: new Date().toISOString(),
@@ -506,6 +554,39 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     }
   });
 
+  router.post("/office/conversations/start", async (req, res) => {
+    const body = startBody.safeParse(req.body);
+    if (!body.success) { res.status(400).json({ error: "Check the patient." }); return; }
+    try {
+      const resolved = await scoped(req, "care_team");
+      if (resolved.kind !== "ok") { respondOfficeScopeDenied(req, res, resolved); return; }
+      if (resolved.scope.actorKind === "hq") {
+        res.status(403).json({ error: "HQ care-team access is read-only." }); return;
+      }
+      const patient = await supabaseAdmin("GET",
+        `/rest/v1/patients?id=eq.${enc(body.data.patientId)}&provider_id=eq.${enc(resolved.scope.providerId)}&archived_at=is.null&deletion_requested_at=is.null&select=id&limit=1`);
+      if (patient.status >= 300) throw new Error(`patient lookup failed (${patient.status})`);
+      if (!Array.isArray(patient.json) || !patient.json[0]) {
+        res.status(404).json({ error: "Patient not found." }); return;
+      }
+      const started = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_start", {
+        p_patient_id: body.data.patientId, p_provider_id: resolved.scope.providerId,
+      });
+      if (started.status >= 300) throw new Error(`care team start failed (${started.status})`);
+      const payload = started.json as { conversationId?: unknown; created?: unknown };
+      const id = typeof payload.conversationId === "string" ? payload.conversationId : "";
+      const conversation = id ? await loadConversation(resolved.scope, ["care_team"], id) : null;
+      if (!conversation) throw new Error("care team start returned no conversation");
+      void audit(req, resolved.scope, "care_team_conversation_started", "patient_chat_conversation", id, {
+        patientId: body.data.patientId, created: payload.created === true,
+      });
+      res.json({ conversation, created: payload.created === true });
+    } catch (error) {
+      req.log?.error({ err: error }, "office care team start failed");
+      res.status(502).json({ error: "Could not start the conversation right now." });
+    }
+  });
+
   router.get("/office/conversations/:conversationId/events", async (req, res) => {
     const parsed = eventQuery.safeParse(req.query);
     if (!parsed.success) {
@@ -515,47 +596,56 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     try {
       const found = await conversationRoute(req, res);
       if (!found) return;
-      const { scope, conversation } = found;
+      const { conversation } = found;
       const filters = [
         `conversation_id=eq.${enc(conversation.id)}`,
-        "select=seq,role,text,stopped,sender_label,created_at",
+        "select=seq,client_id,role,text,stopped,sender_user_id,sender_label,created_at",
         "order=seq.desc",
         `limit=${parsed.data.limit + 1}`,
       ];
-      if (parsed.data.before) filters.push(`seq=lt.${parsed.data.before}`);
+       if (parsed.data.before) filters.push(`seq=lt.${parsed.data.before}`);
+       if (parsed.data.after) {
+         filters.splice(filters.indexOf("order=seq.desc"), 1, "order=seq.asc");
+         filters.push(`seq=gt.${parsed.data.after}`);
+       }
       const result = await supabaseAdmin("GET", `/rest/v1/patient_chat_messages?${filters.join("&")}`);
       if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`transcript read failed (${result.status})`);
       const page = result.json as Record<string, unknown>[];
       const hasMore = page.length > parsed.data.limit;
       const kept = page.slice(0, parsed.data.limit);
       const nextBefore = hasMore ? Number(kept[kept.length - 1]?.seq) : null;
-      let current = conversation;
-      if (!parsed.data.before && kept.length > 0) {
-        // The newest page is what "opening the thread" means: advance this
-        // staff member's read marker to the top of it, then re-read the
-        // summary so the response already shows the thread as read.
-        const marker = await supabaseAdmin(
-          "POST",
-          "/rest/v1/patient_chat_read_markers?on_conflict=conversation_id,staff_user_id",
-          {
-            conversation_id: conversation.id,
-            staff_user_id: scope.actorUserId,
-            last_read_seq: Number(kept[0]?.seq ?? 0),
-            read_at: new Date().toISOString(),
-          },
-          "resolution=merge-duplicates,return=minimal",
-        );
-        if (marker.status >= 300) throw new Error(`read marker write failed (${marker.status})`);
-        current = (await loadConversation(scope, found.threads, conversation.id)) ?? { ...conversation, unread: false };
-      }
-      void audit(req, scope, "conversation_transcript_read", "patient_chat_conversation", conversation.id, {
-        thread: conversation.thread,
-        page: parsed.data.before ? "older" : "newest",
+      const ordered = parsed.data.after ? kept : kept.reverse();
+      res.json({
+        conversation, events: ordered.map(eventFromRow),
+        nextBefore: parsed.data.after ? null : nextBefore,
+        nextAfter: parsed.data.after && hasMore ? Number(ordered[ordered.length - 1]?.seq) : null,
       });
-      res.json({ conversation: current, events: kept.reverse().map(eventFromRow), nextBefore });
     } catch (error) {
       req.log?.error({ err: error }, "conversation transcript failed");
       res.status(502).json({ error: "Could not load this conversation right now." });
+    }
+  });
+
+  router.post("/office/conversations/:conversationId/read", async (req, res) => {
+    const body = readBody.safeParse(req.body);
+    if (!body.success) { res.status(400).json({ error: "Check the read marker." }); return; }
+    try {
+      const found = await conversationRoute(req, res);
+      if (!found) return;
+      const result = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_staff_read", {
+        p_conversation_id: found.conversation.id,
+        p_staff_user_id: found.scope.actorUserId,
+        p_through_seq: body.data.throughSeq,
+      });
+      if (result.status >= 300) throw new Error(`staff read failed (${result.status})`);
+      const payload = result.json as { changed?: unknown };
+      if (payload.changed === true) void audit(req, found.scope, "conversation_transcript_read",
+        "patient_chat_conversation", found.conversation.id,
+        { thread: found.conversation.thread, throughSeq: body.data.throughSeq });
+      res.json(result.json);
+    } catch (error) {
+      req.log?.error({ err: error }, "conversation read marker failed");
+      res.status(502).json({ error: "Could not update the read position right now." });
     }
   });
 
@@ -568,6 +658,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     try {
       const found = await conversationRoute(req, res);
       if (!found) return;
+      if (!officeMutationOnly(found, res)) return;
       const { scope, conversation } = found;
       let assignee: { userId: string; label: string } | null = null;
       if (body.data.assigneeUserId === "me") {
@@ -584,12 +675,9 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         }
         assignee = { userId: match.userId, label: match.label };
       }
-      const patch = await supabaseAdmin(
-        "PATCH",
-        `/rest/v1/patient_chat_conversations?id=eq.${enc(conversation.id)}`,
-        { assignee_user_id: assignee?.userId ?? null, assignee_label: assignee?.label ?? null },
-        "return=minimal",
-      );
+      const patch = await mutateWorkflow(found, "assign", {
+        assigneeUserId: assignee?.userId ?? "", assigneeLabel: assignee?.label ?? "",
+      });
       if (patch.status >= 300) throw new Error(`assignment write failed (${patch.status})`);
       void audit(req, scope, "conversation_assigned", "patient_chat_conversation", conversation.id, {
         thread: conversation.thread,
@@ -614,15 +702,9 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     try {
       const found = await conversationRoute(req, res);
       if (!found) return;
+      if (!officeMutationOnly(found, res)) return;
       const { scope, conversation } = found;
-      const patch = await supabaseAdmin(
-        "PATCH",
-        `/rest/v1/patient_chat_conversations?id=eq.${enc(conversation.id)}`,
-        // updated_at counts as activity for the auto-close window, so an
-        // explicit reopen is not immediately re-filed as closed.
-        { status: body.data.status, updated_at: new Date().toISOString() },
-        "return=minimal",
-      );
+      const patch = await mutateWorkflow(found, "status", { status: body.data.status });
       if (patch.status >= 300) throw new Error(`status write failed (${patch.status})`);
       void audit(req, scope, "conversation_status_changed", "patient_chat_conversation", conversation.id, {
         thread: conversation.thread,
@@ -646,47 +728,51 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     try {
       const found = await conversationRoute(req, res);
       if (!found) return;
+      if (found.scope.actorKind === "hq") {
+        res.status(403).json({ error: "HQ staff cannot send patient messages." });
+        return;
+      }
+      if (!officeMutationOnly(found, res)) return;
       const { scope, conversation } = found;
       const text = body.data.text.trim();
-      const senderLabel = await actorLabel(scope);
-      const clientId = `staff-${randomUUID()}`;
-      const inserted = await supabaseAdmin(
-        "POST",
-        "/rest/v1/patient_chat_messages?select=seq,role,text,stopped,sender_label,created_at",
-        {
-          conversation_id: conversation.id,
-          client_id: clientId,
-          role: "staff",
-          text,
-          sender_user_id: scope.actorUserId,
-          sender_label: senderLabel,
-        },
-        "return=representation",
-      );
-      const row = Array.isArray(inserted.json) ? (inserted.json[0] as Record<string, unknown> | undefined) : undefined;
-      if (inserted.status >= 300 || !row) throw new Error(`reply write failed (${inserted.status})`);
-      // The push rides the outbox: preferences and quiet hours apply at send
-      // time; the thread already holds the message, so a suppressed push
-      // still leaves the reply waiting in the app.
-      try {
-        await store.enqueue({
-          patientId: conversation.patientId,
-          kind: CARE_TEAM_REPLY_KIND,
-          category: "office_reminders",
-          title: CARE_TEAM_REPLY_TITLE,
-          body: replyPreview(text),
-          data: {
-            route: CARE_TEAM_REPLY_ROUTE[conversation.thread],
-            kind: CARE_TEAM_REPLY_KIND,
-            conversationId: conversation.id,
-            messageClientId: clientId,
-            thread: conversation.thread,
-          },
-          dedupeKey: `${CARE_TEAM_REPLY_KIND}:${clientId}`,
+      if (conversation.thread !== "care_team") {
+        const started = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_start", {
+          p_patient_id: conversation.patientId, p_provider_id: scope.providerId,
         });
-      } catch (error) {
-        req.log?.error({ err: error, conversationId: conversation.id }, "care-team reply push enqueue failed");
+        if (started.status >= 300) throw new Error(`care team redirect failed (${started.status})`);
+        const payload = started.json as { conversationId?: unknown };
+        res.status(409).json({
+          error: "Staff replies belong in the Care Team conversation.",
+          careTeamConversationId: payload.conversationId,
+        });
+        return;
       }
+      if (!body.data.clientId) {
+        res.status(400).json({ error: "A stable message clientId is required." });
+        return;
+      }
+      const senderLabel = await actorLabel(scope);
+      const clientId = body.data.clientId;
+      const inserted = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_send", {
+        p_conversation_id: conversation.id,
+        p_patient_id: conversation.patientId,
+        p_provider_id: scope.providerId,
+        p_client_id: clientId,
+        p_text: text,
+        p_role: "staff",
+        p_sender_user_id: scope.actorUserId,
+        p_sender_label: senderLabel,
+        p_enqueue_push: true,
+      });
+      if (inserted.status === 409 || (inserted.status >= 300 && JSON.stringify(inserted.json).includes("payload conflict"))) {
+        res.status(409).json({ error: "That message id was already used for different content." }); return;
+      }
+      if (inserted.status >= 300) throw new Error(`reply write failed (${inserted.status})`);
+      const payload = inserted.json as Record<string, unknown>;
+      const row = {
+        seq: payload.seq, client_id: clientId, role: payload.role, text: payload.text, stopped: false,
+        sender_user_id: scope.actorUserId, sender_label: senderLabel, created_at: payload.createdAt,
+      };
       void audit(req, scope, "conversation_replied", "patient_chat_conversation", conversation.id, {
         thread: conversation.thread,
         messageClientId: clientId,
@@ -725,24 +811,19 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     try {
       const found = await conversationRoute(req, res);
       if (!found) return;
+      if (!officeMutationOnly(found, res)) return;
       const { scope, conversation } = found;
-      const inserted = await supabaseAdmin(
-        "POST",
-        "/rest/v1/patient_chat_notes?select=id,author_user_id,author_label,body,created_at",
-        {
-          conversation_id: conversation.id,
-          provider_id: scope.providerId,
-          author_user_id: scope.actorUserId,
-          author_label: await actorLabel(scope),
-          body: body.data.body.trim(),
-        },
-        "return=representation",
-      );
-      const row = Array.isArray(inserted.json) ? (inserted.json[0] as Record<string, unknown> | undefined) : undefined;
-      if (inserted.status >= 300 || !row) throw new Error(`note write failed (${inserted.status})`);
+      const label = await actorLabel(scope);
+      const inserted = await mutateWorkflow(found, "note", { authorLabel: label, body: body.data.body.trim() });
+      const noteId = (inserted.json as { id?: unknown } | null)?.id;
+      if (inserted.status >= 300 || typeof noteId !== "string") throw new Error(`note write failed (${inserted.status})`);
+      const loaded = await supabaseAdmin("GET",
+        `/rest/v1/patient_chat_notes?id=eq.${enc(noteId)}&select=id,author_user_id,author_label,body,created_at&limit=1`);
+      const row = Array.isArray(loaded.json) ? loaded.json[0] as Record<string, unknown> | undefined : undefined;
+      if (loaded.status >= 300 || !row) throw new Error(`note readback failed (${loaded.status})`);
       void audit(req, scope, "conversation_note_added", "patient_chat_conversation", conversation.id, {
         thread: conversation.thread,
-        noteId: String(row.id),
+        noteId,
       });
       res.json({ note: noteFromRow(row) });
     } catch (error) {
@@ -760,26 +841,24 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     try {
       const found = await conversationRoute(req, res);
       if (!found) return;
+      if (!officeMutationOnly(found, res)) return;
       const { scope, conversation } = found;
-      const inserted = await supabaseAdmin(
-        "POST",
-        `/rest/v1/patient_chat_escalations?select=${enc(ESCALATION_SELECT)}`,
-        {
-          conversation_id: conversation.id,
-          provider_id: scope.providerId,
-          department: body.data.department,
-          reason: body.data.reason.trim(),
-          created_by: scope.actorUserId,
-          created_by_label: await actorLabel(scope),
-        },
-        "return=representation",
-      );
+      if (conversation.thread === "care_team") {
+        res.status(409).json({ error: "Care Team conversations cannot be escalated to HQ." }); return;
+      }
+      const inserted = await mutateWorkflow(found, "escalate", {
+        department: body.data.department, reason: body.data.reason.trim(), authorLabel: await actorLabel(scope),
+      });
       if (inserted.status === 409) {
         res.status(409).json({ error: "This conversation already has an open escalation." });
         return;
       }
-      const row = Array.isArray(inserted.json) ? (inserted.json[0] as Record<string, unknown> | undefined) : undefined;
-      if (inserted.status >= 300 || !row) throw new Error(`escalation write failed (${inserted.status})`);
+      const escalationId = (inserted.json as { id?: unknown } | null)?.id;
+      if (inserted.status >= 300 || typeof escalationId !== "string") throw new Error(`escalation write failed (${inserted.status})`);
+      const loaded = await supabaseAdmin("GET",
+        `/rest/v1/patient_chat_escalations?id=eq.${enc(escalationId)}&select=${enc(ESCALATION_SELECT)}&limit=1`);
+      const row = Array.isArray(loaded.json) ? loaded.json[0] as Record<string, unknown> | undefined : undefined;
+      if (loaded.status >= 300 || !row) throw new Error(`escalation readback failed (${loaded.status})`);
       void audit(req, scope, "conversation_escalated", "patient_chat_conversation", conversation.id, {
         thread: conversation.thread,
         department: body.data.department,
@@ -815,6 +894,146 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     return { staff, departments };
   }
 
+  async function hqConversationIdentity(req: Request, res: Response) {
+    const token = bearer(req);
+    if (!token) { res.status(401).json({ error: "Sign in to continue." }); return null; }
+    const staff = await verifyStaffToken(token);
+    if (!staff) { res.status(401).json({ error: "Sign in with an active HQ account to continue." }); return null; }
+    const clinical = hasHqPermission(staff, "conversation_clinical");
+    const support = hasHqPermission(staff, "conversation_support");
+    if (!clinical && !support) { res.status(403).json({ error: HQ_FORBIDDEN }); return null; }
+    return { staff, clinical, support };
+  }
+
+  router.get("/hq/conversations", async (req, res) => {
+    const parsed = hqConversationQuery.safeParse(req.query);
+    if (!parsed.success) { res.status(400).json({ error: "Check conversation filters." }); return; }
+    try {
+      const hq = await hqConversationIdentity(req, res);
+      if (!hq) return;
+      const q = parsed.data;
+      if ((q.channel === "care_team" || q.thread === "care_team" || q.thread === "coach") && !hq.clinical) {
+        res.status(403).json({ error: HQ_FORBIDDEN }); return;
+      }
+      if (q.thread === "support" && !hq.support) { res.status(403).json({ error: HQ_FORBIDDEN }); return; }
+      let threads: Thread[] = q.thread ? [q.thread] :
+        q.channel === "care_team" ? ["care_team"] :
+        q.channel === "ai" ? ["coach", "support"] : [...THREADS];
+      threads = threads.filter(thread => thread === "support" ? hq.support : hq.clinical);
+      const policy = await autoClosePolicy();
+      const assignee = q.assignee === "me" ? hq.staff.userId : q.assignee;
+      const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_chat_inbox_list", {
+        p_provider_id: q.office ? q.office.replace(/^acct-/, "") : null,
+        p_staff_user_id: hq.staff.userId, p_threads: threads, p_status: q.status ?? null,
+        p_assignee: assignee ?? null, p_unread_only: q.unread === "true",
+        p_q: q.q || null, p_sort: q.sort, p_limit: q.limit, p_offset: q.offset,
+        p_conversation_id: null, p_auto_close_before: policy.cutoff,
+        p_patient_id: q.patientId ?? null,
+      });
+      if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`HQ conversations failed (${result.status})`);
+      const rows = result.json as InboxRow[];
+      const ids = rows.map(row => row.id);
+      const owners = ids.length ? await supabaseAdmin("GET",
+        `/rest/v1/patient_chat_conversations?id=in.(${ids.map(enc).join(",")})&select=id,provider_id,providers(provider_name,office_name)`) :
+        { status: 200, json: [] };
+      if (owners.status >= 300 || !Array.isArray(owners.json)) throw new Error(`HQ office metadata failed (${owners.status})`);
+      const metadata = new Map((owners.json as Row[]).map(row => {
+        const provider = (row.providers ?? {}) as Row;
+        return [String(row.id), {
+          providerId: String(row.provider_id),
+          officeName: String(provider.office_name || provider.provider_name || ""),
+        }];
+      }));
+      const conversations = rows.map(row => summary({ ...row,
+        provider_id: metadata.get(row.id)?.providerId,
+        office_name: metadata.get(row.id)?.officeName,
+      }));
+      const total = rows.length ? Number(rows[0].total ?? rows.length) : 0;
+      res.json({ conversations, total, autoCloseDays: policy.autoCloseDays });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ conversation list failed");
+      res.status(502).json({ error: "Could not load conversations right now." });
+    }
+  });
+
+  async function hqConversation(req: Request, res: Response) {
+    const hq = await hqConversationIdentity(req, res);
+    if (!hq) return null;
+    const id = uuid.safeParse(req.params.conversationId);
+    if (!id.success) { res.status(400).json({ error: "Check the conversation request." }); return null; }
+    const result = await supabaseAdmin("GET",
+      `/rest/v1/patient_chat_conversations?id=eq.${enc(id.data)}&select=id,patient_id,provider_id,thread&limit=1`);
+    if (result.status >= 300) throw new Error(`HQ conversation lookup failed (${result.status})`);
+    const row = Array.isArray(result.json) ? result.json[0] as Row | undefined : undefined;
+    if (!row) { res.status(404).json({ error: NOT_FOUND }); return null; }
+    const allowed = row.thread === "support" ? hq.support : hq.clinical;
+    if (!allowed) { res.status(404).json({ error: NOT_FOUND }); return null; }
+    return { hq, row };
+  }
+
+  router.get("/hq/conversations/:conversationId/events", async (req, res) => {
+    const page = eventQuery.safeParse(req.query);
+    if (!page.success) { res.status(400).json({ error: "Check the conversation request." }); return; }
+    try {
+      const found = await hqConversation(req, res); if (!found) return;
+      const q = page.data;
+      const filters = [`conversation_id=eq.${enc(String(found.row.id))}`,
+        "select=seq,client_id,role,text,stopped,sender_user_id,sender_label,created_at", `limit=${q.limit + 1}`,
+        q.after ? "order=seq.asc" : "order=seq.desc"];
+      if (q.before) filters.push(`seq=lt.${q.before}`);
+      if (q.after) filters.push(`seq=gt.${q.after}`);
+      const result = await supabaseAdmin("GET", `/rest/v1/patient_chat_messages?${filters.join("&")}`);
+      if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`HQ transcript failed (${result.status})`);
+      const more = result.json.length > q.limit;
+      let rows = (result.json as Row[]).slice(0, q.limit);
+      if (!q.after) rows = rows.reverse();
+      res.json({ events: rows.map(eventFromRow),
+        nextBefore: !q.after && more ? Number(rows[0]?.seq) : null,
+        nextAfter: q.after && more ? Number(rows[rows.length - 1]?.seq) : null });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ transcript failed");
+      res.status(502).json({ error: "Could not load this conversation right now." });
+    }
+  });
+
+  router.get("/hq/conversations/:conversationId/notes", async (req, res) => {
+    try {
+      const found = await hqConversation(req, res); if (!found) return;
+      const result = await supabaseAdmin("GET",
+        `/rest/v1/patient_chat_notes?conversation_id=eq.${enc(String(found.row.id))}&select=id,author_user_id,author_label,body,created_at&order=created_at.asc&limit=500`);
+      if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`HQ notes failed (${result.status})`);
+      res.json({ notes: (result.json as Row[]).map(noteFromRow) });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ notes failed");
+      res.status(502).json({ error: "Could not load notes right now." });
+    }
+  });
+
+  router.post("/hq/conversations/:conversationId/read", async (req, res) => {
+    const body = readBody.safeParse(req.body);
+    if (!body.success) { res.status(400).json({ error: "Check the read marker." }); return; }
+    try {
+      const found = await hqConversation(req, res); if (!found) return;
+      const result = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_staff_read", {
+        p_conversation_id: String(found.row.id), p_staff_user_id: found.hq.staff.userId,
+        p_through_seq: body.data.throughSeq,
+      });
+      if (result.status >= 300) throw new Error(`HQ read failed (${result.status})`);
+      const payload = result.json as { changed?: unknown };
+      if (payload.changed === true) void recordAdminAuditEvent({
+        action: "conversation_transcript_read", actorUserId: found.hq.staff.userId,
+        actorKind: "hq", providerId: String(found.row.provider_id),
+        targetKind: "patient_chat_conversation", targetId: String(found.row.id),
+        requestId: req.headers["x-request-id"]?.toString() ?? null,
+        metadata: { thread: String(found.row.thread), throughSeq: body.data.throughSeq },
+      });
+      res.json(result.json);
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ read marker failed");
+      res.status(502).json({ error: "Could not update the read position right now." });
+    }
+  });
+
   router.get("/hq/escalations", async (req, res) => {
     const parsed = hqEscalationQuery.safeParse(req.query);
     if (!parsed.success) {
@@ -833,6 +1052,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         `select=${enc(ESCALATION_SELECT)}`,
         `status=eq.${parsed.data.status}`,
         `department=in.(${departments.join(",")})`,
+        "patient_chat_conversations.thread=neq.care_team",
         "order=created_at.desc",
         `limit=${parsed.data.limit}`,
         `offset=${parsed.data.offset}`,
@@ -860,7 +1080,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       if (!hq) return;
       const existing = await supabaseAdmin(
         "GET",
-        `/rest/v1/patient_chat_escalations?id=eq.${enc(id.data)}&department=in.(${hq.departments.join(",")})&select=id,status,department,provider_id,conversation_id&limit=1`,
+        `/rest/v1/patient_chat_escalations?id=eq.${enc(id.data)}&department=in.(${hq.departments.join(",")})&patient_chat_conversations.thread=neq.care_team&select=id,status,department,provider_id,conversation_id,patient_chat_conversations!inner(thread)&limit=1`,
       );
       const current = Array.isArray(existing.json) ? (existing.json[0] as Record<string, unknown> | undefined) : undefined;
       if (existing.status >= 300) throw new Error(`escalation lookup failed (${existing.status})`);

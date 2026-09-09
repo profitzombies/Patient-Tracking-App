@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  approvedMeasurements, AccountOperationEpoch, biometricEligibility,
+  approvedMeasurements, AccountOperationEpoch, biometricEligibility, biometricLockedForAccount,
   cancelAccountReminders, ReminderCoordinator,
   isDeviceLocked, reconcileReminders, reminderPlanFor, webBiometricHydration,
   type NotificationDriver,
@@ -81,6 +81,26 @@ assert.equal(isDeviceLocked('patient-b', 'patient-a', false), true,
 assert.equal(biometricEligibility({ platform: 'ios', expoGo: true, hardware: true, enrolled: true, supportedTypes: [1], biometricTypes: [1] }), 'expo-go');
 assert.equal(biometricEligibility({ platform: 'android', expoGo: false, hardware: true, enrolled: false, supportedTypes: [1], biometricTypes: [1] }), 'unsupported');
 assert.equal(biometricEligibility({ platform: 'android', expoGo: false, hardware: true, enrolled: true, supportedTypes: [1], biometricTypes: [1] }), 'available');
+assert.equal(
+  biometricLockedForAccount('web', 'real-patient-a', null, true),
+  false,
+  'a real web patient is explicitly unlocked before the hydration effect commits',
+);
+assert.equal(
+  biometricLockedForAccount('web', 'real-patient-b', 'real-patient-a', true),
+  false,
+  'switching real web accounts never inherits the prior account biometric gate',
+);
+assert.equal(
+  biometricLockedForAccount('ios', 'real-patient-b', 'real-patient-a', false),
+  true,
+  'native account switches remain locked until that account setting loads',
+);
+assert.equal(
+  biometricLockedForAccount('android', 'real-patient-b', 'real-patient-b', true),
+  true,
+  'native enabled biometrics retain the default lock',
+);
 await reconcileReminders('patient-a', plan, 'America/New_York', driver, store, true);
 assert.equal(active.size, 4, 'initial schedule creates one alarm per medication time');
 assert.deepEqual([...active.values()].map(i => i.weekday), [null, null, null, 3], 'weekly alarms schedule with their weekday');
@@ -197,6 +217,12 @@ assert.deepEqual(health.map(item => `${item.source}:${item.sourceId}`), ['apple_
   'health allowlist validates values and deduplicates by the storage source key');
 
 const context = readFileSync(new URL('../context/DeviceFeaturesContext.tsx', import.meta.url), 'utf8');
+assert(
+  context.includes("if (Platform.OS === 'web')") &&
+  context.includes('setBiometricLoadedFor(accountId)') &&
+  context.includes('biometricLockedForAccount(Platform.OS'),
+  'the real provider marks every web account loaded and derives an always-unlocked web gate',
+);
 assert(context.includes('SchedulableTriggerInputTypes.WEEKLY') && context.includes('SchedulableTriggerInputTypes.DAILY'),
   'device reminders schedule weekly and daily triggers from the medication plan');
 assert(context.includes('weekday: item.weekday + 1'), 'Expo weekday (1 = Sunday) is derived from the record weekday (0 = Sunday)');

@@ -49,7 +49,11 @@ export type SuppressionReason =
   | "quiet_hours_deferred"
   | "no_device"
   | "category_off"
-  | "nudge_opt_out";
+  | "nudge_opt_out"
+  | "patient_unavailable"
+  | "office_unavailable"
+  | "office_locked"
+  | "office_transferred";
 
 export type TokenDisableReason =
   | "signed_out"
@@ -169,4 +173,8 @@ export interface PolicyContext {
   nudgeOptOut: boolean;
   /** The patient's office, for office-local policy overrides (quiet hours). */
   providerId: string | null;
+  /** Current authoritative account state, re-read immediately before send. */
+  patientAvailable?: boolean;
+  officeAvailable?: boolean;
+  officeLocked?: boolean;
 }

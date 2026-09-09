@@ -456,10 +456,31 @@ export const supabaseNotificationStore: NotificationStore = {
         "GET",
         `/rest/v1/patient_flags?patient_id=eq.${enc(patientId)}&select=notification_prefs,nudge_opt_out&limit=1`,
       ),
-      supabaseAdmin("GET", `/rest/v1/patients?id=eq.${enc(patientId)}&select=timezone,provider_id&limit=1`),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patients?id=eq.${enc(patientId)}&select=timezone,provider_id,activation_status,archived_at,deletion_requested_at&limit=1`,
+      ),
     ]);
     const flag = rowsOf<Record<string, unknown>>(flags, "policy flags")[0];
     const row = rowsOf<Record<string, unknown>>(patient, "policy patient")[0];
+    const providerId = typeof row?.provider_id === "string" && row.provider_id ? row.provider_id : null;
+    let officeAvailable = false;
+    let officeLocked = false;
+    if (providerId) {
+      const [provider, locks] = await Promise.all([
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=provider_id,access_disabled&limit=1`,
+        ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/provider_account_locks?or=(account_id.eq.${enc(providerId)},account_id.eq.${enc(`acct-${providerId}`)})&select=account_id&limit=1`,
+        ),
+      ]);
+      const providerRow = rowsOf<Record<string, unknown>>(provider, "policy office")[0];
+      officeAvailable = !!providerRow && providerRow.access_disabled !== true;
+      officeLocked = rowsOf<Record<string, unknown>>(locks, "policy office lock").length > 0;
+    }
     return {
       prefs:
         flag?.notification_prefs && typeof flag.notification_prefs === "object"
@@ -467,7 +488,14 @@ export const supabaseNotificationStore: NotificationStore = {
           : null,
       timezone: typeof row?.timezone === "string" && row.timezone ? row.timezone : null,
       nudgeOptOut: flag?.nudge_opt_out === true,
-      providerId: typeof row?.provider_id === "string" && row.provider_id ? row.provider_id : null,
+      providerId,
+      patientAvailable:
+        !!row &&
+        row.archived_at == null &&
+        row.deletion_requested_at == null &&
+        row.activation_status !== "disabled",
+      officeAvailable,
+      officeLocked,
     };
   },
 

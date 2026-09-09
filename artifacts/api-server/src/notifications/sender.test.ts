@@ -5,7 +5,14 @@
  */
 import { describe, expect, it } from "vitest";
 import { FakePushClient, MemoryNotificationStore } from "./memory-store";
-import { backoffMs, DEFAULT_SENDER_CONFIG, PUSH_CHANNEL_ID, runNotificationTick } from "./sender";
+import {
+  backoffMs,
+  CARE_TEAM_PUSH_BODY,
+  CARE_TEAM_PUSH_TITLE,
+  DEFAULT_SENDER_CONFIG,
+  PUSH_CHANNEL_ID,
+  runNotificationTick,
+} from "./sender";
 import type { NotificationRow } from "./types";
 import { DEFAULT_ORG_POLICY, NO_OVERRIDES, type OfficeOverrides } from "../lib/org-policy";
 import type { TickPolicy } from "./tick-policy";
@@ -356,5 +363,96 @@ describe("outbox sender", () => {
     expect(late).toBeNull();
     expect(h.row(row.id).status).toBe("sent");
     expect(h.push.sent).toHaveLength(1);
+  });
+
+  describe("care-team reply safety", () => {
+    const careTeam = {
+      kind: "care_team_reply",
+      category: "office_reminders" as const,
+      // Deliberately unsafe queued copy proves the sender does not trust it.
+      title: "Dr Person at Private Clinic",
+      body: "Patient-specific reply text",
+      data: {
+        route: "/unsafe",
+        messageClientId: "private-client-id",
+        providerId: "prov-1",
+        conversationId: "22222222-2222-4222-8222-222222222222",
+        leakedText: "private reply",
+      },
+      dedupeKey: "care_team_reply:conversation:client",
+    };
+
+    it("sends generic lockscreen copy and only allowlisted deep-link fields", async () => {
+      const h = harness();
+      h.store.addToken(P1, TOKEN_A);
+      const { row } = await h.enqueue(careTeam);
+      await h.tick();
+
+      expect(h.push.sent).toHaveLength(1);
+      expect(h.push.sent[0][0]).toMatchObject({
+        title: CARE_TEAM_PUSH_TITLE,
+        body: CARE_TEAM_PUSH_BODY,
+        data: {
+          patientId: P1,
+          thread: "care_team",
+          conversationId: careTeam.data.conversationId,
+          notificationId: row.id,
+          kind: "care_team_reply",
+          category: "office_reminders",
+        },
+      });
+      expect(h.push.sent[0][0].data).not.toHaveProperty("providerId");
+      expect(h.push.sent[0][0].data).not.toHaveProperty("route");
+      expect(h.push.sent[0][0].data).not.toHaveProperty("messageClientId");
+      expect(h.push.sent[0][0].data).not.toHaveProperty("leakedText");
+    });
+
+    it("uses the existing care-team preference category and current quiet hours/device state", async () => {
+      const optedOut = harness();
+      optedOut.store.addToken(P1, TOKEN_A);
+      optedOut.store.patients.get(P1)!.prefs = { categories: { officeReminders: false } };
+      const { row: off } = await optedOut.enqueue(careTeam);
+      await optedOut.tick();
+      expect(optedOut.row(off.id)).toMatchObject({ status: "opted_out", suppression_reason: "category_off" });
+      expect(optedOut.push.sent).toHaveLength(0);
+
+      const quiet = harness("2026-07-01T03:30:00Z");
+      quiet.store.addToken(P1, TOKEN_A);
+      quiet.store.patients.get(P1)!.prefs = { quietHours: { start: "22:00", end: "07:00" } };
+      const { row: deferred } = await quiet.enqueue(careTeam);
+      await quiet.tick();
+      expect(quiet.row(deferred.id)).toMatchObject({ status: "queued", suppression_reason: "quiet_hours_deferred" });
+      expect(quiet.push.sent).toHaveLength(0);
+
+      const device = harness();
+      const { row: none } = await device.enqueue(careTeam);
+      await device.tick();
+      expect(device.row(none.id)).toMatchObject({ status: "suppressed", suppression_reason: "no_device" });
+    });
+
+    it.each([
+      ["patient deletion/unavailability", { available: false }, "patient_unavailable"],
+      ["office lock", { officeLocked: true }, "office_locked"],
+      ["disabled or missing office", { officeAvailable: false }, "office_unavailable"],
+      ["retained conversation after transfer", { providerId: "prov-2" }, "office_transferred"],
+    ])("suppresses for authoritative %s state", async (_label, state, reason) => {
+      const h = harness();
+      h.store.addToken(P1, TOKEN_A);
+      Object.assign(h.store.patients.get(P1)!, state);
+      const { row } = await h.enqueue(careTeam);
+      await h.tick();
+      expect(h.row(row.id)).toMatchObject({ status: "suppressed", suppression_reason: reason });
+      expect(h.push.sent).toHaveLength(0);
+    });
+
+    it("dedupes transaction retries to one care-team notification", async () => {
+      const h = harness();
+      const first = await h.enqueue(careTeam);
+      const retried = await h.enqueue(careTeam);
+      expect(first.created).toBe(true);
+      expect(retried).toMatchObject({ created: false });
+      expect(retried.row.id).toBe(first.row.id);
+      expect(h.store.notifications.size).toBe(1);
+    });
   });
 });

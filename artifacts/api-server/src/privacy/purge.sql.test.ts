@@ -83,8 +83,24 @@ create table public.patient_push_tokens (id uuid primary key default gen_random_
 create table public.patient_flags (patient_id uuid primary key references public.patients(id) on delete cascade, onboarding_answers jsonb);
 create table public.patient_diary_entries (entry_id text primary key, patient_id uuid not null references public.patients(id) on delete cascade, name text);
 create table public.patient_media (object_path text primary key, patient_id uuid not null references public.patients(id) on delete cascade);
-create table public.patient_chat_conversations (id uuid primary key default gen_random_uuid(), patient_id uuid not null references public.patients(id) on delete cascade);
+create table public.patient_chat_conversations (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references public.patients(id) on delete cascade,
+  thread text not null default 'coach',
+  provider_id text references public.providers(provider_id) on delete restrict);
 create table public.patient_chat_messages (conversation_id uuid not null references public.patient_chat_conversations(id) on delete cascade, client_id text not null, text text, primary key (conversation_id, client_id));
+create table public.patient_chat_read_markers (
+  conversation_id uuid not null references public.patient_chat_conversations(id) on delete cascade,
+  staff_user_id uuid not null, last_read_seq bigint not null default 0,
+  primary key (conversation_id, staff_user_id));
+create table public.patient_chat_patient_read_markers (
+  conversation_id uuid not null references public.patient_chat_conversations(id) on delete cascade,
+  patient_id uuid not null references public.patients(id) on delete cascade,
+  last_read_seq bigint not null default 0, primary key (conversation_id, patient_id));
+create table public.patient_chat_notes (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.patient_chat_conversations(id) on delete cascade,
+  body text not null);
 create table public.patient_body_measurements (visit_id text primary key, patient_id uuid not null references public.patients(id) on delete cascade, provider_id text not null references public.providers(provider_id) on delete cascade);
 create table public.patient_medications (id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade, name text not null);
 create table public.patient_medication_dose_logs (id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade, medication_id uuid not null references public.patient_medications(id) on delete cascade, status text not null);
@@ -137,7 +153,8 @@ function seedPatients() {
   psql(`
     truncate public.patient_bloodwork_corrections, public.patient_bloodwork_results, public.patient_bloodwork_files,
       public.patient_bloodwork_reports, public.transactions, public.product_subscriptions, public.patient_medication_dose_logs, public.patient_medications,
-      public.patient_body_measurements, public.patient_chat_messages,
+      public.patient_body_measurements, public.patient_chat_notes, public.patient_chat_patient_read_markers,
+      public.patient_chat_read_markers, public.patient_chat_messages,
       public.patient_chat_conversations, public.patient_media, public.patient_diary_entries, public.patient_flags,
       public.patient_push_tokens, public.patient_notifications, public.patient_consents, public.patient_data_exports,
       public.patient_deletion_requests, public.patient_tombstones, public.analytics_events, public.patients cascade;
@@ -159,8 +176,12 @@ function seedEverything() {
       insert into public.patient_media (object_path, patient_id) values ('/objects/patient-media/${pid}/a.jpg', '${pid}');
       insert into public.patient_push_tokens (patient_id, token) values ('${pid}', 'ExponentPushToken[${tag}]');
       insert into public.patient_notifications (patient_id, kind, category, title, body) values ('${pid}', 'coach_outreach', 'coach_outreach', 't', 'b');
-      insert into public.patient_chat_conversations (id, patient_id) values ('${uuid(pid === PATIENT ? 501 : 502)}', '${pid}');
+      insert into public.patient_chat_conversations (id, patient_id, thread, provider_id)
+        values ('${uuid(pid === PATIENT ? 501 : 502)}', '${pid}', 'care_team', 'office-1');
       insert into public.patient_chat_messages (conversation_id, client_id, text) values ('${uuid(pid === PATIENT ? 501 : 502)}', 'm1', 'hi');
+      insert into public.patient_chat_read_markers values ('${uuid(pid === PATIENT ? 501 : 502)}', '${uuid(pid === PATIENT ? 551 : 552)}', 1);
+      insert into public.patient_chat_patient_read_markers values ('${uuid(pid === PATIENT ? 501 : 502)}', '${pid}', 1);
+      insert into public.patient_chat_notes (conversation_id, body) values ('${uuid(pid === PATIENT ? 501 : 502)}', 'internal');
       insert into public.patient_body_measurements (visit_id, patient_id, provider_id) values ('${tag}-v1', '${pid}', 'office-1');
       insert into public.patient_medications (id, patient_id, name) values ('${uuid(pid === PATIENT ? 701 : 702)}', '${pid}', 'Protocol drops');
       insert into public.patient_medication_dose_logs (id, patient_id, medication_id, status) values ('${uuid(pid === PATIENT ? 711 : 712)}', '${pid}', '${uuid(pid === PATIENT ? 701 : 702)}', 'taken');
@@ -360,6 +381,9 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
       expect(countFor(table, PATIENT), table).toBe(0);
     }
     expect(Number(scalar<string>(`select count(*) from public.patient_chat_messages where conversation_id = '${uuid(501)}'`))).toBe(0);
+    expect(Number(scalar<string>(`select count(*) from public.patient_chat_notes where conversation_id = '${uuid(501)}'`))).toBe(0);
+    expect(Number(scalar<string>(`select count(*) from public.patient_chat_read_markers where conversation_id = '${uuid(501)}'`))).toBe(0);
+    expect(Number(scalar<string>(`select count(*) from public.patient_chat_patient_read_markers where conversation_id = '${uuid(501)}'`))).toBe(0);
     expect(Number(scalar<string>(`select count(*) from public.patients where id = '${PATIENT}'`))).toBe(0);
     // Analytics rows survive, detached: office counts stay whole, the reference is gone.
     expect(Number(scalar<string>(`select count(*) from public.analytics_events where provider_id = 'office-1' and patient_id is null`))).toBe(2);
@@ -370,6 +394,9 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
       expect(countFor(table, OTHER), table).toBeGreaterThanOrEqual(1);
     }
     expect(Number(scalar<string>(`select count(*) from public.patient_chat_messages where conversation_id = '${uuid(502)}'`))).toBe(1);
+    expect(Number(scalar<string>(`select count(*) from public.patient_chat_notes where conversation_id = '${uuid(502)}'`))).toBe(1);
+    expect(Number(scalar<string>(`select count(*) from public.patient_chat_read_markers where conversation_id = '${uuid(502)}'`))).toBe(1);
+    expect(Number(scalar<string>(`select count(*) from public.patient_chat_patient_read_markers where conversation_id = '${uuid(502)}'`))).toBe(1);
     // The tombstone: ids, office, program, dates — nothing else.
     const tombstone = rows(`select * from public.patient_tombstones`);
     expect(tombstone).toHaveLength(1);

@@ -538,6 +538,21 @@ export default function Patients() {
                     </button>
                   </div>
                 )}
+                {patient.isLive && (
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      className={`${BTN_SECONDARY} h-8 px-3`}
+                      data-testid={`button-message-patient-${patient.id}`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        navigate(`/conversations?startPatient=${encodeURIComponent(patient.id)}`);
+                      }}
+                    >
+                      Message Care Team
+                    </button>
+                  </div>
+                )}
               </Link>
             );
           })}

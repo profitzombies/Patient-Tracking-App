@@ -7,6 +7,8 @@ import {
   pushAvailability,
   registerForPush,
   resolveNotificationRoute,
+  notificationAdmittedForPatient,
+  notificationPatientId,
   unregisterPush,
   type PushRegistrationDriver,
 } from '../lib/push-notification-core';
@@ -84,6 +86,33 @@ async function main() {
   assert.equal(resolveNotificationRoute({ route: '/(patient)/progress' }), '/(patient)/progress');
   assert.equal(resolveNotificationRoute({ route: 'https://evil.example' }), null);
   assert.equal(resolveNotificationRoute({ route: '/account' }), null);
+  const careTeamTap = {
+    kind: 'care_team_reply',
+    thread: 'care_team',
+    patientId: 'patient-a',
+    conversationId: '11111111-1111-4111-8111-111111111111',
+  };
+  assert.equal(
+    resolveNotificationRoute(careTeamTap),
+    '/care-team-chat?conversationId=11111111-1111-4111-8111-111111111111',
+  );
+  assert.equal(notificationPatientId(careTeamTap), 'patient-a');
+  assert.equal(notificationAdmittedForPatient(careTeamTap, 'patient-a'), true);
+  assert.equal(
+    notificationAdmittedForPatient(careTeamTap, 'patient-b'),
+    false,
+    'an old-account care-team tap is not delivered to the newly selected patient',
+  );
+  assert.equal(
+    notificationAdmittedForPatient({ ...careTeamTap, patientId: undefined }, 'patient-a'),
+    false,
+    'care-team notification ownership fails closed',
+  );
+  assert.equal(
+    notificationAdmittedForPatient({ kind: 'care_team_reply', thread: 'coach' }, 'patient-b'),
+    true,
+    'historic coach/support notification grounding and routing remain unchanged',
+  );
 
   assert.deepEqual(parseNotificationPrefs(null), {
     categories: { coachOutreach: true, checkInReminders: true, officeReminders: true },

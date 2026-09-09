@@ -1501,6 +1501,7 @@ export const GetOfficeOverviewResponse = zod.object({
 /**
  * @summary Staff inbox — filterable, sortable, searchable conversation summaries for an authorized office
  */
+export const getOfficeConversationsQueryChannelDefault = `all`;
 export const getOfficeConversationsQueryAssigneeMax = 80;
 
 export const getOfficeConversationsQueryQMax = 120;
@@ -1516,7 +1517,9 @@ export const getOfficeConversationsQueryOffsetMin = 0;
 
 export const GetOfficeConversationsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
-  "thread": zod.enum(['coach', 'support']).optional(),
+  "channel": zod.enum(['all', 'care_team', 'ai']).default(getOfficeConversationsQueryChannelDefault),
+  "patientId": zod.coerce.string().optional(),
+  "thread": zod.enum(['coach', 'support', 'care_team']).optional(),
   "status": zod.enum(['open', 'waiting_patient', 'closed']).optional().describe('Workflow status filter. Threads idle longer than the organization\'s conversation auto-close window (HQ settings) count as closed.'),
   "assignee": zod.coerce.string().max(getOfficeConversationsQueryAssigneeMax).optional().describe('\"me\", \"unassigned\", or a staff user id'),
   "unread": zod.coerce.boolean().optional().describe('Only conversations with patient messages the caller has not read'),
@@ -1532,7 +1535,10 @@ export const GetOfficeConversationsResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
-  "thread": zod.enum(['coach', 'support']),
+  "thread": zod.enum(['coach', 'support', 'care_team']),
+  "channel": zod.enum(['care_team', 'ai']),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
   "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
   "assignee": zod.union([zod.object({
   "userId": zod.string(),
@@ -1553,6 +1559,45 @@ export const GetOfficeConversationsResponse = zod.object({
   "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
 })),
   "total": zod.number()
+})
+
+
+/**
+ * @summary Get or create a care-team conversation for a patient in the caller's office
+ */
+export const StartOfficeConversationBody = zod.object({
+  "patientId": zod.string()
+})
+
+export const StartOfficeConversationResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "patientName": zod.string(),
+  "thread": zod.enum(['coach', 'support', 'care_team']),
+  "channel": zod.enum(['care_team', 'ai']),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
+  "assignee": zod.union([zod.object({
+  "userId": zod.string(),
+  "label": zod.string()
+}),zod.null()]),
+  "unread": zod.boolean().describe('The caller has not read the latest patient message'),
+  "messageCount": zod.number(),
+  "lastMessageAt": zod.string().nullable(),
+  "lastPatientMessageAt": zod.string().nullable(),
+  "lastStaffReplyAt": zod.string().nullable(),
+  "preview": zod.string().describe('Latest message text, trimmed'),
+  "noteCount": zod.number(),
+  "openEscalation": zod.union([zod.object({
+  "id": zod.string(),
+  "department": zod.enum(['clinical', 'support'])
+}),zod.null()]),
+  "createdAt": zod.string(),
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+}),
+  "created": zod.boolean()
 })
 
 
@@ -1597,11 +1642,12 @@ export const GetOfficeConversationStaffResponse = zod.object({
 
 
 /**
- * @summary Read a paginated patient transcript in an authorized office (the newest page marks the thread read for the caller)
+ * @summary Read a polling-safe paginated patient transcript without changing read state
  */
 export const GetOfficeConversationEventsParams = zod.object({
   "conversationId": zod.coerce.string()
 })
+
 
 
 export const getOfficeConversationEventsQueryLimitDefault = 50;
@@ -1612,6 +1658,7 @@ export const getOfficeConversationEventsQueryLimitMax = 100;
 export const GetOfficeConversationEventsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "before": zod.coerce.number().min(1).optional(),
+  "after": zod.coerce.number().min(1).optional(),
   "limit": zod.coerce.number().min(1).max(getOfficeConversationEventsQueryLimitMax).default(getOfficeConversationEventsQueryLimitDefault)
 })
 
@@ -1620,7 +1667,10 @@ export const GetOfficeConversationEventsResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
-  "thread": zod.enum(['coach', 'support']),
+  "thread": zod.enum(['coach', 'support', 'care_team']),
+  "channel": zod.enum(['care_team', 'ai']),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
   "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
   "assignee": zod.union([zod.object({
   "userId": zod.string(),
@@ -1642,13 +1692,36 @@ export const GetOfficeConversationEventsResponse = zod.object({
 }),
   "events": zod.array(zod.object({
   "seq": zod.number(),
+  "clientId": zod.string().nullable(),
   "role": zod.enum(['user', 'assistant', 'staff']),
   "text": zod.string(),
   "stopped": zod.boolean(),
-  "senderLabel": zod.string().nullish().describe('Staff messages only: who on the care team sent it'),
+  "senderLabel": zod.string().nullable().describe('Staff messages only: who on the care team sent it'),
+  "senderUserId": zod.string().nullable().describe('Staff messages only: server-derived sender user id'),
   "createdAt": zod.string()
 })),
-  "nextBefore": zod.number().nullable()
+  "nextBefore": zod.number().nullable(),
+  "nextAfter": zod.number().nullable()
+})
+
+
+/**
+ * @summary Advance the caller's private read high-water mark
+ */
+export const ReadOfficeConversationParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+
+
+
+export const ReadOfficeConversationBody = zod.object({
+  "throughSeq": zod.number().min(1)
+})
+
+export const ReadOfficeConversationResponse = zod.object({
+  "lastReadSeq": zod.number(),
+  "changed": zod.boolean()
 })
 
 
@@ -1676,7 +1749,10 @@ export const AssignOfficeConversationResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
-  "thread": zod.enum(['coach', 'support']),
+  "thread": zod.enum(['coach', 'support', 'care_team']),
+  "channel": zod.enum(['care_team', 'ai']),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
   "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
   "assignee": zod.union([zod.object({
   "userId": zod.string(),
@@ -1719,7 +1795,10 @@ export const SetOfficeConversationStatusResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
-  "thread": zod.enum(['coach', 'support']),
+  "thread": zod.enum(['coach', 'support', 'care_team']),
+  "channel": zod.enum(['care_team', 'ai']),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
   "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
   "assignee": zod.union([zod.object({
   "userId": zod.string(),
@@ -1753,20 +1832,28 @@ export const ReplyOfficeConversationQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
 })
 
+export const replyOfficeConversationBodyClientIdMax = 64;
+
+
+export const replyOfficeConversationBodyClientIdRegExp = new RegExp('^[A-Za-z0-9._:-]+$');
 export const replyOfficeConversationBodyTextMax = 4000;
 
 
 
 export const ReplyOfficeConversationBody = zod.object({
+  "clientId": zod.string().min(1).max(replyOfficeConversationBodyClientIdMax).regex(replyOfficeConversationBodyClientIdRegExp).optional(),
   "text": zod.string().min(1).max(replyOfficeConversationBodyTextMax)
-})
+}).describe('Human Care Team sends require a stable clientId, reused unchanged on retry. Only legacy AI-to-Care-Team redirection may omit it.')
 
 export const ReplyOfficeConversationResponse = zod.object({
   "conversation": zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
-  "thread": zod.enum(['coach', 'support']),
+  "thread": zod.enum(['coach', 'support', 'care_team']),
+  "channel": zod.enum(['care_team', 'ai']),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
   "status": zod.enum(['open', 'waiting_patient', 'closed']).describe('Persisted workflow status; idle threads past the auto-close window read as closed'),
   "assignee": zod.union([zod.object({
   "userId": zod.string(),
@@ -1788,10 +1875,12 @@ export const ReplyOfficeConversationResponse = zod.object({
 }),
   "event": zod.object({
   "seq": zod.number(),
+  "clientId": zod.string().nullable(),
   "role": zod.enum(['user', 'assistant', 'staff']),
   "text": zod.string(),
   "stopped": zod.boolean(),
-  "senderLabel": zod.string().nullish().describe('Staff messages only: who on the care team sent it'),
+  "senderLabel": zod.string().nullable().describe('Staff messages only: who on the care team sent it'),
+  "senderUserId": zod.string().nullable().describe('Staff messages only: server-derived sender user id'),
   "createdAt": zod.string()
 })
 })
@@ -1886,6 +1975,293 @@ export const EscalateOfficeConversationResponse = zod.object({
   "resolvedAt": zod.string().nullable(),
   "resolutionNote": zod.string().nullable()
 })
+})
+
+
+/**
+ * @summary Load the patient's current and retained care-team conversations
+ */
+export const GetPatientCareTeamResponse = zod.object({
+  "current": zod.union([zod.object({
+  "id": zod.string(),
+  "providerId": zod.string(),
+  "businessName": zod.string(),
+  "current": zod.boolean(),
+  "canSend": zod.boolean(),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']),
+  "unreadCount": zod.number(),
+  "lastMessageSeq": zod.number(),
+  "lastReadSeq": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),zod.null()]),
+  "retained": zod.array(zod.object({
+  "id": zod.string(),
+  "providerId": zod.string(),
+  "businessName": zod.string(),
+  "current": zod.boolean(),
+  "canSend": zod.boolean(),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']),
+  "unreadCount": zod.number(),
+  "lastMessageSeq": zod.number(),
+  "lastReadSeq": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Get or create the patient's current-provider care-team conversation
+ */
+export const StartPatientCareTeamBody = zod.object({
+
+})
+
+export const StartPatientCareTeamResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "providerId": zod.string(),
+  "businessName": zod.string(),
+  "current": zod.boolean(),
+  "canSend": zod.boolean(),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']),
+  "unreadCount": zod.number(),
+  "lastMessageSeq": zod.number(),
+  "lastReadSeq": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "created": zod.boolean()
+})
+
+
+/**
+ * @summary Read patient-safe care-team messages without employee identity
+ */
+export const GetPatientCareTeamMessagesParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+
+
+export const getPatientCareTeamMessagesQueryLimitDefault = 50;
+export const getPatientCareTeamMessagesQueryLimitMax = 100;
+
+
+
+export const GetPatientCareTeamMessagesQueryParams = zod.object({
+  "before": zod.coerce.number().min(1).optional(),
+  "after": zod.coerce.number().min(1).optional(),
+  "limit": zod.coerce.number().min(1).max(getPatientCareTeamMessagesQueryLimitMax).default(getPatientCareTeamMessagesQueryLimitDefault)
+})
+
+export const GetPatientCareTeamMessagesResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "providerId": zod.string(),
+  "businessName": zod.string(),
+  "current": zod.boolean(),
+  "canSend": zod.boolean(),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']),
+  "unreadCount": zod.number(),
+  "lastMessageSeq": zod.number(),
+  "lastReadSeq": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "messages": zod.array(zod.object({
+  "seq": zod.number(),
+  "clientId": zod.string(),
+  "sender": zod.enum(['patient', 'care_team']),
+  "text": zod.string(),
+  "createdAt": zod.string()
+})),
+  "nextBefore": zod.number().nullable(),
+  "nextAfter": zod.number().nullable()
+})
+
+
+/**
+ * @summary Send a plain-text message as the authenticated patient
+ */
+export const SendPatientCareTeamMessageParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const sendPatientCareTeamMessageBodyClientIdMax = 64;
+
+
+export const sendPatientCareTeamMessageBodyClientIdRegExp = new RegExp('^[A-Za-z0-9._:-]+$');
+export const sendPatientCareTeamMessageBodyTextMax = 4000;
+
+
+
+export const SendPatientCareTeamMessageBody = zod.object({
+  "clientId": zod.string().min(1).max(sendPatientCareTeamMessageBodyClientIdMax).regex(sendPatientCareTeamMessageBodyClientIdRegExp),
+  "text": zod.string().min(1).max(sendPatientCareTeamMessageBodyTextMax)
+})
+
+export const SendPatientCareTeamMessageResponse = zod.object({
+  "message": zod.object({
+  "seq": zod.number(),
+  "clientId": zod.string(),
+  "sender": zod.enum(['patient', 'care_team']),
+  "text": zod.string(),
+  "createdAt": zod.string()
+}),
+  "created": zod.boolean()
+})
+
+
+/**
+ * @summary Advance the patient's private read high-water mark
+ */
+export const ReadPatientCareTeamParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+
+
+
+export const ReadPatientCareTeamBody = zod.object({
+  "throughSeq": zod.number().min(1)
+})
+
+export const ReadPatientCareTeamResponse = zod.object({
+  "lastReadSeq": zod.number(),
+  "changed": zod.boolean()
+})
+
+
+/**
+ * @summary Read permission-scoped conversation summaries across active offices
+ */
+export const getHqConversationsQueryOfficeMax = 240;
+
+export const getHqConversationsQueryChannelDefault = `all`;
+export const getHqConversationsQueryAssigneeMax = 80;
+
+export const getHqConversationsQueryQMax = 120;
+
+export const getHqConversationsQuerySortDefault = `newest`;
+export const getHqConversationsQueryLimitDefault = 50;
+export const getHqConversationsQueryLimitMax = 100;
+
+export const getHqConversationsQueryOffsetDefault = 0;
+export const getHqConversationsQueryOffsetMin = 0;
+
+
+
+export const GetHqConversationsQueryParams = zod.object({
+  "office": zod.coerce.string().max(getHqConversationsQueryOfficeMax).optional(),
+  "patientId": zod.coerce.string().optional(),
+  "channel": zod.enum(['all', 'care_team', 'ai']).default(getHqConversationsQueryChannelDefault),
+  "thread": zod.enum(['coach', 'support', 'care_team']).optional(),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']).optional(),
+  "assignee": zod.coerce.string().max(getHqConversationsQueryAssigneeMax).optional(),
+  "unread": zod.coerce.boolean().optional(),
+  "q": zod.coerce.string().max(getHqConversationsQueryQMax).optional(),
+  "sort": zod.enum(['newest', 'oldest', 'waiting_longest', 'unread_first']).default(getHqConversationsQuerySortDefault),
+  "limit": zod.coerce.number().min(1).max(getHqConversationsQueryLimitMax).default(getHqConversationsQueryLimitDefault),
+  "offset": zod.coerce.number().min(getHqConversationsQueryOffsetMin).default(getHqConversationsQueryOffsetDefault)
+})
+
+export const GetHqConversationsResponse = zod.object({
+  "conversations": zod.array(zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "patientName": zod.string(),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "thread": zod.enum(['coach', 'support', 'care_team']),
+  "channel": zod.enum(['care_team', 'ai']),
+  "status": zod.enum(['open', 'waiting_patient', 'closed']),
+  "assignee": zod.union([zod.object({
+  "userId": zod.string(),
+  "label": zod.string()
+}),zod.null()]),
+  "lastPatientMessageAt": zod.string().nullable(),
+  "lastStaffReplyAt": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "total": zod.number(),
+  "autoCloseDays": zod.number()
+})
+
+
+/**
+ * @summary Read a polling-safe, permission-scoped transcript
+ */
+export const GetHqConversationEventsParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+
+
+export const getHqConversationEventsQueryLimitDefault = 50;
+export const getHqConversationEventsQueryLimitMax = 100;
+
+
+
+export const GetHqConversationEventsQueryParams = zod.object({
+  "before": zod.coerce.number().min(1).optional(),
+  "after": zod.coerce.number().min(1).optional(),
+  "limit": zod.coerce.number().min(1).max(getHqConversationEventsQueryLimitMax).default(getHqConversationEventsQueryLimitDefault)
+})
+
+export const GetHqConversationEventsResponse = zod.object({
+  "events": zod.array(zod.object({
+  "seq": zod.number(),
+  "clientId": zod.string().nullable(),
+  "role": zod.enum(['user', 'assistant', 'staff']),
+  "text": zod.string(),
+  "stopped": zod.boolean(),
+  "senderLabel": zod.string().nullable().describe('Staff messages only: who on the care team sent it'),
+  "senderUserId": zod.string().nullable().describe('Staff messages only: server-derived sender user id'),
+  "createdAt": zod.string()
+})),
+  "nextBefore": zod.number().nullable(),
+  "nextAfter": zod.number().nullable()
+})
+
+
+/**
+ * @summary Read permission-scoped internal notes
+ */
+export const GetHqConversationNotesParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const GetHqConversationNotesResponse = zod.object({
+  "notes": zod.array(zod.object({
+  "id": zod.string(),
+  "authorUserId": zod.string(),
+  "authorLabel": zod.string(),
+  "body": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Advance only the HQ viewer's private read high-water mark
+ */
+export const ReadHqConversationParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+
+
+
+export const ReadHqConversationBody = zod.object({
+  "throughSeq": zod.number().min(1)
+})
+
+export const ReadHqConversationResponse = zod.object({
+  "lastReadSeq": zod.number(),
+  "changed": zod.boolean()
 })
 
 

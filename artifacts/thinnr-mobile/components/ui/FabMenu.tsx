@@ -75,6 +75,8 @@ export interface FabMenuItem {
   label: string;
   icon: FabMenuIcon;
   action: FabMenuAction;
+  /** Optional unread badge announced as part of the row's accessible name. */
+  unreadCount?: number;
 }
 
 /**
@@ -277,7 +279,9 @@ export function FabMenu({
                       key={item.key}
                       testID={`${idPrefix}-menu-${item.key}`}
                       accessibilityRole="button"
-                      accessibilityLabel={item.label}
+                      accessibilityLabel={item.unreadCount
+                        ? `${item.label}, ${item.unreadCount} unread message${item.unreadCount === 1 ? '' : 's'}`
+                        : item.label}
                       accessibilityState={{ selected: active }}
                       aria-selected={active}
                       onPress={() => activate(item.action)}
@@ -311,6 +315,17 @@ export function FabMenu({
                       >
                         {item.label}
                       </Text>
+                      {item.unreadCount ? (
+                        <View
+                          testID={`${idPrefix}-menu-${item.key}-unread`}
+                          accessibilityElementsHidden
+                          style={[styles.unreadBadge, { backgroundColor: colors.cobalt }]}
+                        >
+                          <Text style={[styles.unreadBadgeText, { color: colors.primaryForeground }]}>
+                            {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                          </Text>
+                        </View>
+                      ) : null}
                       {/* The Heritage active tick, carried over from the old tab bar. */}
                       <View
                         style={[
@@ -425,6 +440,18 @@ const styles = StyleSheet.create({
   menuRowText: {
     flex: 1,
     fontSize: 14,
+  },
+  unreadBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadBadgeText: {
+    fontSize: 9,
+    fontFamily: 'Inter_700Bold',
   },
   activeTick: {
     width: 14,

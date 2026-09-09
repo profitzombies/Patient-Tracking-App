@@ -1,11 +1,13 @@
 import type { ChatThread } from '@/context/PatientAccountContext';
 
-type ChatSyncListener = (thread: ChatThread) => void;
+type ThreadType = ChatThread | 'care_team';
+
+type ChatSyncListener = (thread: ThreadType) => void;
 
 const listeners = new Set<ChatSyncListener>();
 
 /** Announces that a server-side care-team reply may be available. */
-export function emitChatSync(thread: ChatThread): void {
+export function emitChatSync(thread: ThreadType): void {
   for (const listener of listeners) listener(thread);
 }
 

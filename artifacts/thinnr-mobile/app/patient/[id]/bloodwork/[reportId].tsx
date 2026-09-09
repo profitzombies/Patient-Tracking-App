@@ -23,8 +23,9 @@ export default function ProviderBloodworkDetailScreen() {
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const queryClient = useQueryClient();
-  const officeRoster = useOfficeRoster();
   const { session } = useSupabaseSession();
+  const userId = session?.user.id ?? '';
+  const officeRoster = useOfficeRoster(userId);
   const pid = String(patientId);
   const rid = String(reportId);
   const isReal = officeRoster.status === 'ready'
@@ -105,12 +106,17 @@ export default function ProviderBloodworkDetailScreen() {
   }
 
   if (isError || !detail) {
+    const accessDenied = officeRoster.status === 'denied' || !userId;
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <PatientHeader title="Error" right={<Pressable onPress={() => router.back()}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
         <View style={styles.emptyWrap}>
-           <Text style={[styles.emptyText, { color: colors.destructive }]}>Could not load report.</Text>
-           <Pressable onPress={() => void refetch()}><Text style={{ color: colors.cobalt, padding: 12 }}>Retry</Text></Pressable>
+           <Text style={[styles.emptyText, { color: colors.destructive }]}>
+             {accessDenied ? 'This private report is unavailable for this account.' : 'Could not load report.'}
+           </Text>
+           {!accessDenied ? (
+             <Pressable onPress={() => void refetch()}><Text style={{ color: colors.cobalt, padding: 12 }}>Retry</Text></Pressable>
+           ) : null}
         </View>
       </View>
     );

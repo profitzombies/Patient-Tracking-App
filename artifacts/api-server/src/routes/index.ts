@@ -38,6 +38,7 @@ import hqPatientDeletionsRouter from "./hq-patient-deletions";
 import systemJobsRouter from "./system-jobs";
 import officeLeaderboardRouter from "./office-leaderboard";
 import bloodworkRouter from "./bloodwork";
+import patientCareTeamRouter from "./patient-care-team";
 
 const router: IRouter = Router();
 
@@ -62,6 +63,7 @@ router.use(patientPrivacyRouter);
 router.use(patientMediaRouter);
 router.use(bloodworkRouter);
 router.use(patientChatRouter);
+router.use(patientCareTeamRouter);
 router.use(patientNotificationsRouter);
 router.use(providerAccountsRouter);
 router.use(hqTeamRouter);

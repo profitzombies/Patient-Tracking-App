@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { GetOfficeConversationsChannel } from './getOfficeConversationsChannel';
 import type { GetOfficeConversationsSort } from './getOfficeConversationsSort';
 import type { GetOfficeConversationsStatus } from './getOfficeConversationsStatus';
 import type { GetOfficeConversationsThread } from './getOfficeConversationsThread';
@@ -15,6 +16,8 @@ export type GetOfficeConversationsParams = {
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */
 office?: OfficeIdParameter;
+channel?: GetOfficeConversationsChannel;
+patientId?: string;
 thread?: GetOfficeConversationsThread;
 /**
  * Workflow status filter. Threads idle longer than the organization's conversation auto-close window (HQ settings) count as closed.

@@ -6,7 +6,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Human Care Team sends require a stable clientId, reused unchanged on retry. Only legacy AI-to-Care-Team redirection may omit it.
+ */
 export interface ConversationReplyInput {
+  /**
+     * @minLength 1
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9._:-]+$
+     */
+  clientId?: string;
   /**
      * @minLength 1
      * @maxLength 4000

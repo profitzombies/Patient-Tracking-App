@@ -38,6 +38,18 @@ create table public.patient_chat_messages (
   client_id text not null, seq bigint generated always as identity, role text not null default 'user', text text not null default '',
   photo jsonb, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   primary key (conversation_id, client_id));
+create table public.patient_chat_read_markers (
+  conversation_id uuid not null references public.patient_chat_conversations(id) on delete cascade,
+  staff_user_id uuid not null, last_read_seq bigint not null default 0,
+  primary key (conversation_id, staff_user_id));
+create table public.patient_chat_patient_read_markers (
+  conversation_id uuid not null references public.patient_chat_conversations(id) on delete cascade,
+  patient_id uuid not null references public.patients(id) on delete cascade,
+  last_read_seq bigint not null default 0, primary key (conversation_id, patient_id));
+create table public.patient_chat_notes (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.patient_chat_conversations(id) on delete cascade,
+  body text not null);
 create table public.patient_media (
   object_path text primary key, patient_id uuid not null references public.patients(id) on delete cascade,
   kind text not null, content_type text, size_bytes bigint, created_at timestamptz not null default now());
@@ -307,16 +319,22 @@ describe.skipIf(!POSTGRES_AVAILABLE)("system jobs + storage hygiene SQL (real Po
   describe("retention: chat transcripts", () => {
     const C1 = uuid(30);
     const C2 = uuid(31);
+    const C3 = uuid(32);
     beforeAll(() => {
       psql(`
-        insert into public.patient_chat_conversations (id, patient_id, created_at, updated_at) values
-          ('${C1}', '${P1}', now() - interval '900 days', now() - interval '800 days'),
-          ('${C2}', '${P2}', now() - interval '900 days', now() - interval '800 days');
+        insert into public.patient_chat_conversations (id, patient_id, thread, created_at, updated_at) values
+          ('${C1}', '${P1}', 'coach', now() - interval '900 days', now() - interval '800 days'),
+          ('${C2}', '${P2}', 'coach', now() - interval '900 days', now() - interval '800 days'),
+          ('${C3}', '${P1}', 'care_team', now() - interval '900 days', now() - interval '800 days');
         insert into public.patient_chat_messages (conversation_id, client_id, photo, created_at) values
           ('${C1}', 'old-1', '{"path":"/objects/patient-media/${P1}/chat-old"}'::jsonb, now() - interval '800 days'),
           ('${C1}', 'old-2', '{"path":"/objects/patient-media/${P1}/chat-shared"}'::jsonb, now() - interval '790 days'),
           ('${C1}', 'new-1', '{"path":"/objects/patient-media/${P1}/chat-shared"}'::jsonb, now() - interval '10 days'),
-          ('${C2}', 'held-1', null, now() - interval '800 days');
+          ('${C2}', 'held-1', null, now() - interval '800 days'),
+          ('${C3}', 'human-old-1', null, now() - interval '780 days');
+        insert into public.patient_chat_read_markers values ('${C3}', '${uuid(300)}', 1);
+        insert into public.patient_chat_patient_read_markers values ('${C3}', '${P1}', 1);
+        insert into public.patient_chat_notes (conversation_id, body) values ('${C3}', 'internal note');
         insert into public.patient_media (object_path, patient_id, kind) values
           ('/objects/patient-media/${P1}/chat-old', '${P1}', 'chat'),
           ('/objects/patient-media/${P1}/chat-shared', '${P1}', 'chat');
@@ -328,10 +346,10 @@ describe.skipIf(!POSTGRES_AVAILABLE)("system jobs + storage hygiene SQL (real Po
       const r = rows<{ messages_deleted: number; conversations_deleted: number; media_paths: string[] }>(
         `select * from public.retention_trim_chat_transcripts(now() - interval '730 days', 1000, true)`,
       )[0];
-      expect(r.messages_deleted).toBe(2);
-      expect(r.conversations_deleted).toBe(0);
+      expect(r.messages_deleted).toBe(3);
+      expect(r.conversations_deleted).toBe(1);
       expect(r.media_paths).toEqual([`/objects/patient-media/${P1}/chat-old`]);
-      expect(scalar<number>(`count(*) from public.patient_chat_messages`)).toBe(4);
+      expect(scalar<number>(`count(*) from public.patient_chat_messages`)).toBe(5);
     });
 
     it("deletes old messages oldest-first within the limit, frees only unreferenced chat media, and skips pending-deletion patients", () => {
@@ -344,11 +362,17 @@ describe.skipIf(!POSTGRES_AVAILABLE)("system jobs + storage hygiene SQL (real Po
       const second = rows<{ messages_deleted: number; conversations_deleted: number; media_paths: string[] }>(
         `select * from public.retention_trim_chat_transcripts(now() - interval '730 days', 1000, false)`,
       )[0];
-      expect(second.messages_deleted).toBe(1);
+      expect(second.messages_deleted).toBe(2);
       // chat-shared is still referenced by the recent message: ledger row stays.
       expect(second.media_paths).toEqual([]);
       expect(scalar<number>(`count(*) from public.patient_media where object_path = '/objects/patient-media/${P1}/chat-shared'`)).toBe(1);
-      expect(second.conversations_deleted).toBe(0);
+      expect(second.conversations_deleted).toBe(1);
+      // Human care-team rows use the same policy. Once its transcript is
+      // empty, workflow notes and both read-marker kinds disappear by cascade.
+      expect(scalar<number>(`count(*) from public.patient_chat_conversations where id = '${C3}'`)).toBe(0);
+      expect(scalar<number>(`count(*) from public.patient_chat_notes`)).toBe(0);
+      expect(scalar<number>(`count(*) from public.patient_chat_read_markers`)).toBe(0);
+      expect(scalar<number>(`count(*) from public.patient_chat_patient_read_markers`)).toBe(0);
       // The patient with a pending deletion request keeps every message.
       expect(scalar<number>(`count(*) from public.patient_chat_messages where conversation_id = '${C2}'`)).toBe(1);
       // Re-running is a no-op.

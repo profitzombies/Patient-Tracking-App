@@ -82,9 +82,10 @@ beforeEach(() => {
     { id: P1, provider_id: "office-1", auth_user_id: "auth-1", activation_status: "activated", program_id: "thinnr", program_start_date: "2026-06-01", first_name: "Pat", last_name: "Example", email: "pat@example.com", deletion_requested_at: null },
     { id: P2, provider_id: "office-1", auth_user_id: "auth-2", activation_status: "activated", program_id: "glp", first_name: "Other", deletion_requested_at: null },
   );
-  for (const table of ["patient_diary_entries", "patient_water_days", "patient_target_overrides", "patient_food_prefs", "patient_custom_foods", "patient_saved_recipes", "patient_check_ins", "patient_health_measurements", "patient_body_measurements", "patient_staff_weights", "patient_medications", "patient_medication_dose_logs", "patient_progress_photos", "patient_media", "patient_chat_conversations", "patient_chat_messages", "patient_flags", "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections", "patient_bloodwork_extraction_pages"]) {
+  for (const table of ["providers", "patient_diary_entries", "patient_water_days", "patient_target_overrides", "patient_food_prefs", "patient_custom_foods", "patient_saved_recipes", "patient_check_ins", "patient_health_measurements", "patient_body_measurements", "patient_staff_weights", "patient_medications", "patient_medication_dose_logs", "patient_progress_photos", "patient_media", "patient_chat_conversations", "patient_chat_messages", "patient_flags", "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections", "patient_bloodwork_extraction_pages"]) {
     mocks.supabase.tables[table] = [];
   }
+  mocks.supabase.tables.providers.push({ provider_id: "office-1", office_name: "Riverside Health" });
   mocks.supabase.tables.patient_diary_entries.push(
     { patient_id: P1, entry_id: "e1", date_key: "2026-09-01", name: "Eggs", calories: 140 },
     { patient_id: P2, entry_id: "e2", date_key: "2026-09-01", name: "SECRET OTHER FOOD", calories: 900 },
@@ -99,7 +100,7 @@ beforeEach(() => {
     { id: fakeUuid(711), patient_id: P1, medication_id: fakeUuid(701), due_date: "2026-09-01", due_time: "08:00", status: "taken" },
     { id: fakeUuid(712), patient_id: P2, medication_id: fakeUuid(702), due_date: "2026-09-01", due_time: "08:00", status: "taken" },
   );
-  mocks.supabase.tables.patient_chat_conversations.push({ id: fakeUuid(501), patient_id: P1, thread: "coach" });
+  mocks.supabase.tables.patient_chat_conversations.push({ id: fakeUuid(501), patient_id: P1, provider_id: "office-1", thread: "coach" });
   mocks.supabase.tables.patient_chat_messages.push({ conversation_id: fakeUuid(501), client_id: "m1", seq: 1, role: "user", text: "hello coach", photo: { path: `/objects/patient-media/${P1}/chat-1.jpg` } });
   mocks.saved.set(`/objects/patient-media/${P1}/photo-1.jpg`, { buffer: Buffer.from("PHOTO-BYTES"), contentType: "image/jpeg" });
   mocks.saved.set(`/objects/patient-media/${P1}/chat-1.jpg`, { buffer: Buffer.from("CHAT-BYTES"), contentType: "image/jpeg" });
@@ -203,6 +204,31 @@ describe("consent", () => {
 
 describe("data export", () => {
   it("queues one job at a time, builds a scoped archive, notifies, signs a short download, and expires", async () => {
+    const humanConversationId = fakeUuid(502);
+    mocks.supabase.tables.patient_chat_conversations.push({
+      id: humanConversationId,
+      patient_id: P1,
+      provider_id: "office-1",
+      thread: "care_team",
+      status: "open",
+      assignee_user_id: fakeUuid(990),
+      assignee_label: "Internal Nurse Name",
+      created_at: "2026-09-01T00:00:00Z",
+      updated_at: "2026-09-02T00:00:00Z",
+    });
+    for (let seq = 1; seq <= 1_205; seq += 1) {
+      mocks.supabase.tables.patient_chat_messages.push({
+        conversation_id: humanConversationId,
+        client_id: `human-${seq}`,
+        seq,
+        role: seq % 2 ? "user" : "staff",
+        text: `retained human message ${seq}`,
+        sender_user_id: fakeUuid(990),
+        sender_label: "Internal Nurse Name",
+        internal_workflow: { routing: "clinical" },
+        created_at: `2026-09-02T00:${String(seq % 60).padStart(2, "0")}:00Z`,
+      });
+    }
     let res = await call("/patient-data/export", "POST");
     expect(res.status).toBe(202);
     const queued = (await res.json() as { export: { id: string; status: string; expiresAt: string } }).export;
@@ -233,8 +259,18 @@ describe("data export", () => {
     expect(all.join("\n")).not.toMatch(/SECRET OTHER FOOD|SECRET OTHER MED|hunter2/);
     expect(await zip.file("preferences.json")!.async("string")).toContain('"goal": "lose"');
     expect(await zip.file("media/photo-1.jpg")!.async("string")).toBe("PHOTO-BYTES");
-    const chat = JSON.parse(await zip.file("chat.json")!.async("string")) as Array<{ messages: Array<{ text: string }> }>;
+    const chat = JSON.parse(await zip.file("chat.json")!.async("string")) as Array<{ conversation: Record<string, unknown>; messages: Array<Record<string, unknown> & { text: string }> }>;
     expect(chat[0].messages[0].text).toBe("hello coach");
+    const human = chat.find((entry) => entry.conversation.channel === "care_team")!;
+    expect(human.conversation).toMatchObject({ businessName: "Riverside Health", channel: "care_team", thread: "care_team" });
+    expect(human.messages).toHaveLength(1_205);
+    expect(human.messages[0]).toMatchObject({ sender: "patient", attribution: "Patient", text: "retained human message 1" });
+    expect(human.messages[1]).toMatchObject({ sender: "Care Team", attribution: "Care Team", text: "retained human message 2" });
+    expect(JSON.stringify(human)).not.toMatch(/Internal Nurse Name|sender_user_id|assignee|workflow|00000000-0000-4000-8000-000000000990/);
+    const humanReads = mocks.supabase.calls.filter((call) =>
+      call.method === "GET" && call.path.includes(`patient_chat_messages?conversation_id=eq.${humanConversationId}`),
+    );
+    expect(humanReads.map((call) => new URL(call.path, "http://fake").searchParams.get("offset"))).toEqual(["0", "1000", "1205"]);
     expect(JSON.parse(await zip.file("profile.json")!.async("string"))).toMatchObject({ id: P1, first_name: "Pat" });
     expect(await zip.file(`bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf`)!.async("string")).toBe("LAB-PDF");
     const bloodwork = JSON.parse(await zip.file("bloodwork.json")!.async("string")) as {

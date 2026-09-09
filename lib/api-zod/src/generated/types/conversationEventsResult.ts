@@ -13,4 +13,6 @@ export interface ConversationEventsResult {
   events: ConversationEvent[];
   /** @nullable */
   nextBefore: number | null;
+  /** @nullable */
+  nextAfter: number | null;
 }

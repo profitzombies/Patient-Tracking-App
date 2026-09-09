@@ -55,9 +55,12 @@ import type {
   ConversationNoteInput,
   ConversationNoteResult,
   ConversationNotesResult,
+  ConversationReadInput,
+  ConversationReadResult,
   ConversationReplyInput,
   ConversationReplyResult,
   ConversationStaffResult,
+  ConversationStartResult,
   ConversationStatusInput,
   ConversationSummaryResult,
   CorrectBloodworkResultParams,
@@ -74,6 +77,8 @@ import type {
   GetBloodworkFileSourceParams,
   GetBloodworkReportParams,
   GetHqAuditEventsParams,
+  GetHqConversationEventsParams,
+  GetHqConversationsParams,
   GetHqEscalationsParams,
   GetHqOfficeComparisonParams,
   GetHqPatientDeletionsParams,
@@ -89,8 +94,11 @@ import type {
   GetOfficePatientRecordParams,
   GetOfficeRosterParams,
   GetOfficeSettingsParams,
+  GetPatientCareTeamMessagesParams,
   HealthStatus,
   HqAuditEventsResult,
+  HqConversationEventsResult,
+  HqConversationSummaryResult,
   HqEscalationResolveInput,
   HqEscalationsResult,
   HqFile,
@@ -119,12 +127,19 @@ import type {
   ListBloodworkReportsParams,
   OfficeAnalyticsResult,
   OfficeComparisonResult,
+  OfficeConversationStartInput,
   OfficeLeaderboardResult,
   OfficeOverridesInput,
   OfficePatientRecord,
   OfficeRosterResult,
   OfficeSettings,
   OperationalRollupResult,
+  PatientCareTeamMessageInput,
+  PatientCareTeamMessageResult,
+  PatientCareTeamMessagesResult,
+  PatientCareTeamResult,
+  PatientCareTeamStartInput,
+  PatientCareTeamStartResult,
   ProgressPhotoFileParams,
   ReplyOfficeConversationParams,
   RetryBloodworkExtractionParams,
@@ -399,6 +414,13 @@ export function useGetCoachAvailability<TData = Awaited<ReturnType<typeof getCoa
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
+
 export const getCoachRecipeImageUrl = () => {
 
 
@@ -3387,6 +3409,77 @@ export function useGetOfficeConversations<TData = Awaited<ReturnType<typeof getO
 
 
 
+export const getStartOfficeConversationUrl = () => {
+
+
+
+
+  return `/api/office/conversations/start`
+}
+
+/**
+ * @summary Get or create a care-team conversation for a patient in the caller's office
+ */
+export const startOfficeConversation = async (officeConversationStartInput: OfficeConversationStartInput, options?: Parameters<typeof customFetch>[1]): Promise<ConversationStartResult> => {
+
+  return customFetch<ConversationStartResult>(getStartOfficeConversationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(officeConversationStartInput)
+  }
+);}
+
+
+
+
+
+export const getStartOfficeConversationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startOfficeConversation>>, TError,{data: BodyType<OfficeConversationStartInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startOfficeConversation>>, TError,{data: BodyType<OfficeConversationStartInput>}, TContext> => {
+
+const mutationKey = ['startOfficeConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startOfficeConversation>>, {data: BodyType<OfficeConversationStartInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  startOfficeConversation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartOfficeConversationMutationResult = NonNullable<Awaited<ReturnType<typeof startOfficeConversation>>>
+    export type StartOfficeConversationMutationBody = BodyType<OfficeConversationStartInput>
+    export type StartOfficeConversationMutationError = ErrorType<void>
+
+    /**
+ * @summary Get or create a care-team conversation for a patient in the caller's office
+ */
+export const useStartOfficeConversation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startOfficeConversation>>, TError,{data: BodyType<OfficeConversationStartInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startOfficeConversation>>,
+        TError,
+        {data: BodyType<OfficeConversationStartInput>},
+        TContext
+      > => {
+      return useMutation(getStartOfficeConversationMutationOptions(options));
+    }
+
 export const getGetOfficeConversationSummaryUrl = (params?: GetOfficeConversationSummaryParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -3572,7 +3665,7 @@ export const getGetOfficeConversationEventsUrl = (conversationId: string,
 }
 
 /**
- * @summary Read a paginated patient transcript in an authorized office (the newest page marks the thread read for the caller)
+ * @summary Read a polling-safe paginated patient transcript without changing read state
  */
 export const getOfficeConversationEvents = async (conversationId: string,
     params?: GetOfficeConversationEventsParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationEventsResult> => {
@@ -3622,7 +3715,7 @@ export type GetOfficeConversationEventsQueryError = ErrorType<void>
 
 
 /**
- * @summary Read a paginated patient transcript in an authorized office (the newest page marks the thread read for the caller)
+ * @summary Read a polling-safe paginated patient transcript without changing read state
  */
 
 export function useGetOfficeConversationEvents<TData = Awaited<ReturnType<typeof getOfficeConversationEvents>>, TError = ErrorType<void>>(
@@ -3643,6 +3736,78 @@ export function useGetOfficeConversationEvents<TData = Awaited<ReturnType<typeof
 
 
 
+
+export const getReadOfficeConversationUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/office/conversations/${conversationId}/read`
+}
+
+/**
+ * @summary Advance the caller's private read high-water mark
+ */
+export const readOfficeConversation = async (conversationId: string,
+    conversationReadInput: ConversationReadInput, options?: Parameters<typeof customFetch>[1]): Promise<ConversationReadResult> => {
+
+  return customFetch<ConversationReadResult>(getReadOfficeConversationUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(conversationReadInput)
+  }
+);}
+
+
+
+
+
+export const getReadOfficeConversationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext> => {
+
+const mutationKey = ['readOfficeConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof readOfficeConversation>>, {conversationId: string;data: BodyType<ConversationReadInput>}> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  readOfficeConversation(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReadOfficeConversationMutationResult = NonNullable<Awaited<ReturnType<typeof readOfficeConversation>>>
+    export type ReadOfficeConversationMutationBody = BodyType<ConversationReadInput>
+    export type ReadOfficeConversationMutationError = ErrorType<void>
+
+    /**
+ * @summary Advance the caller's private read high-water mark
+ */
+export const useReadOfficeConversation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof readOfficeConversation>>,
+        TError,
+        {conversationId: string;data: BodyType<ConversationReadInput>},
+        TContext
+      > => {
+      return useMutation(getReadOfficeConversationMutationOptions(options));
+    }
 
 export const getAssignOfficeConversationUrl = (conversationId: string,
     params?: AssignOfficeConversationParams,) => {
@@ -4136,6 +4301,709 @@ export const useEscalateOfficeConversation = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getEscalateOfficeConversationMutationOptions(options));
+    }
+
+export const getGetPatientCareTeamUrl = () => {
+
+
+
+
+  return `/api/patient-care-team`
+}
+
+/**
+ * @summary Load the patient's current and retained care-team conversations
+ */
+export const getPatientCareTeam = async ( options?: Parameters<typeof customFetch>[1]): Promise<PatientCareTeamResult> => {
+
+  return customFetch<PatientCareTeamResult>(getGetPatientCareTeamUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPatientCareTeamQueryKey = () => {
+    return [
+    `/api/patient-care-team`
+    ] as const;
+    }
+
+
+export const getGetPatientCareTeamQueryOptions = <TData = Awaited<ReturnType<typeof getPatientCareTeam>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientCareTeam>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPatientCareTeamQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatientCareTeam>>> = ({ signal }) => getPatientCareTeam({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPatientCareTeam>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPatientCareTeamQueryResult = NonNullable<Awaited<ReturnType<typeof getPatientCareTeam>>>
+export type GetPatientCareTeamQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Load the patient's current and retained care-team conversations
+ */
+
+export function useGetPatientCareTeam<TData = Awaited<ReturnType<typeof getPatientCareTeam>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientCareTeam>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPatientCareTeamQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getStartPatientCareTeamUrl = () => {
+
+
+
+
+  return `/api/patient-care-team/start`
+}
+
+/**
+ * @summary Get or create the patient's current-provider care-team conversation
+ */
+export const startPatientCareTeam = async (patientCareTeamStartInput: PatientCareTeamStartInput, options?: Parameters<typeof customFetch>[1]): Promise<PatientCareTeamStartResult> => {
+
+  return customFetch<PatientCareTeamStartResult>(getStartPatientCareTeamUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(patientCareTeamStartInput)
+  }
+);}
+
+
+
+
+
+export const getStartPatientCareTeamMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startPatientCareTeam>>, TError,{data: BodyType<PatientCareTeamStartInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startPatientCareTeam>>, TError,{data: BodyType<PatientCareTeamStartInput>}, TContext> => {
+
+const mutationKey = ['startPatientCareTeam'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startPatientCareTeam>>, {data: BodyType<PatientCareTeamStartInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  startPatientCareTeam(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartPatientCareTeamMutationResult = NonNullable<Awaited<ReturnType<typeof startPatientCareTeam>>>
+    export type StartPatientCareTeamMutationBody = BodyType<PatientCareTeamStartInput>
+    export type StartPatientCareTeamMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Get or create the patient's current-provider care-team conversation
+ */
+export const useStartPatientCareTeam = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startPatientCareTeam>>, TError,{data: BodyType<PatientCareTeamStartInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startPatientCareTeam>>,
+        TError,
+        {data: BodyType<PatientCareTeamStartInput>},
+        TContext
+      > => {
+      return useMutation(getStartPatientCareTeamMutationOptions(options));
+    }
+
+export const getGetPatientCareTeamMessagesUrl = (conversationId: string,
+    params?: GetPatientCareTeamMessagesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/patient-care-team/${conversationId}/messages?${stringifiedParams}` : `/api/patient-care-team/${conversationId}/messages`
+}
+
+/**
+ * @summary Read patient-safe care-team messages without employee identity
+ */
+export const getPatientCareTeamMessages = async (conversationId: string,
+    params?: GetPatientCareTeamMessagesParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientCareTeamMessagesResult> => {
+
+  return customFetch<PatientCareTeamMessagesResult>(getGetPatientCareTeamMessagesUrl(conversationId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPatientCareTeamMessagesQueryKey = (conversationId: string,
+    params?: GetPatientCareTeamMessagesParams,) => {
+    return [
+    `/api/patient-care-team/${conversationId}/messages`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetPatientCareTeamMessagesQueryOptions = <TData = Awaited<ReturnType<typeof getPatientCareTeamMessages>>, TError = ErrorType<void>>(conversationId: string,
+    params?: GetPatientCareTeamMessagesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientCareTeamMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPatientCareTeamMessagesQueryKey(conversationId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatientCareTeamMessages>>> = ({ signal }) => getPatientCareTeamMessages(conversationId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: conversationId !== null && conversationId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPatientCareTeamMessages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPatientCareTeamMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof getPatientCareTeamMessages>>>
+export type GetPatientCareTeamMessagesQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read patient-safe care-team messages without employee identity
+ */
+
+export function useGetPatientCareTeamMessages<TData = Awaited<ReturnType<typeof getPatientCareTeamMessages>>, TError = ErrorType<void>>(
+ conversationId: string,
+    params?: GetPatientCareTeamMessagesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientCareTeamMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPatientCareTeamMessagesQueryOptions(conversationId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSendPatientCareTeamMessageUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/patient-care-team/${conversationId}/messages`
+}
+
+/**
+ * @summary Send a plain-text message as the authenticated patient
+ */
+export const sendPatientCareTeamMessage = async (conversationId: string,
+    patientCareTeamMessageInput: PatientCareTeamMessageInput, options?: Parameters<typeof customFetch>[1]): Promise<PatientCareTeamMessageResult> => {
+
+  return customFetch<PatientCareTeamMessageResult>(getSendPatientCareTeamMessageUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(patientCareTeamMessageInput)
+  }
+);}
+
+
+
+
+
+export const getSendPatientCareTeamMessageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendPatientCareTeamMessage>>, TError,{conversationId: string;data: BodyType<PatientCareTeamMessageInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendPatientCareTeamMessage>>, TError,{conversationId: string;data: BodyType<PatientCareTeamMessageInput>}, TContext> => {
+
+const mutationKey = ['sendPatientCareTeamMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendPatientCareTeamMessage>>, {conversationId: string;data: BodyType<PatientCareTeamMessageInput>}> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  sendPatientCareTeamMessage(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendPatientCareTeamMessageMutationResult = NonNullable<Awaited<ReturnType<typeof sendPatientCareTeamMessage>>>
+    export type SendPatientCareTeamMessageMutationBody = BodyType<PatientCareTeamMessageInput>
+    export type SendPatientCareTeamMessageMutationError = ErrorType<void>
+
+    /**
+ * @summary Send a plain-text message as the authenticated patient
+ */
+export const useSendPatientCareTeamMessage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendPatientCareTeamMessage>>, TError,{conversationId: string;data: BodyType<PatientCareTeamMessageInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendPatientCareTeamMessage>>,
+        TError,
+        {conversationId: string;data: BodyType<PatientCareTeamMessageInput>},
+        TContext
+      > => {
+      return useMutation(getSendPatientCareTeamMessageMutationOptions(options));
+    }
+
+export const getReadPatientCareTeamUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/patient-care-team/${conversationId}/read`
+}
+
+/**
+ * @summary Advance the patient's private read high-water mark
+ */
+export const readPatientCareTeam = async (conversationId: string,
+    conversationReadInput: ConversationReadInput, options?: Parameters<typeof customFetch>[1]): Promise<ConversationReadResult> => {
+
+  return customFetch<ConversationReadResult>(getReadPatientCareTeamUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(conversationReadInput)
+  }
+);}
+
+
+
+
+
+export const getReadPatientCareTeamMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readPatientCareTeam>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof readPatientCareTeam>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext> => {
+
+const mutationKey = ['readPatientCareTeam'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof readPatientCareTeam>>, {conversationId: string;data: BodyType<ConversationReadInput>}> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  readPatientCareTeam(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReadPatientCareTeamMutationResult = NonNullable<Awaited<ReturnType<typeof readPatientCareTeam>>>
+    export type ReadPatientCareTeamMutationBody = BodyType<ConversationReadInput>
+    export type ReadPatientCareTeamMutationError = ErrorType<void>
+
+    /**
+ * @summary Advance the patient's private read high-water mark
+ */
+export const useReadPatientCareTeam = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readPatientCareTeam>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof readPatientCareTeam>>,
+        TError,
+        {conversationId: string;data: BodyType<ConversationReadInput>},
+        TContext
+      > => {
+      return useMutation(getReadPatientCareTeamMutationOptions(options));
+    }
+
+export const getGetHqConversationsUrl = (params?: GetHqConversationsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/conversations?${stringifiedParams}` : `/api/hq/conversations`
+}
+
+/**
+ * @summary Read permission-scoped conversation summaries across active offices
+ */
+export const getHqConversations = async (params?: GetHqConversationsParams, options?: Parameters<typeof customFetch>[1]): Promise<HqConversationSummaryResult> => {
+
+  return customFetch<HqConversationSummaryResult>(getGetHqConversationsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqConversationsQueryKey = (params?: GetHqConversationsParams,) => {
+    return [
+    `/api/hq/conversations`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqConversationsQueryOptions = <TData = Awaited<ReturnType<typeof getHqConversations>>, TError = ErrorType<unknown>>(params?: GetHqConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqConversationsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqConversations>>> = ({ signal }) => getHqConversations(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqConversations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqConversationsQueryResult = NonNullable<Awaited<ReturnType<typeof getHqConversations>>>
+export type GetHqConversationsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Read permission-scoped conversation summaries across active offices
+ */
+
+export function useGetHqConversations<TData = Awaited<ReturnType<typeof getHqConversations>>, TError = ErrorType<unknown>>(
+ params?: GetHqConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqConversationsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqConversationEventsUrl = (conversationId: string,
+    params?: GetHqConversationEventsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/conversations/${conversationId}/events?${stringifiedParams}` : `/api/hq/conversations/${conversationId}/events`
+}
+
+/**
+ * @summary Read a polling-safe, permission-scoped transcript
+ */
+export const getHqConversationEvents = async (conversationId: string,
+    params?: GetHqConversationEventsParams, options?: Parameters<typeof customFetch>[1]): Promise<HqConversationEventsResult> => {
+
+  return customFetch<HqConversationEventsResult>(getGetHqConversationEventsUrl(conversationId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqConversationEventsQueryKey = (conversationId: string,
+    params?: GetHqConversationEventsParams,) => {
+    return [
+    `/api/hq/conversations/${conversationId}/events`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqConversationEventsQueryOptions = <TData = Awaited<ReturnType<typeof getHqConversationEvents>>, TError = ErrorType<void>>(conversationId: string,
+    params?: GetHqConversationEventsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqConversationEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqConversationEventsQueryKey(conversationId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqConversationEvents>>> = ({ signal }) => getHqConversationEvents(conversationId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: conversationId !== null && conversationId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqConversationEvents>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqConversationEventsQueryResult = NonNullable<Awaited<ReturnType<typeof getHqConversationEvents>>>
+export type GetHqConversationEventsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read a polling-safe, permission-scoped transcript
+ */
+
+export function useGetHqConversationEvents<TData = Awaited<ReturnType<typeof getHqConversationEvents>>, TError = ErrorType<void>>(
+ conversationId: string,
+    params?: GetHqConversationEventsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqConversationEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqConversationEventsQueryOptions(conversationId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqConversationNotesUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/hq/conversations/${conversationId}/notes`
+}
+
+/**
+ * @summary Read permission-scoped internal notes
+ */
+export const getHqConversationNotes = async (conversationId: string, options?: Parameters<typeof customFetch>[1]): Promise<ConversationNotesResult> => {
+
+  return customFetch<ConversationNotesResult>(getGetHqConversationNotesUrl(conversationId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqConversationNotesQueryKey = (conversationId: string,) => {
+    return [
+    `/api/hq/conversations/${conversationId}/notes`
+    ] as const;
+    }
+
+
+export const getGetHqConversationNotesQueryOptions = <TData = Awaited<ReturnType<typeof getHqConversationNotes>>, TError = ErrorType<void>>(conversationId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqConversationNotes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqConversationNotesQueryKey(conversationId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqConversationNotes>>> = ({ signal }) => getHqConversationNotes(conversationId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: conversationId !== null && conversationId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqConversationNotes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqConversationNotesQueryResult = NonNullable<Awaited<ReturnType<typeof getHqConversationNotes>>>
+export type GetHqConversationNotesQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read permission-scoped internal notes
+ */
+
+export function useGetHqConversationNotes<TData = Awaited<ReturnType<typeof getHqConversationNotes>>, TError = ErrorType<void>>(
+ conversationId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqConversationNotes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqConversationNotesQueryOptions(conversationId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReadHqConversationUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/hq/conversations/${conversationId}/read`
+}
+
+/**
+ * @summary Advance only the HQ viewer's private read high-water mark
+ */
+export const readHqConversation = async (conversationId: string,
+    conversationReadInput: ConversationReadInput, options?: Parameters<typeof customFetch>[1]): Promise<ConversationReadResult> => {
+
+  return customFetch<ConversationReadResult>(getReadHqConversationUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(conversationReadInput)
+  }
+);}
+
+
+
+
+
+export const getReadHqConversationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readHqConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof readHqConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext> => {
+
+const mutationKey = ['readHqConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof readHqConversation>>, {conversationId: string;data: BodyType<ConversationReadInput>}> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  readHqConversation(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReadHqConversationMutationResult = NonNullable<Awaited<ReturnType<typeof readHqConversation>>>
+    export type ReadHqConversationMutationBody = BodyType<ConversationReadInput>
+    export type ReadHqConversationMutationError = ErrorType<void>
+
+    /**
+ * @summary Advance only the HQ viewer's private read high-water mark
+ */
+export const useReadHqConversation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readHqConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof readHqConversation>>,
+        TError,
+        {conversationId: string;data: BodyType<ConversationReadInput>},
+        TContext
+      > => {
+      return useMutation(getReadHqConversationMutationOptions(options));
     }
 
 export const getGetHqEscalationsUrl = (params?: GetHqEscalationsParams,) => {
@@ -6859,3 +7727,10 @@ export function useListBloodworkCorrections<TData = Awaited<ReturnType<typeof li
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
+

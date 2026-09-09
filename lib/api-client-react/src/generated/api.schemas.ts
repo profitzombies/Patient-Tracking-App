@@ -473,6 +473,15 @@ export type ConversationSummaryThread = typeof ConversationSummaryThread[keyof t
 export const ConversationSummaryThread = {
   coach: 'coach',
   support: 'support',
+  care_team: 'care_team',
+} as const;
+
+export type ConversationSummaryChannel = typeof ConversationSummaryChannel[keyof typeof ConversationSummaryChannel];
+
+
+export const ConversationSummaryChannel = {
+  care_team: 'care_team',
+  ai: 'ai',
 } as const;
 
 /**
@@ -492,6 +501,9 @@ export interface ConversationSummary {
   patientId: string;
   patientName: string;
   thread: ConversationSummaryThread;
+  channel: ConversationSummaryChannel;
+  providerId: string;
+  officeName: string;
   /** Persisted workflow status; idle threads past the auto-close window read as closed */
   status: ConversationSummaryStatus;
   assignee: ConversationAssignee | null;
@@ -560,6 +572,8 @@ export const ConversationEventRole = {
 
 export interface ConversationEvent {
   seq: number;
+  /** @nullable */
+  clientId: string | null;
   role: ConversationEventRole;
   text: string;
   stopped: boolean;
@@ -567,7 +581,12 @@ export interface ConversationEvent {
      * Staff messages only: who on the care team sent it
      * @nullable
      */
-  senderLabel?: string | null;
+  senderLabel: string | null;
+  /**
+     * Staff messages only: server-derived sender user id
+     * @nullable
+     */
+  senderUserId: string | null;
   createdAt: string;
 }
 
@@ -576,6 +595,164 @@ export interface ConversationEventsResult {
   events: ConversationEvent[];
   /** @nullable */
   nextBefore: number | null;
+  /** @nullable */
+  nextAfter: number | null;
+}
+
+export type HqConversationSummaryThread = typeof HqConversationSummaryThread[keyof typeof HqConversationSummaryThread];
+
+
+export const HqConversationSummaryThread = {
+  coach: 'coach',
+  support: 'support',
+  care_team: 'care_team',
+} as const;
+
+export type HqConversationSummaryChannel = typeof HqConversationSummaryChannel[keyof typeof HqConversationSummaryChannel];
+
+
+export const HqConversationSummaryChannel = {
+  care_team: 'care_team',
+  ai: 'ai',
+} as const;
+
+export type HqConversationSummaryStatus = typeof HqConversationSummaryStatus[keyof typeof HqConversationSummaryStatus];
+
+
+export const HqConversationSummaryStatus = {
+  open: 'open',
+  waiting_patient: 'waiting_patient',
+  closed: 'closed',
+} as const;
+
+export interface HqConversationSummary {
+  id: string;
+  patientId: string;
+  patientName: string;
+  providerId: string;
+  officeName: string;
+  thread: HqConversationSummaryThread;
+  channel: HqConversationSummaryChannel;
+  status: HqConversationSummaryStatus;
+  assignee: ConversationAssignee | null;
+  /** @nullable */
+  lastPatientMessageAt: string | null;
+  /** @nullable */
+  lastStaffReplyAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HqConversationSummaryResult {
+  conversations: HqConversationSummary[];
+  total: number;
+  autoCloseDays: number;
+}
+
+export interface HqConversationEventsResult {
+  events: ConversationEvent[];
+  /** @nullable */
+  nextBefore: number | null;
+  /** @nullable */
+  nextAfter: number | null;
+}
+
+export type PatientCareTeamConversationStatus = typeof PatientCareTeamConversationStatus[keyof typeof PatientCareTeamConversationStatus];
+
+
+export const PatientCareTeamConversationStatus = {
+  open: 'open',
+  waiting_patient: 'waiting_patient',
+  closed: 'closed',
+} as const;
+
+export interface PatientCareTeamConversation {
+  id: string;
+  providerId: string;
+  businessName: string;
+  current: boolean;
+  canSend: boolean;
+  status: PatientCareTeamConversationStatus;
+  unreadCount: number;
+  lastMessageSeq: number;
+  lastReadSeq: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PatientCareTeamResult {
+  current: PatientCareTeamConversation | null;
+  retained: PatientCareTeamConversation[];
+}
+
+export interface PatientCareTeamStartInput { [key: string]: unknown }
+
+export interface PatientCareTeamStartResult {
+  conversation: PatientCareTeamConversation;
+  created: boolean;
+}
+
+export type PatientCareTeamMessageSender = typeof PatientCareTeamMessageSender[keyof typeof PatientCareTeamMessageSender];
+
+
+export const PatientCareTeamMessageSender = {
+  patient: 'patient',
+  care_team: 'care_team',
+} as const;
+
+export interface PatientCareTeamMessage {
+  seq: number;
+  clientId: string;
+  sender: PatientCareTeamMessageSender;
+  text: string;
+  createdAt: string;
+}
+
+export interface PatientCareTeamMessagesResult {
+  conversation: PatientCareTeamConversation;
+  messages: PatientCareTeamMessage[];
+  /** @nullable */
+  nextBefore: number | null;
+  /** @nullable */
+  nextAfter: number | null;
+}
+
+export interface PatientCareTeamMessageInput {
+  /**
+     * @minLength 1
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9._:-]+$
+     */
+  clientId: string;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  text: string;
+}
+
+export interface PatientCareTeamMessageResult {
+  message: PatientCareTeamMessage;
+  created: boolean;
+}
+
+export interface OfficeConversationStartInput {
+  patientId: string;
+}
+
+export interface ConversationStartResult {
+  conversation: ConversationSummary;
+  created: boolean;
+}
+
+export interface ConversationReadInput {
+  /** @minimum 1 */
+  throughSeq: number;
+}
+
+export interface ConversationReadResult {
+  lastReadSeq: number;
+  changed: boolean;
 }
 
 export interface QuietHoursWindow {
@@ -656,7 +833,16 @@ export interface ConversationMutationResult {
   conversation: ConversationSummary;
 }
 
+/**
+ * Human Care Team sends require a stable clientId, reused unchanged on retry. Only legacy AI-to-Care-Team redirection may omit it.
+ */
 export interface ConversationReplyInput {
+  /**
+     * @minLength 1
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9._:-]+$
+     */
+  clientId?: string;
   /**
      * @minLength 1
      * @maxLength 4000
@@ -2864,6 +3050,8 @@ export type GetOfficeConversationsParams = {
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */
 office?: OfficeIdParameter;
+channel?: GetOfficeConversationsChannel;
+patientId?: string;
 thread?: GetOfficeConversationsThread;
 /**
  * Workflow status filter. Threads idle longer than the organization's conversation auto-close window (HQ settings) count as closed.
@@ -2895,12 +3083,22 @@ limit?: number;
 offset?: number;
 };
 
+export type GetOfficeConversationsChannel = typeof GetOfficeConversationsChannel[keyof typeof GetOfficeConversationsChannel];
+
+
+export const GetOfficeConversationsChannel = {
+  all: 'all',
+  care_team: 'care_team',
+  ai: 'ai',
+} as const;
+
 export type GetOfficeConversationsThread = typeof GetOfficeConversationsThread[keyof typeof GetOfficeConversationsThread];
 
 
 export const GetOfficeConversationsThread = {
   coach: 'coach',
   support: 'support',
+  care_team: 'care_team',
 } as const;
 
 export type GetOfficeConversationsStatus = typeof GetOfficeConversationsStatus[keyof typeof GetOfficeConversationsStatus];
@@ -2945,6 +3143,10 @@ office?: OfficeIdParameter;
  * @minimum 1
  */
 before?: number;
+/**
+ * @minimum 1
+ */
+after?: number;
 /**
  * @minimum 1
  * @maximum 100
@@ -2992,6 +3194,105 @@ export type EscalateOfficeConversationParams = {
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */
 office?: OfficeIdParameter;
+};
+
+export type GetPatientCareTeamMessagesParams = {
+/**
+ * @minimum 1
+ */
+before?: number;
+/**
+ * @minimum 1
+ */
+after?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
+
+export type GetHqConversationsParams = {
+/**
+ * @maxLength 240
+ */
+office?: string;
+patientId?: string;
+channel?: GetHqConversationsChannel;
+thread?: GetHqConversationsThread;
+status?: GetHqConversationsStatus;
+/**
+ * @maxLength 80
+ */
+assignee?: string;
+unread?: boolean;
+/**
+ * @maxLength 120
+ */
+q?: string;
+sort?: GetHqConversationsSort;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
+export type GetHqConversationsChannel = typeof GetHqConversationsChannel[keyof typeof GetHqConversationsChannel];
+
+
+export const GetHqConversationsChannel = {
+  all: 'all',
+  care_team: 'care_team',
+  ai: 'ai',
+} as const;
+
+export type GetHqConversationsThread = typeof GetHqConversationsThread[keyof typeof GetHqConversationsThread];
+
+
+export const GetHqConversationsThread = {
+  coach: 'coach',
+  support: 'support',
+  care_team: 'care_team',
+} as const;
+
+export type GetHqConversationsStatus = typeof GetHqConversationsStatus[keyof typeof GetHqConversationsStatus];
+
+
+export const GetHqConversationsStatus = {
+  open: 'open',
+  waiting_patient: 'waiting_patient',
+  closed: 'closed',
+} as const;
+
+export type GetHqConversationsSort = typeof GetHqConversationsSort[keyof typeof GetHqConversationsSort];
+
+
+export const GetHqConversationsSort = {
+  newest: 'newest',
+  oldest: 'oldest',
+  waiting_longest: 'waiting_longest',
+  unread_first: 'unread_first',
+} as const;
+
+export type GetHqConversationEventsParams = {
+/**
+ * @minimum 1
+ */
+before?: number;
+/**
+ * @minimum 1
+ */
+after?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };
 
 export type GetHqEscalationsParams = {

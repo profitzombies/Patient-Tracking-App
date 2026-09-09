@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useParams, Link } from "wouter";
+import { useParams, Link, useLocation } from "wouter";
 import {
   ArrowLeft,
   Calendar,
@@ -49,6 +49,7 @@ import {
   type OfficeDiaryEntry,
   type OfficePatientDetail,
 } from "@/lib/office-roster";
+import { useStartOfficeConversation } from "@workspace/api-client-react";
 import {
   fetchPatientSessions,
   signOutPatientSessions,
@@ -419,6 +420,26 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
     onError: (error) => toast({ variant: 'destructive', title: 'Could not force sign-out', description: error instanceof Error ? error.message : 'Try again.' }),
   });
 
+  const startConv = useStartOfficeConversation();
+  const [, setLocation] = useLocation();
+  const messageScopeRef = useRef(`${office ?? 'own'}:${id}`);
+  messageScopeRef.current = `${office ?? 'own'}:${id}`;
+
+  const handleMessage = () => {
+    if (isHq) return; // shouldn't happen, CTA hidden
+    const operationScope = messageScopeRef.current;
+    startConv.mutate({ data: { patientId: id } }, {
+      onSuccess: (res) => {
+        if (messageScopeRef.current !== operationScope) return;
+        setLocation(`/conversations?channel=care_team&conversation=${res.conversation.id}`);
+      },
+      onError: (error) => {
+        if (messageScopeRef.current !== operationScope) return;
+        toast({ variant: 'destructive', title: 'Could not start conversation', description: error instanceof Error ? error.message : 'Try again.' });
+      }
+    });
+  };
+
   if (detail.isLoading) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center text-sm text-muted-foreground">Loading patient record…</div>;
   if (detail.isError && detail.error instanceof OfficeRosterError && detail.error.isDeleted) {
     return <div className="mx-auto max-w-[720px] px-5 py-12"><DeletedRecordNotice message={detail.error.message} deleted={detail.error.deleted} /></div>;
@@ -466,7 +487,10 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{identity.email ?? 'No email on file'}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{identity.phoneDisplay ?? identity.phone ?? 'No phone on file'}</span></div>
             </div>
           </div>
-          {canEdit && <div><EditPatientProfile patient={record.patient} office={office} /></div>}
+          <div className="flex flex-wrap gap-2">
+            {!isHq && <button onClick={handleMessage} disabled={startConv.isPending} className={`${BTN_PRIMARY} h-9 px-4`} data-testid="button-message-patient">{startConv.isPending ? 'Starting...' : 'Message'}</button>}
+            {canEdit && <EditPatientProfile patient={record.patient} office={office} />}
+          </div>
         </div>
         {record.patient.deletion && <div className="mt-5"><DeletionBanner deletion={record.patient.deletion} /></div>}
       </header>

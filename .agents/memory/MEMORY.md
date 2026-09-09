@@ -19,6 +19,7 @@
 - [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).
 - [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
 - [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — merges don't restart workflows; Metro AND the build-at-startup api-server go stale silently — restart, then grep the served bundle/dist for a new-code marker.
+- [Rebase configuration and runtimes](rebase-config-runtime.md) — conflicted .replit can temporarily remove Node/pnpm/Python from shells; validate the merged config before reinstalling tools.
 - [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel subagents drift on state semantics AND promise shared-layer behavior that isn't implemented; spec briefs + review the seams.
 - [Custom tab labels drop accessible names](tab-label-a11y.md) — a function tabBarLabel needs tabBarAccessibilityLabel per screen, or every tab silently loses its screen-reader name.
@@ -103,7 +104,7 @@
 - [Coach paused state](coach-paused-state.md) — HQ availability toggle → probe on open + paused 503 on send is terminal and non-retryable; one probe source for every coach entry point.
 - [Office team roles & audit read layer](office-team-and-audit.md) — owner/admin/staff with DB last-owner guard, fail-closed disabled members, app-side audit allowlists; DOM-free Radix stubs + form onSubmit for RTR suites.
 - [Patient purge lifecycle](patient-purge-lifecycle.md) — tombstone-first FK-ordered idempotent purge; null-patient_id guard skip + analytics detach carve-out; grace fixtures ride the real clock.
-- [Staff inbox over patient chat](staff-inbox-workflow.md) — workflow state is trigger-derived (upsert replays are safe); staff rows are server-owned and refresh-delivered; coach folds staff turns to context; HQ auto-close window is a read-time overlay via RPC cutoff.
+- [Shared conversation inbox](staff-inbox-workflow.md) — human chats stay outside AI; ownership includes metrics; first-read races and service-role RPCs need real-PG proof.
 - [System jobs framework](system-jobs-framework.md) — all clean-up rides the leased job ledger (intents, two-way reconcile flags, dry-run neutrality); live traps: pg-safeupdate bare DELETE, locate("/objects/"), real-HQ tester login recipe.
 - [Offline patient write queue](offline-write-queue.md) — state=project(base,queue), head-first drain, cached launches refresh truth first; receipts claimed BEFORE the write; photo uploads pinned by client id.
 - [Scoped style font reset trap](scoped-style-font-reset.md) — `.root button{font:inherit}` (0,1,1) beats class font-size rules; use font-family:inherit in mockup <style> blocks; verify subagent captures yourself.

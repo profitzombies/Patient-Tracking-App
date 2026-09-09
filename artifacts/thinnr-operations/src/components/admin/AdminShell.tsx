@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
+import { DataDisclaimerFooter } from '@/components/layout/DataDisclaimerFooter';
 import { canHq, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
 import { UnauthorizedState } from '@/components/admin/primitives';
@@ -100,9 +101,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     description?.setAttribute(
       'content',
-      `Synthetic THINNR HQ admin demo: ${activeItem.label.toLowerCase()} across every provider account.`,
+      authStatus === 'signed-out'
+        ? `Synthetic THINNR HQ admin demo: ${activeItem.label.toLowerCase()} across every provider account.`
+        : `THINNR HQ administration: ${activeItem.label.toLowerCase()} across provider accounts.`,
     );
-  }, [activeItem.label]);
+  }, [activeItem.label, authStatus]);
 
   const handleSignOut = () => {
     signOut();
@@ -204,12 +207,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        {/* Synthetic data disclaimer footer */}
-        <div className="shrink-0 border-t border-border bg-sidebar px-5 py-2 text-center">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">
-            Synthetic Demo Data • Not Medical Advice
-          </p>
-        </div>
+        <DataDisclaimerFooter />
       </section>
     </div>
   );

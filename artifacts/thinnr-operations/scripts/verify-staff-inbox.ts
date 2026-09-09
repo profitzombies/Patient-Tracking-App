@@ -1,43 +1,39 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const conversations = readFileSync(new URL('../src/pages/admin/Conversations.tsx', import.meta.url), 'utf8');
-const escalations = readFileSync(new URL('../src/pages/admin/Escalations.tsx', import.meta.url), 'utf8');
-const shell = readFileSync(new URL('../src/components/admin/AdminShell.tsx', import.meta.url), 'utf8');
-const permissions = readFileSync(new URL('../src/data/hq/team.ts', import.meta.url), 'utf8');
-const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const office = readFileSync(new URL('../src/pages/OfficeConversations.tsx', import.meta.url), 'utf8');
+const hq = readFileSync(new URL('../src/components/conversations/HqConversations.tsx', import.meta.url), 'utf8');
+const admin = readFileSync(new URL('../src/pages/admin/Conversations.tsx', import.meta.url), 'utf8');
+const nav = readFileSync(new URL('../src/components/layout/nav-config.tsx', import.meta.url), 'utf8');
 
-for (const parameter of ['office', 'thread', 'status', 'assignee', 'unread', 'q', 'sort', 'conversation']) {
-  assert.match(conversations, new RegExp(`['"]${parameter}['"]|${parameter}:`), `missing ${parameter} URL/API filter`);
+for (const parameter of ['channel', 'thread', 'status', 'assignee', 'unread', 'q', 'sort', 'offset', 'conversation']) {
+  assert.match(office, new RegExp(`${parameter}`), `office inbox is missing ${parameter}`);
+  assert.match(hq, new RegExp(`${parameter}`), `HQ inbox is missing ${parameter}`);
 }
-for (const hook of [
-  'useGetOfficeConversationSummary', 'useGetOfficeConversationStaff', 'useAssignOfficeConversation',
-  'useSetOfficeConversationStatus', 'useReplyOfficeConversation', 'useAddOfficeConversationNote',
-  'useEscalateOfficeConversation',
-]) assert.ok(conversations.includes(hook), `missing ${hook}`);
-assert.match(conversations, /conv\.unread.*Unread conversation/s);
-assert.match(conversations, /message\.role === 'staff'/);
-assert.match(conversations, /senderLabel \?\? 'Care team'/);
-assert.match(conversations, /assigneeUserId/);
-assert.match(conversations, /data: \{ status \}/);
-assert.match(conversations, /data: \{ text: replyText\.trim\(\) \}/);
-assert.match(conversations, /data: \{ body: noteText\.trim\(\) \}/);
-assert.match(conversations, /status\?: number.*409/s);
-assert.match(conversations, /already escalated/i);
+assert.match(hq, /patientId/);
+assert.match(hq, /office: accountFilter/);
+assert.match(office, /refetchInterval: 5_000/);
+assert.match(hq, /refetchInterval: 5_000/);
+assert.match(office, /after: fetchedThrough/);
+assert.match(hq, /after: fetchedThrough/);
+assert.match(office, /clientId: attempted\.clientId/);
+assert.match(office, /sendReply\(pendingReply\)/);
+assert.match(office, /Open Care Team conversation/);
+assert.match(office, /useStartOfficeConversation/);
+assert.match(office, /useReadOfficeConversation/);
+assert.match(office, /Search the office roster/);
+assert.match(office, /demo-conversations-local/);
+assert.doesNotMatch(office, /as any|undefined as any|care-team-api/);
+assert.doesNotMatch(hq, /useReplyOfficeConversation|useAssignOfficeConversation|useSetOfficeConversationStatus|useAddOfficeConversationNote|useEscalateOfficeConversation/);
+assert.doesNotMatch(hq, /care-team-api|as any/);
+assert.match(hq, /HQ read-only view/);
+assert.match(nav, /path: '\/conversations'/);
 
-assert.match(escalations, /useGetHqEscalations/);
-assert.match(escalations, /department: department \?\? undefined, status/);
-assert.match(escalations, /useResolveHqEscalation/);
-assert.match(escalations, /escalationId: resolveId, data: \{ note:/);
-assert.match(escalations, /query\.data\?\.departments\.map/);
-assert.match(shell, /\/admin\/escalations/);
-assert.match(permissions, /path\.startsWith\('\/admin\/escalations'\)/);
-assert.match(app, /path="\/admin\/escalations"/);
-
-const demoStart = conversations.indexOf('function DemoSupportConversations');
-const liveStart = conversations.indexOf('function LiveConversations');
-const demoRegion = conversations.slice(demoStart, liveStart);
-assert.ok(demoStart >= 0 && liveStart > demoStart);
-assert.doesNotMatch(demoRegion, /useGetOfficeConversation|useReplyOfficeConversation|fetch\(/);
+// Existing signed-out HQ demo selection and historic AI transcript implementation
+// remain in place; live signed-in HQ traffic alone switches to the fleet viewer.
+assert.match(admin, /function DemoClinicalConversations/);
+assert.match(admin, /getConversationMessagesForRole/);
+assert.match(admin, /if \(authStatus === 'signed-in'\)/);
+assert.match(admin, /<HqConversations/);
 
 console.log('staff inbox verification passed');

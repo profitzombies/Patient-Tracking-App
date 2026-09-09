@@ -29,6 +29,9 @@ export interface MemoryPatient {
   timezone?: string | null;
   startingWeight?: number | null;
   activated?: boolean;
+  available?: boolean;
+  officeAvailable?: boolean;
+  officeLocked?: boolean;
   prefs?: Record<string, unknown> | null;
   flags?: Partial<OutreachFacts["flags"]>;
   entries?: OutreachFacts["entries"];
@@ -334,6 +337,9 @@ export class MemoryNotificationStore implements NotificationStore {
       timezone: patient?.timezone ?? null,
       nudgeOptOut: patient?.flags?.nudgeOptOut === true,
       providerId: patient?.providerId ?? null,
+      patientAvailable: !!patient && patient.available !== false,
+      officeAvailable: !!patient && patient.officeAvailable !== false,
+      officeLocked: patient?.officeLocked === true,
     };
   }
 

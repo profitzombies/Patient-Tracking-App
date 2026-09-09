@@ -33,6 +33,7 @@ import { emitChatSync } from '@/lib/chat-sync-events';
 import { useColors } from '@/hooks/useColors';
 import { AppModeProvider } from '@/context/AppModeContext';
 import { CoachChatProvider } from '@/context/CoachChatContext';
+import { CareTeamChatProvider } from '@/context/CareTeamChatContext';
 import { OnboardingProvider } from '@/context/OnboardingContext';
 import { OperationsProvider } from '@/context/OperationsContext';
 import { PatientAccountProvider } from '@/context/PatientAccountProvider';
@@ -46,7 +47,11 @@ import { usePatient } from '@/context/PatientContext';
 import { liveEntryDecision } from '@/lib/live-patient-entry';
 import { supabase } from '@/lib/supabase';
 import { markNotificationOpened } from '@/lib/push-notifications-api';
-import { resolveNotificationRoute } from '@/lib/push-notification-core';
+import {
+  notificationAdmittedForPatient,
+  notificationPatientId,
+  resolveNotificationRoute,
+} from '@/lib/push-notification-core';
 import { reminderDoseFromResponse, type ReminderDoseIntent } from '@/lib/reminder-response';
 
 const publicDomain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -288,6 +293,7 @@ function RootLayoutNav() {
       <Stack.Screen name="patient/[id]/bloodwork/[reportId]" options={{ headerShown: false }} />
       <Stack.Screen name="yesterday-review" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="care-team-chat" options={{ headerShown: false }} />
       <Stack.Screen name="coach-chat" options={{ headerShown: false }} />
       <Stack.Screen name="support-chat" options={{ headerShown: false }} />
       <Stack.Screen
@@ -342,7 +348,11 @@ function PushResponseBridge() {
   const { mode, hydrated: modeHydrated } = useAppMode();
   const { resolving, account } = usePatientAccount();
   const patient = usePatient();
-  const pending = useRef<{ route: string; notificationId: string | null } | null>(null);
+  const pending = useRef<{
+    route: string;
+    notificationId: string | null;
+    patientId: string | null;
+  } | null>(null);
   const pendingDoses = useRef<ReminderDoseIntent[]>([]);
   const opened = useRef(new Set<string>());
   const handledResponses = useRef(new Set<string>());
@@ -367,6 +377,15 @@ function PushResponseBridge() {
     if (handledResponses.current.has(responseId)) return;
     handledResponses.current.add(responseId);
     const data = response.notification.request.content.data;
+    const responsePatientId = notificationPatientId(data);
+    const activePatientId = account.kind === 'real' ? account.patientId : null;
+    // Human-chat actions are patient-owned. A stale notification from an old
+    // account must never be admitted into whichever account happens to be
+    // selected when the native response eventually arrives.
+    if (!notificationAdmittedForPatient(data, activePatientId)) {
+      handledResponses.current.delete(responseId);
+      return;
+    }
     const dose = reminderDoseFromResponse(response, Intl.DateTimeFormat().resolvedOptions().timeZone);
     if (dose) {
       // A medication reminder: "Taken" / "Skip" log the dose straight from
@@ -378,12 +397,12 @@ function PushResponseBridge() {
         else pendingDoses.current.push(dose);
       }
       if (admitted) router.push('/check-in' as Href);
-      else pending.current = { route: '/check-in', notificationId: null };
+       else pending.current = { route: '/check-in', notificationId: null, patientId: activePatientId };
       return;
     }
     if (
       data?.kind === 'care_team_reply' &&
-      (data.thread === 'coach' || data.thread === 'support')
+      (data.thread === 'coach' || data.thread === 'support' || data.thread === 'care_team')
     ) {
       emitChatSync(data.thread);
     }
@@ -393,9 +412,9 @@ function PushResponseBridge() {
       recordOpened(notificationId);
       router.push(route as Href);
     } else {
-      pending.current = { route, notificationId };
+      pending.current = { route, notificationId, patientId: responsePatientId ?? activePatientId };
     }
-  }, [admitted, recordOpened, router]);
+  }, [account, admitted, recordOpened, router]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -404,7 +423,7 @@ function PushResponseBridge() {
       const data = notification.request.content.data;
       if (
         data?.kind === 'care_team_reply' &&
-        (data.thread === 'coach' || data.thread === 'support')
+        (data.thread === 'coach' || data.thread === 'support' || data.thread === 'care_team')
       ) {
         emitChatSync(data.thread);
       }
@@ -426,11 +445,12 @@ function PushResponseBridge() {
       if (dose.status) void logDose({ ...dose.log, status: dose.status });
     }
     if (!pending.current) return;
-    const { route, notificationId } = pending.current;
+    const { route, notificationId, patientId } = pending.current;
     pending.current = null;
+    if (account.kind !== 'real' || !patientId || patientId !== account.patientId) return;
     recordOpened(notificationId);
     router.push(route as Href);
-  }, [admitted, logDose, recordOpened, router]);
+  }, [account, admitted, logDose, recordOpened, router]);
   return null;
 }
 
@@ -474,11 +494,13 @@ export default function RootLayout() {
                          <OnboardingProvider>
                           <DeviceBiometricGate>
                           <CoachChatProvider>
+                          <CareTeamChatProvider>
                             <LivePatientEntryGuard>
                               <RootLayoutNav />
                             </LivePatientEntryGuard>
                             <PushResponseBridge />
                             <PatientSyncNotice />
+                          </CareTeamChatProvider>
                           </CoachChatProvider>
                           </DeviceBiometricGate>
                          </OnboardingProvider>

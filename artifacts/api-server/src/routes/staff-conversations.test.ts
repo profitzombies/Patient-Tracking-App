@@ -129,7 +129,7 @@ beforeEach(() => {
   // Default: HQ policy closes idle threads after 14 days; the inbox RPC knows
   // one conversation; the actor labels resolve.
   on("GET", "/rest/v1/hq_organization_settings?", () => ({ status: 200, json: [{ conversation_auto_close_days: AUTO_CLOSE_DAYS, version: 1 }] }));
-  on("POST", "/rest/v1/rpc/patient_chat_inbox_list", c => {
+  on("POST", "/rest/v1/rpc/patient_chat_inbox_list_guarded", c => {
     const args = c.body as Record<string, unknown>;
     if (args.p_conversation_id && args.p_conversation_id !== CONV) return { status: 200, json: [] };
     if (!(args.p_threads as string[]).includes("coach")) return { status: 200, json: [] };
@@ -139,6 +139,23 @@ beforeEach(() => {
   on("GET", "/rest/v1/providers?provider_id=", () => ({ status: 200, json: [{ auth_user_id: STAFF_USER, provider_name: "Dr. Ellis", office_name: "Office A" }] }));
   on("GET", "/rest/v1/team_members?provider_id=", () => ({ status: 200, json: [{ auth_user_id: TEAMMATE, name: "Nurse Kim" }] }));
   on("GET", "/rest/v1/hq_memberships?", () => ({ status: 200, json: [{ display_name: "Pat Rivera" }] }));
+  on("POST", "/rest/v1/rpc/patient_chat_workflow_mutate", c => {
+    const input = c.body as { p_action: string };
+    if (input.p_action === "note") return { status: 200, json: { id: "note-1" } };
+    if (input.p_action === "escalate") return { status: 200, json: { id: ESC } };
+    return { status: 200, json: { ok: true } };
+  });
+  on("GET", "/rest/v1/patient_chat_notes?id=eq.", () => ({
+    status: 200, json: [{ id: "note-1", author_user_id: STAFF_USER, author_label: "Dr. Ellis", body: "Called the patient about the swap.", created_at: "2026-09-01T11:00:00Z" }],
+  }));
+  on("GET", "/rest/v1/patient_chat_escalations?id=eq.", () => ({ status: 200, json: [{
+    id: ESC, conversation_id: CONV, provider_id: "office-a", department: "clinical",
+    reason: "Reports dizziness", status: "open", created_by_label: "Dr. Ellis",
+    created_at: "2026-09-01T12:00:00Z", resolved_by_label: null, resolved_at: null,
+    resolution_note: null, patient_chat_conversations: {
+      thread: "coach", patient_id: PATIENT, patients: { first_name: "Anna", last_name: "O'Neil" },
+    }, providers: { office_name: "Office A", provider_name: "Dr. Ellis" },
+  }] }));
 });
 
 describe("inbox list", () => {
@@ -149,9 +166,9 @@ describe("inbox list", () => {
     expect(result.json.conversations[0]).toMatchObject({
       id: CONV, patientName: "Anna O'Neil", status: "open", unread: true, assignee: null, preview: "Can I have pasta tonight?", noteCount: 0, openEscalation: null,
     });
-    const args = rpcCalls("patient_chat_inbox_list")[0].body as Record<string, unknown>;
+    const args = rpcCalls("patient_chat_inbox_list_guarded")[0].body as Record<string, unknown>;
     expect(args).toMatchObject({
-      p_provider_id: "office-a", p_staff_user_id: STAFF_USER, p_threads: ["coach", "support"], p_status: "open",
+      p_provider_id: "office-a", p_staff_user_id: STAFF_USER, p_threads: ["coach", "support", "care_team"], p_status: "open",
       p_assignee: STAFF_USER, p_unread_only: true, p_q: "pasta", p_sort: "waiting_longest", p_limit: 20, p_offset: 40, p_conversation_id: null,
     });
   });
@@ -162,14 +179,14 @@ describe("inbox list", () => {
     expect(result.status).toBe(200);
     expect(result.json.autoCloseDays).toBe(AUTO_CLOSE_DAYS);
     expect(result.json.conversations[0].autoClosed).toBe(false);
-    const args = rpcCalls("patient_chat_inbox_list")[0].body as Record<string, unknown>;
+    const args = rpcCalls("patient_chat_inbox_list_guarded")[0].body as Record<string, unknown>;
     const cutoff = Date.parse(String(args.p_auto_close_before));
     expect(Math.abs(before - AUTO_CLOSE_DAYS * 86_400_000 - cutoff)).toBeLessThan(5_000);
   });
 
   it("surfaces threads the RPC filed as closed by the window", async () => {
     routes.unshift({
-      match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list",
+      match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list_guarded",
       reply: () => ({ status: 200, json: [inboxRow({ status: "closed", auto_closed: true })] }),
     });
     const result = await call("GET", "/office/conversations?status=closed");
@@ -198,7 +215,7 @@ describe("inbox list", () => {
     mocks.hasPermission.mockImplementation((_staff, permission) => permission === "conversation_support");
     const list = await call("GET", "/office/conversations?office=office-a");
     expect(list.status).toBe(200);
-    expect((rpcCalls("patient_chat_inbox_list")[0].body as Record<string, unknown>).p_threads).toEqual(["support"]);
+    expect((rpcCalls("patient_chat_inbox_list_guarded")[0].body as Record<string, unknown>).p_threads).toEqual(["support"]);
     const forbidden = await call("GET", "/office/conversations?office=office-a&thread=coach");
     expect(forbidden.status).toBe(403);
     const events = await call("GET", `/office/conversations/${CONV}/events?office=office-a`);
@@ -241,7 +258,7 @@ describe("inbox metrics and staff", () => {
 });
 
 describe("transcript read", () => {
-  it("advances the reader's marker on the newest page, audits, and returns sender labels", async () => {
+  it("polls the newest page without advancing read state or auditing, and returns sender labels", async () => {
     on("GET", "/rest/v1/patient_chat_messages?", () => ({
       status: 200,
       json: [
@@ -249,25 +266,16 @@ describe("transcript read", () => {
         { seq: 2, role: "user", text: "Can I have pasta tonight?", stopped: false, sender_label: null, created_at: "2026-09-01T10:05:00Z" },
       ],
     }));
-    on("POST", "/rest/v1/patient_chat_read_markers", () => ({ status: 201 }));
-    let lookups = 0;
-    routes.unshift({
-      match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list",
-      reply: () => ({ status: 200, json: [inboxRow({ unread: lookups++ === 0 })] }),
-    });
     const result = await call("GET", `/office/conversations/${CONV}/events`);
     expect(result.status).toBe(200);
     expect(result.json.events.map((e: { role: string }) => e.role)).toEqual(["user", "staff"]);
     expect(result.json.events[1].senderLabel).toBe("Dr. Ellis");
     expect(result.json.events[0].senderLabel).toBeNull();
-    expect(result.json.conversation.unread).toBe(false);
+    expect(result.json.conversation.unread).toBe(true);
     const marker = calls.find(c => c.path.startsWith("/rest/v1/patient_chat_read_markers"));
-    expect(marker?.body).toMatchObject({ conversation_id: CONV, staff_user_id: STAFF_USER, last_read_seq: 3 });
-    expect(marker?.prefer).toContain("resolution=merge-duplicates");
+    expect(marker).toBeUndefined();
     await settle();
-    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
-      action: "conversation_transcript_read", providerId: "office-a", targetId: CONV, metadata: { thread: "coach", page: "newest" },
-    }));
+    expect(mocks.audit).not.toHaveBeenCalled();
   });
 
   it("does not move the marker when paging back through older messages", async () => {
@@ -287,33 +295,45 @@ describe("transcript read", () => {
 
 describe("assignment and status", () => {
   it("claims a thread for the caller with their resolved label and audits it", async () => {
-    on("PATCH", "/rest/v1/patient_chat_conversations?id=eq.", () => ({ status: 204 }));
     const result = await call("POST", `/office/conversations/${CONV}/assign`, { assigneeUserId: "me" });
     expect(result.status).toBe(200);
-    const patch = calls.find(c => c.method === "PATCH");
-    expect(patch?.body).toEqual({ assignee_user_id: STAFF_USER, assignee_label: "Dr. Ellis" });
+    const patch = calls.find(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate");
+    expect(patch?.body).toMatchObject({ p_action: "assign", p_payload: { assigneeUserId: STAFF_USER, assigneeLabel: "Dr. Ellis" } });
     await settle();
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
       action: "conversation_assigned", metadata: { thread: "coach", assigneeUserId: STAFF_USER, previousAssigneeUserId: null, self: true },
     }));
   });
 
+  it("allows an authorized HQ caller to self-assign a legacy AI thread", async () => {
+    mocks.scope.mockResolvedValue(officeScope("hq"));
+    const result = await call("POST", `/office/conversations/${CONV}/assign?office=office-a`,
+      { assigneeUserId: "me" });
+    expect(result.status).toBe(200);
+    expect(calls.find(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate")?.body)
+      .toMatchObject({
+        p_actor_kind: "hq", p_action: "assign",
+        p_payload: { assigneeUserId: STAFF_USER, assigneeLabel: "Pat Rivera (THINNR HQ)" },
+      });
+  });
+
   it("assigns to a teammate, refuses strangers, and unassigns with null", async () => {
-    on("PATCH", "/rest/v1/patient_chat_conversations?id=eq.", () => ({ status: 204 }));
     expect((await call("POST", `/office/conversations/${CONV}/assign`, { assigneeUserId: TEAMMATE })).status).toBe(200);
-    expect(calls.find(c => c.method === "PATCH")?.body).toEqual({ assignee_user_id: TEAMMATE, assignee_label: "Nurse Kim" });
+    expect(calls.find(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate")?.body)
+      .toMatchObject({ p_payload: { assigneeUserId: TEAMMATE, assigneeLabel: "Nurse Kim" } });
     const stranger = await call("POST", `/office/conversations/${CONV}/assign`, { assigneeUserId: "00000000-0000-4000-8000-000000000555" });
     expect(stranger.status).toBe(400);
-    expect(calls.filter(c => c.method === "PATCH")).toHaveLength(1);
+    expect(calls.filter(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate")).toHaveLength(1);
     expect((await call("POST", `/office/conversations/${CONV}/assign`, { assigneeUserId: null })).status).toBe(200);
-    expect(calls.filter(c => c.method === "PATCH")[1].body).toEqual({ assignee_user_id: null, assignee_label: null });
+    expect((calls.filter(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate")[1].body as Record<string, unknown>).p_payload)
+      .toEqual({ assigneeUserId: "", assigneeLabel: "" });
     expect((await call("POST", `/office/conversations/${CONV}/assign`, {})).status).toBe(400);
   });
 
   it("changes status (including reopen) and records from → to", async () => {
-    on("PATCH", "/rest/v1/patient_chat_conversations?id=eq.", () => ({ status: 204 }));
     expect((await call("POST", `/office/conversations/${CONV}/status`, { status: "closed" })).status).toBe(200);
-    expect(calls.find(c => c.method === "PATCH")?.body).toEqual({ status: "closed", updated_at: expect.any(String) });
+    expect(calls.find(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate")?.body)
+      .toMatchObject({ p_action: "status", p_payload: { status: "closed" } });
     await settle();
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
       action: "conversation_status_changed", metadata: { thread: "coach", from: "open", to: "closed" },
@@ -324,50 +344,67 @@ describe("assignment and status", () => {
 });
 
 describe("care-team reply", () => {
-  it("writes a staff row into the patient thread, enqueues the push that opens it, and audits", async () => {
-    on("POST", "/rest/v1/patient_chat_messages?", c => ({
-      status: 201,
-      json: [{ ...(c.body as Record<string, unknown>), seq: 4, stopped: false, created_at: "2026-09-01T10:15:00Z" }],
+  it("writes care-team message and privacy-safe push atomically through the RPC", async () => {
+    routes.unshift({
+      match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list_guarded",
+      reply: () => ({ status: 200, json: [inboxRow({ thread: "care_team" })] }),
+    });
+    on("POST", "/rest/v1/rpc/care_team_send", c => ({
+      status: 200, json: { created: true, seq: 4, clientId: (c.body as Record<string, unknown>).p_client_id,
+        role: "staff", text: (c.body as Record<string, unknown>).p_text, createdAt: "2026-09-01T10:15:00Z" },
     }));
-    const result = await call("POST", `/office/conversations/${CONV}/reply`, { text: "  Skip the pasta tonight, try the zucchini option instead.  " });
+    const result = await call("POST", `/office/conversations/${CONV}/reply`, { clientId: "stable-1", text: "  Skip the pasta tonight, try the zucchini option instead.  " });
     expect(result.status).toBe(200);
-    const insert = calls.find(c => c.method === "POST" && c.path.startsWith("/rest/v1/patient_chat_messages"));
+    const insert = calls.find(c => c.path === "/rest/v1/rpc/care_team_send");
     expect(insert?.body).toMatchObject({
-      conversation_id: CONV, role: "staff", text: "Skip the pasta tonight, try the zucchini option instead.", sender_user_id: STAFF_USER, sender_label: "Dr. Ellis",
+      p_conversation_id: CONV, p_role: "staff", p_text: "Skip the pasta tonight, try the zucchini option instead.",
+      p_sender_user_id: STAFF_USER, p_sender_label: "Dr. Ellis", p_enqueue_push: true, p_client_id: "stable-1",
     });
-    const clientId = (insert?.body as { client_id: string }).client_id;
-    expect(clientId).toMatch(/^staff-[0-9a-f-]{36}$/);
     expect(result.json.event).toMatchObject({ seq: 4, role: "staff", senderLabel: "Dr. Ellis", text: "Skip the pasta tonight, try the zucchini option instead." });
-    const queued = [...store.notifications.values()];
-    expect(queued).toHaveLength(1);
-    expect(queued[0]).toMatchObject({
-      patient_id: PATIENT, kind: CARE_TEAM_REPLY_KIND, category: "office_reminders", title: "A message from your care team",
-      body: "Skip the pasta tonight, try the zucchini option instead.",
-      data: { route: "/coach-chat", kind: CARE_TEAM_REPLY_KIND, conversationId: CONV, messageClientId: clientId, thread: "coach" },
-      dedupe_key: `${CARE_TEAM_REPLY_KIND}:${clientId}`,
-    });
+    expect(store.notifications.size).toBe(0);
     await settle();
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
-      action: "conversation_replied", targetId: CONV, metadata: { thread: "coach", messageClientId: clientId, length: 56 },
+      action: "conversation_replied", targetId: CONV, metadata: { thread: "care_team", messageClientId: "stable-1", length: 56 },
     }));
     // Audit metadata never carries the reply text.
     expect(JSON.stringify(mocks.audit.mock.calls)).not.toContain("zucchini");
   });
 
-  it("routes support-thread replies to the support chat", async () => {
+  it("requires a stable client id for human replies and performs no write RPC when absent", async () => {
     routes.unshift({
-      match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list",
-      reply: () => ({ status: 200, json: [inboxRow({ thread: "support" })] }),
+      match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list_guarded",
+      reply: () => ({ status: 200, json: [inboxRow({ thread: "care_team" })] }),
     });
-    on("POST", "/rest/v1/patient_chat_messages?", c => ({ status: 201, json: [{ ...(c.body as Record<string, unknown>), seq: 4, created_at: "2026-09-01T10:15:00Z" }] }));
-    expect((await call("POST", `/office/conversations/${CONV}/reply`, { text: "Try signing out and back in." })).status).toBe(200);
-    expect([...store.notifications.values()][0].data).toMatchObject({ route: "/support-chat", thread: "support" });
+    const result = await call("POST", `/office/conversations/${CONV}/reply`, { text: "Retry safe." });
+    expect(result.status).toBe(400);
+    expect(calls.some(c => c.path === "/rest/v1/rpc/care_team_send")).toBe(false);
+    expect(calls.some(c => c.path === "/rest/v1/rpc/care_team_start")).toBe(false);
+  });
+
+  it("redirects a legacy AI reply to the distinct care-team conversation without changing AI history", async () => {
+    on("POST", "/rest/v1/rpc/care_team_start", () => ({ status: 200, json: { conversationId: OTHER, created: true } }));
+    const result = await call("POST", `/office/conversations/${CONV}/reply`, { text: "Try signing out and back in." });
+    expect(result.status).toBe(409);
+    expect(result.json.careTeamConversationId).toBe(OTHER);
+    expect(calls.some(c => c.path.startsWith("/rest/v1/patient_chat_messages"))).toBe(false);
+  });
+
+  it("rejects every HQ reply before invoking care-team start or send", async () => {
+    mocks.scope.mockResolvedValue(officeScope("hq"));
+    const result = await call("POST", `/office/conversations/${CONV}/reply?office=office-a`,
+      { text: "HQ must not message patients." });
+    expect(result.status).toBe(403);
+    expect(calls.some(c => c.path === "/rest/v1/rpc/care_team_start")).toBe(false);
+    expect(calls.some(c => c.path === "/rest/v1/rpc/care_team_send")).toBe(false);
   });
 
   it("rejects blank replies and never enqueues when the message write fails", async () => {
     expect((await call("POST", `/office/conversations/${CONV}/reply`, { text: "   " })).status).toBe(400);
-    on("POST", "/rest/v1/patient_chat_messages?", () => ({ status: 500 }));
-    expect((await call("POST", `/office/conversations/${CONV}/reply`, { text: "hello" })).status).toBe(502);
+    routes.unshift({ match: c => c.path === "/rest/v1/rpc/patient_chat_inbox_list_guarded",
+      reply: () => ({ status: 200, json: [inboxRow({ thread: "care_team" })] }) });
+    on("POST", "/rest/v1/rpc/care_team_send", () => ({ status: 500 }));
+    expect((await call("POST", `/office/conversations/${CONV}/reply`,
+      { clientId: "write-failure-1", text: "hello" })).status).toBe(502);
     expect(store.notifications.size).toBe(0);
     expect(auditActions()).not.toContain("conversation_replied");
   });
@@ -386,7 +423,8 @@ describe("internal notes", () => {
     const result = await call("POST", `/office/conversations/${CONV}/notes`, { body: "Called the patient about the swap." });
     expect(result.status).toBe(200);
     expect(result.json.note).toEqual({ id: "note-1", authorUserId: STAFF_USER, authorLabel: "Dr. Ellis", body: "Called the patient about the swap.", createdAt: "2026-09-01T11:00:00Z" });
-    expect(calls.find(c => c.path.startsWith("/rest/v1/patient_chat_notes"))?.body).toMatchObject({ provider_id: "office-a", conversation_id: CONV });
+    expect(calls.find(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate")?.body)
+      .toMatchObject({ p_provider_id: "office-a", p_action: "note", p_payload: { body: "Called the patient about the swap." } });
     // Notes never touch the patient's message table.
     expect(calls.some(c => c.path.startsWith("/rest/v1/patient_chat_messages"))).toBe(false);
     expect(store.notifications.size).toBe(0);
@@ -412,16 +450,32 @@ describe("escalations", () => {
   });
 
   it("escalates with a reason, reports the office and patient, and refuses a second open one", async () => {
-    let inserted = 0;
-    on("POST", "/rest/v1/patient_chat_escalations?", () => (inserted++ === 0 ? { status: 201, json: [escalationRow()] } : { status: 409 }));
     const result = await call("POST", `/office/conversations/${CONV}/escalations`, { department: "clinical", reason: "Reports dizziness" });
     expect(result.status).toBe(200);
     expect(result.json.escalation).toMatchObject({ id: ESC, officeName: "Office A", patientName: "Anna O'Neil", department: "clinical", status: "open", createdByLabel: "Dr. Ellis" });
-    expect(calls.find(c => c.path.startsWith("/rest/v1/patient_chat_escalations"))?.body).toMatchObject({ provider_id: "office-a", created_by: STAFF_USER, created_by_label: "Dr. Ellis" });
+    expect(calls.find(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate")?.body)
+      .toMatchObject({ p_provider_id: "office-a", p_actor_user_id: STAFF_USER, p_action: "escalate" });
     await settle();
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "conversation_escalated", metadata: { thread: "coach", department: "clinical", escalationId: ESC } }));
-    expect((await call("POST", `/office/conversations/${CONV}/escalations`, { department: "support", reason: "again" })).status).toBe(409);
     expect((await call("POST", `/office/conversations/${CONV}/escalations`, { department: "billing", reason: "x" })).status).toBe(400);
+  });
+
+  it("forbids care-team escalation creation and every HQ human workflow mutation", async () => {
+    routes.unshift({
+      match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list_guarded",
+      reply: () => ({ status: 200, json: [inboxRow({ thread: "care_team" })] }),
+    });
+    expect((await call("POST", `/office/conversations/${CONV}/escalations`,
+      { department: "clinical", reason: "no human escalation" })).status).toBe(409);
+    expect(calls.some(c => c.path === "/rest/v1/rpc/patient_chat_workflow_mutate")).toBe(false);
+
+    mocks.scope.mockResolvedValue(officeScope("hq"));
+    expect((await call("POST", `/office/conversations/${CONV}/assign?office=office-a`,
+      { assigneeUserId: null })).status).toBe(403);
+    expect((await call("POST", `/office/conversations/${CONV}/status?office=office-a`,
+      { status: "closed" })).status).toBe(403);
+    expect((await call("POST", `/office/conversations/${CONV}/notes?office=office-a`,
+      { body: "forbidden" })).status).toBe(403);
   });
 
   it("scopes the HQ queue to the caller's departments", async () => {

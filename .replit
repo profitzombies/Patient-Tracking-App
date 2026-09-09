@@ -36,11 +36,27 @@ args = "artifacts/mockup-sandbox: Component Preview Server"
 task = "workflow.run"
 args = "bloodwork"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "care-team-api"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
 author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "care-team-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "care-team-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "care-team-web"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
@@ -1174,6 +1190,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run --testTimeout=30000 --maxWorkers=1 src/bloodwork src/privacy/bloodwork-lifecycle.test.ts src/routes/patient-privacy.test.ts src/jobs/definitions/reconcile-storage.test.ts src/privacy/purge.test.ts src/privacy/purge.sql.test.ts && pnpm --filter @workspace/thinnr-mobile run test:bloodwork && pnpm --filter @workspace/thinnr-operations run test:bloodwork"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "care-team-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/patient-care-team.test.ts src/routes/staff-conversations.test.ts src/routes/care-team.sql.test.ts src/routes/patient-chat.test.ts src/routes/coach-care-team.test.ts src/notifications src/privacy src/jobs/definitions/retention.test.ts src/jobs/schema.sql.test.ts"
+
+[[workflows.workflow]]
+name = "care-team-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:care-team-chat && pnpm --filter @workspace/thinnr-mobile run test:push-notifications"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "care-team-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:care-team-conversations && pnpm --filter @workspace/thinnr-operations run test:staff-inbox"
 
 [workflows.workflow.metadata]
 isValidation = true

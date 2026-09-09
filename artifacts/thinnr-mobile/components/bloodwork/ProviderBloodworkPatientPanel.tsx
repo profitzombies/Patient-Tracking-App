@@ -55,7 +55,7 @@ function AccountProviderBloodworkPanel({
   fallback,
 }: ProviderBloodworkPatientPanelProps & { sessionUserId: string }) {
   const colors = useColors();
-  const office = useOfficeRoster();
+  const office = useOfficeRoster(sessionUserId);
   const allowed = canOpenProviderBloodwork({
     sessionUserId,
     rosterStatus: office.status,

@@ -14,9 +14,9 @@ interface ProviderBloodworkSectionProps {
 
 export function ProviderBloodworkSection({ patientId, onPressReport }: ProviderBloodworkSectionProps) {
   const colors = useColors();
-  const officeRoster = useOfficeRoster();
   const { session } = useSupabaseSession();
   const userId = session?.user.id ?? null;
+  const officeRoster = useOfficeRoster(userId ?? '');
   const userRef = useRef(userId);
   userRef.current = userId;
   const [readyUser, setReadyUser] = useState<string | null>(null);
@@ -53,7 +53,13 @@ export function ProviderBloodworkSection({ patientId, onPressReport }: ProviderB
            <View style={styles.center}>
              <ActivityIndicator color={colors.cobalt} />
            </View>
-        ) : isError ? (
+        ) : officeRoster.status === 'denied' ? (
+           <View style={styles.center}>
+             <Text style={[styles.error, { color: colors.destructive }]}>
+               Patient bloodwork is unavailable for this account.
+             </Text>
+           </View>
+        ) : officeRoster.status === 'error' || isError ? (
            <View style={styles.center}>
               <Text style={[styles.error, { color: colors.destructive }]}>Could not load bloodwork history.</Text>
              <Pressable onPress={() => refetch()} style={[styles.retryBtn, { borderColor: colors.border }]}>

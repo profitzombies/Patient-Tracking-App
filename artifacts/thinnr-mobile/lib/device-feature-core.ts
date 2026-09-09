@@ -348,3 +348,14 @@ export function approvedMeasurements(values: HealthMeasurement[]): HealthMeasure
     return true;
   });
 }
+
+/** Web has no device biometric gate; native keeps its load-before-unlock rule. */
+export function biometricLockedForAccount(
+  platform: string,
+  accountId: string | null,
+  loadedFor: string | null,
+  locked: boolean,
+): boolean {
+  if (platform === 'web') return false;
+  return Boolean(accountId) && (loadedFor !== accountId || locked);
+}

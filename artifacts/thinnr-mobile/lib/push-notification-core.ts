@@ -18,6 +18,7 @@ export function pushAvailability(input: {
 }
 
 const NOTIFICATION_ROUTES = new Set([
+  '/care-team-chat',
   '/coach-chat',
   '/support-chat',
   '/(patient)/today',
@@ -36,8 +37,36 @@ const NOTIFICATION_ROUTES = new Set([
 
 export function resolveNotificationRoute(data: unknown): string | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
-  const route = (data as Record<string, unknown>).route;
+  const value = data as Record<string, unknown>;
+  if (
+    value.kind === 'care_team_reply' &&
+    value.thread === 'care_team' &&
+    notificationPatientId(value) &&
+    typeof value.conversationId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value.conversationId)
+  ) return `/care-team-chat?conversationId=${encodeURIComponent(value.conversationId)}`;
+  const route = value.route;
   return typeof route === 'string' && NOTIFICATION_ROUTES.has(route) ? route : null;
+}
+
+/** Hidden notification ownership used before admitting account-scoped taps. */
+export function notificationPatientId(data: unknown): string | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const patientId = (data as Record<string, unknown>).patientId;
+  return typeof patientId === 'string' && patientId.length > 0 ? patientId : null;
+}
+
+/**
+ * Care-team notification actions fail closed unless the outbox-bound patient
+ * is still the selected patient. Other historic notification kinds retain
+ * their existing routing behavior.
+ */
+export function notificationAdmittedForPatient(data: unknown, activePatientId: string | null): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return true;
+  const value = data as Record<string, unknown>;
+  if (value.kind !== 'care_team_reply' || value.thread !== 'care_team') return true;
+  const owner = notificationPatientId(data);
+  return owner !== null && activePatientId !== null && owner === activePatientId;
 }
 
 export interface PushRegistrationPayload {

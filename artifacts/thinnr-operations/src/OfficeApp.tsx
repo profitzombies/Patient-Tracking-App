@@ -18,6 +18,7 @@ import { Shell } from '@/components/layout/Shell';
 import Overview from '@/pages/Overview';
 import Patients from '@/pages/Patients';
 import PatientDetail from '@/pages/PatientDetail';
+import OfficeConversations from '@/pages/OfficeConversations';
 import Analytics from '@/pages/Analytics';
 import Leaderboard from '@/pages/Leaderboard';
 import Subscriptions from '@/pages/Subscriptions';
@@ -46,6 +47,7 @@ export function OfficeApp() {
               <Route path="/" component={Overview} />
               <Route path="/patients" component={Patients} />
               <Route path="/patients/:id" component={PatientDetail} />
+              <Route path="/conversations" component={OfficeConversations} />
               <Route path="/analytics" component={Analytics} />
               <Route path="/leaderboard" component={Leaderboard} />
               <Route path="/subscriptions" component={Subscriptions} />

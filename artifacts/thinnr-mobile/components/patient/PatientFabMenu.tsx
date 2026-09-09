@@ -29,11 +29,13 @@ import { FabMenu, type FabMenuSection } from '@/components/ui/FabMenu';
 import { useMealPhotoFlow } from '@/components/patient/MealPhotoButton';
 import { patientFabBottom } from '@/constants/layout';
 import { usePatientAccount } from '@/context/PatientAccountContext';
+import { useCareTeamUnreadCount } from '@/context/CareTeamUnreadContext';
 
 export function PatientFabMenu() {
   const insets = useSafeAreaInsets();
   const mealPhoto = useMealPhotoFlow();
   const { account } = usePatientAccount();
+  const careTeamUnreadCount = useCareTeamUnreadCount();
 
   const sections: FabMenuSection[] = [
     {
@@ -85,6 +87,13 @@ export function PatientFabMenu() {
           label: 'Snap a meal photo',
           icon: { family: 'feather', name: 'camera' },
           action: { kind: 'run', run: mealPhoto.start },
+        },
+        {
+          key: 'care-team-chat',
+          label: 'Message My Care Team',
+          icon: { family: 'feather', name: 'message-square' },
+          unreadCount: careTeamUnreadCount,
+          action: { kind: 'push', href: '/care-team-chat' as Href },
         },
         {
           key: 'check-in',

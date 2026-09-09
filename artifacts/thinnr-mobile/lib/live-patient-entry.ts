@@ -37,6 +37,7 @@ function isStaffRoute(pathname: string): boolean {
     '/training-lesson/',
     '/training-teammate/',
     '/patient/',
+    '/office-patient/',
     '/product/',
     '/claim-account',
     '/claim-test',

@@ -34,6 +34,10 @@ export const router = {
   },
 };
 
+export function useRouter() {
+  return router;
+}
+
 let currentParams: Record<string, string> = {};
 let currentPathname = '/';
 

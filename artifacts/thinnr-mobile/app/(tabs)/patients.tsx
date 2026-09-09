@@ -20,6 +20,7 @@ import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader'
 import { Divider, EmptyState, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { MOCK_PROVIDERS, type Status, type Patient } from '@/data/mock-data';
 import { useOperations } from '@/context/OperationsContext';
+import { useSupabaseSession } from '@/lib/supabase';
 import {
   InvitePatientModal,
   LiveRosterSection,
@@ -43,24 +44,113 @@ const SORT_OPTIONS: { label: string; value: SortKey }[] = [
   { label: 'Status', value: 'status' },
 ];
 
-export default function PatientsScreen() {
+function LoadingPatientsScreen() {
+  const colors = useColors();
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScreenHeader title="Patients" />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} testID="patients-session-loading">
+        <ActivityIndicator color={colors.cobalt} />
+      </View>
+    </View>
+  );
+}
+
+function LivePatientsScreen({ userId }: { userId: string }) {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const officeRoster = useOfficeRoster(userId);
+  const bottomPad = Platform.OS === 'web' ? 84 + 16 : insets.bottom + 84 + 16;
+
+  const showNotice = useCallback((text: string) => {
+    setNotice(text);
+    setTimeout(() => setNotice((current) => (current === text ? null : current)), 5000);
+  }, []);
+
+  const onRefresh = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRefreshing(true);
+    void officeRoster.refresh().finally(() => setRefreshing(false));
+  }, [officeRoster.refresh]);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScreenHeader
+        title="Patients"
+        onSearch={setSearch}
+        action={
+          officeRoster.status === 'ready'
+            ? {
+                icon: 'user-plus',
+                label: 'Invite patient',
+                onPress: () => setInviteOpen(true),
+                testID: 'header-invite-patient-btn',
+              }
+            : undefined
+        }
+      />
+      <View style={[styles.toolbar, { borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
+        <View style={[styles.searchBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
+          <Feather name="search" size={14} color={colors.subtleText} />
+          <TextInput
+            testID="patients-search-input"
+            placeholder="Search live patients..."
+            placeholderTextColor={colors.subtleText}
+            value={search}
+            onChangeText={setSearch}
+            style={[styles.searchInput, { color: colors.foreground }]}
+          />
+          {search.length > 0 ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setSearch('')}>
+              <Feather name="x" size={13} color={colors.subtleText} />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+      {notice ? (
+        <View
+          style={[styles.noticeBar, { backgroundColor: colors.activeBg, borderBottomColor: colors.border }]}
+          accessibilityLiveRegion="polite"
+          testID="patients-notice"
+        >
+          <Text style={[styles.noticeText, { color: colors.navy }]}>{notice}</Text>
+        </View>
+      ) : null}
+      <FlatList
+        data={[]}
+        renderItem={() => null}
+        ListHeaderComponent={<LiveRosterSection state={officeRoster} search={search} onNotice={showNotice} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.cobalt} />}
+        contentContainerStyle={{ paddingBottom: bottomPad }}
+        testID="patients-live-list"
+      />
+      <InvitePatientModal
+        visible={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        onInvited={(patient, outcome) => {
+          void officeRoster.refresh();
+          showNotice(
+            outcome === 'sent'
+              ? `Invitation sent to ${patient.name}. They sign in with the invited phone number.`
+              : `${patient.name} was added, but the email didn’t go out. Use Resend on the live roster.`,
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+function DemoPatientsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { hydrated, mergedPatients } = useOperations();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all');
   const [sortKey, setSortKey] = useState<SortKey>('startDate');
-  const [refreshing, setRefreshing] = useState(false);
-  // Live roster is server-gated: it loads only when the signed-in session
-  // resolves to a staff office (demo persona and patient tokens stay hidden).
-  const officeRoster = useOfficeRoster();
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  const showNotice = useCallback((text: string) => {
-    setNotice(text);
-    setTimeout(() => setNotice((current) => (current === text ? null : current)), 5000);
-  }, []);
 
   const bottomPad = Platform.OS === 'web' ? 84 + 16 : insets.bottom + 84 + 16;
 
@@ -79,12 +169,6 @@ export default function PatientsScreen() {
     });
     return result;
   }, [mergedPatients, search, statusFilter, sortKey]);
-
-  const onRefresh = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setRefreshing(true);
-    void officeRoster.refresh().finally(() => setRefreshing(false));
-  }, [officeRoster.refresh]);
 
   const renderItem = useCallback(({ item: patient }: { item: Patient }) => {
     const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
@@ -139,16 +223,6 @@ export default function PatientsScreen() {
       <ScreenHeader
         title="Patients"
         onSearch={setSearch}
-        action={
-          officeRoster.status === 'ready'
-            ? {
-                icon: 'user-plus',
-                label: 'Invite patient',
-                onPress: () => setInviteOpen(true),
-                testID: 'header-invite-patient-btn',
-              }
-            : undefined
-        }
       />
 
       {/* Toolbar */}
@@ -214,23 +288,11 @@ export default function PatientsScreen() {
         <Text style={[styles.countText, { color: colors.labelText }]}>{filtered.length} RECORDS</Text>
       </View>
 
-      {notice && (
-        <View
-          style={[styles.noticeBar, { backgroundColor: colors.activeBg, borderBottomColor: colors.border }]}
-          accessibilityLiveRegion="polite"
-          testID="patients-notice"
-        >
-          <Text style={[styles.noticeText, { color: colors.navy }]}>{notice}</Text>
-        </View>
-      )}
-
       <FlatList
         data={filtered}
         keyExtractor={item => item.id}
         renderItem={renderItem}
-        ListHeaderComponent={<LiveRosterSection state={officeRoster} onNotice={showNotice} />}
         ItemSeparatorComponent={() => <Divider />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.cobalt} />}
         scrollEnabled={filtered.length > 0}
         contentContainerStyle={{ paddingBottom: bottomPad }}
         ListEmptyComponent={
@@ -244,20 +306,15 @@ export default function PatientsScreen() {
         testID="patients-list"
       />
 
-      <InvitePatientModal
-        visible={inviteOpen}
-        onClose={() => setInviteOpen(false)}
-        onInvited={(patient, outcome) => {
-          void officeRoster.refresh();
-          showNotice(
-            outcome === 'sent'
-              ? `Invitation sent to ${patient.name}. They sign in with the invited phone number.`
-              : `${patient.name} was added, but the email didn’t go out. Use Resend on the live roster.`,
-          );
-        }}
-      />
     </View>
   );
+}
+
+export default function PatientsScreen() {
+  const { session, sessionLoading } = useSupabaseSession();
+  if (sessionLoading) return <LoadingPatientsScreen />;
+  if (session?.user) return <LivePatientsScreen key={session.user.id} userId={session.user.id} />;
+  return <DemoPatientsScreen />;
 }
 
 const styles = StyleSheet.create({

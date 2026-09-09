@@ -9,9 +9,9 @@
  * server-derived from the token.
  *
  * Source half: pins the screen wiring — the Patients tab gates the invite
- * action and live section on a server-accepted roster fetch (demo persona
- * and patient tokens hide it silently), the modal rides AppModal, and the
- * resend control carries an accessible name.
+ * action on a server-accepted roster fetch, keeps authenticated live data
+ * isolated from the signed-out demo, the modal rides AppModal, and the resend
+ * control carries an accessible name.
  *
  *   pnpm --filter @workspace/thinnr-mobile run test:invite-patients
  */
@@ -180,10 +180,13 @@ async function main() {
     assert.match(screenSource, /label: 'Invite patient'/);
   });
 
-  await check('the live section rides the list header and hides for non-staff sessions', () => {
-    assert.match(screenSource, /ListHeaderComponent=\{<LiveRosterSection state=\{officeRoster\} onNotice=\{showNotice\} \/>\}/);
-    assert.match(rosterSource, /err\.status === 401 \|\| err\.status === 403 \|\| err\.status === 503/);
-    assert.match(rosterSource, /status === 'unavailable' \|\| state\.status === 'loading'/);
+  await check('auth state isolates the live roster from the signed-out demo', () => {
+    assert.match(screenSource, /if \(sessionLoading\) return <LoadingPatientsScreen \/>/);
+    assert.match(screenSource, /<LivePatientsScreen key=\{session\.user\.id\} userId=\{session\.user\.id\} \/>/);
+    assert.match(screenSource, /<LiveRosterSection state=\{officeRoster\} search=\{search\} onNotice=\{showNotice\} \/>/);
+    assert.match(rosterSource, /err\.status === 401 \|\| err\.status === 403/);
+    assert.match(rosterSource, /setStatus\('denied'\)/);
+    assert.match(rosterSource, /testID=\{`live-patient-\$\{patient\.id\}`\}/);
   });
 
   await check('the modal rides AppModal with per-field errors and a self-announcing ErrorBox', () => {

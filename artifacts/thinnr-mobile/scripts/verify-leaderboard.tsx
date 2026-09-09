@@ -12,7 +12,7 @@
  *     rank for the chosen metric (ties share a rank, podium tint follows the
  *     rank); metric switch re-sorts without a refetch; period and stage
  *     chips refetch; not-rankable count and definitions ride the footer; no
- *     provider chips; no synthetic disclaimer; rows do not navigate;
+ *     provider chips; no synthetic disclaimer; rows open live records;
  *   - explicit states: loading, error with retry (after the transient
  *     retries), unauthorized without retry, no rankable patients, empty
  *     stage; a live failure never shows seeded rows;
@@ -27,9 +27,11 @@ import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OperationsProvider } from '../context/OperationsContext';
 import type { LeaderboardRow, OfficeLeaderboardData } from '../lib/office-roster-api';
-import { setStubSession, setStubSessionLoadingTicks } from './leaderboard-stubs/supabase';
+import { setStubSession, setStubSessionLoadingTicks, setStubRefreshResult } from './leaderboard-stubs/supabase';
+import { fetchOfficeLeaderboard } from '../lib/office-roster-api';
 import { routerLog } from './provider-training-stubs/expo-router';
 import LeaderboardScreen from '../app/(tabs)/leaderboard';
+import { verifyLivePatientRecord } from './verify-live-patient-record';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -104,7 +106,7 @@ const BOARD: OfficeLeaderboardData = {
   },
 };
 
-type Script = { status: number; body: unknown } | { delay: true } | 'network-error';
+type Script = { status: number; body: unknown } | { delay: true; status?: number; body?: unknown } | 'network-error';
 let requests: Array<{ url: string; auth: string | undefined }> = [];
 let script: (url: URL) => Script = () => ({ status: 200, body: BOARD });
 let release: (() => void) | null = null;
@@ -119,7 +121,7 @@ let release: (() => void) | null = null;
   if (next === 'network-error') throw new TypeError('fetch failed');
   if ('delay' in next) {
     await new Promise<void>((resolve) => { release = resolve; });
-    return new Response(JSON.stringify(BOARD), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify(next.body ?? BOARD), { status: next.status ?? 200, headers: { 'Content-Type': 'application/json' } });
   }
   return new Response(JSON.stringify(next.body), { status: next.status, headers: { 'Content-Type': 'application/json' } });
 };
@@ -146,6 +148,7 @@ function reset() {
   script = () => ({ status: 200, body: BOARD });
   routerLog.length = 0;
   memory.clear();
+  setStubRefreshResult(null);
 }
 
 const STAFF = { access_token: 'staff-token', user: { id: 'staff-1' } };
@@ -172,7 +175,12 @@ async function main() {
     check('footer separates the not-rankable count with reasons', textOf(one(root, 'leaderboard-live-counts')!) === '3 ranked  ·  2 not yet rankable · Paused 1 · No weigh-in yet 1', textOf(one(root, 'leaderboard-live-counts')!));
     check('definitions come from the server', textOf(one(root, 'leaderboard-live-definitions')!).includes('40% logged days') && textOf(one(root, 'leaderboard-live-definitions')!).includes('Ties share a rank.'));
     check('no provider chips, period chips present, no synthetic disclaimer', !one(root, 'provider-filter-all') && Boolean(one(root, 'period-filter-30d')) && !textOf(root).includes('SYNTHETIC DEMO DATA'));
-    check('live rows are not pressable (no mock detail route behind them)', one(root, 'leaderboard-row-pat-a')!.type === 'View' && one(root, 'leaderboard-row-pat-a')!.props.onPress === undefined && routerLog.length === 0);
+    await press(root, 'leaderboard-row-pat-a');
+    check('live rows open the matching live record, never the seeded route',
+      routerLog.length === 1 && routerLog[0].method === 'push' && routerLog[0].target === '/office-patient/pat-a',
+      JSON.stringify(routerLog));
+    check('live row announces a navigation control',
+      ['link', 'button'].includes(one(root, 'leaderboard-row-pat-a')!.props.accessibilityRole));
 
     await press(root, 'pill-adherence');
     check('adherence metric re-sorts by server rank without refetching', rowIds(root).join(',') === 'pat-c,pat-b,pat-a' && requests.length === 1, `${rowIds(root).join(',')} req=${requests.length}`);
@@ -192,6 +200,42 @@ async function main() {
     await settle();
     check('signing out flips live → demo (seeded rows, disclaimer, provider chips)', rowIds(root).length > 10 && textOf(root).includes('SYNTHETIC DEMO DATA') && Boolean(one(root, 'provider-filter-all')));
     renderer.unmount();
+  }
+
+  console.log('\nleaderboard account handoff during a pending 401');
+  {
+    reset();
+    setStubSession(STAFF);
+    script = () => ({ delay: true, status: 401, body: { error: 'Expired' } });
+    const { renderer, root } = await mount();
+    const releaseOldRequest = release;
+    const OTHER = { access_token: 'other-token', user: { id: 'staff-2' } };
+    const otherBoard = { ...BOARD, rows: [{ ...BOARD.rows[0], id: 'other-patient', name: 'Other Office Patient' }] };
+    setStubRefreshResult(OTHER);
+    script = () => ({ status: 200, body: otherBoard });
+    await act(async () => setStubSession(OTHER));
+    await settle();
+    check('second account gets its own board', rowIds(root).join(',') === 'other-patient');
+    await act(async () => { releaseOldRequest?.(); });
+    await settle();
+    check('old 401 cannot retry using the replacement account bearer', requests.length === 2);
+    script = () => ({ status: 200, body: BOARD });
+    await act(async () => setStubSession(STAFF));
+    await settle();
+    check('returning to the first account never renders replacement-account PHI',
+      rowIds(root).join(',') === 'pat-b,pat-a,pat-c' && !textOf(root).includes('Other Office Patient') && requests[requests.length - 1].auth === 'Bearer staff-token');
+    await act(async () => renderer.unmount());
+
+    // Also pin the narrow refresh race: the session changes inside refreshSession,
+    // after the pre-refresh identity check but before a retry can be issued.
+    reset();
+    setStubSession(STAFF);
+    setStubRefreshResult(OTHER);
+    script = () => ({ status: 401, body: { error: 'Expired' } });
+    let rejected = false;
+    try { await fetchOfficeLeaderboard({ period: 'program', stage: 'all' }, { userId: STAFF.user.id }); }
+    catch (error) { rejected = error instanceof Error && error.message.includes('session changed'); }
+    check('refresh result must still match the query owner before retrying', rejected && requests.length === 1);
   }
 
   console.log('\nsigned-in staff — explicit states');
@@ -301,11 +345,14 @@ async function main() {
     renderer.unmount();
   }
 
+  failures += await verifyLivePatientRecord();
+
   if (failures > 0) {
     console.error(`\n${failures} check(s) failed`);
     process.exit(1);
   }
   console.log('\nall mobile leaderboard checks passed');
+  process.exit(0);
 }
 
 void main().catch((error) => {

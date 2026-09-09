@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 const NOT_CONFIGURED = 'Live rosters aren’t configured in this environment.';
 const SIGNED_OUT = 'Sign in with your office account to manage patients.';
 const NETWORK_ERROR = 'Couldn’t reach the roster service. Check your connection and try again.';
+const SESSION_CHANGED = 'Your office session changed. Reload the screen to continue.';
 
 export class OfficeRosterError extends Error {
   constructor(
@@ -57,7 +58,12 @@ export interface InvitePatientInput {
 
 export type InvitationEmailOutcome = 'sent' | 'failed' | 'not_configured';
 
-async function bearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+interface OfficeRequestScope {
+  userId: string;
+  signal?: AbortSignal;
+}
+
+async function bearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unknown, scope?: OfficeRequestScope): Promise<T> {
   if (!supabase) throw new OfficeRosterError(NOT_CONFIGURED, 503);
   let base: string;
   try {
@@ -66,6 +72,9 @@ async function bearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unk
     throw new OfficeRosterError(NOT_CONFIGURED, 503);
   }
   const { data } = await supabase.auth.getSession();
+  if (scope && (data.session?.user?.id !== scope.userId || scope.signal?.aborted)) {
+    throw new OfficeRosterError(SESSION_CHANGED, 401);
+  }
   let token = data.session?.access_token;
   if (!token) throw new OfficeRosterError(SIGNED_OUT, 401);
 
@@ -77,20 +86,34 @@ async function bearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unk
         Authorization: `Bearer ${accessToken}`,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: scope?.signal,
     });
 
   let response: Response;
   try {
     response = await perform(token);
     if (response.status === 401) {
+      // Never refresh an old query under the account that replaced it. React
+      // Query's cache key is identity-scoped, so every retry must be too.
+      if (scope) {
+        const current = await supabase.auth.getSession();
+        if (scope.signal?.aborted || current.data.session?.user?.id !== scope.userId) {
+          throw new OfficeRosterError(SESSION_CHANGED, 401);
+        }
+      }
       const refreshed = await supabase.auth.refreshSession();
       const refreshedToken = refreshed.data.session?.access_token;
       if (refreshedToken) {
+        if (scope && (scope.signal?.aborted || refreshed.data.session?.user?.id !== scope.userId)) {
+          throw new OfficeRosterError(SESSION_CHANGED, 401);
+        }
         token = refreshedToken;
         response = await perform(token);
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof OfficeRosterError) throw error;
+    if (scope?.signal?.aborted) throw new OfficeRosterError(SESSION_CHANGED, 401);
     throw new OfficeRosterError(NETWORK_ERROR, 0);
   }
   let json: { error?: unknown; field?: unknown } & Partial<T> = {};
@@ -109,8 +132,8 @@ async function bearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unk
   return json as T;
 }
 
-export async function fetchOfficeRoster(): Promise<OfficeRosterData> {
-  return bearerRequest<OfficeRosterData>('GET', '/office/roster');
+export async function fetchOfficeRoster(scope?: OfficeRequestScope): Promise<OfficeRosterData> {
+  return bearerRequest<OfficeRosterData>('GET', '/office/roster', undefined, scope);
 }
 
 // ─── Leaderboard ─────────────────────────────────────────────────────────────
@@ -169,9 +192,9 @@ export interface OfficeLeaderboardData {
 export async function fetchOfficeLeaderboard(params: {
   period: LeaderboardPeriod;
   stage: LeaderboardStage;
-}): Promise<OfficeLeaderboardData> {
+}, scope?: OfficeRequestScope): Promise<OfficeLeaderboardData> {
   const query = new URLSearchParams({ period: params.period, stage: params.stage });
-  return bearerRequest<OfficeLeaderboardData>('GET', `/office/leaderboard?${query.toString()}`);
+  return bearerRequest<OfficeLeaderboardData>('GET', `/office/leaderboard?${query.toString()}`, undefined, scope);
 }
 
 export async function invitePatient(

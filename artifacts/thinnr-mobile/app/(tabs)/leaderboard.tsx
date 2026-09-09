@@ -169,7 +169,7 @@ function liveMilestone(row: LeaderboardRow): string {
   return 'Ranked';
 }
 
-function LiveLeaderboard() {
+function LiveLeaderboard({ userId }: { userId: string }) {
   const colors = useColors();
   const bottomPad = useBottomPad();
   const [metric, setMetric] = useState<Metric>('percent');
@@ -177,8 +177,8 @@ function LiveLeaderboard() {
   const [stageFilter, setStageFilter] = useState<Stage>('all');
 
   const query = useQuery({
-    queryKey: ['mobile-office-leaderboard', period, stageFilter],
-    queryFn: () => fetchOfficeLeaderboard({ period, stage: stageFilter }),
+    queryKey: ['mobile-office-leaderboard', userId, period, stageFilter],
+    queryFn: ({ signal }) => fetchOfficeLeaderboard({ period, stage: stageFilter }, { userId, signal }),
     staleTime: 30_000,
     refetchInterval: 60_000,
     retry: (count, error) => {
@@ -210,10 +210,19 @@ function LiveLeaderboard() {
     const stageLabel = row.program.stage === 'maintenance' ? 'Maintenance' : row.program.stage === 'protocol' ? 'Protocol' : 'Program';
     const dayLabel = row.program.day !== null ? ` · Day ${row.program.day}` : '';
     return (
-      <View
+      <Pressable
         testID={`leaderboard-row-${row.id}`}
+        accessibilityRole="link"
         accessibilityLabel={`${row.name}, rank ${rank}, ${display.value} ${display.sub}`}
-        style={[styles.row, { borderBottomColor: colors.divider }]}
+        onPress={() => {
+          Haptics.selectionAsync();
+          router.push(`/office-patient/${encodeURIComponent(row.id)}` as never);
+        }}
+        style={({ pressed }) => [
+          styles.row,
+          { borderBottomColor: colors.divider },
+          pressed && { backgroundColor: colors.accent },
+        ]}
       >
         <RankCell rank={rank} />
         <View style={[styles.initials, { backgroundColor: top3 ? colors.navy : colors.activeBg }]}>
@@ -232,7 +241,8 @@ function LiveLeaderboard() {
           <Text style={[styles.metricValue, { color: colors.cobalt }]} testID={`leaderboard-metric-${row.id}`}>{display.value}</Text>
           <Text style={[styles.metricSub, { color: colors.subtleText }]}>{display.sub}</Text>
         </View>
-      </View>
+        <Feather name="chevron-right" size={15} color={colors.subtleText} />
+      </Pressable>
     );
   };
 
@@ -526,7 +536,7 @@ function DemoLeaderboard() {
 export default function LeaderboardScreen() {
   const { session, sessionLoading } = useSupabaseSession();
   if (sessionLoading) return <LoadingFrame testID="leaderboard-session-loading" />;
-  if (session?.user) return <LiveLeaderboard />;
+  if (session?.user) return <LiveLeaderboard key={session.user.id} userId={session.user.id} />;
   return <DemoLeaderboard />;
 }
 

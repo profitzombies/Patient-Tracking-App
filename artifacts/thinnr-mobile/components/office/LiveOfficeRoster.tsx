@@ -1,11 +1,11 @@
 /**
  * Live office roster + patient invitation UI for the staff Patients screen.
  *
- * Server truth gates everything: the section mounts only after the roster
- * endpoint accepts the signed-in staff member's bearer token, so the demo
- * persona (no session) and patient sessions (403) never see live UI and the
- * seeded roster stays untouched. The office itself is always derived
- * server-side from the token — this surface never names one.
+ * Auth state gates everything: this section mounts only for a signed-in
+ * session, while the signed-out demo uses a separate component and never calls
+ * the live endpoint. Server authorization still decides whether that session
+ * can view an office. The office itself is always derived server-side from the
+ * token — this surface never names one.
  *
  * Invitation state derives from the row: pending until the patient's first
  * phone-verified sign-in links a login (verified). A failed email is durable
@@ -13,6 +13,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -22,6 +23,7 @@ import {
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import theme, { fonts } from '@/constants/colors';
@@ -46,7 +48,7 @@ import {
   type OfficeRosterData,
 } from '@/lib/office-roster-api';
 
-export type OfficeRosterStatus = 'loading' | 'ready' | 'unavailable' | 'error';
+export type OfficeRosterStatus = 'loading' | 'ready' | 'denied' | 'error';
 
 export interface OfficeRosterState {
   status: OfficeRosterStatus;
@@ -56,41 +58,55 @@ export interface OfficeRosterState {
 }
 
 /**
- * Load the live roster for the signed-in staff member. `unavailable` means
- * this session has no live office (demo persona, patient token, or live
- * rosters not configured) — callers hide the live UI entirely.
+ * Load the live roster for the signed-in staff member. Access failures and
+ * service failures remain explicit, and request generations prevent a response
+ * started under an earlier session from repopulating this state.
  */
-export function useOfficeRoster(): OfficeRosterState {
+export function useOfficeRoster(userId: string): OfficeRosterState {
   const [status, setStatus] = useState<OfficeRosterStatus>('loading');
   const [roster, setRoster] = useState<OfficeRosterData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
-  useEffect(() => () => {
-    mounted.current = false;
+  const requestGeneration = useRef(0);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestGeneration.current += 1;
+    };
   }, []);
 
   const refresh = useCallback(async () => {
+    const generation = ++requestGeneration.current;
     try {
-      const data = await fetchOfficeRoster();
-      if (!mounted.current) return;
+      const data = await fetchOfficeRoster({ userId });
+      if (!mounted.current || generation !== requestGeneration.current) return;
       setRoster(data);
       setError(null);
       setStatus('ready');
     } catch (err) {
-      if (!mounted.current) return;
-      if (err instanceof OfficeRosterError && (err.status === 401 || err.status === 403 || err.status === 503)) {
-        setStatus('unavailable');
+      if (!mounted.current || generation !== requestGeneration.current) return;
+      setRoster(null);
+      if (err instanceof OfficeRosterError && (err.status === 401 || err.status === 403)) {
+        setError(err.message);
+        setStatus('denied');
         return;
       }
       setError(err instanceof Error ? err.message : 'The live roster could not be loaded.');
-      // Keep any roster we already had; the message rides alongside it.
-      setStatus((prev) => (prev === 'ready' ? 'ready' : 'error'));
+      setStatus('error');
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
+    requestGeneration.current += 1;
+    setRoster(null);
+    setError(null);
+    setStatus('loading');
     void refresh();
-  }, [refresh]);
+    return () => {
+      requestGeneration.current += 1;
+    };
+  }, [refresh, userId]);
 
   return { status, roster, error, refresh };
 }
@@ -250,16 +266,23 @@ function InvitationChip({ patient }: { patient: OfficePatient }) {
 
 interface LiveRosterSectionProps {
   state: OfficeRosterState;
+  search: string;
   /** Snackbar-style feedback line owned by the screen. */
   onNotice: (notice: string) => void;
 }
 
-/** The live patients list rendered above the seeded roster for staff sessions. */
-export function LiveRosterSection({ state, onNotice }: LiveRosterSectionProps) {
+/** The signed-in staff member's live patients. Seeded patients never render here. */
+export function LiveRosterSection({ state, search, onNotice }: LiveRosterSectionProps) {
   const colors = useColors();
   const [resending, setResending] = useState<string | null>(null);
-
-  if (state.status === 'unavailable' || state.status === 'loading') return null;
+  const normalizedSearch = search.trim().toLowerCase();
+  const patients = state.roster?.patients.filter((patient) =>
+    !normalizedSearch ||
+    patient.name.toLowerCase().includes(normalizedSearch) ||
+    patient.email?.toLowerCase().includes(normalizedSearch) ||
+    patient.phone?.includes(normalizedSearch) ||
+    patient.phoneDisplay?.includes(normalizedSearch)
+  ) ?? [];
 
   const resend = async (patient: OfficePatient) => {
     setResending(patient.id);
@@ -293,38 +316,83 @@ export function LiveRosterSection({ state, onNotice }: LiveRosterSectionProps) {
           </Text>
         </View>
       </View>
-      {state.status === 'error' && state.error ? (
-        <Text style={[styles.sectionError, { color: colors.destructive }]} accessibilityLiveRegion="polite">
-          {state.error}
-        </Text>
+      {state.status === 'loading' ? (
+        <View style={styles.stateBlock} testID="live-roster-loading">
+          <ActivityIndicator color={colors.cobalt} />
+          <Text style={[styles.emptyText, { color: colors.subtleText }]}>Loading live patients…</Text>
+        </View>
       ) : null}
-      {state.roster && state.roster.patients.length === 0 ? (
+      {state.status === 'denied' ? (
+        <View style={styles.stateBlock} accessibilityRole="alert" testID="live-roster-denied">
+          <Feather name="lock" size={22} color={colors.destructive} />
+          <Text style={[styles.sectionError, { color: colors.destructive }]}>
+            {state.error ?? 'This account does not have access to an office roster.'}
+          </Text>
+        </View>
+      ) : null}
+      {state.status === 'error' ? (
+        <View style={styles.stateBlock} accessibilityRole="alert" testID="live-roster-error">
+          <Feather name="alert-triangle" size={22} color={colors.destructive} />
+          <Text style={[styles.sectionError, { color: colors.destructive }]}>
+            {state.error ?? 'The live roster could not be loaded.'}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void state.refresh()}
+            style={[styles.resendBtn, { borderColor: colors.cobalt }]}
+            testID="live-roster-retry"
+          >
+            <Text style={[styles.resendText, { color: colors.cobalt }]}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {state.status === 'ready' && state.roster?.patients.length === 0 ? (
         <Text style={[styles.emptyText, { color: colors.subtleText }]}>
           No live patients yet. Use the invite button above to add the first one.
         </Text>
       ) : null}
-      {state.roster?.patients.map((patient, index) => (
+      {state.status === 'ready' && state.roster && state.roster.patients.length > 0 && patients.length === 0 ? (
+        <Text style={[styles.emptyText, { color: colors.subtleText }]} testID="live-roster-search-empty">
+          No live patients match your search.
+        </Text>
+      ) : null}
+      {state.status === 'ready' && patients.map((patient, index) => (
         <View
           key={patient.id}
           style={[styles.rosterRow, index > 0 && { borderTopWidth: 1, borderTopColor: colors.divider }]}
           testID={`live-roster-row-${patient.id}`}
         >
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[styles.rowName, { color: colors.navy }]} numberOfLines={1}>
-              {patient.name}
-            </Text>
-            <Text style={[styles.rowMeta, { color: colors.subtleText }]} numberOfLines={1}>
-              {patient.phoneDisplay ?? patient.phone ?? ''}
-              {patient.email ? ` · ${patient.email}` : ''}
-            </Text>
-            {patient.invitation?.emailStatus === 'failed' && patient.invitation.state === 'pending' ? (
-              <Text style={[styles.rowMeta, { color: colors.destructive, marginTop: 2 }]}>
-                Invitation email failed — resend it.
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${patient.name}`}
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.push(`/office-patient/${encodeURIComponent(patient.id)}` as never);
+            }}
+            style={({ pressed }) => [
+              styles.patientLink,
+              pressed && { backgroundColor: colors.accent },
+            ]}
+            testID={`live-patient-${patient.id}`}
+          >
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.rowName, { color: colors.navy }]} numberOfLines={1}>
+                {patient.name}
               </Text>
-            ) : null}
-          </View>
-          <View style={styles.rowRight}>
+              <Text style={[styles.rowMeta, { color: colors.subtleText }]} numberOfLines={1}>
+                {patient.phoneDisplay ?? patient.phone ?? ''}
+                {patient.email ? ` · ${patient.email}` : ''}
+              </Text>
+              {patient.invitation?.emailStatus === 'failed' && patient.invitation.state === 'pending' ? (
+                <Text style={[styles.rowMeta, { color: colors.destructive, marginTop: 2 }]}>
+                  Invitation email failed — resend it.
+                </Text>
+              ) : null}
+            </View>
             <InvitationChip patient={patient} />
+            <Feather name="chevron-right" size={16} color={colors.subtleText} />
+          </Pressable>
+          <View style={styles.rowRight}>
             {patient.invitation?.state === 'pending' ? (
               <Pressable
                 accessibilityRole="button"
@@ -399,14 +467,14 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 15, fontFamily: fonts.serif },
   sectionSub: { fontSize: 10, marginTop: 2, fontFamily: 'Inter_400Regular' },
   sectionError: { fontSize: 11, paddingHorizontal: 14, paddingVertical: 10, fontFamily: 'Inter_500Medium' },
+  stateBlock: { alignItems: 'center', justifyContent: 'center', padding: 14 },
   emptyText: { fontSize: 11, paddingHorizontal: 14, paddingVertical: 14, fontFamily: 'Inter_400Regular' },
   rosterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingRight: 14,
   },
+  patientLink: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   rowName: { fontSize: 14, fontFamily: fonts.serif },
   rowMeta: { fontSize: 10, marginTop: 2, fontFamily: 'Inter_400Regular' },
   rowRight: { alignItems: 'flex-end', gap: 6 },

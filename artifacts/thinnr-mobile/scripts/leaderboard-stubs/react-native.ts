@@ -14,6 +14,22 @@ export function ActivityIndicator(props: Record<string, unknown>): React.ReactEl
   return React.createElement('ActivityIndicator', props);
 }
 
+export function RefreshControl(props: Record<string, unknown>): React.ReactElement {
+  return React.createElement('RefreshControl', props);
+}
+
+export function useWindowDimensions() {
+  return { width: 393, height: 852, scale: 1, fontScale: 1 };
+}
+
+export function Modal(props: Record<string, unknown>): React.ReactElement | null {
+  return props.visible ? React.createElement('Modal', props, props.children as React.ReactNode) : null;
+}
+
+export function KeyboardAvoidingView(props: Record<string, unknown>): React.ReactElement {
+  return React.createElement('KeyboardAvoidingView', props, props.children as React.ReactNode);
+}
+
 interface FlatListProps<T> {
   data: ReadonlyArray<T>;
   keyExtractor: (item: T, index: number) => string;

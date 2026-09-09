@@ -252,6 +252,7 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="(patient)" options={{ headerShown: false }} />
       <Stack.Screen name="patient/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="office-patient/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="persona" options={{ headerShown: false }} />
       <Stack.Screen name="patient-login" options={{ headerShown: false }} />
       <Stack.Screen name="patient-welcome" options={{ headerShown: false }} />

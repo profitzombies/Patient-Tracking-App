@@ -18,6 +18,28 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
+args = "artifacts/api-server: API Server"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/thinnr-mobile: expo"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/thinnr-operations: web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/mockup-sandbox: Component Preview Server"
+
+# Keep the full test collection available without competing with app startup.
+[[workflows.workflow]]
+name = "Validation suites"
+mode = "sequential"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
 args = "demo-parity"
 
 [[workflows.workflow.tasks]]

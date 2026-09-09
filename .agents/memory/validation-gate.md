@@ -21,3 +21,11 @@ The completion gate runs every registered validation command concurrently in one
 **The command store can come up empty:** a fresh task environment may show `getValidationCommands()` → `[]` even though suites were registered in earlier sessions. Check it before trusting the gate's coverage, and always register the session's new suite yourself — the completion gate only runs what is currently registered.
 
 **Storms kill dev servers too:** a board-wide parallel run can SIGABRT the long-running artifact workflows (Expo/Metro, vite sandbox) alongside the suites — the user sees "artifact failed to run" with no code change. After any EAGAIN/134 storm, check the artifact service workflows and restart the dead ones first, then re-run the flaked suites in small batches (~4 at a time), not all at once. Verify Expo by curling its local port for the app `<title>`.
+
+## App startup must stay separate from validation
+
+Keep the ordinary Run-button group limited to managed artifact services. A manually runnable all-tests group must be sequential or otherwise bounded; preserve the individual validation registrations.
+
+**Why:** The workspace can retain validation suites in its normal Project startup group. Starting the project then launches the entire test collection alongside Expo and the API, exhausting the container's process/thread limit before the app starts. This has produced exit-134 aborts and EAGAIN without any application-code regression.
+
+**How to apply:** When diagnosing an artifact startup abort, inspect the Run-button group's membership as well as current process pressure. Adding a validation command must not silently restore tests to ordinary app startup. A successful server restart alone does not prevent the next startup overload if the group still includes the test collection.

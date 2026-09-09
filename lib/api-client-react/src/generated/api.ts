@@ -23,6 +23,16 @@ import type {
   AddOfficeConversationNoteParams,
   AssignOfficeConversationParams,
   BarcodeLookupResult,
+  BloodworkCorrectionList,
+  BloodworkDeleteResult,
+  BloodworkDetail,
+  BloodworkReport,
+  BloodworkReportInput,
+  BloodworkReportList,
+  BloodworkReportUpdate,
+  BloodworkResult,
+  BloodworkResultUpdate,
+  BloodworkUploadSet,
   CatalogFamilyParams,
   CatalogFamilyResult,
   CatalogSearchParams,
@@ -50,6 +60,8 @@ import type {
   ConversationStaffResult,
   ConversationStatusInput,
   ConversationSummaryResult,
+  CorrectBloodworkResultParams,
+  DeleteBloodworkReportParams,
   EngagementTrendResult,
   EscalateOfficeConversationParams,
   ExportDownloadResult,
@@ -58,6 +70,9 @@ import type {
   ExportRequestInput,
   FollowUpResult,
   FollowUpUpdateInput,
+  GetBloodworkFilePageParams,
+  GetBloodworkFileSourceParams,
+  GetBloodworkReportParams,
   GetHqAuditEventsParams,
   GetHqEscalationsParams,
   GetHqOfficeComparisonParams,
@@ -100,6 +115,8 @@ import type {
   KnowledgeReplaceInput,
   KnowledgeUploadUrlInput,
   KnowledgeUploadUrlResult,
+  ListBloodworkCorrectionsParams,
+  ListBloodworkReportsParams,
   OfficeAnalyticsResult,
   OfficeComparisonResult,
   OfficeLeaderboardResult,
@@ -110,6 +127,7 @@ import type {
   OperationalRollupResult,
   ProgressPhotoFileParams,
   ReplyOfficeConversationParams,
+  RetryBloodworkExtractionParams,
   RunSystemJobBody,
   SetOfficeConversationStatusParams,
   SupportChatInput,
@@ -381,13 +399,6 @@ export function useGetCoachAvailability<TData = Awaited<ReturnType<typeof getCoa
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
-
-
 export const getCoachRecipeImageUrl = () => {
 
 
@@ -5968,3 +5979,883 @@ export const useRetryHqPatientDeletion = <TError = ErrorType<void>,
       return useMutation(getRetryHqPatientDeletionMutationOptions(options));
     }
 
+export const getListBloodworkReportsUrl = (patientId: string,
+    params?: ListBloodworkReportsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports`
+}
+
+export const listBloodworkReports = async (patientId: string,
+    params?: ListBloodworkReportsParams, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkReportList> => {
+
+  return customFetch<BloodworkReportList>(getListBloodworkReportsUrl(patientId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBloodworkReportsQueryKey = (patientId: string,
+    params?: ListBloodworkReportsParams,) => {
+    return [
+    `/api/bloodwork/patients/${patientId}/reports`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListBloodworkReportsQueryOptions = <TData = Awaited<ReturnType<typeof listBloodworkReports>>, TError = ErrorType<void>>(patientId: string,
+    params?: ListBloodworkReportsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBloodworkReports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBloodworkReportsQueryKey(patientId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBloodworkReports>>> = ({ signal }) => listBloodworkReports(patientId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBloodworkReports>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBloodworkReportsQueryResult = NonNullable<Awaited<ReturnType<typeof listBloodworkReports>>>
+export type ListBloodworkReportsQueryError = ErrorType<void>
+
+
+
+export function useListBloodworkReports<TData = Awaited<ReturnType<typeof listBloodworkReports>>, TError = ErrorType<void>>(
+ patientId: string,
+    params?: ListBloodworkReportsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBloodworkReports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBloodworkReportsQueryOptions(patientId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateBloodworkReportUrl = (patientId: string,) => {
+
+
+
+
+  return `/api/bloodwork/patients/${patientId}/reports`
+}
+
+export const createBloodworkReport = async (patientId: string,
+    bloodworkReportInput: BloodworkReportInput, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkUploadSet> => {
+
+  return customFetch<BloodworkUploadSet>(getCreateBloodworkReportUrl(patientId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bloodworkReportInput)
+  }
+);}
+
+
+
+
+
+export const getCreateBloodworkReportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBloodworkReport>>, TError,{patientId: string;data: BodyType<BloodworkReportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBloodworkReport>>, TError,{patientId: string;data: BodyType<BloodworkReportInput>}, TContext> => {
+
+const mutationKey = ['createBloodworkReport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBloodworkReport>>, {patientId: string;data: BodyType<BloodworkReportInput>}> = (props) => {
+          const {patientId,data} = props ?? {};
+
+          return  createBloodworkReport(patientId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof createBloodworkReport>>>
+    export type CreateBloodworkReportMutationBody = BodyType<BloodworkReportInput>
+    export type CreateBloodworkReportMutationError = ErrorType<void>
+
+    export const useCreateBloodworkReport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBloodworkReport>>, TError,{patientId: string;data: BodyType<BloodworkReportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBloodworkReport>>,
+        TError,
+        {patientId: string;data: BodyType<BloodworkReportInput>},
+        TContext
+      > => {
+      return useMutation(getCreateBloodworkReportMutationOptions(options));
+    }
+
+export const getGetBloodworkReportUrl = (patientId: string,
+    reportId: string,
+    params?: GetBloodworkReportParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports/${reportId}?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports/${reportId}`
+}
+
+export const getBloodworkReport = async (patientId: string,
+    reportId: string,
+    params?: GetBloodworkReportParams, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkDetail> => {
+
+  return customFetch<BloodworkDetail>(getGetBloodworkReportUrl(patientId,reportId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBloodworkReportQueryKey = (patientId: string,
+    reportId: string,
+    params?: GetBloodworkReportParams,) => {
+    return [
+    `/api/bloodwork/patients/${patientId}/reports/${reportId}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetBloodworkReportQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkReport>>, TError = ErrorType<void>>(patientId: string,
+    reportId: string,
+    params?: GetBloodworkReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBloodworkReportQueryKey(patientId,reportId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBloodworkReport>>> = ({ signal }) => getBloodworkReport(patientId,reportId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined && reportId !== null && reportId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBloodworkReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBloodworkReportQueryResult = NonNullable<Awaited<ReturnType<typeof getBloodworkReport>>>
+export type GetBloodworkReportQueryError = ErrorType<void>
+
+
+
+export function useGetBloodworkReport<TData = Awaited<ReturnType<typeof getBloodworkReport>>, TError = ErrorType<void>>(
+ patientId: string,
+    reportId: string,
+    params?: GetBloodworkReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBloodworkReportQueryOptions(patientId,reportId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateBloodworkReportUrl = (patientId: string,
+    reportId: string,) => {
+
+
+
+
+  return `/api/bloodwork/patients/${patientId}/reports/${reportId}`
+}
+
+export const updateBloodworkReport = async (patientId: string,
+    reportId: string,
+    bloodworkReportUpdate: BloodworkReportUpdate, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkReport> => {
+
+  return customFetch<BloodworkReport>(getUpdateBloodworkReportUrl(patientId,reportId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bloodworkReportUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateBloodworkReportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportUpdate>}, TContext> => {
+
+const mutationKey = ['updateBloodworkReport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBloodworkReport>>, {patientId: string;reportId: string;data: BodyType<BloodworkReportUpdate>}> = (props) => {
+          const {patientId,reportId,data} = props ?? {};
+
+          return  updateBloodworkReport(patientId,reportId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof updateBloodworkReport>>>
+    export type UpdateBloodworkReportMutationBody = BodyType<BloodworkReportUpdate>
+    export type UpdateBloodworkReportMutationError = ErrorType<void>
+
+    export const useUpdateBloodworkReport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateBloodworkReport>>,
+        TError,
+        {patientId: string;reportId: string;data: BodyType<BloodworkReportUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateBloodworkReportMutationOptions(options));
+    }
+
+export const getDeleteBloodworkReportUrl = (patientId: string,
+    reportId: string,
+    params: DeleteBloodworkReportParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports/${reportId}?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports/${reportId}`
+}
+
+export const deleteBloodworkReport = async (patientId: string,
+    reportId: string,
+    params: DeleteBloodworkReportParams, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkDeleteResult> => {
+
+  return customFetch<BloodworkDeleteResult>(getDeleteBloodworkReportUrl(patientId,reportId,params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteBloodworkReportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBloodworkReport>>, TError,{patientId: string;reportId: string;params: DeleteBloodworkReportParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBloodworkReport>>, TError,{patientId: string;reportId: string;params: DeleteBloodworkReportParams}, TContext> => {
+
+const mutationKey = ['deleteBloodworkReport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBloodworkReport>>, {patientId: string;reportId: string;params: DeleteBloodworkReportParams}> = (props) => {
+          const {patientId,reportId,params} = props ?? {};
+
+          return  deleteBloodworkReport(patientId,reportId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBloodworkReport>>>
+
+    export type DeleteBloodworkReportMutationError = ErrorType<void>
+
+    export const useDeleteBloodworkReport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBloodworkReport>>, TError,{patientId: string;reportId: string;params: DeleteBloodworkReportParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBloodworkReport>>,
+        TError,
+        {patientId: string;reportId: string;params: DeleteBloodworkReportParams},
+        TContext
+      > => {
+      return useMutation(getDeleteBloodworkReportMutationOptions(options));
+    }
+
+export const getCommitBloodworkReportUrl = (patientId: string,
+    reportId: string,) => {
+
+
+
+
+  return `/api/bloodwork/patients/${patientId}/reports/${reportId}/commit`
+}
+
+export const commitBloodworkReport = async (patientId: string,
+    reportId: string, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkDetail> => {
+
+  return customFetch<BloodworkDetail>(getCommitBloodworkReportUrl(patientId,reportId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCommitBloodworkReportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof commitBloodworkReport>>, TError,{patientId: string;reportId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof commitBloodworkReport>>, TError,{patientId: string;reportId: string}, TContext> => {
+
+const mutationKey = ['commitBloodworkReport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof commitBloodworkReport>>, {patientId: string;reportId: string}> = (props) => {
+          const {patientId,reportId} = props ?? {};
+
+          return  commitBloodworkReport(patientId,reportId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CommitBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof commitBloodworkReport>>>
+
+    export type CommitBloodworkReportMutationError = ErrorType<void>
+
+    export const useCommitBloodworkReport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof commitBloodworkReport>>, TError,{patientId: string;reportId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof commitBloodworkReport>>,
+        TError,
+        {patientId: string;reportId: string},
+        TContext
+      > => {
+      return useMutation(getCommitBloodworkReportMutationOptions(options));
+    }
+
+export const getRetryBloodworkExtractionUrl = (patientId: string,
+    reportId: string,
+    params?: RetryBloodworkExtractionParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports/${reportId}/retry-extraction?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports/${reportId}/retry-extraction`
+}
+
+export const retryBloodworkExtraction = async (patientId: string,
+    reportId: string,
+    params?: RetryBloodworkExtractionParams, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkReport> => {
+
+  return customFetch<BloodworkReport>(getRetryBloodworkExtractionUrl(patientId,reportId,params),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRetryBloodworkExtractionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryBloodworkExtraction>>, TError,{patientId: string;reportId: string;params?: RetryBloodworkExtractionParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryBloodworkExtraction>>, TError,{patientId: string;reportId: string;params?: RetryBloodworkExtractionParams}, TContext> => {
+
+const mutationKey = ['retryBloodworkExtraction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryBloodworkExtraction>>, {patientId: string;reportId: string;params?: RetryBloodworkExtractionParams}> = (props) => {
+          const {patientId,reportId,params} = props ?? {};
+
+          return  retryBloodworkExtraction(patientId,reportId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryBloodworkExtractionMutationResult = NonNullable<Awaited<ReturnType<typeof retryBloodworkExtraction>>>
+
+    export type RetryBloodworkExtractionMutationError = ErrorType<void>
+
+    export const useRetryBloodworkExtraction = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryBloodworkExtraction>>, TError,{patientId: string;reportId: string;params?: RetryBloodworkExtractionParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryBloodworkExtraction>>,
+        TError,
+        {patientId: string;reportId: string;params?: RetryBloodworkExtractionParams},
+        TContext
+      > => {
+      return useMutation(getRetryBloodworkExtractionMutationOptions(options));
+    }
+
+export const getGetBloodworkFileSourceUrl = (patientId: string,
+    reportId: string,
+    fileId: string,
+    params?: GetBloodworkFileSourceParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports/${reportId}/files/${fileId}/source?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports/${reportId}/files/${fileId}/source`
+}
+
+export const getBloodworkFileSource = async (patientId: string,
+    reportId: string,
+    fileId: string,
+    params?: GetBloodworkFileSourceParams, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetBloodworkFileSourceUrl(patientId,reportId,fileId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBloodworkFileSourceQueryKey = (patientId: string,
+    reportId: string,
+    fileId: string,
+    params?: GetBloodworkFileSourceParams,) => {
+    return [
+    `/api/bloodwork/patients/${patientId}/reports/${reportId}/files/${fileId}/source`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetBloodworkFileSourceQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkFileSource>>, TError = ErrorType<void>>(patientId: string,
+    reportId: string,
+    fileId: string,
+    params?: GetBloodworkFileSourceParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkFileSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBloodworkFileSourceQueryKey(patientId,reportId,fileId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBloodworkFileSource>>> = ({ signal }) => getBloodworkFileSource(patientId,reportId,fileId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined && reportId !== null && reportId !== undefined && fileId !== null && fileId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBloodworkFileSource>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBloodworkFileSourceQueryResult = NonNullable<Awaited<ReturnType<typeof getBloodworkFileSource>>>
+export type GetBloodworkFileSourceQueryError = ErrorType<void>
+
+
+
+export function useGetBloodworkFileSource<TData = Awaited<ReturnType<typeof getBloodworkFileSource>>, TError = ErrorType<void>>(
+ patientId: string,
+    reportId: string,
+    fileId: string,
+    params?: GetBloodworkFileSourceParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkFileSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBloodworkFileSourceQueryOptions(patientId,reportId,fileId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetBloodworkFilePageUrl = (patientId: string,
+    reportId: string,
+    fileId: string,
+    page: number,
+    params?: GetBloodworkFilePageParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports/${reportId}/files/${fileId}/pages/${page}?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports/${reportId}/files/${fileId}/pages/${page}`
+}
+
+export const getBloodworkFilePage = async (patientId: string,
+    reportId: string,
+    fileId: string,
+    page: number,
+    params?: GetBloodworkFilePageParams, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetBloodworkFilePageUrl(patientId,reportId,fileId,page,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBloodworkFilePageQueryKey = (patientId: string,
+    reportId: string,
+    fileId: string,
+    page: number,
+    params?: GetBloodworkFilePageParams,) => {
+    return [
+    `/api/bloodwork/patients/${patientId}/reports/${reportId}/files/${fileId}/pages/${page}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetBloodworkFilePageQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkFilePage>>, TError = ErrorType<void>>(patientId: string,
+    reportId: string,
+    fileId: string,
+    page: number,
+    params?: GetBloodworkFilePageParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkFilePage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBloodworkFilePageQueryKey(patientId,reportId,fileId,page,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBloodworkFilePage>>> = ({ signal }) => getBloodworkFilePage(patientId,reportId,fileId,page,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined && reportId !== null && reportId !== undefined && fileId !== null && fileId !== undefined && page !== null && page !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBloodworkFilePage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBloodworkFilePageQueryResult = NonNullable<Awaited<ReturnType<typeof getBloodworkFilePage>>>
+export type GetBloodworkFilePageQueryError = ErrorType<void>
+
+
+
+export function useGetBloodworkFilePage<TData = Awaited<ReturnType<typeof getBloodworkFilePage>>, TError = ErrorType<void>>(
+ patientId: string,
+    reportId: string,
+    fileId: string,
+    page: number,
+    params?: GetBloodworkFilePageParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkFilePage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBloodworkFilePageQueryOptions(patientId,reportId,fileId,page,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCorrectBloodworkResultUrl = (patientId: string,
+    reportId: string,
+    resultId: string,
+    params?: CorrectBloodworkResultParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports/${reportId}/results/${resultId}?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports/${reportId}/results/${resultId}`
+}
+
+export const correctBloodworkResult = async (patientId: string,
+    reportId: string,
+    resultId: string,
+    bloodworkResultUpdate: BloodworkResultUpdate,
+    params?: CorrectBloodworkResultParams, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkResult> => {
+
+  return customFetch<BloodworkResult>(getCorrectBloodworkResultUrl(patientId,reportId,resultId,params),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bloodworkResultUpdate)
+  }
+);}
+
+
+
+
+
+export const getCorrectBloodworkResultMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctBloodworkResult>>, TError,{patientId: string;reportId: string;resultId: string;data: BodyType<BloodworkResultUpdate>;params?: CorrectBloodworkResultParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof correctBloodworkResult>>, TError,{patientId: string;reportId: string;resultId: string;data: BodyType<BloodworkResultUpdate>;params?: CorrectBloodworkResultParams}, TContext> => {
+
+const mutationKey = ['correctBloodworkResult'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof correctBloodworkResult>>, {patientId: string;reportId: string;resultId: string;data: BodyType<BloodworkResultUpdate>;params?: CorrectBloodworkResultParams}> = (props) => {
+          const {patientId,reportId,resultId,data,params} = props ?? {};
+
+          return  correctBloodworkResult(patientId,reportId,resultId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CorrectBloodworkResultMutationResult = NonNullable<Awaited<ReturnType<typeof correctBloodworkResult>>>
+    export type CorrectBloodworkResultMutationBody = BodyType<BloodworkResultUpdate>
+    export type CorrectBloodworkResultMutationError = ErrorType<void>
+
+    export const useCorrectBloodworkResult = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctBloodworkResult>>, TError,{patientId: string;reportId: string;resultId: string;data: BodyType<BloodworkResultUpdate>;params?: CorrectBloodworkResultParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof correctBloodworkResult>>,
+        TError,
+        {patientId: string;reportId: string;resultId: string;data: BodyType<BloodworkResultUpdate>;params?: CorrectBloodworkResultParams},
+        TContext
+      > => {
+      return useMutation(getCorrectBloodworkResultMutationOptions(options));
+    }
+
+export const getListBloodworkCorrectionsUrl = (patientId: string,
+    reportId: string,
+    resultId: string,
+    params?: ListBloodworkCorrectionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports/${reportId}/results/${resultId}/corrections?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports/${reportId}/results/${resultId}/corrections`
+}
+
+export const listBloodworkCorrections = async (patientId: string,
+    reportId: string,
+    resultId: string,
+    params?: ListBloodworkCorrectionsParams, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkCorrectionList> => {
+
+  return customFetch<BloodworkCorrectionList>(getListBloodworkCorrectionsUrl(patientId,reportId,resultId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBloodworkCorrectionsQueryKey = (patientId: string,
+    reportId: string,
+    resultId: string,
+    params?: ListBloodworkCorrectionsParams,) => {
+    return [
+    `/api/bloodwork/patients/${patientId}/reports/${reportId}/results/${resultId}/corrections`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListBloodworkCorrectionsQueryOptions = <TData = Awaited<ReturnType<typeof listBloodworkCorrections>>, TError = ErrorType<unknown>>(patientId: string,
+    reportId: string,
+    resultId: string,
+    params?: ListBloodworkCorrectionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBloodworkCorrections>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBloodworkCorrectionsQueryKey(patientId,reportId,resultId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBloodworkCorrections>>> = ({ signal }) => listBloodworkCorrections(patientId,reportId,resultId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined && reportId !== null && reportId !== undefined && resultId !== null && resultId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBloodworkCorrections>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBloodworkCorrectionsQueryResult = NonNullable<Awaited<ReturnType<typeof listBloodworkCorrections>>>
+export type ListBloodworkCorrectionsQueryError = ErrorType<unknown>
+
+
+
+export function useListBloodworkCorrections<TData = Awaited<ReturnType<typeof listBloodworkCorrections>>, TError = ErrorType<unknown>>(
+ patientId: string,
+    reportId: string,
+    resultId: string,
+    params?: ListBloodworkCorrectionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBloodworkCorrections>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBloodworkCorrectionsQueryOptions(patientId,reportId,resultId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}

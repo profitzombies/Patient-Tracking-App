@@ -117,6 +117,16 @@ async function rows(path: string, label: string): Promise<Array<Record<string, u
   return result.json as Array<Record<string, unknown>>;
 }
 
+async function allRows(path: string, label: string): Promise<Array<Record<string, unknown>>> {
+  const output: Array<Record<string, unknown>> = [];
+  const separator = path.includes("?") ? "&" : "?";
+  for (let offset = 0;; offset += 500) {
+    const page = await rows(`${path}${separator}limit=500&offset=${offset}`, label);
+    output.push(...page);
+    if (page.length < 500) return output;
+  }
+}
+
 const PROFILE_FIELDS =
   "id,first_name,last_name,name,email,phone,date_of_birth,gender,sex,height_unit,height_cm,height_inches,starting_weight,current_weight,goal_weight,timezone,program_id,program_start_date,email_verified_at,phone_verified_at,profile_completed_at,created_at,onboarded_at,claimed_at";
 
@@ -171,6 +181,20 @@ export interface PatientArchiveSections {
   photos: Array<Record<string, unknown>>;
   media: Array<Record<string, unknown>>;
   chat: Array<{ conversation: Record<string, unknown>; messages: Array<Record<string, unknown>> }>;
+  bloodwork: {
+    reports: Array<Record<string, unknown>>;
+    files: Array<Record<string, unknown>>;
+    results: Array<Record<string, unknown>>;
+    corrections: Array<Record<string, unknown>>;
+    incompleteTranscriptionPages: Array<{
+      reportId: string;
+      sourceFileId: string;
+      sourcePage: number;
+      extractionStatus: "queued" | "processing" | "failed";
+      status: "incomplete";
+      results: unknown[];
+    }>;
+  };
 }
 
 const MAX_ROWS = 20_000;
@@ -208,6 +232,56 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     );
     chat.push({ conversation, messages });
   }
+  const [bloodworkReports, bloodworkFiles, bloodworkResults, bloodworkCorrections] = await Promise.all([
+    allRows(
+      `/rest/v1/patient_bloodwork_reports?${scope}&select=id,client_request_id,title,report_date,kind,lifecycle_status,extraction_status,extraction_error,version,uploaded_at,committed_at,deleted_at,extraction_attempt&order=uploaded_at.asc,id.asc`,
+      "bloodwork reports",
+    ),
+    allRows(
+      `/rest/v1/patient_bloodwork_files?${scope}&select=id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,object_path,mime_type,size_bytes,page_count,width,height,created_at&order=created_at.asc,id.asc`,
+      "bloodwork files",
+    ),
+    allRows(
+      `/rest/v1/patient_bloodwork_results?${scope}&select=id,report_id,source_file_id,source_page,position,original_test_name,original_value_text,original_units,original_reference_range,original_lab_flag,original_uncertain,test_name,value_text,units,reference_range,lab_flag,uncertain,version,corrected,updated_at&order=report_id.asc,source_file_id.asc,source_page.asc,position.asc,id.asc`,
+      "bloodwork results",
+    ),
+    allRows(
+      `/rest/v1/patient_bloodwork_corrections?${scope}&select=id,report_id,result_id,actor_role,actor_user_id,before_values,after_values,version,created_at&order=created_at.asc,id.asc`,
+      "bloodwork corrections",
+    ),
+  ]);
+  const incompleteReports = new Map<string, "queued" | "processing" | "failed">();
+  for (const report of bloodworkReports) {
+    const status = String(report.extraction_status);
+    if (status === "queued" || status === "processing" || status === "failed") {
+      incompleteReports.set(String(report.id), status);
+    }
+  }
+  const incompleteTranscriptionPages: PatientArchiveSections["bloodwork"]["incompleteTranscriptionPages"] = [];
+  const incompleteReportIds = [...incompleteReports.keys()];
+  for (let index = 0; index < incompleteReportIds.length; index += 50) {
+    const ids = incompleteReportIds.slice(index, index + 50);
+    const pages = await allRows(
+      `/rest/v1/patient_bloodwork_extraction_pages?report_id=in.(${ids.map(enc).join(",")})` +
+        "&select=report_id,source_file_id,source_page,results&order=report_id.asc,source_file_id.asc,source_page.asc",
+      "incomplete bloodwork transcription pages",
+    );
+    for (const page of pages) {
+      const reportId = String(page.report_id);
+      const extractionStatus = incompleteReports.get(reportId);
+      // Defense in depth: only rows joined in application memory to one of
+      // this patient's exported report IDs can enter the archive.
+      if (!extractionStatus) continue;
+      incompleteTranscriptionPages.push({
+        reportId,
+        sourceFileId: String(page.source_file_id),
+        sourcePage: Number(page.source_page),
+        extractionStatus,
+        status: "incomplete",
+        results: Array.isArray(page.results) ? page.results : [],
+      });
+    }
+  }
   const prefRow = prefs[0];
   return {
     profile: profile[0] ?? null,
@@ -228,6 +302,13 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     photos,
     media,
     chat,
+    bloodwork: {
+      reports: bloodworkReports,
+      files: bloodworkFiles,
+      results: bloodworkResults,
+      corrections: bloodworkCorrections,
+      incompleteTranscriptionPages,
+    },
   };
 }
 
@@ -300,6 +381,11 @@ export async function buildPatientArchive(
     }
     try {
       const content = await readMedia(objectPath);
+      if (packed + content.byteLength > MAX_MEDIA_BYTES) {
+        skipped.push(objectPath);
+        manifest.push({ objectPath, file: null });
+        continue;
+      }
       const name = `media/${mediaFileName(objectPath)}`;
       zip.file(name, content);
       packed += content.byteLength;
@@ -313,6 +399,49 @@ export async function buildPatientArchive(
     }
   }
   zip.file("media.json", json({ ledger: sections.media, files: manifest, skipped }));
+
+  const bloodworkFiles: Array<Record<string, unknown>> = [];
+  let bloodworkSkipped = 0;
+  for (const row of sections.bloodwork.files) {
+    const { object_path: objectPath, ...metadata } = row;
+    const reportId = String(row.report_id);
+    const fileId = String(row.id);
+    const mimeType = typeof row.mime_type === "string" ? row.mime_type : row.declared_mime_type;
+    const extension = mimeType === "application/pdf" ? "pdf" : mimeType === "image/png" ? "png" : "jpg";
+    const archiveFile = `bloodwork/files/${reportId}/${String(row.position).padStart(2, "0")}-${fileId}.${extension}`;
+    let omittedReason: "not_committed" | "archive_size_limit" | "source_unavailable" | null = null;
+    if (typeof objectPath !== "string" || objectPath === "") {
+      omittedReason = "not_committed";
+    } else {
+      try {
+        const content = await readMedia(objectPath);
+        if (packed + content.byteLength > MAX_MEDIA_BYTES) {
+          omittedReason = "archive_size_limit";
+        } else {
+          zip.file(archiveFile, content);
+          packed += content.byteLength;
+          included += 1;
+        }
+      } catch (error) {
+        logger.warn({ err: error, reportId, fileId }, "patient export bloodwork source read failed");
+        omittedReason = "source_unavailable";
+      }
+    }
+    if (omittedReason) bloodworkSkipped += 1;
+    bloodworkFiles.push({
+      ...metadata,
+      archiveFile: omittedReason === null ? archiveFile : null,
+      omittedFileName: omittedReason === null ? null : archiveFile,
+      omittedReason,
+    });
+  }
+  zip.file("bloodwork.json", json({
+    reports: sections.bloodwork.reports,
+    files: bloodworkFiles,
+    results: sections.bloodwork.results,
+    corrections: sections.bloodwork.corrections,
+    incompleteTranscriptionPages: sections.bloodwork.incompleteTranscriptionPages,
+  }));
   zip.file(
     "README.txt",
     [
@@ -333,10 +462,12 @@ export async function buildPatientArchive(
       "photos.json         Progress photo records (bytes under media/)",
       "chat.json           Coach chat transcripts",
       "media.json          Stored photo files included in media/ and any skipped",
+      "bloodwork.json      Reports, source omissions, published results, corrections, and distinctly labeled incomplete transcription checkpoints",
+      "bloodwork/files/    Original committed bloodwork source files included within the archive size limit",
     ].join("\n"),
   );
   const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-  return { buffer, sections, mediaIncluded: included, mediaSkipped: skipped.length };
+  return { buffer, sections, mediaIncluded: included, mediaSkipped: skipped.length + bloodworkSkipped };
 }
 
 /** Run one claimed export to completion. Exported for tests. */

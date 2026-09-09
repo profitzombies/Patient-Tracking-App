@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "@/components/bloodwork/ProviderBloodworkSection": ["./scripts/bloodwork-stubs/provider-section.ts"],
+      "@/components/office/LiveOfficeRoster": ["./scripts/bloodwork-stubs/office-roster.ts"],
+      "@/components/patient/PatientHeader": ["./scripts/bloodwork-stubs/patient-header.ts"],
+      "@/lib/supabase": ["./scripts/bloodwork-stubs/supabase-session.ts"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-router": ["./scripts/onboarding-gate-stubs/expo-router.ts"],
+      "expo-file-system/legacy": ["./scripts/bloodwork-stubs/expo-file-system-legacy.ts"]
+    }
+  }
+}

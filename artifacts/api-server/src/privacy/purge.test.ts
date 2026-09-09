@@ -32,6 +32,7 @@ import {
   MAX_AUTOMATIC_ATTEMPTS,
   defaultPurgeDeps,
   drainDuePurges,
+  patientBloodworkStoragePrefix,
   patientStoragePrefix,
   retryDelaySeconds,
   runPurge,
@@ -69,6 +70,7 @@ function deps(overrides: Partial<PurgeDeps> = {}) {
   const finish = vi.fn<PurgeDeps["finish"]>(async () => { calls.push("finish"); });
   const audit = vi.fn<PurgeDeps["audit"]>(async () => { calls.push("audit"); });
   const d: PurgeDeps = {
+    prepareTombstone: vi.fn(async () => { calls.push("tombstone"); return true; }),
     deleteStoragePrefix: vi.fn(async () => { calls.push("storage"); return 3; }),
     purgeRows: vi.fn(async () => { calls.push("rows"); return { patientRowDeleted: true, tombstone: true, analyticsDetached: 2, tables: { patient_diary_entries: 4, patient_media: 1 }, authUserId: "auth-1" }; }),
     deleteAuthUser: vi.fn(async () => { calls.push("auth"); return "deleted" as const; }),
@@ -84,19 +86,22 @@ describe("runPurge", () => {
   it("walks storage, rows, then the auth user, records each step, and audits the purge", async () => {
     const { d, calls, finish, audit } = deps();
     expect(await runPurge(request(), d)).toBe("purged");
-    expect(calls).toEqual(["storage", "rows", "auth", "finish", "audit"]);
+    expect(calls).toEqual(["tombstone", "storage", "storage", "rows", "auth", "finish", "audit"]);
     expect(d.deleteStoragePrefix).toHaveBeenCalledWith(patientStoragePrefix(P1));
+    expect(d.deleteStoragePrefix).toHaveBeenCalledWith(patientBloodworkStoragePrefix(P1));
     expect(patientStoragePrefix(P1)).toBe(`/objects/patient-media/${P1}/`);
+    expect(patientBloodworkStoragePrefix(P1)).toBe(`/objects/patients/${P1}/bloodwork/`);
     expect(finish).toHaveBeenCalledWith({
       requestId: fakeUuid(100),
       status: "purged",
       steps: {
-        storage: { ok: true, objects: 3, at: "2026-09-08T00:00:05.000Z" },
+        tombstone: { ok: true, at: "2026-09-08T00:00:05.000Z" },
+        storage: { ok: true, objects: 6, prefixes: 2, at: "2026-09-08T00:00:05.000Z" },
         rows: { ok: true, tables: 2, rows: 5, tombstone: true, patientRowDeleted: true, analyticsDetached: 2, at: "2026-09-08T00:00:05.000Z" },
         auth: { ok: true, outcome: "deleted", at: "2026-09-08T00:00:05.000Z" },
       },
     });
-    expect(audit.mock.calls[0][0]).toMatchObject({ action: "patient_deletion_purged", actorKind: "system", actorUserId: null, providerId: "office-1", targetId: P1, metadata: { objects: 3, tables: 2, rows: 5 } });
+    expect(audit.mock.calls[0][0]).toMatchObject({ action: "patient_deletion_purged", actorKind: "system", actorUserId: null, providerId: "office-1", targetId: P1, metadata: { objects: 6, tables: 2, rows: 5 } });
   });
 
   it("stops at the failing step, keeps earlier step results, and schedules an exponential retry", async () => {
@@ -159,6 +164,7 @@ describe("drainDuePurges against the store double", () => {
     mocks.supabase.tables.patient_data_exports = [{ id: fakeUuid(700), patient_id: P1, status: "ready", object_path: `/objects/patient-media/${P1}/export-x.zip` }];
     mocks.storage.set(`/objects/patient-media/${P1}/photo-1.jpg`, Buffer.from("a"));
     mocks.storage.set(`/objects/patient-media/${P1}/export-x.zip`, Buffer.from("b"));
+    mocks.storage.set(`/objects/patients/${P1}/bloodwork/reports/r1/f1`, Buffer.from("lab"));
     mocks.storage.set(`/objects/patient-media/${P2}/photo-1.jpg`, Buffer.from("c"));
   });
 
@@ -174,7 +180,7 @@ describe("drainDuePurges against the store double", () => {
     const row = mocks.supabase.tables.patient_deletion_requests.find((r) => r.id === due.id)!;
     expect(row).toMatchObject({ status: "purged", attempts: 1, lease_owner: null });
     expect(row.purged_at).not.toBeNull();
-    expect((row.steps as { storage: { objects: number } }).storage.objects).toBe(2);
+    expect((row.steps as { storage: { objects: number } }).storage.objects).toBe(3);
     expect([...mocks.storage.keys()]).toEqual([`/objects/patient-media/${P2}/photo-1.jpg`]);
     expect(mocks.supabase.tables.patient_diary_entries).toEqual([{ patient_id: P2, entry_id: "e2" }]);
     expect(mocks.supabase.tables.patient_data_exports).toEqual([]);

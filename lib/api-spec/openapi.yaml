@@ -45,6 +45,8 @@ tags:
       PUT, and finalize verifies the stored bytes before the app keeps the
       object path. Grid reads redirect to short-lived signed URLs. Demo
       posture: no sign-in; writes are rate limited per IP.
+  - name: bloodwork
+    description: Private patient bloodwork reports and unreviewed structured transcription.
 paths:
   /support/chat:
     post:
@@ -1774,12 +1776,321 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/HqPatientDeletionResult" } } }
         "404": { description: Deletion request not found }
         "409": { description: Only a failed purge can be retried }
+  /bloodwork/patients/{patientId}/reports:
+    get:
+      operationId: listBloodworkReports
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/OfficeId" }
+        - { name: cursor, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Private metadata-only report history
+          headers: { Cache-Control: { schema: { type: string } } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReportList" } } }
+        "401": { description: Sign in required }
+        "403": { description: Not authorized }
+        "404": { description: Patient unavailable }
+    post:
+      operationId: createBloodworkReport
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReportInput" } } }
+      responses:
+        "201":
+          description: Staged upload grants
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkUploadSet" } } }
+        "200":
+          description: Idempotently resumed upload grants
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkUploadSet" } } }
+        "409": { description: Client request key conflicts }
+        "413": { description: File or count limit exceeded }
+        "422": { description: Invalid manifest }
+  /bloodwork/patients/{patientId}/reports/{reportId}:
+    get:
+      operationId: getBloodworkReport
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+        - { $ref: "#/components/parameters/OfficeId" }
+      responses:
+        "200":
+          description: Report, files, and structured results
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkDetail" } } }
+        "404": { description: Report not found }
+    patch:
+      operationId: updateBloodworkReport
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReportUpdate" } } }
+      responses:
+        "200":
+          description: Updated report
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReport" } } }
+        "409": { description: Version conflict }
+    delete:
+      operationId: deleteBloodworkReport
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+        - { name: expectedVersion, in: query, required: true, schema: { type: number } }
+      responses:
+        "200":
+          description: Tombstoned
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkDeleteResult" } } }
+        "409": { description: Version conflict }
+  /bloodwork/patients/{patientId}/reports/{reportId}/commit:
+    post:
+      operationId: commitBloodworkReport
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+      responses:
+        "200":
+          description: Atomically committed report
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkDetail" } } }
+        "413": { description: Stored file exceeds limit }
+        "422": { description: "Corrupt, unsupported, or incomplete upload" }
+  /bloodwork/patients/{patientId}/reports/{reportId}/retry-extraction:
+    post:
+      operationId: retryBloodworkExtraction
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+        - { $ref: "#/components/parameters/OfficeId" }
+      responses:
+        "200":
+          description: Failed extraction queued again
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReport" } } }
+        "409": { description: Extraction is not failed }
+  /bloodwork/patients/{patientId}/reports/{reportId}/files/{fileId}/source:
+    get:
+      operationId: getBloodworkFileSource
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+        - { $ref: "#/components/parameters/BloodworkFileId" }
+        - { $ref: "#/components/parameters/OfficeId" }
+      responses:
+        "200":
+          description: Authenticated original document bytes
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "404": { description: File not found }
+  /bloodwork/patients/{patientId}/reports/{reportId}/files/{fileId}/pages/{page}:
+    get:
+      operationId: getBloodworkFilePage
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+        - { $ref: "#/components/parameters/BloodworkFileId" }
+        - { name: page, in: path, required: true, schema: { type: number, minimum: 1 } }
+        - { $ref: "#/components/parameters/OfficeId" }
+      responses:
+        "200":
+          description: Authenticated rendered page bytes
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "404": { description: Page not found }
+        "422": { description: Document cannot be rendered }
+  /bloodwork/patients/{patientId}/reports/{reportId}/results/{resultId}:
+    put:
+      operationId: correctBloodworkResult
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+        - { $ref: "#/components/parameters/BloodworkResultId" }
+        - { $ref: "#/components/parameters/OfficeId" }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkResultUpdate" } } }
+      responses:
+        "200":
+          description: Corrected transcription
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkResult" } } }
+        "409": { description: Version conflict }
+  /bloodwork/patients/{patientId}/reports/{reportId}/results/{resultId}/corrections:
+    get:
+      operationId: listBloodworkCorrections
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+        - { $ref: "#/components/parameters/BloodworkResultId" }
+        - { $ref: "#/components/parameters/OfficeId" }
+      responses:
+        "200":
+          description: Private correction history
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkCorrectionList" } } }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
   schemas:
+    BloodworkReport:
+      type: object
+      required: [id, patientId, title, reportDate, uploadedAt, version, kind, fileCount, pageCount, extractionStatus, extractionError, reviewStatus]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        title: { type: string }
+        reportDate: { type: ["string", "null"], format: date }
+        uploadedAt: { type: string, format: date-time }
+        version: { type: number }
+        kind: { type: string, enum: [images, pdf] }
+        fileCount: { type: number }
+        pageCount: { type: number }
+        extractionStatus: { type: string, enum: [queued, processing, completed, failed] }
+        extractionError: { type: ["string", "null"] }
+        reviewStatus: { type: string, enum: [unreviewed] }
+    BloodworkFile:
+      type: object
+      required: [id, position, mimeType, size, pageCount, width, height]
+      properties:
+        id: { type: string }
+        position: { type: number }
+        mimeType: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+        size: { type: number }
+        pageCount: { type: number }
+        width: { type: ["number", "null"] }
+        height: { type: ["number", "null"] }
+    BloodworkResultFields:
+      type: object
+      required: [testName, valueText, units, referenceRange, labFlag, uncertain]
+      properties:
+        testName: { type: ["string", "null"], maxLength: 500 }
+        valueText: { type: ["string", "null"], maxLength: 500 }
+        units: { type: ["string", "null"], maxLength: 500 }
+        referenceRange: { type: ["string", "null"], maxLength: 500 }
+        labFlag: { type: ["string", "null"], maxLength: 500 }
+        uncertain: { type: boolean }
+    BloodworkResult:
+      allOf:
+        - { $ref: "#/components/schemas/BloodworkResultFields" }
+        - type: object
+          required: [id, reportId, sourceFileId, sourcePage, position, version, reviewStatus, updatedAt, corrected]
+          properties:
+            id: { type: string }
+            reportId: { type: string }
+            sourceFileId: { type: string }
+            sourcePage: { type: number }
+            position: { type: number }
+            version: { type: number }
+            reviewStatus: { type: string, enum: [unreviewed] }
+            updatedAt: { type: string, format: date-time }
+            corrected: { type: boolean }
+    BloodworkDetail:
+      type: object
+      required: [report, files, results]
+      properties:
+        report: { $ref: "#/components/schemas/BloodworkReport" }
+        files: { type: array, items: { $ref: "#/components/schemas/BloodworkFile" } }
+        results: { type: array, items: { $ref: "#/components/schemas/BloodworkResult" } }
+    BloodworkReportList:
+      type: object
+      required: [reports, nextCursor]
+      properties:
+        reports: { type: array, items: { $ref: "#/components/schemas/BloodworkReport" } }
+        nextCursor: { type: ["string", "null"] }
+    BloodworkFileInput:
+      type: object
+      additionalProperties: false
+      required: [clientFileId, mimeType, size]
+      properties:
+        clientFileId: { type: string, pattern: "^[0-9a-fA-F-]{36}$" }
+        mimeType: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+        size: { type: number, minimum: 1, maximum: 20000000 }
+    BloodworkReportInput:
+      type: object
+      additionalProperties: false
+      required: [clientRequestId, title, reportDate, transcriptionConsent, files]
+      properties:
+        clientRequestId: { type: string, pattern: "^[0-9a-fA-F-]{36}$" }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        reportDate: { type: ["string", "null"], format: date }
+        transcriptionConsent: { type: boolean, const: true }
+        files: { type: array, minItems: 1, maxItems: 10, items: { $ref: "#/components/schemas/BloodworkFileInput" } }
+    BloodworkUpload:
+      type: object
+      required: [fileId, clientFileId, uploadUrl, expiresAt]
+      properties:
+        fileId: { type: string }
+        clientFileId: { type: string }
+        uploadUrl: { type: string }
+        expiresAt: { type: string, format: date-time }
+    BloodworkUploadSet:
+      type: object
+      required: [reportId, uploads]
+      properties:
+        reportId: { type: string }
+        uploads: { type: array, items: { $ref: "#/components/schemas/BloodworkUpload" } }
+    BloodworkReportUpdate:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, title, reportDate]
+      properties:
+        expectedVersion: { type: number }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        reportDate: { type: ["string", "null"], format: date }
+    BloodworkResultUpdate:
+      allOf:
+        - { $ref: "#/components/schemas/BloodworkResultFields" }
+        - type: object
+          additionalProperties: false
+          required: [expectedVersion]
+          properties:
+            expectedVersion: { type: number }
+    BloodworkCorrection:
+      type: object
+      required: [id, resultId, actorRole, createdAt, before, after, version]
+      properties:
+        id: { type: string }
+        resultId: { type: string }
+        actorRole: { type: string, enum: [patient, provider, hq] }
+        createdAt: { type: string, format: date-time }
+        before: { $ref: "#/components/schemas/BloodworkResultFields" }
+        after: { $ref: "#/components/schemas/BloodworkResultFields" }
+        version: { type: number }
+    BloodworkCorrectionList:
+      type: object
+      required: [corrections]
+      properties:
+        corrections: { type: array, items: { $ref: "#/components/schemas/BloodworkCorrection" } }
+    BloodworkDeleteResult:
+      type: object
+      required: [deleted]
+      properties:
+        deleted: { type: boolean }
     OfficeRangeMetrics:
       type: object
       description: >-
@@ -4021,6 +4332,21 @@ components:
       required:
         - status
   parameters:
+    BloodworkReportId:
+      name: reportId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9a-fA-F-]{36}$" }
+    BloodworkFileId:
+      name: fileId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9a-fA-F-]{36}$" }
+    BloodworkResultId:
+      name: resultId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9a-fA-F-]{36}$" }
     OfficePatientId:
       name: patientId
       in: path

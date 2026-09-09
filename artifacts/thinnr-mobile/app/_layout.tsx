@@ -281,6 +281,10 @@ function RootLayoutNav() {
       <Stack.Screen name="barcode-scan" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="log-food" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="food/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="bloodwork/index" options={{ headerShown: false }} />
+      <Stack.Screen name="bloodwork/new" options={{ headerShown: false }} />
+      <Stack.Screen name="bloodwork/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="patient/[id]/bloodwork/[reportId]" options={{ headerShown: false }} />
       <Stack.Screen name="yesterday-review" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="coach-chat" options={{ headerShown: false }} />

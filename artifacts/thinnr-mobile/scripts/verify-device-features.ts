@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   approvedMeasurements, AccountOperationEpoch, biometricEligibility,
   cancelAccountReminders, ReminderCoordinator,
-  reconcileReminders, reminderPlanFor,
+  isDeviceLocked, reconcileReminders, reminderPlanFor, webBiometricHydration,
   type NotificationDriver,
   type ReminderItem,
   type ReminderRecord,
@@ -68,6 +68,16 @@ assert.equal(reminderPlanFor([{ ...injection, weekday: null }], true, TODAY).ite
 assert.equal(reminderPlanFor([{ ...drops, times: ['22:00', '08:00', '08:00'] }], true, TODAY).items.map(i => i.hour).join(','), '8,22', 'times are deduplicated and ordered');
 
 assert.equal(biometricEligibility({ platform: 'web', expoGo: false, hardware: true, enrolled: true, supportedTypes: [1], biometricTypes: [1] }), 'web');
+const webHydration = webBiometricHydration('patient-web');
+assert.equal(
+  isDeviceLocked('patient-web', webHydration.loadedFor, webHydration.locked),
+  false,
+  'a real web account is marked hydrated and never enters the native biometric lock',
+);
+assert.equal(isDeviceLocked('patient-native', 'patient-native', true), true,
+  'a native account with enabled biometrics remains locked after hydration');
+assert.equal(isDeviceLocked('patient-b', 'patient-a', false), true,
+  'an account swap remains locked until the new native account has hydrated');
 assert.equal(biometricEligibility({ platform: 'ios', expoGo: true, hardware: true, enrolled: true, supportedTypes: [1], biometricTypes: [1] }), 'expo-go');
 assert.equal(biometricEligibility({ platform: 'android', expoGo: false, hardware: true, enrolled: false, supportedTypes: [1], biometricTypes: [1] }), 'unsupported');
 assert.equal(biometricEligibility({ platform: 'android', expoGo: false, hardware: true, enrolled: true, supportedTypes: [1], biometricTypes: [1] }), 'available');

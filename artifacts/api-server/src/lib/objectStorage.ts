@@ -43,6 +43,13 @@ export class ObjectNotFoundError extends Error {
   }
 }
 
+export class ObjectTooLargeError extends Error {
+  constructor() {
+    super("Object exceeds the allowed byte limit");
+    this.name = "ObjectTooLargeError";
+  }
+}
+
 /** Signed upload/download TTLs. Playback URLs outlive the longest lesson. */
 export const UPLOAD_URL_TTL_SEC = 900;
 
@@ -293,6 +300,25 @@ export class ObjectStorageService {
     return { uploadUrl, objectPath };
   }
 
+  /** PUT grant for one deterministic, patient-bound bloodwork staging key. */
+  async bloodworkUploadURL(
+    patientId: string,
+    reportId: string,
+    fileId: string,
+  ): Promise<{ uploadUrl: string; objectPath: string }> {
+    const objectPath = `/objects/patients/${patientId}/bloodwork/staging/${reportId}/${fileId}`;
+    const { bucketName, objectName } = this.locate(objectPath);
+    return {
+      uploadUrl: await signObjectURL({
+        bucketName,
+        objectName,
+        method: "PUT",
+        ttlSec: UPLOAD_URL_TTL_SEC,
+      }),
+      objectPath,
+    };
+  }
+
   /** Private HQ document upload, bound to a server-generated metadata id. */
   async hqFileUploadURL(fileId: string): Promise<{ uploadUrl: string; objectPath: string }> {
     const objectId = `file-${randomUUID()}`;
@@ -318,6 +344,52 @@ export class ObjectStorageService {
     return file;
   }
 
+  /**
+   * Read one immutable generation with a hard byte ceiling. Metadata is
+   * checked before allocation and the stream is capped independently, so a
+   * mislabeled/oversized PUT cannot force an unbounded download.
+   */
+  async readObjectBounded(objectPath: string, maxBytes: number): Promise<{
+    bytes: Buffer;
+    sizeBytes: number;
+    generation: number;
+    contentType: string | null;
+  }> {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error("invalid byte limit");
+    const current = await this.entityFile(objectPath);
+    const [metadata] = await current.getMetadata();
+    const sizeBytes = Number(metadata.size);
+    const generation = Number(metadata.generation);
+    if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > maxBytes) {
+      throw new ObjectTooLargeError();
+    }
+    if (!Number.isSafeInteger(generation) || generation < 1) throw new Error("object generation unavailable");
+    const { bucketName, objectName } = this.locate(objectPath);
+    const pinned = objectStorageClient.bucket(bucketName).file(objectName, { generation });
+    const chunks: Buffer[] = [];
+    let received = 0;
+    await new Promise<void>((resolve, reject) => {
+      const stream = pinned.createReadStream({ start: 0, end: sizeBytes - 1 });
+      stream.on("data", (chunk: Buffer) => {
+        received += chunk.length;
+        if (received > maxBytes) {
+          stream.destroy(new ObjectTooLargeError());
+          return;
+        }
+        chunks.push(chunk);
+      });
+      stream.once("error", reject);
+      stream.once("end", resolve);
+    });
+    if (received !== sizeBytes) throw new Error("object changed or was truncated during read");
+    return {
+      bytes: Buffer.concat(chunks, received),
+      sizeBytes,
+      generation,
+      contentType: typeof metadata.contentType === "string" ? metadata.contentType : null,
+    };
+  }
+
   /** Short-lived signed GET so <video> range requests stream from storage. */
   async signedDownloadURL(objectPath: string, ttlSec: number = PLAYBACK_URL_TTL_SEC): Promise<string> {
     const { bucketName, objectName } = this.locate(objectPath);
@@ -330,6 +402,34 @@ export class ObjectStorageService {
       metadata: { contentType },
       resumable: false,
     });
+  }
+
+  /** Create-only write used when verified staging bytes become immutable. */
+  async saveBufferImmutable(objectPath: string, content: Buffer, contentType: string): Promise<void> {
+    try {
+      await this.fileFor(objectPath).save(content, {
+        metadata: { contentType },
+        resumable: false,
+        preconditionOpts: { ifGenerationMatch: 0 },
+      });
+    } catch (error) {
+      // A concurrent/retried commit already created this deterministic key.
+      // Generation zero guarantees neither caller can overwrite it.
+      if (error && typeof error === "object" && "code" in error && Number(error.code) === 412) {
+        const [existing] = await this.fileFor(objectPath).download();
+        if (existing.equals(content)) return;
+        throw new Error("immutable destination contains different bytes");
+      }
+      throw error;
+    }
+  }
+
+  /** Server-side immutable promotion; callers must ensure destination is new. */
+  async copyObject(sourcePath: string, destinationPath: string): Promise<void> {
+    const destination = this.fileFor(destinationPath);
+    const [exists] = await destination.exists();
+    if (exists) return;
+    await this.fileFor(sourcePath).copy(destination);
   }
 
   /** Best-effort delete for replaced files; missing objects are not errors. */

@@ -74,6 +74,7 @@ describe("storage reconciliation", () => {
   it("covers every upload prefix and defaults the orphan grace to a day", () => {
     expect([...RECONCILE_PREFIXES]).toEqual([
       "/objects/patient-media/",
+      "/objects/patients/",
       "/objects/hq-files/",
       "/objects/training-videos/",
       "/objects/training-attachments/",
@@ -81,6 +82,26 @@ describe("storage reconciliation", () => {
       "/objects/exports/",
     ]);
     expect(orphanGraceMs()).toBe(86_400_000);
+  });
+
+  it("keeps referenced bloodwork staging and committed sources and quarantines old unknown bytes", async () => {
+    const prefix = "/objects/patients/";
+    const staging = `${prefix}p1/bloodwork/staging/r1/f1`;
+    const committed = `${prefix}p1/bloodwork/reports/r1/f1`;
+    fakeAdmin([
+      { object_path: staging, source: "patient_bloodwork_staging", missing: false },
+      { object_path: committed, source: "patient_bloodwork_file", missing: false },
+    ]);
+    mocks.listObjects.mockResolvedValue([
+      { path: staging, createdAt: daysAgo(4), sizeBytes: 1 },
+      { path: committed, createdAt: daysAgo(4), sizeBytes: 1 },
+      { path: `${prefix}p1/bloodwork/staging/abandoned/f2`, createdAt: daysAgo(2), sizeBytes: 1 },
+    ]);
+    const { c, counts } = ctx();
+    await reconcilePrefix(c, prefix);
+    expect(mocks.deleteObjectStrict).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteObjectStrict).toHaveBeenCalledWith(`${prefix}p1/bloodwork/staging/abandoned/f2`);
+    expect(counts).toMatchObject({ ledgerRows: 2, orphansDeleted: 1 });
   });
 
   it("deletes orphans past the grace window, leaves young or intent-covered ones, and never touches referenced objects", async () => {

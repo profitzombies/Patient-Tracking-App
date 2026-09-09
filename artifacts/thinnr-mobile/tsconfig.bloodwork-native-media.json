@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/bloodwork-stubs/react-native.ts"],
+      "expo-document-picker": ["./scripts/bloodwork-native-media-stubs/expo-document-picker.ts"],
+      "expo-file-system/legacy": ["./scripts/bloodwork-native-media-stubs/expo-file-system-legacy.ts"],
+      "expo-image-picker": ["./scripts/bloodwork-native-media-stubs/expo-image-picker.ts"],
+      "expo-image-manipulator": ["./scripts/bloodwork-native-media-stubs/expo-image-manipulator.ts"]
+    }
+  }
+}

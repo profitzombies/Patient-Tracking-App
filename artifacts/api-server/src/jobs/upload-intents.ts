@@ -15,6 +15,7 @@ export const UPLOAD_SURFACES = [
   "training_thumbnail",
   "training_attachment",
   "knowledge_document",
+  "bloodwork",
 ] as const;
 export type UploadSurface = (typeof UPLOAD_SURFACES)[number];
 

@@ -62,6 +62,22 @@ export const REMINDER_ACTION_TAKEN = 'taken';
 export const REMINDER_ACTION_SKIPPED = 'skipped';
 export const REMINDER_CATEGORY = 'medication-dose';
 
+export function webBiometricHydration(accountId: string): {
+  biometric: 'web';
+  locked: false;
+  loadedFor: string;
+} {
+  return { biometric: 'web', locked: false, loadedFor: accountId };
+}
+
+export function isDeviceLocked(
+  accountId: string | null,
+  biometricLoadedFor: string | null,
+  locked: boolean,
+): boolean {
+  return Boolean(accountId) && (biometricLoadedFor !== accountId || locked);
+}
+
 export function parseClock(value: string): { hour: number; minute: number } | null {
   const match = /^\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*$/i.exec(value);
   if (!match) return null;

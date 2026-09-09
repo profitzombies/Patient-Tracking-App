@@ -10,17 +10,18 @@
  *                       failed (retry with backoff; HQ can retry by hand)
  *
  * Purge steps, in this order and each idempotent on re-run:
- *   1. storage  — delete every object under the patient's media prefix
+ *   1. tombstone — persist the PII-free purge marker before destructive work.
+ *   2. storage  — delete every object under both patient-owned prefixes
  *                 (photos, chat images, food/recipe images, export archives).
  *                 Needs nothing from the rows, so it is safe to run before
  *                 they go — and a re-run after the rows are gone still works.
- *   2. rows     — `patient_purge_rows` RPC: one transaction that writes the
+ *   3. rows     — `patient_purge_rows` RPC: one transaction that writes the
  *                 PII-free tombstone, deletes every row in every public
  *                 table carrying patient_id (enumerated live in SQL), detaches
  *                 append-only analytics rows, and deletes the patient row.
  *                 Push tokens, notifications, consents, and exports are
  *                 patient_id tables, so they go here too.
- *   3. auth     — delete the GoTrue user (the auth_user_id was captured on
+ *   4. auth     — delete the GoTrue user (the auth_user_id was captured on
  *                 the request row at request time). GoTrue cascades sessions,
  *                 refresh tokens, identities, and MFA factors. 404 = already
  *                 gone = done.
@@ -90,6 +91,7 @@ export interface PurgeSummary {
 }
 
 export interface PurgeDeps {
+  prepareTombstone: (requestId: string) => Promise<boolean>;
   deleteStoragePrefix: (prefix: string) => Promise<number>;
   purgeRows: (requestId: string) => Promise<PurgeSummary>;
   deleteAuthUser: (userId: string) => Promise<"deleted" | "absent">;
@@ -105,6 +107,13 @@ export interface PurgeDeps {
 }
 
 export const defaultPurgeDeps: PurgeDeps = {
+  async prepareTombstone(requestId) {
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_purge_prepare_tombstone", { p_request_id: requestId });
+    if (result.status >= 300 || result.json !== true) {
+      throw new Error(`purge tombstone failed (${result.status})`);
+    }
+    return true;
+  },
   deleteStoragePrefix: (prefix) => objectStorage.deletePrefixStrict(prefix),
   async purgeRows(requestId) {
     const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_purge_rows", { p_request_id: requestId });
@@ -148,6 +157,10 @@ export function patientStoragePrefix(patientId: string): string {
   return `${PATIENT_MEDIA_PREFIX}${patientId}/`;
 }
 
+export function patientBloodworkStoragePrefix(patientId: string): string {
+  return `/objects/patients/${patientId}/bloodwork/`;
+}
+
 /**
  * Run every purge step for one claimed request. Never throws: the outcome
  * lands on the request row (purged, or failed with the step that broke and
@@ -156,10 +169,17 @@ export function patientStoragePrefix(patientId: string): string {
 export async function runPurge(request: DeletionRequestRow, deps: PurgeDeps = defaultPurgeDeps): Promise<"purged" | "failed"> {
   const now = () => (deps.now ?? (() => new Date()))().toISOString();
   const steps: Record<string, unknown> = { ...(request.steps ?? {}) };
-  let step = "storage";
+  let step = "tombstone";
   try {
-    const objects = await deps.deleteStoragePrefix(patientStoragePrefix(request.patient_id));
-    steps.storage = { ok: true, objects, at: now() };
+    const tombstone = await deps.prepareTombstone(request.id);
+    if (!tombstone) throw new Error("tombstone missing before storage purge");
+    steps.tombstone = { ok: true, at: now() };
+
+    step = "storage";
+    const mediaObjects = await deps.deleteStoragePrefix(patientStoragePrefix(request.patient_id));
+    const bloodworkObjects = await deps.deleteStoragePrefix(patientBloodworkStoragePrefix(request.patient_id));
+    const objects = mediaObjects + bloodworkObjects;
+    steps.storage = { ok: true, objects, prefixes: 2, at: now() };
 
     step = "rows";
     const summary = await deps.purgeRows(request.id);

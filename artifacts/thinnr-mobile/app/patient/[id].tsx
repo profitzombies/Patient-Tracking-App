@@ -24,6 +24,7 @@ import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { MOCK_PRODUCTS, MOCK_PROVIDERS } from '@/data/mock-data';
 import { useOperations } from '@/context/OperationsContext';
 import { BodyMeasurementsCard, LogVisitSheet, localTodayKey, type VisitDraft } from '@/components/staff/BodyMeasurementsCard';
+import { ProviderBloodworkPatientShell } from '@/components/bloodwork/ProviderBloodworkPatientPanel';
 
 const formatDate = (date: string, includeYear = false) =>
   new Date(date).toLocaleDateString('en-US', includeYear
@@ -134,6 +135,13 @@ export default function PatientDetailScreen() {
     }
     router.replace('/patients');
   };
+
+  // A live UUID must never fall through to the synthetic patient projection.
+  // The bloodwork shell independently verifies the signed-in office and roster.
+  if (!patient && typeof id === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return <ProviderBloodworkPatientShell patientId={id} />;
+  }
 
   // Guard: don't render interactive content before hydration to avoid acting on default state
   if (!ops.hydrated) {

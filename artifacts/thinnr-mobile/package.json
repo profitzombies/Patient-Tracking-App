@@ -49,7 +49,8 @@
     "test:food-catalog": "tsx scripts/verify-food-catalog.ts",
     "test:food-nutrition": "tsx scripts/verify-food-nutrition.ts",
     "test:food-portions": "tsx scripts/verify-food-portions.ts",
-    "test:food-detail": "tsx --tsconfig tsconfig.food-detail.json scripts/verify-food-detail.tsx"
+    "test:food-detail": "tsx --tsconfig tsconfig.food-detail.json scripts/verify-food-detail.tsx",
+    "test:bloodwork": "tsx scripts/verify-bloodwork.ts && tsx --tsconfig tsconfig.bloodwork-upload.json scripts/verify-bloodwork-upload.ts && tsx --tsconfig tsconfig.bloodwork.json scripts/verify-bloodwork-panel.ts && tsx --tsconfig tsconfig.bloodwork-browser.json scripts/verify-bloodwork-final-seams.ts && tsx --tsconfig tsconfig.bloodwork-camera.json scripts/verify-bloodwork-camera.ts && tsx --tsconfig tsconfig.bloodwork-native-media.json scripts/verify-bloodwork-native-pdf-cleanup.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -108,6 +109,8 @@
     "expo-asset": "~57.0.16",
     "expo-audio": "~57.0.4",
     "expo-camera": "~57.0.4",
+    "expo-document-picker": "~57.0.1",
+    "expo-file-system": "~57.0.6",
     "expo-image-manipulator": "~57.0.15",
     "expo-local-authentication": "~57.0.2",
     "expo-media-library": "~57.0.4",

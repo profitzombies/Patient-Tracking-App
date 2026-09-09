@@ -23,7 +23,7 @@ const nextId = () => fakeUuid(9000 + ++seq);
 
 function matches(row: Row, params: URLSearchParams): boolean {
   for (const [key, raw] of params.entries()) {
-    if (["select", "order", "limit", "on_conflict"].includes(key)) continue;
+    if (["select", "order", "limit", "offset", "on_conflict"].includes(key)) continue;
     const value = String(row[key] ?? "");
     if (raw.startsWith("eq.")) {
       if (value !== raw.slice(3)) return false;
@@ -54,7 +54,8 @@ function ordered(rows: Row[], params: URLSearchParams): Row[] {
     });
   }
   const limit = params.get("limit");
-  return limit ? out.slice(0, Number(limit)) : out;
+  const offset = Number(params.get("offset") ?? 0);
+  return limit ? out.slice(offset, offset + Number(limit)) : out.slice(offset);
 }
 
 export function createFakeSupabase(): FakeSupabase {
@@ -159,6 +160,23 @@ export function createFakeSupabase(): FakeSupabase {
               row.lease_until = new Date(Date.now() + Number(args.p_lease_seconds ?? 600) * 1000).toISOString();
             }
             return { status: 200, json: due.map((r) => ({ ...r })) };
+          }
+          case "patient_purge_prepare_tombstone": {
+            const req = fake.tables.patient_deletion_requests.find((r) => r.id === args.p_request_id);
+            if (!req || req.status !== "purging") return { status: 400, json: false };
+            const patient = fake.tables.patients.find((p) => p.id === req.patient_id);
+            if (patient && !fake.tables.patient_tombstones.some((t) => t.id === req.patient_id)) {
+              fake.tables.patient_tombstones.push({
+                id: req.patient_id,
+                provider_id: patient.provider_id ?? null,
+                requested_at: req.requested_at,
+                purged_at: now,
+                was_activated: patient.activation_status === "activated",
+                program_id: patient.program_id ?? null,
+                enrolled_on: patient.program_start_date ?? null,
+              });
+            }
+            return { status: 200, json: fake.tables.patient_tombstones.some((t) => t.id === req.patient_id) };
           }
           case "patient_purge_rows": {
             const req = fake.tables.patient_deletion_requests.find((r) => r.id === args.p_request_id);

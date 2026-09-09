@@ -115,3 +115,5 @@
 - [Pending food amount intent](food-amount-intent.md) — every action must consume the effective amount; favorite state follows the resolved configuration, not the prior render.
 - [Grouped food-search plans](food-search-plans.md) — materialize family hits before lateral variants; aggregate narrow aliases before joining nutrition snapshots.
 - [Bloodwork review semantics](bloodwork-review-semantics.md) — extract to unreviewed results; patient and provider corrections do not imply clinical sign-off; recommendations remain a separate future scope.
+- [Private document platforms](private-document-platforms.md) — native image requests need absolute URLs; Expo legacy filesystem types do not imply web support; test each platform's real boundary.
+- [Untrusted PDF processing](untrusted-pdf-processing.md) — raster dimensions do not bound embedded decoding; isolate native parsing and verify the emitted production worker, not only source tests.

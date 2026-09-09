@@ -82,7 +82,7 @@ beforeEach(() => {
     { id: P1, provider_id: "office-1", auth_user_id: "auth-1", activation_status: "activated", program_id: "thinnr", program_start_date: "2026-06-01", first_name: "Pat", last_name: "Example", email: "pat@example.com", deletion_requested_at: null },
     { id: P2, provider_id: "office-1", auth_user_id: "auth-2", activation_status: "activated", program_id: "glp", first_name: "Other", deletion_requested_at: null },
   );
-  for (const table of ["patient_diary_entries", "patient_water_days", "patient_target_overrides", "patient_food_prefs", "patient_custom_foods", "patient_saved_recipes", "patient_check_ins", "patient_health_measurements", "patient_body_measurements", "patient_staff_weights", "patient_medications", "patient_medication_dose_logs", "patient_progress_photos", "patient_media", "patient_chat_conversations", "patient_chat_messages", "patient_flags"]) {
+  for (const table of ["patient_diary_entries", "patient_water_days", "patient_target_overrides", "patient_food_prefs", "patient_custom_foods", "patient_saved_recipes", "patient_check_ins", "patient_health_measurements", "patient_body_measurements", "patient_staff_weights", "patient_medications", "patient_medication_dose_logs", "patient_progress_photos", "patient_media", "patient_chat_conversations", "patient_chat_messages", "patient_flags", "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections", "patient_bloodwork_extraction_pages"]) {
     mocks.supabase.tables[table] = [];
   }
   mocks.supabase.tables.patient_diary_entries.push(
@@ -103,6 +103,35 @@ beforeEach(() => {
   mocks.supabase.tables.patient_chat_messages.push({ conversation_id: fakeUuid(501), client_id: "m1", seq: 1, role: "user", text: "hello coach", photo: { path: `/objects/patient-media/${P1}/chat-1.jpg` } });
   mocks.saved.set(`/objects/patient-media/${P1}/photo-1.jpg`, { buffer: Buffer.from("PHOTO-BYTES"), contentType: "image/jpeg" });
   mocks.saved.set(`/objects/patient-media/${P1}/chat-1.jpg`, { buffer: Buffer.from("CHAT-BYTES"), contentType: "image/jpeg" });
+  const reportId = fakeUuid(801);
+  const fileId = fakeUuid(802);
+  const resultId = fakeUuid(803);
+  const bloodworkPath = `/objects/patients/${P1}/bloodwork/reports/${reportId}/${fileId}`;
+  mocks.supabase.tables.patient_bloodwork_reports.push({ id: reportId, patient_id: P1, title: "Annual panel", kind: "pdf", lifecycle_status: "committed", extraction_status: "completed", version: 1, uploaded_at: "2026-09-02T00:00:00Z" });
+  mocks.supabase.tables.patient_bloodwork_files.push({ id: fileId, patient_id: P1, report_id: reportId, position: 0, declared_mime_type: "application/pdf", declared_size_bytes: 9, object_path: bloodworkPath, mime_type: "application/pdf", size_bytes: 9, page_count: 1 });
+  mocks.supabase.tables.patient_bloodwork_files.push({ id: fakeUuid(805), patient_id: P1, report_id: reportId, position: 1, declared_mime_type: "image/png", declared_size_bytes: 20, object_path: null, mime_type: null, size_bytes: null, page_count: null });
+  mocks.supabase.tables.patient_bloodwork_results.push({ id: resultId, patient_id: P1, report_id: reportId, source_file_id: fileId, source_page: 1, position: 0, original_test_name: "Glucose", original_value_text: "99", test_name: "Glucose", value_text: "98", uncertain: false, version: 2, corrected: true });
+  mocks.supabase.tables.patient_bloodwork_corrections.push({ id: fakeUuid(804), patient_id: P1, report_id: reportId, result_id: resultId, actor_role: "patient", actor_user_id: fakeUuid(1), before_values: { valueText: "99" }, after_values: { valueText: "98" }, version: 2, created_at: "2026-09-03T00:00:00Z" });
+  const failedReportId = fakeUuid(806);
+  const failedFileId = fakeUuid(807);
+  const pendingReportId = fakeUuid(808);
+  const pendingFileId = fakeUuid(809);
+  const otherReportId = fakeUuid(816);
+  mocks.supabase.tables.patient_bloodwork_reports.push(
+    { id: failedReportId, patient_id: P1, title: "Pending panel", kind: "images", lifecycle_status: "committed", extraction_status: "failed", extraction_error: "AI_TIMEOUT", version: 1, uploaded_at: "2026-09-04T00:00:00Z" },
+    { id: pendingReportId, patient_id: P1, title: "Processing panel", kind: "images", lifecycle_status: "committed", extraction_status: "processing", version: 1, uploaded_at: "2026-09-05T00:00:00Z" },
+    { id: otherReportId, patient_id: P2, title: "Other private panel", kind: "images", lifecycle_status: "committed", extraction_status: "failed", version: 1, uploaded_at: "2026-09-04T00:00:00Z" },
+  );
+  mocks.supabase.tables.patient_bloodwork_files.push(
+    { id: failedFileId, patient_id: P1, report_id: failedReportId, position: 0, declared_mime_type: "image/png", declared_size_bytes: 20, object_path: null, mime_type: null, size_bytes: null, page_count: null },
+    { id: pendingFileId, patient_id: P1, report_id: pendingReportId, position: 0, declared_mime_type: "image/png", declared_size_bytes: 20, object_path: null, mime_type: null, size_bytes: null, page_count: null },
+  );
+  mocks.supabase.tables.patient_bloodwork_extraction_pages.push(
+    { report_id: failedReportId, source_file_id: failedFileId, source_page: 1, results: [{ testName: "Ferritin", valueText: "pending-review", units: null, referenceRange: null, labFlag: null, uncertain: true }] },
+    { report_id: pendingReportId, source_file_id: pendingFileId, source_page: 1, results: [{ testName: "A1C", valueText: "in-progress", units: "%", referenceRange: null, labFlag: null, uncertain: true }] },
+    { report_id: otherReportId, source_file_id: fakeUuid(817), source_page: 1, results: [{ testName: "SECRET OTHER LAB", valueText: "777", uncertain: false }] },
+  );
+  mocks.saved.set(bloodworkPath, { buffer: Buffer.from("LAB-PDF"), contentType: "application/pdf" });
 });
 
 async function call(path: string, method = "GET", body?: unknown) {
@@ -193,6 +222,7 @@ describe("data export", () => {
     expect(names).toEqual(expect.arrayContaining([
       "README.txt", "profile.json", "consents.json", "preferences.json", "diary.json", "water.json", "targets.json", "library.json",
       "check-ins.json", "measurements.json", "medications.json", "photos.json", "chat.json", "media.json", "media/photo-1.jpg", "media/chat-1.jpg",
+      `bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf`, "bloodwork.json",
     ]));
     const diary = JSON.parse(await zip.file("diary.json")!.async("string")) as Array<{ name: string }>;
     expect(diary.map((d) => d.name)).toEqual(["Eggs"]);
@@ -206,6 +236,41 @@ describe("data export", () => {
     const chat = JSON.parse(await zip.file("chat.json")!.async("string")) as Array<{ messages: Array<{ text: string }> }>;
     expect(chat[0].messages[0].text).toBe("hello coach");
     expect(JSON.parse(await zip.file("profile.json")!.async("string"))).toMatchObject({ id: P1, first_name: "Pat" });
+    expect(await zip.file(`bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf`)!.async("string")).toBe("LAB-PDF");
+    const bloodwork = JSON.parse(await zip.file("bloodwork.json")!.async("string")) as {
+      files: Array<Record<string, unknown>>;
+      results: Array<Record<string, unknown>>;
+      corrections: Array<Record<string, unknown>>;
+      incompleteTranscriptionPages: Array<Record<string, unknown>>;
+    };
+    expect(bloodwork.files[0]).not.toHaveProperty("object_path");
+    expect(bloodwork.files[0]).toMatchObject({ omittedReason: null, archiveFile: `bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf` });
+    expect(bloodwork.files[1]).toMatchObject({
+      archiveFile: null,
+      omittedFileName: `bloodwork/files/${fakeUuid(801)}/01-${fakeUuid(805)}.png`,
+      omittedReason: "not_committed",
+    });
+    expect(bloodwork.results[0]).toMatchObject({ original_value_text: "99", value_text: "98", corrected: true });
+    expect(bloodwork.corrections[0]).toMatchObject({ actor_role: "patient", before_values: { valueText: "99" }, after_values: { valueText: "98" } });
+    expect(bloodwork.incompleteTranscriptionPages).toEqual([
+      expect.objectContaining({
+        reportId: fakeUuid(806),
+        sourceFileId: fakeUuid(807),
+        sourcePage: 1,
+        extractionStatus: "failed",
+        status: "incomplete",
+        results: [expect.objectContaining({ testName: "Ferritin", uncertain: true })],
+      }),
+      expect.objectContaining({
+        reportId: fakeUuid(808),
+        sourceFileId: fakeUuid(809),
+        sourcePage: 1,
+        extractionStatus: "processing",
+        status: "incomplete",
+        results: [expect.objectContaining({ testName: "A1C", uncertain: true })],
+      }),
+    ]);
+    expect(JSON.stringify(bloodwork.incompleteTranscriptionPages)).not.toContain("SECRET OTHER LAB");
 
     // Ready notification rides the account category with a dedupe key; audit trail complete.
     expect(mocks.enqueue).toHaveBeenCalledTimes(1);

@@ -2968,3 +2968,449 @@ export const RetryHqPatientDeletionResponse = zod.object({
 })
 
 
+export const ListBloodworkReportsParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const ListBloodworkReportsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "cursor": zod.coerce.string().optional()
+})
+
+export const ListBloodworkReportsResponse = zod.object({
+  "reports": zod.array(zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "title": zod.string(),
+  "reportDate": zod.coerce.date().nullable(),
+  "uploadedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "kind": zod.enum(['images', 'pdf']),
+  "fileCount": zod.number(),
+  "pageCount": zod.number(),
+  "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
+  "extractionError": zod.string().nullable(),
+  "reviewStatus": zod.enum(['unreviewed'])
+})),
+  "nextCursor": zod.string().nullable()
+})
+
+
+export const CreateBloodworkReportParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const createBloodworkReportBodyClientRequestIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+export const createBloodworkReportBodyTitleMax = 200;
+
+export const createBloodworkReportBodyFilesItemClientFileIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+export const createBloodworkReportBodyFilesItemSizeMax = 20000000;
+
+export const createBloodworkReportBodyFilesMax = 10;
+
+
+
+export const CreateBloodworkReportBody = zod.object({
+  "clientRequestId": zod.string().regex(createBloodworkReportBodyClientRequestIdRegExp),
+  "title": zod.string().min(1).max(createBloodworkReportBodyTitleMax),
+  "reportDate": zod.coerce.date().nullable(),
+  "transcriptionConsent": zod.literal(true),
+  "files": zod.array(zod.object({
+  "clientFileId": zod.string().regex(createBloodworkReportBodyFilesItemClientFileIdRegExp),
+  "mimeType": zod.enum(['application/pdf', 'image/jpeg', 'image/png']),
+  "size": zod.number().min(1).max(createBloodworkReportBodyFilesItemSizeMax)
+})).min(1).max(createBloodworkReportBodyFilesMax)
+})
+
+export const CreateBloodworkReportResponse = zod.object({
+  "reportId": zod.string(),
+  "uploads": zod.array(zod.object({
+  "fileId": zod.string(),
+  "clientFileId": zod.string(),
+  "uploadUrl": zod.string(),
+  "expiresAt": zod.coerce.date()
+}))
+})
+
+
+export const getBloodworkReportPathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+export const GetBloodworkReportParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(getBloodworkReportPathReportIdRegExp)
+})
+
+export const GetBloodworkReportQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const getBloodworkReportResponseResultsItemOneTestNameMax = 500;
+
+export const getBloodworkReportResponseResultsItemOneValueTextMax = 500;
+
+export const getBloodworkReportResponseResultsItemOneUnitsMax = 500;
+
+export const getBloodworkReportResponseResultsItemOneReferenceRangeMax = 500;
+
+export const getBloodworkReportResponseResultsItemOneLabFlagMax = 500;
+
+
+
+export const GetBloodworkReportResponse = zod.object({
+  "report": zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "title": zod.string(),
+  "reportDate": zod.coerce.date().nullable(),
+  "uploadedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "kind": zod.enum(['images', 'pdf']),
+  "fileCount": zod.number(),
+  "pageCount": zod.number(),
+  "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
+  "extractionError": zod.string().nullable(),
+  "reviewStatus": zod.enum(['unreviewed'])
+}),
+  "files": zod.array(zod.object({
+  "id": zod.string(),
+  "position": zod.number(),
+  "mimeType": zod.enum(['application/pdf', 'image/jpeg', 'image/png']),
+  "size": zod.number(),
+  "pageCount": zod.number(),
+  "width": zod.number().nullable(),
+  "height": zod.number().nullable()
+})),
+  "results": zod.array(zod.object({
+  "testName": zod.string().max(getBloodworkReportResponseResultsItemOneTestNameMax).nullable(),
+  "valueText": zod.string().max(getBloodworkReportResponseResultsItemOneValueTextMax).nullable(),
+  "units": zod.string().max(getBloodworkReportResponseResultsItemOneUnitsMax).nullable(),
+  "referenceRange": zod.string().max(getBloodworkReportResponseResultsItemOneReferenceRangeMax).nullable(),
+  "labFlag": zod.string().max(getBloodworkReportResponseResultsItemOneLabFlagMax).nullable(),
+  "uncertain": zod.boolean()
+}).and(zod.object({
+  "id": zod.string(),
+  "reportId": zod.string(),
+  "sourceFileId": zod.string(),
+  "sourcePage": zod.number(),
+  "position": zod.number(),
+  "version": zod.number(),
+  "reviewStatus": zod.enum(['unreviewed']),
+  "updatedAt": zod.coerce.date(),
+  "corrected": zod.boolean()
+})))
+})
+
+
+export const updateBloodworkReportPathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+export const UpdateBloodworkReportParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(updateBloodworkReportPathReportIdRegExp)
+})
+
+export const updateBloodworkReportBodyTitleMax = 200;
+
+
+
+export const UpdateBloodworkReportBody = zod.object({
+  "expectedVersion": zod.number(),
+  "title": zod.string().min(1).max(updateBloodworkReportBodyTitleMax),
+  "reportDate": zod.coerce.date().nullable()
+})
+
+export const UpdateBloodworkReportResponse = zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "title": zod.string(),
+  "reportDate": zod.coerce.date().nullable(),
+  "uploadedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "kind": zod.enum(['images', 'pdf']),
+  "fileCount": zod.number(),
+  "pageCount": zod.number(),
+  "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
+  "extractionError": zod.string().nullable(),
+  "reviewStatus": zod.enum(['unreviewed'])
+})
+
+
+export const deleteBloodworkReportPathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+export const DeleteBloodworkReportParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(deleteBloodworkReportPathReportIdRegExp)
+})
+
+export const DeleteBloodworkReportQueryParams = zod.object({
+  "expectedVersion": zod.coerce.number()
+})
+
+export const DeleteBloodworkReportResponse = zod.object({
+  "deleted": zod.boolean()
+})
+
+
+export const commitBloodworkReportPathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+export const CommitBloodworkReportParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(commitBloodworkReportPathReportIdRegExp)
+})
+
+export const commitBloodworkReportResponseResultsItemOneTestNameMax = 500;
+
+export const commitBloodworkReportResponseResultsItemOneValueTextMax = 500;
+
+export const commitBloodworkReportResponseResultsItemOneUnitsMax = 500;
+
+export const commitBloodworkReportResponseResultsItemOneReferenceRangeMax = 500;
+
+export const commitBloodworkReportResponseResultsItemOneLabFlagMax = 500;
+
+
+
+export const CommitBloodworkReportResponse = zod.object({
+  "report": zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "title": zod.string(),
+  "reportDate": zod.coerce.date().nullable(),
+  "uploadedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "kind": zod.enum(['images', 'pdf']),
+  "fileCount": zod.number(),
+  "pageCount": zod.number(),
+  "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
+  "extractionError": zod.string().nullable(),
+  "reviewStatus": zod.enum(['unreviewed'])
+}),
+  "files": zod.array(zod.object({
+  "id": zod.string(),
+  "position": zod.number(),
+  "mimeType": zod.enum(['application/pdf', 'image/jpeg', 'image/png']),
+  "size": zod.number(),
+  "pageCount": zod.number(),
+  "width": zod.number().nullable(),
+  "height": zod.number().nullable()
+})),
+  "results": zod.array(zod.object({
+  "testName": zod.string().max(commitBloodworkReportResponseResultsItemOneTestNameMax).nullable(),
+  "valueText": zod.string().max(commitBloodworkReportResponseResultsItemOneValueTextMax).nullable(),
+  "units": zod.string().max(commitBloodworkReportResponseResultsItemOneUnitsMax).nullable(),
+  "referenceRange": zod.string().max(commitBloodworkReportResponseResultsItemOneReferenceRangeMax).nullable(),
+  "labFlag": zod.string().max(commitBloodworkReportResponseResultsItemOneLabFlagMax).nullable(),
+  "uncertain": zod.boolean()
+}).and(zod.object({
+  "id": zod.string(),
+  "reportId": zod.string(),
+  "sourceFileId": zod.string(),
+  "sourcePage": zod.number(),
+  "position": zod.number(),
+  "version": zod.number(),
+  "reviewStatus": zod.enum(['unreviewed']),
+  "updatedAt": zod.coerce.date(),
+  "corrected": zod.boolean()
+})))
+})
+
+
+export const retryBloodworkExtractionPathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+export const RetryBloodworkExtractionParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(retryBloodworkExtractionPathReportIdRegExp)
+})
+
+export const RetryBloodworkExtractionQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const RetryBloodworkExtractionResponse = zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "title": zod.string(),
+  "reportDate": zod.coerce.date().nullable(),
+  "uploadedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "kind": zod.enum(['images', 'pdf']),
+  "fileCount": zod.number(),
+  "pageCount": zod.number(),
+  "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
+  "extractionError": zod.string().nullable(),
+  "reviewStatus": zod.enum(['unreviewed'])
+})
+
+
+export const getBloodworkFileSourcePathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+export const getBloodworkFileSourcePathFileIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+export const GetBloodworkFileSourceParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(getBloodworkFileSourcePathReportIdRegExp),
+  "fileId": zod.coerce.string().regex(getBloodworkFileSourcePathFileIdRegExp)
+})
+
+export const GetBloodworkFileSourceQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetBloodworkFileSourceResponse = zod.unknown()
+
+
+export const getBloodworkFilePagePathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+export const getBloodworkFilePagePathFileIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+
+export const GetBloodworkFilePageParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(getBloodworkFilePagePathReportIdRegExp),
+  "fileId": zod.coerce.string().regex(getBloodworkFilePagePathFileIdRegExp),
+  "page": zod.coerce.number().min(1)
+})
+
+export const GetBloodworkFilePageQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetBloodworkFilePageResponse = zod.unknown()
+
+
+export const correctBloodworkResultPathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+export const correctBloodworkResultPathResultIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+export const CorrectBloodworkResultParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(correctBloodworkResultPathReportIdRegExp),
+  "resultId": zod.coerce.string().regex(correctBloodworkResultPathResultIdRegExp)
+})
+
+export const CorrectBloodworkResultQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const correctBloodworkResultBodyOneTestNameMax = 500;
+
+export const correctBloodworkResultBodyOneValueTextMax = 500;
+
+export const correctBloodworkResultBodyOneUnitsMax = 500;
+
+export const correctBloodworkResultBodyOneReferenceRangeMax = 500;
+
+export const correctBloodworkResultBodyOneLabFlagMax = 500;
+
+
+
+export const CorrectBloodworkResultBody = zod.object({
+  "testName": zod.string().max(correctBloodworkResultBodyOneTestNameMax).nullable(),
+  "valueText": zod.string().max(correctBloodworkResultBodyOneValueTextMax).nullable(),
+  "units": zod.string().max(correctBloodworkResultBodyOneUnitsMax).nullable(),
+  "referenceRange": zod.string().max(correctBloodworkResultBodyOneReferenceRangeMax).nullable(),
+  "labFlag": zod.string().max(correctBloodworkResultBodyOneLabFlagMax).nullable(),
+  "uncertain": zod.boolean()
+}).and(zod.object({
+  "expectedVersion": zod.number()
+}))
+
+export const correctBloodworkResultResponseOneTestNameMax = 500;
+
+export const correctBloodworkResultResponseOneValueTextMax = 500;
+
+export const correctBloodworkResultResponseOneUnitsMax = 500;
+
+export const correctBloodworkResultResponseOneReferenceRangeMax = 500;
+
+export const correctBloodworkResultResponseOneLabFlagMax = 500;
+
+
+
+export const CorrectBloodworkResultResponse = zod.object({
+  "testName": zod.string().max(correctBloodworkResultResponseOneTestNameMax).nullable(),
+  "valueText": zod.string().max(correctBloodworkResultResponseOneValueTextMax).nullable(),
+  "units": zod.string().max(correctBloodworkResultResponseOneUnitsMax).nullable(),
+  "referenceRange": zod.string().max(correctBloodworkResultResponseOneReferenceRangeMax).nullable(),
+  "labFlag": zod.string().max(correctBloodworkResultResponseOneLabFlagMax).nullable(),
+  "uncertain": zod.boolean()
+}).and(zod.object({
+  "id": zod.string(),
+  "reportId": zod.string(),
+  "sourceFileId": zod.string(),
+  "sourcePage": zod.number(),
+  "position": zod.number(),
+  "version": zod.number(),
+  "reviewStatus": zod.enum(['unreviewed']),
+  "updatedAt": zod.coerce.date(),
+  "corrected": zod.boolean()
+}))
+
+
+export const listBloodworkCorrectionsPathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+export const listBloodworkCorrectionsPathResultIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
+
+
+export const ListBloodworkCorrectionsParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "reportId": zod.coerce.string().regex(listBloodworkCorrectionsPathReportIdRegExp),
+  "resultId": zod.coerce.string().regex(listBloodworkCorrectionsPathResultIdRegExp)
+})
+
+export const ListBloodworkCorrectionsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const listBloodworkCorrectionsResponseCorrectionsItemBeforeTestNameMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemBeforeValueTextMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemBeforeUnitsMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemBeforeReferenceRangeMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemBeforeLabFlagMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemAfterTestNameMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemAfterValueTextMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemAfterUnitsMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemAfterReferenceRangeMax = 500;
+
+export const listBloodworkCorrectionsResponseCorrectionsItemAfterLabFlagMax = 500;
+
+
+
+export const ListBloodworkCorrectionsResponse = zod.object({
+  "corrections": zod.array(zod.object({
+  "id": zod.string(),
+  "resultId": zod.string(),
+  "actorRole": zod.enum(['patient', 'provider', 'hq']),
+  "createdAt": zod.coerce.date(),
+  "before": zod.object({
+  "testName": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemBeforeTestNameMax).nullable(),
+  "valueText": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemBeforeValueTextMax).nullable(),
+  "units": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemBeforeUnitsMax).nullable(),
+  "referenceRange": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemBeforeReferenceRangeMax).nullable(),
+  "labFlag": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemBeforeLabFlagMax).nullable(),
+  "uncertain": zod.boolean()
+}),
+  "after": zod.object({
+  "testName": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemAfterTestNameMax).nullable(),
+  "valueText": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemAfterValueTextMax).nullable(),
+  "units": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemAfterUnitsMax).nullable(),
+  "referenceRange": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemAfterReferenceRangeMax).nullable(),
+  "labFlag": zod.string().max(listBloodworkCorrectionsResponseCorrectionsItemAfterLabFlagMax).nullable(),
+  "uncertain": zod.boolean()
+}),
+  "version": zod.number()
+}))
+})
+
+

@@ -33,6 +33,7 @@ async function buildAll() {
       "better-sqlite3",
       "sqlite3",
       "canvas",
+      "@napi-rs/canvas",
       "bcrypt",
       "argon2",
       "fsevents",
@@ -117,6 +118,17 @@ globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
 globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
+  });
+
+  await esbuild({
+    entryPoints: [path.resolve(artifactDir, "src/bloodwork/document-worker.ts")],
+    platform: "node",
+    bundle: true,
+    format: "esm",
+    outfile: path.resolve(distDir, "document-worker.mjs"),
+    sourcemap: "linked",
+    logLevel: "info",
+    external: ["*.node", "@napi-rs/canvas"],
   });
 }
 

@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/bloodwork-stubs/react-native.ts"],
+      "expo-file-system/legacy": ["./scripts/bloodwork-stubs/expo-file-system-legacy.ts"]
+    }
+  }
+}

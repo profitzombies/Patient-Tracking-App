@@ -41,6 +41,7 @@ import { usePatientSession } from "@/contexts/patient-session";
 import { useToast } from "@/hooks/use-toast";
 import { useSession } from "@/contexts/session";
 import { useProviderScope } from "@/contexts/provider-scope";
+import { PatientBloodwork } from "@/components/bloodwork/PatientBloodwork";
 import {
   fetchOfficePatient,
   fetchOfficePatientNotifications,
@@ -328,6 +329,11 @@ function DemoPatientDetail() {
         </aside>
 
         <div className="lg:col-span-3">
+          <SectionCard title="Bloodwork Reports">
+            <EmptyState>Demo only: Bloodwork requires a real patient record.</EmptyState>
+          </SectionCard>
+        </div>
+        <div className="lg:col-span-3">
           <NutritionLifestyle key={patient.id} patient={patient} />
         </div>
       </main>
@@ -566,6 +572,9 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
           <SectionCard title="Progress photos" sub="Milestones uploaded by the patient.">
             <div className="p-5">{photos.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{photos.map((photo) => <figure key={photo.id} className="overflow-hidden rounded-lg border border-border bg-card">{photo.url ? <img src={photo.url} alt={`${photo.label || 'Progress'} photo for ${identity.name}`} className="aspect-square w-full bg-accent object-cover" loading="lazy" /> : <EmptyState>Photo preview unavailable.</EmptyState>}<figcaption className="p-2"><b className="text-xs text-navy">{photo.label || 'Progress photo'}</b><p className="text-[10px] text-muted-foreground">{formatDate(photo.dateKey, true)}{photo.angle ? ` · ${photo.angle}` : ''}</p></figcaption></figure>)}</div> : <EmptyState>No progress photos have been uploaded.</EmptyState>}</div>
           </SectionCard>
+        </div>
+        <div className="lg:col-span-3">
+          <PatientBloodwork patientId={id} office={office} canEdit={canEdit} />
         </div>
         <div className="lg:col-span-3">
           <SectionCard title="Account preferences and saved items" sub="Read-only companion-app account data.">

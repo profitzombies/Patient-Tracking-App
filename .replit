@@ -32,6 +32,10 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "bloodwork"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1159,6 +1163,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:leaderboard"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "bloodwork"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --testTimeout=30000 --maxWorkers=1 src/bloodwork src/privacy/bloodwork-lifecycle.test.ts src/routes/patient-privacy.test.ts src/jobs/definitions/reconcile-storage.test.ts src/privacy/purge.test.ts src/privacy/purge.sql.test.ts && pnpm --filter @workspace/thinnr-mobile run test:bloodwork && pnpm --filter @workspace/thinnr-operations run test:bloodwork"
 
 [workflows.workflow.metadata]
 isValidation = true

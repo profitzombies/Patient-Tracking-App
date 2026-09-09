@@ -230,6 +230,34 @@ export default function PlanScreen() {
           />
         </LedgerCard>
 
+        {/* ── Bloodwork ── */}
+        <SectionTitle
+          title="Bloodwork"
+          action={{
+            label: 'View history',
+            onPress: () => router.push('/bloodwork'),
+          }}
+        />
+        <LedgerCard style={[styles.sectionCard, { paddingVertical: 12 }]}>
+          <Pressable
+            onPress={() => router.push('/bloodwork/new')}
+            style={({ pressed }) => [styles.instructionsRow, pressed && { opacity: 0.7 }]}
+          >
+            <View style={[styles.iconChip, { backgroundColor: colors.accent, borderRadius: colors.radiusSm }]}>
+              <Feather name="file-plus" size={15} color={colors.cobalt} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.instructionsKicker, { color: colors.labelText }]}>
+                NEW REPORT
+              </Text>
+              <Text style={[styles.instructionsValue, { color: colors.navyLight }]} numberOfLines={1}>
+                Add lab results
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={colors.subtleText} />
+          </Pressable>
+        </LedgerCard>
+
         {/* ── Deliveries ── */}
         {PATIENT_SUBSCRIPTION ? (
           <>

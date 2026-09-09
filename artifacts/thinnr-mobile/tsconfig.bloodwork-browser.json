@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "expo-file-system/legacy": ["./scripts/bloodwork-browser-stubs/expo-file-system-legacy.ts"],
+      "expo-document-picker": ["./scripts/bloodwork-browser-stubs/expo-document-picker.ts"],
+      "expo-image-picker": ["./scripts/bloodwork-browser-stubs/expo-image-picker.ts"],
+      "expo-image-manipulator": ["./scripts/bloodwork-browser-stubs/expo-image-manipulator.ts"]
+    }
+  }
+}

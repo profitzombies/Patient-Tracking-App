@@ -13,11 +13,13 @@ import {
   approvedMeasurements,
   AccountOperationEpoch,
   biometricEligibility,
+  isDeviceLocked,
   REMINDER_ACTION_SKIPPED,
   REMINDER_ACTION_TAKEN,
   REMINDER_CATEGORY,
   ReminderCoordinator,
   reminderPlanFor,
+  webBiometricHydration,
   type HealthMeasurement,
   type ReminderItem,
   type ReminderPlan,
@@ -269,7 +271,14 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     previousAccount.current = accountId;
     void coordinatorRef.current.activate(accountId);
-    if (!accountId || Platform.OS === 'web') return;
+    if (!accountId) return;
+    if (Platform.OS === 'web') {
+      const hydrated = webBiometricHydration(accountId);
+      setBiometric(hydrated.biometric);
+      setLocked(hydrated.locked);
+      setBiometricLoadedFor(hydrated.loadedFor);
+      return;
+    }
     void notificationDriver.permission().then(p => {
       if (accountRef.current === accountId) setNotification(p === 'granted' ? 'available' : p);
     });
@@ -512,7 +521,7 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<FeatureState>(() => ({
     notification, biometric, health, message, busy, pushState, retryPush, unregisterBeforeSignOut,
-    locked: Boolean(accountId) && (biometricLoadedFor !== accountId || locked), enableNotifications, disableNotifications,
+    locked: isDeviceLocked(accountId, biometricLoadedFor, locked), enableNotifications, disableNotifications,
     enableBiometrics, disableBiometrics, authenticate, connectAndImportHealth,
     openSettings: async () => { if (Platform.OS !== 'web') await Linking.openSettings(); },
   }), [notification, biometric, health, message, busy, pushState, accountId, biometricLoadedFor, locked, enableNotifications, disableNotifications, enableBiometrics, disableBiometrics, authenticate, connectAndImportHealth, retryPush, unregisterBeforeSignOut]);

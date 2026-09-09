@@ -5,6 +5,221 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export type BloodworkReportKind = typeof BloodworkReportKind[keyof typeof BloodworkReportKind];
+
+
+export const BloodworkReportKind = {
+  images: 'images',
+  pdf: 'pdf',
+} as const;
+
+export type BloodworkReportExtractionStatus = typeof BloodworkReportExtractionStatus[keyof typeof BloodworkReportExtractionStatus];
+
+
+export const BloodworkReportExtractionStatus = {
+  queued: 'queued',
+  processing: 'processing',
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export type BloodworkReportReviewStatus = typeof BloodworkReportReviewStatus[keyof typeof BloodworkReportReviewStatus];
+
+
+export const BloodworkReportReviewStatus = {
+  unreviewed: 'unreviewed',
+} as const;
+
+export interface BloodworkReport {
+  id: string;
+  patientId: string;
+  title: string;
+  /** @nullable */
+  reportDate: string | null;
+  uploadedAt: string;
+  version: number;
+  kind: BloodworkReportKind;
+  fileCount: number;
+  pageCount: number;
+  extractionStatus: BloodworkReportExtractionStatus;
+  /** @nullable */
+  extractionError: string | null;
+  reviewStatus: BloodworkReportReviewStatus;
+}
+
+export type BloodworkFileMimeType = typeof BloodworkFileMimeType[keyof typeof BloodworkFileMimeType];
+
+
+export const BloodworkFileMimeType = {
+  'application/pdf': 'application/pdf',
+  'image/jpeg': 'image/jpeg',
+  'image/png': 'image/png',
+} as const;
+
+export interface BloodworkFile {
+  id: string;
+  position: number;
+  mimeType: BloodworkFileMimeType;
+  size: number;
+  pageCount: number;
+  /** @nullable */
+  width: number | null;
+  /** @nullable */
+  height: number | null;
+}
+
+export interface BloodworkResultFields {
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  testName: string | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  valueText: string | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  units: string | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  referenceRange: string | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  labFlag: string | null;
+  uncertain: boolean;
+}
+
+export type BloodworkResultReviewStatus = typeof BloodworkResultReviewStatus[keyof typeof BloodworkResultReviewStatus];
+
+
+export const BloodworkResultReviewStatus = {
+  unreviewed: 'unreviewed',
+} as const;
+
+export type BloodworkResult = BloodworkResultFields & {
+  id: string;
+  reportId: string;
+  sourceFileId: string;
+  sourcePage: number;
+  position: number;
+  version: number;
+  reviewStatus: BloodworkResultReviewStatus;
+  updatedAt: string;
+  corrected: boolean;
+};
+
+export interface BloodworkDetail {
+  report: BloodworkReport;
+  files: BloodworkFile[];
+  results: BloodworkResult[];
+}
+
+export interface BloodworkReportList {
+  reports: BloodworkReport[];
+  /** @nullable */
+  nextCursor: string | null;
+}
+
+export type BloodworkFileInputMimeType = typeof BloodworkFileInputMimeType[keyof typeof BloodworkFileInputMimeType];
+
+
+export const BloodworkFileInputMimeType = {
+  'application/pdf': 'application/pdf',
+  'image/jpeg': 'image/jpeg',
+  'image/png': 'image/png',
+} as const;
+
+export interface BloodworkFileInput {
+  /** @pattern ^[0-9a-fA-F-]{36}$ */
+  clientFileId: string;
+  mimeType: BloodworkFileInputMimeType;
+  /**
+     * @minimum 1
+     * @maximum 20000000
+     */
+  size: number;
+}
+
+export interface BloodworkReportInput {
+  /** @pattern ^[0-9a-fA-F-]{36}$ */
+  clientRequestId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /** @nullable */
+  reportDate: string | null;
+  transcriptionConsent: true;
+  /**
+     * @minItems 1
+     * @maxItems 10
+     */
+  files: BloodworkFileInput[];
+}
+
+export interface BloodworkUpload {
+  fileId: string;
+  clientFileId: string;
+  uploadUrl: string;
+  expiresAt: string;
+}
+
+export interface BloodworkUploadSet {
+  reportId: string;
+  uploads: BloodworkUpload[];
+}
+
+export interface BloodworkReportUpdate {
+  expectedVersion: number;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /** @nullable */
+  reportDate: string | null;
+}
+
+export type BloodworkResultUpdate = BloodworkResultFields & {
+  expectedVersion: number;
+};
+
+export type BloodworkCorrectionActorRole = typeof BloodworkCorrectionActorRole[keyof typeof BloodworkCorrectionActorRole];
+
+
+export const BloodworkCorrectionActorRole = {
+  patient: 'patient',
+  provider: 'provider',
+  hq: 'hq',
+} as const;
+
+export interface BloodworkCorrection {
+  id: string;
+  resultId: string;
+  actorRole: BloodworkCorrectionActorRole;
+  createdAt: string;
+  before: BloodworkResultFields;
+  after: BloodworkResultFields;
+  version: number;
+}
+
+export interface BloodworkCorrectionList {
+  corrections: BloodworkCorrection[];
+}
+
+export interface BloodworkDeleteResult {
+  deleted: boolean;
+}
+
 /**
  * Office figures for a date range. Point-in-time counts are as of the range end; enrollments count inside the range; engaged, loggingPatients and checkInPatients use the trailing 7-day window ending on the range end (same contract as the network rollup's engaged7d); avgPoundsLost averages active patients with a recorded starting and current weight.
  */
@@ -2864,4 +3079,58 @@ export const GetHqPatientDeletionsStatus = {
   purged: 'purged',
   failed: 'failed',
 } as const;
+
+export type ListBloodworkReportsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+cursor?: string;
+};
+
+export type GetBloodworkReportParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type DeleteBloodworkReportParams = {
+expectedVersion: number;
+};
+
+export type RetryBloodworkExtractionParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetBloodworkFileSourceParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetBloodworkFilePageParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type CorrectBloodworkResultParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type ListBloodworkCorrectionsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
 

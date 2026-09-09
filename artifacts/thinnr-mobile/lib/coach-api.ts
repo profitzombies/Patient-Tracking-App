@@ -34,6 +34,7 @@ import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 import type { MealSlot } from '@/data/patient-data';
 import { parseLabelDraft, type LabelDraft } from '@/lib/label-food';
+import { configuredApiOrigin } from '@/lib/api-origin';
 
 export interface CoachRequestMessage {
   role: 'user' | 'assistant' | 'staff';
@@ -216,11 +217,7 @@ function isCardEvent(card: unknown): card is CoachCardEvent {
 const MAX_QUICK_REPLY_LENGTH = 40;
 /** Shared by every mobile API client (see lib/support-api.ts). */
 export function apiBase(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (!domain) {
-    throw new Error('EXPO_PUBLIC_DOMAIN is not set; cannot reach the API server');
-  }
-  return `https://${domain}/api`;
+  return `${configuredApiOrigin()}/api`;
 }
 
 /** Parses complete SSE events out of `buffer`; returns the unparsed tail. */

@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "@/components/ui/AppModal": ["./scripts/bloodwork-camera-stubs/app-modal.ts"],
+      "@/hooks/useColors": ["./scripts/bloodwork-camera-stubs/use-colors.ts"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "react-native-safe-area-context": ["./scripts/bloodwork-camera-stubs/safe-area.ts"],
+      "expo-camera": ["./scripts/bloodwork-camera-stubs/expo-camera.ts"],
+      "expo-haptics": ["./scripts/bloodwork-camera-stubs/haptics.ts"]
+    }
+  }
+}

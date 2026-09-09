@@ -91,6 +91,25 @@ create table public.patient_medication_dose_logs (id uuid primary key, patient_i
 -- Legacy billing shape: a NO ACTION chain between two patient-owned tables.
 create table public.product_subscriptions (id uuid primary key default gen_random_uuid(), patient_id uuid references public.patients(id));
 create table public.transactions (id uuid primary key default gen_random_uuid(), patient_id uuid references public.patients(id), subscription_id uuid references public.product_subscriptions(id));
+-- Bloodwork has composite, NO ACTION relationships across four patient-owned
+-- tables; the dynamic purge must still find a children-first order.
+create table public.patient_bloodwork_reports (
+  id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade,
+  unique (id, patient_id));
+create table public.patient_bloodwork_files (
+  id uuid primary key, patient_id uuid not null, report_id uuid not null,
+  staging_object_path text not null, object_path text,
+  unique (id, patient_id),
+  foreign key (report_id, patient_id) references public.patient_bloodwork_reports(id, patient_id) on delete cascade);
+create table public.patient_bloodwork_results (
+  id uuid primary key, patient_id uuid not null, report_id uuid not null, source_file_id uuid not null,
+  unique (id, patient_id),
+  foreign key (report_id, patient_id) references public.patient_bloodwork_reports(id, patient_id) on delete cascade,
+  foreign key (source_file_id, patient_id) references public.patient_bloodwork_files(id, patient_id) on delete cascade);
+create table public.patient_bloodwork_corrections (
+  id uuid primary key, patient_id uuid not null, report_id uuid not null, result_id uuid not null,
+  foreign key (report_id, patient_id) references public.patient_bloodwork_reports(id, patient_id) on delete cascade,
+  foreign key (result_id, patient_id) references public.patient_bloodwork_results(id, patient_id) on delete cascade);
 select private.install_patient_identity_write_guards();
 `;
 
@@ -116,7 +135,8 @@ const AUTH_USER = uuid(901);
 
 function seedPatients() {
   psql(`
-    truncate public.transactions, public.product_subscriptions, public.patient_medication_dose_logs, public.patient_medications,
+    truncate public.patient_bloodwork_corrections, public.patient_bloodwork_results, public.patient_bloodwork_files,
+      public.patient_bloodwork_reports, public.transactions, public.product_subscriptions, public.patient_medication_dose_logs, public.patient_medications,
       public.patient_body_measurements, public.patient_chat_messages,
       public.patient_chat_conversations, public.patient_media, public.patient_diary_entries, public.patient_flags,
       public.patient_push_tokens, public.patient_notifications, public.patient_consents, public.patient_data_exports,
@@ -146,6 +166,14 @@ function seedEverything() {
       insert into public.patient_medication_dose_logs (id, patient_id, medication_id, status) values ('${uuid(pid === PATIENT ? 711 : 712)}', '${pid}', '${uuid(pid === PATIENT ? 701 : 702)}', 'taken');
       insert into public.product_subscriptions (id, patient_id) values ('${uuid(pid === PATIENT ? 601 : 602)}', '${pid}');
       insert into public.transactions (patient_id, subscription_id) values ('${pid}', '${uuid(pid === PATIENT ? 601 : 602)}');
+      insert into public.patient_bloodwork_reports (id, patient_id) values ('${uuid(pid === PATIENT ? 801 : 811)}', '${pid}');
+      insert into public.patient_bloodwork_files (id, patient_id, report_id, staging_object_path, object_path)
+        values ('${uuid(pid === PATIENT ? 802 : 812)}', '${pid}', '${uuid(pid === PATIENT ? 801 : 811)}',
+          '/objects/patients/${pid}/bloodwork/staging/r/f', '/objects/patients/${pid}/bloodwork/reports/r/f');
+      insert into public.patient_bloodwork_results (id, patient_id, report_id, source_file_id)
+        values ('${uuid(pid === PATIENT ? 803 : 813)}', '${pid}', '${uuid(pid === PATIENT ? 801 : 811)}', '${uuid(pid === PATIENT ? 802 : 812)}');
+      insert into public.patient_bloodwork_corrections (id, patient_id, report_id, result_id)
+        values ('${uuid(pid === PATIENT ? 804 : 814)}', '${pid}', '${uuid(pid === PATIENT ? 801 : 811)}', '${uuid(pid === PATIENT ? 803 : 813)}');
       insert into public.patient_consents (patient_id, policy_version, terms_accepted, privacy_accepted, health_data_accepted, photo_analysis_accepted)
         values ('${pid}', '2026-09-01', true, true, true, false);
       insert into public.patient_data_exports (patient_id, status, expires_at) values ('${pid}', 'ready', now() + interval '1 day');
@@ -308,6 +336,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     expect(tables).toEqual(expect.arrayContaining([
       "patient_consents", "patient_data_exports", "patient_deletion_requests", "patient_push_tokens", "patient_notifications",
       "patient_chat_conversations", "patient_media", "patient_flags", "product_subscriptions", "transactions", "analytics_events",
+      "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections",
     ]));
     for (const table of tables) expect(countFor(table, PATIENT), table).toBeGreaterThanOrEqual(table === "patient_deletion_requests" ? 0 : 1);
 

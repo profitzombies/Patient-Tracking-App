@@ -25,6 +25,7 @@ const CHUNK = 200;
 
 export const RECONCILE_PREFIXES = [
   "/objects/patient-media/",
+  "/objects/patients/",
   "/objects/hq-files/",
   "/objects/training-videos/",
   "/objects/training-attachments/",

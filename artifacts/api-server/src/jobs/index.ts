@@ -9,6 +9,8 @@ import { reconcileStorageJob } from "./definitions/reconcile-storage";
 import { retentionAuditJob, retentionChatJob, retentionExportsJob, retentionNotificationsJob } from "./definitions/retention";
 import { registerJob } from "./scheduler";
 import type { JobDefinition } from "./types";
+import { bloodworkExtractionJob } from "./definitions/bloodwork-extraction";
+import { bloodworkCleanupJob } from "./definitions/bloodwork-cleanup";
 
 const HOUR_MS = 3_600_000;
 
@@ -37,6 +39,8 @@ export const patientMediaCleanupJob: JobDefinition = {
 
 export const ALL_JOBS: JobDefinition[] = [
   abandonedUploadsJob,
+  bloodworkExtractionJob,
+  bloodworkCleanupJob,
   reconcileStorageJob,
   retentionExportsJob,
   retentionChatJob,

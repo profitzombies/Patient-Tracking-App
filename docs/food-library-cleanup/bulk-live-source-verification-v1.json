@@ -1,0 +1,12 @@
+{
+  "verifiedAt": "2026-09-09T02:10:16.140Z",
+  "reviewVersion": "bulk-catalog-v1",
+  "snapshots": 1163,
+  "families": 688,
+  "numericNutrients": 95890,
+  "sourceZeros": 26230,
+  "sourceMissingAmounts": 0,
+  "sourcePortions": 2222,
+  "parser": "mobile FoodNutritionSnapshot",
+  "failures": 0
+}

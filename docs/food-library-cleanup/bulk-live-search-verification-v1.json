@@ -1,0 +1,10 @@
+{
+  "verifiedAt": "2026-09-09T03:15:20.031Z",
+  "cases": 1569,
+  "distinctQueries": 1560,
+  "assertions": "Every case checks bounded unique identities and limit-one stability; exact names pin source/revision, prepared queries pin available tuples, explicit expectations all enforced.",
+  "failures": 0,
+  "paginationFirst": 6,
+  "paginationSecond": 6,
+  "paginationSkippedOrRepeated": 0
+}

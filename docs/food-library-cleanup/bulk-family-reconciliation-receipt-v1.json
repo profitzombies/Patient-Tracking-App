@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "appliedMigration": "20261005170000_food_family_duplicate_reconciliation.sql",
+  "project": "xkdhmqexlvkipwgkaiyk",
+  "appliedAt": "2026-09-09T03:06:52.908973Z",
+  "countsAfter": {
+    "eligible": 5278,
+    "reviewedFamily": 1320,
+    "activeFamilies": 713,
+    "redirects": 2,
+    "movedVariants": 3
+  },
+  "canonicalDefaults": [
+    {"familyKey": "everyday-pasta", "sourceId": "168928"},
+    {"familyKey": "everyday-whole-wheat-bread", "sourceId": "172688"}
+  ],
+  "movedVariantAudit": [
+    {
+      "sourceId": "169737",
+      "catalogId": "d0741e5e-1955-42ab-9d04-8fbe28c5ad06",
+      "canonicalFamily": "everyday-pasta",
+      "commonOrder": 3,
+      "revision": "sr-legacy-2018-04:169737",
+      "immutablePayloadMd5": "2084139dcc202ef663267ddc79d4a0ea"
+    },
+    {
+      "sourceId": "169751",
+      "catalogId": "89271c72-9d44-492f-b3a1-ab83ac99cae4",
+      "canonicalFamily": "everyday-pasta",
+      "commonOrder": 2,
+      "revision": "sr-legacy-2018-04:169751",
+      "immutablePayloadMd5": "3b0111be6144f83606b7d642d797d283"
+    },
+    {
+      "sourceId": "172689",
+      "catalogId": "b0cfd672-94ca-493c-808f-163da0627f69",
+      "canonicalFamily": "everyday-whole-wheat-bread",
+      "commonOrder": 2,
+      "revision": "sr-legacy-2018-04:172689",
+      "immutablePayloadMd5": "1a30fcca125362a1beb0ae7f86650ade"
+    }
+  ],
+  "assertions": {
+    "immutablePayloadComparedBeforeAndAfterInsideTransaction": true,
+    "historicalGetterKeysResolveToCanonicalVariants": true,
+    "allMovedSourcesAndRevisionsAccessible": true,
+    "originalDefaultsAndCommonOrderPreserved": true,
+    "catalogRowsRemoved": 0,
+    "nutritionRowsRewritten": 0,
+    "sourceOrPortionPayloadsRewritten": 0
+  }
+}

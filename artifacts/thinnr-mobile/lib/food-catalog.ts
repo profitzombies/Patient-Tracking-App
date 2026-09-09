@@ -28,6 +28,7 @@ export interface CatalogFood extends FoodItem {
   canonicalName?: string;
   resultKey?: string;
   familyKey?: string;
+  familyKeyAliases?: string[];
   variantSummary?: string;
   dimensions?: Record<string, string>;
   choiceRequired?: boolean;
@@ -206,6 +207,11 @@ export function parseCatalogFood(raw: unknown, fallbackGroup: CatalogGroup): Cat
   }
   if (typeof value.resultKey === 'string') food.resultKey = value.resultKey;
   if (typeof value.familyKey === 'string') food.familyKey = value.familyKey;
+  if (Array.isArray(value.familyKeyAliases)) {
+    food.familyKeyAliases = Array.from(new Set(value.familyKeyAliases
+      .filter((alias): alias is string => typeof alias === 'string' && !!alias.trim())
+      .map(alias => alias.trim().slice(0, 160))));
+  }
   if (typeof value.variantSummary === 'string') food.variantSummary = value.variantSummary;
   if (value.dimensions && typeof value.dimensions === 'object') food.dimensions = value.dimensions as Record<string, string>;
   if (typeof value.choiceRequired === 'boolean') food.choiceRequired = value.choiceRequired;

@@ -1,0 +1,38 @@
+{
+  "startedAt": "2026-09-09T02:07:56.593Z",
+  "manifestSha256": "e0a69185c4270d483a0cf6702fa1158c7eb1588d90eb5cfa10b6642a381f1bc0",
+  "migrationSha256": "1a48f41a05de0a0fae04308380c86d426c23ce36cc5bc8d22a4c53e4c776890d",
+  "before": {
+    "eligible": 5278,
+    "excluded": 12,
+    "reviewed": 157,
+    "newReviewed": 0,
+    "foodFamilies": 112,
+    "archiveDigest": "e989c7a05ac11558ea86104a4d877afb",
+    "archiveRecords": 13588,
+    "catalogRecords": 5290,
+    "safeSingletons": 5121,
+    "priorFamiliesDigest": "d6581a8d2d5c94aea9dc51895f155cd8",
+    "priorVariantsDigest": "46b3bdaeb8002a864de87e60b9153e51",
+    "untouchedCatalogDigest": "d342d9925dc43aa2852e123636237868",
+    "usefulAdditionalVariants": 45
+  },
+  "status": "verified",
+  "after": {
+    "eligible": 5278,
+    "excluded": 12,
+    "reviewed": 1320,
+    "newReviewed": 1163,
+    "foodFamilies": 715,
+    "archiveDigest": "e989c7a05ac11558ea86104a4d877afb",
+    "archiveRecords": 13588,
+    "catalogRecords": 5290,
+    "safeSingletons": 3958,
+    "priorFamiliesDigest": "d6581a8d2d5c94aea9dc51895f155cd8",
+    "priorVariantsDigest": "46b3bdaeb8002a864de87e60b9153e51",
+    "untouchedCatalogDigest": "d342d9925dc43aa2852e123636237868",
+    "usefulAdditionalVariants": 605
+  },
+  "completedAt": "2026-09-09T02:08:29.867Z",
+  "reviewedCoverage": 0.25009473285335354
+}

@@ -34,7 +34,9 @@ const CACHE_TTL = 10 * 60 * 1000;
 const CACHE_MAX = 200;
 const OFF_RAW_PAGE_SIZE = 20;
 const MAX_OFF_PAGES_PER_REQUEST = 10;
-const RANKING_VERSION = "food-families-v4";
+// A catalog-family expansion changes offsets even when the ranking algorithm
+// is unchanged. Reject pre-expansion cursors instead of skipping/repeating food.
+const RANKING_VERSION = "food-families-v7";
 interface ExternalItem {
   id: string;
   kind: "branded";
@@ -77,6 +79,7 @@ function wire(item: CatalogItem) {
     approvals: item.approvals ?? [],
     ...(item.resultKey ? { resultKey: item.resultKey } : {}),
     ...(item.familyKey ? { familyKey: item.familyKey } : {}),
+    ...(Array.isArray(item.familyKeyAliases) ? { familyKeyAliases: item.familyKeyAliases } : {}),
     ...(item.variantSummary ? { variantSummary: item.variantSummary } : {}),
     ...(item.dimensions ? { dimensions: item.dimensions } : {}),
     ...(item.choiceRequired !== undefined ? { choiceRequired: item.choiceRequired } : {}),

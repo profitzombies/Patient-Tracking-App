@@ -2,7 +2,10 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import type { LoggableItem } from '@/hooks/useLoggableItems';
 import type { MealLogEntry, MealSlot } from '@/data/patient-data';
 
-import { parseNutritionSnapshot, scaledSnapshotMacros, snapshotPortion } from '@/data/food-nutrition';
+import {
+  formatNutritionAmount, initializeFreshNutritionSnapshot, parseNutritionSnapshot,
+  scaledSnapshotMacros, snapshotPortion,
+} from '@/data/food-nutrition';
 import type { FoodNutritionSnapshot } from '@/data/food-nutrition';
 import { snapshotConfigurationKey } from '@/data/food-nutrition';
 import { usePatientAccount } from './PatientAccountContext';
@@ -40,6 +43,22 @@ export function getItemNutritionSnapshot(item: LoggableItem): FoodNutritionSnaps
   return parseNutritionSnapshot(item.nutritionSnapshot ?? item.catalog?.nutritionSnapshot);
 }
 
+export function initializeFreshItemSnapshot(
+  item: LoggableItem,
+  snapshot: FoodNutritionSnapshot,
+): FoodNutritionSnapshot {
+  const selected = snapshotPortion(snapshot);
+  // A non-baseline selection came from a remembered/configured/saved choice,
+  // even if an older local record lacks the newer persisted marker.
+  if (Math.abs(snapshot.selected.scale - 1) > 1e-10 || selected?.dimension !== 'weight') {
+    return snapshot;
+  }
+  return initializeFreshNutritionSnapshot(snapshot, {
+    foodName: item.name,
+    canonicalName: item.catalog?.canonicalName,
+  });
+}
+
 export function withItemNutritionSnapshot(
   item: LoggableItem,
   snapshot: FoodNutritionSnapshot,
@@ -64,14 +83,17 @@ export function sameItemConfiguration(left: LoggableItem, right: LoggableItem): 
 }
 
 export function selectionMatchesItemConfiguration(selection: SelectedFood, item: LoggableItem): boolean {
-  if (!sameItemConfiguration(selection.item, item)) return false;
   const visible = defaultSelection(item);
+  if (!sameItemConfiguration(selection.item, visible.item)) return false;
   return selection.quantity === visible.quantity && selection.ounces === visible.ounces;
 }
 
 export function defaultSelection(item: LoggableItem): SelectedFood {
   const basketId = Math.random().toString(36).substring(2, 10);
-  const snapshot = getItemNutritionSnapshot(item);
+  const storedSnapshot = getItemNutritionSnapshot(item);
+  const snapshot = storedSnapshot && !item.catalog?.persisted
+    ? initializeFreshItemSnapshot(item, storedSnapshot)
+    : storedSnapshot;
   if (snapshot) return { basketId, item: withItemNutritionSnapshot(item, snapshot), quantity: snapshot.selected.scale };
   return supportsOunces(item) ? { basketId, item, quantity: 1, ounces: 5 } : { basketId, item, quantity: 1 };
 }
@@ -96,10 +118,9 @@ export function selectionDisplay(selection: SelectedFood): {
 } {
   const snapshot = getItemNutritionSnapshot(selection.item);
   if (snapshot) {
-    const portion = snapshotPortion(snapshot);
-    const amountUnit = portion?.unit || portion?.label || snapshot.selected.unitId;
+    const formatted = formatNutritionAmount(snapshot);
     return {
-      amount: `${compactNumber(snapshot.selected.amount)} ${amountUnit}`,
+      amount: `${formatted.text}${formatted.qualifier ? ` · ${formatted.qualifier}` : ''}`,
       variant: snapshot.variant?.summary ?? selection.item.catalog?.variantSummary ?? null,
       calories: scaledSnapshotMacros(snapshot)?.calories ?? selection.item.calories,
     };
@@ -142,7 +163,10 @@ export function buildFoodLogEntry(
     name: selection.item.name,
     detail: selection.ounces !== undefined
       ? `${Number(selection.ounces.toFixed(1))} oz · ${Math.round(selection.ounces * GRAMS_PER_OUNCE)} g`
-      : (snapshot ? `${Number(snapshot.selected.amount.toFixed(1))} ${snapshot.selected.unitId}` : `${Number(selection.quantity.toFixed(1))} × ${selection.item.serving}`),
+      : (snapshot ? (() => {
+          const formatted = formatNutritionAmount(snapshot);
+          return `${formatted.text}${formatted.qualifier ? ` · ${formatted.qualifier}` : ''}`;
+        })() : `${Number(selection.quantity.toFixed(1))} × ${selection.item.serving}`),
     quantity: scale,
     calories: snapshotMacros?.calories ?? (snapshot ? selection.item.calories : selection.item.calories * scale),
     protein: snapshotMacros?.protein ?? (snapshot ? selection.item.protein : selection.item.protein * scale),

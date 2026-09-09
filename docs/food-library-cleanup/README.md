@@ -3,7 +3,16 @@
 This is a presentation and matching layer over the existing private USDA archive,
 not a replacement import and not a claim that every archived food is selectable.
 
-## Reconciled coverage
+## Current quarter-catalog release
+
+The expanded catalog has **1,320 of 5,278 eligible source records (25.01%)**
+across **713 active reviewed families**, after reconciling two duplicate groups
+without removing their source variations. See
+[the current verification report](quarter-catalog-verification.md) and
+[the versioned bulk runbook](bulk-catalog-runbook-v1.md). The sections below
+document the earlier review baseline.
+
+## Earlier review baseline
 
 | Population | Before | After |
 | --- | ---: | ---: |

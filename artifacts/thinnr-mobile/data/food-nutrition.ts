@@ -234,6 +234,152 @@ export function snapshotPortion(
 
 export type NutritionPortion = FoodNutritionSnapshot['portions'][number];
 
+export interface NutritionPortionPresentation {
+  /** Number of displayed household units represented by one source portion. */
+  sourceAmount: number;
+  singular: string;
+  plural: string;
+  shortLabel: string;
+  qualifier?: string;
+}
+
+const LEADING_PORTION_AMOUNT = /^(\d+\s+\d+\/\d+|\d+\/\d+|[¼½¾]|\d+(?:\.\d+)?)\s+(.+)$/;
+const SIMPLE_UNIT = /^([a-zA-Z]+)(?=$|[\s,(])/;
+const MULTI_WORD_UNIT = /^(fluid ounces?|fl\.?\s*oz|milliliters?|ml|cubic inch(?:es)?)\b/i;
+
+function fractionNumber(value: string): number | null {
+  if (value === '¼') return 0.25;
+  if (value === '½') return 0.5;
+  if (value === '¾') return 0.75;
+  const pieces = value.trim().split(/\s+/);
+  let total = 0;
+  for (const piece of pieces) {
+    if (piece.includes('/')) {
+      const [numerator, denominator] = piece.split('/').map(Number);
+      if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return null;
+      total += numerator / denominator;
+    } else {
+      const number = Number(piece);
+      if (!finitePositive(number)) return null;
+      total += number;
+    }
+  }
+  return finitePositive(total) ? total : null;
+}
+
+function singularize(unit: string): string {
+  const normalized = unit.toLowerCase();
+  if (/^(?:g|gram|grams)$/.test(normalized)) return 'g';
+  if (/^(?:oz|ounce|ounces)$/.test(normalized)) return 'oz';
+  if (normalized === 'cubic inches') return 'cubic inch';
+  if (normalized.endsWith('ies')) return `${normalized.slice(0, -3)}y`;
+  if (normalized.endsWith('ses')) return normalized.slice(0, -2);
+  if (normalized.endsWith('s') && !normalized.endsWith('ss')) return normalized.slice(0, -1);
+  return normalized;
+}
+
+function pluralize(unit: string): string {
+  if (unit === 'g' || unit === 'oz' || unit === 'fl oz' || unit === 'ml') return unit;
+  if (unit.endsWith('y')) return `${unit.slice(0, -1)}ies`;
+  if (unit.endsWith('ch')) return `${unit}es`;
+  if (unit.endsWith('s')) return unit;
+  return `${unit}s`;
+}
+
+/**
+ * Derives editable, human-facing semantics without mutating the immutable
+ * source label, quantity, gram statement, multiplier, or evidence.
+ */
+export function nutritionPortionPresentation(portion: NutritionPortion): NutritionPortionPresentation {
+  const label = portion.label.trim().replace(/\s+/g, ' ');
+  const leading = label.match(LEADING_PORTION_AMOUNT);
+  const sourceAmount = leading ? fractionNumber(leading[1]) ?? 1 : 1;
+  const remainder = leading ? leading[2] : label;
+  const labelUnit = remainder.match(MULTI_WORD_UNIT)?.[1] ?? remainder.match(SIMPLE_UNIT)?.[1];
+  const rawUnit = GRAM_OR_OUNCE_UNIT.test(portion.unit)
+    ? portion.unit
+    : labelUnit ?? (portion.unit !== 'undetermined' ? portion.unit : 'serving');
+  const singular = singularize(rawUnit);
+  const plural = pluralize(singular);
+  const consumedUnit = labelUnit
+    ? remainder.slice(labelUnit.length).replace(/^[\s,]+/, '').trim()
+    : '';
+  return {
+    sourceAmount,
+    singular,
+    plural,
+    shortLabel: singular === 'oz' ? 'Ounces'
+      : singular === 'g' ? 'Grams'
+        : singular === 'fl oz' || singular === 'fluid ounce' ? 'Fluid ounces'
+          : singular === 'ml' || singular === 'milliliter' ? 'Milliliters'
+            : singular === 'cubic inch' ? 'Cubic inches'
+        : `${singular.charAt(0).toUpperCase()}${plural.slice(1)}`,
+    ...(consumedUnit ? { qualifier: consumedUnit.replace(/^\((.*)\)$/, '$1') } : {}),
+  };
+}
+
+export function nutritionPortionDimension(
+  portion: NutritionPortion,
+): 'weight' | 'volume' | 'count' | 'serving' {
+  const unit = nutritionPortionPresentation(portion).singular;
+  if (/^(?:fluid ounce|fl\.?\s*oz|milliliter|ml|cubic inch)$/.test(unit)) {
+    return 'volume';
+  }
+  if (portion.dimension !== 'serving') return portion.dimension;
+  if (/^(?:cup|tablespoon|tbsp|teaspoon|tsp)$/.test(unit)) return 'volume';
+  // Source-classified "serving" portions admitted by availableNutritionPortions
+  // have documented grams and evidence. A concrete noun is a count measure;
+  // generic serving labels remain serving-only.
+  return /^(?:serving|portion|unit)$/.test(unit) ? 'serving' : 'count';
+}
+
+export function snapshotDisplayedAmount(
+  snapshot: FoodNutritionSnapshot,
+  portion: NutritionPortion = snapshotPortion(snapshot)!,
+): number {
+  return snapshot.selected.amount * nutritionPortionPresentation(portion).sourceAmount;
+}
+
+export function selectSnapshotDisplayedPortion(
+  snapshot: FoodNutritionSnapshot,
+  displayedAmount: number,
+  unitId: string,
+): FoodNutritionSnapshot | null {
+  const portion = snapshotPortion(snapshot, unitId);
+  if (!portion || !finitePositive(displayedAmount)) return null;
+  return selectSnapshotPortion(
+    snapshot,
+    displayedAmount / nutritionPortionPresentation(portion).sourceAmount,
+    unitId,
+  );
+}
+
+export function formatNutritionAmount(snapshot: FoodNutritionSnapshot): {
+  text: string;
+  amount: number;
+  unit: string;
+  qualifier?: string;
+} {
+  const portion = snapshotPortion(snapshot);
+  if (!portion) {
+    return { text: `${snapshot.selected.amount} ${snapshot.selected.unitId}`, amount: snapshot.selected.amount, unit: snapshot.selected.unitId };
+  }
+  const presentation = nutritionPortionPresentation(portion);
+  const amount = snapshotDisplayedAmount(snapshot, portion);
+  const compact = Number(amount.toFixed(4));
+  const fraction = nutritionPortionDimension(portion) === 'volume'
+    ? new Map([[0.25, '¼'], [0.5, '½'], [0.75, '¾']]).get(compact)
+    : undefined;
+  const number = fraction ?? compact.toString();
+  const unit = amount <= 1 ? presentation.singular : presentation.plural;
+  return {
+    text: `${number} ${unit}`,
+    amount,
+    unit,
+    ...(presentation.qualifier ? { qualifier: presentation.qualifier } : {}),
+  };
+}
+
 const VAGUE_PORTION_LABEL = /^(?:(?:quantity|amount)\s+)?(?:not\s+specified|unspecified|undetermined|unknown|not\s+applicable|n\/?a|none)$/i;
 const GENERIC_PORTION_LABEL = /^(?:amount|measure|portion|quantity|serving|unit)$/i;
 const GRAM_OR_OUNCE_UNIT = /^(?:g|gram|grams|oz|ounce|ounces)$/i;
@@ -297,6 +443,71 @@ export function visibleNutritionPortions(
   const availableIds = new Set(availableNutritionPortions(snapshot).map(portion => portion.id));
   return snapshot.portions.filter(portion =>
     availableIds.has(portion.id) || portion.id === snapshot.selected.unitId);
+}
+
+function isOuncePortion(portion: NutritionPortion): boolean {
+  const presentation = nutritionPortionPresentation(portion);
+  return portion.dimension === 'weight' && presentation.singular === 'oz';
+}
+
+function isGramPortion(portion: NutritionPortion): boolean {
+  const presentation = nutritionPortionPresentation(portion);
+  return portion.dimension === 'weight' && presentation.singular === 'g';
+}
+
+/** Five ounces is an editable convenience for a genuinely fresh weighed draft. */
+export function initializeFreshNutritionSnapshot(
+  snapshot: FoodNutritionSnapshot,
+  options: { foodName?: string; canonicalName?: string } = {},
+): FoodNutritionSnapshot {
+  const identity = `${options.foodName ?? ''} ${options.canonicalName ?? snapshot.source.canonicalName ?? ''}`;
+  const liquid = /\b(?:beverages?|broths?|coffees?|drinks?|juices?|milks?|oils?|sodas?|soups?|teas?|waters?)\b/i;
+  const dryMix = /\b(?:concentrate|dried|dry|mix|powder|powdered)\b/i;
+  if (liquid.test(identity) && !dryMix.test(identity)) {
+    const volume = availableNutritionPortions(snapshot)
+      .find(portion => nutritionPortionDimension(portion) === 'volume');
+    if (volume) return selectSnapshotDisplayedPortion(snapshot, 1, volume.id) ?? snapshot;
+  }
+  const ounce = availableNutritionPortions(snapshot).find(isOuncePortion);
+  return ounce ? selectSnapshotDisplayedPortion(snapshot, 5, ounce.id) ?? snapshot : snapshot;
+}
+
+/**
+ * Keeps the primary row compact and useful. Source portions not chosen here
+ * remain available under More units and remain byte-for-byte intact.
+ */
+export function orderedNutritionPortions(
+  snapshot: FoodNutritionSnapshot,
+  options: { preserveSelected?: boolean } = {},
+): NutritionPortion[] {
+  const portions = visibleNutritionPortions(snapshot, options);
+  const rank = (portion: NutritionPortion): number => {
+    const dimension = nutritionPortionDimension(portion);
+    if (isOuncePortion(portion)) return 0;
+    if (dimension === 'count' && nutritionPortionPresentation(portion).sourceAmount === 1) return 1;
+    if (dimension === 'volume') return 2;
+    if (isGramPortion(portion)) return 3;
+    if (dimension === 'count') return 4;
+    return 5;
+  };
+  return portions.map((portion, index) => ({ portion, index }))
+    .sort((left, right) => rank(left.portion) - rank(right.portion) || left.index - right.index)
+    .map(({ portion }) => portion);
+}
+
+export function equivalentHouseholdPortion(
+  from: NutritionPortion,
+  candidates: NutritionPortion[],
+): NutritionPortion | undefined {
+  const fromDimension = nutritionPortionDimension(from);
+  if (fromDimension !== 'count' && fromDimension !== 'volume') return undefined;
+  const presentation = nutritionPortionPresentation(from);
+  return candidates.find(candidate => {
+    if (nutritionPortionDimension(candidate) !== fromDimension) return false;
+    const next = nutritionPortionPresentation(candidate);
+    return next.singular === presentation.singular &&
+      (next.qualifier ?? '').toLowerCase() === (presentation.qualifier ?? '').toLowerCase();
+  });
 }
 
 /** Recomputes from the immutable original basis; edits never compound. */

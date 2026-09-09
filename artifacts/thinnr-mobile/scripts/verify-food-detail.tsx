@@ -4,7 +4,7 @@ import { create } from 'react-test-renderer';
 import type { ReactTestInstance } from 'react-test-renderer';
 import { NutritionFacts, nutrientDailyValuePercent } from '../components/patient/NutritionFacts';
 import { DiaryEntryCalories, DiaryEntryNutritionLine } from '../components/patient/DiaryEntryNutrition';
-import { selectSnapshotPortion } from '../data/food-nutrition';
+import { selectSnapshotPortion, snapshotConfigurationId } from '../data/food-nutrition';
 import type { FoodNutritionSnapshot } from '../data/food-nutrition';
 import type { LoggableItem } from '../hooks/useLoggableItems';
 import FoodDetailScreen from '../app/food/[id]';
@@ -163,23 +163,94 @@ async function main() {
     catalog: { ...detailedItem(variantSnapshot).catalog!, catalogId: 'food-cooked' },
   };
 
+  const legacySevenOunces = selectSnapshotPortion({
+    ...rawSnapshot,
+    variant: {
+      familyKey: 'bulk-whole-wheat-bread',
+      summary: 'Raw',
+      dimensions: { Preparation: 'Raw' },
+    },
+  }, 7, 'ounce');
+  assert(legacySevenOunces);
+  const legacyConfigurationId = snapshotConfigurationId(legacySevenOunces);
+  const legacySavedItem = {
+    ...detailedItem(legacySevenOunces),
+    refId: legacyConfigurationId,
+    catalog: {
+      ...detailedItem(legacySevenOunces).catalog!,
+      catalogId: legacyConfigurationId,
+      familyKey: 'bulk-whole-wheat-bread',
+      persisted: true,
+    },
+  };
+  const canonicalRawSnapshot: FoodNutritionSnapshot = {
+    ...legacySevenOunces,
+    variant: {
+      ...legacySevenOunces.variant!,
+      familyKey: 'everyday-whole-wheat-bread',
+    },
+  };
+  const canonicalRawItem = {
+    ...detailedItem(canonicalRawSnapshot),
+    refId: 'canonical-bread-raw',
+    catalog: {
+      ...detailedItem(canonicalRawSnapshot).catalog!,
+      catalogId: 'canonical-bread-raw',
+      familyKey: 'everyday-whole-wheat-bread',
+    },
+  };
+  const canonicalCookedSnapshot: FoodNutritionSnapshot = {
+    ...variantSnapshot,
+    selected: legacySevenOunces.selected,
+    variant: {
+      familyKey: 'everyday-whole-wheat-bread',
+      summary: 'Cooked',
+      dimensions: { Preparation: 'Cooked' },
+    },
+  };
+  const canonicalCookedItem = {
+    ...detailedItem(canonicalCookedSnapshot),
+    refId: 'canonical-bread-cooked',
+    catalog: {
+      ...detailedItem(canonicalCookedSnapshot).catalog!,
+      catalogId: 'canonical-bread-cooked',
+      familyKey: 'everyday-whole-wheat-bread',
+    },
+  };
+  resetDetailState(legacySavedItem, undefined, [
+    { ...canonicalRawItem, catalogId: canonicalRawItem.refId, dimensions: canonicalRawItem.catalog!.dimensions, loggable: canonicalRawItem },
+    { ...canonicalCookedItem, catalogId: canonicalCookedItem.refId, dimensions: canonicalCookedItem.catalog!.dimensions, loggable: canonicalCookedItem },
+  ]);
+  let detail!: ReturnType<typeof create>;
+  await act(async () => { detail = create(<FoodDetailScreen />); await Promise.resolve(); });
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '7', 'a saved legacy-family snapshot reopens at its exact amount');
+  await press(detail, 'food-detail-change-type');
+  byTestId(detail.root, 'food-detail-dimension-Preparation-Cooked');
+  await press(detail, 'food-detail-dimension-Preparation-Raw');
+  await press(detail, 'food-detail-select');
+  const redirectedSavedSnapshot = configureCalls[0].item.nutritionSnapshot as FoodNutritionSnapshot;
+  assert.equal(redirectedSavedSnapshot.variant?.familyKey, 'everyday-whole-wheat-bread', 'redirected canonical variants remain selectable');
+  assert.equal(redirectedSavedSnapshot.selected.amount, 7, 'redirected family editing preserves the saved amount');
+  assert.deepEqual(redirectedSavedSnapshot.source, legacySevenOunces.source, 'redirected family editing preserves exact source identity');
+  assert.equal(snapshotConfigurationId(redirectedSavedSnapshot), legacyConfigurationId, 'family-key redirection alone preserves configuration identity');
+  await act(async () => detail.unmount());
+
   resetDetailState(rawItem, { basketId: 'edited-basket-id', item: rawItem, quantity: 1 }, [
     { ...rawItem, catalogId: rawItem.refId, dimensions: { Preparation: 'Raw' }, loggable: rawItem },
     { ...cookedItem, catalogId: cookedItem.refId, dimensions: { Preparation: 'Cooked' }, variantSummary: 'Cooked', loggable: cookedItem },
   ]);
-  let detail!: ReturnType<typeof create>;
   await act(async () => {
     detail = create(<FoodDetailScreen />);
     await Promise.resolve();
   });
   assert.match(textOf(detail.root), /200CALORIES/, 'actual detail screen initially renders authoritative calories');
   await press(detail, 'food-detail-plus');
-  assert.match(textOf(detail.root), /100.5 g/, 'actual plus control changes the visible selected amount');
+  assert.match(textOf(detail.root), /100.5 G/i, 'actual plus control changes the visible selected amount');
   assert.match(textOf(detail.root), /201CALORIES/, 'actual plus control changes visible macros from the same snapshot');
   assert.doesNotMatch(textOf(detail.root), /\d+\.\d{2,}g(?:PROTEIN|CARBS|FAT)/, 'detail macro summaries round display to at most one decimal');
   await press(detail, 'food-detail-unit-ounce');
   await press(detail, 'food-detail-unit-gram');
-  assert.match(textOf(detail.root), /100.5 g/, 'actual unit controls round-trip without changing physical scale');
+  assert.match(textOf(detail.root), /100.5 G/i, 'actual unit controls round-trip without changing physical scale');
   await press(detail, 'food-detail-select');
   assert.equal(configureCalls[0].basketId, 'edited-basket-id', 'actual footer preserves the edited basket id');
   assert.equal(configureCalls[0].amount.ounces, undefined, 'actual footer does not pass legacy ounces for snapshots');
@@ -214,6 +285,57 @@ async function main() {
   await press(detail, 'food-detail-back');
   assert.equal(configureCalls.length, 0, 'Back discards the complete local draft');
   assert.equal(routerCalls.at(-1), 'back');
+  await act(async () => detail.unmount());
+
+  const wingSnapshot = (
+    preparation: 'Roasted' | 'Fried',
+    calories: number,
+    dimensions: Record<string, string>,
+  ): FoodNutritionSnapshot => ({
+    ...snapshot,
+    source: { ...snapshot.source, recordId: `wing-${preparation.toLowerCase()}`, revision: `sha256:${preparation}` },
+    nutrients: snapshot.nutrients.map(nutrient => nutrient.id === '1008' ? { ...nutrient, amount: calories } : nutrient),
+    variant: { familyKey: 'chicken-wings', summary: preparation, dimensions },
+  });
+  const roastedWing = detailedItem(wingSnapshot('Roasted', 252, { State: 'Cooked', Preparation: 'Roasted' }));
+  const friedWing = {
+    ...detailedItem(wingSnapshot('Fried', 289, { State: 'Cooked', Preparation: 'Fried', Coating: 'Coated' })),
+    refId: 'wing-fried',
+  };
+  resetDetailState(roastedWing, { basketId: 'wing-basket', item: roastedWing, quantity: 1 }, [
+    { ...roastedWing, catalogId: roastedWing.refId, dimensions: roastedWing.catalog!.dimensions, loggable: roastedWing },
+    { ...friedWing, catalogId: friedWing.refId, dimensions: friedWing.catalog!.dimensions, loggable: friedWing },
+  ]);
+  await act(async () => { detail = create(<FoodDetailScreen />); await Promise.resolve(); });
+  await press(detail, 'food-detail-change-type');
+  assert.match(textOf(detail.root), /252CALORIES/);
+  await press(detail, 'food-detail-dimension-Preparation-Fried');
+  assert.match(textOf(detail.root), /289CALORIES/, 'Roasted switches directly to the exact Fried source');
+  assert.equal(detail.root.findAll(node => node.props.testID === 'food-detail-confirm-variant').length, 0, 'incidental coating does not force confirmation');
+  await press(detail, 'food-detail-dimension-Preparation-Roasted');
+  assert.match(textOf(detail.root), /252CALORIES/, 'hidden Fried coating does not block returning to Roasted');
+  await press(detail, 'food-detail-select');
+  assert.equal(configureCalls[0].item.refId, roastedWing.refId, 'final save commits the exact displayed source after reversible exploration');
+  await act(async () => detail.unmount());
+
+  const skinOnWing = detailedItem(wingSnapshot('Roasted', 252, { State: 'Cooked', Preparation: 'Roasted', Skin: 'On' }));
+  const skinOffWing = {
+    ...detailedItem(wingSnapshot('Fried', 289, { State: 'Cooked', Preparation: 'Fried', Skin: 'Off' })),
+    refId: 'wing-skin-off',
+  };
+  resetDetailState(skinOnWing, { basketId: 'skin-basket', item: skinOnWing, quantity: 1 }, [
+    { ...skinOnWing, catalogId: skinOnWing.refId, dimensions: skinOnWing.catalog!.dimensions, loggable: skinOnWing },
+    { ...skinOffWing, catalogId: skinOffWing.refId, dimensions: skinOffWing.catalog!.dimensions, loggable: skinOffWing },
+  ]);
+  await act(async () => { detail = create(<FoodDetailScreen />); await Promise.resolve(); });
+  await press(detail, 'food-detail-change-type');
+  await press(detail, 'food-detail-dimension-Preparation-Fried');
+  assert(byTestId(detail.root, 'food-detail-confirm-variant'), 'a real incompatible skin choice requires explicit confirmation');
+  await press(detail, 'food-detail-cancel-variant');
+  assert.match(textOf(detail.root), /252CALORIES/, 'Cancel leaves the exact draft unchanged');
+  await press(detail, 'food-detail-dimension-Preparation-Fried');
+  await press(detail, 'food-detail-confirm-variant');
+  assert.match(textOf(detail.root), /289CALORIES/, 'confirmation applies the complete supported source');
   await act(async () => detail.unmount());
 
   resetDetailState(rawItem);
@@ -322,7 +444,250 @@ async function main() {
   resetDetailState(detailedItem(offGridSnapshot));
   await act(async () => { detail = create(<FoodDetailScreen />); });
   await press(detail, 'food-detail-minus');
-  assert.match(textOf(detail.root), /5 oz/, 'one sensible half-step snaps 5.03 oz to the reachable 5 oz grid');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '4.53', 'a half-ounce step is applied to the intentional off-grid amount');
+  await act(async () => detail.unmount());
+
+  const fiveOunceFavorite = selectSnapshotPortion(snapshot, 5, 'ounce');
+  assert(fiveOunceFavorite);
+  const existingFavoriteIds = new Set([snapshotConfigurationId(fiveOunceFavorite)]);
+  const originalArrayIncludes = Array.prototype.includes;
+  Array.prototype.includes = function includesWithFavorite<T>(this: T[], value: T, fromIndex?: number): boolean {
+    if (
+      this.length === 0 &&
+      typeof value === 'string' &&
+      value.startsWith('cfg_') &&
+      existingFavoriteIds.has(value)
+    ) return true;
+    return originalArrayIncludes.call(this, value, fromIndex);
+  };
+  try {
+    resetDetailState(detailedItem(snapshot));
+    await act(async () => { detail = create(<FoodDetailScreen />); });
+    assert.match(textOf(byTestId(detail.root, 'food-detail-favorite')), /Remove favorite/, 'the exact five-ounce configuration starts favorite');
+    await act(async () => {
+      byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('7');
+    });
+    assert.match(textOf(byTestId(detail.root, 'food-detail-favorite')), /Save as favorite/, 'an unblurred seven-ounce configuration is a distinct add-favorite action');
+    await press(detail, 'food-detail-favorite');
+    assert.equal(favoriteCalls[0].food.nutritionSnapshot.selected.amount, 7);
+    assert.deepEqual(favoriteCalls[0].options, { favorite: true }, 'favorite mutation uses the pending configuration id and exact amount');
+    await act(async () => {
+      byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('5');
+    });
+    assert.match(textOf(byTestId(detail.root, 'food-detail-favorite')), /Remove favorite/, 'typing back to the existing five-ounce favorite restores remove state');
+    await press(detail, 'food-detail-favorite');
+    assert.equal(favoriteCalls[1].food.nutritionSnapshot.selected.amount, 5);
+    assert.deepEqual(favoriteCalls[1].options, { favorite: false });
+    await act(async () => detail.unmount());
+  } finally {
+    Array.prototype.includes = originalArrayIncludes;
+  }
+
+  resetDetailState(detailedItem(snapshot));
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.equal(
+    byTestId(detail.root, 'food-detail-amount-input').props.value,
+    '5',
+    'a genuinely fresh weighed catalog food is initialized to five ounces before selection',
+  );
+  const freshCalories = textOf(detail.root);
+  await press(detail, 'food-detail-unit-ounce');
+  assert.equal(textOf(detail.root), freshCalories, 'tapping the selected unit is a complete no-op');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('7.25');
+  });
+  await press(detail, 'food-detail-select');
+  assert.equal(configureCalls[0].item.nutritionSnapshot.selected.amount, 7.25, 'Select consumes exact pending numeric input without relying on blur');
+  await act(async () => detail.unmount());
+
+  resetDetailState(detailedItem(snapshot));
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('7');
+  });
+  await press(detail, 'food-detail-nutrition-toggle');
+  assert.match(
+    textOf(detail.root),
+    /Sodium456\.4 mg/,
+    'expanded Nutrition Facts follows the valid pending seven-ounce preview',
+  );
+  await press(detail, 'food-detail-unit-gram');
+  assert.equal(
+    byTestId(detail.root, 'food-detail-amount-input').props.value,
+    '198.4467',
+    'an unblurred seven ounces shows readable converted grams',
+  );
+  assert.match(textOf(detail.root), /397CALORIES/, 'the ounce-to-gram conversion preserves pending macro totals');
+  await press(detail, 'food-detail-select');
+  assert(closeTo(configureCalls[0].item.nutritionSnapshot.selected.amount, 198.446661875));
+  assert(closeTo(configureCalls[0].item.calories, 200.125 * 1.98446661875), 'final save preserves converted exact macro totals');
+  await act(async () => detail.unmount());
+
+  resetDetailState(roastedWing, { basketId: 'pending-wing', item: roastedWing, quantity: 1 }, [
+    { ...roastedWing, catalogId: roastedWing.refId, dimensions: roastedWing.catalog!.dimensions, loggable: roastedWing },
+    { ...friedWing, catalogId: friedWing.refId, dimensions: friedWing.catalog!.dimensions, loggable: friedWing },
+  ]);
+  await act(async () => { detail = create(<FoodDetailScreen />); await Promise.resolve(); });
+  await press(detail, 'food-detail-change-type');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('7');
+  });
+  await press(detail, 'food-detail-dimension-Preparation-Fried');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '7', 'pending seven ounces survives the Fried source transition');
+  await press(detail, 'food-detail-dimension-Preparation-Roasted');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '7', 'Fried → Roasted retains the pending seven-ounce weight');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('0');
+  });
+  await press(detail, 'food-detail-unit-gram');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0', 'invalid pending input blocks unit conversion without being consumed');
+  await press(detail, 'food-detail-dimension-Preparation-Fried');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0', 'invalid pending input blocks direct type changes without being consumed');
+  assert.equal(detail.root.findAll(node => node.props.testID === 'food-detail-confirm-variant').length, 0);
+  await act(async () => detail.unmount());
+
+  resetDetailState(skinOnWing, { basketId: 'invalid-conflict', item: skinOnWing, quantity: 1 }, [
+    { ...skinOnWing, catalogId: skinOnWing.refId, dimensions: skinOnWing.catalog!.dimensions, loggable: skinOnWing },
+    { ...skinOffWing, catalogId: skinOffWing.refId, dimensions: skinOffWing.catalog!.dimensions, loggable: skinOffWing },
+  ]);
+  await act(async () => { detail = create(<FoodDetailScreen />); await Promise.resolve(); });
+  await press(detail, 'food-detail-change-type');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('0');
+  });
+  await press(detail, 'food-detail-dimension-Preparation-Fried');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0');
+  assert.equal(
+    detail.root.findAll(node => node.props.testID === 'food-detail-confirm-variant').length,
+    0,
+    'invalid pending input blocks even an incompatible type proposal',
+  );
+  await act(async () => detail.unmount());
+
+  resetDetailState(detailedItem(snapshot));
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('0');
+  });
+  await press(detail, 'food-detail-favorite');
+  assert.equal(favoriteCalls.length, 0, 'invalid pending input blocks Favorite');
+  await press(detail, 'food-detail-select');
+  assert.equal(configureCalls.length, 0, 'invalid pending input blocks Select');
+  assert.match(textOf(detail.root), /greater than zero/, 'invalid final action leaves an explicit reviewable error');
+  await act(async () => detail.unmount());
+
+  resetDetailState(detailedItem(snapshot));
+  route.origin = 'library';
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('6.75');
+  });
+  await press(detail, 'food-detail-favorite');
+  assert.equal(favoriteCalls[0].food.nutritionSnapshot.selected.amount, 6.75, 'Favorite consumes exact pending input');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('-2');
+  });
+  await press(detail, 'food-detail-select');
+  assert.equal(submittedEntries.length, 0, 'invalid pending input blocks a Library add');
+  await act(async () => detail.unmount());
+
+  const beanSnapshot: FoodNutritionSnapshot = {
+    ...snapshot,
+    source: { ...snapshot.source, recordId: 'green-beans', revision: 'sha256:green-beans' },
+    portions: [
+      snapshot.portions[0],
+      snapshot.portions[1],
+      { id: 'ten-beans', label: '10 beans (4" long)', unit: 'bean', dimension: 'count', basisMultiplier: 0.55, grams: 55 },
+      { id: 'cup-pieces', label: '1 cup 1/2" pieces', unit: 'cup', dimension: 'volume', basisMultiplier: 1, grams: 100 },
+    ],
+  };
+  resetDetailState(detailedItem(beanSnapshot));
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.match(textOf(detail.root), /OuncesCupsGramsMore units/, 'green-bean primary controls stay compact and useful');
+  await press(detail, 'food-detail-more-units');
+  assert.match(
+    textOf(byTestId(detail.root, 'food-detail-source-measure-ten-beans')),
+    /Source measure: 10 beans \(4" long\) = 55 g/,
+    'More units keeps the original ten-bean source bundle visible without changing one-bean editing',
+  );
+  await press(detail, 'food-detail-unit-cup-pieces');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '1', 'choosing cups intentionally starts at one cup');
+  assert.match(textOf(detail.root), /1\/2" pieces/, 'the source inch qualifier remains visible separately');
+  await press(detail, 'food-detail-minus');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0.75', 'cups step by a useful quarter cup');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('0.5');
+  });
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onSubmitEditing();
+  });
+  assert.match(textOf(detail.root), /½ CUP/i, 'positive direct numeric input renders a readable fractional cup');
+  await press(detail, 'food-detail-select');
+  assert.equal(configureCalls[0].item.nutritionSnapshot.selected.amount, 0.5, 'the exact displayed half cup is saved without rounding');
+  assert.equal(configureCalls[0].item.nutritionSnapshot.portions[3].label, '1 cup 1/2" pieces', 'saving preserves the source portion statement');
+  await act(async () => detail.unmount());
+
+  const fractionalWingSnapshot: FoodNutritionSnapshot = {
+    ...snapshot,
+    portions: [{
+      id: 'wing', label: '1 wing, any size', unit: 'undetermined', dimension: 'serving',
+      basisMultiplier: 0.34, grams: 34, evidence: 'USDA source portion',
+    }],
+    selected: { amount: 0.5, unitId: 'wing', scale: 0.17 },
+  };
+  resetDetailState(detailedItem(fractionalWingSnapshot));
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await press(detail, 'food-detail-minus');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0.5', 'decreasing a half wing is a no-op rather than increasing it');
+  await press(detail, 'food-detail-plus');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '1.5', 'a whole-count step applies to the intentional half wing');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('0');
+  });
+  await press(detail, 'food-detail-plus');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0', 'stepping validates pending typed input instead of using stale nutrition');
+  assert.match(textOf(detail.root), /greater than zero/);
+  await act(async () => detail.unmount());
+
+  const drumetteSnapshot: FoodNutritionSnapshot = {
+    ...snapshot,
+    portions: [{
+      id: 'drumette', label: '1 drumette', unit: 'undetermined', dimension: 'serving',
+      basisMultiplier: 0.2775, grams: 27.75, evidence: 'USDA source portion',
+    }],
+    selected: { amount: 3, unitId: 'drumette', scale: 0.8325 },
+  };
+  resetDetailState(detailedItem(drumetteSnapshot));
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('0');
+  });
+  await press(detail, 'food-detail-select');
+  assert.match(textOf(detail.root), /greater than zero/);
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2');
+  });
+  assert.doesNotMatch(textOf(detail.root), /greater than zero/, 'typing a valid replacement clears the stale validation error');
+  assert.match(textOf(detail.root), /NUTRITION · 2 DRUMETTES111CALORIES/, 'valid unblurred input previews matching amount and nutrition');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2.');
+  });
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '2.', 'editable decimal text is not normalized while typing');
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2.5');
+  });
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '2.5');
+  assert.match(textOf(detail.root), /NUTRITION · 2.5 DRUMETTES139CALORIES/, 'fractional valid text previews exact nutrition before blur');
+  await act(async () => detail.unmount());
+
+  const tenthCupSnapshot: FoodNutritionSnapshot = {
+    ...beanSnapshot,
+    selected: { amount: 0.1, unitId: 'cup-pieces', scale: 0.1 },
+  };
+  resetDetailState(detailedItem(tenthCupSnapshot));
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await press(detail, 'food-detail-minus');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0.1', 'decreasing a tenth cup cannot jump upward to a quarter cup');
   await act(async () => detail.unmount());
 
   const offSnapshot: FoodNutritionSnapshot = {

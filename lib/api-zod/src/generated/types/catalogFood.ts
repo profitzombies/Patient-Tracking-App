@@ -38,6 +38,8 @@ export interface CatalogFood {
   approvals: CatalogApproval[];
   resultKey?: string;
   familyKey?: string;
+  /** Legacy family keys that redirect to this result's canonical familyKey */
+  familyKeyAliases?: string[];
   variantSummary?: string;
   dimensions?: CatalogFoodDimensions;
   choiceRequired?: boolean;

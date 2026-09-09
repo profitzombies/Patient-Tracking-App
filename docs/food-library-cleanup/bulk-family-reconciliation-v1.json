@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "migrationVersion": "20261005170000",
+  "policy": "Historical generated family expectations are redirected only for proven duplicate identities. Original family defaults remain canonical, while every moved source remains addressable as a canonical-family variant with its frozen revision.",
+  "familyRedirects": [
+    {
+      "historicalFamily": "bulk-whole-wheat-bread",
+      "canonicalFamily": "everyday-whole-wheat-bread",
+      "canonicalDefaultSourceId": "172688",
+      "releaseId": "sr-legacy-2018-04",
+      "movedSourceIds": ["172689"],
+      "reason": "Whole-Wheat Bread normalizes to the preexisting Whole Wheat Bread identity."
+    },
+    {
+      "historicalFamily": "bulk-cooked-pasta",
+      "canonicalFamily": "everyday-pasta",
+      "canonicalDefaultSourceId": "168928",
+      "releaseId": "sr-legacy-2018-04",
+      "movedSourceIds": ["169751", "169737"],
+      "reason": "Cooked Pasta is a cooked-state duplicate of the preexisting Pasta family."
+    }
+  ]
+}

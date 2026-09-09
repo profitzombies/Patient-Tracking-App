@@ -1,5 +1,7 @@
 import React from 'react';
-import { parseNutritionSnapshot, scaledSnapshotMacros } from '../../data/food-nutrition';
+import {
+  initializeFreshNutritionSnapshot, parseNutritionSnapshot, scaledSnapshotMacros,
+} from '../../data/food-nutrition';
 
 export type LoggableItem = any;
 export type CatalogFood = any;
@@ -100,6 +102,11 @@ export function catalogFoodToLoggable(food: any) {
 
 export function getItemNutritionSnapshot(item: any) {
   return parseNutritionSnapshot(item?.nutritionSnapshot ?? item?.catalog?.nutritionSnapshot);
+}
+export function initializeFreshItemSnapshot(_item: any, snapshot: any) {
+  return Math.abs(snapshot.selected.scale - 1) < 1e-10
+    ? initializeFreshNutritionSnapshot(snapshot)
+    : snapshot;
 }
 
 export function withItemNutritionSnapshot(item: any, snapshot: any) {

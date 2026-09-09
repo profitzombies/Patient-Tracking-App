@@ -26,11 +26,13 @@ import {
   buildFoodLogEntry,
   FoodLoggingProvider,
   selectionScale,
+  selectionMatchesItemConfiguration,
   selectionDisplayText,
   supportsOunces,
   useFoodLogging,
   getItemNutritionSnapshot,
   foodResultDisplayText,
+  initializeFreshItemSnapshot,
   withItemNutritionSnapshot,
   type FoodLoggingContextValue,
 } from '../context/FoodLoggingContext';
@@ -75,7 +77,7 @@ const brandedWire = {
 };
 
 const parsed = parseCatalogSearch({
-  results: [commonWire, personalWire, brandedWire],
+  results: [{ ...commonWire, familyKey: 'everyday-rice', familyKeyAliases: [' bulk-rice ', '', 42, 'bulk-rice'] }, personalWire, brandedWire],
   externalUnavailable: true,
   querySuggestions: ['chicken wings', '', 42, 'wing'],
   correctedQuery: 'chicken wings',
@@ -89,6 +91,7 @@ assert.equal(parsed.personal[0].id, 'mine', 'custom:<id> results normalize to th
 assert.equal(parsed.branded[0].sourceLabel, 'Open Food Facts');
 assert.equal(parsed.common[0].approved, true, 'approval comes only from explicit relationships');
 assert.equal(parsed.common[0].servingGrams, 158, 'serving grams survive mobile parsing');
+assert.deepEqual(parsed.common[0].familyKeyAliases, ['bulk-rice'], 'family redirect aliases are safely parsed and deduplicated');
 assert.equal(parsed.branded[0].approved, false);
 assert.equal(parsed.upstreamUnavailable, true, 'local results survive external failure');
 assert.deepEqual(parsed.querySuggestions, ['chicken wings', 'wing'], 'mobile safely parses compact query suggestions');
@@ -383,6 +386,38 @@ const cooked90Snapshot = {
   },
   provenance: 'generic_source' as const,
 };
+const liquidSnapshot = {
+  ...cooked90Snapshot,
+  source: { ...cooked90Snapshot.source, canonicalName: 'Soup, tomato, canned' },
+  portions: [
+    { id: 'gram', label: 'g', unit: 'g', dimension: 'weight' as const, basisMultiplier: 0.01, grams: 1 },
+    { id: 'ounce', label: 'oz', unit: 'oz', dimension: 'weight' as const, basisMultiplier: 0.28349523125, grams: 28.349523125 },
+    {
+      id: 'cup', label: '1 cup', unit: 'undetermined', dimension: 'serving' as const,
+      basisMultiplier: 2.45, grams: 245, evidence: 'USDA source amount 1 cup = 245 g',
+    },
+  ],
+  selected: { amount: 100, unitId: 'gram', scale: 1 },
+};
+const liquidItem = {
+  refId: 'fresh-liquid', kind: 'food' as const, name: 'Tomato soup', sub: 'Common Foods',
+  serving: '100 g', calories: 50, protein: 1, carbs: 10, fat: 1, approved: true,
+};
+assert.equal(
+  initializeFreshItemSnapshot(liquidItem, liquidSnapshot).selected.unitId,
+  'cup',
+  'source metadata and a liquid identity choose one documented volume without a density guess',
+);
+assert.equal(
+  initializeFreshItemSnapshot({ ...liquidItem, name: 'Dried tomato soup mix' }, liquidSnapshot).selected.unitId,
+  'ounce',
+  'powders and dried liquid mixes remain weighed foods',
+);
+const initializedLiquid = defaultSelection({ ...liquidItem, nutritionSnapshot: liquidSnapshot });
+assert(
+  selectionMatchesItemConfiguration(initializedLiquid, { ...liquidItem, nutritionSnapshot: liquidSnapshot }),
+  'the original baseline search item matches its initialized basket configuration for toggle/deselect',
+);
 const cooked90Item = withItemNutritionSnapshot({
   refId: 'cfg-cooked-90',
   kind: 'food',
@@ -500,6 +535,66 @@ const server90 = {
   catalogId: 'server-90',
   nutritionSnapshot: undefined,
 };
+const rememberedLegacyBread = {
+  ...remembered90,
+  id: 'cfg-legacy-bread-7oz',
+  catalogId: 'cfg-legacy-bread-7oz',
+  familyKey: 'bulk-whole-wheat-bread',
+  name: 'Whole Wheat Bread',
+  variantSummary: 'whole wheat',
+  dimensions: { grain: 'whole wheat' },
+  nutritionSnapshot: {
+    ...remembered90.nutritionSnapshot!,
+    source: { provider: 'usda', recordId: 'whole-wheat-bread-source', revision: 'source-revision-1' },
+    portions: [{
+      id: 'ounce',
+      label: 'oz',
+      unit: 'oz',
+      dimension: 'weight' as const,
+      basisMultiplier: 0.28349523125,
+      grams: 28.349523125,
+    }],
+    selected: { amount: 7, unitId: 'ounce', scale: 7 * 0.28349523125 },
+    variant: {
+      familyKey: 'bulk-whole-wheat-bread',
+      summary: 'whole wheat',
+      dimensions: { grain: 'whole wheat' },
+    },
+  },
+};
+const canonicalBreadResult = {
+  ...server90,
+  id: 'canonical-bread-default',
+  catalogId: 'canonical-bread-default',
+  familyKey: 'everyday-whole-wheat-bread',
+  familyKeyAliases: ['bulk-whole-wheat-bread'],
+  name: 'Whole Wheat Bread',
+  variantSummary: 'whole wheat',
+  dimensions: { grain: 'whole wheat' },
+};
+const restoredLegacyBread = applyRememberedFamilyConfigurations(
+  [canonicalBreadResult],
+  [rememberedLegacyBread],
+  'whole wheat bread',
+)[0];
+assert.equal(restoredLegacyBread, rememberedLegacyBread, 'a listed legacy family alias restores the exact remembered configuration');
+assert.equal(restoredLegacyBread.nutritionSnapshot?.selected.amount, 7, 'redirect restoration keeps the remembered seven-ounce portion');
+assert.deepEqual(
+  restoredLegacyBread.nutritionSnapshot?.source,
+  rememberedLegacyBread.nutritionSnapshot.source,
+  'redirect restoration keeps the immutable source identity',
+);
+assert.equal(
+  snapshotConfigurationId(restoredLegacyBread.nutritionSnapshot!),
+  snapshotConfigurationId(rememberedLegacyBread.nutritionSnapshot),
+  'redirect restoration keeps the exact configuration id',
+);
+const unrelatedBreadResult = { ...canonicalBreadResult, familyKeyAliases: ['another-retired-family'] };
+assert.equal(
+  applyRememberedFamilyConfigurations([unrelatedBreadResult], [rememberedLegacyBread], 'whole wheat bread')[0],
+  unrelatedBreadResult,
+  'an unrelated family cannot restore a remembered configuration',
+);
 assert.equal(
   applyRememberedFamilyConfigurations([server90], [remembered95, remembered90], 'ground beef')[0].catalogId,
   'cfg-95-cooked',

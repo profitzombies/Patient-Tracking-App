@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import {
   availableNutritionPortions,
+  formatNutritionAmount,
+  initializeFreshNutritionSnapshot,
+  nutritionPortionPresentation,
+  nutritionPortionDimension,
+  orderedNutritionPortions,
   parseNutritionSnapshot,
   scaledSnapshotMacros,
   selectSnapshotPortion,
+  selectSnapshotDisplayedPortion,
   visibleNutritionPortions,
 } from '../data/food-nutrition';
 
@@ -163,5 +169,115 @@ assert.deepEqual(
 
 assert.equal(selectSnapshotPortion(snapshot, 0, 'gram'), null, 'zero selections stay invalid');
 assert.equal(selectSnapshotPortion(snapshot, 1, 'missing'), null, 'missing units stay invalid');
+
+const greenBeans = parseNutritionSnapshot({
+  ...raw,
+  source: { ...raw.source, recordId: 'usda-green-beans' },
+  portions: [
+    raw.portions[0],
+    raw.portions[1],
+    {
+      id: 'ten-beans', label: '10 beans (4" long)', unit: 'bean', dimension: 'count',
+      basisMultiplier: 0.55, grams: 55, evidence: 'USDA source amount 10 beans = 55 g',
+    },
+    {
+      id: 'cup-pieces', label: '1 cup 1/2" pieces', unit: 'cup', dimension: 'volume',
+      basisMultiplier: 1, grams: 100, evidence: 'USDA source amount 1 cup = 100 g',
+    },
+  ],
+  selected: { amount: 1, unitId: 'ten-beans', scale: 0.55 },
+});
+assert(greenBeans);
+assert.deepEqual(
+  formatNutritionAmount(greenBeans),
+  { text: '10 beans', amount: 10, unit: 'beans', qualifier: '4" long' },
+  'a selected source bundle is one ten-bean bundle, while the inch qualifier stays descriptive',
+);
+assert.deepEqual(
+  orderedNutritionPortions(greenBeans, { preserveSelected: false }).map(portion => portion.id),
+  ['ounce', 'cup-pieces', 'gram', 'ten-beans'],
+  'green beans prioritize ounces, cups and grams while retaining the awkward bundle under More units',
+);
+assert.equal(
+  initializeFreshNutritionSnapshot(greenBeans, { foodName: 'Vegetable soup' }).selected.unitId,
+  'cup-pieces',
+  'the pure fresh initializer gives a documented liquid one source volume',
+);
+assert.equal(
+  initializeFreshNutritionSnapshot(greenBeans, { foodName: 'Dried vegetable soup mix' }).selected.unitId,
+  'ounce',
+  'the pure liquid initializer excludes powders and dried mixes',
+);
+const oneBean = selectSnapshotDisplayedPortion(greenBeans, 1, 'ten-beans');
+assert(oneBean);
+assert.equal(oneBean.selected.amount, 0.1, 'one displayed bean is exactly one tenth of the immutable source bundle');
+assert(Math.abs(oneBean.selected.scale - 0.055) < 1e-12, 'one bean uses the source multiplier once');
+const halfCup = selectSnapshotDisplayedPortion(greenBeans, 0.5, 'cup-pieces');
+assert(halfCup);
+assert.equal(formatNutritionAmount(halfCup).text, '½ cup');
+assert.equal(formatNutritionAmount(halfCup).qualifier, '1/2" pieces', 'an inch fraction never becomes a cup fraction');
+
+const archivedFourOunces = parseNutritionSnapshot({
+  ...raw,
+  source: { ...raw.source, recordId: 'usda-cottage-cheese' },
+  portions: [{
+    id: 'source-four-ounce', label: '4 oz', unit: 'oz', dimension: 'weight',
+    basisMultiplier: 1.13, grams: 113, evidence: 'USDA source amount 4 oz = 113 g',
+  }],
+  selected: { amount: 1, unitId: 'source-four-ounce', scale: 1.13 },
+});
+assert(archivedFourOunces);
+assert.equal(nutritionPortionPresentation(archivedFourOunces.portions[0]).sourceAmount, 4);
+assert.equal(formatNutritionAmount(archivedFourOunces).text, '4 oz');
+assert.equal(archivedFourOunces.portions[0].grams, 113, 'USDA 4 oz = 113 g remains recorded, not recalculated as 113.4 g');
+const eightArchivedOunces = selectSnapshotDisplayedPortion(archivedFourOunces, 8, 'source-four-ounce');
+assert(eightArchivedOunces);
+assert.equal(eightArchivedOunces.selected.amount, 2, 'display editing retains source amount as a multiplier');
+assert.equal(eightArchivedOunces.portions[0].grams, 113, 'editing never rewrites archived source grams');
+
+const mixedCup = nutritionPortionPresentation({
+  id: 'mixed-cup', label: '1 1/2 cups chopped', unit: 'cup', dimension: 'volume',
+  basisMultiplier: 1, grams: 150,
+});
+assert.equal(mixedCup.sourceAmount, 1.5, 'mixed-number source amounts are parsed before plain integers');
+assert.equal(mixedCup.singular, 'cup');
+assert.equal(mixedCup.qualifier, 'chopped');
+const unicodeHalfCup = nutritionPortionPresentation({
+  id: 'unicode-cup', label: '½ cup', unit: 'cup', dimension: 'volume',
+  basisMultiplier: 0.5, grams: 50,
+});
+assert.equal(unicodeHalfCup.sourceAmount, 0.5, 'a leading unicode fraction is a source amount');
+const fluidOunce = {
+  id: 'fluid-ounce', label: '1 fluid ounce', unit: 'fl oz', dimension: 'weight' as const,
+  basisMultiplier: 0.3, grams: 30,
+};
+assert.equal(nutritionPortionPresentation(fluidOunce).singular, 'fluid ounce');
+assert.equal(nutritionPortionPresentation(fluidOunce).shortLabel, 'Fluid ounces');
+assert.equal(nutritionPortionDimension(fluidOunce), 'volume', 'fluid ounces remain volume and are never treated as weighed ounces');
+const acaiBeverage = parseNutritionSnapshot({
+  ...raw,
+  source: { ...raw.source, recordId: '173175', canonicalName: 'Beverages, acai berry drink' },
+  portions: [raw.portions[0], raw.portions[1], fluidOunce],
+  selected: { amount: 100, unitId: 'gram', scale: 1 },
+});
+assert(acaiBeverage);
+assert.equal(
+  initializeFreshNutritionSnapshot(acaiBeverage).selected.unitId,
+  'fluid-ounce',
+  'real Acai-style plural beverage metadata defaults to its raw fluid-ounce source volume',
+);
+const cubicInch = {
+  id: 'cubic-inch', label: '1 cubic inch', unit: 'undetermined', dimension: 'serving' as const,
+  basisMultiplier: 0.17, grams: 17, evidence: 'USDA source amount 1 cubic inch',
+};
+assert.equal(nutritionPortionPresentation(cubicInch).singular, 'cubic inch', 'real singular cubic-inch labels stay intact');
+assert.equal(nutritionPortionPresentation(cubicInch).shortLabel, 'Cubic inches');
+assert.equal(nutritionPortionDimension(cubicInch), 'volume');
+const sourceWing = {
+  id: 'wing', label: '1 wing, any size', unit: 'undetermined', dimension: 'serving' as const,
+  basisMultiplier: 0.34, grams: 34, evidence: 'USDA source portion',
+};
+assert.equal(nutritionPortionDimension(sourceWing), 'count', 'documented source serving nouns behave as exact count portions');
+assert.equal(nutritionPortionPresentation(sourceWing).qualifier, 'any size');
 
 console.log('food portion visibility checks passed');

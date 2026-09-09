@@ -112,3 +112,5 @@
 - [Live office leaderboard](office-leaderboard-live.md) — facts RPC + server ranks/adherence, clients only re-sort; branch by auth state; demo-staff script login is a decoy under passwordless directory.
 - [Auth entry screen layout](auth-hero-crop.md) — welcome stays image-led; hero-less forms are not an app-wide mandate. Preserve subject-aware crops and keyboard-friendly segmented choices.
 - [Implementation brief scope](task-brief-scope.md) — keep planning-only disclaimers out of build tasks; merged documentation is not proof of an implemented feature.
+- [Pending food amount intent](food-amount-intent.md) — every action must consume the effective amount; favorite state follows the resolved configuration, not the prior render.
+- [Grouped food-search plans](food-search-plans.md) — materialize family hits before lateral variants; aggregate narrow aliases before joining nutrition snapshots.

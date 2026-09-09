@@ -96,7 +96,9 @@ describe("catalog routes", () => {
       serving: "100 g", serving_grams: 100, calories: 100, protein: 10, carbs: 10,
       fat: 2, measures: [], source: "usda_fdc", source_id: String(index),
       barcode: null, quality_status: "reviewed", approvals: [],
-      resultKey: `family:family-${index}`, familyKey: `family-${index}`,
+      resultKey: index === 0 ? "family:everyday-pasta" : `family:family-${index}`,
+      familyKey: index === 0 ? "everyday-pasta" : `family-${index}`,
+      ...(index === 0 ? { familyKeyAliases: ["bulk-cooked-pasta"] } : {}),
       variantSummary: "Reviewed default", dimensions: {}, choiceRequired: false,
       nutritionSnapshot: { version: 1 },
     })));
@@ -110,7 +112,12 @@ describe("catalog routes", () => {
     expect(body.results).toHaveLength(6);
     expect(body.hasMore).toBe(true);
     expect(body.nextCursor).toEqual(expect.any(String));
-    expect(body.rankingVersion).toBe("food-families-v4");
+    expect(body.rankingVersion).toBe("food-families-v7");
+    expect(body.results[0]).toMatchObject({
+      familyKey: "everyday-pasta",
+      familyKeyAliases: ["bulk-cooked-pasta"],
+    });
+    expect(body.results[1]).not.toHaveProperty("familyKeyAliases");
 
     const next = await fetch(`${base}/catalog/search?q=chicken&grouped=true&limit=6&approvedOnly=true&cursor=${encodeURIComponent(body.nextCursor)}`);
     expect(next.status).toBe(200);
@@ -137,23 +144,27 @@ describe("catalog routes", () => {
       serving_grams: 100, calories: 52, protein: 0.26, carbs: 13.81, fat: 0.17,
       measures: [], source: "usda_fdc", source_id: "2709215", barcode: null,
       quality_status: "reviewed", approvals: [], resultKey: "family:apples:apple-1",
-      familyKey: "apples", variantSummary: "Raw", dimensions: { state: "raw" },
+      familyKey: "everyday-pasta", variantSummary: "Raw", dimensions: { state: "raw" },
+      familyKeyAliases: ["bulk-cooked-pasta"],
       choiceRequired: false, nutritionSnapshot: { version: 1 },
     }, {
       id: "apple-2", kind: "generic", name: "Apples", brand: null, serving: "100 g",
       serving_grams: 100, calories: 48, protein: 0.2, carbs: 12.8, fat: 0.1,
       measures: [], source: "usda_fdc", source_id: "alternate", barcode: null,
       quality_status: "reviewed", approvals: [], resultKey: "family:apples:apple-2",
-      familyKey: "apples", variantSummary: "Prepared", dimensions: { form: "prepared" },
+      familyKey: "everyday-pasta", variantSummary: "Prepared", dimensions: { form: "prepared" },
+      familyKeyAliases: ["bulk-cooked-pasta"],
       choiceRequired: false, nutritionSnapshot: { version: 1 },
     }]);
-    const response = await fetch(`${base}/catalog/families/apples?approvedOnly=false`);
+    const response = await fetch(`${base}/catalog/families/bulk-cooked-pasta?approvedOnly=false`);
     expect(response.status).toBe(200);
-    expect(store.getCatalogFamily).toHaveBeenCalledWith("apples", false);
+    expect(store.getCatalogFamily).toHaveBeenCalledWith("bulk-cooked-pasta", false);
     const body = await response.json() as { variants: Array<Record<string, unknown>> };
     expect(body.variants[0]).toMatchObject({
-      familyKey: "apples", sourceId: "2709215", nutritionSnapshot: { version: 1 },
+      familyKey: "everyday-pasta", familyKeyAliases: ["bulk-cooked-pasta"],
+      sourceId: "2709215", nutritionSnapshot: { version: 1 },
     });
+    expect(body.variants[1].familyKeyAliases).toEqual(["bulk-cooked-pasta"]);
     expect(body.variants).toHaveLength(2);
   });
 

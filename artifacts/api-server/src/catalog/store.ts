@@ -20,6 +20,7 @@ export interface CatalogItem {
   approvals: unknown[];
   resultKey?: string;
   familyKey?: string;
+  familyKeyAliases?: string[];
   variantSummary?: string;
   dimensions?: Record<string, string>;
   choiceRequired?: boolean;

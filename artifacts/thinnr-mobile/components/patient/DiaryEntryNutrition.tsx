@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import type { MealLogEntry } from '@/data/patient-data';
-import { parseNutritionSnapshot, snapshotPortion } from '@/data/food-nutrition';
+import { formatNutritionAmount, parseNutritionSnapshot } from '@/data/food-nutrition';
 import { useColors } from '@/hooks/useColors';
 
 export function formatDiaryMacro(value: number): string {
@@ -15,10 +15,9 @@ export function formatDiaryCalories(value: number): string {
 export function diaryEntryAmountLabel(entry: MealLogEntry): string {
   const snapshot = parseNutritionSnapshot(entry.nutritionSnapshot);
   if (!snapshot) return entry.detail;
-  const portion = snapshotPortion(snapshot);
-  const amount = Number(snapshot.selected.amount.toFixed(2));
+  const amount = formatNutritionAmount(snapshot);
   const variant = snapshot.variant?.summary?.trim();
-  return `${amount} ${portion?.label ?? snapshot.selected.unitId}${variant ? ` · ${variant}` : ''}`;
+  return `${amount.text}${amount.qualifier ? ` · ${amount.qualifier}` : ''}${variant ? ` · ${variant}` : ''}`;
 }
 
 export function DiaryEntryNutritionLine({ entry }: { entry: MealLogEntry }) {

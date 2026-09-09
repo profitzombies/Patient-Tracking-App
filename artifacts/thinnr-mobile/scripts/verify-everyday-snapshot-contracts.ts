@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { managementQuery } from '../../api-server/scripts/usda-source/import.mjs';
@@ -28,6 +28,8 @@ type ContractRow = {
   familyKey: string;
   catalogId: string;
   sourceId: string;
+  releaseId: string;
+  canonicalName: string;
   snapshot: unknown;
   nutrients: SourceNutrient[];
   portions: SourcePortion[];
@@ -41,10 +43,17 @@ type LiteralPortionFixture = {
 };
 
 const { values } = parseArgs({
-  options: { project: { type: 'string' } },
+  options: {
+    project: { type: 'string' },
+    'review-version': { type: 'string' },
+    output: { type: 'string' },
+  },
 });
 if (!/^[a-z0-9]+$/.test(values.project ?? '')) {
   throw new Error('Usage: tsx scripts/verify-everyday-snapshot-contracts.ts --project <confirmed-project-ref>');
+}
+if (values['review-version'] && !/^[a-z0-9_-]+$/i.test(values['review-version'])) {
+  throw new Error('--review-version must contain only letters, numbers, hyphens or underscores');
 }
 
 async function main(): Promise<void> {
@@ -61,18 +70,24 @@ assert(manifest.sourceIds.includes(cottageFixture.fdcId), 'literal USDA fixture 
 const query = managementQuery(values.project!);
 const rows: ContractRow[] = [];
 const pageSize = 20;
+const scope = values['review-version']
+  ? `cur.review_version='${values['review-version']}'`
+  : "fam.family_key like 'everyday-%'";
 for (let offset = 0; ; offset += pageSize) {
   const page = await query(`
     select coalesce(jsonb_agg(jsonb_build_object(
       'familyKey',x.family_key,
       'catalogId',x.catalog_id,
       'sourceId',x.source_id,
+      'releaseId',x.release_id,
+      'canonicalName',x.description,
       'snapshot',x.snapshot,
       'nutrients',x.nutrients,
       'portions',x.portions
     ) order by x.family_key,x.common_order,x.catalog_id),'[]'::jsonb) result
     from (
       select fam.family_key,v.common_order,c.id::text catalog_id,c.source_id,
+        s.release_id,s.description,
         v.nutrition_snapshot snapshot,
         coalesce((
           select jsonb_agg(jsonb_build_object(
@@ -103,7 +118,7 @@ for (let offset = 0; ; offset += pageSize) {
         and cur.eligibility='reviewed_family'
       join usda_source_foods s on s.fdc_id=c.source_id::bigint
         and s.release_id=v.nutrition_snapshot->'source'->>'release'
-      where fam.family_key like 'everyday-%'
+      where ${scope}
       order by fam.family_key,v.common_order,c.id
       limit ${pageSize} offset ${offset}
     ) x
@@ -112,14 +127,19 @@ for (let offset = 0; ; offset += pageSize) {
   if (page.length < pageSize) break;
 }
 
-assert(rows.length >= 100, `expected all reviewed everyday variants, found ${rows.length}`);
+assert(
+  rows.length >= (values['review-version'] ? 1 : 100),
+  `expected reviewed variants in the selected scope, found ${rows.length}`,
+);
 assert.equal(
   new Set(rows.map(row => row.catalogId)).size,
   rows.length,
   'every reviewed everyday variant appears exactly once',
 );
-for (const sourceId of manifest.sourceIds) {
-  assert(rows.some(row => Number(row.sourceId) === sourceId), `reviewed source ${sourceId} has a consumer snapshot`);
+if (!values['review-version']) {
+  for (const sourceId of manifest.sourceIds) {
+    assert(rows.some(row => Number(row.sourceId) === sourceId), `reviewed source ${sourceId} has a consumer snapshot`);
+  }
 }
 
 function sourceText(value: unknown): string | undefined {
@@ -160,6 +180,11 @@ for (const row of rows) {
   const context = `${row.familyKey}/${row.sourceId}`;
   const snapshot = parseNutritionSnapshot(row.snapshot);
   assert(snapshot, `${context}: actual API snapshot must pass the mobile parser`);
+  assert.equal(snapshot.source.recordId, row.sourceId, `${context}: source record identity is exact`);
+  assert.equal(snapshot.source.release, row.releaseId, `${context}: source release is exact`);
+  assert.equal(snapshot.source.revision, `${row.releaseId}:${row.sourceId}`, `${context}: revision identifies the linked immutable source`);
+  assert.equal(snapshot.source.canonicalName, row.canonicalName, `${context}: original source description is preserved`);
+  assert.equal(snapshot.basis.grams, 100, `${context}: original USDA basis remains 100 g, not a UI default`);
   assert.equal(
     snapshot.selected.scale,
     snapshot.selected.amount * (
@@ -252,7 +277,8 @@ for (const row of rows) {
 }
 
 const cottage = rows.find(row => Number(row.sourceId) === cottageFixture.fdcId);
-assert(cottage, 'reviewed Cottage Cheese snapshot exists');
+if (!values['review-version']) assert(cottage, 'reviewed Cottage Cheese snapshot exists');
+if (cottage) {
 const literalSource = cottage.portions.find(portion =>
   portion.amount === cottageFixture.amount &&
   portion.modifier === cottageFixture.modifier &&
@@ -268,6 +294,7 @@ assert.equal(literalGenerated.grams, cottageFixture.gramWeight);
 assertEvidenceContains(literalGenerated.evidence!, '4', 'Cottage Cheese evidence');
 assertEvidenceContains(literalGenerated.evidence!, 'oz', 'Cottage Cheese evidence');
 assertEvidenceContains(literalGenerated.evidence!, numberText(cottageFixture.gramWeight), 'Cottage Cheese evidence');
+}
 
 assert(sourceZeros > 0, 'reviewed source set exercises literal zero nutrients');
 // SR Legacy can supply numeric amounts on every nutrient row. Do not invent a
@@ -284,14 +311,20 @@ const partialFixture = parseNutritionSnapshot({
 assert(partialFixture, 'a deliberately partial nutrient panel remains usable');
 assert(!partialFixture.nutrients.some(nutrient => nutrient.id === optional.id),
   'an omitted extended nutrient is not synthesized as zero');
-console.log(JSON.stringify({
+const report = {
+  verifiedAt: new Date().toISOString(),
+  reviewVersion: values['review-version'] ?? 'everyday-families',
   snapshots: rows.length,
+  families: new Set(rows.map(row => row.familyKey)).size,
   numericNutrients,
   sourceZeros,
   sourceMissingAmounts,
   sourcePortions,
   parser: 'mobile FoodNutritionSnapshot',
-}));
+  failures: 0,
+};
+if (values.output) await writeFile(resolve(values.output), `${JSON.stringify(report, null, 2)}\n`);
+console.log(JSON.stringify(report));
 }
 
 main().catch(error => {

@@ -114,51 +114,59 @@ const EXPLICIT_VARIANT_TERMS = [
 ];
 
 /** Applies a saved exact amount only when it cannot contradict typed intent. */
+export function getRememberedFamilyConfiguration(
+  result: CatalogFood,
+  rememberedInRecencyOrder: CatalogFood[],
+  query: string,
+  approvedOnly = false,
+): CatalogFood | undefined {
+  if (!result.familyKey || result.choiceRequired) return undefined;
+  const normalized = query.toLowerCase().replace(/\s+/g, ' ').trim();
+  const ratio = normalized.match(/\b(\d{2,3})\s*(?:%|\/\s*\d{1,3})/i)?.[1];
+  const terms = EXPLICIT_VARIANT_TERMS.filter(term => normalized.includes(term));
+  const acceptedFamilyKeys = new Set([result.familyKey, ...(result.familyKeyAliases ?? [])]);
+  return rememberedInRecencyOrder.find(candidate => {
+    if (approvedOnly && !candidate.approved) return false;
+    if (!candidate.familyKey || !acceptedFamilyKeys.has(candidate.familyKey) || !candidate.nutritionSnapshot) return false;
+    const evidence = [
+      candidate.name,
+      candidate.variantSummary ?? '',
+      ...Object.values(candidate.dimensions ?? {}),
+    ].join(' ').toLowerCase();
+    if (ratio && !new RegExp(`\\b${ratio}\\s*(?:%|/|percent|lean)`, 'i').test(evidence)) return false;
+    if (!terms.every(term => evidence.includes(term))) return false;
+    // Any typed word that the authoritative result recognizes is a real
+    // constraint. A remembered family default must retain it. This scales
+    // to newly reviewed families without maintaining a fragile term list
+    // (for example, "whole milk" cannot restore a remembered nonfat row).
+    const resultEvidence = new Set(searchWords([
+      result.name,
+      result.variantSummary ?? '',
+      ...Object.values(result.dimensions ?? {}),
+    ].join(' ')));
+    const rememberedEvidence = new Set(searchWords(evidence));
+    if (!searchWords(normalized).every(word =>
+      !resultEvidence.has(word) || rememberedEvidence.has(word))) return false;
+    // Explicit server dimensions remain authoritative. A remembered candidate
+    // must agree with every dimension the result already constrained.
+    if (ratio || terms.length > 0) {
+      const requestedDimensions = result.dimensions ?? {};
+      if (Object.entries(requestedDimensions).some(([key, value]) =>
+        candidate.dimensions?.[key] !== undefined && candidate.dimensions[key] !== value
+      )) return false;
+    }
+    return true;
+  });
+}
+
 export function applyRememberedFamilyConfigurations(
   results: CatalogFood[],
   rememberedInRecencyOrder: CatalogFood[],
   query: string,
   approvedOnly = false,
 ): CatalogFood[] {
-  const normalized = query.toLowerCase().replace(/\s+/g, ' ').trim();
-  const ratio = normalized.match(/\b(\d{2,3})\s*(?:%|\/\s*\d{1,3})/i)?.[1];
-  const terms = EXPLICIT_VARIANT_TERMS.filter(term => normalized.includes(term));
-  return results.map(result => {
-    if (!result.familyKey || result.choiceRequired) return result;
-    const remembered = rememberedInRecencyOrder.find(candidate => {
-      if (approvedOnly && !candidate.approved) return false;
-      if (candidate.familyKey !== result.familyKey || !candidate.nutritionSnapshot) return false;
-      const evidence = [
-        candidate.name,
-        candidate.variantSummary ?? '',
-        ...Object.values(candidate.dimensions ?? {}),
-      ].join(' ').toLowerCase();
-      if (ratio && !new RegExp(`\\b${ratio}\\s*(?:%|/|percent|lean)`, 'i').test(evidence)) return false;
-      if (!terms.every(term => evidence.includes(term))) return false;
-      // Any typed word that the authoritative result recognizes is a real
-      // constraint. A remembered family default must retain it. This scales
-      // to newly reviewed families without maintaining a fragile term list
-      // (for example, "whole milk" cannot restore a remembered nonfat row).
-      const resultEvidence = new Set(searchWords([
-        result.name,
-        result.variantSummary ?? '',
-        ...Object.values(result.dimensions ?? {}),
-      ].join(' ')));
-      const rememberedEvidence = new Set(searchWords(evidence));
-      return searchWords(normalized).every(word =>
-        !resultEvidence.has(word) || rememberedEvidence.has(word));
-    });
-    if (!remembered) return result;
-    // Explicit server dimensions remain authoritative. A remembered candidate
-    // must agree with every dimension the result already constrained.
-    if (ratio || terms.length > 0) {
-      const requestedDimensions = result.dimensions ?? {};
-      if (Object.entries(requestedDimensions).some(([key, value]) =>
-        remembered.dimensions?.[key] !== undefined && remembered.dimensions[key] !== value
-      )) return result;
-    }
-    return remembered;
-  });
+  return results.map(result =>
+    getRememberedFamilyConfiguration(result, rememberedInRecencyOrder, query, approvedOnly) ?? result);
 }
 
 export interface FoodCatalogSearchState extends CatalogSearchResult {

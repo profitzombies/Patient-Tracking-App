@@ -3423,6 +3423,10 @@ components:
           items: { $ref: "#/components/schemas/CatalogApproval" }
         resultKey: { type: string }
         familyKey: { type: string }
+        familyKeyAliases:
+          type: array
+          items: { type: string }
+          description: Legacy family keys that redirect to this result's canonical familyKey
         variantSummary: { type: string }
         dimensions:
           type: object

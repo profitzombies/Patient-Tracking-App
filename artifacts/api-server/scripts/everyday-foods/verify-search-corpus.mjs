@@ -7,6 +7,8 @@ import { managementQuery } from "../usda-source/import.mjs";
 const { values } = parseArgs({ options: {
   project: { type: "string" },
   output: { type: "string" },
+  "extra-corpus": { type: "string", multiple: true },
+  reconciliation: { type: "string" },
 } });
 if (!/^[a-z0-9]+$/.test(values.project ?? "")) throw new Error("--project is required");
 const root = resolve(import.meta.dirname, "../../../../");
@@ -24,28 +26,80 @@ const generated = spec.generatedCases.flatMap(rule =>
     sourceId: String(identities.sourceIds[index]),
   })),
 );
-const cases = [...generated, ...spec.explicitCases];
+const extraCases = values["extra-corpus"]
+  ? (await Promise.all(values["extra-corpus"].map(async path =>
+    JSON.parse(await readFile(resolve(path), "utf8"))
+  ))).flat()
+  : [];
+const reconciliation = values.reconciliation
+  ? JSON.parse(await readFile(resolve(values.reconciliation), "utf8"))
+  : { familyRedirects: [] };
+if (!Array.isArray(reconciliation.familyRedirects) ||
+    reconciliation.familyRedirects.some(row =>
+      !row?.historicalFamily || !row?.canonicalFamily ||
+      !row?.canonicalDefaultSourceId || !Array.isArray(row.movedSourceIds))) {
+  throw new Error("--reconciliation must contain explicit familyRedirects");
+}
+const redirects = new Map(reconciliation.familyRedirects.map(row =>
+  [row.historicalFamily, row]));
+const reconcileCase = test => {
+  const redirect = redirects.get(test.expectedFamily);
+  return redirect ? {
+    ...test,
+    historicalExpectedFamily: test.expectedFamily,
+    historicalSourceId: test.sourceId,
+    expectedFamily: redirect.canonicalFamily,
+    sourceId: redirect.canonicalDefaultSourceId,
+  } : test;
+};
+if (!Array.isArray(extraCases) || extraCases.some(test =>
+  !test || typeof test.query !== "string" || !test.query.trim() ||
+  !(test.expectedFamily || test.firstFamily || test.expectEmpty ||
+    test.requiredFamilies || test.requiredTokens || test.forbiddenFamilies)
+)) throw new Error("--extra-corpus must be an array of queries with explicit expectations");
+const cases = [...generated, ...spec.explicitCases, ...extraCases].map(reconcileCase);
 if (new Set(cases.map(test => test.query)).size < 250) throw new Error("corpus is too small");
 const query = managementQuery(values.project);
+// Assertions need the source identity, not the full nutrient panel on every
+// search hit. Retain all other fields while avoiding multi-megabyte RPC batches.
+const compactRows = expression => `(select coalesce(jsonb_agg(
+  hit - 'nutritionSnapshot' || jsonb_build_object('nutritionSnapshot',
+    jsonb_build_object('source',hit->'nutritionSnapshot'->'source'))
+),'[]'::jsonb) from jsonb_array_elements(${expression}) hit)`;
 // Availability comes from the actual supported tuples, not a test that accepts
 // any empty answer as success. This also catches accidentally hiding raw/cooked
 // options that the review has made selectable.
 const familyRows = await query(`select jsonb_agg(jsonb_build_object(
-  'key',family_key,'variants',get_food_catalog_family(family_key,false)
+  'key',family_key,'variants',${compactRows("get_food_catalog_family(family_key,false)")}
 )) result from food_catalog_families where family_key like 'everyday-%'`);
 const variantsByFamily = new Map(familyRows.map(row => [row.key, row.variants]));
+for (const redirect of reconciliation.familyRedirects) {
+  const variants = variantsByFamily.get(redirect.canonicalFamily) ?? [];
+  for (const sourceId of redirect.movedSourceIds) {
+    const moved = variants.find(row => row.source_id === String(sourceId));
+    if (!moved || moved.nutritionSnapshot?.source?.revision !==
+        `${redirect.releaseId}:${sourceId}`) {
+      throw new Error(`${redirect.historicalFamily}: moved source ${sourceId} is not accessible with its revision`);
+    }
+  }
+}
 const results = new Map();
+const startedAt = Date.now();
 for (let offset = 0; offset < cases.length; offset += 20) {
   const batch = cases.slice(offset, offset + 20);
   const rows = batch.map((test, index) =>
     `(${offset + index},'${test.query.replaceAll("'", "''")}',${test.approvedOnly ? "true" : "false"})`
   ).join(",");
   const values = await query(`select jsonb_agg(jsonb_build_object(
-    'i',i,'rows',search_food_catalog_grouped(null,q,approved,7,0),
-    'first',search_food_catalog_grouped(null,q,approved,1,0),
+    'i',i,'rows',${compactRows("search_food_catalog_grouped(null,q,approved,7,0)")},
+    'first',${compactRows("search_food_catalog_grouped(null,q,approved,1,0)")},
     'resolution',resolve_food_catalog_query(q,null)
   )order by i) result from(values${rows})x(i,q,approved)`);
   for (const value of values) results.set(value.i, value);
+  console.log(JSON.stringify({
+    phase: "search-corpus", checked: results.size, total: cases.length,
+    elapsedSeconds: Math.round((Date.now() - startedAt) / 1000),
+  }));
 }
 const failures = [];
 for (const [index, test] of cases.entries()) {
@@ -63,7 +117,7 @@ for (const [index, test] of cases.entries()) {
   }
   if (test.expect === "family" && (
     first?.source_id !== test.sourceId ||
-    first?.nutritionSnapshot?.source?.revision !== `${identities.releaseId}:${test.sourceId}`
+    first?.nutritionSnapshot?.source?.revision !== `${test.releaseId ?? identities.releaseId}:${test.sourceId}`
   )) failures.push(`${test.query}: exact reviewed source/revision changed`);
   if (test.expect === "family-or-honest-empty") {
     const state = test.query.startsWith("raw ") ? "raw" : "cooked";
@@ -112,7 +166,14 @@ for (const [index, test] of cases.entries()) {
     first?.name?.toLowerCase().includes(token.toLowerCase())
   )) failures.push(`${test.query}: forbidden first result`);
 }
-if (failures.length) throw new Error(`corpus failures (${failures.length}): ${failures.slice(0, 12).join("; ")}`);
+if (failures.length) {
+  if (values.output) await writeFile(resolve(values.output), `${JSON.stringify({
+    verifiedAt: new Date().toISOString(), cases: cases.length,
+    distinctQueries: new Set(cases.map(test => test.query)).size,
+    failures,
+  }, null, 2)}\n`);
+  throw new Error(`corpus failures (${failures.length}): ${failures.slice(0, 12).join("; ")}`);
+}
 const paging = await query(`select jsonb_build_object(
   'first',search_food_catalog_grouped(null,'chicken',false,6,0),
   'second',search_food_catalog_grouped(null,'chicken',false,6,6),

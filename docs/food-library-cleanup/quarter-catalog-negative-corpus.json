@@ -1,0 +1,41 @@
+[
+  {
+    "query": "chocolate milk",
+    "firstFamily": "bulk-chocolate-milk",
+    "requiredTokens": ["chocolate"]
+  },
+  {
+    "query": "puffed wheat",
+    "requiredTokens": ["puffed", "wheat"]
+  },
+  {
+    "query": "puffed rice",
+    "requiredTokens": ["puffed", "rice"]
+  },
+  {
+    "query": "lentil sprouts",
+    "firstFamily": "bulk-lentil-sprout"
+  },
+  {
+    "query": "alfalfa sprouts",
+    "requiredTokens": ["alfalfa", "sprout"]
+  },
+  {
+    "query": "sweetened condensed milk",
+    "firstFamily": "bulk-sweetened-condensed-milk",
+    "forbiddenFamilies": ["bulk-evaporated-milk", "bulk-nonfat-evaporated-milk"]
+  },
+  {
+    "query": "evaporated milk",
+    "firstFamily": "bulk-evaporated-milk",
+    "forbiddenFamilies": ["bulk-sweetened-condensed-milk"]
+  },
+  {
+    "query": "acai berry drink",
+    "firstFamily": "bulk-acai-berry-drink"
+  },
+  {
+    "query": "meatless meatballs",
+    "requiredTokens": ["meatless", "meatballs"]
+  }
+]

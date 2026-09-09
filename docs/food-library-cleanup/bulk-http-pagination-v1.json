@@ -1,0 +1,83 @@
+{
+  "verifiedAt": "2026-09-09T03:17:13.515Z",
+  "rankingVersion": "food-families-v7",
+  "firstPage": [
+    {
+      "id": "family:chicken-breast",
+      "name": "Chicken Breast"
+    },
+    {
+      "id": "family:chicken-thighs",
+      "name": "Chicken Thighs"
+    },
+    {
+      "id": "family:chicken-wings",
+      "name": "Chicken Wings"
+    },
+    {
+      "id": "family:everyday-chicken-drumsticks",
+      "name": "Chicken Drumsticks"
+    },
+    {
+      "id": "family:bulk-chicken-and-vegetable-soup",
+      "name": "Chicken and Vegetable Soup"
+    },
+    {
+      "id": "family:bulk-chicken-back",
+      "name": "Chicken Back"
+    }
+  ],
+  "secondPage": [
+    {
+      "id": "family:bulk-chicken-breast-tender",
+      "name": "Chicken Breast Tenders"
+    },
+    {
+      "id": "family:bulk-chicken-broth-cubes-soup",
+      "name": "Chicken Broth Cubes Soup"
+    },
+    {
+      "id": "family:bulk-chicken-broth-or-bouillon-soup",
+      "name": "Chicken Broth or Bouillon Soup"
+    },
+    {
+      "id": "family:bulk-chicken-broth-soup",
+      "name": "Chicken Broth Soup"
+    },
+    {
+      "id": "family:bulk-chicken-canned",
+      "name": "Chicken Canned"
+    },
+    {
+      "id": "family:bulk-chicken-capon",
+      "name": "Chicken Capons"
+    }
+  ],
+  "uniqueResults": 12,
+  "firstPageMs": 1391,
+  "secondPageMs": 1225,
+  "redirects": [
+    {
+      "query": "cooked pasta",
+      "name": "Pasta",
+      "oldKey": "bulk-cooked-pasta",
+      "canonicalKey": "everyday-pasta",
+      "variantCount": 3,
+      "aliases": [
+        "bulk-cooked-pasta"
+      ],
+      "milliseconds": 280
+    },
+    {
+      "query": "whole-wheat bread",
+      "name": "Whole Wheat Bread",
+      "oldKey": "bulk-whole-wheat-bread",
+      "canonicalKey": "everyday-whole-wheat-bread",
+      "variantCount": 2,
+      "aliases": [
+        "bulk-whole-wheat-bread"
+      ],
+      "milliseconds": 542
+    }
+  ]
+}

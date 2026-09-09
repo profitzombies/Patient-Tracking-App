@@ -1,0 +1,12 @@
+{
+  "verifiedAt": "2026-09-09T02:04:53.793Z",
+  "version": "bulk-catalog-v1",
+  "mode": "read-only-preflight",
+  "candidates": 1163,
+  "snapshots": 1163,
+  "sourcePortions": 2222,
+  "displayedUnits": 4516,
+  "liquidDefaults": 33,
+  "failures": [],
+  "manifestSha256": "e0a69185c4270d483a0cf6702fa1158c7eb1588d90eb5cfa10b6642a381f1bc0"
+}

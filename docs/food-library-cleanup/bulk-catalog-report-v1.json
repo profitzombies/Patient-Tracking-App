@@ -1,0 +1,5071 @@
+{
+  "valid": true,
+  "errors": [],
+  "acceptedRecords": 1163,
+  "families": 688,
+  "rejected": 3958,
+  "unresolved": 0,
+  "categoryCounts": {
+    "proteins": 144,
+    "seafood": 125,
+    "vegetables": 159,
+    "fruits": 132,
+    "grains": 169,
+    "legumes": 110,
+    "dairy": 124,
+    "nuts/seeds": 72,
+    "condiments": 73,
+    "beverages": 55
+  },
+  "frozenDenominator": 5278,
+  "reviewedAfter": 1320,
+  "shortfall": 0,
+  "coverage": 0.25009473285335354,
+  "reviewVersion": "bulk-catalog-v1",
+  "newFamilies": 603,
+  "existingFamilyAttachments": 156,
+  "existingFamiliesExtended": 85,
+  "familiesByCategory": {
+    "proteins": 100,
+    "seafood": 75,
+    "vegetables": 96,
+    "fruits": 68,
+    "grains": 110,
+    "legumes": 45,
+    "dairy": 83,
+    "nuts/seeds": 30,
+    "condiments": 50,
+    "beverages": 40
+  },
+  "sampledMappingsByCategory": {
+    "proteins": [
+      {
+        "sourceId": "168382",
+        "canonicalName": "Bacon, pre-sliced, reduced/low sodium, unprepared",
+        "familyKey": "bulk-bacon",
+        "displayName": "Bacon",
+        "summary": "Pre-Sliced · Reduced/Low Sodium · Unprepared"
+      },
+      {
+        "sourceId": "167914",
+        "canonicalName": "Pork, cured, bacon, cooked, baked",
+        "familyKey": "bulk-bacon",
+        "displayName": "Bacon",
+        "summary": "Cooked · Baked"
+      },
+      {
+        "sourceId": "174602",
+        "canonicalName": "Bacon and beef sticks",
+        "familyKey": "bulk-bacon-and-beef-stick",
+        "displayName": "Bacon and Beef Sticks",
+        "summary": "Generic source record"
+      },
+      {
+        "sourceId": "168118",
+        "canonicalName": "Beef, bologna, reduced sodium",
+        "familyKey": "bulk-beef-bologna",
+        "displayName": "Beef Bologna",
+        "summary": "Reduced Sodium"
+      },
+      {
+        "sourceId": "169558",
+        "canonicalName": "Beef, bottom sirloin, tri-tip roast, separable lean and fat, trimmed to 0\" fat, all grades, cooked, roasted",
+        "familyKey": "bulk-beef-bottom-sirloin",
+        "displayName": "Beef Bottom Sirloin",
+        "summary": "Tri-Tip Roast · Separable Lean and Fat · Trimmed To 0\" Fat · All Grades · Cooked · Roasted"
+      }
+    ],
+    "seafood": [
+      {
+        "sourceId": "174213",
+        "canonicalName": "Mollusks, abalone, mixed species, cooked, fried",
+        "familyKey": "bulk-abalone",
+        "displayName": "Abalone",
+        "summary": "Mixed Species · Cooked · Fried"
+      },
+      {
+        "sourceId": "174212",
+        "canonicalName": "Mollusks, abalone, mixed species, raw",
+        "familyKey": "bulk-abalone",
+        "displayName": "Abalone",
+        "summary": "Mixed Species · Raw"
+      },
+      {
+        "sourceId": "174183",
+        "canonicalName": "Fish, anchovy, european, canned in oil, drained solids",
+        "familyKey": "bulk-anchovy",
+        "displayName": "Anchovy",
+        "summary": "European · Canned In Oil · Drained Solids"
+      },
+      {
+        "sourceId": "174182",
+        "canonicalName": "Fish, anchovy, european, raw",
+        "familyKey": "bulk-anchovy",
+        "displayName": "Anchovy",
+        "summary": "European · Raw"
+      },
+      {
+        "sourceId": "174184",
+        "canonicalName": "Fish, bass, fresh water, mixed species, raw",
+        "familyKey": "bulk-bass",
+        "displayName": "Bass",
+        "summary": "Fresh Water · Mixed Species · Raw"
+      }
+    ],
+    "vegetables": [
+      {
+        "sourceId": "168492",
+        "canonicalName": "Amaranth leaves, cooked, boiled, drained, with salt",
+        "familyKey": "bulk-amaranth-leaf",
+        "displayName": "Amaranth Leaves",
+        "summary": "Cooked · Boiled · Drained · with Salt"
+      },
+      {
+        "sourceId": "169202",
+        "canonicalName": "Amaranth leaves, cooked, boiled, drained, without salt",
+        "familyKey": "bulk-amaranth-leaf",
+        "displayName": "Amaranth Leaves",
+        "summary": "Cooked · Boiled · Drained · Without Salt"
+      },
+      {
+        "sourceId": "168493",
+        "canonicalName": "Arrowhead, cooked, boiled, drained, with salt",
+        "familyKey": "bulk-arrowhead",
+        "displayName": "Arrowhead",
+        "summary": "Cooked · Boiled · Drained · with Salt"
+      },
+      {
+        "sourceId": "169204",
+        "canonicalName": "Arrowhead, cooked, boiled, drained, without salt",
+        "familyKey": "bulk-arrowhead",
+        "displayName": "Arrowhead",
+        "summary": "Cooked · Boiled · Drained · Without Salt"
+      },
+      {
+        "sourceId": "169311",
+        "canonicalName": "Artichokes, (globe or french), cooked, boiled, drained, with salt",
+        "familyKey": "bulk-artichoke",
+        "displayName": "Artichokes",
+        "summary": "(Globe or French) · Cooked · Boiled · Drained · with Salt"
+      }
+    ],
+    "fruits": [
+      {
+        "sourceId": "173930",
+        "canonicalName": "Apples, canned, sweetened, sliced, drained, heated",
+        "familyKey": "apples",
+        "displayName": "Apples",
+        "summary": "Canned · Sweetened · Sliced · Drained · Heated"
+      },
+      {
+        "sourceId": "171690",
+        "canonicalName": "Apples, dehydrated (low moisture), sulfured, stewed",
+        "familyKey": "apples",
+        "displayName": "Apples",
+        "summary": "Dehydrated (Low Moisture) · Sulfured · Stewed"
+      },
+      {
+        "sourceId": "173928",
+        "canonicalName": "Apples, raw, without skin, cooked, boiled",
+        "familyKey": "apples",
+        "displayName": "Apples",
+        "summary": "Raw · Without Skin · Cooked · Boiled"
+      },
+      {
+        "sourceId": "173945",
+        "canonicalName": "Bananas, dehydrated, or banana powder",
+        "familyKey": "bananas",
+        "displayName": "Bananas",
+        "summary": "Dehydrated · or Banana Powder"
+      },
+      {
+        "sourceId": "173944",
+        "canonicalName": "Bananas, raw",
+        "familyKey": "bananas",
+        "displayName": "Bananas",
+        "summary": "Raw"
+      }
+    ],
+    "grains": [
+      {
+        "sourceId": "170683",
+        "canonicalName": "Amaranth grain, cooked",
+        "familyKey": "bulk-amaranth-grain",
+        "displayName": "Amaranth Grain",
+        "summary": "Cooked"
+      },
+      {
+        "sourceId": "170682",
+        "canonicalName": "Amaranth grain, uncooked",
+        "familyKey": "bulk-amaranth-grain",
+        "displayName": "Amaranth Grain",
+        "summary": "Uncooked"
+      },
+      {
+        "sourceId": "172671",
+        "canonicalName": "Biscuits, mixed grain, refrigerated dough",
+        "familyKey": "bulk-biscuit",
+        "displayName": "Biscuits",
+        "summary": "Mixed Grain · Refrigerated Dough"
+      },
+      {
+        "sourceId": "172667",
+        "canonicalName": "Biscuits, plain or buttermilk, frozen, baked",
+        "familyKey": "bulk-biscuit",
+        "displayName": "Biscuits",
+        "summary": "Plain or Buttermilk · Frozen · Baked"
+      },
+      {
+        "sourceId": "170686",
+        "canonicalName": "Buckwheat groats, roasted, cooked",
+        "familyKey": "bulk-buckwheat-groat",
+        "displayName": "Buckwheat Groats",
+        "summary": "Roasted · Cooked"
+      }
+    ],
+    "legumes": [
+      {
+        "sourceId": "173789",
+        "canonicalName": "Beans, adzuki, mature seed, cooked, boiled, with salt",
+        "familyKey": "bulk-adzuki-bean",
+        "displayName": "Adzuki Beans",
+        "summary": "Mature Seed · Cooked · Boiled · with Salt"
+      },
+      {
+        "sourceId": "173729",
+        "canonicalName": "Beans, adzuki, mature seeds, canned, sweetened",
+        "familyKey": "bulk-adzuki-bean",
+        "displayName": "Adzuki Beans",
+        "summary": "Mature Seeds · Canned · Sweetened"
+      },
+      {
+        "sourceId": "173728",
+        "canonicalName": "Beans, adzuki, mature seeds, cooked, boiled, without salt",
+        "familyKey": "bulk-adzuki-bean",
+        "displayName": "Adzuki Beans",
+        "summary": "Mature Seeds · Cooked · Boiled · Without Salt"
+      },
+      {
+        "sourceId": "173727",
+        "canonicalName": "Beans, adzuki, mature seeds, raw",
+        "familyKey": "bulk-adzuki-bean",
+        "displayName": "Adzuki Beans",
+        "summary": "Mature Seeds · Raw"
+      },
+      {
+        "sourceId": "168128",
+        "canonicalName": "Beans, baked, canned, no salt added",
+        "familyKey": "bulk-baked-bean",
+        "displayName": "Baked Beans",
+        "summary": "Canned · No Salt Added"
+      }
+    ],
+    "dairy": [
+      {
+        "sourceId": "173441",
+        "canonicalName": "Milk, fluid, 1% fat, without added vitamin A and vitamin D",
+        "familyKey": "bulk-1-milk",
+        "displayName": "1% Milk",
+        "summary": "1% Fat · Without Added Vitamin A and Vitamin D"
+      },
+      {
+        "sourceId": "171268",
+        "canonicalName": "Milk, lowfat, fluid, 1% milkfat, protein fortified, with added vitamin A and vitamin D",
+        "familyKey": "bulk-1-milk",
+        "displayName": "1% Milk",
+        "summary": "Fluid · 1% Milkfat · Protein Fortified · with Added Vitamin A and Vitamin D"
+      },
+      {
+        "sourceId": "170872",
+        "canonicalName": "Milk, lowfat, fluid, 1% milkfat, with added vitamin A and vitamin D",
+        "familyKey": "bulk-1-milk",
+        "displayName": "1% Milk",
+        "summary": "Fluid · 1% Milkfat · with Added Vitamin A and Vitamin D"
+      },
+      {
+        "sourceId": "170871",
+        "canonicalName": "Milk, reduced fat, fluid, 2% milkfat, protein fortified, with added vitamin A and vitamin D",
+        "familyKey": "bulk-2-milk",
+        "displayName": "2% Milk",
+        "summary": "Fluid · 2% Milkfat · Protein Fortified · with Added Vitamin A and Vitamin D"
+      },
+      {
+        "sourceId": "171267",
+        "canonicalName": "Milk, reduced fat, fluid, 2% milkfat, with added vitamin A and vitamin D",
+        "familyKey": "bulk-2-milk",
+        "displayName": "2% Milk",
+        "summary": "Fluid · 2% Milkfat · with Added Vitamin A and Vitamin D"
+      }
+    ],
+    "nuts/seeds": [
+      {
+        "sourceId": "170565",
+        "canonicalName": "Nuts, acorns, dried",
+        "familyKey": "bulk-acorn",
+        "displayName": "Acorns",
+        "summary": "Dried"
+      },
+      {
+        "sourceId": "170157",
+        "canonicalName": "Nuts, acorns, raw",
+        "familyKey": "bulk-acorn",
+        "displayName": "Acorns",
+        "summary": "Raw"
+      },
+      {
+        "sourceId": "168603",
+        "canonicalName": "Nuts, almond butter, plain, with salt added",
+        "familyKey": "bulk-almond-butter",
+        "displayName": "Almond Butter",
+        "summary": "Plain · with Salt Added"
+      },
+      {
+        "sourceId": "168588",
+        "canonicalName": "Nuts, almond butter, plain, without salt added",
+        "familyKey": "bulk-almond-butter",
+        "displayName": "Almond Butter",
+        "summary": "Plain · Without Salt Added"
+      },
+      {
+        "sourceId": "170160",
+        "canonicalName": "Nuts, almond paste",
+        "familyKey": "bulk-almond-paste",
+        "displayName": "Almond Paste",
+        "summary": "Generic source record"
+      }
+    ],
+    "condiments": [
+      {
+        "sourceId": "171031",
+        "canonicalName": "Oil, almond",
+        "familyKey": "bulk-almond-oil",
+        "displayName": "Almond Oil",
+        "summary": "Generic source record"
+      },
+      {
+        "sourceId": "171168",
+        "canonicalName": "Gravy, au jus, canned",
+        "familyKey": "bulk-au-jus-gravy",
+        "displayName": "Au Jus Gravy",
+        "summary": "Canned"
+      },
+      {
+        "sourceId": "171169",
+        "canonicalName": "Gravy, au jus, dry",
+        "familyKey": "bulk-au-jus-gravy",
+        "displayName": "Au Jus Gravy",
+        "summary": "Dry"
+      },
+      {
+        "sourceId": "173573",
+        "canonicalName": "Oil, avocado",
+        "familyKey": "bulk-avocado-oil",
+        "displayName": "Avocado Oil",
+        "summary": "Generic source record"
+      },
+      {
+        "sourceId": "174533",
+        "canonicalName": "Soup, bean & ham, canned, reduced sodium, prepared with water or ready-to-serve",
+        "familyKey": "bulk-bean-and-ham-soup",
+        "displayName": "Bean & Ham Soup",
+        "summary": "Canned · Reduced Sodium · Prepared with Water or Ready-To-Serve"
+      }
+    ],
+    "beverages": [
+      {
+        "sourceId": "173175",
+        "canonicalName": "Beverages, Acai berry drink, fortified",
+        "familyKey": "bulk-acai-berry-drink",
+        "displayName": "Acai Berry Drink",
+        "summary": "Fortified"
+      },
+      {
+        "sourceId": "174820",
+        "canonicalName": "Beverages, almond milk, chocolate, ready-to-drink",
+        "familyKey": "bulk-almond-milk",
+        "displayName": "Almond Milk",
+        "summary": "Chocolate · Ready-To-Drink"
+      },
+      {
+        "sourceId": "168751",
+        "canonicalName": "Beverages, almond milk, sweetened, vanilla flavor, ready-to-drink",
+        "familyKey": "bulk-almond-milk",
+        "displayName": "Almond Milk",
+        "summary": "Sweetened · Vanilla Flavor · Ready-To-Drink"
+      },
+      {
+        "sourceId": "174131",
+        "canonicalName": "Beverages, aloe vera juice drink, fortified with Vitamin C",
+        "familyKey": "bulk-aloe-vera-juice-drink",
+        "displayName": "Aloe Vera Juice Drink",
+        "summary": "Fortified with Vitamin C"
+      },
+      {
+        "sourceId": "174112",
+        "canonicalName": "Beverages, Apple juice drink, light, fortified with vitamin C",
+        "familyKey": "bulk-apple-juice-drink",
+        "displayName": "Apple Juice Drink",
+        "summary": "Light · Fortified with Vitamin C"
+      }
+    ]
+  },
+  "rejectionReasons": {
+    "valid but not selected: target reached after bounded common-family variant ordering": 2037,
+    "outside ten-category bulk scope": 675,
+    "brand-specific record remains in separate exact singleton search": 440,
+    "canonical helper source portion exceeds the strict snapshot wire bounds": 371,
+    "generic, alcoholic, or manufacturer-like identity is not prioritized for the everyday batch": 215,
+    "specialized or unsuitable generic identity": 114,
+    "lower everyday usefulness than reviewed quota candidates": 60,
+    "canonical live snapshot helper output is rejected by the strict mobile parser": 35,
+    "legume-based imitation or noodle is not the familiar identity named by its source heading": 10,
+    "source is a false friend of an existing identity contract": 1
+  },
+  "validUnselected": 2037,
+  "validUnselectedByCategory": {
+    "proteins": 649,
+    "condiments": 352,
+    "grains": 254,
+    "vegetables": 200,
+    "fruits": 154,
+    "seafood": 120,
+    "legumes": 96,
+    "dairy": 82,
+    "beverages": 80,
+    "nuts/seeds": 50
+  },
+  "validUnselectedByFamily": {
+    "everyday-ham": {
+      "displayName": "Ham",
+      "category": "proteins",
+      "records": 94,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pork-loin": {
+      "displayName": "Pork Loin",
+      "category": "proteins",
+      "records": 58,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-salad-dressing": {
+      "displayName": "Salad Dressing",
+      "category": "condiments",
+      "records": 48,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sausage": {
+      "displayName": "Sausage",
+      "category": "proteins",
+      "records": 27,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-round": {
+      "displayName": "Beef Round",
+      "category": "proteins",
+      "records": 24,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-short-loin": {
+      "displayName": "Beef Short Loin",
+      "category": "proteins",
+      "records": 23,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-lamb-leg": {
+      "displayName": "Lamb Leg",
+      "category": "proteins",
+      "records": 23,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-chuck": {
+      "displayName": "Beef Chuck",
+      "category": "proteins",
+      "records": 22,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-salmon": {
+      "displayName": "Salmon",
+      "category": "seafood",
+      "records": 22,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "rice": {
+      "displayName": "Rice",
+      "category": "grains",
+      "records": 20,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pork-shoulder": {
+      "displayName": "Pork Shoulder",
+      "category": "proteins",
+      "records": 19,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-rib": {
+      "displayName": "Beef Rib",
+      "category": "proteins",
+      "records": 18,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-margarine-like": {
+      "displayName": "Margarine-Like",
+      "category": "condiments",
+      "records": 17,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-corn": {
+      "displayName": "Corn",
+      "category": "vegetables",
+      "records": 14,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-frankfurter": {
+      "displayName": "Frankfurter",
+      "category": "proteins",
+      "records": 14,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-lamb-shoulder": {
+      "displayName": "Lamb Shoulder",
+      "category": "proteins",
+      "records": 14,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-brisket": {
+      "displayName": "Beef Brisket",
+      "category": "proteins",
+      "records": 13,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-whole": {
+      "displayName": "Turkey Whole",
+      "category": "proteins",
+      "records": 13,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-green-beans": {
+      "displayName": "Green Beans",
+      "category": "vegetables",
+      "records": 13,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-kidney-beans": {
+      "displayName": "Kidney Beans",
+      "category": "legumes",
+      "records": 13,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-apricot": {
+      "displayName": "Apricots",
+      "category": "fruits",
+      "records": 12,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-margarine": {
+      "displayName": "Margarine",
+      "category": "condiments",
+      "records": 12,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-peanut": {
+      "displayName": "Peanuts",
+      "category": "legumes",
+      "records": 12,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-skim-milk": {
+      "displayName": "Skim Milk",
+      "category": "dairy",
+      "records": 12,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-bologna": {
+      "displayName": "Bologna",
+      "category": "proteins",
+      "records": 11,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chestnut": {
+      "displayName": "Chestnuts",
+      "category": "nuts/seeds",
+      "records": 11,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-chicken-dark-meat": {
+      "displayName": "Chicken Dark Meat",
+      "category": "proteins",
+      "records": 11,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pork-leg": {
+      "displayName": "Pork Leg",
+      "category": "proteins",
+      "records": 11,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-winter-squash": {
+      "displayName": "Winter Squash",
+      "category": "vegetables",
+      "records": 11,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-peaches": {
+      "displayName": "Peaches",
+      "category": "fruits",
+      "records": 11,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-shoulder-top-blade-steak": {
+      "displayName": "Beef Shoulder Top Blade Steak",
+      "category": "proteins",
+      "records": 10,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cherry": {
+      "displayName": "Cherries",
+      "category": "fruits",
+      "records": 10,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cowpea": {
+      "displayName": "Cowpeas",
+      "category": "legumes",
+      "records": 10,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-summer-squash": {
+      "displayName": "Summer Squash",
+      "category": "vegetables",
+      "records": 10,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-cornmeal": {
+      "displayName": "Cornmeal",
+      "category": "grains",
+      "records": 10,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-tuna": {
+      "displayName": "Tuna",
+      "category": "seafood",
+      "records": 10,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-roll": {
+      "displayName": "Rolls",
+      "category": "grains",
+      "records": 9,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "chicken-breast": {
+      "displayName": "Chicken Breast",
+      "category": "proteins",
+      "records": 9,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-pears": {
+      "displayName": "Pears",
+      "category": "fruits",
+      "records": 9,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-turkey-breast": {
+      "displayName": "Turkey Breast",
+      "category": "proteins",
+      "records": 9,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-coffee-instant": {
+      "displayName": "Coffee Instant",
+      "category": "beverages",
+      "records": 8,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-muffin": {
+      "displayName": "Muffins",
+      "category": "grains",
+      "records": 8,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-ostrich": {
+      "displayName": "Ostrich",
+      "category": "proteins",
+      "records": 8,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-salami": {
+      "displayName": "Salami",
+      "category": "proteins",
+      "records": 8,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tea-green": {
+      "displayName": "Tea Green",
+      "category": "beverages",
+      "records": 8,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wheat-flour": {
+      "displayName": "Wheat Flour",
+      "category": "grains",
+      "records": 8,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-lima-beans": {
+      "displayName": "Lima Beans",
+      "category": "vegetables",
+      "records": 8,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-tofu": {
+      "displayName": "Tofu",
+      "category": "legumes",
+      "records": 8,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "apples": {
+      "displayName": "Apples",
+      "category": "fruits",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-bacon": {
+      "displayName": "Bacon",
+      "category": "proteins",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-chuck-eye-roast": {
+      "displayName": "Beef Chuck Eye Roast",
+      "category": "proteins",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-french-fried-potato": {
+      "displayName": "French Fried Potatoes",
+      "category": "vegetables",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-grapefruit": {
+      "displayName": "Grapefruit",
+      "category": "fruits",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-mackerel": {
+      "displayName": "Mackerel",
+      "category": "seafood",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pea-soup": {
+      "displayName": "Pea Soup",
+      "category": "condiments",
+      "records": 7,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pie-crust": {
+      "displayName": "Pie Crust",
+      "category": "grains",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-plum": {
+      "displayName": "Plums",
+      "category": "fruits",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-shortening": {
+      "displayName": "Shortening",
+      "category": "condiments",
+      "records": 7,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turkey-drumstick": {
+      "displayName": "Turkey Drumstick",
+      "category": "proteins",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-thigh": {
+      "displayName": "Turkey Thigh",
+      "category": "proteins",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-wing": {
+      "displayName": "Turkey Wing",
+      "category": "proteins",
+      "records": 7,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wheat": {
+      "displayName": "Wheat",
+      "category": "grains",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-crab": {
+      "displayName": "Crab",
+      "category": "seafood",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-oatmeal": {
+      "displayName": "Oatmeal",
+      "category": "grains",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-pineapple": {
+      "displayName": "Pineapple",
+      "category": "fruits",
+      "records": 7,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-flank": {
+      "displayName": "Beef Flank",
+      "category": "proteins",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-loin": {
+      "displayName": "Beef Loin",
+      "category": "proteins",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-bratwurst": {
+      "displayName": "Bratwurst",
+      "category": "proteins",
+      "records": 6,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-clam-chowder-soup": {
+      "displayName": "Clam Chowder Soup",
+      "category": "condiments",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-egg-noodle": {
+      "displayName": "Egg Noodles",
+      "category": "grains",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-egg-whole": {
+      "displayName": "Egg Whole",
+      "category": "dairy",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-fish-oil": {
+      "displayName": "Fish Oil",
+      "category": "condiments",
+      "records": 6,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-lamb-loin": {
+      "displayName": "Lamb Loin",
+      "category": "proteins",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-oyster": {
+      "displayName": "Oyster",
+      "category": "seafood",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-soymilk": {
+      "displayName": "Soymilk",
+      "category": "legumes",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-tea-black": {
+      "displayName": "Tea Black",
+      "category": "beverages",
+      "records": 6,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tomato-soup": {
+      "displayName": "Tomato Soup",
+      "category": "condiments",
+      "records": 6,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "everyday-asparagus": {
+      "displayName": "Asparagus",
+      "category": "vegetables",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-orange-juice": {
+      "displayName": "Orange Juice",
+      "category": "fruits",
+      "records": 6,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-baked-bean": {
+      "displayName": "Baked Beans",
+      "category": "legumes",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-top-sirloin": {
+      "displayName": "Beef Top Sirloin",
+      "category": "proteins",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-corn-flour": {
+      "displayName": "Corn Flour",
+      "category": "grains",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cream-of-chicken-soup": {
+      "displayName": "Cream Of Chicken Soup",
+      "category": "condiments",
+      "records": 5,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cream-of-mushroom-soup": {
+      "displayName": "Cream Of Mushroom Soup",
+      "category": "condiments",
+      "records": 5,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-emu": {
+      "displayName": "Emu",
+      "category": "proteins",
+      "records": 5,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fruit-yogurt": {
+      "displayName": "Fruit Yogurt",
+      "category": "dairy",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-mixed-nut": {
+      "displayName": "Mixed Nuts",
+      "category": "nuts/seeds",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pancake": {
+      "displayName": "Pancakes",
+      "category": "grains",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pork-sausage": {
+      "displayName": "Pork Sausage",
+      "category": "proteins",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-tea-instant": {
+      "displayName": "Tea Instant",
+      "category": "beverages",
+      "records": 5,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-australian": {
+      "displayName": "Veal Australian",
+      "category": "proteins",
+      "records": 5,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-leg": {
+      "displayName": "Veal Leg",
+      "category": "proteins",
+      "records": 5,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-waffle": {
+      "displayName": "Waffle",
+      "category": "grains",
+      "records": 5,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "chicken-wings": {
+      "displayName": "Chicken Wings",
+      "category": "proteins",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "eggs": {
+      "displayName": "Eggs",
+      "category": "dairy",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-almonds": {
+      "displayName": "Almonds",
+      "category": "nuts/seeds",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-sweet-potatoes": {
+      "displayName": "Sweet Potatoes",
+      "category": "vegetables",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "ground-beef": {
+      "displayName": "Ground Beef",
+      "category": "proteins",
+      "records": 5,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-artichoke": {
+      "displayName": "Artichokes",
+      "category": "vegetables",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-balsam-pear-bitter-gourd": {
+      "displayName": "Balsam-Pear (Bitter Gourd)",
+      "category": "vegetables",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-bottom-sirloin": {
+      "displayName": "Beef Bottom Sirloin",
+      "category": "proteins",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cabbage": {
+      "displayName": "Cabbage",
+      "category": "vegetables",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-chicken-noodle-soup": {
+      "displayName": "Chicken Noodle Soup",
+      "category": "condiments",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-corn-grit": {
+      "displayName": "Corn Grits",
+      "category": "grains",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cowpeas-blackeyes": {
+      "displayName": "Cowpeas (Blackeyes)",
+      "category": "vegetables",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cream": {
+      "displayName": "Cream",
+      "category": "dairy",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-danish-pastry": {
+      "displayName": "Danish Pastry",
+      "category": "grains",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-fig": {
+      "displayName": "Figs",
+      "category": "fruits",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-fruit-cocktail": {
+      "displayName": "Fruit Cocktail",
+      "category": "fruits",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-herring": {
+      "displayName": "Herring",
+      "category": "seafood",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-kielbasa": {
+      "displayName": "Kielbasa",
+      "category": "proteins",
+      "records": 4,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-minestrone-soup": {
+      "displayName": "Minestrone Soup",
+      "category": "condiments",
+      "records": 4,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pasteurized-process-cheese": {
+      "displayName": "Pasteurized Process Cheese",
+      "category": "dairy",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pate": {
+      "displayName": "Pate",
+      "category": "proteins",
+      "records": 4,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pollock": {
+      "displayName": "Pollock",
+      "category": "seafood",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pork-ground": {
+      "displayName": "Pork Ground",
+      "category": "proteins",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-ramen-noodle-soup": {
+      "displayName": "Ramen Noodle Soup",
+      "category": "condiments",
+      "records": 4,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-succotash": {
+      "displayName": "Succotash",
+      "category": "vegetables",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sunflower-oil": {
+      "displayName": "Sunflower Oil",
+      "category": "condiments",
+      "records": 4,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sunflower-seed-kernel": {
+      "displayName": "Sunflower Seed Kernels",
+      "category": "nuts/seeds",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sweet-pepper": {
+      "displayName": "Sweet Peppers",
+      "category": "vegetables",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-veal-loin": {
+      "displayName": "Veal Loin",
+      "category": "proteins",
+      "records": 4,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-shoulder": {
+      "displayName": "Veal Shoulder",
+      "category": "proteins",
+      "records": 4,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "everyday-apple-juice": {
+      "displayName": "Apple Juice",
+      "category": "fruits",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-cod": {
+      "displayName": "Cod",
+      "category": "seafood",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-cottage-cheese": {
+      "displayName": "Cottage Cheese",
+      "category": "dairy",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-grapefruit-juice": {
+      "displayName": "Grapefruit Juice",
+      "category": "fruits",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-mozzarella-cheese": {
+      "displayName": "Mozzarella Cheese",
+      "category": "dairy",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-trout": {
+      "displayName": "Trout",
+      "category": "seafood",
+      "records": 4,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beerwurst": {
+      "displayName": "Beerwurst",
+      "category": "proteins",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-beet": {
+      "displayName": "Beets",
+      "category": "vegetables",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-biscuit": {
+      "displayName": "Biscuits",
+      "category": "grains",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-chicken-broth-soup": {
+      "displayName": "Chicken Broth Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-chocolate-milk": {
+      "displayName": "Chocolate Milk",
+      "category": "dairy",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-coconut-meat": {
+      "displayName": "Coconut Meat",
+      "category": "nuts/seeds",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cookies-chocolate-sandwich": {
+      "displayName": "Cookies Chocolate Sandwich",
+      "category": "grains",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cookies-peanut-butter": {
+      "displayName": "Cookies Peanut Butter",
+      "category": "grains",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cranberry-juice-cocktail": {
+      "displayName": "Cranberry Juice Cocktail",
+      "category": "beverages",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cream-of-onion-soup": {
+      "displayName": "Cream Of Onion Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cream-of-potato-soup": {
+      "displayName": "Cream Of Potato Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cream-of-shrimp-soup": {
+      "displayName": "Cream Of Shrimp Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-creamy-dressing": {
+      "displayName": "Creamy Dressing",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-egg-yolk": {
+      "displayName": "Egg Yolk",
+      "category": "dairy",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-gourd": {
+      "displayName": "Gourd",
+      "category": "vegetables",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-lamb-ground": {
+      "displayName": "Lamb Ground",
+      "category": "proteins",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-lamb-tenderloin": {
+      "displayName": "Lamb Tenderloin",
+      "category": "proteins",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-mexican-cheese": {
+      "displayName": "Mexican Cheese",
+      "category": "dairy",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-onion-soup": {
+      "displayName": "Onion Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-oyster-stew-soup": {
+      "displayName": "Oyster Stew Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-parmesan-cheese": {
+      "displayName": "Parmesan Cheese",
+      "category": "dairy",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-poultry": {
+      "displayName": "Poultry",
+      "category": "proteins",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-radish": {
+      "displayName": "Radishes",
+      "category": "vegetables",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-seasoning-mix": {
+      "displayName": "Seasoning Mix",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-seaweed": {
+      "displayName": "Seaweed",
+      "category": "vegetables",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-shiitake-mushroom": {
+      "displayName": "Shiitake Mushrooms",
+      "category": "vegetables",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-shortening-frying-heavy-duty": {
+      "displayName": "Shortening Frying (Heavy Duty)",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soybean-oil": {
+      "displayName": "Soybean Oil",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-spaghetti": {
+      "displayName": "Spaghetti",
+      "category": "grains",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-stock-soup": {
+      "displayName": "Stock Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tangerine": {
+      "displayName": "Tangerines",
+      "category": "fruits",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-toaster-pastry": {
+      "displayName": "Toaster Pastries",
+      "category": "grains",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tomato-bisque-soup": {
+      "displayName": "Tomato Bisque Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tortilla": {
+      "displayName": "Tortillas",
+      "category": "grains",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turkey-back": {
+      "displayName": "Turkey Back",
+      "category": "proteins",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-dark-meat": {
+      "displayName": "Turkey Dark Meat",
+      "category": "proteins",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-light-meat": {
+      "displayName": "Turkey Light Meat",
+      "category": "proteins",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-vegetable-beef-soup": {
+      "displayName": "Vegetable Beef Soup",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-oil": {
+      "displayName": "Vegetable Oil",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-whey": {
+      "displayName": "Whey",
+      "category": "dairy",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-whiskey-sour-mix": {
+      "displayName": "Whiskey Sour Mix",
+      "category": "beverages",
+      "records": 3,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-white-mushroom": {
+      "displayName": "White Mushrooms",
+      "category": "vegetables",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "chicken-thighs": {
+      "displayName": "Chicken Thighs",
+      "category": "proteins",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-bagels": {
+      "displayName": "Bagels",
+      "category": "grains",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-blueberries": {
+      "displayName": "Blueberries",
+      "category": "fruits",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-chickpeas": {
+      "displayName": "Chickpeas",
+      "category": "legumes",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-mayonnaise": {
+      "displayName": "Mayonnaise",
+      "category": "condiments",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-shrimp": {
+      "displayName": "Shrimp",
+      "category": "seafood",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-soybeans": {
+      "displayName": "Soybeans",
+      "category": "legumes",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-water": {
+      "displayName": "Water",
+      "category": "beverages",
+      "records": 3,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-bamboo-shoot": {
+      "displayName": "Bamboo Shoots",
+      "category": "vegetables",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-basil": {
+      "displayName": "Basil",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-bass": {
+      "displayName": "Bass",
+      "category": "seafood",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-broth-soup": {
+      "displayName": "Beef Broth Soup",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-tenderloin": {
+      "displayName": "Beef Tenderloin",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-buttermilk": {
+      "displayName": "Buttermilk",
+      "category": "dairy",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-carob-flavor-beverage-mix": {
+      "displayName": "Carob-Flavor Beverage Mix",
+      "category": "beverages",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-catfish": {
+      "displayName": "Catfish",
+      "category": "seafood",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-chicken-cornish-game-hen": {
+      "displayName": "Chicken Cornish Game Hens",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-chocolate-syrup": {
+      "displayName": "Chocolate Syrup",
+      "category": "beverages",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookie": {
+      "displayName": "Cookie",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cookies-chocolate-chip": {
+      "displayName": "Cookies Chocolate Chip",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cookies-gluten-free": {
+      "displayName": "Cookies Gluten-Free",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cookies-oatmeal": {
+      "displayName": "Cookies Oatmeal",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-crackers-matzo": {
+      "displayName": "Crackers Matzo",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-crayfish": {
+      "displayName": "Crayfish",
+      "category": "seafood",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-dill-weed": {
+      "displayName": "Dill Weed",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-dip": {
+      "displayName": "Dip",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-flaxseed-oil": {
+      "displayName": "Flaxseed Oil",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fresh-refrigerated-pasta": {
+      "displayName": "Fresh-Refrigerated Pasta",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-fruit-flavored-drink": {
+      "displayName": "Fruit Flavored Drink",
+      "category": "beverages",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-fruit-salad": {
+      "displayName": "Fruit Salad",
+      "category": "fruits",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-green-pea": {
+      "displayName": "Green Peas",
+      "category": "vegetables",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-homemade-sauce": {
+      "displayName": "Homemade Sauce",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-hyacinth-bean": {
+      "displayName": "Hyacinth Beans",
+      "category": "legumes",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-japanese-noodle": {
+      "displayName": "Japanese Noodles",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-kale": {
+      "displayName": "Kale",
+      "category": "vegetables",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-leek": {
+      "displayName": "Leeks",
+      "category": "vegetables",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-luncheon-meat": {
+      "displayName": "Luncheon Meat",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-margarine-like-spread-with-yogurt": {
+      "displayName": "Margarine-Like Spread with Yogurt",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mushroom-barley-soup": {
+      "displayName": "Mushroom Barley Soup",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mushroom-gravy": {
+      "displayName": "Mushroom Gravy",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mushroom-with-beef-stock-soup": {
+      "displayName": "Mushroom with Beef Stock Soup",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mustard-green": {
+      "displayName": "Mustard Greens",
+      "category": "vegetables",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-okra": {
+      "displayName": "Okra",
+      "category": "vegetables",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-orange-flavor-drink": {
+      "displayName": "Orange-Flavor Drink",
+      "category": "beverages",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pasta-sauce": {
+      "displayName": "Pasta Sauce",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pastrami": {
+      "displayName": "Pastrami",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-peanut-sauce": {
+      "displayName": "Peanut Sauce",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pesto-sauce": {
+      "displayName": "Pesto Sauce",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pie-fried-py": {
+      "displayName": "Pie Fried Pies",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pie-pumpkin": {
+      "displayName": "Pie Pumpkin",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pike": {
+      "displayName": "Pike",
+      "category": "seafood",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pineapple-juice": {
+      "displayName": "Pineapple Juice",
+      "category": "fruits",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-plantain": {
+      "displayName": "Plantains",
+      "category": "fruits",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-puff-pastry": {
+      "displayName": "Puff Pastry",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-raisin-bread": {
+      "displayName": "Raisin Bread",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-raspberry": {
+      "displayName": "Raspberries",
+      "category": "fruits",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-refried-bean": {
+      "displayName": "Refried Beans",
+      "category": "legumes",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-rosemary": {
+      "displayName": "Rosemary",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-rye-flour": {
+      "displayName": "Rye Flour",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sablefish": {
+      "displayName": "Sablefish",
+      "category": "seafood",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-safflower-oil": {
+      "displayName": "Safflower Oil",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sandwich-spread": {
+      "displayName": "Sandwich Spread",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-semolina": {
+      "displayName": "Semolina",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sesame-butter": {
+      "displayName": "Sesame Butter",
+      "category": "nuts/seeds",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sorghum-flour": {
+      "displayName": "Sorghum Flour",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soymilk-all-flavors": {
+      "displayName": "Soymilk (All Flavors)",
+      "category": "legumes",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-spearmint": {
+      "displayName": "Spearmint",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-spelt": {
+      "displayName": "Spelt",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sturgeon": {
+      "displayName": "Sturgeon",
+      "category": "seafood",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sweet-roll": {
+      "displayName": "Sweet Rolls",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-taro": {
+      "displayName": "Taro",
+      "category": "vegetables",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-tea-herb": {
+      "displayName": "Tea Herb",
+      "category": "beverages",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-teff": {
+      "displayName": "Teff",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-teriyaki-sauce": {
+      "displayName": "Teriyaki Sauce",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-thyme": {
+      "displayName": "Thyme",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tomato-beef-with-noodle-soup": {
+      "displayName": "Tomato Beef with Noodle Soup",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tomato-rice-soup": {
+      "displayName": "Tomato Rice Soup",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turkey-gravy": {
+      "displayName": "Turkey Gravy",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vanilla-yogurt": {
+      "displayName": "Vanilla Yogurt",
+      "category": "dairy",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-veal-foreshank": {
+      "displayName": "Veal Foreshank",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-seam-fat-only": {
+      "displayName": "Veal Seam Fat Only",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-shank": {
+      "displayName": "Veal Shank",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-shank-fore-and-hind": {
+      "displayName": "Veal Shank (Fore and Hind)",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-sirloin": {
+      "displayName": "Veal Sirloin",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-with-beef-broth-soup": {
+      "displayName": "Vegetable with Beef Broth Soup",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetarian-vegetable-soup": {
+      "displayName": "Vegetarian Vegetable Soup",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wasabi": {
+      "displayName": "Wasabi",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-white-bean": {
+      "displayName": "White Beans",
+      "category": "legumes",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-whitefish": {
+      "displayName": "Whitefish",
+      "category": "seafood",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-whole-wheat-bread": {
+      "displayName": "Whole-Wheat Bread",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-whole-wheat-hot-natural-cereal": {
+      "displayName": "Whole Wheat Hot Natural Cereal",
+      "category": "grains",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-grapes": {
+      "displayName": "Grapes",
+      "category": "fruits",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-ground-turkey": {
+      "displayName": "Ground Turkey",
+      "category": "proteins",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-lemonade": {
+      "displayName": "Lemonade",
+      "category": "beverages",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-peanut-butter": {
+      "displayName": "Peanut Butter",
+      "category": "legumes",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-pinto-beans": {
+      "displayName": "Pinto Beans",
+      "category": "legumes",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-vinegar": {
+      "displayName": "Vinegar",
+      "category": "condiments",
+      "records": 2,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-acerola": {
+      "displayName": "Acerola",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-acorn-flour": {
+      "displayName": "Acorn Flour",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-alfalfa-sprout": {
+      "displayName": "Alfalfa Sprouts",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-allspice": {
+      "displayName": "Allspice",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-almond-milk": {
+      "displayName": "Almond Milk",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-amaranth-leaf": {
+      "displayName": "Amaranth Leaves",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-animal-fat": {
+      "displayName": "Animal Fat",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-anise-seed": {
+      "displayName": "Anise Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-apricot-kernel-oil": {
+      "displayName": "Apricot Kernel Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-apricot-nectar": {
+      "displayName": "Apricot Nectar",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-arrowhead": {
+      "displayName": "Arrowhead",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-arrowroot": {
+      "displayName": "Arrowroot",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-arrowroot-flour": {
+      "displayName": "Arrowroot Flour",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-babassu-oil": {
+      "displayName": "Babassu Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-barbecue-loaf": {
+      "displayName": "Barbecue Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-barley-flour-or-meal": {
+      "displayName": "Barley Flour or Meal",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-barley-malt-flour": {
+      "displayName": "Barley Malt Flour",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-bay-leaf": {
+      "displayName": "Bay Leaf",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-beechnut": {
+      "displayName": "Beechnuts",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-beef-rib-eye": {
+      "displayName": "Beef Rib Eye",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-beef-shoulder-pot-roast-or-steak": {
+      "displayName": "Beef Shoulder Pot Roast or Steak",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-black-pepper": {
+      "displayName": "Black Pepper",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-black-turtle-bean": {
+      "displayName": "Black Turtle Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-blood-sausage": {
+      "displayName": "Blood Sausage",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-bockwurst": {
+      "displayName": "Bockwurst",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-bouillon-cubes-and-granules-soup": {
+      "displayName": "Bouillon Cubes and Granules Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-braunschweiger-a-liver-sausage": {
+      "displayName": "Braunschweiger (A Liver Sausage)",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-brazilnut": {
+      "displayName": "Brazilnuts",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-breadfruit": {
+      "displayName": "Breadfruit",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-broadbeans-fava-beans": {
+      "displayName": "Broadbeans (Fava Beans)",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-brown-gravy": {
+      "displayName": "Brown Gravy",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-brown-instant-gravy": {
+      "displayName": "Brown Instant Gravy",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-brussels-sprout": {
+      "displayName": "Brussels Sprouts",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-buckwheat": {
+      "displayName": "Buckwheat",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-buckwheat-flour": {
+      "displayName": "Buckwheat Flour",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-butternut": {
+      "displayName": "Butternuts",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cake-boston-cream-pie": {
+      "displayName": "Cake Boston Cream Pie",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cake-chocolate": {
+      "displayName": "Cake Chocolate",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cake-pineapple-upside-down": {
+      "displayName": "Cake Pineapple Upside-Down",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cake-pudding-type": {
+      "displayName": "Cake Pudding-Type",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cake-snack-cake": {
+      "displayName": "Cake Snack Cakes",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cake-white": {
+      "displayName": "Cake White",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-canned-mushroom": {
+      "displayName": "Canned Mushrooms",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-canned-potato": {
+      "displayName": "Canned Potatoes",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-canola-oil": {
+      "displayName": "Canola Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-caper": {
+      "displayName": "Capers",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-carambola": {
+      "displayName": "Carambola",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-caraway-seed": {
+      "displayName": "Caraway Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cardamom": {
+      "displayName": "Cardamom",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-carissa": {
+      "displayName": "Carissa",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-carob-flour": {
+      "displayName": "Carob Flour",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-caviar": {
+      "displayName": "Caviar",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-celery-seed": {
+      "displayName": "Celery Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chanterelle-mushroom": {
+      "displayName": "Chanterelle Mushrooms",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cheese-food": {
+      "displayName": "Cheese Food",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cheese-soup": {
+      "displayName": "Cheese Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cheesefurter": {
+      "displayName": "Cheesefurter",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cherimoya": {
+      "displayName": "Cherimoya",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chervil": {
+      "displayName": "Chervil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chili-bean": {
+      "displayName": "Chili Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chili-pepper": {
+      "displayName": "Chili Peppers",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chili-powder": {
+      "displayName": "Chili Powder",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chili-sauce": {
+      "displayName": "Chili Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chili-with-bean": {
+      "displayName": "Chili with Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chinese-noodle": {
+      "displayName": "Chinese Noodles",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chocolate-drink": {
+      "displayName": "Chocolate Drink",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chocolate-flavor-beverage-mix": {
+      "displayName": "Chocolate-Flavor Beverage Mix",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chocolate-flavored-drink": {
+      "displayName": "Chocolate-Flavored Drink",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chocolate-malt": {
+      "displayName": "Chocolate Malt",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chocolate-malt-powder": {
+      "displayName": "Chocolate Malt Powder",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chocolate-powder": {
+      "displayName": "Chocolate Powder",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chocolate-soda": {
+      "displayName": "Chocolate Soda",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chrysanthemum": {
+      "displayName": "Chrysanthemum",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-chrysanthemum-leaf": {
+      "displayName": "Chrysanthemum Leaves",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cinnamon": {
+      "displayName": "Cinnamon",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cinnamon-bun": {
+      "displayName": "Cinnamon Buns",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-clam": {
+      "displayName": "Clam",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-clementine": {
+      "displayName": "Clementines",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-clove": {
+      "displayName": "Cloves",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cocktail-mix": {
+      "displayName": "Cocktail Mix",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cocktail-sauce": {
+      "displayName": "Cocktail Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cocoa-mix": {
+      "displayName": "Cocoa Mix",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-coconut-oil": {
+      "displayName": "Coconut Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-coffee-ready-to-drink": {
+      "displayName": "Coffee Ready To Drink",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-collard": {
+      "displayName": "Collards",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-conch": {
+      "displayName": "Conch",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cooked-pasta": {
+      "displayName": "Cooked Pasta",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cookies-animal": {
+      "displayName": "Cookies Animal",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-browny": {
+      "displayName": "Cookies Brownies",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cookies-chocolate-cream-covered-biscuit-stick": {
+      "displayName": "Cookies Chocolate Cream Covered Biscuit Sticks",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-chocolate-wafer": {
+      "displayName": "Cookies Chocolate Wafers",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-coconut-macaroon": {
+      "displayName": "Cookies Coconut Macaroon",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-fortune": {
+      "displayName": "Cookies Fortune",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-ladyfinger": {
+      "displayName": "Cookies Ladyfingers",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-marie-biscuit": {
+      "displayName": "Cookies Marie Biscuit",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-marshmallow": {
+      "displayName": "Cookies Marshmallow",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-oatmeal-sandwich": {
+      "displayName": "Cookies Oatmeal Sandwich",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-sugar": {
+      "displayName": "Cookies Sugar",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cookies-sugar-wafers-with-creme-filling": {
+      "displayName": "Cookies Sugar Wafers with Creme Filling",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-coriander-leaf": {
+      "displayName": "Coriander Leaf",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-coriander-seed": {
+      "displayName": "Coriander Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cornsalad": {
+      "displayName": "Cornsalad",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cornstarch": {
+      "displayName": "Cornstarch",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cottonseed-kernel": {
+      "displayName": "Cottonseed Kernels",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cottonseed-meal": {
+      "displayName": "Cottonseed Meal",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cottonseed-oil": {
+      "displayName": "Cottonseed Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crabapple": {
+      "displayName": "Crabapples",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cracker": {
+      "displayName": "Cracker",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crackers-melba-toast": {
+      "displayName": "Crackers Melba Toast",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crackers-multigrain": {
+      "displayName": "Crackers Multigrain",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crackers-rye": {
+      "displayName": "Crackers Rye",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-crackers-sandwich-type": {
+      "displayName": "Crackers Sandwich-Type",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crackers-standard-snack-type": {
+      "displayName": "Crackers Standard Snack-Type",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crackers-toast-thin": {
+      "displayName": "Crackers Toast Thins",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crackers-wheat": {
+      "displayName": "Crackers Wheat",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-crackers-whole-grain": {
+      "displayName": "Crackers Whole Grain",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crackers-whole-wheat": {
+      "displayName": "Crackers Whole-Wheat",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cranberry": {
+      "displayName": "Cranberries",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cranberry-roman-bean": {
+      "displayName": "Cranberry (Roman) Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cream-of-asparagus-soup": {
+      "displayName": "Cream Of Asparagus Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cream-of-celery-soup": {
+      "displayName": "Cream Of Celery Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-cream-of-vegetable-soup": {
+      "displayName": "Cream Of Vegetable Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cream-puff": {
+      "displayName": "Cream Puff",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cream-soda": {
+      "displayName": "Cream Soda",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-crunchmaster": {
+      "displayName": "Crunchmaster",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cumin-seed": {
+      "displayName": "Cumin Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-cupu-assu-oil": {
+      "displayName": "Cupu Assu Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-curry-powder": {
+      "displayName": "Curry Powder",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-dill-seed": {
+      "displayName": "Dill Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-doughnut": {
+      "displayName": "Doughnuts",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-dove": {
+      "displayName": "Dove",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-dressing": {
+      "displayName": "Dressing",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-drumstick-leaf": {
+      "displayName": "Drumstick Leaves",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-drumstick-pod": {
+      "displayName": "Drumstick Pods",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-duck-sauce": {
+      "displayName": "Duck Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-dulce-de-leche": {
+      "displayName": "Dulce De Leche",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-durian": {
+      "displayName": "Durian",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-dutch-brand-loaf": {
+      "displayName": "Dutch Brand Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-eggnog": {
+      "displayName": "Eggnog",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-eggnog-flavor-mix": {
+      "displayName": "Eggnog-Flavor Mix",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-eggplant": {
+      "displayName": "Eggplant",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-elderberry": {
+      "displayName": "Elderberries",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-enchilada-sauce": {
+      "displayName": "Enchilada Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-endive": {
+      "displayName": "Endive",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-energy-drink": {
+      "displayName": "Energy Drink",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-escarole": {
+      "displayName": "Escarole",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-evaporated-milk": {
+      "displayName": "Evaporated Milk",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-falafel": {
+      "displayName": "Falafel",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fat-free-ice-cream": {
+      "displayName": "Fat Free Ice Cream",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fava-bean": {
+      "displayName": "Fava Beans",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-feijoa": {
+      "displayName": "Feijoa",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fennel": {
+      "displayName": "Fennel",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fennel-seed": {
+      "displayName": "Fennel Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fenugreek-seed": {
+      "displayName": "Fenugreek Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fish-broth": {
+      "displayName": "Fish Broth",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fish-sauce": {
+      "displayName": "Fish Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fish-stick": {
+      "displayName": "Fish Sticks",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-flaxseed": {
+      "displayName": "Flaxseed",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-focaccia": {
+      "displayName": "Focaccia",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-french-toast": {
+      "displayName": "French Toast",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-frijoles-rojos-volteado": {
+      "displayName": "Frijoles Rojos Volteados",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-frog-leg": {
+      "displayName": "Frog Legs",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-fruit-juice-drink": {
+      "displayName": "Fruit Juice Drink",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-fruit-punch-drink": {
+      "displayName": "Fruit Punch Drink",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-fungi": {
+      "displayName": "Fungi",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-garlic-powder": {
+      "displayName": "Garlic Powder",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-gefiltefish": {
+      "displayName": "Gefiltefish",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-ginger": {
+      "displayName": "Ginger",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-ginger-root": {
+      "displayName": "Ginger Root",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-gluten-free-pasta": {
+      "displayName": "Gluten-Free Pasta",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-goat-cheese": {
+      "displayName": "Goat Cheese",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-goji-berry": {
+      "displayName": "Goji Berries",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-granola-cereal": {
+      "displayName": "Granola Cereal",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-grapeseed-oil": {
+      "displayName": "Grapeseed Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-great-northern-bean": {
+      "displayName": "Great Northern Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-greek-yogurt": {
+      "displayName": "Greek Yogurt",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-groundcherry": {
+      "displayName": "Groundcherries",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-guanabana-nectar": {
+      "displayName": "Guanabana Nectar",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-guava-sauce": {
+      "displayName": "Guava Sauce",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-halibut": {
+      "displayName": "Halibut",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-hazelnut-oil": {
+      "displayName": "Hazelnut Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-headcheese": {
+      "displayName": "Headcheese",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-hearts-of-palm": {
+      "displayName": "Hearts Of Palm",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-heinz": {
+      "displayName": "Heinz",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-hemp-seed": {
+      "displayName": "Hemp Seed",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-hickorynut": {
+      "displayName": "Hickorynuts",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-hoisin-sauce": {
+      "displayName": "Hoisin Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-honey-roll-sausage": {
+      "displayName": "Honey Roll Sausage",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-horseradish": {
+      "displayName": "Horseradish",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-horseradish-sauce": {
+      "displayName": "Horseradish Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-hot-chile-pepper": {
+      "displayName": "Hot Chile Peppers",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-hot-chile-sauce": {
+      "displayName": "Hot Chile Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-hungarian-pepper": {
+      "displayName": "Hungarian Peppers",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-ice-cream": {
+      "displayName": "Ice Cream",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-ice-cream-bar": {
+      "displayName": "Ice Cream Bar",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-ice-cream-cone": {
+      "displayName": "Ice Cream Cone",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-ice-cream-cookie-sandwich": {
+      "displayName": "Ice Cream Cookie Sandwich",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-ice-cream-sandwich": {
+      "displayName": "Ice Cream Sandwich",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-incaparina": {
+      "displayName": "Incaparina",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-instant-beef-gravy": {
+      "displayName": "Instant Beef Gravy",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-instant-turkey-gravy": {
+      "displayName": "Instant Turkey Gravy",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-interstate-brands-corp": {
+      "displayName": "Interstate Brands Corp",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-jackfruit": {
+      "displayName": "Jackfruit",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-jellyfish": {
+      "displayName": "Jellyfish",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-jerusalem-artichoke": {
+      "displayName": "Jerusalem-Artichokes",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-jew-s-ear": {
+      "displayName": "Jew'S Ear",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-kanpyo": {
+      "displayName": "Kanpyo",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-keikitos-muffins": {
+      "displayName": "Keikitos (Muffins)",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-kidney-sprout": {
+      "displayName": "Kidney Sprouts",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-kiwifruit": {
+      "displayName": "Kiwifruit",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-knackwurst": {
+      "displayName": "Knackwurst",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-kumquat": {
+      "displayName": "Kumquats",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-lamb-foreshank": {
+      "displayName": "Lamb Foreshank",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-lamb-rib": {
+      "displayName": "Lamb Rib",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-lard": {
+      "displayName": "Lard",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-leavening-agent": {
+      "displayName": "Leavening Agents",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-lebanon-bologna": {
+      "displayName": "Lebanon Bologna",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-lentil-with-ham-soup": {
+      "displayName": "Lentil with Ham Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-lettuce": {
+      "displayName": "Lettuce",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-lime": {
+      "displayName": "Limes",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-liver-cheese": {
+      "displayName": "Liver Cheese",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-liver-sausage": {
+      "displayName": "Liver Sausage",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-liverwurst-spread": {
+      "displayName": "Liverwurst Spread",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-loganberry": {
+      "displayName": "Loganberries",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-loquat": {
+      "displayName": "Loquats",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-lotus-root": {
+      "displayName": "Lotus Root",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-luncheon-sausage": {
+      "displayName": "Luncheon Sausage",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-luxury-loaf": {
+      "displayName": "Luxury Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-macaroni-and-cheese-loaf": {
+      "displayName": "Macaroni and Cheese Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mace": {
+      "displayName": "Mace",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-malt-liquor-beverage": {
+      "displayName": "Malt Liquor Beverage",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mangosteen": {
+      "displayName": "Mangosteen",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-maraschino-cherry": {
+      "displayName": "Maraschino Cherries",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-margarine-like-vegetable-oil-spread": {
+      "displayName": "Margarine-Like Vegetable-Oil Spread",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-marjoram": {
+      "displayName": "Marjoram",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mary-s-gone-cracker": {
+      "displayName": "Mary'S Gone Crackers",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mayonnaise-dressing": {
+      "displayName": "Mayonnaise Dressing",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mckee-baking": {
+      "displayName": "Mckee Baking",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-meat-or-poultry-gravy": {
+      "displayName": "Meat or Poultry Gravy",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-millet": {
+      "displayName": "Millet",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-millet-flour": {
+      "displayName": "Millet Flour",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-miso": {
+      "displayName": "Miso",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-morel-mushroom": {
+      "displayName": "Morel Mushrooms",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mortadella": {
+      "displayName": "Mortadella",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mother-s-loaf": {
+      "displayName": "Mother'S Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mountain-yam": {
+      "displayName": "Mountain Yam",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-mulberry": {
+      "displayName": "Mulberries",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mung-sprout": {
+      "displayName": "Mung Sprouts",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-mustard-oil": {
+      "displayName": "Mustard Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-mustard-seed": {
+      "displayName": "Mustard Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-naranjilla-lulo-pulp": {
+      "displayName": "Naranjilla (Lulo) Pulp",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-natto": {
+      "displayName": "Natto",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-navy-sprout": {
+      "displayName": "Navy Sprouts",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-nectarine": {
+      "displayName": "Nectarines",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-nopale": {
+      "displayName": "Nopales",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-nutmeg": {
+      "displayName": "Nutmeg",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-nutmeg-butter-oil": {
+      "displayName": "Nutmeg Butter Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-nutritional-shake-mix": {
+      "displayName": "Nutritional Shake Mix",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-oat-oil": {
+      "displayName": "Oat Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-oheloberry": {
+      "displayName": "Oheloberries",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-okara": {
+      "displayName": "Okara",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-olive-loaf": {
+      "displayName": "Olive Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-olive-oil": {
+      "displayName": "Olive Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-onion-gravy": {
+      "displayName": "Onion Gravy",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-onion-powder": {
+      "displayName": "Onion Powder",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-oregano": {
+      "displayName": "Oregano",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-oyster-mushroom": {
+      "displayName": "Oyster Mushrooms",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-oyster-sauce": {
+      "displayName": "Oyster Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-palm-oil": {
+      "displayName": "Palm Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pan-dulce": {
+      "displayName": "Pan Dulce",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pancakes-plain": {
+      "displayName": "Pancakes Plain",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-papaya-nectar": {
+      "displayName": "Papaya Nectar",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-paprika": {
+      "displayName": "Paprika",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-parsley": {
+      "displayName": "Parsley",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pasilla-pepper": {
+      "displayName": "Pasilla Peppers",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-passion-fruit": {
+      "displayName": "Passion-Fruit",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pastry": {
+      "displayName": "Pastry",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pate-de-foie-gra": {
+      "displayName": "Pate De Foie Gras",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-peanut-oil": {
+      "displayName": "Peanut Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pepeao": {
+      "displayName": "Pepeao",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pepper": {
+      "displayName": "Pepper",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-peppered-loaf": {
+      "displayName": "Peppered Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-peppermint": {
+      "displayName": "Peppermint",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pepperoni": {
+      "displayName": "Pepperoni",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-peppers-sauce": {
+      "displayName": "Peppers Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pheasant": {
+      "displayName": "Pheasant",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-phyllo-dough": {
+      "displayName": "Phyllo Dough",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pickle": {
+      "displayName": "Pickles",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pickle-and-pimiento-loaf": {
+      "displayName": "Pickle and Pimiento Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pickle-relish": {
+      "displayName": "Pickle Relish",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-picnic-loaf": {
+      "displayName": "Picnic Loaf",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pie-coconut-custard": {
+      "displayName": "Pie Coconut Custard",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pie-lemon-meringue": {
+      "displayName": "Pie Lemon Meringue",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pie-pecan": {
+      "displayName": "Pie Pecan",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pie-vanilla-cream": {
+      "displayName": "Pie Vanilla Cream",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pilinut": {
+      "displayName": "Pilinuts",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pimento": {
+      "displayName": "Pimento",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pitanga": {
+      "displayName": "Pitanga",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pizza-sauce": {
+      "displayName": "Pizza Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-plum-sauce": {
+      "displayName": "Plum Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-polish-sausage": {
+      "displayName": "Polish Sausage",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pomegranate": {
+      "displayName": "Pomegranates",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-popover": {
+      "displayName": "Popovers",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-poppy-seed": {
+      "displayName": "Poppy Seed",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-poppyseed-oil": {
+      "displayName": "Poppyseed Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pork-gravy": {
+      "displayName": "Pork Gravy",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pork-sparerib": {
+      "displayName": "Pork Spareribs",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-post-cereal": {
+      "displayName": "Post Cereal",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-potato-soup": {
+      "displayName": "Potato Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-poultry-salad-sandwich-spread": {
+      "displayName": "Poultry Salad Sandwich Spread",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-poultry-seasoning": {
+      "displayName": "Poultry Seasoning",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-powerade-zero-ion4": {
+      "displayName": "Powerade Zero Ion4",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-prickly-pear": {
+      "displayName": "Prickly Pears",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-protein-powder-soy-based": {
+      "displayName": "Protein Powder Soy Based",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-protein-powder-whey-based": {
+      "displayName": "Protein Powder Whey Based",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-prune-puree": {
+      "displayName": "Prune Puree",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-puffed-wheat-cereal": {
+      "displayName": "Puffed Wheat Cereal",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pummelo": {
+      "displayName": "Pummelo",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pumpkin": {
+      "displayName": "Pumpkin",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-pumpkin-pie-mix": {
+      "displayName": "Pumpkin Pie Mix",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-pumpkin-pie-spice": {
+      "displayName": "Pumpkin Pie Spice",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-quail": {
+      "displayName": "Quail",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-quince": {
+      "displayName": "Quinces",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-radicchio": {
+      "displayName": "Radicchio",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-radish-sprout": {
+      "displayName": "Radish Sprouts",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-rambutan": {
+      "displayName": "Rambutan",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-red-or-cayenne-pepper": {
+      "displayName": "Red or Cayenne Pepper",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-reddi-wip-fat-free-whipped-topping": {
+      "displayName": "Reddi Wip Fat Free Whipped Topping",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-reduced-calorie-bread": {
+      "displayName": "Reduced-Calorie Bread",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-rhubarb": {
+      "displayName": "Rhubarb",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-rice-bran-oil": {
+      "displayName": "Rice Bran Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-rice-flour": {
+      "displayName": "Rice Flour",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-rice-noodle": {
+      "displayName": "Rice Noodles",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-rich-chocolate": {
+      "displayName": "Rich Chocolate",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-rockfish": {
+      "displayName": "Rockfish",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-roe": {
+      "displayName": "Roe",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-roselle": {
+      "displayName": "Roselle",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-roughy": {
+      "displayName": "Roughy",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-ruffed-grouse": {
+      "displayName": "Ruffed Grouse",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-rutabaga": {
+      "displayName": "Rutabagas",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-rye-bread": {
+      "displayName": "Rye Bread",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-rye-grain": {
+      "displayName": "Rye Grain",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-safflower-seed-kernel": {
+      "displayName": "Safflower Seed Kernels",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-safflower-seed-meal": {
+      "displayName": "Safflower Seed Meal",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-saffron": {
+      "displayName": "Saffron",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sage": {
+      "displayName": "Sage",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sage-valley": {
+      "displayName": "Sage Valley",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-salmon-nugget": {
+      "displayName": "Salmon Nuggets",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-salsa-sauce": {
+      "displayName": "Salsa Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-salsify": {
+      "displayName": "Salsify",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-salt": {
+      "displayName": "Salt",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sapodilla": {
+      "displayName": "Sapodilla",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sapote": {
+      "displayName": "Sapote",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sauerkraut": {
+      "displayName": "Sauerkraut",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-savory": {
+      "displayName": "Savory",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-schar": {
+      "displayName": "Schar",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-scrapple": {
+      "displayName": "Scrapple",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-scup": {
+      "displayName": "Scup",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sea-bass": {
+      "displayName": "Sea Bass",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-seatrout": {
+      "displayName": "Seatrout",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-serrano-pepper": {
+      "displayName": "Serrano Peppers",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sesame-meal": {
+      "displayName": "Sesame Meal",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sesame-oil": {
+      "displayName": "Sesame Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sesame-seed-kernel": {
+      "displayName": "Sesame Seed Kernels",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sesbania-flower": {
+      "displayName": "Sesbania Flower",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-shad": {
+      "displayName": "Shad",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-shake": {
+      "displayName": "Shake",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-shark": {
+      "displayName": "Shark",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sheanut-oil": {
+      "displayName": "Sheanut Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sheepshead": {
+      "displayName": "Sheepshead",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-shortening-bread": {
+      "displayName": "Shortening Bread",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-shortening-cake-mix": {
+      "displayName": "Shortening Cake Mix",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-shortening-confectionery": {
+      "displayName": "Shortening Confectionery",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-shortening-household-soybean-hydrogenated-and-palm": {
+      "displayName": "Shortening Household Soybean (Hydrogenated) and Palm",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sisymbrium-sp-seed": {
+      "displayName": "Sisymbrium Sp. Seeds",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-small-white-bean": {
+      "displayName": "Small White Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-smelt": {
+      "displayName": "Smelt",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-snail": {
+      "displayName": "Snail",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-snapper": {
+      "displayName": "Snapper",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sofrito-sauce": {
+      "displayName": "Sofrito Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sorghum-grain": {
+      "displayName": "Sorghum Grain",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sour-dressing": {
+      "displayName": "Sour Dressing",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soursop": {
+      "displayName": "Soursop",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soy-flour": {
+      "displayName": "Soy Flour",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-soy-meal": {
+      "displayName": "Soy Meal",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soy-sauce-made-from-hydrolyzed-vegetable-protein": {
+      "displayName": "Soy Sauce Made From Hydrolyzed Vegetable Protein",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soy-sauce-made-from-soy-and-wheat-shoyu": {
+      "displayName": "Soy Sauce Made From Soy and Wheat (Shoyu)",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soy-sauce-made-from-soy-tamari": {
+      "displayName": "Soy Sauce Made From Soy (Tamari)",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soybean-lecithin-oil": {
+      "displayName": "Soybean Lecithin Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-soybean-sprout": {
+      "displayName": "Soybean Sprouts",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-spiny-lobster": {
+      "displayName": "Spiny Lobster",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-split-pea-soup": {
+      "displayName": "Split Pea Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-split-pea-with-ham-soup": {
+      "displayName": "Split Pea with Ham Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-spot": {
+      "displayName": "Spot",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-squid": {
+      "displayName": "Squid",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-steak-sauce": {
+      "displayName": "Steak Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-straw-mushroom": {
+      "displayName": "Straw Mushrooms",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-stuffing-bread": {
+      "displayName": "Stuffing Bread",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sucker": {
+      "displayName": "Sucker",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sugar-apple": {
+      "displayName": "Sugar-Apples",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sunfish": {
+      "displayName": "Sunfish",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-sunflower-seed-flour": {
+      "displayName": "Sunflower Seed Flour",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sunflower-seed-kernels-from-shell": {
+      "displayName": "Sunflower Seed Kernels From Shell",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-surimi": {
+      "displayName": "Surimi",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-sweet-and-sour-sauce": {
+      "displayName": "Sweet and Sour Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-swisswurst": {
+      "displayName": "Swisswurst",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-swordfish": {
+      "displayName": "Swordfish",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-taco-shell": {
+      "displayName": "Taco Shells",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tamarind": {
+      "displayName": "Tamarinds",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tamarind-nectar": {
+      "displayName": "Tamarind Nectar",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tapioca": {
+      "displayName": "Tapioca",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-taro-leaf": {
+      "displayName": "Taro Leaves",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-taro-shoot": {
+      "displayName": "Taro Shoots",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-tarragon": {
+      "displayName": "Tarragon",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tartar-sauce": {
+      "displayName": "Tartar Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tea-hibiscus": {
+      "displayName": "Tea Hibiscus",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tea-ready-to-drink": {
+      "displayName": "Tea Ready-To-Drink",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-teaseed-oil": {
+      "displayName": "Teaseed Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-thuringer": {
+      "displayName": "Thuringer",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tilefish": {
+      "displayName": "Tilefish",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-tomatillo": {
+      "displayName": "Tomatillos",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tomato": {
+      "displayName": "Tomatoes",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tomato-chili-sauce-sauce": {
+      "displayName": "Tomato Chili Sauce Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tomatoseed-oil": {
+      "displayName": "Tomatoseed Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tree-fern": {
+      "displayName": "Tree Fern",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-triticale": {
+      "displayName": "Triticale",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-triticale-flour": {
+      "displayName": "Triticale Flour",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-tropical-punch": {
+      "displayName": "Tropical Punch",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turbot": {
+      "displayName": "Turbot",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-from-whole": {
+      "displayName": "Turkey From Whole",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-light-or-dark-meat": {
+      "displayName": "Turkey Light or Dark Meat",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-noodle-soup": {
+      "displayName": "Turkey Noodle Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turkey-skin": {
+      "displayName": "Turkey Skin",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turkey-soup": {
+      "displayName": "Turkey Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turkey-vegetable-soup": {
+      "displayName": "Turkey Vegetable Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turmeric": {
+      "displayName": "Turmeric",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turnip": {
+      "displayName": "Turnips",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-turnip-green": {
+      "displayName": "Turnip Greens",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-turtle": {
+      "displayName": "Turtle",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-ucuhuba-butter-oil": {
+      "displayName": "Ucuhuba Butter Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-unspecified-type-gravy": {
+      "displayName": "Unspecified Type Gravy",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vanilla-extract": {
+      "displayName": "Vanilla Extract",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vanilla-or-lemon-flavor-yogurt": {
+      "displayName": "Vanilla or Lemon Flavor Yogurt",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-veal-breast": {
+      "displayName": "Veal Breast",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-ground": {
+      "displayName": "Veal Ground",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veal-rib": {
+      "displayName": "Veal Rib",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable": {
+      "displayName": "Vegetables",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-and-fruit-juice-blend": {
+      "displayName": "Vegetable and Fruit Juice Blend",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-and-fruit-juice-drink": {
+      "displayName": "Vegetable and Fruit Juice Drink",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-broth-soup": {
+      "displayName": "Vegetable Broth Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-chicken-soup": {
+      "displayName": "Vegetable Chicken Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-oil-butter-spread": {
+      "displayName": "Vegetable Oil-Butter Spread",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-soup": {
+      "displayName": "Vegetable Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetable-soup-soup": {
+      "displayName": "Vegetable Soup Soup",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetarian-fillet": {
+      "displayName": "Vegetarian Fillets",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vegetarian-meatloaf-or-patty": {
+      "displayName": "Vegetarian Meatloaf or Patties",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-veggie-burgers-or-soyburger": {
+      "displayName": "Veggie Burgers or Soyburgers",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-vermicelli": {
+      "displayName": "Vermicelli",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-walnut-oil": {
+      "displayName": "Walnut Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-water-convolvulus": {
+      "displayName": "Water Convolvulus",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-water-with-added-vitamins-and-mineral": {
+      "displayName": "Water with Added Vitamins and Minerals",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-watercress": {
+      "displayName": "Watercress",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-watermelon-seed-kernel": {
+      "displayName": "Watermelon Seed Kernels",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wheat-and-bran-cereal": {
+      "displayName": "Wheat and Bran Cereal",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wheat-bran": {
+      "displayName": "Wheat Bran",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wheat-bread": {
+      "displayName": "Wheat Bread",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-wheat-bread-sprout": {
+      "displayName": "Wheat Bread Sprouts",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-wheat-germ": {
+      "displayName": "Wheat Germ",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wheat-germ-cereal": {
+      "displayName": "Wheat Germ Cereal",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wheat-germ-oil": {
+      "displayName": "Wheat Germ Oil",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-wheat-sprout": {
+      "displayName": "Wheat Sprouts",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-whelk": {
+      "displayName": "Whelk",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-whey-protein-powder-isolate": {
+      "displayName": "Whey Protein Powder Isolate",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-whipped-topping": {
+      "displayName": "Whipped Topping",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-white-bread": {
+      "displayName": "White Bread",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-white-pepper": {
+      "displayName": "White Pepper",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-whiting": {
+      "displayName": "Whiting",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-whole-grain-pasta": {
+      "displayName": "Whole Grain Pasta",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-wild-rice": {
+      "displayName": "Wild Rice",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-wine": {
+      "displayName": "Wine",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-winged-bean": {
+      "displayName": "Winged Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-wolffish": {
+      "displayName": "Wolffish",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-wonton-wrappers-includes-egg-roll-wrappers": {
+      "displayName": "Wonton Wrappers (Includes Egg Roll Wrappers)",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-worcestershire-sauce": {
+      "displayName": "Worcestershire Sauce",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-yachtwurst": {
+      "displayName": "Yachtwurst",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-yardlong-bean": {
+      "displayName": "Yardlong Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-yeast-extract-spread": {
+      "displayName": "Yeast Extract Spread",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-yellow-bean": {
+      "displayName": "Yellow Beans",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-yellow-fleshed-potato": {
+      "displayName": "Yellow Fleshed Potatoes",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-yellow-green-colored-citrus-soft-drink-with-caffeine": {
+      "displayName": "Yellow Green Colored Citrus Soft Drink with Caffeine",
+      "category": "beverages",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "bulk-yellowtail": {
+      "displayName": "Yellowtail",
+      "category": "seafood",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "bulk-yokan": {
+      "displayName": "Yokan",
+      "category": "legumes",
+      "records": 1,
+      "reasonNotUsed": "identity was below the broad category floor and target fill does not introduce new headings"
+    },
+    "everyday-barley": {
+      "displayName": "Barley",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-butter": {
+      "displayName": "Butter",
+      "category": "condiments",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-cashews": {
+      "displayName": "Cashews",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-cauliflower": {
+      "displayName": "Cauliflower",
+      "category": "vegetables",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-chicken-drumsticks": {
+      "displayName": "Chicken Drumsticks",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-english-muffins": {
+      "displayName": "English Muffins",
+      "category": "grains",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-oranges": {
+      "displayName": "Oranges",
+      "category": "fruits",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-pecans": {
+      "displayName": "Pecans",
+      "category": "nuts/seeds",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-pork-tenderloin": {
+      "displayName": "Pork Tenderloin",
+      "category": "proteins",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-sour-cream": {
+      "displayName": "Sour Cream",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-swiss-cheese": {
+      "displayName": "Swiss Cheese",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    },
+    "everyday-whole-milk": {
+      "displayName": "Whole Milk",
+      "category": "dairy",
+      "records": 1,
+      "reasonNotUsed": "the reviewed-record target was reached before this later exact variant"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  AccessibilityInfo, ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Redirect, router, useLocalSearchParams, usePathname } from 'expo-router';
@@ -9,16 +9,18 @@ import { NutritionFacts } from '@/components/patient/NutritionFacts';
 import { LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import {
-  buildFoodLogEntry, getItemNutritionSnapshot, selectionScale, supportsOunces, useFoodLogging,
-  withItemNutritionSnapshot,
+  buildFoodLogEntry, getItemNutritionSnapshot, initializeFreshItemSnapshot, selectionScale,
+  supportsOunces, useFoodLogging, withItemNutritionSnapshot,
 } from '@/context/FoodLoggingContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
 import type { FoodItem } from '@/data/patient-data';
 import { MEAL_LABELS, MEAL_SLOTS, type MealSlot } from '@/data/patient-data';
 import {
-  scaledSnapshotMacros, selectSnapshotPortion, snapshotConfigurationId, snapshotPortion,
-  visibleNutritionPortions,
+  equivalentHouseholdPortion, formatNutritionAmount,
+  nutritionPortionDimension, nutritionPortionPresentation, orderedNutritionPortions, scaledSnapshotMacros,
+  selectSnapshotDisplayedPortion, selectSnapshotPortion, snapshotConfigurationId,
+  snapshotDisplayedAmount, snapshotPortion,
 } from '@/data/food-nutrition';
 import type { FoodNutritionSnapshot } from '@/data/food-nutrition';
 import { useColors } from '@/hooks/useColors';
@@ -133,7 +135,10 @@ export default function FoodDetailScreen() {
   guardRef.current = { accountKey: currentAccountKey, pathname };
   const [draft, setDraft] = useState<Draft | null>(() => {
     if (!initialItem) return null;
-    const snapshot = getItemNutritionSnapshot(initialItem);
+    const storedSnapshot = getItemNutritionSnapshot(initialItem);
+    const snapshot = storedSnapshot && !selected && !initialItem.catalog?.persisted
+      ? initializeFreshItemSnapshot(initialItem, storedSnapshot)
+      : storedSnapshot;
     return {
       key: initialKeyRef.current,
       item: initialItem,
@@ -155,6 +160,7 @@ export default function FoodDetailScreen() {
   const [showSource, setShowSource] = useState(false);
   const [proposedVariant, setProposedVariant] = useState<CatalogFood | null>(null);
   const [portionNotice, setPortionNotice] = useState<string | null>(null);
+  const [amountInput, setAmountInput] = useState<string | null>(null);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [favoriteError, setFavoriteError] = useState<string | null>(null);
   const [libraryMeal, setLibraryMeal] = useState<MealSlot>(initialMeal);
@@ -165,7 +171,10 @@ export default function FoodDetailScreen() {
   useEffect(() => {
     if (draft || !initialItem) return;
     if (`${currentAccountKey}:${id ?? ''}:${routeBasketId ?? ''}` !== initialKeyRef.current) return;
-    const initialSnapshot = getItemNutritionSnapshot(initialItem);
+    const storedSnapshot = getItemNutritionSnapshot(initialItem);
+    const initialSnapshot = storedSnapshot && !selected && !initialItem.catalog?.persisted
+      ? initializeFreshItemSnapshot(initialItem, storedSnapshot)
+      : storedSnapshot;
     setDraft({
       key: initialKeyRef.current,
       item: initialItem,
@@ -217,9 +226,14 @@ export default function FoodDetailScreen() {
 
   const item = draft.item;
   const snapshot = draft.snapshot;
+  const pendingAmount = amountInput === null ? null : Number(amountInput.trim());
+  const previewSnapshot = snapshot && pendingAmount !== null && Number.isFinite(pendingAmount) && pendingAmount > 0
+    ? selectSnapshotDisplayedPortion(snapshot, pendingAmount, snapshot.selected.unitId) ?? snapshot
+    : snapshot;
   const activePortion = snapshot ? snapshotPortion(snapshot) : undefined;
-  const amount = snapshot
-    ? `${display(snapshot.selected.amount)} ${activePortion?.label ?? snapshot.selected.unitId}`
+  const formattedAmount = previewSnapshot ? formatNutritionAmount(previewSnapshot) : null;
+  const amount = previewSnapshot
+    ? formattedAmount!.text
     : draft.ounces !== undefined
       ? `${display(draft.ounces)} oz`
       : `${display(draft.quantity)} × ${item.serving}`;
@@ -229,20 +243,28 @@ export default function FoodDetailScreen() {
     quantity: draft.quantity,
     ...(draft.ounces !== undefined ? { ounces: draft.ounces } : {}),
   });
-  const macros = snapshot ? scaledSnapshotMacros(snapshot) : null;
+  const previewLegacyScale = !snapshot && pendingAmount !== null && Number.isFinite(pendingAmount) && pendingAmount > 0
+    ? selectionScale({
+        basketId: routeBasketId ?? '',
+        item,
+        quantity: draft.ounces === undefined ? pendingAmount : draft.quantity,
+        ...(draft.ounces !== undefined ? { ounces: pendingAmount } : {}),
+      })
+    : legacyScale;
+  const macros = previewSnapshot ? scaledSnapshotMacros(previewSnapshot) : null;
   const macroValues = {
-    calories: macros?.calories ?? item.calories * (snapshot ? 1 : legacyScale),
-    protein: macros?.protein ?? item.protein * (snapshot ? 1 : legacyScale),
-    carbs: macros?.carbs ?? item.carbs * (snapshot ? 1 : legacyScale),
-    fat: macros?.fat ?? item.fat * (snapshot ? 1 : legacyScale),
+    calories: macros?.calories ?? item.calories * (previewSnapshot ? 1 : previewLegacyScale),
+    protein: macros?.protein ?? item.protein * (previewSnapshot ? 1 : previewLegacyScale),
+    carbs: macros?.carbs ?? item.carbs * (previewSnapshot ? 1 : previewLegacyScale),
+    fat: macros?.fat ?? item.fat * (previewSnapshot ? 1 : previewLegacyScale),
   };
-  const weightBased = snapshot ? activePortion?.dimension === 'weight' : supportsOunces(item);
+  const weightBased = snapshot ? !!activePortion && nutritionPortionDimension(activePortion) === 'weight' : supportsOunces(item);
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 67 : 12);
   const bottomPad = Platform.OS === 'web' ? 34 : Math.max(insets.bottom, 16);
-  const configurationId = snapshot ? snapshotConfigurationId(snapshot) : item.refId;
+  const configurationId = previewSnapshot ? snapshotConfigurationId(previewSnapshot) : item.refId;
   const isFavorite = patient.favorites.includes(configurationId);
   const selectablePortions = snapshot
-    ? visibleNutritionPortions(snapshot, {
+    ? orderedNutritionPortions(snapshot, {
         preserveSelected: Boolean(selected || item.catalog?.persisted),
       })
     : [];
@@ -257,18 +279,53 @@ export default function FoodDetailScreen() {
     : [];
 
   const updateVariant = (food: CatalogFood) => {
+    const resolved = resolvePendingAmount();
+    if (!resolved) return;
+    const workingSnapshot = resolved.snapshot;
+    const workingPortion = workingSnapshot ? snapshotPortion(workingSnapshot) : undefined;
     const nextItem = catalogFoodToLoggable(food);
     let nextSnapshot = getItemNutritionSnapshot(nextItem);
-    let reset = true;
-    if (snapshot && nextSnapshot && activePortion?.grams) {
-      const physicalGrams = snapshot.selected.amount * activePortion.grams;
-      const compatible = nextSnapshot.portions.find(portion =>
-        portion.dimension === activePortion.dimension && portion.grams && portion.grams > 0);
-      if (compatible) {
-        const selectedSnapshot = selectSnapshotPortion(nextSnapshot, physicalGrams / compatible.grams!, compatible.id);
-        if (selectedSnapshot) {
-          nextSnapshot = selectedSnapshot;
-          reset = false;
+    let notice: string | null = null;
+    if (workingSnapshot && nextSnapshot && workingPortion) {
+      const nextPortions = orderedNutritionPortions(nextSnapshot, { preserveSelected: false });
+      const currentPresentation = nutritionPortionPresentation(workingPortion);
+      const physicalGrams = workingPortion.grams
+        ? workingSnapshot.selected.amount * workingPortion.grams
+        : null;
+      const sameWeightUnit = nutritionPortionDimension(workingPortion) === 'weight'
+        ? nextPortions.find(portion =>
+            nutritionPortionDimension(portion) === 'weight' &&
+            nutritionPortionPresentation(portion).singular === currentPresentation.singular)
+        : undefined;
+      const sameHousehold = equivalentHouseholdPortion(workingPortion, nextPortions);
+      if (sameHousehold) {
+        nextSnapshot = selectSnapshotDisplayedPortion(
+          nextSnapshot,
+          snapshotDisplayedAmount(workingSnapshot, workingPortion),
+          sameHousehold.id,
+        ) ?? nextSnapshot;
+      } else if (sameWeightUnit) {
+        nextSnapshot = selectSnapshotPortion(
+          nextSnapshot,
+          physicalGrams && sameWeightUnit.grams
+            ? physicalGrams / sameWeightUnit.grams
+            : workingSnapshot.selected.scale / sameWeightUnit.basisMultiplier,
+          sameWeightUnit.id,
+        ) ?? nextSnapshot;
+      } else {
+        const ounce = nextPortions.find(portion =>
+          nutritionPortionDimension(portion) === 'weight' && nutritionPortionPresentation(portion).singular === 'oz');
+        if (ounce) {
+          nextSnapshot = selectSnapshotPortion(
+            nextSnapshot,
+            physicalGrams && ounce.grams
+              ? physicalGrams / ounce.grams
+              : workingSnapshot.selected.scale / ounce.basisMultiplier,
+            ounce.id,
+          ) ?? nextSnapshot;
+          notice = `${currentPresentation.shortLabel} are not documented for this type. The same weight is shown in ounces.`;
+        } else {
+          notice = `${currentPresentation.shortLabel} are not documented for this type. Its documented portion is shown instead.`;
         }
       }
     }
@@ -279,19 +336,30 @@ export default function FoodDetailScreen() {
       quantity: nextSnapshot?.selected.scale ?? 1,
       ounces: undefined,
     } : current);
-    setPortionNotice(reset ? 'This type uses different portion evidence, so its documented portion was reset.' : null);
+    setPortionNotice(notice);
     setProposedVariant(null);
   };
 
   const adjust = (direction: -1 | 1) => {
-    if (snapshot) {
-      const step = activePortion?.dimension === 'weight' ? 0.5 : 1;
-      const quotient = snapshot.selected.amount / step;
-      const onGrid = Math.abs(quotient - Math.round(quotient)) < 1e-10;
-      const nextAmount = Math.max(step, onGrid
-        ? snapshot.selected.amount + direction * step
-        : direction > 0 ? Math.ceil(quotient) * step : Math.floor(quotient) * step);
-      const nextSnapshot = selectSnapshotPortion(snapshot, nextAmount, snapshot.selected.unitId);
+    const resolved = amountInput !== null ? resolvePendingAmount() : draft;
+    if (!resolved) return;
+    const workingSnapshot = resolved.snapshot;
+    if (workingSnapshot) {
+      const workingPortion = snapshotPortion(workingSnapshot);
+      const activeDimension = workingPortion ? nutritionPortionDimension(workingPortion) : 'serving';
+      const step = activeDimension === 'volume' ? 0.25
+        : activeDimension === 'count' ? 1
+          : activeDimension === 'weight' ? 0.5 : 1;
+      const displayed = workingPortion
+        ? snapshotDisplayedAmount(workingSnapshot, workingPortion)
+        : workingSnapshot.selected.amount;
+      const nextAmount = displayed + direction * step;
+      if (nextAmount <= 0) return;
+      const nextSnapshot = selectSnapshotDisplayedPortion(
+        workingSnapshot,
+        nextAmount,
+        workingSnapshot.selected.unitId,
+      );
       if (nextSnapshot) {
         setDraft(current => current ? {
           ...current,
@@ -312,13 +380,86 @@ export default function FoodDetailScreen() {
     });
   };
 
+  const commitAmountInput = () => {
+    if (amountInput === null) return;
+    const nextAmount = Number(amountInput.trim());
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      setPortionNotice('Enter an amount greater than zero.');
+      return;
+    }
+    if (!snapshot) {
+      setDraft(current => current ? current.ounces !== undefined
+        ? { ...current, ounces: nextAmount }
+        : { ...current, quantity: nextAmount } : current);
+      setAmountInput(null);
+      setPortionNotice(null);
+      return;
+    }
+    const nextSnapshot = selectSnapshotDisplayedPortion(snapshot, nextAmount, snapshot.selected.unitId);
+    if (!nextSnapshot) {
+      setPortionNotice('That amount is not supported.');
+      return;
+    }
+    setDraft(current => current ? {
+      ...current,
+      snapshot: nextSnapshot,
+      item: withItemNutritionSnapshot(current.item, nextSnapshot),
+      quantity: nextSnapshot.selected.scale,
+      ounces: undefined,
+    } : current);
+    setAmountInput(null);
+    setPortionNotice(null);
+  };
+
+  const resolvePendingAmount = (): Draft | null => {
+    if (amountInput === null) return draft;
+    const nextAmount = Number(amountInput.trim());
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      const message = 'Enter an amount greater than zero.';
+      setPortionNotice(message);
+      AccessibilityInfo.announceForAccessibility(message);
+      return null;
+    }
+    if (!snapshot) {
+      const resolved = draft.ounces !== undefined
+        ? { ...draft, ounces: nextAmount }
+        : { ...draft, quantity: nextAmount };
+      setDraft(resolved);
+      setAmountInput(null);
+      setPortionNotice(null);
+      return resolved;
+    }
+    const nextSnapshot = selectSnapshotDisplayedPortion(snapshot, nextAmount, snapshot.selected.unitId);
+    if (!nextSnapshot) {
+      const message = 'That amount is not supported.';
+      setPortionNotice(message);
+      AccessibilityInfo.announceForAccessibility(message);
+      return null;
+    }
+    const resolved = {
+      ...draft,
+      snapshot: nextSnapshot,
+      item: withItemNutritionSnapshot(draft.item, nextSnapshot),
+      quantity: nextSnapshot.selected.scale,
+      ounces: undefined,
+    };
+    setDraft(resolved);
+    setAmountInput(null);
+    setPortionNotice(null);
+    return resolved;
+  };
+
   const save = () => {
-    const finalItem = snapshot ? withItemNutritionSnapshot(item, snapshot) : item;
+    const resolved = resolvePendingAmount();
+    if (!resolved) return;
+    const finalItem = resolved.snapshot
+      ? withItemNutritionSnapshot(resolved.item, resolved.snapshot)
+      : resolved.item;
     basket.configure(
       finalItem,
-      snapshot
-        ? { quantity: snapshot.selected.scale }
-        : { quantity: draft.quantity, ...(draft.ounces !== undefined ? { ounces: draft.ounces } : {}) },
+      resolved.snapshot
+        ? { quantity: resolved.snapshot.selected.scale }
+        : { quantity: resolved.quantity, ...(resolved.ounces !== undefined ? { ounces: resolved.ounces } : {}) },
       routeBasketId,
     );
     router.back();
@@ -326,6 +467,10 @@ export default function FoodDetailScreen() {
 
   const addFromLibrary = async () => {
     if (librarySavingRef.current) return;
+    const resolved = resolvePendingAmount();
+    if (!resolved) return;
+    const actionItem = resolved.item;
+    const actionSnapshot = resolved.snapshot;
     librarySavingRef.current = true;
     setLibrarySaving(true);
     setLibraryNotice(null);
@@ -337,7 +482,7 @@ export default function FoodDetailScreen() {
       if (patientAccount.account.kind !== 'real' && patientAccount.account.kind !== 'demo') {
         throw new Error('Your patient account is unavailable. Please sign in again.');
       }
-      const finalItem = snapshot ? withItemNutritionSnapshot(item, snapshot) : item;
+      const finalItem = actionSnapshot ? withItemNutritionSnapshot(actionItem, actionSnapshot) : actionItem;
       let logItem = finalItem;
       const catalog = catalogFromItem(finalItem);
       const shouldPromote = patientAccount.account.kind === 'real';
@@ -345,14 +490,14 @@ export default function FoodDetailScreen() {
         ? await selectCatalogFood(catalog)
         : null;
       if (!requestIsCurrent()) return;
-      if (snapshot) {
+      if (actionSnapshot) {
         const saveFood = promoted
           ? {
               ...catalogFoodSnapshot(promoted),
-              ...foodItemForSave(finalItem, snapshot),
-              nutritionSnapshot: snapshot,
+              ...foodItemForSave(finalItem, actionSnapshot),
+              nutritionSnapshot: actionSnapshot,
             }
-          : foodItemForSave(finalItem, snapshot);
+          : foodItemForSave(finalItem, actionSnapshot);
         const configured = await patient.saveFoodConfiguration(saveFood);
         if (!requestIsCurrent()) return;
         if (!configured) throw new Error('Could not save this food configuration.');
@@ -380,8 +525,8 @@ export default function FoodDetailScreen() {
       const result = await patient.submitFoodEntries([buildFoodLogEntry({
         basketId: 'library-direct',
         item: logItem,
-        quantity: snapshot?.selected.scale ?? draft.quantity,
-        ...(!snapshot && draft.ounces !== undefined ? { ounces: draft.ounces } : {}),
+        quantity: actionSnapshot?.selected.scale ?? resolved.quantity,
+        ...(!actionSnapshot && resolved.ounces !== undefined ? { ounces: resolved.ounces } : {}),
       }, { dateKey: targetDate, meal: libraryMeal })]);
       if (!requestIsCurrent()) return;
       if (result.outcome === 'rejected') throw new Error(result.message);
@@ -400,16 +545,23 @@ export default function FoodDetailScreen() {
 
   const toggleFavorite = async () => {
     if (favoriteBusy) return;
+    const resolved = resolvePendingAmount();
+    if (!resolved) return;
+    const actionItem = resolved.item;
+    const actionSnapshot = resolved.snapshot;
     setFavoriteBusy(true);
     setFavoriteError(null);
     const requestAccount = currentAccountKey;
     const requestPath = pathname;
     try {
-      if (!snapshot) {
-        await patient.toggleFavorite(item.refId);
+      if (!actionSnapshot) {
+        await patient.toggleFavorite(actionItem.refId);
         return;
       }
-      const saved = await patient.saveFoodConfiguration(foodItemForSave(item, snapshot), { favorite: !isFavorite });
+      const saved = await patient.saveFoodConfiguration(
+        foodItemForSave(actionItem, actionSnapshot),
+        { favorite: !patient.favorites.includes(snapshotConfigurationId(actionSnapshot)) },
+      );
       if (guardRef.current.accountKey !== requestAccount || guardRef.current.pathname !== requestPath) return;
       if (!saved) setFavoriteError('Could not update this favorite. Please try again.');
     } catch {
@@ -424,6 +576,8 @@ export default function FoodDetailScreen() {
   };
 
   const dimensionKeys = Array.from(new Set(variants.flatMap(variant => Object.keys(variant.dimensions ?? {}))));
+  const selectableDimensionKeys = dimensionKeys.filter(key =>
+    new Set(variants.map(variant => variant.dimensions?.[key]).filter(Boolean)).size > 1);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -453,40 +607,96 @@ export default function FoodDetailScreen() {
                   testID={`food-detail-unit-${portion.id}`}
                   key={portion.id}
                   onPress={() => {
-                    const nextAmount = snapshot.selected.scale / portion.basisMultiplier;
-                    const next = selectSnapshotPortion(snapshot, nextAmount, portion.id);
+                    if (snapshot.selected.unitId === portion.id) return;
+                     const resolved = resolvePendingAmount();
+                     if (!resolved?.snapshot) return;
+                     const workingSnapshot = resolved.snapshot;
+                     const workingPortion = snapshotPortion(workingSnapshot);
+                     const isWeightConversion = !!workingPortion &&
+                       nutritionPortionDimension(workingPortion) === 'weight' &&
+                       nutritionPortionDimension(portion) === 'weight';
+                    const next = isWeightConversion
+                       ? selectSnapshotPortion(workingSnapshot, workingSnapshot.selected.scale / portion.basisMultiplier, portion.id)
+                       : selectSnapshotDisplayedPortion(workingSnapshot, 1, portion.id);
                     if (next) {
                       setDraft(current => current ? {
                         ...current, snapshot: next,
                         item: withItemNutritionSnapshot(current.item, next),
                         quantity: next.selected.scale, ounces: undefined,
                       } : current);
+                      if (!isWeightConversion) {
+                        const changed = formatNutritionAmount(next).text;
+                        AccessibilityInfo.announceForAccessibility(`Amount changed to ${changed}`);
+                      }
                     }
                   }}
                   style={[styles.option, { borderColor: snapshot.selected.unitId === portion.id ? colors.cobalt : colors.border },
                     snapshot.selected.unitId === portion.id && { backgroundColor: colors.accent }]}
                 >
                   <Text style={[styles.optionText, { color: snapshot.selected.unitId === portion.id ? colors.cobalt : colors.bodyText }]}>
-                    {portion.label}
+                    {nutritionPortionPresentation(portion).shortLabel}
                   </Text>
                 </Pressable>
               ))}
                {!showAllUnits && selectablePortions.length > 3 && (
-                <Pressable onPress={() => setShowAllUnits(true)} style={styles.more}>
+                 <Pressable testID="food-detail-more-units" onPress={() => setShowAllUnits(true)} style={styles.more}>
                   <Text style={[styles.moreText, { color: colors.cobalt }]}>More units</Text>
                 </Pressable>
               )}
             </View>
           )}
+          {snapshot && showAllUnits && selectablePortions
+            .filter(portion => nutritionPortionPresentation(portion).sourceAmount > 1)
+            .map(portion => (
+              <Text
+                testID={`food-detail-source-measure-${portion.id}`}
+                key={`source-measure-${portion.id}`}
+                style={[styles.sourceMeasure, { color: colors.subtleText }]}
+              >
+                Source measure: {portion.label}{portion.grams ? ` = ${display(portion.grams, 4)} g` : ''}
+              </Text>
+            ))}
           <View style={styles.amountRow}>
             <Pressable testID="food-detail-minus" accessibilityLabel="Decrease amount" onPress={() => adjust(-1)} style={[styles.step, { borderColor: colors.border }]}>
               <Feather name="minus" size={16} color={colors.bodyText} />
             </Pressable>
-            <Text testID="food-detail-amount" accessibilityLabel={`Current amount ${amount}`} style={[styles.amount, { color: colors.navy }]}>{amount}</Text>
+            <View style={styles.amountEditor}>
+              <TextInput
+                testID="food-detail-amount-input"
+                accessibilityLabel={`Current amount ${amount}. Enter a positive amount.`}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                selectTextOnFocus
+                value={amountInput ?? (formattedAmount
+                  ? display(formattedAmount.amount, 4)
+                  : display(draft.ounces ?? draft.quantity, 4))}
+                onChangeText={value => {
+                  setAmountInput(value);
+                  const number = Number(value.trim());
+                  if (value.trim() && Number.isFinite(number) && number > 0) setPortionNotice(null);
+                }}
+                onBlur={commitAmountInput}
+                onSubmitEditing={commitAmountInput}
+                style={[styles.amountInput, { color: colors.navy, borderColor: colors.border }]}
+              />
+              <Text testID="food-detail-amount" style={[styles.amountUnit, { color: colors.navy }]}>
+                {formattedAmount?.unit ?? (draft.ounces !== undefined ? 'oz' : item.serving)}
+              </Text>
+            </View>
             <Pressable testID="food-detail-plus" accessibilityLabel="Increase amount" onPress={() => adjust(1)} style={[styles.step, { borderColor: colors.border }]}>
               <Feather name="plus" size={16} color={colors.bodyText} />
             </Pressable>
           </View>
+          {formattedAmount?.qualifier && (
+            <Text testID="food-detail-portion-qualifier" style={[styles.qualifier, { color: colors.subtleText }]}>
+              {formattedAmount.qualifier}
+            </Text>
+          )}
+          {portionNotice && (
+            <Text testID="food-detail-amount-error" style={[styles.note, { color: colors.bodyText, marginTop: 8 }]}>
+              {portionNotice}
+            </Text>
+          )}
         </LedgerCard>
 
         <LedgerCard style={{ padding: 16, marginTop: 12 }}>
@@ -536,7 +746,13 @@ export default function FoodDetailScreen() {
                       <Text style={[styles.dimensionLabel, { color: colors.bodyText }]}>{dimKey.toUpperCase()}</Text>
                       <View style={styles.optionRow}>
                         {visibleOptions(values, currentValue, !!expandedDimensions[dimKey]).map(value => {
-                          const desired = { ...(item.catalog?.dimensions ?? snapshot?.variant?.dimensions ?? {}), [dimKey]: value };
+                           const currentDimensions = item.catalog?.dimensions ?? snapshot?.variant?.dimensions ?? {};
+                           const desired = Object.fromEntries(
+                             selectableDimensionKeys.map(key => [
+                               key,
+                               key === dimKey ? value : currentDimensions[key],
+                             ]).filter((pair): pair is [string, string] => typeof pair[1] === 'string'),
+                           );
                           const direct = variants.find(variant =>
                             Object.entries(desired).every(([key, selectedValue]) => variant.dimensions?.[key] === selectedValue));
                           const alternate = variants.find(variant => variant.dimensions?.[dimKey] === value);
@@ -546,7 +762,10 @@ export default function FoodDetailScreen() {
                               testID={`food-detail-dimension-${dimKey}-${value}`}
                               key={value}
                               accessibilityHint={!direct ? 'Requires changing other type choices and confirmation' : undefined}
-                              onPress={() => direct ? updateVariant(direct) : alternate && setProposedVariant(alternate)}
+                              onPress={() => {
+                                if (direct) updateVariant(direct);
+                                else if (alternate && resolvePendingAmount()) setProposedVariant(alternate);
+                              }}
                               style={[styles.option, { borderColor: selectedValue ? colors.cobalt : colors.border },
                                 selectedValue && { backgroundColor: colors.accent }]}
                             >
@@ -575,7 +794,7 @@ export default function FoodDetailScreen() {
                       That choice is only available as: {proposedVariant.variantSummary ?? Object.values(proposedVariant.dimensions ?? {}).join(' · ')}.
                     </Text>
                     <View style={styles.confirmActions}>
-                      <Pressable onPress={() => setProposedVariant(null)}>
+                      <Pressable testID="food-detail-cancel-variant" onPress={() => setProposedVariant(null)}>
                         <Text style={[styles.moreText, { color: colors.bodyText }]}>Cancel</Text>
                       </Pressable>
                       <Pressable testID="food-detail-confirm-variant" onPress={() => updateVariant(proposedVariant)}>
@@ -584,7 +803,6 @@ export default function FoodDetailScreen() {
                     </View>
                   </View>
                 )}
-                {portionNotice && <Text style={[styles.note, { color: colors.bodyText }]}>{portionNotice}</Text>}
               </View>
             )}
           </LedgerCard>
@@ -598,7 +816,7 @@ export default function FoodDetailScreen() {
           {showNutrition && (
             <View style={styles.collapseBody}>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <NutritionFacts snapshot={snapshot} />
+              <NutritionFacts snapshot={previewSnapshot} />
             </View>
           )}
         </LedgerCard>
@@ -696,7 +914,11 @@ const styles = StyleSheet.create({
   label: { fontSize: 9, letterSpacing: 1, fontFamily: 'Inter_700Bold' },
   amountRow: { marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22 },
   step: { width: 42, height: 42, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  amount: { minWidth: 110, textAlign: 'center', fontSize: 22, fontFamily: 'Inter_600SemiBold' },
+  amountEditor: { minWidth: 132, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  amountInput: { width: 76, height: 42, borderWidth: 1, paddingHorizontal: 8, textAlign: 'center', fontSize: 20, fontFamily: 'Inter_600SemiBold' },
+  amountUnit: { maxWidth: 90, fontSize: 17, fontFamily: 'Inter_600SemiBold' },
+  qualifier: { marginTop: 8, textAlign: 'center', fontSize: 11, lineHeight: 15, fontFamily: 'Inter_400Regular' },
+  sourceMeasure: { marginTop: 7, fontSize: 11, lineHeight: 15, fontFamily: 'Inter_400Regular' },
   nutrition: { flexDirection: 'row', marginTop: 16 },
   nutritionCell: { flex: 1, alignItems: 'center', gap: 4 },
   nutritionValue: { fontSize: 17, fontFamily: 'Inter_600SemiBold' },

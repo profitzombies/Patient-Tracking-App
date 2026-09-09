@@ -1,0 +1,43 @@
+{
+  "verifiedAt": "2026-09-09T02:31:40.715Z",
+  "results": [
+    {
+      "query": "chicken",
+      "milliseconds": 3602,
+      "status": 200,
+      "names": [
+        "Chicken Breast",
+        "Chicken Thighs",
+        "Chicken Wings",
+        "Chicken Drumsticks",
+        "Chicken and Vegetable Soup",
+        "Chicken Back"
+      ]
+    },
+    {
+      "query": "blue cheese",
+      "milliseconds": 665,
+      "status": 200,
+      "names": [
+        "Blue Cheese"
+      ]
+    },
+    {
+      "query": "puffed wheat",
+      "milliseconds": 482,
+      "status": 200,
+      "names": [
+        "Cereals Ready-To-Eat, QUAKER, QUAKER Puffed Wheat",
+        "Cereals Ready-To-Eat, Wheat, Puffed, Fortified"
+      ]
+    },
+    {
+      "query": "meatless meatballs",
+      "milliseconds": 528,
+      "status": 200,
+      "names": [
+        "Meatballs, Meatless"
+      ]
+    }
+  ]
+}

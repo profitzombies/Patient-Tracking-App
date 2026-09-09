@@ -114,3 +114,4 @@
 - [Implementation brief scope](task-brief-scope.md) — keep planning-only disclaimers out of build tasks; merged documentation is not proof of an implemented feature.
 - [Pending food amount intent](food-amount-intent.md) — every action must consume the effective amount; favorite state follows the resolved configuration, not the prior render.
 - [Grouped food-search plans](food-search-plans.md) — materialize family hits before lateral variants; aggregate narrow aliases before joining nutrition snapshots.
+- [Bloodwork review semantics](bloodwork-review-semantics.md) — extract to unreviewed results; patient and provider corrections do not imply clinical sign-off; recommendations remain a separate future scope.

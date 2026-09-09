@@ -127,6 +127,8 @@ export interface PatientServerState {
   favorites: string[];
   recents: string[];
   customFoods: FoodItem[];
+  /** Account-backed exact configurations copied from the shared catalog. */
+  catalogFoods: FoodItem[];
   savedRecipes: SavedRecipe[];
   photos: ProgressPhotoWire[];
   checkIns: CheckIn[];

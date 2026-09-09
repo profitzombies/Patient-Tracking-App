@@ -22,6 +22,7 @@ import type {
   RecipeIngredient,
   SavedRecipe,
 } from '@/data/patient-data';
+import { parseNutritionSnapshot } from '@/data/food-nutrition';
 import type {
   ChatThread,
   ChatThreadSnapshot,
@@ -239,6 +240,11 @@ function parseEntry(raw: unknown): MealLogEntry {
     }
     if (valid && adjustments.length > 0) entry.adjustments = adjustments;
   }
+  if (e.nutritionSnapshot !== undefined && e.nutritionSnapshot !== null) {
+    const nutritionSnapshot = parseNutritionSnapshot(e.nutritionSnapshot);
+    if (!nutritionSnapshot) throw new PatientDataError(MALFORMED_MESSAGE);
+    entry.nutritionSnapshot = nutritionSnapshot;
+  }
   return entry;
 }
 
@@ -347,6 +353,19 @@ function parseCustomFood(raw: unknown): FoodItem {
     item.photoPath = f.photoPath;
     item.photoUri = patientMediaDisplayUrl(f.photoPath);
   }
+  if (f.catalogShared === true) item.catalogShared = true;
+  if (typeof f.catalogSourceLabel === 'string') item.catalogSourceLabel = f.catalogSourceLabel;
+  if (f.catalogApproved === true) item.catalogApproved = true;
+  if (typeof f.catalogLookupId === 'string') item.catalogLookupId = f.catalogLookupId;
+  if (typeof f.catalogCanonicalName === 'string') item.catalogCanonicalName = f.catalogCanonicalName;
+  if (typeof f.catalogServingGrams === 'number' && Number.isFinite(f.catalogServingGrams)) {
+    item.catalogServingGrams = f.catalogServingGrams;
+  }
+  if (f.nutritionSnapshot !== undefined && f.nutritionSnapshot !== null) {
+    const nutritionSnapshot = parseNutritionSnapshot(f.nutritionSnapshot);
+    if (!nutritionSnapshot) throw new PatientDataError(MALFORMED_MESSAGE);
+    item.nutritionSnapshot = nutritionSnapshot;
+  }
   return item;
 }
 
@@ -445,6 +464,13 @@ function foodWire(food: FoodItem): Record<string, unknown> {
     carbs: food.carbs,
     fat: food.fat,
     ...(food.photoPath ? { photoPath: food.photoPath } : {}),
+    ...(food.nutritionSnapshot ? { nutritionSnapshot: food.nutritionSnapshot } : {}),
+    ...(food.catalogShared ? { catalogShared: true } : {}),
+    ...(food.catalogSourceLabel ? { catalogSourceLabel: food.catalogSourceLabel } : {}),
+    ...(food.catalogApproved ? { catalogApproved: true } : {}),
+    ...(food.catalogLookupId ? { catalogLookupId: food.catalogLookupId } : {}),
+    ...(food.catalogCanonicalName ? { catalogCanonicalName: food.catalogCanonicalName } : {}),
+    ...(food.catalogServingGrams ? { catalogServingGrams: food.catalogServingGrams } : {}),
   };
 }
 
@@ -763,6 +789,7 @@ function parseServerState(json: unknown): PatientServerState {
     : [];
 
   const customFoods = Array.isArray(data.customFoods) ? data.customFoods.map(parseCustomFood) : [];
+  const catalogFoods = Array.isArray(data.catalogFoods) ? data.catalogFoods.map(parseCustomFood) : [];
   const savedRecipes = Array.isArray(data.savedRecipes)
     ? data.savedRecipes.map(parseSavedRecipe)
     : [];
@@ -792,6 +819,7 @@ function parseServerState(json: unknown): PatientServerState {
     favorites,
     recents,
     customFoods,
+    catalogFoods,
     savedRecipes,
     photos,
     checkIns,

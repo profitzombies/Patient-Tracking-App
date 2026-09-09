@@ -324,6 +324,124 @@ function numberIn(value: unknown, min: number, max: number): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
 }
 
+const SNAPSHOT_DIMENSIONS = new Set(["weight", "volume", "count", "serving"]);
+const SNAPSHOT_PROVENANCE = new Set([
+  "generic_source",
+  "generic_dish_estimate",
+  "identified_product",
+  "personal_label",
+]);
+
+function snapshotText(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= max;
+}
+
+/**
+ * Validates and bounds an optional FoodNutritionSnapshot without importing a
+ * mobile artifact. Null is never a valid supplied snapshot; undefined means
+ * the legacy field is absent.
+ */
+function parseNutritionSnapshot(
+  value: unknown,
+): { snapshot: Record<string, unknown> | null } | { error: string } {
+  if (value === undefined) return { snapshot: null };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { error: "Nutrition snapshot is invalid." };
+  }
+  let encoded: string;
+  try {
+    encoded = JSON.stringify(value);
+  } catch {
+    return { error: "Nutrition snapshot is invalid." };
+  }
+  if (encoded.length > 64_000) return { error: "Nutrition snapshot is too large." };
+  const root = value as Record<string, unknown>;
+  const source = root.source as Record<string, unknown> | null;
+  const basis = root.basis as Record<string, unknown> | null;
+  const selected = root.selected as Record<string, unknown> | null;
+  if (
+    root.version !== 1 ||
+    !source || typeof source !== "object" || Array.isArray(source) ||
+    !snapshotText(source.provider, 80) ||
+    !snapshotText(source.recordId, 160) ||
+    !snapshotText(source.revision, 160) ||
+    (source.release !== undefined && !snapshotText(source.release, 160)) ||
+    (source.canonicalName !== undefined && !snapshotText(source.canonicalName, 500)) ||
+    !basis || typeof basis !== "object" || Array.isArray(basis) ||
+    !numberIn(basis.amount, Number.MIN_VALUE, 1_000_000) ||
+    !snapshotText(basis.unit, 40) ||
+    !snapshotText(basis.label, 160) ||
+    (basis.grams !== undefined && !numberIn(basis.grams, Number.MIN_VALUE, 1_000_000)) ||
+    !selected || typeof selected !== "object" || Array.isArray(selected) ||
+    !numberIn(selected.amount, Number.MIN_VALUE, 1_000_000) ||
+    !snapshotText(selected.unitId, 120) ||
+    !numberIn(selected.scale, Number.MIN_VALUE, 1_000_000) ||
+    typeof root.provenance !== "string" ||
+    !SNAPSHOT_PROVENANCE.has(root.provenance) ||
+    !Array.isArray(root.nutrients) ||
+    root.nutrients.length < 1 ||
+    root.nutrients.length > 200 ||
+    !Array.isArray(root.portions) ||
+    root.portions.length < 1 ||
+    root.portions.length > 100
+  ) return { error: "Nutrition snapshot is invalid." };
+
+  const nutrientIds = new Set<string>();
+  for (const raw of root.nutrients) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { error: "Nutrition snapshot is invalid." };
+    const nutrient = raw as Record<string, unknown>;
+    if (
+      !snapshotText(nutrient.id, 120) ||
+      nutrientIds.has(nutrient.id) ||
+      !snapshotText(nutrient.name, 160) ||
+      !snapshotText(nutrient.unit, 40) ||
+      !numberIn(nutrient.amount, 0, 10_000_000)
+    ) return { error: "Nutrition snapshot is invalid." };
+    nutrientIds.add(nutrient.id);
+  }
+  const portionIds = new Set<string>();
+  let selectedMultiplier: number | null = null;
+  for (const raw of root.portions) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { error: "Nutrition snapshot is invalid." };
+    const portion = raw as Record<string, unknown>;
+    if (
+      !snapshotText(portion.id, 120) ||
+      portionIds.has(portion.id) ||
+      !snapshotText(portion.label, 160) ||
+      !snapshotText(portion.unit, 40) ||
+      typeof portion.dimension !== "string" ||
+      !SNAPSHOT_DIMENSIONS.has(portion.dimension) ||
+      !numberIn(portion.basisMultiplier, Number.MIN_VALUE, 1_000_000) ||
+      (portion.grams !== undefined && !numberIn(portion.grams, Number.MIN_VALUE, 1_000_000)) ||
+      (portion.evidence !== undefined && !snapshotText(portion.evidence, 500))
+    ) return { error: "Nutrition snapshot is invalid." };
+    portionIds.add(portion.id);
+    if (portion.id === selected.unitId) selectedMultiplier = portion.basisMultiplier;
+  }
+  if (selectedMultiplier === null) return { error: "Nutrition snapshot selected unit is invalid." };
+  const expectedScale = (selected.amount as number) * selectedMultiplier;
+  if (Math.abs(expectedScale - (selected.scale as number)) > Math.max(1e-10, expectedScale * 1e-10)) {
+    return { error: "Nutrition snapshot scale is invalid." };
+  }
+  if (root.variant !== undefined) {
+    const variant = root.variant as Record<string, unknown> | null;
+    const dimensions = variant?.dimensions as Record<string, unknown> | null;
+    if (
+      !variant || typeof variant !== "object" || Array.isArray(variant) ||
+      !snapshotText(variant.familyKey, 160) ||
+      !snapshotText(variant.summary, 300) ||
+      !dimensions || typeof dimensions !== "object" || Array.isArray(dimensions) ||
+      Object.keys(dimensions).length > 20
+    ) return { error: "Nutrition snapshot variant is invalid." };
+    for (const [key, dimensionValue] of Object.entries(dimensions)) {
+      if (!snapshotText(key, 80) || !snapshotText(dimensionValue, 160)) {
+        return { error: "Nutrition snapshot variant is invalid." };
+      }
+    }
+  }
+  return { snapshot: root };
+}
+
 /** Array of opaque catalog/custom ids (favorites, recents, deleteIds). */
 function parseIdList(value: unknown, maxItems: number, maxLength = 80): string[] | null {
   if (!Array.isArray(value) || value.length > maxItems) return null;
@@ -460,6 +578,7 @@ interface EntryRow {
   carbs: number;
   fat: number;
   adjustments: Array<{ index: number; amount: number; unit: string }> | null;
+  nutrition_snapshot: Record<string, unknown> | null;
   updated_at: string;
 }
 
@@ -527,6 +646,8 @@ function parseEntry(
     }
     if (cleaned.length > 0) adjustments = cleaned;
   }
+  const nutrition = parseNutritionSnapshot(e.nutritionSnapshot);
+  if ("error" in nutrition) return nutrition;
   return {
     row: {
       patient_id: patientId,
@@ -543,6 +664,7 @@ function parseEntry(
       carbs: e.carbs,
       fat: e.fat,
       adjustments,
+      nutrition_snapshot: nutrition.snapshot,
       updated_at: stamp,
     },
   };
@@ -574,6 +696,9 @@ interface FoodRow {
   carbs: number;
   fat: number;
   photo_path: string | null;
+  nutrition_snapshot: Record<string, unknown> | null;
+  catalog_shared: boolean;
+  catalog_metadata: Record<string, unknown> | null;
 }
 
 /**
@@ -606,6 +731,30 @@ function parseCustomFood(raw: unknown, patientId: string): { row: FoodRow } | { 
   if (!numberIn(f.fat, 0, 5000)) return { error: "Food fat is invalid." };
   const photo = parsePhotoPath(f.photoPath, patientId);
   if ("error" in photo) return photo;
+  const nutrition = parseNutritionSnapshot(f.nutritionSnapshot);
+  if ("error" in nutrition) return nutrition;
+  const catalogShared = f.catalogShared === true;
+  const catalogMetadata: Record<string, unknown> = {};
+  for (const [key, max] of [
+    ["catalogSourceLabel", 200],
+    ["catalogLookupId", 200],
+    ["catalogCanonicalName", 500],
+  ] as const) {
+    if (f[key] !== undefined) {
+      if (!snapshotText(f[key], max)) return { error: "Food catalog metadata is invalid." };
+      catalogMetadata[key] = f[key];
+    }
+  }
+  if (f.catalogApproved !== undefined) {
+    if (typeof f.catalogApproved !== "boolean") return { error: "Food catalog metadata is invalid." };
+    catalogMetadata.catalogApproved = f.catalogApproved;
+  }
+  if (f.catalogServingGrams !== undefined) {
+    if (!numberIn(f.catalogServingGrams, Number.MIN_VALUE, 1_000_000)) {
+      return { error: "Food catalog metadata is invalid." };
+    }
+    catalogMetadata.catalogServingGrams = f.catalogServingGrams;
+  }
   return {
     row: {
       food_id: f.id,
@@ -617,6 +766,9 @@ function parseCustomFood(raw: unknown, patientId: string): { row: FoodRow } | { 
       carbs: f.carbs,
       fat: f.fat,
       photo_path: photo.path,
+      nutrition_snapshot: nutrition.snapshot,
+      catalog_shared: catalogShared,
+      catalog_metadata: Object.keys(catalogMetadata).length > 0 ? catalogMetadata : null,
     },
   };
 }
@@ -1113,7 +1265,7 @@ router.get("/patient-data/state", async (req, res) => {
       supabaseAdmin(
         "GET",
         `/rest/v1/patient_diary_entries?${rangeFilters([`patient_id=eq.${pid}`])}` +
-          `&select=entry_id,date_key,meal,kind,ref_id,name,detail,quantity,calories,protein,carbs,fat,adjustments` +
+          `&select=entry_id,date_key,meal,kind,ref_id,name,detail,quantity,calories,protein,carbs,fat,adjustments,nutrition_snapshot` +
           `&order=created_at.asc,entry_id.asc&limit=${MAX_ENTRIES_RETURNED}`,
       ),
       supabaseAdmin(
@@ -1131,7 +1283,7 @@ router.get("/patient-data/state", async (req, res) => {
       supabaseAdmin(
         "GET",
         `/rest/v1/patient_custom_foods?patient_id=eq.${pid}` +
-          `&select=food_id,name,brand,serving,calories,protein,carbs,fat,photo_path` +
+          `&select=food_id,name,brand,serving,calories,protein,carbs,fat,photo_path,nutrition_snapshot,catalog_shared,catalog_metadata` +
           `&order=created_at.asc,food_id.asc&limit=${MAX_FOODS_RETURNED}`,
       ),
       supabaseAdmin(
@@ -1187,6 +1339,9 @@ router.get("/patient-data/state", async (req, res) => {
       if (Array.isArray(row.adjustments) && row.adjustments.length > 0) {
         entry.adjustments = row.adjustments;
       }
+      if (row.nutrition_snapshot && typeof row.nutrition_snapshot === "object") {
+        entry.nutritionSnapshot = row.nutrition_snapshot;
+      }
       return entry;
     });
 
@@ -1216,7 +1371,7 @@ router.get("/patient-data/state", async (req, res) => {
     // Library rows come back in the app's own shapes. Constants the client
     // owns (custom-food category, recipe source) are injected here, not
     // stored; photo paths ride as photoPath and the app builds display URLs.
-    const customFoods = (foods.json as Array<Record<string, unknown>>).map(row => {
+    const allFoodRows = (foods.json as Array<Record<string, unknown>>).map(row => {
       const item: Record<string, unknown> = {
         id: row.food_id,
         name: row.name,
@@ -1231,8 +1386,17 @@ router.get("/patient-data/state", async (req, res) => {
       if (typeof row.photo_path === "string" && row.photo_path.length > 0) {
         item.photoPath = row.photo_path;
       }
+      if (row.nutrition_snapshot && typeof row.nutrition_snapshot === "object") {
+        item.nutritionSnapshot = row.nutrition_snapshot;
+      }
+      if (row.catalog_shared === true) item.catalogShared = true;
+      if (row.catalog_metadata && typeof row.catalog_metadata === "object") {
+        Object.assign(item, row.catalog_metadata);
+      }
       return item;
     });
+    const customFoods = allFoodRows.filter(item => item.catalogShared !== true);
+    const catalogFoods = allFoodRows.filter(item => item.catalogShared === true);
 
     const savedRecipes = (recipes.json as Array<Record<string, unknown>>).map(row => {
       const item: Record<string, unknown> = {
@@ -1320,6 +1484,7 @@ router.get("/patient-data/state", async (req, res) => {
       favorites,
       recents,
       customFoods,
+      catalogFoods,
       savedRecipes,
       photos: photoList,
       checkIns: checkInList,

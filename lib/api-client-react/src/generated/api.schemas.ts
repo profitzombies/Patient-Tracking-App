@@ -1749,6 +1749,90 @@ export const CoachLabelScanLabelSuggestedSlot = {
   snacks: 'snacks',
 } as const;
 
+export type FoodNutritionSnapshotVersion = typeof FoodNutritionSnapshotVersion[keyof typeof FoodNutritionSnapshotVersion];
+
+
+export const FoodNutritionSnapshotVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export interface FoodNutritionSource {
+  provider: string;
+  recordId: string;
+  release?: string;
+  revision: string;
+  canonicalName?: string;
+}
+
+export interface FoodNutritionBasis {
+  amount: number;
+  unit: string;
+  label: string;
+  grams?: number;
+}
+
+export interface FoodNutritionNutrient {
+  id: string;
+  name: string;
+  unit: string;
+  amount: number;
+}
+
+export type FoodNutritionPortionDimension = typeof FoodNutritionPortionDimension[keyof typeof FoodNutritionPortionDimension];
+
+
+export const FoodNutritionPortionDimension = {
+  weight: 'weight',
+  volume: 'volume',
+  count: 'count',
+  serving: 'serving',
+} as const;
+
+export interface FoodNutritionPortion {
+  id: string;
+  label: string;
+  unit: string;
+  dimension: FoodNutritionPortionDimension;
+  basisMultiplier: number;
+  grams?: number;
+  evidence?: string;
+}
+
+export type FoodNutritionVariantDimensions = {[key: string]: string};
+
+export interface FoodNutritionVariant {
+  familyKey: string;
+  summary: string;
+  dimensions: FoodNutritionVariantDimensions;
+}
+
+export interface FoodNutritionSelection {
+  amount: number;
+  unitId: string;
+  scale: number;
+}
+
+export type FoodNutritionSnapshotProvenance = typeof FoodNutritionSnapshotProvenance[keyof typeof FoodNutritionSnapshotProvenance];
+
+
+export const FoodNutritionSnapshotProvenance = {
+  generic_source: 'generic_source',
+  generic_dish_estimate: 'generic_dish_estimate',
+  identified_product: 'identified_product',
+  personal_label: 'personal_label',
+} as const;
+
+export interface FoodNutritionSnapshot {
+  version: FoodNutritionSnapshotVersion;
+  source: FoodNutritionSource;
+  basis: FoodNutritionBasis;
+  nutrients: FoodNutritionNutrient[];
+  portions: FoodNutritionPortion[];
+  variant?: FoodNutritionVariant;
+  selected: FoodNutritionSelection;
+  provenance: FoodNutritionSnapshotProvenance;
+}
+
 /**
  * Validated per-serving transcription of one Nutrition Facts panel — the same read the coach chat's labelDraft SSE event carries. Printed values only; optional fields are omitted when the panel does not print them legibly.
  */
@@ -1767,6 +1851,7 @@ export interface CoachLabelScanLabel {
   carbs: number;
   /** Grams per serving */
   fat: number;
+  nutritionSnapshot?: FoodNutritionSnapshot;
   /** Grams per serving; omitted when not printed legibly */
   fiber?: number;
   /** Grams per serving; omitted when not printed legibly */
@@ -1908,6 +1993,13 @@ export const CatalogFoodQualityStatus = {
   private: 'private',
 } as const;
 
+export type CatalogFoodDimensions = {[key: string]: string};
+
+/**
+ * Private saved-food catalog provenance and configuration metadata
+ */
+export type CatalogFoodCatalogMetadata = { [key: string]: unknown };
+
 export interface CatalogFood {
   id: string;
   kind: CatalogFoodKind;
@@ -1930,12 +2022,32 @@ export interface CatalogFood {
   barcode: string | null;
   qualityStatus: CatalogFoodQualityStatus;
   approvals: CatalogApproval[];
+  resultKey?: string;
+  familyKey?: string;
+  variantSummary?: string;
+  dimensions?: CatalogFoodDimensions;
+  choiceRequired?: boolean;
+  nutritionSnapshot?: FoodNutritionSnapshot;
+  /** Private saved-food catalog provenance and configuration metadata */
+  catalogMetadata?: CatalogFoodCatalogMetadata;
 }
 
 export interface CatalogSearchResult {
   results: CatalogFood[];
   /** Local results remain valid when branded fallback failed */
   externalUnavailable: boolean;
+  hasMore: boolean;
+  /**
+     * Opaque continuation cursor, or null when no more results exist
+     * @nullable
+     */
+  nextCursor: string | null;
+  /** Review/ranking version that pins continuation ordering */
+  rankingVersion: string;
+}
+
+export interface CatalogFamilyResult {
+  variants: CatalogFood[];
 }
 
 export interface CatalogSelectionInput {
@@ -2422,6 +2534,36 @@ limit?: number;
  * Explicitly request guarded branded fallback
  */
 branded?: boolean;
+/**
+ * Enable reviewed family grouping, deterministic paging, and the bounded small-choice response. When absent, legacy search behavior is preserved.
+ */
+grouped?: boolean;
+/**
+ * Search generic/basic foods or explicitly packaged products
+ */
+intent?: CatalogSearchIntent;
+/**
+ * Restrict candidates to variations with an eligible approval
+ */
+approvedOnly?: boolean;
+/**
+ * Opaque continuation cursor returned by a grouped search
+ * @minLength 1
+ * @maxLength 2048
+ */
+cursor?: string;
+};
+
+export type CatalogSearchIntent = typeof CatalogSearchIntent[keyof typeof CatalogSearchIntent];
+
+
+export const CatalogSearchIntent = {
+  basic: 'basic',
+  packaged: 'packaged',
+} as const;
+
+export type CatalogFamilyParams = {
+approvedOnly?: boolean;
 };
 
 export type ProgressPhotoFileParams = {

@@ -5,7 +5,7 @@
  * unit, honest "100 g"/"100 ml" fallback, null for anything incomplete).
  */
 import { describe, expect, it } from "vitest";
-import { normalizeBarcode, normalizeOffProduct } from "./normalize";
+import { normalizeBarcode, normalizeOffProduct, nutritionSnapshotFromOffProduct } from "./normalize";
 
 describe("normalizeBarcode", () => {
   it("keeps EAN-13 codes as-is", () => {
@@ -37,6 +37,30 @@ describe("normalizeBarcode", () => {
     expect(normalizeBarcode("123456789012345")).toBeNull(); // 15 digits
     expect(normalizeBarcode("40038000138416")).toBeNull(); // 14, no leading 0
     expect(normalizeBarcode("0000000000000")).toBeNull(); // all zeros
+  });
+});
+
+describe("nutritionSnapshotFromOffProduct", () => {
+  it("uses amount times multiplier consistently for a per-100 basis and selected serving", () => {
+    const product = {
+      product_name: "Corn Flakes",
+      serving_size: "30 g",
+      serving_quantity: 30,
+      serving_quantity_unit: "g",
+      nutriments: {
+        "energy-kcal_100g": 380, proteins_100g: 7,
+        carbohydrates_100g: 84, fat_100g: 0.9,
+      },
+    };
+    const facts = normalizeOffProduct(product)!;
+    const snapshot = nutritionSnapshotFromOffProduct("12345678", product, facts)!;
+    expect(snapshot.basis).toMatchObject({ amount: 100, unit: "g", label: "100 g", grams: 100 });
+    expect(snapshot.portions[0]).toMatchObject({
+      id: "g", label: "grams", unit: "g", grams: 1, basisMultiplier: 0.01,
+    });
+    expect(snapshot.selected).toEqual({ amount: 30, unitId: "g", scale: 0.3 });
+    const portion = snapshot.portions.find(value => value.id === snapshot.selected.unitId)!;
+    expect(snapshot.selected.amount * portion.basisMultiplier).toBeCloseTo(snapshot.selected.scale, 12);
   });
 });
 

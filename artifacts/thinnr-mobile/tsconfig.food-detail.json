@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/components/ui/LedgerPrimitives": ["./scripts/food-detail-stubs/state.ts"],
+      "@/context/AppModeContext": ["./scripts/food-detail-stubs/state.ts"],
+      "@/context/FoodLoggingContext": ["./scripts/food-detail-stubs/state.ts"],
+      "@/context/PatientAccountContext": ["./scripts/food-detail-stubs/state.ts"],
+      "@/context/PatientContext": ["./scripts/food-detail-stubs/state.ts"],
+      "@/hooks/useLoggableItems": ["./scripts/food-detail-stubs/state.ts"],
+      "@/lib/food-catalog": ["./scripts/food-detail-stubs/state.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-router": ["./scripts/food-detail-stubs/state.ts"],
+      "react-native-safe-area-context": ["./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"]
+    }
+  }
+}

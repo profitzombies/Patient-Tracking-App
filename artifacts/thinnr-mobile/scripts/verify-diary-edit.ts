@@ -19,6 +19,7 @@ import {
   type DiaryEntryState,
 } from '../data/diary-entry-state';
 import { buildSeedEntries, shiftDateKey, type MealLogEntry } from '../data/patient-data';
+import { parseNutritionSnapshot } from '../data/food-nutrition';
 
 const SEED_ENTRIES = buildSeedEntries();
 const SEED_BY_ID = new Map(SEED_ENTRIES.map(e => [e.id, e]));
@@ -148,6 +149,54 @@ assertEqual('formatQty two digits', formatQty(10), '10');
   assertEqual('round-trip protein', back.protein, 50);
   assertEqual('round-trip carbs', back.carbs, 4);
   assertEqual('round-trip fat', back.fat, 10);
+}
+
+// Snapshot-backed quantity edits always recompute from immutable source facts,
+// not from already-rounded legacy totals.
+{
+  const nutritionSnapshot = parseNutritionSnapshot({
+    version: 1,
+    source: { provider: 'usda', recordId: '171077', revision: 'exact' },
+    basis: { amount: 100, unit: 'g', label: '100 g' },
+    nutrients: [
+      { id: 'energy', name: 'Energy', unit: 'kcal', amount: 155.123456 },
+      { id: 'protein', name: 'Protein', unit: 'g', amount: 12.58 },
+      { id: 'carbohydrate', name: 'Carbohydrate', unit: 'g', amount: 1.12 },
+      { id: 'fat', name: 'Fat', unit: 'g', amount: 10.61 },
+    ],
+    portions: [{
+      id: 'gram', label: 'gram', unit: 'g', dimension: 'weight',
+      basisMultiplier: 0.01, grams: 1, evidence: 'source basis',
+    }],
+    selected: { amount: 100, unitId: 'gram', scale: 1 },
+    provenance: 'generic_source',
+  });
+  assert('snapshot edit fixture parses', Boolean(nutritionSnapshot));
+  const seed = entry({
+    quantity: 1,
+    calories: 155,
+    protein: 13,
+    carbs: 1,
+    fat: 11,
+    nutritionSnapshot: nutritionSnapshot!,
+  });
+  const first = applyUpdateEntry(
+    { addedEntries: [seed], removedEntryIds: [] },
+    seed.id,
+    { quantity: 0.5, meal: seed.meal },
+    () => undefined,
+    () => 'unused',
+  );
+  assertEqual('snapshot edit uses exact half calories', first.addedEntries[0].calories, 77.561728);
+  const restored = applyUpdateEntry(
+    first,
+    seed.id,
+    { quantity: 1, meal: seed.meal },
+    () => undefined,
+    () => 'unused',
+  );
+  assertEqual('repeat snapshot edit restores exact source calories', restored.addedEntries[0].calories, 155.123456);
+  assertEqual('repeat snapshot edit restores exact source protein', restored.addedEntries[0].protein, 12.58);
 }
 
 // ── 5. Every real seeded entry rescales cleanly ──────────────────────────────

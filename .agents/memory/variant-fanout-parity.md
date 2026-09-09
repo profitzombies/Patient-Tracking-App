@@ -1,6 +1,6 @@
 ---
 name: Parallel design-variant data parity
-description: When several subagents build variants of one screen from a shared data spec, they drift on state semantics; review must check parity
+description: Parallel frontend work can drift on state semantics, mutation promises, and whether tests exercise actual screens
 ---
 When fanning out parallel design subagents that all render one shared demo-data spec, each round some variant drifts — not on numbers, but on **semantic state encodings**: a minus sign dropped because the label says "down", a "logged" day drawn as an outlined (empty-looking) marker, a streak count that contradicts a meal row.
 
@@ -12,3 +12,11 @@ When fanning out parallel design subagents that all render one shared demo-data 
 Fan-out page agents also write UI copy that PROMISES shared-layer behavior (confirm dialogs, toasts promising data will be preserved/created). The shared context may not implement that promise — the page still demos fine, so e2e passes miss it; only reviewing copy against the shared mutations catches it.
 **Why:** In the training-portal fan-out, a delete-confirm promised videos would survive sub-group deletion (context silently dropped them) and an invite toast promised a viewer that was never created. Both shipped past a full e2e pass; only an architect review comparing copy against the shared mutations caught them.
 **How to apply:** After any fan-out against a shared data layer, have the review round explicitly check every dialog/toast/empty-state promise against the actual context implementation, and prefer wiring the real mutation over softening the copy.
+
+## Screen tests must exercise the screen
+
+A passing helper or provider suite is not proof that a screen uses those helpers correctly.
+
+**Why:** A food-detail build passed typechecks and helper tests while its real stepper discarded updates, legacy foods crashed, and the rendered totals bypassed the tested calculation. Mounting the actual screen and firing its controls exposed the integration gaps.
+
+**How to apply:** For data-sensitive UI changes, require tests that import the real screen, exercise its controls, and compare rendered values with submitted payloads. For account-sensitive async work, hold a response across an account switch; synchronous clearing alone does not prove isolation.

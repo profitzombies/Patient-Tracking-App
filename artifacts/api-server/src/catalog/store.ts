@@ -18,6 +18,45 @@ export interface CatalogItem {
   barcode: string | null;
   quality_status: "reviewed" | "community_verified" | "private";
   approvals: unknown[];
+  resultKey?: string;
+  familyKey?: string;
+  variantSummary?: string;
+  dimensions?: Record<string, string>;
+  choiceRequired?: boolean;
+  nutritionSnapshot?: unknown;
+  nutrition_snapshot?: unknown;
+  catalogMetadata?: Record<string, unknown>;
+  catalog_metadata?: Record<string, unknown>;
+}
+
+export async function searchCatalogGrouped(
+  patientId: string | null,
+  query: string,
+  approvedOnly: boolean,
+  limit: number,
+  offset: number,
+): Promise<CatalogItem[]> {
+  const response = await supabaseAdmin("POST", "/rest/v1/rpc/search_food_catalog_grouped", {
+    p_patient_id: patientId,
+    p_query: query,
+    p_approved_only: approvedOnly,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  assertOk(response.status, "grouped catalog search");
+  return Array.isArray(response.json) ? response.json as CatalogItem[] : [];
+}
+
+export async function getCatalogFamily(
+  familyKey: string,
+  approvedOnly: boolean,
+): Promise<CatalogItem[]> {
+  const response = await supabaseAdmin("POST", "/rest/v1/rpc/get_food_catalog_family", {
+    p_family_key: familyKey,
+    p_approved_only: approvedOnly,
+  });
+  assertOk(response.status, "catalog family lookup");
+  return Array.isArray(response.json) ? response.json as CatalogItem[] : [];
 }
 
 function assertOk(status: number, operation: string): void {
@@ -52,7 +91,7 @@ export async function getCatalogItem(id: string): Promise<CatalogItem | null> {
   }
   const response = await supabaseAdmin(
     "GET",
-    `/rest/v1/food_catalog_items?id=eq.${encodeURIComponent(catalogId)}&select=id,kind,name,brand,serving:serving_label,serving_grams,calories,protein,carbs,fat,measures,source,source_id,barcode,quality_status,food_catalog_approved_links(approved_food_id,official_name,official_portion,phase_guidance,constraints)`,
+    `/rest/v1/food_catalog_items?id=eq.${encodeURIComponent(catalogId)}&select=id,kind,name,brand,serving:serving_label,serving_grams,calories,protein,carbs,fat,measures,source,source_id,barcode,quality_status,nutrition_snapshot,food_catalog_approved_links(approved_food_id,official_name,official_portion,phase_guidance,constraints)`,
   );
   assertOk(response.status, "catalog item lookup");
   if (!Array.isArray(response.json) || !response.json[0]) return null;
@@ -89,10 +128,11 @@ export async function recordSelection(patientId: string, catalogId: string): Pro
 export async function upsertOffCatalogItem(
   code: string,
   facts: BarcodeProductFacts,
+  nutritionSnapshot?: unknown,
 ): Promise<CatalogItem> {
   const response = await supabaseAdmin(
     "POST",
-    "/rest/v1/food_catalog_items?on_conflict=source,source_id&select=id,kind,name,brand,serving:serving_label,serving_grams,calories,protein,carbs,fat,measures,source,source_id,barcode,quality_status",
+    "/rest/v1/food_catalog_items?on_conflict=source,source_id&select=id,kind,name,brand,serving:serving_label,serving_grams,calories,protein,carbs,fat,measures,source,source_id,barcode,quality_status,nutrition_snapshot",
     [{
       kind: "branded",
       name: facts.name,
@@ -108,6 +148,7 @@ export async function upsertOffCatalogItem(
       barcode: code,
       quality_status: "community_verified",
       provenance: { provider: "Open Food Facts", selected: true },
+      ...(nutritionSnapshot ? { nutrition_snapshot: nutritionSnapshot } : {}),
     }],
     "resolution=merge-duplicates,return=representation",
   );

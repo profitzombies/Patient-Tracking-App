@@ -23,6 +23,8 @@ import type {
   AddOfficeConversationNoteParams,
   AssignOfficeConversationParams,
   BarcodeLookupResult,
+  CatalogFamilyParams,
+  CatalogFamilyResult,
   CatalogSearchParams,
   CatalogSearchResult,
   CatalogSelectionInput,
@@ -753,6 +755,96 @@ export function useCatalogSearch<TData = Awaited<ReturnType<typeof catalogSearch
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getCatalogSearchQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCatalogFamilyUrl = (familyKey: string,
+    params?: CatalogFamilyParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/catalog/families/${familyKey}?${stringifiedParams}` : `/api/catalog/families/${familyKey}`
+}
+
+/**
+ * Returns complete source-specific configurations. Family grouping never merges nutrient values or replaces the exact catalog identity.
+ * @summary Get every eligible reviewed variation in a food family
+ */
+export const catalogFamily = async (familyKey: string,
+    params?: CatalogFamilyParams, options?: Parameters<typeof customFetch>[1]): Promise<CatalogFamilyResult> => {
+
+  return customFetch<CatalogFamilyResult>(getCatalogFamilyUrl(familyKey,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCatalogFamilyQueryKey = (familyKey: string,
+    params?: CatalogFamilyParams,) => {
+    return [
+    `/api/catalog/families/${familyKey}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCatalogFamilyQueryOptions = <TData = Awaited<ReturnType<typeof catalogFamily>>, TError = ErrorType<void>>(familyKey: string,
+    params?: CatalogFamilyParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof catalogFamily>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCatalogFamilyQueryKey(familyKey,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof catalogFamily>>> = ({ signal }) => catalogFamily(familyKey,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: familyKey !== null && familyKey !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof catalogFamily>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type CatalogFamilyQueryResult = NonNullable<Awaited<ReturnType<typeof catalogFamily>>>
+export type CatalogFamilyQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get every eligible reviewed variation in a food family
+ */
+
+export function useCatalogFamily<TData = Awaited<ReturnType<typeof catalogFamily>>, TError = ErrorType<void>>(
+ familyKey: string,
+    params?: CatalogFamilyParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof catalogFamily>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getCatalogFamilyQueryOptions(familyKey,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

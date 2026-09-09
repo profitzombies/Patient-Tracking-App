@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "harness:meal-read": "tsx scripts/meal-read-harness/run.ts",
-    "test:usda-catalog-seed": "tsx scripts/verify-usda-catalog-seed.ts"
+    "test:usda-catalog-seed": "tsx scripts/verify-usda-catalog-seed.ts",
+    "test:patient-snapshot-sql": "vitest run src/routes/patient-data.sql.test.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.0.1",

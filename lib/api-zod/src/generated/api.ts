@@ -144,6 +144,48 @@ export const CoachLabelScanResponse = zod.object({
   "protein": zod.number().describe('Grams per serving'),
   "carbs": zod.number().describe('Grams per serving'),
   "fat": zod.number().describe('Grams per serving'),
+  "nutritionSnapshot": zod.object({
+  "version": zod.literal(1),
+  "source": zod.object({
+  "provider": zod.string(),
+  "recordId": zod.string(),
+  "release": zod.string().optional(),
+  "revision": zod.string(),
+  "canonicalName": zod.string().optional()
+}),
+  "basis": zod.object({
+  "amount": zod.number(),
+  "unit": zod.string(),
+  "label": zod.string(),
+  "grams": zod.number().optional()
+}),
+  "nutrients": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "unit": zod.string(),
+  "amount": zod.number()
+})),
+  "portions": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "unit": zod.string(),
+  "dimension": zod.enum(['weight', 'volume', 'count', 'serving']),
+  "basisMultiplier": zod.number(),
+  "grams": zod.number().optional(),
+  "evidence": zod.string().optional()
+})),
+  "variant": zod.object({
+  "familyKey": zod.string(),
+  "summary": zod.string(),
+  "dimensions": zod.record(zod.string(), zod.string())
+}).optional(),
+  "selected": zod.object({
+  "amount": zod.number(),
+  "unitId": zod.string(),
+  "scale": zod.number()
+}),
+  "provenance": zod.enum(['generic_source', 'generic_dish_estimate', 'identified_product', 'personal_label'])
+}).optional(),
   "fiber": zod.number().optional().describe('Grams per serving; omitted when not printed legibly'),
   "sugar": zod.number().optional().describe('Grams per serving; omitted when not printed legibly'),
   "sodium": zod.number().optional().describe('Milligrams per serving; omitted when not printed legibly'),
@@ -194,11 +236,20 @@ export const catalogSearchQueryLimitDefault = 20;
 export const catalogSearchQueryLimitMax = 50;
 
 export const catalogSearchQueryBrandedDefault = false;
+export const catalogSearchQueryIntentDefault = `basic`;
+export const catalogSearchQueryApprovedOnlyDefault = false;
+export const catalogSearchQueryCursorMax = 2048;
+
+
 
 export const CatalogSearchQueryParams = zod.object({
   "q": zod.coerce.string().min(catalogSearchQueryQMin).max(catalogSearchQueryQMax),
   "limit": zod.coerce.number().int().min(1).max(catalogSearchQueryLimitMax).default(catalogSearchQueryLimitDefault),
-  "branded": zod.coerce.boolean().default(catalogSearchQueryBrandedDefault).describe('Explicitly request guarded branded fallback')
+  "branded": zod.coerce.boolean().default(catalogSearchQueryBrandedDefault).describe('Explicitly request guarded branded fallback'),
+  "grouped": zod.coerce.boolean().optional().describe('Enable reviewed family grouping, deterministic paging, and the bounded small-choice response. When absent, legacy search behavior is preserved.'),
+  "intent": zod.enum(['basic', 'packaged']).default(catalogSearchQueryIntentDefault).describe('Search generic\/basic foods or explicitly packaged products'),
+  "approvedOnly": zod.coerce.boolean().default(catalogSearchQueryApprovedOnlyDefault).describe('Restrict candidates to variations with an eligible approval'),
+  "cursor": zod.coerce.string().min(1).max(catalogSearchQueryCursorMax).optional().describe('Opaque continuation cursor returned by a grouped search')
 })
 
 export const CatalogSearchResponse = zod.object({
@@ -225,9 +276,155 @@ export const CatalogSearchResponse = zod.object({
   "portion": zod.string().nullable().describe('Verbatim official portion; null when the source does not state one'),
   "phaseGuidance": zod.string().nullable().describe('Verbatim phase guidance; null when the source does not state one'),
   "constraints": zod.record(zod.string(), zod.unknown()).nullable().describe('Reviewed structured eligibility constraints; null when none apply')
-}))
 })),
-  "externalUnavailable": zod.boolean().describe('Local results remain valid when branded fallback failed')
+  "resultKey": zod.string().optional(),
+  "familyKey": zod.string().optional(),
+  "variantSummary": zod.string().optional(),
+  "dimensions": zod.record(zod.string(), zod.string()).optional(),
+  "choiceRequired": zod.boolean().optional(),
+  "nutritionSnapshot": zod.object({
+  "version": zod.literal(1),
+  "source": zod.object({
+  "provider": zod.string(),
+  "recordId": zod.string(),
+  "release": zod.string().optional(),
+  "revision": zod.string(),
+  "canonicalName": zod.string().optional()
+}),
+  "basis": zod.object({
+  "amount": zod.number(),
+  "unit": zod.string(),
+  "label": zod.string(),
+  "grams": zod.number().optional()
+}),
+  "nutrients": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "unit": zod.string(),
+  "amount": zod.number()
+})),
+  "portions": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "unit": zod.string(),
+  "dimension": zod.enum(['weight', 'volume', 'count', 'serving']),
+  "basisMultiplier": zod.number(),
+  "grams": zod.number().optional(),
+  "evidence": zod.string().optional()
+})),
+  "variant": zod.object({
+  "familyKey": zod.string(),
+  "summary": zod.string(),
+  "dimensions": zod.record(zod.string(), zod.string())
+}).optional(),
+  "selected": zod.object({
+  "amount": zod.number(),
+  "unitId": zod.string(),
+  "scale": zod.number()
+}),
+  "provenance": zod.enum(['generic_source', 'generic_dish_estimate', 'identified_product', 'personal_label'])
+}).optional(),
+  "catalogMetadata": zod.record(zod.string(), zod.unknown()).optional().describe('Private saved-food catalog provenance and configuration metadata')
+})),
+  "externalUnavailable": zod.boolean().describe('Local results remain valid when branded fallback failed'),
+  "hasMore": zod.boolean(),
+  "nextCursor": zod.string().nullable().describe('Opaque continuation cursor, or null when no more results exist'),
+  "rankingVersion": zod.string().describe('Review\/ranking version that pins continuation ordering')
+})
+
+
+/**
+ * Returns complete source-specific configurations. Family grouping never merges nutrient values or replaces the exact catalog identity.
+ * @summary Get every eligible reviewed variation in a food family
+ */
+export const catalogFamilyPathFamilyKeyMax = 100;
+
+
+
+export const CatalogFamilyParams = zod.object({
+  "familyKey": zod.coerce.string().min(1).max(catalogFamilyPathFamilyKeyMax)
+})
+
+export const catalogFamilyQueryApprovedOnlyDefault = false;
+
+export const CatalogFamilyQueryParams = zod.object({
+  "approvedOnly": zod.coerce.boolean().default(catalogFamilyQueryApprovedOnlyDefault)
+})
+
+export const CatalogFamilyResponse = zod.object({
+  "variants": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['generic', 'branded', 'personal']),
+  "name": zod.string(),
+  "canonicalName": zod.string().optional().describe('Original source description when name is a reviewed patient-friendly label'),
+  "brand": zod.string().nullable(),
+  "serving": zod.string(),
+  "servingGrams": zod.number().nullable(),
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "measures": zod.array(zod.record(zod.string(), zod.unknown())),
+  "source": zod.enum(['usda_fdc', 'openfoodfacts', 'patient']),
+  "sourceId": zod.string(),
+  "barcode": zod.string().nullable(),
+  "qualityStatus": zod.enum(['reviewed', 'community_verified', 'community', 'private']),
+  "approvals": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "portion": zod.string().nullable().describe('Verbatim official portion; null when the source does not state one'),
+  "phaseGuidance": zod.string().nullable().describe('Verbatim phase guidance; null when the source does not state one'),
+  "constraints": zod.record(zod.string(), zod.unknown()).nullable().describe('Reviewed structured eligibility constraints; null when none apply')
+})),
+  "resultKey": zod.string().optional(),
+  "familyKey": zod.string().optional(),
+  "variantSummary": zod.string().optional(),
+  "dimensions": zod.record(zod.string(), zod.string()).optional(),
+  "choiceRequired": zod.boolean().optional(),
+  "nutritionSnapshot": zod.object({
+  "version": zod.literal(1),
+  "source": zod.object({
+  "provider": zod.string(),
+  "recordId": zod.string(),
+  "release": zod.string().optional(),
+  "revision": zod.string(),
+  "canonicalName": zod.string().optional()
+}),
+  "basis": zod.object({
+  "amount": zod.number(),
+  "unit": zod.string(),
+  "label": zod.string(),
+  "grams": zod.number().optional()
+}),
+  "nutrients": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "unit": zod.string(),
+  "amount": zod.number()
+})),
+  "portions": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "unit": zod.string(),
+  "dimension": zod.enum(['weight', 'volume', 'count', 'serving']),
+  "basisMultiplier": zod.number(),
+  "grams": zod.number().optional(),
+  "evidence": zod.string().optional()
+})),
+  "variant": zod.object({
+  "familyKey": zod.string(),
+  "summary": zod.string(),
+  "dimensions": zod.record(zod.string(), zod.string())
+}).optional(),
+  "selected": zod.object({
+  "amount": zod.number(),
+  "unitId": zod.string(),
+  "scale": zod.number()
+}),
+  "provenance": zod.enum(['generic_source', 'generic_dish_estimate', 'identified_product', 'personal_label'])
+}).optional(),
+  "catalogMetadata": zod.record(zod.string(), zod.unknown()).optional().describe('Private saved-food catalog provenance and configuration metadata')
+}))
 })
 
 
@@ -269,7 +466,55 @@ export const CatalogSelectResponse = zod.object({
   "portion": zod.string().nullable().describe('Verbatim official portion; null when the source does not state one'),
   "phaseGuidance": zod.string().nullable().describe('Verbatim phase guidance; null when the source does not state one'),
   "constraints": zod.record(zod.string(), zod.unknown()).nullable().describe('Reviewed structured eligibility constraints; null when none apply')
-}))
+})),
+  "resultKey": zod.string().optional(),
+  "familyKey": zod.string().optional(),
+  "variantSummary": zod.string().optional(),
+  "dimensions": zod.record(zod.string(), zod.string()).optional(),
+  "choiceRequired": zod.boolean().optional(),
+  "nutritionSnapshot": zod.object({
+  "version": zod.literal(1),
+  "source": zod.object({
+  "provider": zod.string(),
+  "recordId": zod.string(),
+  "release": zod.string().optional(),
+  "revision": zod.string(),
+  "canonicalName": zod.string().optional()
+}),
+  "basis": zod.object({
+  "amount": zod.number(),
+  "unit": zod.string(),
+  "label": zod.string(),
+  "grams": zod.number().optional()
+}),
+  "nutrients": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "unit": zod.string(),
+  "amount": zod.number()
+})),
+  "portions": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "unit": zod.string(),
+  "dimension": zod.enum(['weight', 'volume', 'count', 'serving']),
+  "basisMultiplier": zod.number(),
+  "grams": zod.number().optional(),
+  "evidence": zod.string().optional()
+})),
+  "variant": zod.object({
+  "familyKey": zod.string(),
+  "summary": zod.string(),
+  "dimensions": zod.record(zod.string(), zod.string())
+}).optional(),
+  "selected": zod.object({
+  "amount": zod.number(),
+  "unitId": zod.string(),
+  "scale": zod.number()
+}),
+  "provenance": zod.enum(['generic_source', 'generic_dish_estimate', 'identified_product', 'personal_label'])
+}).optional(),
+  "catalogMetadata": zod.record(zod.string(), zod.unknown()).optional().describe('Private saved-food catalog provenance and configuration metadata')
 }).optional()
 })
 

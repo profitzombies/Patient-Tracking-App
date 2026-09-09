@@ -5,7 +5,7 @@
  * slot — a "Yesterday's [meal]" option above the most-logged group that
  * opens a review-and-log of that whole slot.
  */
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,29 +14,41 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
-import { FavoriteStar } from '@/components/patient/FavoriteStar';
 import { Divider, EmptyState, LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
-import { rankMostLogged, yesterdaySlotPreview } from '@/data/diary-entries';
+import { yesterdaySlotPreview } from '@/data/diary-entries';
 import {
   DIARY_MIN_KEY,
   formatDateKey,
   MEAL_LABELS,
   MEAL_SLOTS,
   shiftDateKey,
-  subDays,
-  toDateKey,
-  TODAY,
   type MealSlot,
 } from '@/data/patient-data';
-import { useLoggableItems, type LoggableItem } from '@/hooks/useLoggableItems';
-import { useFoodCatalogSearch } from '@/hooks/useFoodCatalogSearch';
-import { catalogFoodSnapshot, selectCatalogFood, type CatalogFood } from '@/lib/food-catalog';
-import { buildFoodLogEntry, useFoodLogging } from '@/context/FoodLoggingContext';
+import { catalogFoodToLoggable, useLoggableItems, type LoggableItem } from '@/hooks/useLoggableItems';
+import {
+  applyRememberedFamilyConfigurations,
+  foodItemToCatalogFood,
+  useFoodCatalogSearch,
+} from '@/hooks/useFoodCatalogSearch';
+import { catalogFoodSnapshot, runAccountGuardedSteps, selectCatalogFood } from '@/lib/food-catalog';
+import {
+  buildFoodLogEntry,
+  foodResultDisplayText,
+  getItemNutritionSnapshot,
+  selectionMatchesItemConfiguration,
+  selectionDisplayText,
+  useFoodLogging,
+  withItemNutritionSnapshot,
+} from '@/context/FoodLoggingContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
+import { usePatientSync } from '@/context/PatientContext';
 import { toTitleCase } from '@/lib/title-case';
+import { scaledSnapshotMacros, snapshotConfigurationId } from '@/data/food-nutrition';
 
-type Scope = 'recent' | 'favorites' | 'all';
+type Scope = 'recent' | 'favorites';
+type Intent = 'basic' | 'packaged' | 'recipe';
 
 /** A titled section of the results list (title is null for flat lists). */
 interface ResultGroup {
@@ -48,17 +60,7 @@ interface ResultGroup {
 const SCOPE_OPTIONS: { label: string; value: Scope }[] = [
   { label: 'Recent', value: 'recent' },
   { label: 'Favorites', value: 'favorites' },
-  { label: 'All', value: 'all' },
 ];
-
-// "Most logged" ranks diary frequency over a recent window so true staples
-// surface first. Window is anchored to the demo's fixed TODAY, one-offs
-// (fewer than MIN_COUNT logs) stay in the plain Recent list, and the group
-// is capped so it stays scannable.
-const MOST_LOGGED_WINDOW_DAYS = 30;
-const MOST_LOGGED_SINCE_KEY = toDateKey(subDays(TODAY, MOST_LOGGED_WINDOW_DAYS - 1));
-const MOST_LOGGED_MIN_COUNT = 2;
-const MOST_LOGGED_LIMIT = 10;
 
 const MEAL_OPTIONS = MEAL_SLOTS.map(slot => ({ label: MEAL_LABELS[slot], value: slot }));
 
@@ -75,6 +77,15 @@ export default function LogFoodScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  const sync = usePatientSync();
+  const { account } = usePatientAccount();
+  const accountKey = account.kind === 'real' ? `real:${account.patientId}` : account.kind;
+  const accountRef = useRef(accountKey);
+  const accountGenerationRef = useRef(0);
+  if (accountRef.current !== accountKey) {
+    accountRef.current = accountKey;
+    accountGenerationRef.current += 1;
+  }
   const { mode, hydrated: modeHydrated } = useAppMode();
   const params = useLocalSearchParams<{ date?: string; meal?: string }>();
 
@@ -91,7 +102,14 @@ export default function LogFoodScreen() {
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const [screenAccountKey, setScreenAccountKey] = useState(accountKey);
+  const [basketExpanded, setBasketExpanded] = useState(false);
+  const [moreWaysOpen, setMoreWaysOpen] = useState(false);
+  const [favoriteLimit, setFavoriteLimit] = useState(6);
   const basket = useFoodLogging();
+  const operationIsCurrent = (capture: { accountKey: string; generation: number }) =>
+    accountRef.current === capture.accountKey && accountGenerationRef.current === capture.generation;
+  const captureOperation = () => ({ accountKey, generation: accountGenerationRef.current });
 
   // Quick-add form
   const [quickOpen, setQuickOpen] = useState(false);
@@ -103,8 +121,32 @@ export default function LogFoodScreen() {
   const [quickFat, setQuickFat] = useState('');
   const [quickError, setQuickError] = useState('');
 
+  useEffect(() => {
+    setScreenAccountKey(accountKey);
+    setMeal(initialMeal);
+    setQuery('');
+    setScope('recent');
+    setApprovedOnly(false);
+    setIntent('basic');
+    setQuickOpen(false);
+    setQuickName('');
+    setQuickServing('');
+    setQuickCals('');
+    setQuickProtein('');
+    setQuickCarbs('');
+    setQuickFat('');
+    setQuickError('');
+    setBasketExpanded(false);
+    setMoreWaysOpen(false);
+    setFavoriteLimit(6);
+    savingRef.current = false;
+    setSaving(false);
+  }, [accountKey]);
+
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 20 : Math.max(insets.bottom, 16);
+
+  const [intent, setIntent] = useState<Intent>('basic');
 
   // One catalog shared with the "Yesterday's [meal]" review, so both search
   // the exact same items.
@@ -114,37 +156,37 @@ export default function LogFoodScreen() {
     patient.customFoods,
     query,
     approvedOnly,
+    intent === 'recipe' ? 'basic' : intent,
   );
   const catalogItems = useMemo(() => {
-    const convert = (food: CatalogFood): LoggableItem => ({
-      refId: food.catalogId,
-      kind: 'food',
-      name: food.name,
-      sub: food.brand ?? food.category,
-      serving: food.serving,
-      calories: food.calories,
-      protein: food.protein,
-      carbs: food.carbs,
-      fat: food.fat,
-      approved: food.approved,
-      catalog: {
-        catalogId: food.catalogId,
-        group: food.group,
-        source: food.source,
-        sourceLabel: food.sourceLabel,
-        ...(food.selectionToken ? { selectionToken: food.selectionToken } : {}),
-        ...(food.lookupId ? { lookupId: food.lookupId } : {}),
-        ...(food.servingGrams ? { servingGrams: food.servingGrams } : {}),
-        measures: food.measures,
-        ...(food.canonicalName ? { canonicalName: food.canonicalName } : {}),
-      },
-    });
+    const convert = catalogFoodToLoggable;
+    const recentPosition = new Map(patient.recents.map((id, index) => [id, index]));
+    const remembered = patient.catalogFoods
+      .slice()
+      .sort((left, right) =>
+        (recentPosition.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (recentPosition.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+      )
+      .map(food => foodItemToCatalogFood(food));
+    const results = intent === 'basic'
+      ? applyRememberedFamilyConfigurations(catalogSearch.results ?? [], remembered, query)
+      : (catalogSearch.results ?? []);
     return {
       common: catalogSearch.common.map(convert),
       personal: catalogSearch.personal.map(convert),
       branded: catalogSearch.branded.map(convert),
+      results: results.map(convert),
     };
-  }, [catalogSearch.common, catalogSearch.personal, catalogSearch.branded]);
+  }, [
+    catalogSearch.common,
+    catalogSearch.personal,
+    catalogSearch.branded,
+    catalogSearch.results,
+    intent,
+    patient.catalogFoods,
+    patient.recents,
+    query,
+  ]);
   // "Yesterday's [meal]" — the previous day's entries for the selected slot,
   // offered above the most-logged group as a tap-in review-and-log.
   // "Yesterday" follows the diary's meaning (the day before the date being
@@ -162,49 +204,47 @@ export default function LogFoodScreen() {
     ? `Yesterday's ${MEAL_LABELS[meal]}`
     : `${MEAL_LABELS[meal]} from ${formatDateKey(prevKey)}`;
 
-  // Diary staples: ranked by log frequency over the window, ties by recency.
-  // Counts come from all diary entries (seeded + user-added), so the demo
-  // patient sees real staples before ever logging anything themselves.
-  const mostLogged = useMemo<LoggableItem[]>(
-    () =>
-      rankMostLogged(patient.allEntries, MOST_LOGGED_SINCE_KEY)
-        .filter(freq => freq.count >= MOST_LOGGED_MIN_COUNT)
-        .map((freq): LoggableItem | null => {
-          const item = byId.get(freq.refId);
-          return item ? { ...item, loggedCount: freq.count } : null;
-        })
-        .filter((i): i is LoggableItem => Boolean(i))
-        .slice(0, MOST_LOGGED_LIMIT),
-    [patient.allEntries, byId],
-  );
-
   const groups = useMemo<ResultGroup[]>(() => {
     const q = query.trim().toLowerCase();
     let built: ResultGroup[];
     if (q) {
-      const recipeMatches = allItems.filter(
-        item => item.kind === 'recipe' && `${item.name} ${item.sub}`.toLowerCase().includes(q),
-      );
-      built = [
-        { key: 'common', title: 'COMMON', items: [...catalogItems.common, ...recipeMatches] },
-        { key: 'personal', title: 'PERSONAL', items: catalogItems.personal },
-        { key: 'branded', title: 'BRANDED PRODUCTS', items: catalogItems.branded },
-      ];
+      if (intent === 'recipe') {
+        const recipeMatches = allItems.filter(
+          item => item.kind === 'recipe' && `${item.name} ${item.sub}`.toLowerCase().includes(q),
+        ).slice(0, 6);
+        built = [
+          { key: 'recipes', title: 'RECIPES', items: recipeMatches },
+        ];
+      } else if (intent === 'packaged') {
+        built = [
+          { key: 'packaged', title: 'PACKAGED PRODUCTS', items: catalogItems.results },
+        ];
+      } else {
+        built = [
+          { key: 'results', title: 'RESULTS', items: catalogItems.results },
+        ];
+      }
     } else if (scope === 'recent') {
-      const inMostLogged = new Set(mostLogged.map(item => item.refId));
+      const seenFamilies = new Set<string>();
       const recents = patient.recents
-        .filter(id => !inMostLogged.has(id))
         .map(id => byId.get(id))
-        .filter((i): i is LoggableItem => Boolean(i));
-      built = [
-        { key: 'most-logged', title: `MOST LOGGED · LAST ${MOST_LOGGED_WINDOW_DAYS} DAYS`, items: mostLogged },
-        { key: 'recent', title: 'RECENT', items: recents },
-      ];
+        .filter((i): i is LoggableItem => Boolean(i))
+        .filter(item => {
+          const key = getItemNutritionSnapshot(item)?.variant?.familyKey ?? item.refId;
+          if (seenFamilies.has(key)) return false;
+          seenFamilies.add(key);
+          return true;
+        })
+        .slice(0, 6);
+      built = [{ key: 'recent', title: null, items: recents }];
     } else if (scope === 'favorites') {
       built = [{
         key: 'favorites',
         title: null,
-        items: patient.favorites.map(id => byId.get(id)).filter((i): i is LoggableItem => Boolean(i)),
+        items: patient.favorites
+          .map(id => byId.get(id))
+          .filter((i): i is LoggableItem => Boolean(i))
+          .slice(0, favoriteLimit),
       }];
     } else {
       built = [{ key: 'all', title: null, items: allItems }];
@@ -212,12 +252,13 @@ export default function LogFoodScreen() {
     return built
       .map(group => (approvedOnly ? { ...group, items: group.items.filter(item => item.approved) } : group))
       .filter(group => group.items.length > 0);
-  }, [query, scope, approvedOnly, allItems, byId, mostLogged, patient.recents, patient.favorites, catalogItems]);
+  }, [query, scope, approvedOnly, allItems, byId, patient.recents, patient.favorites, catalogItems, intent, favoriteLimit]);
 
   const totalVisible = groups.reduce((sum, group) => sum + group.items.length, 0);
 
   // Patient-only route: deep links must not bypass the persona flow.
   if (!modeHydrated) return null;
+  if (screenAccountKey !== accountKey) return null;
   if (mode !== 'patient') {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
@@ -232,8 +273,10 @@ export default function LogFoodScreen() {
   };
 
   const toggleCatalogFavorite = async (item: LoggableItem) => {
-    if (!item.catalog || item.catalog.persisted || item.catalog.group === 'personal' || patient.favorites.includes(item.refId)) {
+    const operation = captureOperation();
+    if (!item.catalog || item.catalog.persisted || item.catalog.group === 'personal') {
       await patient.toggleFavorite(item.refId);
+      if (!operationIsCurrent(operation)) return;
       return;
     }
     const selectedCatalog = await selectCatalogFood({
@@ -253,9 +296,23 @@ export default function LogFoodScreen() {
       fat: item.fat,
       measures: item.catalog.measures,
       ...(item.catalog.servingGrams ? { servingGrams: item.catalog.servingGrams } : {}),
+      ...(item.catalog.resultKey ? { resultKey: item.catalog.resultKey } : {}),
+      ...(item.catalog.familyKey ? { familyKey: item.catalog.familyKey } : {}),
+      ...(item.catalog.variantSummary ? { variantSummary: item.catalog.variantSummary } : {}),
+      ...(item.catalog.dimensions ? { dimensions: item.catalog.dimensions } : {}),
+      ...(item.catalog.choiceRequired !== undefined ? { choiceRequired: item.catalog.choiceRequired } : {}),
+      ...(item.catalog.nutritionSnapshot ? { nutritionSnapshot: item.catalog.nutritionSnapshot } : {}),
     });
-    if (await patient.saveCatalogFood(catalogFoodSnapshot(selectedCatalog))) {
-      await patient.toggleFavorite(selectedCatalog.catalogId);
+    if (!operationIsCurrent(operation)) return;
+    const itemSnapshot = getItemNutritionSnapshot(item);
+    const snapshot = {
+      ...catalogFoodSnapshot(selectedCatalog),
+      ...(itemSnapshot ? { nutritionSnapshot: itemSnapshot } : {}),
+    };
+    const configured = await patient.saveFoodConfiguration(snapshot, { favorite: true });
+    if (!operationIsCurrent(operation)) return;
+    if (configured && !patient.favorites.includes(configured.id)) {
+      // handled by { favorite: true }
     }
   };
 
@@ -272,65 +329,106 @@ export default function LogFoodScreen() {
     router.push({ pathname: '/yesterday-review', params: { date: dateKey, meal } });
   };
 
-  /** Quick-add a recipe at qty=1 without opening the detail page (used by the + button). */
-  const quickLogRecipe = async (item: LoggableItem) => {
-    if (saving) return;
-    setSaving(true);
-    try {
-      await patient.addEntry({
-        dateKey,
-        meal,
-        kind: 'recipe',
-        refId: item.refId,
-        name: item.name,
-        detail: '1 serving · recipe',
-        quantity: 1,
-        calories: Math.round(item.calories),
-        protein: Math.round(item.protein),
-        carbs: Math.round(item.carbs),
-        fat: Math.round(item.fat),
-      });
-      goBack();
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const addSelected = async () => {
     if (basket.selected.length === 0 || savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
+    const operation = captureOperation();
     try {
       const prepared = await Promise.all(basket.selected.map(async selection => {
         const item = selection.item;
+        const configuredSnapshot = getItemNutritionSnapshot(item);
+        if (item.refId.startsWith('cfg_')) {
+          if (!configuredSnapshot) return selection;
+          const totals = scaledSnapshotMacros(configuredSnapshot);
+          const expectedId = snapshotConfigurationId(configuredSnapshot);
+          const configured = await patient.saveFoodConfiguration({
+            id: expectedId,
+            name: item.name,
+            serving: item.serving,
+            category: item.catalog?.group === 'branded' ? 'Branded Products' : 'Common Foods',
+            calories: totals?.calories ?? item.calories,
+            protein: totals?.protein ?? item.protein,
+            carbs: totals?.carbs ?? item.carbs,
+            fat: totals?.fat ?? item.fat,
+            catalogShared: true,
+            catalogSourceLabel: item.catalog?.sourceLabel,
+            catalogApproved: item.approved,
+            ...(item.catalog?.lookupId ? { catalogLookupId: item.catalog.lookupId } : {}),
+            ...(item.catalog?.servingGrams ? { catalogServingGrams: item.catalog.servingGrams } : {}),
+            catalogMeasures: item.catalog?.measures ?? [],
+            ...(item.catalog?.canonicalName ? { catalogCanonicalName: item.catalog.canonicalName } : {}),
+            nutritionSnapshot: configuredSnapshot,
+          });
+          if (!operationIsCurrent(operation)) throw new Error('Your account changed. Please review your foods again.');
+          if (!configured) throw new Error(`Could not save ${item.name}. Please try again.`);
+          return {
+            ...selection,
+            item: withItemNutritionSnapshot({ ...item, refId: configured.id }, configuredSnapshot),
+          };
+        }
         if (!item.catalog || item.catalog.group === 'personal') return selection;
-        const persisted = await selectCatalogFood({
-          id: item.refId, catalogId: item.catalog.catalogId, group: item.catalog.group,
-          source: item.catalog.source, sourceLabel: item.catalog.sourceLabel,
-          ...(item.catalog.selectionToken ? { selectionToken: item.catalog.selectionToken } : {}),
-          approved: item.approved, name: item.name,
-          category: item.catalog.group === 'branded' ? 'Branded Products' : 'Common Foods',
-          serving: item.serving, calories: item.calories, protein: item.protein, carbs: item.carbs, fat: item.fat,
-          measures: item.catalog.measures,
-          ...(item.catalog.servingGrams ? { servingGrams: item.catalog.servingGrams } : {}),
-        }).catch(() => undefined);
-        if (!persisted || !(await patient.saveCatalogFood(catalogFoodSnapshot(persisted)))) return selection;
-        return { ...selection, item: { ...item, refId: persisted.catalogId } };
+
+        const totals = configuredSnapshot ? scaledSnapshotMacros(configuredSnapshot) : null;
+        const guarded = await runAccountGuardedSteps(
+          () => selectCatalogFood({
+            id: item.refId, catalogId: item.catalog!.catalogId, group: item.catalog!.group,
+            source: item.catalog!.source, sourceLabel: item.catalog!.sourceLabel,
+            ...(item.catalog!.selectionToken ? { selectionToken: item.catalog!.selectionToken } : {}),
+            approved: item.approved, name: item.name,
+            category: item.catalog!.group === 'branded' ? 'Branded Products' : 'Common Foods',
+            serving: item.serving, calories: item.calories, protein: item.protein, carbs: item.carbs, fat: item.fat,
+            measures: item.catalog!.measures,
+            ...(item.catalog!.servingGrams ? { servingGrams: item.catalog!.servingGrams } : {}),
+          }),
+          persisted => patient.saveFoodConfiguration({
+            ...catalogFoodSnapshot({
+              ...persisted,
+              ...(totals ?? {}),
+              ...(configuredSnapshot ? { nutritionSnapshot: configuredSnapshot } : {}),
+            }),
+            ...(configuredSnapshot ? { nutritionSnapshot: configuredSnapshot } : {}),
+          }),
+          () => operationIsCurrent(operation),
+        );
+        if (guarded.status === 'stale') throw new Error('Your account changed. Please review your foods again.');
+        const configured = guarded.second;
+        if (!configured) throw new Error(`Could not save ${item.name}. Please try again.`);
+        return {
+          ...selection,
+          item: configuredSnapshot
+            ? withItemNutritionSnapshot({ ...item, refId: configured.id }, configuredSnapshot)
+            : { ...item, refId: configured.id },
+        };
       }));
+      if (!operationIsCurrent(operation)) return;
       const entries = prepared.map(selection => buildFoodLogEntry(selection, { dateKey, meal }));
-      const logged = await patient.copyEntriesWithExtras([], entries, { dateKey, meal });
-      if (logged.length > 0) {
+      const result = await patient.submitFoodEntries(entries);
+      if (!operationIsCurrent(operation)) return;
+      if (result.outcome === 'rejected') {
+        setQuickError(result.message);
+      } else if (result.outcome === 'queued') {
+        basket.clear();
+        setQuickError('Saved on this device; waiting to sync.');
+      } else {
         basket.clear();
         goBack();
       }
+    } catch (error) {
+      if (operationIsCurrent(operation)) {
+        setQuickError(error instanceof Error ? error.message : 'Those foods could not be saved. Please try again.');
+      }
     } finally {
-      savingRef.current = false;
-      setSaving(false);
+      if (operationIsCurrent(operation)) {
+        savingRef.current = false;
+        setSaving(false);
+      }
     }
   };
 
   const saveQuickAdd = async () => {
     if (saving) return;
+    const operation = captureOperation();
     const name = quickName.trim();
     const calories = parseNum(quickCals);
     if (!name) {
@@ -348,31 +446,40 @@ export default function LogFoodScreen() {
       const carbs = Number.isNaN(parseNum(quickCarbs)) ? 0 : parseNum(quickCarbs);
       const fat = Number.isNaN(parseNum(quickFat)) ? 0 : parseNum(quickFat);
       const serving = quickServing.trim() || '1 serving';
-      const food = await patient.addCustomFood({
-        // Created names are Title Case everywhere foods are created.
-        name: toTitleCase(name),
-        serving,
-        calories: Math.round(calories),
-        protein: Math.round(protein),
-        carbs: Math.round(carbs),
-        fat: Math.round(fat),
-      });
-      await patient.addEntry({
-        dateKey,
-        meal,
-        kind: 'food',
-        refId: food.id,
-        name: food.name,
-        detail: `1 × ${food.serving}`,
-        quantity: 1,
-        calories: food.calories,
-        protein: food.protein,
-        carbs: food.carbs,
-        fat: food.fat,
-      });
-      goBack();
+      const guarded = await runAccountGuardedSteps(
+        () => patient.addCustomFood({
+          // Created names are Title Case everywhere foods are created.
+          name: toTitleCase(name),
+          serving,
+          calories: Math.round(calories),
+          protein: Math.round(protein),
+          carbs: Math.round(carbs),
+          fat: Math.round(fat),
+        }),
+        food => patient.submitFoodEntries([{
+          dateKey,
+          meal,
+          kind: 'food',
+          refId: food.id,
+          name: food.name,
+          detail: `1 × ${food.serving}`,
+          quantity: 1,
+          calories: food.calories,
+          protein: food.protein,
+          carbs: food.carbs,
+          fat: food.fat,
+        }]),
+        () => operationIsCurrent(operation),
+      );
+      if (guarded.status === 'stale') return;
+      const result = guarded.second;
+      if (result.outcome === 'rejected') {
+        setQuickError(result.message);
+      } else {
+        goBack();
+      }
     } finally {
-      setSaving(false);
+      if (operationIsCurrent(operation)) setSaving(false);
     }
   };
 
@@ -420,22 +527,25 @@ export default function LogFoodScreen() {
               </Pressable>
             )}
           </View>
-          <Pressable
-            testID="logfood-approved-toggle"
-            accessibilityLabel="Only show approved foods"
-            onPress={() => setApprovedOnly(v => !v)}
-            style={({ pressed }) => [
-              styles.approvedBtn,
-              {
-                borderColor: approvedOnly ? colors.activeGreen : colors.border,
-                backgroundColor: approvedOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
-                borderRadius: colors.radiusSm,
-              },
-            ]}
-          >
-            <Feather name="check" size={15} color={approvedOnly ? colors.activeGreen : colors.bodyText} />
-          </Pressable>
         </View>
+
+        {query.trim().length > 0 && (
+          <View style={styles.intentLinks}>
+            {([
+              ['basic', 'Basic foods'],
+              ['packaged', 'Search packaged foods'],
+              ['recipe', 'Search recipes'],
+            ] as const).map(([value, label]) => (
+              <Pressable key={value} onPress={() => setIntent(value)} hitSlop={8}>
+                <Text style={[
+                  styles.intentLink,
+                  { color: intent === value ? colors.navyLight : colors.cobalt },
+                  intent === value && styles.intentLinkActive,
+                ]}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         {approvedOnly && (
           <View style={styles.legendRow}>
@@ -443,6 +553,9 @@ export default function LogFoodScreen() {
             <Text style={[styles.legendText, { color: colors.subtleText }]}>
               Showing only foods approved for the THINNR program
             </Text>
+            <Pressable onPress={() => setApprovedOnly(false)} hitSlop={8}>
+              <Text style={[styles.legendText, { color: colors.cobalt }]}>Remove</Text>
+            </Pressable>
           </View>
         )}
 
@@ -450,42 +563,76 @@ export default function LogFoodScreen() {
           <PillSelector options={SCOPE_OPTIONS} selected={scope} onSelect={setScope} style={{ marginTop: 10 }} />
         )}
 
-        {basket.selected.length > 0 && (
+        {basket.selected.length > 0 && basketExpanded && (
           <LedgerCard style={{ marginTop: 12 }}>
-            <View style={styles.selectionHeader}>
+            <Pressable
+              testID="logfood-basket-toggle"
+              accessibilityState={{ expanded: basketExpanded }}
+              onPress={() => setBasketExpanded(value => !value)}
+              style={styles.selectionHeader}
+            >
               <Text style={[styles.groupHeader, { color: colors.labelText, paddingHorizontal: 0, paddingTop: 0 }]}>
                 SELECTED FOODS · {basket.selected.length}
               </Text>
-              <Pressable accessibilityLabel="Clear all selected foods" onPress={basket.clear} hitSlop={8}>
-                <Text style={[styles.clearSelection, { color: colors.cobalt }]}>Clear all</Text>
-              </Pressable>
-            </View>
+              <Feather name={basketExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.cobalt} />
+            </Pressable>
             {basket.selected.map((selection, index) => (
-              <View key={selection.item.refId}>
+              <View key={selection.basketId}>
                 {index > 0 && <Divider />}
                 <View style={styles.selectedRow}>
                   <Pressable
-                    testID={`logfood-review-${selection.item.refId}`}
+                    testID={`logfood-review-${selection.basketId}`}
                     accessibilityLabel={`Review ${selection.item.name}, ${selection.ounces !== undefined ? `${formatQty(selection.ounces)} ounces` : `${formatQty(selection.quantity)} servings`}`}
-                    accessibilityHint="Opens food weight and nutrition details"
+                    accessibilityHint={selection.item.kind === 'recipe' ? 'Recipe amount controls are shown here' : 'Opens food weight and nutrition details'}
                     onPress={() => {
+                      if (selection.item.kind === 'recipe') return;
                       basket.remember(selection.item);
-                      router.push({ pathname: '/food/[id]', params: { id: selection.item.refId } });
+                      router.push({
+                        pathname: '/food/[id]',
+                        params: { id: selection.item.refId, basketId: selection.basketId, approvedOnly: approvedOnly ? 'true' : 'false' },
+                      });
                     }}
+                    disabled={selection.item.kind === 'recipe'}
                     style={{ flex: 1 }}
                   >
                     <Text style={[styles.actionName, { color: colors.navyLight }]} numberOfLines={1}>{selection.item.name}</Text>
                     <Text style={[styles.actionMeta, { color: colors.subtleText }]}>
-                      {selection.ounces !== undefined ? `${formatQty(selection.ounces)} oz` : `${formatQty(selection.quantity)} × ${selection.item.serving}`}
-                      {' · '}{Math.round(selection.item.calories * (selection.ounces !== undefined && selection.item.catalog?.servingGrams
-                        ? selection.ounces * 28.349523125 / selection.item.catalog.servingGrams
-                        : selection.quantity))} cal
+                      {selectionDisplayText(selection)}
                     </Text>
                   </Pressable>
+                  {selection.item.kind === 'recipe' && (
+                    <View style={styles.recipeQuantity}>
+                      <Pressable
+                        accessibilityLabel={`Decrease ${selection.item.name} quantity`}
+                        onPress={() => basket.configure(
+                          selection.item,
+                          { quantity: Math.max(0.5, selection.quantity - 0.5) },
+                          selection.basketId,
+                        )}
+                        hitSlop={8}
+                      >
+                        <Feather name="minus-circle" size={18} color={colors.cobalt} />
+                      </Pressable>
+                      <Text style={[styles.actionMeta, { color: colors.bodyText }]}>
+                        {formatQty(selection.quantity)}
+                      </Text>
+                      <Pressable
+                        accessibilityLabel={`Increase ${selection.item.name} quantity`}
+                        onPress={() => basket.configure(
+                          selection.item,
+                          { quantity: selection.quantity + 0.5 },
+                          selection.basketId,
+                        )}
+                        hitSlop={8}
+                      >
+                        <Feather name="plus-circle" size={18} color={colors.cobalt} />
+                      </Pressable>
+                    </View>
+                  )}
                   <Pressable
-                    testID={`logfood-remove-${selection.item.refId}`}
+                    testID={`logfood-remove-${selection.basketId}`}
                     accessibilityLabel={`Remove ${selection.item.name} from selected foods`}
-                    onPress={() => basket.remove(selection.item.refId)}
+                    onPress={() => basket.remove(selection.basketId)}
                     hitSlop={10}
                   >
                     <Feather name="x" size={16} color={colors.subtleText} />
@@ -493,8 +640,38 @@ export default function LogFoodScreen() {
                 </View>
               </View>
             ))}
+            <Pressable accessibilityLabel="Clear all selected foods" onPress={basket.clear} style={styles.showMoreBtn}>
+              <Text style={[styles.clearSelection, { color: colors.cobalt }]}>Clear all</Text>
+            </Pressable>
           </LedgerCard>
         )}
+
+        {sync.foodSubmissions.map(submission => (
+          <LedgerCard key={submission.queueId} style={{ marginTop: 12 }}>
+            <Text style={[styles.groupHeader, { color: colors.labelText, paddingHorizontal: 0, paddingTop: 0 }]}>
+              {submission.status === 'pending' ? 'PENDING SYNC' : 'SUBMISSION NEEDS REVIEW'}
+            </Text>
+            <Text style={[styles.actionMeta, { color: colors.subtleText, marginTop: 6 }]}>
+              {submission.entries.length} {submission.entries.length === 1 ? 'food' : 'foods'}
+              {submission.status === 'pending'
+                ? ' saved on this device; waiting to sync.'
+                : ` not accepted. ${submission.message ?? 'Please retry when ready.'}`}
+            </Text>
+            {submission.status === 'rejected' && (
+              <Pressable
+                testID={`logfood-retry-${submission.queueId}`}
+                onPress={() => {
+                  if (!sync.retryFoodSubmission(submission.queueId)) {
+                    setQuickError('That submission is no longer available to retry.');
+                  }
+                }}
+                style={styles.showMoreBtn}
+              >
+                <Text style={[styles.showMoreText, { color: colors.cobalt }]}>Retry same submission</Text>
+              </Pressable>
+            )}
+          </LedgerCard>
+        ))}
 
         {query.trim().length >= 2 && (catalogSearch.loading || catalogSearch.error || catalogSearch.upstreamUnavailable) && (
           <View testID="logfood-catalog-state" style={styles.catalogState}>
@@ -514,18 +691,42 @@ export default function LogFoodScreen() {
         {/* ── Quick add ── */}
         <LedgerCard style={{ marginTop: 12 }}>
           <Pressable
-            testID="logfood-quick-toggle"
-            onPress={() => setQuickOpen(open => !open)}
+            testID="logfood-more-ways-toggle"
+            onPress={() => setMoreWaysOpen(open => !open)}
             style={({ pressed }) => [styles.quickToggle, pressed && { backgroundColor: colors.accent }]}
           >
-            <Feather name={quickOpen ? 'chevron-down' : 'plus'} size={14} color={colors.cobalt} />
+            <Feather name={moreWaysOpen ? 'chevron-down' : 'plus'} size={14} color={colors.cobalt} />
             <Text style={[styles.quickToggleText, { color: colors.cobalt }]}>
-              Quick add a custom food
+              More ways to add
             </Text>
           </Pressable>
-          {quickOpen && (
+          {moreWaysOpen && (
             <View style={styles.quickForm}>
               <Divider style={{ marginBottom: 12 }} />
+              <View style={styles.toolLinks}>
+                <Pressable onPress={() => router.push('/barcode-scan')}><Text style={[styles.intentLink, { color: colors.cobalt }]}>Scan barcode</Text></Pressable>
+                <Pressable onPress={() => router.push('/food-camera')}><Text style={[styles.intentLink, { color: colors.cobalt }]}>Photo or label</Text></Pressable>
+                <Pressable onPress={() => router.push('/create-food')}><Text style={[styles.intentLink, { color: colors.cobalt }]}>Create food</Text></Pressable>
+                <Pressable
+                  testID="logfood-approved-toggle"
+                  accessibilityLabel="Only show approved foods"
+                  onPress={() => setApprovedOnly(value => !value)}
+                >
+                  <Text style={[styles.intentLink, { color: approvedOnly ? colors.activeGreen : colors.cobalt }]}>
+                    {approvedOnly ? '✓ Approved only' : 'Approved only'}
+                  </Text>
+                </Pressable>
+              </View>
+              <Pressable
+                testID="logfood-quick-toggle"
+                onPress={() => setQuickOpen(open => !open)}
+                style={styles.inlineQuickToggle}
+              >
+                <Text style={[styles.intentLink, { color: colors.cobalt }]}>Quick add nutrition</Text>
+                <Feather name={quickOpen ? 'chevron-up' : 'chevron-down'} size={14} color={colors.cobalt} />
+              </Pressable>
+              {quickOpen && (
+                <View>
               <TextInput
                 testID="logfood-quick-name"
                 value={quickName}
@@ -605,6 +806,8 @@ export default function LogFoodScreen() {
                   Save & Log to {MEAL_LABELS[meal]}
                 </Text>
               </Pressable>
+                </View>
+              )}
             </View>
           )}
         </LedgerCard>
@@ -688,8 +891,9 @@ export default function LogFoodScreen() {
                   </Text>
                 )}
                 {group.items.map((item, index) => {
-                   const isSelected = basket.selected.some(entry => entry.item.refId === item.refId);
+                   const isSelected = basket.selected.some(entry => selectionMatchesItemConfiguration(entry, item));
                   const isRecipe = item.kind === 'recipe';
+                  const selectedSummary = foodResultDisplayText(item);
                   return (
                     <View key={`${item.refId}-${index}`}>
                       {index > 0 && <Divider />}
@@ -703,7 +907,7 @@ export default function LogFoodScreen() {
                             if (isRecipe) openRecipe(item);
                             else {
                               basket.remember(item);
-                              router.push({ pathname: '/food/[id]', params: { id: item.refId } });
+                              router.push({ pathname: '/food/[id]', params: { id: item.refId, approvedOnly: approvedOnly ? 'true' : 'false' } });
                             }
                           }}
                           style={({ pressed }) => [styles.itemOpen, pressed && { opacity: 0.65 }]}
@@ -717,28 +921,24 @@ export default function LogFoodScreen() {
                             </View>
                             <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
                               {item.loggedCount ? `${item.loggedCount}× logged · ` : ''}
-                              {item.sub} · {item.serving} · P {item.protein}g
-                              {item.catalog ? ` · ${item.catalog.sourceLabel}` : ''}
+                              {isRecipe ? `${item.sub} · ${item.serving}` : selectedSummary}
                             </Text>
                           </View>
-                          <Text style={[styles.itemCals, { color: colors.navyLight }]}>{item.calories}</Text>
                         </Pressable>
-                        <FavoriteStar
-                          id={item.refId}
-                          name={item.name}
-                          testID={`logfood-fav-${item.refId}`}
-                          onToggle={item.catalog ? () => toggleCatalogFavorite(item) : undefined}
-                        />
                         {isRecipe ? (
                           /* Separate Pressable so + quick-adds without opening the page */
                           <Pressable
                             testID={`logfood-quicklog-${item.refId}`}
-                            onPress={() => quickLogRecipe(item)}
+                            accessibilityLabel={`Quick add 1 serving of ${item.name}`}
+                            onPress={() => {
+                              Keyboard.dismiss();
+                              basket.toggle(item);
+                            }}
                             disabled={saving}
-                            hitSlop={8}
-                            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                            hitSlop={12}
+                            style={({ pressed }) => [styles.plusTarget, pressed && { opacity: 0.6 }]}
                           >
-                            <Feather name="plus-square" size={16} color={colors.subtleText} />
+                            <Feather name="plus-square" size={20} color={colors.subtleText} />
                           </Pressable>
                          ) : (
                            <Pressable
@@ -748,11 +948,17 @@ export default function LogFoodScreen() {
                              accessibilityLabel={`${isSelected ? 'Remove' : 'Select'} ${item.name}`}
                              onPress={() => {
                                Keyboard.dismiss();
-                               basket.toggle(item);
+                               if (item.catalog?.choiceRequired) {
+                                 basket.remember(item);
+                                 router.push({ pathname: '/food/[id]', params: { id: item.refId, approvedOnly: approvedOnly ? 'true' : 'false' } });
+                               } else {
+                                 basket.toggle(item);
+                               }
                              }}
-                             hitSlop={10}
+                             hitSlop={12}
+                             style={({ pressed }) => [styles.plusTarget, pressed && { opacity: 0.6 }]}
                            >
-                             <Feather name={isSelected ? 'check-square' : 'plus-square'} size={18} color={isSelected ? colors.cobalt : colors.subtleText} />
+                             <Feather name={isSelected ? 'check-square' : 'plus-square'} size={20} color={isSelected ? colors.cobalt : colors.subtleText} />
                            </Pressable>
                         )}
                       </View>
@@ -761,6 +967,41 @@ export default function LogFoodScreen() {
                 })}
               </View>
             ))}
+
+            {query.trim() === '' && scope === 'favorites' && patient.favorites.length > favoriteLimit && (
+              <View>
+                <Divider />
+                <Pressable
+                  testID="logfood-favorites-show-more"
+                  onPress={() => setFavoriteLimit(limit => limit + 6)}
+                  style={styles.showMoreBtn}
+                >
+                  <Text style={[styles.showMoreText, { color: colors.cobalt }]}>Show more favorites</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {query.trim().length > 0 && catalogSearch.hasMore && (
+              <View>
+                <Divider />
+                <Pressable
+                  testID="logfood-show-more"
+                  onPress={catalogSearch.showMore}
+                  disabled={catalogSearch.loadingMore}
+                  style={({ pressed }) => [
+                    styles.showMoreBtn,
+                    pressed && { backgroundColor: colors.accent }
+                  ]}
+                >
+                  {catalogSearch.loadingMore ? (
+                    <Feather name="loader" size={16} color={colors.subtleText} style={{ marginRight: 6 }} />
+                  ) : null}
+                  <Text style={[styles.showMoreText, { color: colors.cobalt }]}>
+                    {catalogSearch.loadingMore ? 'Loading...' : 'Show more results'}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
           </LedgerCard>
         )}
       </KeyboardAwareScrollViewCompat>
@@ -777,14 +1018,20 @@ export default function LogFoodScreen() {
             },
           ]}
         >
-          <View style={styles.actionInfo} accessibilityLabel={`${basket.selected.length} foods selected`}>
+          <Pressable
+            testID="logfood-basket-summary"
+            style={styles.actionInfo}
+            accessibilityLabel={`${basket.selected.length} foods selected. Review selections`}
+            accessibilityState={{ expanded: basketExpanded }}
+            onPress={() => setBasketExpanded(value => !value)}
+          >
             <Text style={[styles.actionName, { color: colors.navyLight }]}>
               {basket.selected.length} food{basket.selected.length === 1 ? '' : 's'} selected
             </Text>
             <Text style={[styles.actionMeta, { color: colors.subtleText }]} numberOfLines={2}>
               {basket.selected.map(entry => entry.item.name).join(', ')}
             </Text>
-          </View>
+          </Pressable>
           <View style={styles.actionControls}>
             <Pressable
               testID="logfood-add"
@@ -848,6 +1095,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  intentLinks: {
+    marginTop: 9,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+  },
+  intentLink: {
+    fontSize: 11.5,
+    lineHeight: 18,
+    fontFamily: 'Inter_500Medium',
+  },
+  intentLinkActive: {
+    textDecorationLine: 'underline',
+  },
   searchBox: {
     flex: 1,
     flexDirection: 'row',
@@ -908,6 +1169,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingBottom: 14,
   },
+  toolLinks: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 18,
+    rowGap: 8,
+    marginBottom: 10,
+  },
+  inlineQuickToggle: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   quickInput: {
     borderWidth: 1,
     paddingHorizontal: 10,
@@ -966,6 +1240,22 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontFamily: 'Inter_600SemiBold',
   },
+  showMoreBtn: {
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  showMoreText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  plusTarget: {
+    padding: 12, // larger target area
+    marginLeft: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   selectedRow: {
     minHeight: 52,
     paddingHorizontal: 14,
@@ -973,6 +1263,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  recipeQuantity: {
+    marginTop: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   yesterdayRow: {
     flexDirection: 'row',

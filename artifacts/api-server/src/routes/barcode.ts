@@ -21,7 +21,8 @@
  */
 import { Router, type IRouter } from "express";
 import { createLimiter, envLimit } from "../coach/limits";
-import { normalizeBarcode, normalizeOffProduct } from "../barcode/normalize";
+import { normalizeBarcode, normalizeOffProduct, nutritionSnapshotFromOffProduct } from "../barcode/normalize";
+import type { FoodNutritionSnapshot } from "@workspace/api-zod";
 import { fetchOffProduct } from "../barcode/off";
 import {
   getBarcodeFactsRecord,
@@ -41,6 +42,7 @@ export interface BarcodeFood {
   protein: number;
   carbs: number;
   fat: number;
+  nutritionSnapshot?: FoodNutritionSnapshot;
 }
 
 // Open route posture like the other demo endpoints: per-IP budget, generous
@@ -113,6 +115,7 @@ function foodFromRow(row: BarcodeFactsRow): BarcodeFood {
     protein: Number(row.protein),
     carbs: Number(row.carbs),
     fat: Number(row.fat),
+    ...(row.nutrition_snapshot ? { nutritionSnapshot: row.nutrition_snapshot as FoodNutritionSnapshot } : {}),
   };
 }
 
@@ -173,7 +176,8 @@ router.get("/barcode/:code", async (req, res) => {
       return;
     }
 
-    const food: BarcodeFood = { code, ...facts };
+    const nutritionSnapshot = nutritionSnapshotFromOffProduct(code, upstream.product, facts);
+    const food: BarcodeFood = { code, ...facts, ...(nutritionSnapshot ? { nutritionSnapshot } : {}) };
     try {
       await upsertBarcodeFactsRecord({
         code,
@@ -185,6 +189,7 @@ router.get("/barcode/:code", async (req, res) => {
         carbs: facts.carbs,
         fat: facts.fat,
         source: "openfoodfacts",
+        ...(nutritionSnapshot ? { nutrition_snapshot: nutritionSnapshot } : {}),
       });
     } catch (error) {
       // The patient still gets their food; the NEXT scan pays the upstream

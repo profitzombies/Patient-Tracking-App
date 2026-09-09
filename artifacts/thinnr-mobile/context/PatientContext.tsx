@@ -99,6 +99,11 @@ import {
   type SavedRecipe,
 } from '@/data/patient-data';
 import {
+  parseNutritionSnapshot,
+  scaledSnapshotMacros,
+  snapshotConfigurationId,
+} from '@/data/food-nutrition';
+import {
   assessNudge,
   classifyEntries,
   shouldSeedOutreach,
@@ -239,11 +244,7 @@ const EMPTY_STATE: PersistedState = {
  * wrote here back when these slices were device-local).
  */
 function localOnlySlice(state: PersistedState): PersistedState {
-  // Shared-food snapshots are a private device cache, not patient-created
-  // library rows. Keep them across live hydration so server-held favorite /
-  // recent ids can still resolve offline, without sending them through the
-  // custom-food API or publishing anything globally.
-  return { ...EMPTY_STATE, catalogFoods: state.catalogFoods };
+  return { ...EMPTY_STATE };
 }
 
 /** Server truth → the base every queued write projects on top of. */
@@ -257,6 +258,7 @@ function baseFromServer(server: PatientServerState): PersistedState {
     favorites: server.favorites,
     recents: server.recents,
     customFoods: server.customFoods,
+    catalogFoods: server.catalogFoods ?? [],
     savedRecipes: server.savedRecipes,
     addedCheckIns: server.checkIns,
     medications: server.medications,
@@ -334,6 +336,14 @@ interface PatientContextValue {
   waterFor: (dateKey: string) => number;
   checkInFor: (dateKey: string) => CheckIn | undefined;
   addEntry: (entry: Omit<MealLogEntry, 'id'>) => Promise<void>;
+  /**
+   * Food-search batch submission with an honest acceptance receipt. Real
+   * accounts resolve as queued (not confirmed) and retain the immutable rows
+   * under queueId for retry; demo resolves as locally saved.
+   */
+  submitFoodEntries: (
+    entries: Array<Omit<MealLogEntry, 'id'>>,
+  ) => Promise<FoodSubmissionReceipt>;
   copyEntries: (sources: MealLogEntry[], target: { dateKey: string; meal?: MealSlot }) => Promise<MealLogEntry[]>;
   copyEntriesWithExtras: (
     sources: MealLogEntry[],
@@ -398,6 +408,11 @@ interface PatientContextValue {
   addCustomFood: (food: Omit<FoodItem, 'id' | 'category'>) => Promise<FoodItem>;
   /** Persist a private, immutable lookup snapshot for a shared food selection. */
   saveCatalogFood: (food: FoodItem) => Promise<boolean>;
+  /** Save the shown exact configuration and optionally set its favorite state atomically. */
+  saveFoodConfiguration: (
+    food: FoodItem,
+    options?: { favorite?: boolean },
+  ) => Promise<FoodItem | null>;
   updateCustomFood: (id: string, food: Omit<FoodItem, 'id' | 'category'>) => Promise<void>;
   removeCustomFood: (id: string) => Promise<RemovedCustomFood | null>;
   restoreCustomFood: (removed: RemovedCustomFood) => Promise<void>;
@@ -489,6 +504,12 @@ interface PatientContextValue {
   }) => Promise<boolean>;
 }
 
+export type FoodSubmissionReceipt =
+  | { outcome: 'locally_saved_demo'; entries: MealLogEntry[] }
+  | { outcome: 'queued'; queueId: string; entries: MealLogEntry[] }
+  | { outcome: 'server_confirmed'; entries: MealLogEntry[] }
+  | { outcome: 'rejected'; entries: MealLogEntry[]; message: string };
+
 /** Onboarding-owned account flags, exactly as hydration delivered them. */
 export interface HydratedOnboardingFlags {
   onboardingAnswers: Record<string, unknown> | null;
@@ -524,6 +545,8 @@ export interface PatientSyncValue {
   status: SyncStatus;
   /** Every queued write, oldest first (pending and failed). */
   items: readonly QueuedWrite[];
+  /** Recoverable food baskets still held under their original queue/entry ids. */
+  foodSubmissions: readonly RecoverableFoodSubmission[];
   pendingCount: number;
   failedCount: number;
   /** True briefly after the queue drains, so the shell can flash "Up to date". */
@@ -531,8 +554,19 @@ export interface PatientSyncValue {
   /** Whether an entity has an unsent write (see pendingEntityKeys for the keys). */
   isPending: (entityKey: string) => boolean;
   retry: (id: string) => void;
+  /** Re-arms only a recoverable food submission; never creates new ids. */
+  retryFoodSubmission: (queueId: string) => boolean;
   retryAll: () => void;
   discard: (id: string) => Promise<void>;
+}
+
+export interface RecoverableFoodSubmission {
+  queueId: string;
+  entries: readonly MealLogEntry[];
+  status: 'pending' | 'rejected';
+  attempts: number;
+  message: string | null;
+  createdAt: number;
 }
 
 const DISABLED_SYNC: PatientSyncValue = {
@@ -540,11 +574,13 @@ const DISABLED_SYNC: PatientSyncValue = {
   online: true,
   status: 'idle',
   items: [],
+  foodSubmissions: [],
   pendingCount: 0,
   failedCount: 0,
   justSynced: false,
   isPending: () => false,
   retry: () => undefined,
+  retryFoodSubmission: () => false,
   retryAll: () => undefined,
   discard: async () => undefined,
 };
@@ -575,8 +611,25 @@ function parseSnapshot(raw: string | null): CachedAccountSnapshot | null {
     if (!parsed || typeof parsed !== 'object' || !parsed.state || typeof parsed.state !== 'object') {
       return null;
     }
+    const stored = parsed.state as Partial<PersistedState>;
+    const safeSnapshotRows = <T extends { nutritionSnapshot?: unknown }>(value: unknown): T[] => {
+      if (!Array.isArray(value)) return [];
+      return value.flatMap(candidate => {
+        if (!candidate || typeof candidate !== 'object') return [];
+        const row = candidate as T;
+        if (row.nutritionSnapshot === undefined) return [row];
+        const nutritionSnapshot = parseNutritionSnapshot(row.nutritionSnapshot);
+        return nutritionSnapshot ? [{ ...row, nutritionSnapshot } as T] : [];
+      });
+    };
     return {
-      state: { ...EMPTY_STATE, ...(parsed.state as Partial<PersistedState>), catalogFoods: [] },
+      state: {
+        ...EMPTY_STATE,
+        ...stored,
+        addedEntries: safeSnapshotRows<MealLogEntry>(stored.addedEntries),
+        customFoods: safeSnapshotRows<FoodItem>(stored.customFoods),
+        catalogFoods: safeSnapshotRows<FoodItem>(stored.catalogFoods),
+      },
       flags: parsed.flags ?? null,
       privacy: parsed.privacy ?? null,
       entry: parsed.entry ?? null,
@@ -851,7 +904,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const persistSnapshot = useCallback((run: MutationRun): void => {
     if (run.epoch !== epochRef.current || run.account.kind !== 'real') return;
     const snapshot: CachedAccountSnapshot = {
-      state: { ...baseRef.current, catalogFoods: [] },
+      state: baseRef.current,
       ...cachedFactsRef.current,
     };
     writePersistedRaw(snapshotKeyFor(run.account.patientId), JSON.stringify(snapshot)).catch(
@@ -861,11 +914,11 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  /** state = project(base, queue) + the device-local catalog cache. */
+  /** state = project(base, queue). */
   const recomputeFromBase = useCallback(
     (run: MutationRun): Promise<void> =>
       commit(
-        { ...projectQueue(baseRef.current, queueRef.current), catalogFoods: stateRef.current.catalogFoods },
+        projectQueue(baseRef.current, queueRef.current),
         run,
       ),
     [commit],
@@ -1019,7 +1072,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         replaceQueue(reconciled, run);
         persistSnapshot(run);
         await commit(
-          { ...projectQueue(base, reconciled), catalogFoods: stateRef.current.catalogFoods },
+          projectQueue(base, reconciled),
           run,
         );
         if (epochRef.current !== run.epoch) return false;
@@ -1178,6 +1231,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       run: MutationRun,
       next: PersistedState,
       write: { payload: QueuedWritePayload; summary: string; editIds?: string[] },
+      onQueued?: (queueId: string) => void,
     ): Promise<boolean> => {
       if (run.account.kind !== 'real') {
         // Only 'unresolved' reaches here (demo branches commit locally):
@@ -1215,6 +1269,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         }
       }
       replaceQueue([...queueRef.current, item], run);
+      onQueued?.(item.id);
       kickDrain();
       return true;
     },
@@ -1522,7 +1577,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             console.error('Offline queue persist failed', error);
           });
           persistSnapshot(run);
-          finish({ ...projectQueue(base, reconciled), catalogFoods: local.catalogFoods });
+          finish(projectQueue(base, reconciled));
           // Onboarding truth for OnboardingProvider — answers and prefs
           // are its state, not the diary's.
           setHydratedFlags(flags);
@@ -1587,7 +1642,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             truthFromCacheRef.current = true;
             if (pendingFlagsRef.current) void flushOnboardingFlags();
             setSyncNotice({ message: CACHED_DIARY_MESSAGE, action: 'retry-hydration' });
-            finish({ ...projectQueue(cached.state, storedQueue), catalogFoods: local.catalogFoods });
+            finish(projectQueue(cached.state, storedQueue));
             setHydratedFlags(cached.flags);
             setHydratedPrivacy(cached.privacy);
             setEntryFacts(cached.entry);
@@ -1662,14 +1717,18 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
   const addEntry = useCallback(async (entry: Omit<MealLogEntry, 'id'>): Promise<void> => {
+    const startEpoch = epochRef.current;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
-    const startEpoch = epochRef.current;
     await runSerialized(async () => {
       const run = beginRun(startEpoch);
       if (!run || !requireWritableAccount(run)) return;
       const prev = stateRef.current;
-      const full: MealLogEntry = { ...entry, id: makeId(run, 'log') };
+      const full: MealLogEntry = {
+        ...entry,
+        ...(entry.nutritionSnapshot ? scaledSnapshotMacros(entry.nutritionSnapshot) ?? {} : {}),
+        id: makeId(run, 'log'),
+      };
       const recents = entry.refId
         ? [entry.refId, ...prev.recents.filter(r => r !== entry.refId)].slice(0, 12)
         : prev.recents;
@@ -1686,6 +1745,55 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         },
         summary: `Logged ${full.name}`,
       });
+    });
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
+
+  const submitFoodEntries = useCallback(async (
+    entries: Array<Omit<MealLogEntry, 'id'>>,
+  ): Promise<FoodSubmissionReceipt> => {
+    if (entries.length === 0) {
+      return { outcome: 'rejected', entries: [], message: 'Choose at least one food.' };
+    }
+    const startEpoch = epochRef.current;
+    await hydrationGate.current!.promise;
+    return runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      if (!run || !requireWritableAccount(run)) {
+        return { outcome: 'rejected', entries: [], message: ACCOUNT_BLOCKED_MESSAGE };
+      }
+      const prev = stateRef.current;
+      const full = entries.map(entry => ({
+        ...entry,
+        ...(entry.nutritionSnapshot ? scaledSnapshotMacros(entry.nutritionSnapshot) ?? {} : {}),
+        id: makeId(run, 'log'),
+      }));
+      const refIds = [...new Set(full.map(entry => entry.refId).filter((id): id is string => Boolean(id)))];
+      const recents = refIds.length > 0
+        ? [...refIds, ...prev.recents.filter(id => !refIds.includes(id))].slice(0, 12)
+        : prev.recents;
+      const next = { ...prev, addedEntries: [...prev.addedEntries, ...full], recents };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return { outcome: 'locally_saved_demo', entries: full };
+      }
+      let queueId = '';
+      const accepted = await commitQueued(
+        run,
+        next,
+        {
+          payload: {
+            kind: 'entries',
+            upsert: full,
+            foodSubmission: true,
+            ...(recents !== prev.recents ? { recents } : {}),
+          },
+          summary: `Logged ${full.length} ${full.length === 1 ? 'food' : 'foods'}`,
+        },
+        id => { queueId = id; },
+      );
+      return accepted
+        ? { outcome: 'queued', queueId, entries: full }
+        : { outcome: 'rejected', entries: full, message: DIARY_BLOCKED_MESSAGE };
     });
   }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
@@ -2245,9 +2353,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const addCustomFood = useCallback(async (food: Omit<FoodItem, 'id' | 'category'>): Promise<FoodItem> => {
+    const startEpoch = epochRef.current;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await hydrationGate.current!.promise;
-    const startEpoch = epochRef.current;
     return runSerialized(async () => {
       const run = beginRun(startEpoch);
       const prev = stateRef.current;
@@ -2271,17 +2379,15 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   const saveCatalogFood = useCallback(async (food: FoodItem): Promise<boolean> => {
-    await hydrationGate.current!.promise;
     const startEpoch = epochRef.current;
+    await hydrationGate.current!.promise;
     return runSerialized(async () => {
       const run = beginRun(startEpoch);
-      // This is deliberately a private cache write. Do not use writeLibrary:
-      // catalog rows are shared/server-owned and patient custom foods must
-      // never be globally promoted by this path.
       if (!run || run.account.kind === 'unresolved') return false;
       const prev = stateRef.current;
       const snapshot: FoodItem = {
         ...food,
+        ...(food.nutritionSnapshot ? scaledSnapshotMacros(food.nutritionSnapshot) ?? {} : {}),
         photoUri: undefined,
         photoPath: undefined,
         catalogShared: true,
@@ -2290,21 +2396,68 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         ...prev,
         catalogFoods: [snapshot, ...prev.catalogFoods.filter(item => item.id !== snapshot.id)],
       };
-      try {
+      if (run.account.kind !== 'real') {
         await commit(next, run);
         return true;
-      } catch {
-        // commit updates the optimistic projection before storage; restore it
-        // on a storage failure so favorites/recents never point at a phantom.
-        try {
-          await commit(prev, run);
-        } catch {
-          // The original persistence failure is already reflected by false.
-        }
-        return false;
       }
+      return commitQueued(run, next, {
+        payload: { kind: 'library', input: { foodUpsert: [snapshot] } },
+        summary: `Saved ${snapshot.name} configuration`,
+      });
     });
-  }, [beginRun, commit, runSerialized]);
+  }, [beginRun, commit, commitQueued, runSerialized]);
+
+  const saveFoodConfiguration = useCallback(async (
+    food: FoodItem,
+    options: { favorite?: boolean } = {},
+  ): Promise<FoodItem | null> => {
+    const startEpoch = epochRef.current;
+    await hydrationGate.current!.promise;
+    return runSerialized(async () => {
+      const run = beginRun(startEpoch);
+      if (!run || !requireWritableAccount(run)) return null;
+      const prev = stateRef.current;
+      const snapshot: FoodItem = {
+        ...food,
+        ...(food.nutritionSnapshot ? scaledSnapshotMacros(food.nutritionSnapshot) ?? {} : {}),
+        id: food.nutritionSnapshot
+          ? snapshotConfigurationId(food.nutritionSnapshot)
+          : food.id,
+        photoUri: undefined,
+        photoPath: undefined,
+        catalogShared: true,
+      };
+      const favorites = options.favorite === undefined
+        ? prev.favorites
+        : options.favorite
+          ? [snapshot.id, ...prev.favorites.filter(id => id !== snapshot.id)]
+          : prev.favorites.filter(id => id !== snapshot.id);
+      const next = {
+        ...prev,
+        catalogFoods: [snapshot, ...prev.catalogFoods.filter(item => item.id !== snapshot.id)],
+        favorites,
+      };
+      if (run.account.kind !== 'real') {
+        await commit(next, run);
+        return snapshot;
+      }
+      const saved = await commitQueued(run, next, {
+        payload: {
+          kind: 'library',
+          input: {
+            foodUpsert: [snapshot],
+            ...(favorites !== prev.favorites ? { favorites } : {}),
+          },
+        },
+        summary: options.favorite === true
+          ? `Favorited ${snapshot.name}`
+          : options.favorite === false
+            ? `Removed ${snapshot.name} from favorites`
+            : `Saved ${snapshot.name} configuration`,
+      });
+      return saved ? snapshot : null;
+    });
+  }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Rebuilds the food from the payload (not a merge) so cleared optional
   // fields like brand actually drop. Diary entries are untouched: they
@@ -2935,6 +3088,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       waterFor,
       checkInFor,
       addEntry,
+      submitFoodEntries,
       copyEntries,
       copyEntriesWithExtras,
       removeEntry,
@@ -2956,6 +3110,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       toggleFavorite,
       addCustomFood,
       saveCatalogFood,
+      saveFoodConfiguration,
       updateCustomFood,
       removeCustomFood,
       restoreCustomFood,
@@ -3002,6 +3157,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       waterFor,
       checkInFor,
       addEntry,
+      submitFoodEntries,
       copyEntries,
       copyEntriesWithExtras,
       removeEntry,
@@ -3023,6 +3179,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       toggleFavorite,
       addCustomFood,
       saveCatalogFood,
+      saveFoodConfiguration,
       updateCustomFood,
       removeCustomFood,
       restoreCustomFood,
@@ -3070,16 +3227,45 @@ export function PatientProvider({ children }: { children: ReactNode }) {
 
   const syncValue = useMemo<PatientSyncValue>(() => {
     if (account.kind !== 'real') return DISABLED_SYNC;
+    const foodSubmissions: RecoverableFoodSubmission[] = queue.flatMap(item => {
+      if (
+        item.payload.kind !== 'entries' ||
+        item.payload.foodSubmission !== true ||
+        !item.payload.upsert ||
+        item.payload.upsert.length === 0
+      ) {
+        return [];
+      }
+      return [{
+        queueId: item.id,
+        entries: item.payload.upsert,
+        status: item.status === 'failed' ? 'rejected' : 'pending',
+        attempts: item.attempts,
+        message: item.lastError,
+        createdAt: item.createdAt,
+      }];
+    });
     return {
       enabled: true,
       online,
       status: deriveSyncStatus(queue, online),
       items: queue,
+      foodSubmissions,
       pendingCount: queue.filter(item => item.status === 'pending').length,
       failedCount: queue.filter(item => item.status === 'failed').length,
       justSynced,
       isPending,
       retry: retryQueued,
+      retryFoodSubmission: queueId => {
+        const item = queue.find(candidate =>
+          candidate.id === queueId &&
+          candidate.payload.kind === 'entries' &&
+          candidate.payload.foodSubmission === true
+        );
+        if (!item) return false;
+        retryQueued(queueId);
+        return true;
+      },
       retryAll: retryAllQueued,
       discard: discardQueued,
     };

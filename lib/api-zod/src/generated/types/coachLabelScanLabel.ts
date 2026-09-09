@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CoachLabelScanLabelSuggestedSlot } from './coachLabelScanLabelSuggestedSlot';
+import type { FoodNutritionSnapshot } from './foodNutritionSnapshot';
 
 /**
  * Validated per-serving transcription of one Nutrition Facts panel — the same read the coach chat's labelDraft SSE event carries. Printed values only; optional fields are omitted when the panel does not print them legibly.
@@ -25,6 +26,7 @@ export interface CoachLabelScanLabel {
   carbs: number;
   /** Grams per serving */
   fat: number;
+  nutritionSnapshot?: FoodNutritionSnapshot;
   /** Grams per serving; omitted when not printed legibly */
   fiber?: number;
   /** Grams per serving; omitted when not printed legibly */

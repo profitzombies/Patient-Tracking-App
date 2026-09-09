@@ -299,6 +299,25 @@ paths:
           in: query
           description: Explicitly request guarded branded fallback
           schema: { type: boolean, default: false }
+        - name: grouped
+          in: query
+          description: >-
+            Enable reviewed family grouping, deterministic paging, and the
+            bounded small-choice response. When absent, legacy search behavior
+            is preserved.
+          schema: { type: boolean }
+        - name: intent
+          in: query
+          description: Search generic/basic foods or explicitly packaged products
+          schema: { type: string, enum: [basic, packaged], default: basic }
+        - name: approvedOnly
+          in: query
+          description: Restrict candidates to variations with an eligible approval
+          schema: { type: boolean, default: false }
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by a grouped search
+          schema: { type: string, minLength: 1, maxLength: 2048 }
       responses:
         "200":
           description: Ranked local results followed by any external results
@@ -307,6 +326,34 @@ paths:
               schema: { $ref: "#/components/schemas/CatalogSearchResult" }
         "400": { description: Invalid query }
         "403": { description: Session is not linked to a patient }
+        "429": { description: Rate limited }
+        "502": { description: Local catalog is unavailable }
+  /catalog/families/{familyKey}:
+    get:
+      operationId: catalogFamily
+      tags: [catalog]
+      summary: Get every eligible reviewed variation in a food family
+      description: >-
+        Returns complete source-specific configurations. Family grouping never
+        merges nutrient values or replaces the exact catalog identity.
+      security: []
+      parameters:
+        - name: familyKey
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - name: approvedOnly
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Ordered eligible family variations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogFamilyResult" }
+        "400": { description: Invalid family key }
+        "403": { description: Session is not linked to a patient }
+        "404": { description: Reviewed family not found }
         "429": { description: Rate limited }
         "502": { description: Local catalog is unavailable }
   /catalog/selections:
@@ -3136,6 +3183,8 @@ components:
         fat:
           type: number
           description: Grams per serving
+        nutritionSnapshot:
+          $ref: "#/components/schemas/FoodNutritionSnapshot"
         fiber:
           type: number
           description: Grams per serving; omitted when not printed legibly
@@ -3246,6 +3295,87 @@ components:
           description: Present only for not_found
       required:
         - result
+    FoodNutritionSource:
+      type: object
+      additionalProperties: false
+      required: [provider, recordId, revision]
+      properties:
+        provider: { type: string }
+        recordId: { type: string }
+        release: { type: string }
+        revision: { type: string }
+        canonicalName: { type: string }
+    FoodNutritionBasis:
+      type: object
+      additionalProperties: false
+      required: [amount, unit, label]
+      properties:
+        amount: { type: number }
+        unit: { type: string }
+        label: { type: string }
+        grams: { type: number }
+    FoodNutritionNutrient:
+      type: object
+      additionalProperties: false
+      required: [id, name, unit, amount]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        unit: { type: string }
+        amount: { type: number }
+    FoodNutritionPortion:
+      type: object
+      additionalProperties: false
+      required: [id, label, unit, dimension, basisMultiplier]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        unit: { type: string }
+        dimension:
+          type: string
+          enum: [weight, volume, count, serving]
+        basisMultiplier: { type: number }
+        grams: { type: number }
+        evidence: { type: string }
+    FoodNutritionVariant:
+      type: object
+      additionalProperties: false
+      required: [familyKey, summary, dimensions]
+      properties:
+        familyKey: { type: string }
+        summary: { type: string }
+        dimensions:
+          type: object
+          additionalProperties: { type: string }
+    FoodNutritionSelection:
+      type: object
+      additionalProperties: false
+      required: [amount, unitId, scale]
+      properties:
+        amount: { type: number }
+        unitId: { type: string }
+        scale: { type: number }
+    FoodNutritionSnapshot:
+      type: object
+      additionalProperties: false
+      required: [version, source, basis, nutrients, portions, selected, provenance]
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        source: { $ref: "#/components/schemas/FoodNutritionSource" }
+        basis: { $ref: "#/components/schemas/FoodNutritionBasis" }
+        nutrients:
+          type: array
+          items: { $ref: "#/components/schemas/FoodNutritionNutrient" }
+        portions:
+          type: array
+          items: { $ref: "#/components/schemas/FoodNutritionPortion" }
+        variant: { $ref: "#/components/schemas/FoodNutritionVariant" }
+        selected: { $ref: "#/components/schemas/FoodNutritionSelection" }
+        provenance:
+          type: string
+          enum: [generic_source, generic_dish_estimate, identified_product, personal_label]
     CatalogApproval:
       type: object
       required: [id, name, portion, phaseGuidance, constraints]
@@ -3291,9 +3421,21 @@ components:
         approvals:
           type: array
           items: { $ref: "#/components/schemas/CatalogApproval" }
+        resultKey: { type: string }
+        familyKey: { type: string }
+        variantSummary: { type: string }
+        dimensions:
+          type: object
+          additionalProperties: { type: string }
+        choiceRequired: { type: boolean }
+        nutritionSnapshot: { $ref: "#/components/schemas/FoodNutritionSnapshot" }
+        catalogMetadata:
+          type: object
+          additionalProperties: true
+          description: Private saved-food catalog provenance and configuration metadata
     CatalogSearchResult:
       type: object
-      required: [results, externalUnavailable]
+      required: [results, externalUnavailable, hasMore, nextCursor, rankingVersion]
       properties:
         results:
           type: array
@@ -3301,6 +3443,22 @@ components:
         externalUnavailable:
           type: boolean
           description: Local results remain valid when branded fallback failed
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: ["string", "null"]
+          description: Opaque continuation cursor, or null when no more results exist
+        rankingVersion:
+          type: string
+          description: Review/ranking version that pins continuation ordering
+    CatalogFamilyResult:
+      type: object
+      additionalProperties: false
+      required: [variants]
+      properties:
+        variants:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogFood" }
     CatalogSelectionInput:
       type: object
       additionalProperties: false

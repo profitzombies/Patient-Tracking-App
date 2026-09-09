@@ -433,8 +433,10 @@ describe("office scope", () => {
     const body = await (await api("/office/roster", "provider-token")).json() as { patients: Array<Row & { operational: Row; medicationAdherence: Row }> };
     const own = body.patients.find((row) => row.id === "pat-own")!;
     expect(own.medicationAdherence).toMatchObject({ taken: 1, skipped: 1 });
-    expect(own.medicationAdherence.due).toBeGreaterThanOrEqual(3);
-    expect(own.medicationAdherence.missed).toBe(own.medicationAdherence.due - 2);
+    const due = own.medicationAdherence.due;
+    if (typeof due !== "number") throw new Error("Expected a numeric medication due count");
+    expect(due).toBeGreaterThanOrEqual(3);
+    expect(own.medicationAdherence.missed).toBe(due - 2);
     expect(own.medicationAdherence.rate).toBe(Math.round((100 * 1) / Number(own.medicationAdherence.due)));
     // Engagement signals keep their own definitions and shape: the untouched
     // activity aggregate still reads as no-activity-yet regardless of doses.

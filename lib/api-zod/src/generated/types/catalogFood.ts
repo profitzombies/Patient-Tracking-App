@@ -6,10 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CatalogApproval } from './catalogApproval';
+import type { CatalogFoodCatalogMetadata } from './catalogFoodCatalogMetadata';
+import type { CatalogFoodDimensions } from './catalogFoodDimensions';
 import type { CatalogFoodKind } from './catalogFoodKind';
 import type { CatalogFoodMeasuresItem } from './catalogFoodMeasuresItem';
 import type { CatalogFoodQualityStatus } from './catalogFoodQualityStatus';
 import type { CatalogFoodSource } from './catalogFoodSource';
+import type { FoodNutritionSnapshot } from './foodNutritionSnapshot';
 
 export interface CatalogFood {
   id: string;
@@ -33,4 +36,12 @@ export interface CatalogFood {
   barcode: string | null;
   qualityStatus: CatalogFoodQualityStatus;
   approvals: CatalogApproval[];
+  resultKey?: string;
+  familyKey?: string;
+  variantSummary?: string;
+  dimensions?: CatalogFoodDimensions;
+  choiceRequired?: boolean;
+  nutritionSnapshot?: FoodNutritionSnapshot;
+  /** Private saved-food catalog provenance and configuration metadata */
+  catalogMetadata?: CatalogFoodCatalogMetadata;
 }

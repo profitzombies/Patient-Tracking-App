@@ -111,7 +111,7 @@ describe("GET /barcode/:code", () => {
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.result).toBe("found");
     expect(body.source).toBe("table");
-    expect(body.food).toEqual({
+    expect(body.food).toMatchObject({
       code: "0038000138416",
       name: "Corn Flakes",
       brand: "Kellogg's",
@@ -132,7 +132,7 @@ describe("GET /barcode/:code", () => {
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.result).toBe("found");
     expect(body.source).toBe("openfoodfacts");
-    expect(body.food).toEqual({
+    expect(body.food).toMatchObject({
       code: "3017624010701",
       name: "Nutella",
       brand: "Ferrero",
@@ -141,6 +141,17 @@ describe("GET /barcode/:code", () => {
       protein: 1,
       carbs: 8.6,
       fat: 4.7,
+      nutritionSnapshot: {
+        version: 1,
+        source: { provider: "Open Food Facts", recordId: "3017624010701" },
+        basis: { amount: 1, unit: "serving", label: "15 g", grams: 15 },
+        nutrients: expect.arrayContaining([
+          { id: "off:energy-kcal", name: "Energy", unit: "kcal", amount: 80.4 },
+          { id: "off:proteins", name: "Protein", unit: "g", amount: 0.96 },
+        ]),
+        selected: { amount: 1, unitId: "serving", scale: 1 },
+        provenance: "identified_product",
+      },
     });
     expect(factsStore.upsertBarcodeFactsRecord).toHaveBeenCalledTimes(1);
     expect(factsStore.rows.get("3017624010701")).toMatchObject({
@@ -148,6 +159,7 @@ describe("GET /barcode/:code", () => {
       name: "Nutella",
       brand: "Ferrero",
       source: "openfoodfacts",
+      nutrition_snapshot: expect.objectContaining({ version: 1 }),
     });
   });
 

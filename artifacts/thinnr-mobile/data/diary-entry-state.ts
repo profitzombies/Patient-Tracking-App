@@ -19,6 +19,7 @@ import type {
   MealLogEntry,
   MealSlot,
 } from './patient-data';
+import { rescaleSnapshotSelection, scaledSnapshotMacros } from './food-nutrition';
 
 export interface DiaryEntryState {
   /** Entries the patient logged themselves (on top of the seed). */
@@ -173,6 +174,22 @@ export function applyUpdateEntry(
     meal: changes.meal,
     dateKey: changes.dateKey ?? source.dateKey,
   };
+  if (source.nutritionSnapshot) {
+    const nutritionSnapshot = rescaleSnapshotSelection(
+      source.nutritionSnapshot,
+      changes.quantity / source.quantity,
+    );
+    if (nutritionSnapshot) {
+      updated.nutritionSnapshot = nutritionSnapshot;
+      // Quantity-only edits use the immutable source facts, not the rounded
+      // legacy totals from the previous edit. Explicit nutrition adjustments
+      // remain authoritative when the editor intentionally supplies them.
+      if (!changes.nutrition) {
+        const macros = scaledSnapshotMacros(nutritionSnapshot);
+        if (macros) Object.assign(updated, macros);
+      }
+    }
+  }
   if (changes.adjustments !== undefined) {
     if (changes.adjustments && changes.adjustments.length > 0) {
       updated.adjustments = changes.adjustments;

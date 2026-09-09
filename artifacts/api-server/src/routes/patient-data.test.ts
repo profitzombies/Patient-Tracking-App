@@ -537,6 +537,44 @@ function entryPayload(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
+function nutritionSnapshot(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    version: 1,
+    source: {
+      provider: "usda",
+      recordId: "171077",
+      release: "foundation-2026",
+      revision: "sha256:exact",
+      canonicalName: "Egg, whole, cooked, hard-boiled",
+    },
+    basis: { amount: 100, unit: "g", label: "100 g", grams: 100 },
+    nutrients: [
+      { id: "energy", name: "Energy", unit: "kcal", amount: 155.123456 },
+      { id: "sodium", name: "Sodium", unit: "mg", amount: 124 },
+      { id: "fiber", name: "Fiber", unit: "g", amount: 0 },
+    ],
+    portions: [
+      {
+        id: "large-egg",
+        label: "1 large egg",
+        unit: "egg",
+        dimension: "count",
+        basisMultiplier: 0.5,
+        grams: 50,
+        evidence: "USDA portion",
+      },
+    ],
+    variant: {
+      familyKey: "eggs",
+      summary: "Whole, hard-boiled, large",
+      dimensions: { form: "whole", preparation: "hard-boiled", size: "large" },
+    },
+    selected: { amount: 2, unitId: "large-egg", scale: 1 },
+    provenance: "generic_source",
+    ...overrides,
+  };
+}
+
 beforeAll(async () => {
   process.env.SUPABASE_URL = FAKE_SUPABASE;
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
@@ -895,6 +933,7 @@ describe("GET /patient-data/state", () => {
       favorites: [],
       recents: [],
       customFoods: [],
+      catalogFoods: [],
       savedRecipes: [],
       photos: [],
       checkIns: [],
@@ -1080,6 +1119,7 @@ describe("GET /patient-data/state", () => {
       favorites: [],
       recents: [],
       customFoods: [],
+      catalogFoods: [],
       savedRecipes: [],
       photos: [],
       checkIns: [],
@@ -1459,6 +1499,33 @@ describe("idempotency keys (offline queue replay)", () => {
 });
 
 describe("POST /patient-data/entries", () => {
+  it("round-trips the unrounded nutrition baseline and rejects malformed supplied snapshots", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const snapshot = nutritionSnapshot();
+    const saved = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ nutritionSnapshot: snapshot })] },
+    });
+    expect(saved.status).toBe(200);
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.entries[0].nutritionSnapshot).toEqual(snapshot);
+    expect(state.json.entries[0].nutritionSnapshot.nutrients[0].amount).toBe(155.123456);
+    expect(state.json.entries[0].nutritionSnapshot.nutrients[2].amount).toBe(0);
+
+    for (const bad of [
+      null,
+      nutritionSnapshot({ selected: { amount: 0, unitId: "large-egg", scale: 0 } }),
+      nutritionSnapshot({ selected: { amount: 2, unitId: "missing", scale: 1 } }),
+      nutritionSnapshot({ selected: { amount: 2, unitId: "large-egg", scale: Number.NaN } }),
+    ]) {
+      const rejected = await api("POST", "/api/patient-data/entries", {
+        token: "tok-1",
+        body: { upsert: [entryPayload({ id: `bad-${String(bad)}`, nutritionSnapshot: bad })] },
+      });
+      expect(rejected.status).toBe(400);
+    }
+  });
+
   it("requires at least one of upsert/deleteIds/recents", async () => {
     backend.seedSignedInPatient("tok-1");
     const res = await api("POST", "/api/patient-data/entries", { token: "tok-1", body: {} });
@@ -1778,6 +1845,37 @@ function recipePayload(overrides: Record<string, unknown> = {}): Record<string, 
 }
 
 describe("POST /patient-data/library", () => {
+  it("round-trips an account-private exact catalog configuration separately from My Foods", async () => {
+    backend.seedSignedInPatient("tok-1");
+    const snapshot = nutritionSnapshot();
+    const write = await api("POST", "/api/patient-data/library", {
+      token: "tok-1",
+      body: {
+        foodUpsert: [foodPayload({
+          id: "usda:171077",
+          catalogShared: true,
+          catalogSourceLabel: "USDA FoodData Central",
+          catalogLookupId: "usda:171077",
+          catalogApproved: true,
+          nutritionSnapshot: snapshot,
+        })],
+        favorites: ["usda:171077"],
+      },
+    });
+    expect(write.status).toBe(200);
+    const state = await api("GET", "/api/patient-data/state", { token: "tok-1" });
+    expect(state.json.customFoods).toEqual([]);
+    expect(state.json.catalogFoods).toEqual([
+      expect.objectContaining({
+        id: "usda:171077",
+        catalogShared: true,
+        catalogLookupId: "usda:171077",
+        nutritionSnapshot: snapshot,
+      }),
+    ]);
+    expect(state.json.favorites).toEqual(["usda:171077"]);
+  });
+
   it("round-trips a custom food through the state read (client shape, category injected)", async () => {
     backend.seedSignedInPatient("tok-1");
     const write = await api("POST", "/api/patient-data/library", {

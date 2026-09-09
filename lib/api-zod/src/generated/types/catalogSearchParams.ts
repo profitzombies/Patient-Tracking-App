@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CatalogSearchIntent } from './catalogSearchIntent';
 
 export type CatalogSearchParams = {
 /**
@@ -21,4 +22,22 @@ limit?: number;
  * Explicitly request guarded branded fallback
  */
 branded?: boolean;
+/**
+ * Enable reviewed family grouping, deterministic paging, and the bounded small-choice response. When absent, legacy search behavior is preserved.
+ */
+grouped?: boolean;
+/**
+ * Search generic/basic foods or explicitly packaged products
+ */
+intent?: CatalogSearchIntent;
+/**
+ * Restrict candidates to variations with an eligible approval
+ */
+approvedOnly?: boolean;
+/**
+ * Opaque continuation cursor returned by a grouped search
+ * @minLength 1
+ * @maxLength 2048
+ */
+cursor?: string;
 };

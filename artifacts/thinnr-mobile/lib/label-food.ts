@@ -18,6 +18,7 @@
  */
 import { formatQty } from '@/data/diary-entries';
 import { MEAL_SLOTS, type FoodItem, type MealLogEntry, type MealSlot } from '@/data/patient-data';
+import type { FoodNutritionSnapshot } from '@/data/food-nutrition';
 
 /** Server-transcribed Nutrition Facts read (one label photo). */
 export interface LabelDraft {
@@ -119,6 +120,36 @@ export function parseLabelFoodCardPayload(value: unknown): LabelFoodCardPayload 
 export function buildCustomFoodFromLabel(
   payload: LabelFoodCardPayload,
 ): Omit<FoodItem, 'id' | 'category'> {
+  const nutrients: FoodNutritionSnapshot['nutrients'] = [
+    { id: 'energy', name: 'Calories', unit: 'kcal', amount: payload.calories },
+    { id: 'protein', name: 'Protein', unit: 'g', amount: payload.protein },
+    { id: 'carbohydrate', name: 'Total Carbohydrate', unit: 'g', amount: payload.carbs },
+    { id: 'fat', name: 'Total Fat', unit: 'g', amount: payload.fat },
+  ];
+  if (payload.fiber !== undefined) nutrients.push({ id: 'fiber', name: 'Dietary Fiber', unit: 'g', amount: payload.fiber });
+  if (payload.sugar !== undefined) nutrients.push({ id: 'sugars', name: 'Total Sugars', unit: 'g', amount: payload.sugar });
+  if (payload.sodium !== undefined) nutrients.push({ id: 'sodium', name: 'Sodium', unit: 'mg', amount: payload.sodium });
+  const nutritionSnapshot: FoodNutritionSnapshot = {
+    version: 1,
+    source: {
+      provider: 'nutrition_label',
+      recordId: payload.id,
+      revision: payload.id,
+      canonicalName: payload.name,
+    },
+    basis: { amount: 1, unit: 'serving', label: payload.servingSize },
+    nutrients,
+    portions: [{
+      id: 'serving',
+      label: payload.servingSize,
+      unit: 'serving',
+      dimension: 'serving',
+      basisMultiplier: 1,
+      evidence: 'Printed Nutrition Facts serving',
+    }],
+    selected: { amount: 1, unitId: 'serving', scale: 1 },
+    provenance: 'personal_label',
+  };
   return {
     name: payload.name,
     serving: payload.servingSize,
@@ -126,6 +157,7 @@ export function buildCustomFoodFromLabel(
     protein: Math.round(payload.protein),
     carbs: Math.round(payload.carbs),
     fat: Math.round(payload.fat),
+    nutritionSnapshot,
   };
 }
 
@@ -153,5 +185,17 @@ export function buildLabelDiaryEntry(
     protein: Math.round(food.protein * quantity),
     carbs: Math.round(food.carbs * quantity),
     fat: Math.round(food.fat * quantity),
+    ...(food.nutritionSnapshot
+      ? {
+          nutritionSnapshot: {
+            ...food.nutritionSnapshot,
+            selected: {
+              ...food.nutritionSnapshot.selected,
+              amount: food.nutritionSnapshot.selected.amount * quantity,
+              scale: food.nutritionSnapshot.selected.scale * quantity,
+            },
+          },
+        }
+      : {}),
   };
 }

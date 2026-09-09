@@ -26,9 +26,10 @@ export interface BarcodeFactsRow {
   fat: number;
   /** Upstream that produced the row, e.g. "openfoodfacts". */
   source: string;
+  nutrition_snapshot?: unknown;
 }
 
-const COLUMNS = "code,name,brand,serving,calories,protein,carbs,fat,source";
+const COLUMNS = "code,name,brand,serving,calories,protein,carbs,fat,source,nutrition_snapshot";
 
 function base(): string {
   const url = process.env.SUPABASE_URL;

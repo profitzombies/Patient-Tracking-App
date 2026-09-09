@@ -785,6 +785,40 @@ async function main() {
   assert('earlier synced rows survive the discard recompute', entryNamed('Offline Oats') !== undefined && ctx.waterFor(TODAY_KEY) === 40);
   await press(tree, 'patient-sync-sheet-close');
 
+  // Food submissions expose their immutable basket after a later rejection,
+  // and retry the SAME queue/idempotency key and entry ids.
+  failTimes('POST patient-data/entries', 1, { status: 422, body: { error: 'Nutrition facts were rejected.' } });
+  let foodReceipt: Awaited<ReturnType<typeof ctx.submitFoodEntries>> | undefined;
+  await act(async () => {
+    foodReceipt = await ctx.submitFoodEntries([
+      entryInput('Recoverable Eggs'),
+      entryInput('Recoverable Oats'),
+    ]);
+  });
+  assert('food submission is honestly accepted as queued',
+    foodReceipt?.outcome === 'queued' && typeof foodReceipt.queueId === 'string');
+  await waitFor('the later food rejection remains recoverable',
+    () => sync.foodSubmissions.length === 1 && sync.foodSubmissions[0].status === 'rejected');
+  const recoverable = sync.foodSubmissions[0];
+  const originalEntryIds = recoverable.entries.map(entry => entry.id).join();
+  assert('recoverable submission exposes the original basket and error',
+    recoverable.queueId === (foodReceipt?.outcome === 'queued' ? foodReceipt.queueId : '')
+    && recoverable.entries.map(entry => entry.name).join() === 'Recoverable Eggs,Recoverable Oats'
+    && recoverable.message === 'Nutrition facts were rejected.');
+  const submissionCallsBefore = callsTo('patient-data/entries').length;
+  await act(async () => {
+    assert('narrow retry accepts a recoverable food queue id', sync.retryFoodSubmission(recoverable.queueId));
+  });
+  await waitFor('food retry lands and clears recovery state',
+    () => sync.foodSubmissions.length === 0
+      && storeFor('p-1').entries.some(entry => entry.name === 'Recoverable Eggs'));
+  const retriedCall = callsTo('patient-data/entries')[submissionCallsBefore];
+  assert('food retry reuses the queue id and exact entry ids',
+    retriedCall.idempotencyKey === recoverable.queueId
+    && (retriedCall.body as any).upsert.map((entry: any) => entry.id).join() === originalEntryIds);
+  assert('narrow retry refuses a queue id that is no longer pending',
+    !sync.retryFoodSubmission(recoverable.queueId));
+
   // Retry all with two failed items.
   failTimes('PUT patient-data/targets', 1, { status: 409, body: { error: 'Conflict.' } });
   await act(async () => {

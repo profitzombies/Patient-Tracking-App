@@ -19,6 +19,7 @@
 import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 import type { FoodItem } from '@/data/patient-data';
+import { parseNutritionSnapshot, type FoodNutritionSnapshot } from '@/data/food-nutrition';
 import { apiBase } from '@/lib/coach-api';
 import { toTitleCase } from '@/lib/title-case';
 
@@ -39,6 +40,8 @@ export interface BarcodeFood {
   protein: number;
   carbs: number;
   fat: number;
+  /** Present only when the upstream/server actually supplied a validated panel. */
+  nutritionSnapshot?: FoodNutritionSnapshot;
 }
 
 /** Where a found result was served from ("cache"/"table" = no third-party call). */
@@ -192,6 +195,11 @@ export function parseBarcodeFood(value: unknown): BarcodeFood | null {
   if (typeof r.brand === 'string' && r.brand.trim()) {
     food.brand = r.brand.trim().slice(0, 80);
   }
+  if (r.nutritionSnapshot !== undefined) {
+    const nutritionSnapshot = parseNutritionSnapshot(r.nutritionSnapshot);
+    if (!nutritionSnapshot) return null;
+    food.nutritionSnapshot = nutritionSnapshot;
+  }
   return food;
 }
 
@@ -288,5 +296,6 @@ export function buildCustomFoodFromBarcode(food: BarcodeFood): Omit<FoodItem, 'i
     protein: Math.round(food.protein),
     carbs: Math.round(food.carbs),
     fat: Math.round(food.fat),
+    ...(food.nutritionSnapshot ? { nutritionSnapshot: food.nutritionSnapshot } : {}),
   };
 }

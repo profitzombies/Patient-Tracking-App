@@ -52,7 +52,9 @@ import { WRITE_QUEUE_TUNING } from '../lib/patient-write-queue';
 import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
 import { TODAY_KEY, type FoodItem, type MealLogEntry, type SavedRecipe } from '../data/patient-data';
+import { parseNutritionSnapshot } from '../data/food-nutrition';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
+import { holdNextImpact, releaseImpact } from './onboarding-gate-stubs/expo-haptics';
 
 let checks = 0;
 let failures = 0;
@@ -86,6 +88,7 @@ interface ServerStore {
   recents: string[];
   /** Library rows exactly as the wire delivered them (validated shapes). */
   customFoods: Array<Record<string, unknown>>;
+  catalogFoods: Array<Record<string, unknown>>;
   savedRecipes: Array<Record<string, unknown>>;
 }
 
@@ -121,7 +124,7 @@ let mintSeq = 0;
 function storeFor(patientId: string): ServerStore {
   let store = serverStores.get(patientId);
   if (!store) {
-    store = { entries: [], favorites: [], recents: [], customFoods: [], savedRecipes: [] };
+    store = { entries: [], favorites: [], recents: [], customFoods: [], catalogFoods: [], savedRecipes: [] };
     serverStores.set(patientId, store);
   }
   return store;
@@ -201,6 +204,7 @@ function routeCall(call: ApiCall): Scripted {
         recents: store.recents,
         // As the server responds: stored wire rows plus injected constants.
         customFoods: store.customFoods.map(row => ({ ...row, category: 'My Foods' })),
+        catalogFoods: store.catalogFoods.map(row => ({ ...row, category: 'Catalog' })),
         savedRecipes: store.savedRecipes.map(row => ({ ...row, source: 'coach' })),
         entry: {
           firstName: patientId === 'p-1' ? 'Invited' : 'Signup',
@@ -245,11 +249,14 @@ function routeCall(call: ApiCall): Scripted {
         return { status: 400, body: { error: 'Photo reference is invalid.' } };
       }
     }
-    upsertRows(store.customFoods, (body.foodUpsert as Array<Record<string, unknown>> | undefined) ?? []);
+    const foodUpserts = (body.foodUpsert as Array<Record<string, unknown>> | undefined) ?? [];
+    upsertRows(store.customFoods, foodUpserts.filter(row => row.catalogShared !== true));
+    upsertRows(store.catalogFoods, foodUpserts.filter(row => row.catalogShared === true));
     upsertRows(store.savedRecipes, (body.recipeUpsert as Array<Record<string, unknown>> | undefined) ?? []);
     const foodDeleteIds = (body.foodDeleteIds as string[] | undefined) ?? [];
     if (foodDeleteIds.length > 0) {
       store.customFoods = store.customFoods.filter(r => !foodDeleteIds.includes(String(r.id)));
+      store.catalogFoods = store.catalogFoods.filter(r => !foodDeleteIds.includes(String(r.id)));
     }
     const recipeDeleteIds = (body.recipeDeleteIds as string[] | undefined) ?? [];
     if (recipeDeleteIds.length > 0) {
@@ -673,6 +680,55 @@ async function main() {
     rehydratedRecipe?.photoUri === displayUrlFor(recipePhotoPath ?? ''));
   assert('favorites and recents still reference the food', ctx.favorites.includes(food.id) && ctx.recents[0] === food.id);
 
+  // Account-owned exact configurations must survive a cached launch when the
+  // state endpoint is unavailable. The snapshot key is scoped by p-1 and must
+  // not bleed through the demo/global local state.
+  const exactSnapshot = parseNutritionSnapshot({
+    version: 1,
+    source: { provider: 'usda', recordId: '171077', revision: 'exact' },
+    basis: { amount: 100, unit: 'g', label: '100 g' },
+    nutrients: [
+      { id: '1008', name: 'Energy', unit: 'kcal', amount: 155.123456 },
+      { id: '1003', name: 'Protein', unit: 'g', amount: 12.58 },
+      { id: '1005', name: 'Carbohydrate', unit: 'g', amount: 1.12 },
+      { id: '1004', name: 'Fat', unit: 'g', amount: 10.61 },
+    ],
+    portions: [{
+      id: 'egg', label: '1 egg', unit: 'egg', dimension: 'count',
+      basisMultiplier: 0.5, grams: 50, evidence: 'USDA portion',
+    }],
+    selected: { amount: 2, unitId: 'egg', scale: 1 },
+    provenance: 'generic_source',
+  });
+  assert('exact cached-launch fixture parses', Boolean(exactSnapshot));
+  let exactFood: FoodItem | null = null;
+  await act(async () => {
+    exactFood = await ctx.saveFoodConfiguration({
+      id: 'usda:171077',
+      name: 'Exact Eggs',
+      serving: '2 eggs',
+      calories: 155.123456,
+      protein: 12.58,
+      carbs: 1.12,
+      fat: 10.61,
+      category: 'Catalog',
+      nutritionSnapshot: exactSnapshot!,
+    }, { favorite: true });
+  });
+  await waitFor('exact configuration is server-confirmed before restart',
+    () => exactFood !== null
+      && storeFor('p-1').catalogFoods.some(row => row.id === exactFood!.id)
+      && sync.items.length === 0);
+  await unmount(tree);
+  failNext.set('GET patient-data/state', 'network');
+  tree = await mountLive();
+  assert('cached real-account restart keeps exact configuration and favorite',
+    exactFood !== null
+      && ctx.allFoods.some(item => item.id === exactFood!.id && item.nutritionSnapshot?.source.recordId === '171077')
+      && ctx.favorites.includes(exactFood.id));
+  assert('cached exact configuration remains scoped to its account key',
+    !((localStorageBacking.get(STORAGE_KEY) ?? '').includes(exactFood?.id ?? 'cfg_missing')));
+
   // ── 6 · Failures: loud rollback for data, quiet photo-less save for photos ─
   section('failures: library write queues and replays, photo upload fails quietly');
   WRITE_QUEUE_TUNING.baseDelayMs = 5;
@@ -726,9 +782,27 @@ async function main() {
 
   // ── 7 · Accounts never bleed ───────────────────────────────────────────────
   section('account isolation: second account, local persistence, demo return');
+  holdNextImpact();
+  let staleAdd!: Promise<FoodItem>;
+  await act(async () => {
+    staleAdd = ctx.addCustomFood(foodInput('Must Not Change Owner'));
+    await Promise.resolve();
+  });
   await signIn(P2);
+  await act(async () => {
+    releaseImpact();
+    await staleAdd;
+  });
   assert('second account resolves', account.account.kind === 'real');
+  assert('account switch during held haptic cannot change a custom food owner',
+    !storeFor('p-1').customFoods.some(row => row.name === 'Must Not Change Owner')
+      && !storeFor('p-2').customFoods.some(row => row.name === 'Must Not Change Owner')
+      && !ctx.customFoods.some(item => item.name === 'Must Not Change Owner'));
   assert('second account starts with an empty library', ctx.customFoods.length === 0 && ctx.savedRecipes.length === 0);
+  assert('p-1 cached exact configuration and favorite never bleed to p-2',
+    exactFood !== null
+      && !ctx.allFoods.some(item => item.id === exactFood!.id)
+      && !ctx.favorites.includes(exactFood.id));
   await act(async () => {
     await ctx.addCustomFood(foodInput('P2 Yogurt'));
   });
@@ -753,7 +827,8 @@ async function main() {
     && ctx.savedRecipes.some(r => r.name === 'Demo Chicken' && r.photoUri === RECIPE_PHOTO_URI));
   assert('no account rows leak into the demo library',
     !ctx.customFoods.some(f => f.name.startsWith('P1 ') || f.name.startsWith('P2 '))
-    && !ctx.savedRecipes.some(r => r.name.startsWith('P1 ')));
+    && !ctx.savedRecipes.some(r => r.name.startsWith('P1 '))
+    && (exactFood === null || !ctx.allFoods.some(item => item.id === exactFood!.id)));
 
   await unmount(tree);
   setStubSession(null);

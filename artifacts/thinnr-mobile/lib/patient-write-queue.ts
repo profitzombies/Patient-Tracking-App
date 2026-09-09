@@ -26,13 +26,21 @@ import type {
   SavedRecipe,
 } from '@/data/patient-data';
 import { PatientDataError } from '@/lib/patient-data-error';
+import { parseNutritionSnapshot } from '@/data/food-nutrition';
 import type { DoseLogWrite, LibraryWrite, PatientFlagsWrite } from '@/context/PatientAccountContext';
 import type { DoseLogRecord, MedicationRecord } from '@/lib/medication-schedule';
 
 // ─── Shapes ─────────────────────────────────────────────────────────────────
 
 export type QueuedWritePayload =
-  | { kind: 'entries'; upsert?: MealLogEntry[]; deleteIds?: string[]; recents?: string[] }
+  | {
+      kind: 'entries';
+      upsert?: MealLogEntry[];
+      deleteIds?: string[];
+      recents?: string[];
+      /** Marks a recoverable multi-food submission, distinct from ordinary diary edits. */
+      foodSubmission?: true;
+    }
   | { kind: 'water'; dateKey: string; oz: number }
   | { kind: 'targets'; partial: Partial<DailyTargets> }
   | { kind: 'prefs'; favorites?: string[]; recents?: string[] }
@@ -90,6 +98,7 @@ export interface WriteProjectionState {
   photos: ProgressPhoto[];
   favorites: string[];
   customFoods: FoodItem[];
+  catalogFoods: FoodItem[];
   savedRecipes: SavedRecipe[];
   recents: string[];
   targetOverrides: Partial<DailyTargets>;
@@ -216,12 +225,15 @@ export function projectWrite<S extends WriteProjectionState>(base: S, item: Queu
       };
     case 'library': {
       const input = write.input;
+      const customUpserts = (input.foodUpsert ?? []).filter(food => !food.catalogShared);
+      const catalogUpserts = (input.foodUpsert ?? []).filter(food => food.catalogShared);
       return {
         ...base,
         customFoods: withoutIds(
-          upsertById(base.customFoods, input.foodUpsert ?? []),
+          upsertById(base.customFoods, customUpserts),
           input.foodDeleteIds,
         ),
+        catalogFoods: upsertById(base.catalogFoods, catalogUpserts),
         savedRecipes: withoutIds(
           upsertById(base.savedRecipes, input.recipeUpsert ?? []),
           input.recipeDeleteIds,
@@ -455,6 +467,19 @@ export function parseQueue(raw: string | null): QueuedWrite[] {
     if (!isRecord(candidate)) continue;
     if (typeof candidate.id !== 'string' || !isRecord(candidate.payload)) continue;
     if (typeof candidate.payload.kind !== 'string') continue;
+    const payload = candidate.payload as Record<string, unknown>;
+    const snapshotRows: unknown[] =
+      payload.kind === 'entries' && Array.isArray(payload.upsert)
+        ? payload.upsert
+        : payload.kind === 'library' &&
+            isRecord(payload.input) &&
+            Array.isArray(payload.input.foodUpsert)
+          ? payload.input.foodUpsert
+          : [];
+    if (snapshotRows.some(row => {
+      if (!isRecord(row) || row.nutritionSnapshot === undefined) return false;
+      return parseNutritionSnapshot(row.nutritionSnapshot) === null;
+    })) continue;
     out.push({
       id: candidate.id,
       payload: candidate.payload as unknown as QueuedWritePayload,

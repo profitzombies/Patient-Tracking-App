@@ -110,3 +110,4 @@
 - [Medication records & reminders](medication-records.md) — one schedule core copied byte-identical (parity test); reminders derive from records; notification actions MUST foreground the app; adherence is a nullable extra roster input.
 - [Live office leaderboard](office-leaderboard-live.md) — facts RPC + server ranks/adherence, clients only re-sort; branch by auth state; demo-staff script login is a decoy under passwordless directory.
 - [Auth entry screen layout](auth-hero-crop.md) — welcome stays image-led; hero-less forms are not an app-wide mandate. Preserve subject-aware crops and keyboard-friendly segmented choices.
+- [Implementation brief scope](task-brief-scope.md) — keep planning-only disclaimers out of build tasks; merged documentation is not proof of an implemented feature.

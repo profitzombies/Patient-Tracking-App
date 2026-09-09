@@ -11,4 +11,12 @@ export interface CatalogSearchResult {
   results: CatalogFood[];
   /** Local results remain valid when branded fallback failed */
   externalUnavailable: boolean;
+  hasMore: boolean;
+  /**
+     * Opaque continuation cursor, or null when no more results exist
+     * @nullable
+     */
+  nextCursor: string | null;
+  /** Review/ranking version that pins continuation ordering */
+  rankingVersion: string;
 }

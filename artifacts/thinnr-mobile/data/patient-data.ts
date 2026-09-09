@@ -12,6 +12,7 @@ import {
   MOCK_PROVIDERS,
   MOCK_SUBSCRIPTIONS,
 } from './mock-data';
+import type { FoodNutritionSnapshot } from './food-nutrition';
 
 // ─── Anchor date (same fictional "today" as mock-data.ts) ────────────────────
 
@@ -122,6 +123,8 @@ export interface FoodItem {
   catalogMeasures?: Array<{ label: string; grams: number }>;
   /** Canonical source description retained when a friendlier display name is used. */
   catalogCanonicalName?: string;
+  /** Immutable nutrition/source baseline plus the explicitly selected portion. */
+  nutritionSnapshot?: FoodNutritionSnapshot;
 }
 
 export interface IngredientNutrition {
@@ -208,6 +211,8 @@ export interface MealLogEntry {
    * amounts; the totals above already include them.
    */
   adjustments?: IngredientAdjustment[];
+  /** Optional exact food baseline; legacy entries remain valid without it. */
+  nutritionSnapshot?: FoodNutritionSnapshot;
 }
 
 export interface CheckIn {

@@ -1,10 +1,10 @@
 # Find foods without overwhelm
 
-**Status:** Planning/review only.  
+**Status:** Implemented and verified in the existing Expo app.
 **Last updated:** 2026-09-08.  
-**Decision enabled:** Review one coherent improvement to the existing Expo food-search-to-diary flow.
+**Implementation target:** One coherent improvement to the existing Expo food-search-to-diary flow.
 
-This document expands the existing everyday-food-recognition draft. It is **not authorization to implement**, apply migrations, promote source records, publish, or create a native binary. Implementation and its acceptance tests remain future work, to be undertaken from replit.com after separate authorization. No runtime acceptance is claimed here.
+The user explicitly authorized implementation on 2026-09-08. The requirements below now guide the actual food-search, nutrition and logging changes, including the necessary narrowly scoped database migrations. Publishing and native binary distribution are not part of this request. Runtime acceptance must be established by implementation evidence, not this document alone.
 
 ## 1. The patient experience
 

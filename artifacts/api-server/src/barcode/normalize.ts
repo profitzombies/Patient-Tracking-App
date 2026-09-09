@@ -15,6 +15,8 @@
  * prints one; plain "100 g" is the honest fallback. A product missing its
  * name, its calories, or any macro is unusable — values are never invented.
  */
+import { createHash } from "node:crypto";
+import type { FoodNutritionSnapshot } from "@workspace/api-zod";
 
 /** Per-serving nutrition facts in the app's shape (grams for macros). */
 export interface BarcodeProductFacts {
@@ -190,6 +192,113 @@ export function normalizeOffProduct(value: unknown): BarcodeProductFacts | null 
 
   // 3) Honest per-100 fallback, labeled in the basis's own unit.
   return finishFacts(name, brand, basisUnit === "ml" ? "100 ml" : "100 g", per100);
+}
+
+const OFF_NUTRIENTS = [
+  ["energy-kcal", "Energy", "kcal"],
+  ["fat", "Total lipid (fat)", "g"],
+  ["saturated-fat", "Fatty acids, total saturated", "g"],
+  ["trans-fat", "Fatty acids, total trans", "g"],
+  ["cholesterol", "Cholesterol", "mg"],
+  ["sodium", "Sodium, Na", "mg"],
+  ["carbohydrates", "Carbohydrate, by difference", "g"],
+  ["fiber", "Fiber, total dietary", "g"],
+  ["sugars", "Sugars, total including NLEA", "g"],
+  ["added-sugars", "Sugars, added", "g"],
+  ["proteins", "Protein", "g"],
+  ["calcium", "Calcium, Ca", "mg"],
+  ["iron", "Iron, Fe", "mg"],
+  ["potassium", "Potassium, K", "mg"],
+  ["vitamin-d", "Vitamin D", "mcg"],
+] as const;
+
+/**
+ * Builds a versioned snapshot from the same exact OFF basis selected for the
+ * compatible macro DTO. Only numeric fields actually published are included.
+ */
+export function nutritionSnapshotFromOffProduct(
+  code: string,
+  value: unknown,
+  facts: BarcodeProductFacts,
+): FoodNutritionSnapshot | undefined {
+  const product = readRecord(value);
+  const nutriments = product ? readRecord(product.nutriments) : null;
+  if (!product || !nutriments) return undefined;
+  const servingBasis = basisFrom(nutriments, "_serving");
+  const per100Basis = basisFrom(nutriments, "_100g");
+  const servingLabel = readText(product.serving_size, MAX_SERVING);
+  const servingQty = readNumber(product.serving_quantity);
+  const basisUnit = per100BasisUnit(product);
+  const suffix = servingBasis ? "_serving" : per100Basis ? "_100g" : null;
+  if (!suffix) return undefined;
+
+  let selectedScale = 1;
+  let basisAmount = suffix === "_serving" ? 1 : 100;
+  let unit = suffix === "_serving" ? "serving" : basisUnit;
+  let grams: number | undefined = suffix === "_100g" && basisUnit === "g" ? 100 : undefined;
+  if (suffix === "_serving" && servingQty && verifiedServingUnit(product, servingLabel ?? "", servingQty) === "g") {
+    grams = servingQty;
+  } else if (suffix === "_100g" && servingLabel && servingQty && verifiedServingUnit(product, servingLabel, servingQty) === basisUnit) {
+    selectedScale = servingQty / 100;
+  }
+
+  const nutrients = OFF_NUTRIENTS.flatMap(([id, name, defaultUnit]) => {
+    const amount = readNumber(nutriments[`${id}${suffix}`]);
+    if (amount === null) return [];
+    const publishedUnit = readText(nutriments[`${id}_unit`], 16)?.toLowerCase();
+    let nutrientUnit = publishedUnit ?? defaultUnit;
+    let normalizedAmount = amount;
+    // OFF commonly standardizes sodium/minerals to grams. Preserve meaning in
+    // the wire contract's familiar units without rounding.
+    if (defaultUnit === "mg" && nutrientUnit === "g") {
+      normalizedAmount *= 1000;
+      nutrientUnit = "mg";
+    }
+    if (defaultUnit === "mcg" && nutrientUnit === "g") {
+      normalizedAmount *= 1_000_000;
+      nutrientUnit = "mcg";
+    }
+    return [{ id: `off:${id}`, name, unit: nutrientUnit, amount: normalizedAmount }];
+  });
+  const revision = `sha256:${createHash("sha256").update(JSON.stringify(product)).digest("hex")}`;
+  const selectedAmount = suffix === "_100g" && selectedScale !== 1 && servingQty
+    ? servingQty
+    : basisAmount;
+  return {
+    version: 1,
+    source: {
+      provider: "Open Food Facts",
+      recordId: code,
+      revision,
+      canonicalName: facts.name,
+    },
+    basis: {
+      amount: basisAmount,
+      unit,
+      label: suffix === "_serving" ? (servingLabel ?? "1 serving") : `100 ${basisUnit}`,
+      ...(grams !== undefined ? { grams } : {}),
+    },
+    nutrients,
+    portions: [{
+      id: suffix === "_serving" ? "serving" : basisUnit,
+      label: suffix === "_serving"
+        ? (servingLabel ?? "1 serving")
+        : (basisUnit === "g" ? "grams" : "milliliters"),
+      unit,
+      dimension: suffix === "_serving" ? "serving" : (basisUnit === "g" ? "weight" : "volume"),
+      basisMultiplier: suffix === "_serving" ? 1 : 0.01,
+      ...(suffix === "_serving"
+        ? (grams !== undefined ? { grams } : {})
+        : (basisUnit === "g" ? { grams: 1 } : {})),
+      evidence: "Open Food Facts published nutrition basis",
+    }],
+    selected: {
+      amount: selectedAmount,
+      unitId: suffix === "_serving" ? "serving" : basisUnit,
+      scale: selectedScale,
+    },
+    provenance: "identified_product",
+  };
 }
 
 type Per100Unit = "g" | "ml";

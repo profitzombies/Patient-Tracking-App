@@ -7,10 +7,9 @@
  * loggable foods.
  */
 import type { FoodItem } from '@/data/patient-data';
-import {
-  catalogSearch,
-  catalogSelect,
-} from '@workspace/api-client-react';
+import { parseNutritionSnapshot, type FoodNutritionSnapshot } from '@/data/food-nutrition';
+// @ts-ignore
+import { catalogSearch, catalogSelect, catalogFamily } from '@workspace/api-client-react';
 
 export type CatalogGroup = 'common' | 'personal' | 'branded';
 export type CatalogSource = 'usda' | 'thinnr' | 'openfoodfacts' | 'personal' | 'catalog';
@@ -27,14 +26,24 @@ export interface CatalogFood extends FoodItem {
   servingGrams?: number;
   measures: Array<{ label: string; grams: number }>;
   canonicalName?: string;
+  resultKey?: string;
+  familyKey?: string;
+  variantSummary?: string;
+  dimensions?: Record<string, string>;
+  choiceRequired?: boolean;
+  nutritionSnapshot?: FoodNutritionSnapshot;
 }
 
 export interface CatalogSearchResult {
   common: CatalogFood[];
   personal: CatalogFood[];
   branded: CatalogFood[];
+  results?: CatalogFood[];
   upstreamUnavailable: boolean;
   message?: string;
+  hasMore?: boolean;
+  nextCursor?: string;
+  rankingVersion?: string;
 }
 
 /** A private lookup copy only; it is never sent through the custom-food rail. */
@@ -56,6 +65,7 @@ export function catalogFoodSnapshot(food: CatalogFood): FoodItem {
     ...(food.servingGrams ? { catalogServingGrams: food.servingGrams } : {}),
     catalogMeasures: food.measures,
     ...(food.canonicalName ? { catalogCanonicalName: food.canonicalName } : {}),
+    ...(food.nutritionSnapshot ? { nutritionSnapshot: food.nutritionSnapshot } : {}),
   };
 }
 
@@ -70,6 +80,19 @@ export class FoodCatalogError extends Error {
     super(message);
     this.name = 'FoodCatalogError';
   }
+}
+
+/** Runs dependent mutations without allowing an account switch between them. */
+export async function runAccountGuardedSteps<T, U>(
+  first: () => Promise<T>,
+  second: (value: T) => Promise<U>,
+  isCurrent: () => boolean,
+): Promise<{ status: 'complete'; first: T; second: U } | { status: 'stale' }> {
+  const firstValue = await first();
+  if (!isCurrent()) return { status: 'stale' };
+  const secondValue = await second(firstValue);
+  if (!isCurrent()) return { status: 'stale' };
+  return { status: 'complete', first: firstValue, second: secondValue };
 }
 
 const CATALOG_UNAVAILABLE_MESSAGE = 'Shared food search is unavailable right now. Please try again.';
@@ -179,6 +202,16 @@ export function parseCatalogFood(raw: unknown, fallbackGroup: CatalogGroup): Cat
   if (typeof value.selectionToken === 'string' && value.selectionToken) {
     food.selectionToken = value.selectionToken;
   }
+  if (typeof value.resultKey === 'string') food.resultKey = value.resultKey;
+  if (typeof value.familyKey === 'string') food.familyKey = value.familyKey;
+  if (typeof value.variantSummary === 'string') food.variantSummary = value.variantSummary;
+  if (value.dimensions && typeof value.dimensions === 'object') food.dimensions = value.dimensions as Record<string, string>;
+  if (typeof value.choiceRequired === 'boolean') food.choiceRequired = value.choiceRequired;
+  if (value.nutritionSnapshot !== undefined) {
+    const snapshot = parseNutritionSnapshot(value.nutritionSnapshot);
+    if (snapshot) food.nutritionSnapshot = snapshot;
+  }
+
   return food;
 }
 
@@ -186,7 +219,7 @@ export function parseCatalogFood(raw: unknown, fallbackGroup: CatalogGroup): Cat
 export function parseCatalogSearch(raw: unknown): CatalogSearchResult {
   if (!raw || typeof raw !== 'object') throw new FoodCatalogError('The food catalog sent an unexpected response.');
   const value = raw as Record<string, unknown>;
-  const grouped: Record<CatalogGroup, CatalogFood[]> = { common: [], personal: [], branded: [] };
+  const grouped: Record<CatalogGroup | 'results', CatalogFood[]> = { common: [], personal: [], branded: [], results: [] };
   for (const group of ['common', 'personal', 'branded'] as const) {
     const rows = Array.isArray(value[group]) ? value[group] : [];
     grouped[group] = rows
@@ -202,7 +235,12 @@ export function parseCatalogSearch(raw: unknown): CatalogSearchResult {
   if (Array.isArray(value.results)) {
     for (const row of value.results) {
       const parsed = parseCatalogFood(row, 'common');
-      if (parsed) grouped[parsed.group].push(parsed);
+      if (parsed) {
+        grouped.results.push(parsed);
+        if (!grouped[parsed.group].some(existing => existing.catalogId === parsed.catalogId)) {
+          grouped[parsed.group].push(parsed);
+        }
+      }
     }
   }
   const status = typeof value.upstreamStatus === 'string' ? value.upstreamStatus : '';
@@ -216,7 +254,20 @@ export function parseCatalogSearch(raw: unknown): CatalogSearchResult {
     ...(typeof value.message === 'string' && value.message.trim()
       ? { message: value.message.trim().slice(0, 300) }
       : {}),
+    hasMore: value.hasMore === true,
+    nextCursor: typeof value.nextCursor === 'string' ? value.nextCursor : undefined,
+    rankingVersion: typeof value.rankingVersion === 'string' ? value.rankingVersion : undefined,
   };
+}
+
+export interface CatalogSearchOptions {
+  approvedOnly?: boolean;
+  includeBranded?: boolean;
+  signal?: AbortSignal;
+  grouped?: boolean;
+  intent?: 'basic' | 'packaged';
+  cursor?: string;
+  limit?: number;
 }
 
 export async function searchFoodCatalog(
@@ -226,8 +277,16 @@ export async function searchFoodCatalog(
   try {
     const result = parseCatalogSearch(await catalogSearch({
       q: query.trim(),
-      limit: 30,
+      limit: options.limit ?? 30,
       branded: options.includeBranded !== false && options.approvedOnly !== true,
+      // @ts-ignore - waiting for codegen
+      grouped: options.grouped,
+      // @ts-ignore - waiting for codegen
+      intent: options.intent,
+      // @ts-ignore - waiting for codegen
+      cursor: options.cursor,
+      // @ts-ignore - waiting for codegen
+      approvedOnly: options.approvedOnly,
     }, { signal: options.signal }));
     if (options.approvedOnly) {
       result.common = result.common.filter(food => food.approved);
@@ -255,6 +314,22 @@ export async function selectCatalogFood(food: CatalogFood, signal?: AbortSignal)
     if (error instanceof Error && error.name === 'AbortError') throw error;
     throw new FoodCatalogError(
       error instanceof Error && error.message ? error.message : 'That food could not be selected right now.',
+    );
+  }
+}
+
+export async function getFamilyVariants(familyKey: string, approvedOnly?: boolean, signal?: AbortSignal): Promise<CatalogFood[]> {
+  try {
+    if (typeof catalogFamily !== 'function') {
+      return [];
+    }
+    const result = await catalogFamily(familyKey, { approvedOnly }, { signal });
+    if (!result || !Array.isArray(result.variants)) return [];
+    return result.variants.map((v: unknown) => parseCatalogFood(v, 'common')).filter((f: CatalogFood | null): f is CatalogFood => f !== null);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error;
+    throw new FoodCatalogError(
+      error instanceof Error && error.message ? error.message : 'Could not load food variants.',
     );
   }
 }

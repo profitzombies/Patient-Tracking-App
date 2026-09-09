@@ -31,6 +31,7 @@ import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import { APPROVED_FOODS_HREF } from '@/constants/links';
 import { MacroBar } from '@/components/patient/MacroBar';
+import { formatDiaryCalories } from '@/components/patient/DiaryEntryNutrition';
 import { WaterTracker } from '@/components/patient/WaterTracker';
 import { ClaimTestEntryCard } from '@/components/patient/ClaimTestEntryCard';
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
@@ -617,7 +618,7 @@ export default function TodayScreen() {
                     { color: overTarget ? colors.riskText : colors.navyLight },
                   ]}
                 >
-                  {Math.abs(remaining).toLocaleString('en-US')}
+                  {formatDiaryCalories(Math.abs(remaining))}
                 </Text>
                 <Text
                   style={[
@@ -640,7 +641,7 @@ export default function TodayScreen() {
               <View style={[styles.calorieStatDivider, { backgroundColor: colors.divider }]} />
               <View style={styles.calorieStat}>
                 <Text style={[styles.calorieStatValue, { color: colors.navyLight }]}>
-                  {totals.calories.toLocaleString('en-US')}
+                  {formatDiaryCalories(totals.calories)}
                 </Text>
                 <Text style={[styles.calorieStatLabel, { color: colors.subtleText }]}>FOOD</Text>
               </View>
@@ -652,7 +653,7 @@ export default function TodayScreen() {
                     { color: overTarget ? colors.riskText : colors.cobalt },
                   ]}
                 >
-                  {remaining.toLocaleString('en-US')}
+                  {formatDiaryCalories(remaining)}
                 </Text>
                 <Text style={[styles.calorieStatLabel, { color: colors.subtleText }]}>LEFT</Text>
               </View>
@@ -694,7 +695,7 @@ export default function TodayScreen() {
                     <Text style={[styles.mealMeta, { color: colors.subtleText }]}>
                       {meal.count === 0
                         ? 'Nothing logged yet'
-                        : `${meal.count} item${meal.count === 1 ? '' : 's'} · ${meal.calories.toLocaleString('en-US')} cal`}
+                        : `${meal.count} item${meal.count === 1 ? '' : 's'} · ${formatDiaryCalories(meal.calories)} cal`}
                     </Text>
                   </View>
                   <Pressable

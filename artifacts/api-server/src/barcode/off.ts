@@ -42,6 +42,7 @@ export async function searchOffProducts(
   query: string,
   limit: number,
   log?: WarnLogger,
+  page: number = 1,
 ): Promise<OffSearch> {
   const params = new URLSearchParams({
     search_terms: query,
@@ -49,6 +50,7 @@ export async function searchOffProducts(
     action: "process",
     json: "1",
     page_size: String(Math.min(Math.max(limit, 1), 20)),
+    page: String(Math.max(Math.floor(page), 1)),
     fields: `code,${OFF_FIELDS}`,
   });
   let response: Response;

@@ -23,6 +23,7 @@ import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { PendingDot } from '@/components/patient/PendingDot';
 import { EntryEditPanel } from '@/components/patient/EntryEditPanel';
+import { DiaryEntryCalories, DiaryEntryNutritionLine, formatDiaryCalories } from '@/components/patient/DiaryEntryNutrition';
 import { MealPhotoButton } from '@/components/patient/MealPhotoButton';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { WaterTracker } from '@/components/patient/WaterTracker';
@@ -327,7 +328,7 @@ export default function DiaryScreen() {
           <Divider />
           <View style={styles.totalsRow}>
             <View style={styles.totalsCol}>
-              <Text style={[styles.totalsValue, { color: colors.navy }]}>{totals.calories.toLocaleString('en-US')}</Text>
+              <Text style={[styles.totalsValue, { color: colors.navy }]}>{formatDiaryCalories(totals.calories)}</Text>
               <Text style={[styles.totalsLabel, { color: colors.labelText }]}>CALORIES</Text>
             </View>
             <View style={[styles.totalsRule, { backgroundColor: colors.divider }]} />
@@ -376,7 +377,7 @@ export default function DiaryScreen() {
                 <Text style={[styles.cardTitle, { color: colors.navyLight }]}>{MEAL_LABELS[slot]}</Text>
                 {slotCals > 0 && (
                   <Text style={[styles.cardTitleValue, { color: colors.bodyText }]}>
-                    {slotCals.toLocaleString('en-US')} cal
+                    {formatDiaryCalories(slotCals)} cal
                   </Text>
                 )}
               </View>
@@ -403,7 +404,7 @@ export default function DiaryScreen() {
                         accessibilityRole={entryRecipeId(entry) ? 'button' : undefined}
                         accessibilityLabel={
                           entryRecipeId(entry)
-                            ? `${entry.name}, ${entry.calories} calories, logged recipe`
+                            ? `${entry.name}, ${formatDiaryCalories(entry.calories)} calories, logged recipe`
                             : undefined
                         }
                         accessibilityHint={
@@ -426,11 +427,9 @@ export default function DiaryScreen() {
                             <Feather name="chevron-right" size={12} color={colors.subtleText} />
                           )}
                         </View>
-                        <Text style={[styles.entryDetail, { color: colors.subtleText }]}>
-                          {entry.detail} · P {entry.protein}g · C {entry.carbs}g · F {entry.fat}g
-                        </Text>
+                        <DiaryEntryNutritionLine entry={entry} />
                       </Pressable>
-                      <Text style={[styles.entryCals, { color: colors.navyLight }]}>{entry.calories}</Text>
+                      <DiaryEntryCalories entry={entry} />
                       <Pressable
                         testID={`diary-edit-${entry.id}`}
                         onPress={() => setEditingId(cur => (cur === entry.id ? null : entry.id))}

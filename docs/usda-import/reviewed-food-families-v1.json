@@ -1,0 +1,6064 @@
+{
+  "version": 1,
+  "reviewVersion": "food-families-v1",
+  "sourcePolicy": "Immutable ready USDA rows only; no raw source edits, inferred nutrients, missing-as-zero values, or branded USDA masquerading as generic.",
+  "entries": [
+    {
+      "familyKey": "yogurt",
+      "displayName": "Yogurt",
+      "aliases": [
+        "yogurt",
+        "plain yogurt"
+      ],
+      "variantSummary": "plain; whole milk",
+      "defaultRationale": "Fat level and plain flavor are explicit",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "sr-legacy-2018-04",
+        "recordId": "171284",
+        "revision": "sr-legacy-2018-04:171284",
+        "canonicalName": "Yogurt, plain, whole milk"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 5
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 0.2
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 4.66
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.06
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 15.2
+        },
+        {
+          "id": "1110",
+          "name": "Vitamin D (D2 + D3), International Units",
+          "unit": "IU",
+          "amount": 2
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 61
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 7
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 7
+        },
+        {
+          "id": "1104",
+          "name": "Vitamin A, IU",
+          "unit": "IU",
+          "amount": 99
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 27
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 27
+        },
+        {
+          "id": "1112",
+          "name": "Vitamin D3 (cholecalciferol)",
+          "unit": "µg",
+          "amount": 0.1
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0.1
+        },
+        {
+          "id": "1062",
+          "name": "Energy",
+          "unit": "kJ",
+          "amount": 257
+        },
+        {
+          "id": "1099",
+          "name": "Fluoride, F",
+          "unit": "µg",
+          "amount": 12
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 13
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 2.1
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0.042
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0.111
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.343
+        },
+        {
+          "id": "1211",
+          "name": "Threonine",
+          "unit": "g",
+          "amount": 0.142
+        },
+        {
+          "id": "1215",
+          "name": "Methionine",
+          "unit": "g",
+          "amount": 0.102
+        },
+        {
+          "id": "1217",
+          "name": "Phenylalanine",
+          "unit": "g",
+          "amount": 0.189
+        },
+        {
+          "id": "1218",
+          "name": "Tyrosine",
+          "unit": "g",
+          "amount": 0.175
+        },
+        {
+          "id": "1222",
+          "name": "Alanine",
+          "unit": "g",
+          "amount": 0.148
+        },
+        {
+          "id": "1224",
+          "name": "Glutamic acid",
+          "unit": "g",
+          "amount": 0.679
+        },
+        {
+          "id": "1225",
+          "name": "Glycine",
+          "unit": "g",
+          "amount": 0.084
+        },
+        {
+          "id": "1226",
+          "name": "Proline",
+          "unit": "g",
+          "amount": 0.411
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.071
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 3.47
+        },
+        {
+          "id": "1007",
+          "name": "Ash",
+          "unit": "g",
+          "amount": 0.72
+        },
+        {
+          "id": "1210",
+          "name": "Tryptophan",
+          "unit": "g",
+          "amount": 0.02
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 0.05
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 12
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 95
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 46
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.009
+        },
+        {
+          "id": "1101",
+          "name": "Manganese, Mn",
+          "unit": "mg",
+          "amount": 0.004
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 0.5
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.029
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.142
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 7
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0.37
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 3.25
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 4.66
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 0.893
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 0.092
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0.096
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0.066
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0.093
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 0.886
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.317
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 0.743
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 0.065
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.027
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1212",
+          "name": "Isoleucine",
+          "unit": "g",
+          "amount": 0.189
+        },
+        {
+          "id": "1213",
+          "name": "Leucine",
+          "unit": "g",
+          "amount": 0.35
+        },
+        {
+          "id": "1214",
+          "name": "Lysine",
+          "unit": "g",
+          "amount": 0.311
+        },
+        {
+          "id": "1216",
+          "name": "Cystine",
+          "unit": "g",
+          "amount": 0.032
+        },
+        {
+          "id": "1219",
+          "name": "Valine",
+          "unit": "g",
+          "amount": 0.287
+        },
+        {
+          "id": "1220",
+          "name": "Arginine",
+          "unit": "g",
+          "amount": 0.104
+        },
+        {
+          "id": "1221",
+          "name": "Histidine",
+          "unit": "g",
+          "amount": 0.086
+        },
+        {
+          "id": "1223",
+          "name": "Aspartic acid",
+          "unit": "g",
+          "amount": 0.275
+        },
+        {
+          "id": "1227",
+          "name": "Serine",
+          "unit": "g",
+          "amount": 0.215
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 87.9
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 121
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 155
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 0.59
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 0.075
+        },
+        {
+          "id": "1170",
+          "name": "Pantothenic acid",
+          "unit": "mg",
+          "amount": 0.389
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.032
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 2.2
+        }
+      ],
+      "portions": [
+        {
+          "id": "88363",
+          "amount": 1,
+          "unit": "undetermined",
+          "label": "container (8 oz)",
+          "grams": 227,
+          "evidence": {
+            "id": 88363,
+            "value": 1,
+            "amount": 1,
+            "modifier": "container (8 oz)",
+            "gramWeight": 227,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2
+          }
+        },
+        {
+          "id": "88362",
+          "amount": 1,
+          "unit": "undetermined",
+          "label": "container (6 oz)",
+          "grams": 170,
+          "evidence": {
+            "id": 88362,
+            "value": 1,
+            "amount": 1,
+            "modifier": "container (6 oz)",
+            "gramWeight": 170,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1
+          }
+        },
+        {
+          "id": "88364",
+          "amount": 0.5,
+          "unit": "undetermined",
+          "label": "container (4 oz)",
+          "grams": 113,
+          "evidence": {
+            "id": 88364,
+            "value": 0.5,
+            "amount": 0.5,
+            "modifier": "container (4 oz)",
+            "gramWeight": 113,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3
+          }
+        },
+        {
+          "id": "88365",
+          "amount": 1,
+          "unit": "undetermined",
+          "label": "cup (8 fl oz)",
+          "grams": 245,
+          "evidence": {
+            "id": 88365,
+            "value": 1,
+            "amount": 1,
+            "modifier": "cup (8 fl oz)",
+            "gramWeight": 245,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 4
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "ground-beef",
+      "displayName": "Ground Beef",
+      "aliases": [
+        "ground beef",
+        "beef ground",
+        "90% ground beef",
+        "90/10 beef"
+      ],
+      "variantSummary": "90% lean / 10% fat; raw",
+      "defaultRationale": "Visible exact leanness and raw state",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "sr-legacy-2018-04",
+        "recordId": "174030",
+        "revision": "sr-legacy-2018-04:174030",
+        "canonicalName": "Beef, ground, 90% lean meat / 10% fat, raw"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 10
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 321
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 4.79
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 16.6
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.369
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 66.1
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 5.07
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 20
+        },
+        {
+          "id": "1007",
+          "name": "Ash",
+          "unit": "g",
+          "amount": 0.98
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 2.24
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 20
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 184
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 66
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.072
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.042
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 2.21
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 0.8
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 65
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1267",
+          "name": "SFA 20:0",
+          "unit": "g",
+          "amount": 0.011
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 0.263
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0.032
+        },
+        {
+          "id": "1321",
+          "name": "PUFA 18:3 n-6 c,c,c",
+          "unit": "g",
+          "amount": 0.01
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0.008
+        },
+        {
+          "id": "1274",
+          "name": "MUFA 14:1",
+          "unit": "g",
+          "amount": 0.07
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.344
+        },
+        {
+          "id": "1323",
+          "name": "MUFA 17:1",
+          "unit": "g",
+          "amount": 0.069
+        },
+        {
+          "id": "1404",
+          "name": "PUFA 18:3 n-3 c,c,c (ALA)",
+          "unit": "g",
+          "amount": 0.036
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 6
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 6
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 176
+        },
+        {
+          "id": "1101",
+          "name": "Manganese, Mn",
+          "unit": "mg",
+          "amount": 0.01
+        },
+        {
+          "id": "1062",
+          "name": "Energy",
+          "unit": "kJ",
+          "amount": 735
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.151
+        },
+        {
+          "id": "1112",
+          "name": "Vitamin D3 (cholecalciferol)",
+          "unit": "µg",
+          "amount": 0.1
+        },
+        {
+          "id": "1210",
+          "name": "Tryptophan",
+          "unit": "g",
+          "amount": 0.102
+        },
+        {
+          "id": "1211",
+          "name": "Threonine",
+          "unit": "g",
+          "amount": 0.775
+        },
+        {
+          "id": "1215",
+          "name": "Methionine",
+          "unit": "g",
+          "amount": 0.515
+        },
+        {
+          "id": "1217",
+          "name": "Phenylalanine",
+          "unit": "g",
+          "amount": 0.781
+        },
+        {
+          "id": "1218",
+          "name": "Tyrosine",
+          "unit": "g",
+          "amount": 0.616
+        },
+        {
+          "id": "1222",
+          "name": "Alanine",
+          "unit": "g",
+          "amount": 1.25
+        },
+        {
+          "id": "1224",
+          "name": "Glutamic acid",
+          "unit": "g",
+          "amount": 3
+        },
+        {
+          "id": "1225",
+          "name": "Glycine",
+          "unit": "g",
+          "amount": 1.36
+        },
+        {
+          "id": "1226",
+          "name": "Proline",
+          "unit": "g",
+          "amount": 1.02
+        },
+        {
+          "id": "1228",
+          "name": "Hydroxyproline",
+          "unit": "g",
+          "amount": 0.272
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 69.4
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0.035
+        },
+        {
+          "id": "1170",
+          "name": "Pantothenic acid",
+          "unit": "mg",
+          "amount": 0.601
+        },
+        {
+          "id": "1198",
+          "name": "Betaine",
+          "unit": "mg",
+          "amount": 7.9
+        },
+        {
+          "id": "1212",
+          "name": "Isoleucine",
+          "unit": "g",
+          "amount": 0.885
+        },
+        {
+          "id": "1213",
+          "name": "Leucine",
+          "unit": "g",
+          "amount": 1.56
+        },
+        {
+          "id": "1214",
+          "name": "Lysine",
+          "unit": "g",
+          "amount": 1.66
+        },
+        {
+          "id": "1216",
+          "name": "Cystine",
+          "unit": "g",
+          "amount": 0.206
+        },
+        {
+          "id": "1219",
+          "name": "Valine",
+          "unit": "g",
+          "amount": 0.983
+        },
+        {
+          "id": "1220",
+          "name": "Arginine",
+          "unit": "g",
+          "amount": 1.3
+        },
+        {
+          "id": "1221",
+          "name": "Histidine",
+          "unit": "g",
+          "amount": 0.65
+        },
+        {
+          "id": "1223",
+          "name": "Aspartic acid",
+          "unit": "g",
+          "amount": 1.8
+        },
+        {
+          "id": "1227",
+          "name": "Serine",
+          "unit": "g",
+          "amount": 0.801
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 12
+        },
+        {
+          "id": "1257",
+          "name": "Fatty acids, total trans",
+          "unit": "g",
+          "amount": 0.54
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0.1
+        },
+        {
+          "id": "1104",
+          "name": "Vitamin A, IU",
+          "unit": "IU",
+          "amount": 14
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 4
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 4
+        },
+        {
+          "id": "1329",
+          "name": "Fatty acids, total trans-monoenoic",
+          "unit": "g",
+          "amount": 0.54
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1304",
+          "name": "TFA 18:1 t",
+          "unit": "g",
+          "amount": 0.54
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.17
+        },
+        {
+          "id": "1110",
+          "name": "Vitamin D (D2 + D3), International Units",
+          "unit": "IU",
+          "amount": 3
+        },
+        {
+          "id": "1300",
+          "name": "SFA 17:0",
+          "unit": "g",
+          "amount": 0.108
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 3.93
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.276
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 2.17
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 1.31
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 4.19
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 0.345
+        },
+        {
+          "id": "1299",
+          "name": "SFA 15:0",
+          "unit": "g",
+          "amount": 0.046
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.046
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 3.83
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 6
+        }
+      ],
+      "portions": [
+        {
+          "id": "93663",
+          "amount": 4,
+          "unit": "undetermined",
+          "label": "oz",
+          "grams": 113,
+          "evidence": {
+            "id": 93663,
+            "value": 4,
+            "amount": 4,
+            "modifier": "oz",
+            "gramWeight": 113,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "chicken-breast",
+      "displayName": "Chicken Breast",
+      "aliases": [
+        "chicken breast",
+        "chicken breasts"
+      ],
+      "variantSummary": "roasted; skin not eaten",
+      "defaultRationale": "Common cooked skin-not-eaten source record",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2705956",
+        "revision": "fndds-2021-2023:2705956",
+        "canonicalName": "Chicken breast, baked, broiled, or roasted, skin not eaten, from raw"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 30.2
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 3.52
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 161
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 64.1
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 7
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 0.45
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 28
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 229
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 359
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 360
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 0.91
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.047
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 30.6
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 9
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 9
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.75
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.088
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.214
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 10.3
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.872
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 7
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0.18
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 77.2
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 7
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 7
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 98
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 0.756
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0.023
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0.005
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.015
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 0.528
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.173
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 0.793
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 0.429
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.017
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0.064
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0.005
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.111
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0.013
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0.004
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0.008
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 0.926
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 0.57
+        }
+      ],
+      "portions": [
+        {
+          "id": "292786",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 breast quarter (yield after cooking, bone removed)",
+          "grams": 155,
+          "evidence": {
+            "id": 292786,
+            "modifier": "60453",
+            "gramWeight": 155,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 9,
+            "portionDescription": "1 breast quarter (yield after cooking, bone removed)"
+          }
+        },
+        {
+          "id": "292778",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup, cooked, diced",
+          "grams": 135,
+          "evidence": {
+            "id": 292778,
+            "modifier": "10049",
+            "gramWeight": 135,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 cup, cooked, diced"
+          }
+        },
+        {
+          "id": "292779",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 small breast",
+          "grams": 105,
+          "evidence": {
+            "id": 292779,
+            "modifier": "64698",
+            "gramWeight": 105,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2,
+            "portionDescription": "1 small breast"
+          }
+        },
+        {
+          "id": "292783",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 medium slice",
+          "grams": 60,
+          "evidence": {
+            "id": 292783,
+            "modifier": "61398",
+            "gramWeight": 60,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 6,
+            "portionDescription": "1 medium slice"
+          }
+        },
+        {
+          "id": "292784",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 large or thick slice",
+          "grams": 85,
+          "evidence": {
+            "id": 292784,
+            "modifier": "61039",
+            "gramWeight": 85,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 7,
+            "portionDescription": "1 large or thick slice"
+          }
+        },
+        {
+          "id": "292782",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 small or thin slice",
+          "grams": 30,
+          "evidence": {
+            "id": 292782,
+            "modifier": "62138",
+            "gramWeight": 30,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 5,
+            "portionDescription": "1 small or thin slice"
+          }
+        },
+        {
+          "id": "292787",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 120,
+          "evidence": {
+            "id": 292787,
+            "modifier": "90000",
+            "gramWeight": 120,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 10,
+            "portionDescription": "Quantity not specified"
+          }
+        },
+        {
+          "id": "292785",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 oz, cooked",
+          "grams": 28.35,
+          "evidence": {
+            "id": 292785,
+            "modifier": "40040",
+            "gramWeight": 28.35,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 8,
+            "portionDescription": "1 oz, cooked"
+          }
+        },
+        {
+          "id": "292781",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 large breast",
+          "grams": 135,
+          "evidence": {
+            "id": 292781,
+            "modifier": "64700",
+            "gramWeight": 135,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 4,
+            "portionDescription": "1 large breast"
+          }
+        },
+        {
+          "id": "292780",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 medium breast",
+          "grams": 120,
+          "evidence": {
+            "id": 292780,
+            "modifier": "64699",
+            "gramWeight": 120,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3,
+            "portionDescription": "1 medium breast"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "chicken-thighs",
+      "displayName": "Chicken Thighs",
+      "aliases": [
+        "chicken thigh",
+        "chicken thighs"
+      ],
+      "variantSummary": "roasted; skin eaten",
+      "defaultRationale": "Visible cooked skin-eaten source record",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2706029",
+        "revision": "fndds-2021-2023:2706029",
+        "canonicalName": "Chicken thigh, baked, broiled, or roasted, skin eaten, from raw"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 23.1
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 14.6
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 231
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 61.6
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 9
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 1.07
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 22
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 215
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 252
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 332
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 1.72
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.063
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 25.2
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 16
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 16
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.19
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0.2
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 17
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.087
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.189
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 5.75
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.412
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 4
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0.44
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 67.2
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 3.3
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 4
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 4
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 132
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 4.09
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0.002
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0.002
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0.008
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.083
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 3.16
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.779
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 5.19
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 2.65
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.129
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0.096
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0.005
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.907
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0.003
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0.074
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0.006
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0.002
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0.01
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 6.22
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 2.98
+        }
+      ],
+      "portions": [
+        {
+          "id": "293326",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 oz, cooked",
+          "grams": 28.35,
+          "evidence": {
+            "id": 293326,
+            "modifier": "40040",
+            "gramWeight": 28.35,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 5,
+            "portionDescription": "1 oz, cooked"
+          }
+        },
+        {
+          "id": "293324",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 medium thigh",
+          "grams": 80,
+          "evidence": {
+            "id": 293324,
+            "modifier": "64712",
+            "gramWeight": 80,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3,
+            "portionDescription": "1 medium thigh"
+          }
+        },
+        {
+          "id": "293325",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 large thigh",
+          "grams": 105,
+          "evidence": {
+            "id": 293325,
+            "modifier": "64713",
+            "gramWeight": 105,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 4,
+            "portionDescription": "1 large thigh"
+          }
+        },
+        {
+          "id": "293327",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 80,
+          "evidence": {
+            "id": 293327,
+            "modifier": "90000",
+            "gramWeight": 80,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 6,
+            "portionDescription": "Quantity not specified"
+          }
+        },
+        {
+          "id": "293322",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup, cooked, diced",
+          "grams": 135,
+          "evidence": {
+            "id": 293322,
+            "modifier": "10049",
+            "gramWeight": 135,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 cup, cooked, diced"
+          }
+        },
+        {
+          "id": "293323",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 small thigh",
+          "grams": 75,
+          "evidence": {
+            "id": 293323,
+            "modifier": "64711",
+            "gramWeight": 75,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2,
+            "portionDescription": "1 small thigh"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "chicken-wings",
+      "displayName": "Chicken Wings",
+      "aliases": [
+        "chicken wing",
+        "chicken wings"
+      ],
+      "variantSummary": "roasted; from raw",
+      "defaultRationale": "Edible weight only; no invented wing count",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2706057",
+        "revision": "fndds-2021-2023:2706057",
+        "canonicalName": "Chicken wing, baked, broiled, or roasted, from raw"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 23.6
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 16.7
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 252
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 58.9
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 18
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 0.83
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 19
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 146
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 210
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 404
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 1.63
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.041
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 25.3
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 12
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 12
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.68
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0.2
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.064
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.152
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 6.27
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.554
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 9
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0.35
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 110
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 0.3
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 9
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 9
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 140
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 4.94
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0.007
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0.008
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.097
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 3.85
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.92
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 6.38
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 3.19
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.164
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0.097
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0.006
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 1.11
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0.004
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0.1
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0.004
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0.002
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0.012
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 7.64
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 3.56
+        }
+      ],
+      "portions": [
+        {
+          "id": "293481",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 wing, any size",
+          "grams": 35,
+          "evidence": {
+            "id": 293481,
+            "modifier": "64714",
+            "gramWeight": 35,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 wing, any size"
+          }
+        },
+        {
+          "id": "293482",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 drummette",
+          "grams": 22,
+          "evidence": {
+            "id": 293482,
+            "modifier": "64701",
+            "gramWeight": 22,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2,
+            "portionDescription": "1 drummette"
+          }
+        },
+        {
+          "id": "293483",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 70,
+          "evidence": {
+            "id": 293483,
+            "modifier": "90000",
+            "gramWeight": 70,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3,
+            "portionDescription": "Quantity not specified"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "meatballs",
+      "displayName": "Meatballs",
+      "aliases": [
+        "meatball",
+        "meatballs"
+      ],
+      "variantSummary": "meat unspecified; with sauce",
+      "defaultRationale": "Generic-dish estimate clearly labeled",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2706467",
+        "revision": "fndds-2021-2023:2706467",
+        "canonicalName": "Meatballs, NS as to type of meat, with sauce"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 18
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 12
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 0.15
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 186
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 67.5
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 0.07
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 22
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 1.79
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 15
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 145
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 212
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 801
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 4.19
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.055
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 17.1
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 19
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 19
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.18
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0.2
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 1
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 49
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.038
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.154
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 3.34
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.245
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 12
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 1.86
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 78.9
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 1.1
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 12
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 12
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 97
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 4.56
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0.008
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.32
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 2.6
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 1.39
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 4.56
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 0.392
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.038
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0.031
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.425
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0.035
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 5.28
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 0.501
+        }
+      ],
+      "portions": [
+        {
+          "id": "295384",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup",
+          "grams": 235,
+          "evidence": {
+            "id": 295384,
+            "modifier": "10205",
+            "gramWeight": 235,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 cup"
+          }
+        },
+        {
+          "id": "295386",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 129,
+          "evidence": {
+            "id": 295386,
+            "modifier": "90000",
+            "gramWeight": 129,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3,
+            "portionDescription": "Quantity not specified"
+          }
+        },
+        {
+          "id": "295385",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 meatball with sauce",
+          "grams": 43,
+          "evidence": {
+            "id": 295385,
+            "modifier": "61237",
+            "gramWeight": 43,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2,
+            "portionDescription": "1 meatball with sauce"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "eggs",
+      "displayName": "Eggs",
+      "aliases": [
+        "egg",
+        "eggs"
+      ],
+      "variantSummary": "whole; cooked",
+      "defaultRationale": "Documented source portions retained",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2707153",
+        "revision": "fndds-2021-2023:2707153",
+        "canonicalName": "Egg, whole, cooked, NS as to cooking method"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 11.8
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 13.9
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 0.92
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 176
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 72.4
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 0.19
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 46
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 1.6
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 11
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 176
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 126
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 195
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 1.18
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 29.7
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 171
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 172
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 1.83
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 2.4
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 12
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 480
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.059
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.38
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.057
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 51
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0.78
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 256
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 4.7
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 51
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 51
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 392
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 3.64
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.033
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 2.63
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.902
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 4.99
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 2.87
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.2
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.243
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0.029
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 5.31
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 3.41
+        }
+      ],
+      "portions": [
+        {
+          "id": "297268",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 50,
+          "evidence": {
+            "id": 297268,
+            "modifier": "90000",
+            "gramWeight": 50,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3,
+            "portionDescription": "Quantity not specified"
+          }
+        },
+        {
+          "id": "297266",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 egg",
+          "grams": 50,
+          "evidence": {
+            "id": 297266,
+            "modifier": "60710",
+            "gramWeight": 50,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 egg"
+          }
+        },
+        {
+          "id": "297267",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup",
+          "grams": 135,
+          "evidence": {
+            "id": 297267,
+            "modifier": "10205",
+            "gramWeight": 135,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2,
+            "portionDescription": "1 cup"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "rice",
+      "displayName": "Rice",
+      "aliases": [
+        "rice",
+        "white rice",
+        "cooked rice"
+      ],
+      "variantSummary": "white glutinous; cooked",
+      "defaultRationale": "Cooked state is explicit",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2708422",
+        "revision": "fndds-2021-2023:2708422",
+        "canonicalName": "Rice, white, cooked, glutinous"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 2.01
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.19
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 96
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 76.2
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 0.05
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 1
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 2
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 0.14
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 5
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 8
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 10
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 227
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 0.41
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.049
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 5.6
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.04
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.02
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.013
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 0.288
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.026
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 1
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 2.1
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 1
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 1
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 0.039
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 0.033
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.003
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 0.07
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 0.066
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.003
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 0.07
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 0.069
+        }
+      ],
+      "portions": [
+        {
+          "id": "302923",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 130,
+          "evidence": {
+            "id": 302923,
+            "modifier": "90000",
+            "gramWeight": 130,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 4,
+            "portionDescription": "Quantity not specified"
+          }
+        },
+        {
+          "id": "302922",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup, cooked",
+          "grams": 174,
+          "evidence": {
+            "id": 302922,
+            "modifier": "10043",
+            "gramWeight": 174,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 cup, cooked"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "apples",
+      "displayName": "Apples",
+      "aliases": [
+        "apple",
+        "apples"
+      ],
+      "variantSummary": "raw",
+      "defaultRationale": "Documented apple sizes retained",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2709215",
+        "revision": "fndds-2021-2023:2709215",
+        "canonicalName": "Apple, raw"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.17
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.15
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 14.8
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 61
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 84.6
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 12.1
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 2.1
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 5
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 0.03
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 5
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 9
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 104
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 0.02
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.03
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 3
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 27
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.18
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 11
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 29
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 4.6
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.01
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.07
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 0.091
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.03
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 3.4
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 2.2
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 0.028
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 0.024
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.003
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 0.007
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 0.043
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.009
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 0.007
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 0.051
+        }
+      ],
+      "portions": [
+        {
+          "id": "306063",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 small",
+          "grams": 165,
+          "evidence": {
+            "id": 306063,
+            "modifier": "62015",
+            "gramWeight": 165,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 small"
+          }
+        },
+        {
+          "id": "306069",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 single serving package",
+          "grams": 34,
+          "evidence": {
+            "id": 306069,
+            "modifier": "64236",
+            "gramWeight": 34,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 7,
+            "portionDescription": "1 single serving package"
+          }
+        },
+        {
+          "id": "306070",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 200,
+          "evidence": {
+            "id": 306070,
+            "modifier": "90000",
+            "gramWeight": 200,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 8,
+            "portionDescription": "Quantity not specified"
+          }
+        },
+        {
+          "id": "306067",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 slice",
+          "grams": 25,
+          "evidence": {
+            "id": 306067,
+            "modifier": "61935",
+            "gramWeight": 25,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 5,
+            "portionDescription": "1 slice"
+          }
+        },
+        {
+          "id": "306064",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 medium",
+          "grams": 200,
+          "evidence": {
+            "id": 306064,
+            "modifier": "61238",
+            "gramWeight": 200,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2,
+            "portionDescription": "1 medium"
+          }
+        },
+        {
+          "id": "306066",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 extra large",
+          "grams": 295,
+          "evidence": {
+            "id": 306066,
+            "modifier": "60749",
+            "gramWeight": 295,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 4,
+            "portionDescription": "1 extra large"
+          }
+        },
+        {
+          "id": "306065",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 large",
+          "grams": 242,
+          "evidence": {
+            "id": 306065,
+            "modifier": "60919",
+            "gramWeight": 242,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3,
+            "portionDescription": "1 large"
+          }
+        },
+        {
+          "id": "306068",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup",
+          "grams": 125,
+          "evidence": {
+            "id": 306068,
+            "modifier": "10205",
+            "gramWeight": 125,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 6,
+            "portionDescription": "1 cup"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "bananas",
+      "displayName": "Bananas",
+      "aliases": [
+        "banana",
+        "bananas"
+      ],
+      "variantSummary": "raw edible portion",
+      "defaultRationale": "Documented edible portions retained",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2709224",
+        "revision": "fndds-2021-2023:2709224",
+        "canonicalName": "Banana, raw"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.74
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.28
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 22.7
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 97
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 75.6
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 15.8
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 1.7
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 5
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 28
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 22
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 326
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 0.16
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.101
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 1
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 8
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 7
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 0.1
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 22
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 12
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.054
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 0.653
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.212
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 15
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 9.8
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 0.1
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 15
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 15
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 0.112
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0.002
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0.002
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 0.102
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.005
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 0.022
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 0.046
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.027
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.01
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 0.032
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 0.073
+        }
+      ],
+      "portions": [
+        {
+          "id": "306103",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup, mashed",
+          "grams": 225,
+          "evidence": {
+            "id": 306103,
+            "modifier": "10118",
+            "gramWeight": 225,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 4,
+            "portionDescription": "1 cup, mashed"
+          }
+        },
+        {
+          "id": "306100",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 banana",
+          "grams": 126,
+          "evidence": {
+            "id": 306100,
+            "modifier": "60343",
+            "gramWeight": 126,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 banana"
+          }
+        },
+        {
+          "id": "306102",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup",
+          "grams": 150,
+          "evidence": {
+            "id": 306102,
+            "modifier": "10205",
+            "gramWeight": 150,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3,
+            "portionDescription": "1 cup"
+          }
+        },
+        {
+          "id": "306101",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 slice",
+          "grams": 6,
+          "evidence": {
+            "id": 306101,
+            "modifier": "61935",
+            "gramWeight": 6,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2,
+            "portionDescription": "1 slice"
+          }
+        },
+        {
+          "id": "306105",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 126,
+          "evidence": {
+            "id": 306105,
+            "modifier": "90000",
+            "gramWeight": 126,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 6,
+            "portionDescription": "Quantity not specified"
+          }
+        },
+        {
+          "id": "306104",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 linear inch",
+          "grams": 15,
+          "evidence": {
+            "id": 306104,
+            "modifier": "63525",
+            "gramWeight": 15,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 5,
+            "portionDescription": "1 linear inch"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    },
+    {
+      "familyKey": "ketchup",
+      "displayName": "Ketchup",
+      "aliases": [
+        "ketchup",
+        "catsup"
+      ],
+      "variantSummary": "generic",
+      "defaultRationale": "Generic source remains distinct from branded products",
+      "source": {
+        "provider": "USDA FoodData Central",
+        "release": "fndds-2021-2023",
+        "recordId": "2709733",
+        "revision": "fndds-2021-2023:2709733",
+        "canonicalName": "Ketchup"
+      },
+      "basis": {
+        "amount": 100,
+        "unit": "g",
+        "label": "100 g",
+        "grams": 100
+      },
+      "nutrientRule": "First numeric amount for each USDA nutrient id; energy uses nutrient 1008 (kcal); duplicate ids are not summed.",
+      "nutrients": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 1.08
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.32
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 27.1
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 109
+        },
+        {
+          "id": "1018",
+          "name": "Alcohol, ethyl",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1051",
+          "name": "Water",
+          "unit": "g",
+          "amount": 68.5
+        },
+        {
+          "id": "1057",
+          "name": "Caffeine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1058",
+          "name": "Theobromine",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "2000",
+          "name": "Total Sugars",
+          "unit": "g",
+          "amount": 21.5
+        },
+        {
+          "id": "1079",
+          "name": "Fiber, total dietary",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1087",
+          "name": "Calcium, Ca",
+          "unit": "mg",
+          "amount": 14
+        },
+        {
+          "id": "1089",
+          "name": "Iron, Fe",
+          "unit": "mg",
+          "amount": 0.39
+        },
+        {
+          "id": "1090",
+          "name": "Magnesium, Mg",
+          "unit": "mg",
+          "amount": 14
+        },
+        {
+          "id": "1091",
+          "name": "Phosphorus, P",
+          "unit": "mg",
+          "amount": 26
+        },
+        {
+          "id": "1092",
+          "name": "Potassium, K",
+          "unit": "mg",
+          "amount": 265
+        },
+        {
+          "id": "1093",
+          "name": "Sodium, Na",
+          "unit": "mg",
+          "amount": 928
+        },
+        {
+          "id": "1095",
+          "name": "Zinc, Zn",
+          "unit": "mg",
+          "amount": 0.16
+        },
+        {
+          "id": "1098",
+          "name": "Copper, Cu",
+          "unit": "mg",
+          "amount": 0.076
+        },
+        {
+          "id": "1103",
+          "name": "Selenium, Se",
+          "unit": "µg",
+          "amount": 0.7
+        },
+        {
+          "id": "1105",
+          "name": "Retinol",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1106",
+          "name": "Vitamin A, RAE",
+          "unit": "µg",
+          "amount": 26
+        },
+        {
+          "id": "1107",
+          "name": "Carotene, beta",
+          "unit": "µg",
+          "amount": 316
+        },
+        {
+          "id": "1108",
+          "name": "Carotene, alpha",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1109",
+          "name": "Vitamin E (alpha-tocopherol)",
+          "unit": "mg",
+          "amount": 1.46
+        },
+        {
+          "id": "1114",
+          "name": "Vitamin D (D2 + D3)",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1120",
+          "name": "Cryptoxanthin, beta",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1122",
+          "name": "Lycopene",
+          "unit": "µg",
+          "amount": 12100
+        },
+        {
+          "id": "1123",
+          "name": "Lutein + zeaxanthin",
+          "unit": "µg",
+          "amount": 161
+        },
+        {
+          "id": "1162",
+          "name": "Vitamin C, total ascorbic acid",
+          "unit": "mg",
+          "amount": 4.1
+        },
+        {
+          "id": "1165",
+          "name": "Thiamin",
+          "unit": "mg",
+          "amount": 0.011
+        },
+        {
+          "id": "1166",
+          "name": "Riboflavin",
+          "unit": "mg",
+          "amount": 0.166
+        },
+        {
+          "id": "1167",
+          "name": "Niacin",
+          "unit": "mg",
+          "amount": 1.43
+        },
+        {
+          "id": "1175",
+          "name": "Vitamin B-6",
+          "unit": "mg",
+          "amount": 0.158
+        },
+        {
+          "id": "1177",
+          "name": "Folate, total",
+          "unit": "µg",
+          "amount": 9
+        },
+        {
+          "id": "1178",
+          "name": "Vitamin B-12",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1180",
+          "name": "Choline, total",
+          "unit": "mg",
+          "amount": 12.5
+        },
+        {
+          "id": "1185",
+          "name": "Vitamin K (phylloquinone)",
+          "unit": "µg",
+          "amount": 3
+        },
+        {
+          "id": "1186",
+          "name": "Folic acid",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1187",
+          "name": "Folate, food",
+          "unit": "µg",
+          "amount": 9
+        },
+        {
+          "id": "1190",
+          "name": "Folate, DFE",
+          "unit": "µg",
+          "amount": 9
+        },
+        {
+          "id": "1242",
+          "name": "Vitamin E, added",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1246",
+          "name": "Vitamin B-12, added",
+          "unit": "µg",
+          "amount": 0
+        },
+        {
+          "id": "1253",
+          "name": "Cholesterol",
+          "unit": "mg",
+          "amount": 0
+        },
+        {
+          "id": "1258",
+          "name": "Fatty acids, total saturated",
+          "unit": "g",
+          "amount": 0.014
+        },
+        {
+          "id": "1259",
+          "name": "SFA 4:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1260",
+          "name": "SFA 6:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1261",
+          "name": "SFA 8:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1262",
+          "name": "SFA 10:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1263",
+          "name": "SFA 12:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1264",
+          "name": "SFA 14:0",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1265",
+          "name": "SFA 16:0",
+          "unit": "g",
+          "amount": 0.01
+        },
+        {
+          "id": "1266",
+          "name": "SFA 18:0",
+          "unit": "g",
+          "amount": 0.004
+        },
+        {
+          "id": "1268",
+          "name": "MUFA 18:1",
+          "unit": "g",
+          "amount": 0.015
+        },
+        {
+          "id": "1269",
+          "name": "PUFA 18:2",
+          "unit": "g",
+          "amount": 0.039
+        },
+        {
+          "id": "1270",
+          "name": "PUFA 18:3",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1271",
+          "name": "PUFA 20:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1272",
+          "name": "PUFA 22:6 n-3 (DHA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1275",
+          "name": "MUFA 16:1",
+          "unit": "g",
+          "amount": 0.001
+        },
+        {
+          "id": "1276",
+          "name": "PUFA 18:4",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1277",
+          "name": "MUFA 20:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1278",
+          "name": "PUFA 20:5 n-3 (EPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1279",
+          "name": "MUFA 22:1",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1280",
+          "name": "PUFA 22:5 n-3 (DPA)",
+          "unit": "g",
+          "amount": 0
+        },
+        {
+          "id": "1292",
+          "name": "Fatty acids, total monounsaturated",
+          "unit": "g",
+          "amount": 0.015
+        },
+        {
+          "id": "1293",
+          "name": "Fatty acids, total polyunsaturated",
+          "unit": "g",
+          "amount": 0.041
+        }
+      ],
+      "portions": [
+        {
+          "id": "308090",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 tablespoon",
+          "grams": 17,
+          "evidence": {
+            "id": 308090,
+            "modifier": "21000",
+            "gramWeight": 17,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 1,
+            "portionDescription": "1 tablespoon"
+          }
+        },
+        {
+          "id": "308094",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Guideline amount on regular sandwich",
+          "grams": 17,
+          "evidence": {
+            "id": 308094,
+            "modifier": "64546",
+            "gramWeight": 17,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 5,
+            "portionDescription": "Guideline amount on regular sandwich"
+          }
+        },
+        {
+          "id": "308092",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 packet",
+          "grams": 10,
+          "evidence": {
+            "id": 308092,
+            "modifier": "61573",
+            "gramWeight": 10,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 3,
+            "portionDescription": "1 packet"
+          }
+        },
+        {
+          "id": "308096",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Quantity not specified",
+          "grams": 17,
+          "evidence": {
+            "id": 308096,
+            "modifier": "90000",
+            "gramWeight": 17,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 7,
+            "portionDescription": "Quantity not specified"
+          }
+        },
+        {
+          "id": "308091",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 cup",
+          "grams": 272,
+          "evidence": {
+            "id": 308091,
+            "modifier": "10205",
+            "gramWeight": 272,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 2,
+            "portionDescription": "1 cup"
+          }
+        },
+        {
+          "id": "308093",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "1 dipping-size container",
+          "grams": 28,
+          "evidence": {
+            "id": 308093,
+            "modifier": "64353",
+            "gramWeight": 28,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 4,
+            "portionDescription": "1 dipping-size container"
+          }
+        },
+        {
+          "id": "308095",
+          "amount": null,
+          "unit": "undetermined",
+          "label": "Guideline amount on large sandwich",
+          "grams": 34,
+          "evidence": {
+            "id": 308095,
+            "modifier": "64547",
+            "gramWeight": 34,
+            "measureUnit": {
+              "id": 9999,
+              "name": "undetermined",
+              "abbreviation": "undetermined"
+            },
+            "sequenceNumber": 6,
+            "portionDescription": "Guideline amount on large sandwich"
+          }
+        }
+      ],
+      "eligibility": {
+        "readyRelease": true,
+        "completeMacros": true,
+        "promotedBy": "20261004000000_food_families.sql"
+      },
+      "approval": "Existing precise catalog approval links only; none inherited from family membership."
+    }
+  ]
+}

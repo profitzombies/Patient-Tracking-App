@@ -23,6 +23,7 @@ export default function PatientWelcomeScreen() {
   // Lay the image out squarely (1:1 aspect ratio) so it spans the width
   // and sits edge-to-edge, letting the native photo crop show perfectly.
   const imageSize = width;
+  const imageOffset = space.xl;
   
   // Wordmark needs to sit in the pale upper space of the photo,
   // safely below the native status bar/notch.
@@ -41,11 +42,25 @@ export default function PatientWelcomeScreen() {
         bounces={false}
         contentInsetAdjustmentBehavior="never"
       >
-        {/* Full-bleed hero image spanning top edge to width */}
-        <View testID="welcome-hero" style={{ width: imageSize, height: imageSize, flexShrink: 0 }}>
+        {/* Lower the photo without moving the safe-area-aligned wordmark. */}
+        <View testID="welcome-hero" style={{ width: imageSize, height: imageSize + imageOffset, flexShrink: 0 }}>
+          {/* Continue the photo's pale tabletop behind the status bar. */}
+          <View
+            style={[styles.heroTopFill, { height: imageOffset }]}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            aria-hidden
+          >
+            <Image
+              source={HOME_HERO_IMAGE}
+              style={{ width: imageSize, height: imageSize }}
+              resizeMode="cover"
+              accessible={false}
+            />
+          </View>
           <Image 
             source={HOME_HERO_IMAGE}
-            style={styles.heroImage}
+            style={[styles.heroImage, { height: imageSize, marginTop: imageOffset }]}
             resizeMode="cover"
             accessibilityRole="image"
             accessibilityLabel="Grilled chicken bowl with greens"
@@ -110,7 +125,14 @@ const styles = StyleSheet.create({
   },
   heroImage: { 
     width: '100%', 
-    height: '100%',
+  },
+  heroTopFill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    overflow: 'hidden',
+    pointerEvents: 'none',
   },
   logoOverlay: {
     position: 'absolute',

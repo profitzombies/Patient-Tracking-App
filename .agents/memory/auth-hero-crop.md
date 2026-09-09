@@ -11,6 +11,12 @@ Keep the welcome screen visually distinct from login and account creation. The u
 
 **How to apply:** Preserve welcome's image-led composition when restyling forms, and keep form changes scoped. Group related copy/actions instead of distributing empty space between every block. Provider login is not automatically included in patient-entry redesigns.
 
+Keep the welcome wordmark's safe-area position independent of the photo and main content.
+
+**Why:** On 2026-09-09 the user explicitly liked the logo's existing position but found the photo, headline, and actions too high. They asked for more space below the logo, not for the whole screen to be centered or the logo moved.
+
+**How to apply:** Preserve the logo placement when adjusting welcome-screen vertical balance; move the image and the grouped copy/actions instead.
+
 ## Segmented choices on Expo web
 
 Use toggle buttons for channel choices unless implementing a complete tab interaction.

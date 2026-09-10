@@ -3,12 +3,16 @@ process.env.EXPO_PUBLIC_DOMAIN = 'thinnr.test';
 const storage = new Map<string,string>();
 (globalThis as Record<string,unknown>).localStorage = { getItem:(k:string)=>storage.get(k)??null,setItem:(k:string,v:string)=>void storage.set(k,v),removeItem:(k:string)=>void storage.delete(k) };
 import React,{act} from 'react';
+import {Platform,Text,View} from 'react-native';
 import { readFileSync } from 'node:fs';
 import {create,type ReactTestRenderer} from 'react-test-renderer';
 import Login from '../app/patient-login';
 import Signup from '../app/patient-signup';
 import ProviderLogin from '../app/provider-login';
 import {FormCard} from '../components/auth/AuthPrimitives';
+import {AuthPageFrame} from '../components/auth/AuthPageFrame';
+import {KeyboardAwareScrollViewCompat} from '../components/KeyboardAwareScrollViewCompat';
+import {space} from '../constants/spacing';
 import {AppModeProvider} from '../context/AppModeContext';
 import {liveEntryDecision} from '../lib/live-patient-entry';
 import {DEFAULT_ANSWERS,visibleSteps} from '../data/onboarding-data';
@@ -46,11 +50,69 @@ const wordmarkSize=(t:ReactTestRenderer)=>{
  const styles=[mark?.props.style].flat(Infinity).filter(s=>s&&typeof s==='object');
  return Object.assign({},...styles).fontSize as number|undefined;
 };
+const flatStyle=(style:unknown)=>Object.assign({},...[style].flat(Infinity).filter(s=>s&&typeof s==='object'));
+function frameLayout(t:ReactTestRenderer,phase:string,patient:boolean){
+ const frame=t.root.findByType(AuthPageFrame);
+ const page=frame.findAll(n=>n.type==='View')[0];
+ const scroll=frame.findByType(KeyboardAwareScrollViewCompat);
+ const content=flatStyle(scroll.props.contentContainerStyle);
+ const topBar=page.findAll(n=>n.type==='View'&&flatStyle(n.props.style).paddingHorizontal===16)[0];
+ const header=flatStyle(topBar?.props.style);
+ const native=Platform.OS!=='web';
+ assert(`${phase}: patient-only 32pt offset is inside scroll content`,content.paddingTop===(patient?8+32:8));
+ assert(`${phase}: keeps safe-area header position`,flatStyle(page.props.style).paddingTop===(native?8:patient?67:44)&&header.paddingTop===(patient?0:8)&&header.paddingBottom===(patient?24:16));
+ assert(`${phase}: keeps header width and alignment`,header.maxWidth===520&&header.width==='100%'&&header.alignItems==='center'&&header.justifyContent==='space-between');
+ const back=topBar.findAll(n=>n.type==='Pressable')[0];
+ assert(`${phase}: back control keeps 44pt hit area`,flatStyle(back?.props.style).width===44&&flatStyle(back?.props.style).height===44);
+ const mark=topBar.findAll(n=>n.type==='Text'&&n.children.includes('THINNR'))[0];
+ assert(`${phase}: wordmark typography stays unchanged`,flatStyle(mark?.props.style).fontSize===(patient?32:23)&&flatStyle(mark?.props.style).letterSpacing===-0.5);
+ assert(`${phase}: content keeps horizontal margins and flexible height`,content.paddingHorizontal===20&&content.maxWidth===520&&content.flexGrow===1&&content.height===undefined);
+ assert(`${phase}: bottom safe-area padding is unchanged`,content.paddingBottom===(!native&&patient?50:32));
+ assert(`${phase}: offset is normal flow, not a transform or positioned container`,[content,flatStyle(page.props.style),flatStyle(scroll.props.style)].every(s=>s.transform===undefined&&s.position===undefined&&s.top===undefined));
+ assert(`${phase}: keyboard-aware scroll keeps its offset`,scroll.props.bottomOffset===96&&flatStyle(scroll.props.style).flex===1);
+ const blocks=React.Children.toArray(scroll.props.children).filter(React.isValidElement) as React.ReactElement<{style?:unknown;children?:React.ReactNode}>[];
+ if(patient){
+  const heading=blocks.find(el=>React.Children.toArray(el.props.children).some(child=>React.isValidElement<{accessibilityRole?:string}>(child)&&child.props.accessibilityRole==='header'));
+  const headingStyle=flatStyle(heading?.props.style);
+  assert(`${phase}: heading keeps existing internal gaps`,headingStyle.marginTop===4&&headingStyle.marginBottom===32);
+  if(frame.props.footer&&frame.props.pinFooter){
+   const footer=blocks[blocks.length-1],slack=blocks[blocks.length-2];
+   assert(`${phase}: footer keeps flexible slack before it`,flatStyle(slack.props.style).flexGrow===1&&flatStyle(slack.props.style).minHeight===0&&flatStyle(footer.props.style).marginTop===32);
+  }
+ }
+}
 function patientFormLayout(t:ReactTestRenderer,phase:string){
+ frameLayout(t,phase,true);
  assert(`${phase}: patient branding is larger`,Number(wordmarkSize(t))>23);
  assert(`${phase}: stays photo-free`,t.root.findAll(n=>n.type==='Image').length===0);
  assert(`${phase}: fields are not double-inset inside a form card`,t.root.findAllByType(FormCard).length===0);
  assert(`${phase}: retains keyboard-friendly scrolling`,t.root.findAll(n=>n.type==='ScrollView'&&n.props.keyboardShouldPersistTaps==='handled').length===1);
+}
+
+async function frameVariants(){
+ console.log('· patient-only scroll offset, including banners and native frame');
+ assert('offset uses the same 32pt spacing rhythm as welcome',space.xl===32);
+ const originalPlatform=Platform.OS;
+ try{
+  for(const platform of ['web','ios','android']){
+   Platform.OS=platform;
+   for(const variant of ['patient','provider'] as const){
+    const Screen=()=>React.createElement(AuthPageFrame,{
+     variant,onBack:()=>{},title:'Frame heading',subtitle:'Supporting copy',pinFooter:true,
+     banner:React.createElement(Text,{testID:'frame-warning'},'Environment warning'),
+     footer:React.createElement(Text,null,'Footer'),
+     children:React.createElement(View,null,React.createElement(Text,null,'Form')),
+    });
+    const t=await render(Screen);
+    frameLayout(t,`${platform} ${variant} warning`,variant==='patient');
+    const scroll=t.root.findByType(KeyboardAwareScrollViewCompat);
+    assert(`${platform} ${variant}: warning lives inside the offset content`,scroll.findAllByProps({testID:'frame-warning'}).length>0);
+    const first=React.Children.toArray(scroll.props.children)[0] as React.ReactElement<{children:React.ReactElement<{testID:string}>}>;
+    assert(`${platform} ${variant}: warning precedes the heading with its old gap`,first.props.children.props.testID==='frame-warning'&&flatStyle((first.props as {style:unknown}).style).marginBottom===24);
+    await act(async()=>t.unmount());
+   }
+  }
+ }finally{Platform.OS=originalPlatform}
 }
 
 async function loginFlow(){
@@ -104,7 +166,13 @@ async function channelSwitch(){
 async function recovery(){
  console.log('· neutral recovery phases');
  reset();on('patient/recovery/start',()=>({status:200,body:{ok:true,requestId:'rr1',message:'If that matches, a code is coming.',devCode:'123456'}}));on('patient/recovery/verify',()=>({status:200,body:{ok:true,resetToken:'reset1'}}));on('patient/recovery/complete',()=>({status:200,body:{ok:true}}));
- const t=await render(Login);await press(t,'login-forgot');assert('recovery identify phase',exists(t,'recovery-start'));await type(t,'login-phone','8135551234');await press(t,'recovery-start');assert('neutral start contract',called('patient/recovery/start')[0].body.identifier==='+18135551234');assert('recovery code phase',exists(t,'recovery-otp'));assert('recovery OTP has a label',label(t,'recovery-otp')==='6-digit verification code');await type(t,'recovery-otp','123456');await press(t,'recovery-verify');assert('new password phase',exists(t,'recovery-password'));assert('recovery passwords have labels',label(t,'recovery-password')==='New password'&&label(t,'recovery-confirm')==='Confirm new password');await type(t,'recovery-password','NewSecret1!');await type(t,'recovery-confirm','NewSecret1!');await press(t,'recovery-complete');assert('complete recovery payload',called('patient/recovery/complete')[0].body.resetToken==='reset1'&&called('patient/recovery/complete')[0].body.password==='NewSecret1!');assert('returns to login',exists(t,'login-password'));t.unmount();
+  const t=await render(Login);await press(t,'login-forgot');
+  patientFormLayout(t,'Recovery identify');
+  assert('recovery identify phase',exists(t,'recovery-start'));await type(t,'login-phone','8135551234');await press(t,'recovery-start');
+  patientFormLayout(t,'Recovery code');
+  assert('neutral start contract',called('patient/recovery/start')[0].body.identifier==='+18135551234');assert('recovery code phase',exists(t,'recovery-otp'));assert('recovery OTP has a label',label(t,'recovery-otp')==='6-digit verification code');await type(t,'recovery-otp','123456');await press(t,'recovery-verify');
+  patientFormLayout(t,'Recovery password');
+  assert('new password phase',exists(t,'recovery-password'));assert('recovery passwords have labels',label(t,'recovery-password')==='New password'&&label(t,'recovery-confirm')==='Confirm new password');await type(t,'recovery-password','NewSecret1!');await type(t,'recovery-confirm','NewSecret1!');await press(t,'recovery-complete');assert('complete recovery payload',called('patient/recovery/complete')[0].body.resetToken==='reset1'&&called('patient/recovery/complete')[0].body.password==='NewSecret1!');assert('returns to login',exists(t,'login-password'));t.unmount();
 }
 async function signupFlows(){
  console.log('· invited and new signup phases');
@@ -120,13 +188,26 @@ reset();on('signup/start',()=>({status:200,body:{ok:true,requestId:'s1',message:
   assert('invited reaches password details',exists(t,'signup-password'));assert('signup password/name labels',label(t,'signup-password')==='Create password'&&label(t,'signup-name')==='Name');await type(t,'signup-password','Secret1!');await type(t,'signup-name','Casey');await press(t,'signup-complete');assert('completion carries password',called('signup/complete')[0].body.password==='Secret1!');assert('signup token minted',verifyOtpCalls[0]?.token_hash==='sh1');t.unmount();
  reset();let attempts=0;on('signup/start',()=>{attempts++;return attempts===1?{status:400,body:{error:'Provider code required'}}:{status:200,body:{ok:true,requestId:'s2',message:null,devCode:null}}});
  t=await render(Signup);await press(t,'signup-new');assert('new requires both contacts',exists(t,'signup-phone')&&exists(t,'signup-email'));assert('new contact/provider inputs are labeled',label(t,'signup-phone')==='Cell phone number'&&label(t,'signup-email')==='Email address'&&label(t,'signup-provider-code')==='Provider code');await type(t,'signup-phone','8135559999');await press(t,'signup-send');assert('missing email stays local',called('signup/start').length===0&&signupErr(t).includes('both'));await type(t,'signup-email','new@example.com');await press(t,'signup-send');assert('missing provider code stays local',called('signup/start').length===0&&signupErr(t).toLowerCase().includes('provider code'));await type(t,'signup-provider-code','654321');await press(t,'signup-send');const nc=called('signup/start')[0];assert('new submit sends both contacts and code',nc.body.flow==='new'&&nc.body.phone==='+18135559999'&&nc.body.email==='new@example.com'&&nc.body.code==='654321');t.unmount();
+  reset();
+  on('signup/start',()=>({status:200,body:{ok:true,requestId:'new-layout',message:null}}));
+  on('signup/verify',()=>({status:200,body:{ok:true,mode:'enroll',signupToken:'new-layout-token'}}));
+  t=await render(Signup);await press(t,'signup-new');
+  patientFormLayout(t,'New signup contact');
+  await type(t,'signup-phone','2025550123');await type(t,'signup-email','layout@example.com');await type(t,'signup-provider-code','654321');await press(t,'signup-send');
+  patientFormLayout(t,'New signup verification');
+  await type(t,'signup-otp','444555');await press(t,'signup-verify');
+  patientFormLayout(t,'New signup details');
+  t.unmount();
 }
 async function provider(){
  console.log('· provider route remains staff');
 reset();on('login/start',()=>({status:200,body:{ok:true,requestId:'p1',message:null,devCode:'111111'}}));on('login/verify',()=>({status:200,body:{ok:true,realm:'staff',tokenHash:'ph',signInId:'signin-3'}}));
   const t=await render(ProviderLogin);
+  frameLayout(t,'Provider email',false);
   assert('provider branding is unchanged by patient restyling',wordmarkSize(t)===23);
-  await type(t,'provider-email','staff@example.com');await press(t,'provider-send');await type(t,'provider-otp','111111');await press(t,'provider-verify');assert('staff mode preserved',storage.get('thinnr_app_mode_v1')==='staff');assert('staff destination preserved',routerCalls.some(x=>x.target==='/'));t.unmount();
+   await type(t,'provider-email','staff@example.com');await press(t,'provider-send');
+   frameLayout(t,'Provider code',false);
+   await type(t,'provider-otp','111111');await press(t,'provider-verify');assert('staff mode preserved',storage.get('thinnr_app_mode_v1')==='staff');assert('staff destination preserved',routerCalls.some(x=>x.target==='/'));t.unmount();
 }
 function routing(){
  console.log('· welcome, deep-link guard, demo admission, onboarding filtering');
@@ -188,5 +269,5 @@ async function staleResponses(){
  assert('busy released after the stale response',btnLabel(t,'signup-send')==='Send verification code');
  globalThis.fetch=mockFetch;t.unmount();
 }
-async function main(){await loginFlow();await channelSwitch();await recovery();await signupFlows();await staleResponses();await provider();routing();console.log(`\n${checks} checks, ${failures} failures`);process.exit(failures?1:0)}
+async function main(){await frameVariants();await loginFlow();await channelSwitch();await recovery();await signupFlows();await staleResponses();await provider();routing();console.log(`\n${checks} checks, ${failures} failures`);process.exit(failures?1:0)}
 main().catch(e=>{console.error(e);process.exit(1)});

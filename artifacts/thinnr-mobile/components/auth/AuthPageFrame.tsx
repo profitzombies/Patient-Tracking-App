@@ -106,7 +106,7 @@ export function AuthPageFrame({
 
       <KeyboardAwareScrollViewCompat
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
+        contentContainerStyle={[styles.content, variant === 'patient' && styles.contentPatient, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
         bottomOffset={96}
       >
@@ -170,6 +170,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     flexGrow: 1,
   },
+  // Match welcome's extra 32pt below the unchanged header, including banners.
+  // Scroll-content padding lets footer slack yield before short pages scroll.
+  contentPatient: { paddingTop: space.sm + space.xl },
   slackTop: { flexGrow: 1, minHeight: 0 },
   slackBottom: { flexGrow: 1.4, minHeight: space.sm },
   block: { marginBottom: space.lg },

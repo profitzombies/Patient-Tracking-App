@@ -45,3 +45,11 @@ A default (desktop) Playwright context renders a ~15px layout scrollbar, so a no
 - RNW Modal (AppModal) ignores Escape during its enter animation: the document keyup listener is gated on an active flag that only flips on the fade/slide animationend (~250ms in RNW 0.21.x). An automated Escape press fired immediately after opening yields a false "keyboard dismissal broken" verdict. Have testers settle ~0.5s after opening before keyboard dismissal, and arbitrate suspected cases with an isolated open → wait → Escape retry before treating it as a regression.
 
 - Full-canvas backdrop pressables (e.g. the staff FAB menu's provider-menu-backdrop) defeat Playwright's default element click: it aims at the element's CENTER, which the raised menu card covers — a forced click lands on whatever row is there (AI Support closes-and-navigates by design, reading as a false "backdrop broken + stray navigation"). Backdrop-dismiss checks must click explicit coordinates in the dimmed area (e.g. canvas top ~15%) after confirming elementFromPoint resolves to the backdrop.
+
+## Keyboard-constrained scroll checks
+
+In Expo web, a focused field at the viewport edge with the action below it is not proof that the action is unreachable.
+
+**Why:** A reduced-height auth check reported a false keyboard failure before scrolling the inner React Native Web container. At its actual maximum scroll, the action and footer were fully reachable with both old and new spacing.
+
+**How to apply:** After resize and focus settle, identify the inner vertical scroller, scroll it to `scrollHeight - clientHeight`, and record its dimensions and action bounds. Do not scroll only the window. Label reduced-height browser checks as approximations, not native-keyboard proof.

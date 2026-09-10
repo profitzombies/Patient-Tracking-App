@@ -567,6 +567,189 @@ export interface ConversationSummary {
 }
 
 export type CoachConversationTitleState = typeof CoachConversationTitleState[keyof typeof CoachConversationTitleState];
+
+
+export const CoachConversationTitleState = {
+  pending: 'pending',
+  ready: 'ready',
+  failed: 'failed',
+} as const;
+
+export type CoachConversationProcessingState = typeof CoachConversationProcessingState[keyof typeof CoachConversationProcessingState];
+
+
+export const CoachConversationProcessingState = {
+  pending: 'pending',
+  ready: 'ready',
+  failed: 'failed',
+} as const;
+
+export interface CoachConversation {
+  id: string;
+  title: string;
+  titleState: CoachConversationTitleState;
+  /** @nullable */
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  processingState: CoachConversationProcessingState;
+}
+
+export interface CoachConversationList {
+  conversations: CoachConversation[];
+  total: number;
+  /** @nullable */
+  nextOffset: number | null;
+}
+
+export interface CoachConversationResult {
+  conversation: CoachConversation;
+}
+
+export interface CoachConversationCreateInput {
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  clientKey: string;
+}
+
+export type CoachChatWireMessageRole = typeof CoachChatWireMessageRole[keyof typeof CoachChatWireMessageRole];
+
+
+export const CoachChatWireMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export type CoachChatWireMessageCard = { [key: string]: unknown };
+
+export type CoachChatWireMessagePhoto = { [key: string]: unknown };
+
+export interface CoachChatWireMessage {
+  /** @pattern ^[A-Za-z0-9._:-]{1,64}$ */
+  id: string;
+  role: CoachChatWireMessageRole;
+  /** @maxLength 40000 */
+  text: string;
+  stopped?: boolean;
+  hidden?: boolean;
+  card?: CoachChatWireMessageCard;
+  /**
+     * @maxItems 4
+     * @items.maxLength 80
+     */
+  quickReplies?: string[];
+  /** @pattern ^[A-Za-z0-9._:-]{1,64}$ */
+  replyToId?: string;
+  photo?: CoachChatWireMessagePhoto;
+  seq?: number;
+  createdAt?: string;
+}
+
+export interface CoachConversationAppendInput {
+  /**
+     * @minItems 1
+     * @maxItems 20
+     */
+  messages: CoachChatWireMessage[];
+}
+
+export interface CoachConversationUpdateInput {
+  archived: boolean;
+  /** @minimum 1 */
+  expectedVersion: number;
+}
+
+export type CoachConversationDetailPatient = {
+  firstName: string;
+  programDay: number;
+};
+
+export interface CoachConversationDetail {
+  conversation: CoachConversation;
+  messages: CoachChatWireMessage[];
+  /** @nullable */
+  nextBefore: number | null;
+  patient: CoachConversationDetailPatient;
+}
+
+export type CoachMemorySensitivity = typeof CoachMemorySensitivity[keyof typeof CoachMemorySensitivity];
+
+
+export const CoachMemorySensitivity = {
+  ordinary: 'ordinary',
+  sensitive: 'sensitive',
+} as const;
+
+export type CoachMemoryState = typeof CoachMemoryState[keyof typeof CoachMemoryState];
+
+
+export const CoachMemoryState = {
+  active: 'active',
+  pending: 'pending',
+  declined: 'declined',
+  removed: 'removed',
+  superseded: 'superseded',
+} as const;
+
+export interface CoachMemory {
+  id: string;
+  text: string;
+  category: string;
+  sensitivity: CoachMemorySensitivity;
+  state: CoachMemoryState;
+  /** @nullable */
+  sourceConversationId: string | null;
+  /** @nullable */
+  sourceMessageId: string | null;
+  /** @nullable */
+  sourceCreatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  confirmedAt: string | null;
+  version: number;
+}
+
+export interface CoachMemoryList {
+  memories: CoachMemory[];
+  total: number;
+  /** @nullable */
+  nextOffset: number | null;
+}
+
+export type CoachMemoryUpdateInputAction = typeof CoachMemoryUpdateInputAction[keyof typeof CoachMemoryUpdateInputAction];
+
+
+export const CoachMemoryUpdateInputAction = {
+  approve: 'approve',
+  decline: 'decline',
+  forget: 'forget',
+  correct: 'correct',
+} as const;
+
+export interface CoachMemoryUpdateInput {
+  action: CoachMemoryUpdateInputAction;
+  /** @minimum 1 */
+  expectedVersion: number;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  text?: string;
+}
+
+export interface CoachMemoryResult {
+  memory: CoachMemory;
+}
+
+export const OkResultValue = {
+  ok: true,
+} as const;
+export type OkResult = typeof OkResultValue;
+
 export interface ConversationSummaryResult {
   /** The organization's conversation auto-close window in days */
   autoCloseDays: number;
@@ -3037,6 +3220,83 @@ limit?: number;
  */
 offset?: number;
 };
+
+export type GetPatientCoachConversationParams = {
+/**
+ * @minimum 1
+ */
+before?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @maxLength 20
+ */
+today?: string;
+};
+
+export type ListPatientCoachMemoriesParams = {
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
+export type ListOfficePatientCoachConversationsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
+export type GetOfficePatientCoachConversationParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+/**
+ * @minimum 1
+ */
+before?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
+
+export type ListOfficePatientCoachMemoriesParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
 export type GetOfficeRosterParams = {
 /**
  * Required for HQ; ignored for provider staff, who are always own-office scoped
@@ -3491,256 +3751,3 @@ export type ListBloodworkCorrectionsParams = {
 office?: OfficeIdParameter;
 };
 
-
-export const CoachConversationProcessingState = {
-  pending: 'pending',
-  ready: 'ready',
-  failed: 'failed',
-} as const;
-
-export interface CoachConversationUpdateInput {
-  archived: boolean;
-  /** @minimum 1 */
-  expectedVersion: number;
-}
-
-export interface CoachConversation {
-  id: string;
-  title: string;
-  titleState: CoachConversationTitleState;
-  /** @nullable */
-  archivedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-  processingState: CoachConversationProcessingState;
-}
-
-export type GetPatientCoachConversationParams = {
-/**
- * @minimum 1
- */
-before?: number;
-/**
- * @minimum 1
- * @maximum 100
- */
-limit?: number;
-/**
- * @maxLength 20
- */
-today?: string;
-};
-
-export interface CoachMemory {
-  id: string;
-  text: string;
-  category: string;
-  sensitivity: CoachMemorySensitivity;
-  state: CoachMemoryState;
-  /** @nullable */
-  sourceConversationId: string | null;
-  /** @nullable */
-  sourceMessageId: string | null;
-  /** @nullable */
-  sourceCreatedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  /** @nullable */
-  confirmedAt: string | null;
-  version: number;
-}
-
-export const CoachConversationTitleState = {
-  pending: 'pending',
-  ready: 'ready',
-  failed: 'failed',
-} as const;
-
-export type CoachMemorySensitivity = typeof CoachMemorySensitivity[keyof typeof CoachMemorySensitivity];
-
-export type CoachMemoryUpdateInputAction = typeof CoachMemoryUpdateInputAction[keyof typeof CoachMemoryUpdateInputAction];
-
-export interface CoachConversationList {
-  conversations: CoachConversation[];
-  total: number;
-  /** @nullable */
-  nextOffset: number | null;
-}
-
-export interface CoachConversationDetail {
-  conversation: CoachConversation;
-  messages: CoachChatWireMessage[];
-  /** @nullable */
-  nextBefore: number | null;
-  patient: CoachConversationDetailPatient;
-}
-
-export interface CoachConversationResult {
-  conversation: CoachConversation;
-}
-
-export type CoachChatWireMessageCard = { [key: string]: unknown };
-
-export type CoachChatWireMessagePhoto = { [key: string]: unknown };
-
-export const OkResultValue = {
-  ok: true,
-} as const;
-
-export type ListPatientCoachMemoriesParams = {
-/**
- * @minimum 1
- * @maximum 100
- */
-limit?: number;
-/**
- * @minimum 0
- */
-offset?: number;
-};
-
-export interface CoachMemoryUpdateInput {
-  action: CoachMemoryUpdateInputAction;
-  /** @minimum 1 */
-  expectedVersion: number;
-  /**
-     * @minLength 1
-     * @maxLength 2000
-     */
-  text?: string;
-}
-
-export type ListOfficePatientCoachConversationsParams = {
-/**
- * Required for HQ; ignored for provider staff, who are always own-office scoped
- */
-office?: OfficeIdParameter;
-/**
- * @minimum 1
- * @maximum 100
- */
-limit?: number;
-/**
- * @minimum 0
- */
-offset?: number;
-};
-
-export type OkResult = typeof OkResultValue;
-
-export interface CoachConversationAppendInput {
-  /**
-     * @minItems 1
-     * @maxItems 20
-     */
-  messages: CoachChatWireMessage[];
-}
-
-export type GetOfficePatientCoachConversationParams = {
-/**
- * Required for HQ; ignored for provider staff, who are always own-office scoped
- */
-office?: OfficeIdParameter;
-/**
- * @minimum 1
- */
-before?: number;
-/**
- * @minimum 1
- * @maximum 100
- */
-limit?: number;
-};
-
-export type CoachConversationProcessingState = typeof CoachConversationProcessingState[keyof typeof CoachConversationProcessingState];
-
-export interface CoachMemoryList {
-  memories: CoachMemory[];
-  total: number;
-  /** @nullable */
-  nextOffset: number | null;
-}
-
-export const CoachMemorySensitivity = {
-  ordinary: 'ordinary',
-  sensitive: 'sensitive',
-} as const;
-
-export type CoachChatWireMessageRole = typeof CoachChatWireMessageRole[keyof typeof CoachChatWireMessageRole];
-
-export type CoachConversationDetailPatient = {
-  firstName: string;
-  programDay: number;
-};
-
-export type ListOfficePatientCoachMemoriesParams = {
-/**
- * Required for HQ; ignored for provider staff, who are always own-office scoped
- */
-office?: OfficeIdParameter;
-/**
- * @minimum 1
- * @maximum 100
- */
-limit?: number;
-/**
- * @minimum 0
- */
-offset?: number;
-};
-
-export const CoachChatWireMessageRole = {
-  user: 'user',
-  assistant: 'assistant',
-} as const;
-
-export interface CoachChatWireMessage {
-  /** @pattern ^[A-Za-z0-9._:-]{1,64}$ */
-  id: string;
-  role: CoachChatWireMessageRole;
-  /** @maxLength 40000 */
-  text: string;
-  stopped?: boolean;
-  hidden?: boolean;
-  card?: CoachChatWireMessageCard;
-  /**
-     * @maxItems 4
-     * @items.maxLength 80
-     */
-  quickReplies?: string[];
-  /** @pattern ^[A-Za-z0-9._:-]{1,64}$ */
-  replyToId?: string;
-  photo?: CoachChatWireMessagePhoto;
-  seq?: number;
-  createdAt?: string;
-}
-
-export type CoachMemoryState = typeof CoachMemoryState[keyof typeof CoachMemoryState];
-
-export interface CoachConversationCreateInput {
-  /**
-     * @minLength 1
-     * @maxLength 128
-     */
-  clientKey: string;
-}
-
-export const CoachMemoryUpdateInputAction = {
-  approve: 'approve',
-  decline: 'decline',
-  forget: 'forget',
-  correct: 'correct',
-} as const;
-
-export const CoachMemoryState = {
-  active: 'active',
-  pending: 'pending',
-  declined: 'declined',
-  removed: 'removed',
-  superseded: 'superseded',
-} as const;
-
-export interface CoachMemoryResult {
-  memory: CoachMemory;
-}

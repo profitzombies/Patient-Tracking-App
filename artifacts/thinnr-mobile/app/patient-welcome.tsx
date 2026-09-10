@@ -4,7 +4,8 @@
  * content area. Demonstrates the Heritage aesthetic without generic marketing wrappers.
  */
 import React from 'react';
-import { StyleSheet, View, Text, ScrollView, Image, Platform, Pressable } from 'react-native';
+import { StyleSheet, View, Text, Image, Platform, Pressable } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionGroup, SecondaryButton } from '@/components/auth/AuthPrimitives';

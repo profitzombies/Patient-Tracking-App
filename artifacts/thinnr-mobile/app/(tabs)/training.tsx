@@ -9,7 +9,8 @@
  * manage their own roster enrollment and lesson progress through RPCs.
  */
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';

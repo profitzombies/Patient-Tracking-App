@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl, Text, Pressable } from 'react-native';
+import { View, StyleSheet, RefreshControl, Text, Pressable } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { PatientHeader } from '@/components/patient/PatientHeader';
@@ -64,7 +65,8 @@ export default function BloodworkIndex() {
           </Pressable>
         )}
       />
-      <ScrollView 
+      <ScrollView
+        scrollBoundary="refresh"
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.cobalt} />

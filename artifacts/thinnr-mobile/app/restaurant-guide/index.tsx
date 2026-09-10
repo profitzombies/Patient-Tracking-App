@@ -14,7 +14,8 @@
  * title, intro, section titles, card titles/metas, and source attributions.
  */
 import React from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';

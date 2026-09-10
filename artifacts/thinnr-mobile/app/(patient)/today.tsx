@@ -13,11 +13,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientContentBottom } from '@/constants/layout';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';

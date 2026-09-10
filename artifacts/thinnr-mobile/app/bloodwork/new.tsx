@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Text, ScrollView, Pressable, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, StyleSheet, Text, Pressable, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';

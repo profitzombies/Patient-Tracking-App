@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { webFitLayoutWidth } from '@/lib/webLayout';
+import { WEB_SCROLL_BOUNDARY_CSS } from '@/components/ui/scrollBoundary';
 
 /**
  * Web-only fit-to-reference shell (permanent project rule — see replit.md and
@@ -50,6 +51,17 @@ function WebFitFrame({
   const { width: frameWidth, height: frameHeight } = useWindowDimensions();
   const layoutWidth = webFitLayoutWidth();
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    // Each shell owns its style node. Closing a portalled AppModal must not
+    // remove the root shell's document boundary. Also active with layoutWidth=off.
+    const sheet = document.createElement('style');
+    sheet.dataset.thinnrScrollBoundary = '';
+    sheet.textContent = WEB_SCROLL_BOUNDARY_CSS;
+    document.head.appendChild(sheet);
+    return () => sheet.remove();
+  }, []);
+
   // Inactive shell (?layoutWidth=off / no DOM) or degenerate frame sizes:
   // render 1:1 rather than divide by zero into an invisible app.
   if (layoutWidth == null || frameWidth <= 0 || frameHeight <= 0) {
@@ -82,5 +94,6 @@ const styles = StyleSheet.create({
     // The scaled canvas equals the frame size up to float rounding; clip the
     // stray fraction of a pixel so the page never grows scrollbars.
     overflow: 'hidden',
+    overscrollBehavior: 'none',
   },
 });

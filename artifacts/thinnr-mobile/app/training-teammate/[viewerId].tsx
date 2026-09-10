@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { Feather } from '@expo/vector-icons';
 import { Redirect, router, useLocalSearchParams, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

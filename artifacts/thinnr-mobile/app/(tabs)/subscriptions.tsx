@@ -3,11 +3,11 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';

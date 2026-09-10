@@ -24,6 +24,23 @@ On the operations web app, document.scrollingElement.scrollWidth can exceed the 
 **Why:** index.css sets overflow-x hidden on html, body, and #root, which suppresses scrollbars and user wheel/touch panning but not JS scrolling; Chrome still folds a nested card table scroller (a min-width table inside an overflow-x-auto wrapper) into the scrollWidth that html reports.
 
 **How to apply:** Treat raw scrollWidth or a successful programmatic pan as weak evidence of mobile horizontal overflow. Confirm instead via computed overflow-x on html, each scroller ancestor containing its content (clientWidth vs scrollWidth up the chain), and visual containment; only a user-gesture pan or a visible scrollbar counts as a real failure.
+
+
+## Hidden mounted Expo tabs skew scroll measurements
+
+Measure a visible element with a positive bounding rectangle, then find its
+actual overflow ancestor. Do not select the first matching brand text or all
+scroll containers indiscriminately.
+
+**Why:** Inactive tab trees remain mounted. Browser probes have returned a zero
+wordmark rectangle and unrelated hidden-tab scroll ranges, falsely suggesting
+successful held-pull verification. A frame's dimensions can also be mistaken
+for its nested page scroller.
+
+**How to apply:** For boundary checks, compare the positive visible-content
+rectangle before and during a held touch, together with that element's nearest
+overflow-auto ancestor and document offsets. CSS/Chromium evidence does not
+establish native iOS rubber-band or Android stretch behavior.
 - Playwright actionability treats aria-disabled="true" as disabled: testers cannot normally click intercept-and-explain controls (the approved a11y pattern for blocked CTAs, web included). Have the tester dispatch a click event to verify the explanatory toast, or assert the aria state instead.
 
 ## Desktop-context scrollbars skew width-exact checks

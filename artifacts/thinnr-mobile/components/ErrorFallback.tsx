@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import {
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppModal } from '@/components/ui/AppModal';
 import { useColors } from '@/hooks/useColors';

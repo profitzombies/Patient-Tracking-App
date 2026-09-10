@@ -15,13 +15,13 @@
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { PageFlatList as FlatList } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';

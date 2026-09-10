@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Platform,
   Pressable,
   RefreshControl,
@@ -9,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { PageFlatList as FlatList } from '@/components/ui/PageScrollView';
 import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -121,6 +121,7 @@ function LivePatientsScreen({ userId }: { userId: string }) {
         </View>
       ) : null}
       <FlatList
+        scrollBoundary="refresh"
         data={[]}
         renderItem={() => null}
         ListHeaderComponent={<LiveRosterSection state={officeRoster} search={search} onNotice={showNotice} />}

@@ -1,0 +1,85 @@
+{
+  // tsx config for scripts/verify-scroll-boundary.ts ONLY (not part of the
+  // application typecheck).  The suite renders the real page wrappers and
+  // selected real screens under react-test-renderer; native-only modules are
+  // redirected to forwarding Node stubs below.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/context/AppModeContext": ["./scripts/scroll-boundary-stubs/app-mode-context.ts"],
+      "@/context/PatientContext": ["./scripts/scroll-boundary-stubs/patient-context.ts"],
+      "@/context/PatientAccountContext": [
+        "./scripts/scroll-boundary-stubs/patient-account-context.ts"
+      ],
+      "@/context/FoodLoggingContext": [
+        "./scripts/scroll-boundary-stubs/food-logging-context.ts"
+      ],
+      "@/context/CoachChatContext": [
+        "./scripts/scroll-boundary-stubs/coach-chat-context.ts"
+      ],
+      "@/components/ui/AppModal": [
+        "./scripts/scroll-boundary-stubs/app-modal.ts"
+      ],
+      "@/lib/photo-prep": [
+        "./scripts/scroll-boundary-stubs/photo-prep.ts"
+      ],
+      "@/components/patient/MealPhotoButton": [
+        "./scripts/scroll-boundary-stubs/meal-photo-button.ts"
+      ],
+      "@/components/ui/Snackbar": [
+        "./scripts/scroll-boundary-stubs/snackbar.ts"
+      ],
+      "@/components/patient/ClaimTestEntryCard": [
+        "./scripts/scroll-boundary-stubs/claim-test-entry-card.ts"
+      ],
+      "@/components/ui/LedgerPrimitives": [
+        "./scripts/scroll-boundary-stubs/ledger-primitives.ts"
+      ],
+      "@/lib/guided-photos": [
+        "./scripts/scroll-boundary-stubs/guided-photos.ts"
+      ],
+      "@/lib/progress-photo-upload": [
+        "./scripts/scroll-boundary-stubs/progress-photo-upload.ts"
+      ],
+      "@/lib/supabase": ["./scripts/scroll-boundary-stubs/supabase.ts"],
+      "@/lib/coach-api": ["./scripts/scroll-boundary-stubs/coach-api.ts"],
+      "@/lib/claim-test-handoff": [
+        "./scripts/scroll-boundary-stubs/claim-test-handoff.ts"
+      ],
+      "@/data/recipe-images": [
+        "./scripts/scroll-boundary-stubs/recipe-images.ts"
+      ],
+      "@/constants/layout": [
+        "./scripts/scroll-boundary-stubs/layout.ts"
+      ],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/scroll-boundary-stubs/react-native.ts"],
+      "react-native-safe-area-context": [
+        "./scripts/scroll-boundary-stubs/react-native-safe-area-context.ts"
+      ],
+      "react-native-keyboard-controller": [
+        "./scripts/scroll-boundary-stubs/react-native-keyboard-controller.ts"
+      ],
+      "react-native-svg": ["./scripts/scroll-boundary-stubs/react-native-svg.ts"],
+      "@expo/vector-icons": [
+        "./scripts/scroll-boundary-stubs/expo-vector-icons.ts"
+      ],
+      "expo-symbols": ["./scripts/scroll-boundary-stubs/expo-symbols.ts"],
+      "expo-image": ["./scripts/scroll-boundary-stubs/expo-image.ts"],
+      "expo-linear-gradient": [
+        "./scripts/scroll-boundary-stubs/expo-linear-gradient.ts"
+      ],
+      "expo-router": ["./scripts/scroll-boundary-stubs/expo-router.ts"],
+      "expo-haptics": ["./scripts/scroll-boundary-stubs/expo-haptics.ts"],
+      "expo-image-picker": [
+        "./scripts/scroll-boundary-stubs/expo-image-picker.ts"
+      ],
+      "expo-camera": ["./scripts/scroll-boundary-stubs/expo-camera.ts"],
+      "expo-media-library/legacy": [
+        "./scripts/scroll-boundary-stubs/expo-media-library.ts"
+      ],
+      "expo-audio": ["./scripts/scroll-boundary-stubs/expo-audio.ts"]
+    }
+  }
+}

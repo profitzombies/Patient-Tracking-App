@@ -17,6 +17,7 @@ import {
   verifyRecovery,
 } from '@/lib/auth-api';
 import { normalizePhone } from '@/lib/supabase';
+import { formatUsPhoneInput } from '@/lib/office-roster-api';
 import { attachSignIn } from '@/lib/security-api';
 
 export type LoginChannel = 'phone' | 'email';
@@ -109,6 +110,10 @@ export function usePatientLogin() {
     invalidate();
     switchedChannel.current = true;
     setChannel(channel === 'phone' ? 'email' : 'phone');
+  };
+
+  const setFormattedPhone = (value: string) => {
+    setPhone(formatUsPhoneInput(value));
   };
 
   const startRecoveryFlow = () => {
@@ -246,7 +251,7 @@ export function usePatientLogin() {
     error,
     busy,
     identifierRef,
-    setPhone,
+    setPhone: setFormattedPhone,
     setEmail,
     setPassword,
     setConfirm,

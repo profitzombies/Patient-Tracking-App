@@ -60,7 +60,7 @@ async function loginFlow(){
   assert('phone is default',exists(t,'login-phone'));assert('phone has a native label',label(t,'login-phone')==='Cell phone number');assert('password collected first',exists(t,'login-password'));assert('password has a native label',label(t,'login-password')==='Password');assert('password is masked by default',hosts(t,'login-password').some(n=>n.props.secureTextEntry===true));await type(t,'login-password','Secret1!');assert('masked password hides native glyphs immediately',inputStyle(t,'login-password').color==='transparent');assert('password reveal control is available',label(t,'login-password-toggle')==='Show password');await press(t,'login-password-toggle');assert('password reveal control shows the value',hosts(t,'login-password').some(n=>n.props.secureTextEntry===false)&&label(t,'login-password-toggle')==='Hide password'&&inputStyle(t,'login-password').color!=='transparent');await press(t,'login-password-toggle');assert('password is masked again',hosts(t,'login-password').some(n=>n.props.secureTextEntry===true)&&inputStyle(t,'login-password').color==='transparent');assert('MFA absent initially',!exists(t,'login-otp'));
  await press(t,'login-switch-channel');assert('email toggle works',exists(t,'login-email')&&!exists(t,'login-phone'));assert('email has a native label',label(t,'login-email')==='Email address');t.unmount();
 reset();on('patient/password/login',()=>({status:200,body:{ok:true,requestId:'lr1',message:'If those details match, a code is on its way.',devCode:'222333'}}));on('login/verify',()=>({status:200,body:{ok:true,realm:'patient',tokenHash:'hash1',signInId:'signin-1'}}));
- t=await render(Login);await type(t,'login-phone','8135551234');await type(t,'login-password','Secret1!');await press(t,'login-submit');
+  t=await render(Login);await type(t,'login-phone','8135551234');assert('phone displays in US format',inputValue(t,'login-phone')==='(813) 555-1234');await type(t,'login-password','Secret1!');await press(t,'login-submit');
  const c=called('patient/password/login')[0];assert('password login contract',c.body.identifier==='+18135551234'&&c.body.password==='Secret1!');assert('password removed after submit',!exists(t,'login-password'));assert('MFA shown',exists(t,'login-otp'));assert('MFA has a native label',label(t,'login-otp')==='6-digit verification code');assert('MFA field focuses as soon as it mounts',hosts(t,'login-otp').some(n=>n.props.autoFocus===true));
  patientFormLayout(t,'Login verification');
  await type(t,'login-otp','222333');await press(t,'login-verify');assert('MFA token minted',verifyOtpCalls[0]?.token_hash==='hash1');assert('patient destination',routerCalls.some(x=>x.method==='replace'&&x.target==='/today'));t.unmount();
@@ -85,7 +85,7 @@ async function channelSwitch(){
  reset();const t=await render(Login);
  const input=(id:string)=>hosts(t,id).find(x=>typeof x.props.onChangeText==='function');
  assert('no focus grab on initial mount',focusCalls.length===0);
- await type(t,'login-phone','8135551234');
+  await type(t,'login-phone','8135551234');
  await press(t,'login-switch-channel');
  const email=input('login-email');
  assert('email mount carries email keyboard + autofill hints',email?.props.keyboardType==='email-address'&&email?.props.autoComplete==='email'&&email?.props.textContentType==='emailAddress');
@@ -95,7 +95,7 @@ async function channelSwitch(){
  await press(t,'login-switch-channel');
  const ph=input('login-phone');
  assert('phone mount restores phone keyboard + autofill hints',ph?.props.keyboardType==='phone-pad'&&ph?.props.autoComplete==='tel'&&ph?.props.textContentType==='telephoneNumber');
- assert('phone entry survives the round trip',ph?.props.value==='8135551234');
+  assert('phone entry survives the round trip',ph?.props.value==='(813) 555-1234');
  assert('switch back refocuses the fresh phone input',focusCalls.join()==='login-email,login-phone');
  await press(t,'login-switch-channel');
  assert('email entry survives the round trip',input('login-email')?.props.value==='casey@example.com');

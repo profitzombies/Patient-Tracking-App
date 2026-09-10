@@ -642,6 +642,18 @@ export default function PatientDetailScreen() {
           </LedgerCard>
         </View>
 
+        {/* Coach Review Demo */}
+        <View style={styles.section}>
+          <SectionHeader label="AI Coach History" />
+          <LedgerCard>
+            <View style={{ padding: 20 }}>
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, fontStyle: 'italic', color: colors.subtleText, textAlign: 'center' }}>
+                Demo only: AI conversations and memories require a real patient record.
+              </Text>
+            </View>
+          </LedgerCard>
+        </View>
+
         {/* Subscription card */}
         {subscription && (
           <View style={styles.section}>

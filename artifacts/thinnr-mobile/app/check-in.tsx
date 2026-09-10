@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Redirect, router } from 'expo-router';
+import { Redirect, router, type Href } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
@@ -217,7 +217,7 @@ export default function CheckInScreen() {
               <Pressable
                 testID="checkin-nudge-open-chat"
                 accessibilityRole="button"
-                onPress={() => router.push('/coach-chat')}
+                onPress={() => router.push('/coach-history' as Href)}
                 style={({ pressed }) => [
                   styles.nudgeChatBtn,
                   { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm },

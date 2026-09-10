@@ -19,6 +19,7 @@ import theme, { fonts } from '@/constants/colors';
 import { LedgerCard, MetricCard, SectionHeader, EmptyState } from '@/components/ui/LedgerPrimitives';
 import { PhotoLightbox, LightboxPhoto } from '@/components/ui/PhotoLightbox';
 import { Image } from 'expo-image';
+import { CoachReviewPanel } from '@/components/office/CoachReviewPanel';
 
 export default function LivePatientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -504,6 +505,9 @@ function LivePatientData({
             <Text style={[styles.emptyText, { color: colors.subtleText }]}>No progress photos.</Text>
           )}
         </View>
+
+        {/* Coach Review */}
+        <CoachReviewPanel key={`${patientId}:${session.user.id}`} patientId={patientId} session={session} />
 
       </ScrollView>
 

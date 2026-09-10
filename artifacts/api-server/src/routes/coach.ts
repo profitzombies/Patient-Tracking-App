@@ -43,6 +43,9 @@ import {
   PHOTO_TOO_LARGE_MESSAGE,
   decodedPhotoBytes,
 } from "../lib/photo-guards";
+import { authorizeCoachGeneration, recallCoachMemories } from "../coach/memory-recall";
+import { memoryPrompt, type RecallMemory } from "../coach/memory";
+import { recallHistoricalExcerpts } from "../coach/historical-excerpts";
 
 const router: IRouter = Router();
 
@@ -202,6 +205,10 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     //   502 → the account exists but its data could not be loaded.
     let patientContext = demoPatientContext();
     let realPatient = false;
+    let authenticatedPatientId: string | null = null;
+    let recalledMemories: RecallMemory[] = [];
+    let historicalExcerpts: string[] = [];
+    let historicalClarification = false;
     if (bearerToken(req) !== null) {
       let auth;
       try {
@@ -229,6 +236,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         try {
           patientContext = await realPatientContext(auth.patientId, parsed.data.localDate);
           realPatient = true;
+          authenticatedPatientId = auth.patientId;
         } catch (error) {
           req.log.error({ err: error }, "coach chat real patient context failed");
           res.status(502).json({
@@ -249,11 +257,52 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       }
     }
 
+    // Conversation identity is authorized before opening an SSE stream. It
+    // prevents a caller from using a guessed conversation to retrieve context.
+    // Legacy callers without an id continue through their deterministic
+    // storage compatibility path and deliberately receive no cross-chat recall.
+    const submittedConversationId = parsed.data.conversationId;
+    if (authenticatedPatientId && typeof submittedConversationId === "string") {
+      try {
+        const authorized = await authorizeCoachGeneration(authenticatedPatientId, submittedConversationId);
+        if (authorized !== "ok") {
+          res.status(authorized === "archived" ? 409 : 404).json({
+            error: authorized === "archived" ? "Restore this conversation before continuing." : "Conversation not found.",
+            retryable: false,
+          });
+          return;
+        }
+        recalledMemories = await recallCoachMemories(authenticatedPatientId, submittedConversationId, latest.content);
+        const historical = await recallHistoricalExcerpts(authenticatedPatientId, submittedConversationId, latest.content);
+        historicalExcerpts = historical.excerpts;
+        historicalClarification = historical.clarification;
+      } catch (error) {
+        req.log.error({ err: error }, "coach conversation context load failed");
+        res.status(502).json({
+          error: "Couldn't load your conversation context right now. Please try again.",
+          retryable: true,
+        });
+        return;
+      }
+    }
+
     // Replies the patient stopped mid-stream arrive flagged; annotate them
     // once here so ALL model pipelines (plain streaming, recipe turns, menu
     // follow-ups) see the interruption note instead of a seemingly complete
     // answer.
     const modelHistory = toModelMessages(history);
+    const recalledContext = [
+      memoryPrompt(recalledMemories),
+      historicalClarification
+        ? "The patient referred ambiguously to an earlier conversation. Briefly ask which topic they mean; do not summarize prior chats."
+        : historicalExcerpts.length
+          ? `Relevant excerpts the patient explicitly asked to revisit:\n${historicalExcerpts.map((text) => `- ${text}`).join("\n")}`
+          : null,
+    ].filter((part): part is string => Boolean(part)).join("\n\n");
+    // Earlier-chat requests must answer/clarify the recalled material rather
+    // than accidentally opening a new recipe, craving, or photo workflow.
+    // The context is server-recalled and bounded by the memory helpers.
+    const prioritizeRecall = historicalClarification || historicalExcerpts.length > 0;
 
     // Which model pipeline answers this turn — failure/completion logs carry
     // it (plus elapsed time) so a mystery error bubble can be traced to the
@@ -361,7 +410,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       let speculationStartedAt: number | undefined;
       const speculationCancel = new AbortController();
       let resolvedPhotoKind = image === undefined ? undefined : latest.photoKind;
-      if (image !== undefined && latest.photoKind === undefined) {
+      if (!prioritizeRecall && image !== undefined && latest.photoKind === undefined) {
         const classifyStartedAt = Date.now();
         // Triage starts first so its model call is provably the first on the
         // wire (logs and route tests key off that order), then the
@@ -424,7 +473,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // "Retake photo" chip); a fully approved plate gets a one-line nod and
       // no chips. Non-food and unreadable photos are warm conversational
       // outcomes, never errors.
-      if (image !== undefined && resolvedPhotoKind === "meal") {
+      if (!prioritizeRecall && image !== undefined && resolvedPhotoKind === "meal") {
         pipeline = "meal";
         writeStage("reading_meal");
         // analysisMs is the read's full wall span: from its actual start
@@ -484,7 +533,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // locally once the name settles. Old clients ignore the extra event and
       // simply see the text. Unreadable and not-a-label photos are warm
       // conversational outcomes, never errors.
-      if (image !== undefined && resolvedPhotoKind === "label") {
+      if (!prioritizeRecall && image !== undefined && resolvedPhotoKind === "label") {
         pipeline = "label";
         // The speculative plate read guessed wrong; cut it loose before the
         // label read runs so its upstream slot frees immediately.
@@ -532,7 +581,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // turn one into a custom recipe (sent with the curated yes/no chips).
       // Not-a-menu / unreadable photos are warm conversational outcomes here,
       // never error events. The photo lives in this request's memory only.
-      if (image !== undefined) {
+      if (!prioritizeRecall && image !== undefined) {
         pipeline = "menu";
         // The speculative plate read guessed wrong; cut it loose before the
         // menu scan runs so its upstream slot frees immediately.
@@ -581,7 +630,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // pipeline seeded with the menu context — already present in the
       // replayed history as the suggestions text, so the photo is never
       // re-sent.
-      if (detectMenuRecipeFollowUp(history)) {
+      if (!prioritizeRecall && detectMenuRecipeFollowUp(history)) {
         pipeline = "menu-recipe";
         req.log.info({}, "coach menu recipe follow-up turn");
         const result = await generateRecipeTurn({
@@ -590,6 +639,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
+          coachingContext: recalledContext || undefined,
           slot: slotContext,
           signal: abort.signal,
           log: req.log,
@@ -621,7 +671,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // catalog id, corrective retry on bad citations); "Keep it as is" is
       // canned with zero model calls, pointing back at the meal card.
       const versionChoice = detectMealVersionChoice(history);
-      if (versionChoice === "approved") {
+      if (!prioritizeRecall && versionChoice === "approved") {
         pipeline = "meal-approved-recipe";
         req.log.info({}, "coach meal approved-version turn");
         const result = await generateRecipeTurn({
@@ -630,6 +680,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
+          coachingContext: recalledContext || undefined,
           slot: slotContext,
           signal: abort.signal,
           log: req.log,
@@ -647,7 +698,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         }
         return;
       }
-      if (versionChoice === "keep") {
+      if (!prioritizeRecall && versionChoice === "keep") {
         pipeline = "meal-keep";
         if (!abort.signal.aborted) {
           res.write(`data: ${JSON.stringify({ content: MEAL_KEEP_REPLY })}\n\n`);
@@ -667,13 +718,14 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // chip pair. When the model gives nothing usable the canned decline
       // goes out with NO version chips: there is no suggestion to choose
       // from, and the choice detector must never fire against that reply.
-      if (detectMealMakeoverFollowUp(history)) {
+      if (!prioritizeRecall && detectMealMakeoverFollowUp(history)) {
         pipeline = "meal-makeover";
         req.log.info({}, "coach meal makeover turn");
         const makeover = await generateMealMakeoverTurn({
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
+          coachingContext: recalledContext || undefined,
           signal: abort.signal,
           log: req.log,
         });
@@ -707,13 +759,14 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // which are not this patient's story. The client only seeds the
       // outreach for the demo persona, so an authenticated turn that happens
       // to match the follow-up shape falls through to plain grounded chat.
-      if (!realPatient && detectBackOnTrackFollowUp(history)) {
+      if (!prioritizeRecall && !realPatient && detectBackOnTrackFollowUp(history)) {
         pipeline = "back-on-track";
         req.log.info({}, "coach back-on-track turn");
         const turn = await generateBackOnTrackTurn({
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
+          coachingContext: recalledContext || undefined,
           signal: abort.signal,
           log: req.log,
         });
@@ -733,7 +786,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // recipe card (cravings: approved-foods-only, enforced server-side).
       // Recipe turns use their own prompt, so no product block applies there.
       const intent = detectRecipeIntent(latest.content);
-      if (intent) {
+      if (!prioritizeRecall && intent) {
         pipeline = intent;
         req.log.info({ intent }, "coach recipe turn");
         const result = await generateRecipeTurn({
@@ -741,6 +794,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           history: modelHistory,
           compartments: selection.compartments,
           patient: patientContext,
+          coachingContext: recalledContext || undefined,
           slot: slotContext,
           signal: abort.signal,
           log: req.log,
@@ -798,7 +852,10 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
             messages: [
               {
                 role: "system",
-                content: buildSystemPrompt(selection.compartments, patientContext, offeredProducts),
+                content: [
+                  buildSystemPrompt(selection.compartments, patientContext, offeredProducts),
+                  recalledContext || null,
+                ].filter((part): part is string => Boolean(part)).join("\n\n"),
               },
               ...modelHistory,
             ],

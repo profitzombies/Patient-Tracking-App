@@ -296,6 +296,8 @@ function RootLayoutNav() {
       <Stack.Screen name="yesterday-review" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="check-in" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="care-team-chat" options={{ headerShown: false }} />
+      <Stack.Screen name="coach-history" options={{ headerShown: false }} />
+      <Stack.Screen name="coach-memories" options={{ headerShown: false }} />
       <Stack.Screen name="coach-chat" options={{ headerShown: false }} />
       <Stack.Screen name="support-chat" options={{ headerShown: false }} />
       <Stack.Screen

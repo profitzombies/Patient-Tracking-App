@@ -48,6 +48,7 @@ export const coachChatBodyLocalDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$')
 
 
 export const CoachChatBody = zod.object({
+  "conversationId": zod.string().optional().describe('Optional active Coach conversation. When omitted, the compatibility Coach transcript is used for older clients.'),
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant', 'staff']).describe('\"staff\" is a care-team message the patient saw in this thread. The server replays it to the model as context only; the coach never answers it or speaks for the care team.'),
   "content": zod.string().max(coachChatBodyMessagesItemContentMax),
@@ -1073,6 +1074,421 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * @summary List the signed-in patient's coach conversations
+ */
+export const listPatientCoachConversationsQueryArchivedDefault = false;
+export const listPatientCoachConversationsQueryLimitDefault = 20;
+export const listPatientCoachConversationsQueryLimitMax = 100;
+
+export const listPatientCoachConversationsQueryOffsetDefault = 0;
+export const listPatientCoachConversationsQueryOffsetMin = 0;
+
+
+
+export const ListPatientCoachConversationsQueryParams = zod.object({
+  "archived": zod.coerce.boolean().default(listPatientCoachConversationsQueryArchivedDefault),
+  "limit": zod.coerce.number().min(1).max(listPatientCoachConversationsQueryLimitMax).default(listPatientCoachConversationsQueryLimitDefault),
+  "offset": zod.coerce.number().min(listPatientCoachConversationsQueryOffsetMin).default(listPatientCoachConversationsQueryOffsetDefault)
+})
+
+export const ListPatientCoachConversationsResponse = zod.object({
+  "conversations": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "titleState": zod.enum(['pending', 'ready', 'failed']),
+  "archivedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "processingState": zod.enum(['pending', 'ready', 'failed'])
+})),
+  "total": zod.number(),
+  "nextOffset": zod.number().nullable()
+})
+
+
+/**
+ * @summary Lazily create a coach conversation using an idempotent client key
+ */
+export const createPatientCoachConversationBodyClientKeyMax = 128;
+
+
+
+export const CreatePatientCoachConversationBody = zod.object({
+  "clientKey": zod.string().min(1).max(createPatientCoachConversationBodyClientKeyMax)
+})
+
+export const CreatePatientCoachConversationResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "titleState": zod.enum(['pending', 'ready', 'failed']),
+  "archivedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "processingState": zod.enum(['pending', 'ready', 'failed'])
+})
+})
+
+
+/**
+ * @summary Read one signed-in patient's coach transcript page
+ */
+export const GetPatientCoachConversationParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+
+export const getPatientCoachConversationQueryLimitDefault = 100;
+export const getPatientCoachConversationQueryLimitMax = 100;
+
+export const getPatientCoachConversationQueryTodayMax = 20;
+
+
+
+export const GetPatientCoachConversationQueryParams = zod.object({
+  "before": zod.coerce.number().min(1).optional(),
+  "limit": zod.coerce.number().min(1).max(getPatientCoachConversationQueryLimitMax).default(getPatientCoachConversationQueryLimitDefault),
+  "today": zod.coerce.string().max(getPatientCoachConversationQueryTodayMax).optional()
+})
+
+export const getPatientCoachConversationResponseMessagesItemIdRegExp = new RegExp('^[A-Za-z0-9._:-]{1,64}$');
+export const getPatientCoachConversationResponseMessagesItemTextMax = 40000;
+
+export const getPatientCoachConversationResponseMessagesItemQuickRepliesItemMax = 80;
+
+export const getPatientCoachConversationResponseMessagesItemQuickRepliesMax = 4;
+
+export const getPatientCoachConversationResponseMessagesItemReplyToIdRegExp = new RegExp('^[A-Za-z0-9._:-]{1,64}$');
+
+
+export const GetPatientCoachConversationResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "titleState": zod.enum(['pending', 'ready', 'failed']),
+  "archivedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "processingState": zod.enum(['pending', 'ready', 'failed'])
+}),
+  "messages": zod.array(zod.object({
+  "id": zod.string().regex(getPatientCoachConversationResponseMessagesItemIdRegExp),
+  "role": zod.enum(['user', 'assistant']),
+  "text": zod.string().max(getPatientCoachConversationResponseMessagesItemTextMax),
+  "stopped": zod.boolean().optional(),
+  "hidden": zod.boolean().optional(),
+  "card": zod.record(zod.string(), zod.unknown()).optional(),
+  "quickReplies": zod.array(zod.string().max(getPatientCoachConversationResponseMessagesItemQuickRepliesItemMax)).max(getPatientCoachConversationResponseMessagesItemQuickRepliesMax).optional(),
+  "replyToId": zod.string().regex(getPatientCoachConversationResponseMessagesItemReplyToIdRegExp).optional(),
+  "photo": zod.record(zod.string(), zod.unknown()).optional(),
+  "seq": zod.number().optional(),
+  "createdAt": zod.coerce.date().optional()
+})),
+  "nextBefore": zod.number().nullable(),
+  "patient": zod.object({
+  "firstName": zod.string(),
+  "programDay": zod.number()
+})
+})
+
+
+/**
+ * @summary Archive or restore a coach conversation
+ */
+export const UpdatePatientCoachConversationParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+
+
+
+export const UpdatePatientCoachConversationBody = zod.object({
+  "archived": zod.boolean(),
+  "expectedVersion": zod.number().min(1)
+})
+
+export const UpdatePatientCoachConversationResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "titleState": zod.enum(['pending', 'ready', 'failed']),
+  "archivedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "processingState": zod.enum(['pending', 'ready', 'failed'])
+})
+})
+
+
+/**
+ * @summary Idempotently append finalized visible coach messages
+ */
+export const AppendPatientCoachMessagesParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const appendPatientCoachMessagesBodyMessagesItemIdRegExp = new RegExp('^[A-Za-z0-9._:-]{1,64}$');
+export const appendPatientCoachMessagesBodyMessagesItemTextMax = 40000;
+
+export const appendPatientCoachMessagesBodyMessagesItemQuickRepliesItemMax = 80;
+
+export const appendPatientCoachMessagesBodyMessagesItemQuickRepliesMax = 4;
+
+export const appendPatientCoachMessagesBodyMessagesItemReplyToIdRegExp = new RegExp('^[A-Za-z0-9._:-]{1,64}$');
+export const appendPatientCoachMessagesBodyMessagesMax = 20;
+
+
+
+export const AppendPatientCoachMessagesBody = zod.object({
+  "messages": zod.array(zod.object({
+  "id": zod.string().regex(appendPatientCoachMessagesBodyMessagesItemIdRegExp),
+  "role": zod.enum(['user', 'assistant']),
+  "text": zod.string().max(appendPatientCoachMessagesBodyMessagesItemTextMax),
+  "stopped": zod.boolean().optional(),
+  "hidden": zod.boolean().optional(),
+  "card": zod.record(zod.string(), zod.unknown()).optional(),
+  "quickReplies": zod.array(zod.string().max(appendPatientCoachMessagesBodyMessagesItemQuickRepliesItemMax)).max(appendPatientCoachMessagesBodyMessagesItemQuickRepliesMax).optional(),
+  "replyToId": zod.string().regex(appendPatientCoachMessagesBodyMessagesItemReplyToIdRegExp).optional(),
+  "photo": zod.record(zod.string(), zod.unknown()).optional(),
+  "seq": zod.number().optional(),
+  "createdAt": zod.coerce.date().optional()
+})).min(1).max(appendPatientCoachMessagesBodyMessagesMax)
+})
+
+export const AppendPatientCoachMessagesResponse = zod.object({
+  "ok": zod.literal(true)
+})
+
+
+/**
+ * @summary Retry failed bounded coach metadata processing
+ */
+export const RetryPatientCoachProcessingParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const RetryPatientCoachProcessingResponse = zod.object({
+  "ok": zod.literal(true)
+})
+
+
+/**
+ * @summary List active and pending patient-owned coach memories
+ */
+export const listPatientCoachMemoriesQueryLimitDefault = 20;
+export const listPatientCoachMemoriesQueryLimitMax = 100;
+
+export const listPatientCoachMemoriesQueryOffsetDefault = 0;
+export const listPatientCoachMemoriesQueryOffsetMin = 0;
+
+
+
+export const ListPatientCoachMemoriesQueryParams = zod.object({
+  "limit": zod.coerce.number().min(1).max(listPatientCoachMemoriesQueryLimitMax).default(listPatientCoachMemoriesQueryLimitDefault),
+  "offset": zod.coerce.number().min(listPatientCoachMemoriesQueryOffsetMin).default(listPatientCoachMemoriesQueryOffsetDefault)
+})
+
+export const ListPatientCoachMemoriesResponse = zod.object({
+  "memories": zod.array(zod.object({
+  "id": zod.string(),
+  "text": zod.string(),
+  "category": zod.string(),
+  "sensitivity": zod.enum(['ordinary', 'sensitive']),
+  "state": zod.enum(['active', 'pending', 'declined', 'removed', 'superseded']),
+  "sourceConversationId": zod.string().nullable(),
+  "sourceMessageId": zod.string().nullable(),
+  "sourceCreatedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "confirmedAt": zod.coerce.date().nullable(),
+  "version": zod.number()
+})),
+  "total": zod.number(),
+  "nextOffset": zod.number().nullable()
+})
+
+
+/**
+ * @summary Approve, decline, forget, or correct a coach memory
+ */
+export const UpdatePatientCoachMemoryParams = zod.object({
+  "memoryId": zod.coerce.string()
+})
+
+
+export const updatePatientCoachMemoryBodyTextMax = 2000;
+
+
+
+export const UpdatePatientCoachMemoryBody = zod.object({
+  "action": zod.enum(['approve', 'decline', 'forget', 'correct']),
+  "expectedVersion": zod.number().min(1),
+  "text": zod.string().min(1).max(updatePatientCoachMemoryBodyTextMax).optional()
+})
+
+export const UpdatePatientCoachMemoryResponse = zod.object({
+  "memory": zod.object({
+  "id": zod.string(),
+  "text": zod.string(),
+  "category": zod.string(),
+  "sensitivity": zod.enum(['ordinary', 'sensitive']),
+  "state": zod.enum(['active', 'pending', 'declined', 'removed', 'superseded']),
+  "sourceConversationId": zod.string().nullable(),
+  "sourceMessageId": zod.string().nullable(),
+  "sourceCreatedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "confirmedAt": zod.coerce.date().nullable(),
+  "version": zod.number()
+})
+})
+
+
+/**
+ * @summary List authorized patient's coach conversations, including archived
+ */
+export const ListOfficePatientCoachConversationsParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const listOfficePatientCoachConversationsQueryLimitDefault = 20;
+export const listOfficePatientCoachConversationsQueryLimitMax = 100;
+
+export const listOfficePatientCoachConversationsQueryOffsetDefault = 0;
+export const listOfficePatientCoachConversationsQueryOffsetMin = 0;
+
+
+
+export const ListOfficePatientCoachConversationsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "limit": zod.coerce.number().min(1).max(listOfficePatientCoachConversationsQueryLimitMax).default(listOfficePatientCoachConversationsQueryLimitDefault),
+  "offset": zod.coerce.number().min(listOfficePatientCoachConversationsQueryOffsetMin).default(listOfficePatientCoachConversationsQueryOffsetDefault)
+})
+
+export const ListOfficePatientCoachConversationsResponse = zod.object({
+  "conversations": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "titleState": zod.enum(['pending', 'ready', 'failed']),
+  "archivedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "processingState": zod.enum(['pending', 'ready', 'failed'])
+})),
+  "total": zod.number(),
+  "nextOffset": zod.number().nullable()
+})
+
+
+/**
+ * @summary Read an authorized patient's paginated coach transcript
+ */
+export const GetOfficePatientCoachConversationParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "conversationId": zod.coerce.string()
+})
+
+
+export const getOfficePatientCoachConversationQueryLimitDefault = 100;
+export const getOfficePatientCoachConversationQueryLimitMax = 100;
+
+
+
+export const GetOfficePatientCoachConversationQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "before": zod.coerce.number().min(1).optional(),
+  "limit": zod.coerce.number().min(1).max(getOfficePatientCoachConversationQueryLimitMax).default(getOfficePatientCoachConversationQueryLimitDefault)
+})
+
+export const getOfficePatientCoachConversationResponseMessagesItemIdRegExp = new RegExp('^[A-Za-z0-9._:-]{1,64}$');
+export const getOfficePatientCoachConversationResponseMessagesItemTextMax = 40000;
+
+export const getOfficePatientCoachConversationResponseMessagesItemQuickRepliesItemMax = 80;
+
+export const getOfficePatientCoachConversationResponseMessagesItemQuickRepliesMax = 4;
+
+export const getOfficePatientCoachConversationResponseMessagesItemReplyToIdRegExp = new RegExp('^[A-Za-z0-9._:-]{1,64}$');
+
+
+export const GetOfficePatientCoachConversationResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "titleState": zod.enum(['pending', 'ready', 'failed']),
+  "archivedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "version": zod.number(),
+  "processingState": zod.enum(['pending', 'ready', 'failed'])
+}),
+  "messages": zod.array(zod.object({
+  "id": zod.string().regex(getOfficePatientCoachConversationResponseMessagesItemIdRegExp),
+  "role": zod.enum(['user', 'assistant']),
+  "text": zod.string().max(getOfficePatientCoachConversationResponseMessagesItemTextMax),
+  "stopped": zod.boolean().optional(),
+  "hidden": zod.boolean().optional(),
+  "card": zod.record(zod.string(), zod.unknown()).optional(),
+  "quickReplies": zod.array(zod.string().max(getOfficePatientCoachConversationResponseMessagesItemQuickRepliesItemMax)).max(getOfficePatientCoachConversationResponseMessagesItemQuickRepliesMax).optional(),
+  "replyToId": zod.string().regex(getOfficePatientCoachConversationResponseMessagesItemReplyToIdRegExp).optional(),
+  "photo": zod.record(zod.string(), zod.unknown()).optional(),
+  "seq": zod.number().optional(),
+  "createdAt": zod.coerce.date().optional()
+})),
+  "nextBefore": zod.number().nullable(),
+  "patient": zod.object({
+  "firstName": zod.string(),
+  "programDay": zod.number()
+})
+})
+
+
+/**
+ * @summary List active approved coach memories for an authorized patient
+ */
+export const ListOfficePatientCoachMemoriesParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const listOfficePatientCoachMemoriesQueryLimitDefault = 20;
+export const listOfficePatientCoachMemoriesQueryLimitMax = 100;
+
+export const listOfficePatientCoachMemoriesQueryOffsetDefault = 0;
+export const listOfficePatientCoachMemoriesQueryOffsetMin = 0;
+
+
+
+export const ListOfficePatientCoachMemoriesQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "limit": zod.coerce.number().min(1).max(listOfficePatientCoachMemoriesQueryLimitMax).default(listOfficePatientCoachMemoriesQueryLimitDefault),
+  "offset": zod.coerce.number().min(listOfficePatientCoachMemoriesQueryOffsetMin).default(listOfficePatientCoachMemoriesQueryOffsetDefault)
+})
+
+export const ListOfficePatientCoachMemoriesResponse = zod.object({
+  "memories": zod.array(zod.object({
+  "id": zod.string(),
+  "text": zod.string(),
+  "category": zod.string(),
+  "sensitivity": zod.enum(['ordinary', 'sensitive']),
+  "state": zod.enum(['active', 'pending', 'declined', 'removed', 'superseded']),
+  "sourceConversationId": zod.string().nullable(),
+  "sourceMessageId": zod.string().nullable(),
+  "sourceCreatedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "confirmedAt": zod.coerce.date().nullable(),
+  "version": zod.number()
+})),
+  "total": zod.number(),
+  "nextOffset": zod.number().nullable()
+})
+
+
+/**
  * Provider staff are always scoped to their own office and any office query override is ignored. HQ must name an office and hold provider_read.
  * @summary Read the live patient roster for one authorized office
  */
@@ -1556,7 +1972,9 @@ export const GetOfficeConversationsResponse = zod.object({
   "department": zod.enum(['clinical', 'support'])
 }),zod.null()]),
   "createdAt": zod.string(),
-  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed'),
+  "title": zod.string().nullable().describe('Coach conversation title when thread is coach'),
+  "archivedAt": zod.coerce.date().nullable().describe('Coach archive timestamp when thread is coach')
 })),
   "total": zod.number()
 })
@@ -1595,7 +2013,9 @@ export const StartOfficeConversationResponse = zod.object({
   "department": zod.enum(['clinical', 'support'])
 }),zod.null()]),
   "createdAt": zod.string(),
-  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed'),
+  "title": zod.string().nullable().describe('Coach conversation title when thread is coach'),
+  "archivedAt": zod.coerce.date().nullable().describe('Coach archive timestamp when thread is coach')
 }),
   "created": zod.boolean()
 })
@@ -1688,7 +2108,9 @@ export const GetOfficeConversationEventsResponse = zod.object({
   "department": zod.enum(['clinical', 'support'])
 }),zod.null()]),
   "createdAt": zod.string(),
-  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed'),
+  "title": zod.string().nullable().describe('Coach conversation title when thread is coach'),
+  "archivedAt": zod.coerce.date().nullable().describe('Coach archive timestamp when thread is coach')
 }),
   "events": zod.array(zod.object({
   "seq": zod.number(),
@@ -1770,7 +2192,9 @@ export const AssignOfficeConversationResponse = zod.object({
   "department": zod.enum(['clinical', 'support'])
 }),zod.null()]),
   "createdAt": zod.string(),
-  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed'),
+  "title": zod.string().nullable().describe('Coach conversation title when thread is coach'),
+  "archivedAt": zod.coerce.date().nullable().describe('Coach archive timestamp when thread is coach')
 })
 })
 
@@ -1816,7 +2240,9 @@ export const SetOfficeConversationStatusResponse = zod.object({
   "department": zod.enum(['clinical', 'support'])
 }),zod.null()]),
   "createdAt": zod.string(),
-  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed'),
+  "title": zod.string().nullable().describe('Coach conversation title when thread is coach'),
+  "archivedAt": zod.coerce.date().nullable().describe('Coach archive timestamp when thread is coach')
 })
 })
 
@@ -1871,7 +2297,9 @@ export const ReplyOfficeConversationResponse = zod.object({
   "department": zod.enum(['clinical', 'support'])
 }),zod.null()]),
   "createdAt": zod.string(),
-  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed')
+  "autoClosed": zod.boolean().describe('Workflow status is open or waiting, but the thread has been idle past the organization\'s auto-close window and is reported as closed'),
+  "title": zod.string().nullable().describe('Coach conversation title when thread is coach'),
+  "archivedAt": zod.coerce.date().nullable().describe('Coach archive timestamp when thread is coach')
 }),
   "event": zod.object({
   "seq": zod.number(),

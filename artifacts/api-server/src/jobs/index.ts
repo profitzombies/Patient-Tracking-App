@@ -11,6 +11,8 @@ import { registerJob } from "./scheduler";
 import type { JobDefinition } from "./types";
 import { bloodworkExtractionJob } from "./definitions/bloodwork-extraction";
 import { bloodworkCleanupJob } from "./definitions/bloodwork-cleanup";
+import { coachMemoryProcessingJob } from "./definitions/coach-memory-processing";
+import { coachTitleProcessingJob } from "./definitions/coach-title-processing";
 
 const HOUR_MS = 3_600_000;
 
@@ -38,6 +40,8 @@ export const patientMediaCleanupJob: JobDefinition = {
 };
 
 export const ALL_JOBS: JobDefinition[] = [
+  coachTitleProcessingJob,
+  coachMemoryProcessingJob,
   abandonedUploadsJob,
   bloodworkExtractionJob,
   bloodworkCleanupJob,

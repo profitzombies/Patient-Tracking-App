@@ -12,6 +12,16 @@
 import React from 'react';
 
 type AnyProps = Record<string, unknown> & { children?: unknown };
+export type StyleProp<T> = T | StyleProp<T>[] | false | null | undefined;
+export type TextStyle = Record<string, unknown>;
+export type ViewStyle = Record<string, unknown>;
+export type PressableProps = {
+  onPress?: () => void;
+  disabled?: boolean;
+  testID?: string;
+  style?: StyleProp<ViewStyle> | ((state: { pressed: boolean }) => StyleProp<ViewStyle>);
+  children?: React.ReactNode | ((state: { pressed: boolean }) => React.ReactNode);
+};
 
 function hostComponent(name: string) {
   function Host(props: AnyProps): React.ReactElement {
@@ -31,7 +41,7 @@ export const View = hostComponent('View');
 export const Text = hostComponent('Text');
 export const TextInput = hostComponent('TextInput');
 export const ScrollView = hostComponent('ScrollView');
-export const Pressable = hostComponent('Pressable');
+export const Pressable = hostComponent('Pressable') as React.FC<PressableProps>;
 export const Image = hostComponent('Image');
 export const ActivityIndicator = hostComponent('ActivityIndicator');
 

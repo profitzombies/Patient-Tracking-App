@@ -3,7 +3,7 @@ name: Per-account chat persistence
 description: Pattern for persisting session-held chat threads (coach/support) to a signed-in account without touching demo behavior — outbox, hydration, photos, and the effect-ordering trap.
 ---
 
-Chat threads persist per account via append/load endpoints (`/patient-chat/:thread`), while the demo persona stays 100% in-memory. The pattern:
+Chat restoration must isolate the signed-in account and the selected conversation from the demo persona. The pattern:
 
 - **Finalized-only, signature-diffed outbox.** A persistence effect walks `messages`, serializes each `status === 'done'` message to its wire shape, and enqueues any whose JSON signature differs from the last persisted signature for that id. Streaming and error bubbles never match `done`, so they never persist; later mutations of a stored turn (card update, hidden flip, photo path landing) re-upsert the same client id. The server RPC upserts by (conversation, client_id) preserving original seq, so re-upserts never reorder.
 - **Hydration seeds the baselines.** On open, loaded rows write their signatures into the persisted map BEFORE rendering, so restored history never re-enqueues. Mark the thread hydrated before any early return (empty threads included) — persistence is gated on hydration so nothing writes into a transcript that was never read. Demo accounts never hydrate, hence never persist.

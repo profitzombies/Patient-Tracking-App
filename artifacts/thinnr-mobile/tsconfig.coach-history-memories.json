@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/coach-history-memories-stubs/react-native.ts"],
+      "react-native-safe-area-context": ["./scripts/coach-history-memories-stubs/safe-area.ts"],
+      "@expo/vector-icons": ["./scripts/coach-history-memories-stubs/icons.ts"],
+      "expo-haptics": ["./scripts/coach-history-memories-stubs/haptics.ts"],
+      "expo-router": ["./scripts/coach-history-memories-stubs/router.ts"],
+      "@/context/PatientAccountContext": ["./scripts/coach-history-memories-stubs/patient-account.ts"],
+      "@/context/CoachChatContext": ["./scripts/coach-history-memories-stubs/coach-chat.ts"],
+      "@workspace/api-client-react": ["./scripts/coach-history-memories-stubs/api-client.ts"],
+      "@/components/onboarding/OnboardingFields": ["./scripts/coach-history-memories-stubs/onboarding-fields.tsx"]
+    }
+  }
+}

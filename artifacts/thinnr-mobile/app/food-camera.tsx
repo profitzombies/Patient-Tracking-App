@@ -15,7 +15,7 @@
  * so a stray visit lands on the same redirect.
  */
 import React, { useEffect, useRef } from 'react';
-import { Redirect, useRouter, usePathname } from 'expo-router';
+import { Redirect, useRouter, usePathname, type Href } from 'expo-router';
 import { FoodCameraSurface } from '@/components/patient/FoodCameraSurface';
 import {
   claimFoodCameraRequest,
@@ -46,13 +46,13 @@ export default function FoodCameraScreen() {
 
   if (!session) {
     if (pathname !== '/food-camera') return null;
-    return <Redirect href="/coach-chat" />;
+    return <Redirect href={'/coach-history' as Href} />;
   }
 
   const handleSettle = (capture: FoodCameraCapture | null) => {
     session.settle(capture);
     if (router.canGoBack()) router.back();
-    else router.replace('/coach-chat');
+    else router.replace('/coach-history' as Href);
   };
 
   return <FoodCameraSurface onSettle={handleSettle} />;

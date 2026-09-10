@@ -21,7 +21,13 @@ export function useFocusEffect(effect: () => void | (() => void)): void {
   useEffect(effect, [effect]);
 }
 
-/** The coach screen reads its entry params; the suite opens it bare. */
-export function useLocalSearchParams(): Record<string, string | undefined> {
-  return {};
+let params: Record<string, string | undefined> = {};
+
+export function setChatAccountParams(next: Record<string, string | undefined>): void {
+  params = next;
+}
+
+/** The coach screen reads its entry params; tests set these before mounting. */
+export function useLocalSearchParams<T = Record<string, string | undefined>>(): T {
+  return params as T;
 }

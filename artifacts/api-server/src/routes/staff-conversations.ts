@@ -262,6 +262,8 @@ interface InboxRow {
   total: number | string;
   provider_id?: string;
   office_name?: string;
+  title?: string | null;
+  archived_at?: string | null;
 }
 
 function summary(row: InboxRow) {
@@ -287,6 +289,10 @@ function summary(row: InboxRow) {
       ? { id: String(row.open_escalation_id), department: String(row.open_escalation_department) }
       : null,
     createdAt: String(row.created_at),
+    // Coach now has multiple conversations.  Human and support summaries keep
+    // their established thread identity and intentionally have no title.
+    title: row.thread === "coach" ? String(row.title || "New conversation") : null,
+    archivedAt: row.thread === "coach" && typeof row.archived_at === "string" ? row.archived_at : null,
   };
 }
 type ConversationSummary = ReturnType<typeof summary>;
@@ -302,6 +308,24 @@ interface InboxListArgs {
   offset?: number;
   conversationId?: string;
   patientId?: string;
+}
+
+/** Inbox RPC stays focused on workflow; fetch only safe Coach list metadata. */
+async function withCoachMetadata(rows: InboxRow[]): Promise<InboxRow[]> {
+  const ids = rows.filter(row => row.thread === "coach").map(row => row.id);
+  if (ids.length === 0) return rows;
+  const result = await supabaseAdmin(
+    "GET",
+    `/rest/v1/patient_chat_conversations?id=in.(${ids.map(enc).join(",")})&select=id,title,archived_at`,
+  );
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`coach inbox metadata failed (${result.status})`);
+  }
+  const metadata = new Map((result.json as Row[]).map(row => [
+    String(row.id),
+    { title: typeof row.title === "string" ? row.title : null, archived_at: typeof row.archived_at === "string" ? row.archived_at : null },
+  ]));
+  return rows.map(row => ({ ...row, ...metadata.get(row.id) }));
 }
 
 async function inboxList(scope: OfficeScope, args: InboxListArgs): Promise<{ rows: InboxRow[]; total: number; autoCloseDays: number }> {
@@ -322,9 +346,9 @@ async function inboxList(scope: OfficeScope, args: InboxListArgs): Promise<{ row
     p_patient_id: args.patientId ?? null,
   });
   if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`inbox list failed (${result.status})`);
-  const rows = (result.json as InboxRow[]).map(row => ({
+  const rows = await withCoachMetadata((result.json as InboxRow[]).map(row => ({
     ...row, provider_id: scope.providerId, office_name: scope.officeName,
-  }));
+  })));
   return { rows, total: rows.length ? Number(rows[0].total ?? rows.length) : 0, autoCloseDays: policy.autoCloseDays };
 }
 
@@ -944,7 +968,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
           officeName: String(provider.office_name || provider.provider_name || ""),
         }];
       }));
-      const conversations = rows.map(row => summary({ ...row,
+      const conversations = (await withCoachMetadata(rows)).map(row => summary({ ...row,
         provider_id: metadata.get(row.id)?.providerId,
         office_name: metadata.get(row.id)?.officeName,
       }));

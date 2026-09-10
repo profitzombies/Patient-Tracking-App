@@ -86,6 +86,8 @@ beforeEach(() => {
     mocks.supabase.tables[table] = [];
   }
   mocks.supabase.tables.providers.push({ provider_id: "office-1", office_name: "Riverside Health" });
+  mocks.supabase.tables.coach_memories = [];
+  mocks.supabase.tables.coach_memory_source_suppressions = [];
   mocks.supabase.tables.patient_diary_entries.push(
     { patient_id: P1, entry_id: "e1", date_key: "2026-09-01", name: "Eggs", calories: 140 },
     { patient_id: P2, entry_id: "e2", date_key: "2026-09-01", name: "SECRET OTHER FOOD", calories: 900 },
@@ -203,6 +205,64 @@ describe("consent", () => {
 });
 
 describe("data export", () => {
+  it("exports every retained coach chat and memory state without worker credentials or another patient's rows", async () => {
+    const archivedId = fakeUuid(550);
+    mocks.supabase.tables.patient_chat_conversations.push({
+      id: archivedId, patient_id: P1, thread: "coach", provider_id: "office-1",
+      title: "Meal planning", title_state: "ready", archived_at: "2026-09-04T12:00:00Z",
+      processing_state: "ready", version: 2, created_at: "2026-09-01T00:00:00Z",
+      updated_at: "2026-09-03T00:00:00Z",
+    }, {
+      id: fakeUuid(551), patient_id: P2, thread: "coach", title: "OTHER PATIENT CHAT",
+    });
+    for (let seq = 1; seq <= 1_205; seq += 1) {
+      mocks.supabase.tables.patient_chat_messages.push({
+        conversation_id: archivedId, client_id: `retained-${seq}`, seq,
+        role: seq % 2 ? "user" : "assistant", text: `Retained coach message ${seq}`,
+        stopped: seq === 4, hidden: false, created_at: "2026-09-02T00:00:00Z",
+      });
+    }
+    for (const [index, state] of ["active", "pending", "removed", "declined", "superseded"].entries()) {
+      mocks.supabase.tables.coach_memories.push({
+        id: fakeUuid(600 + index), patient_id: P1, text: `Patient-reported preference ${index}`,
+        category: "food_preference", sensitivity: index ? "sensitive" : "ordinary", state,
+        source_conversation_id: archivedId, source_message_id: "retained-1",
+        source_created_at: "2026-09-02T00:00:00Z", created_at: "2026-09-02T00:01:00Z",
+        updated_at: "2026-09-03T00:00:00Z", version: 2,
+      });
+    }
+    mocks.supabase.tables.coach_memories.push({
+      id: fakeUuid(699), patient_id: P2, text: "OTHER PATIENT MEMORY", state: "active",
+    });
+    mocks.supabase.tables.coach_memory_source_suppressions.push({
+      patient_id: P1, source_message_id: "retained-1", topic_key: "food-preference",
+      reason: "removed", created_at: "2026-09-03T00:00:00Z",
+    }, {
+      patient_id: P2, source_message_id: "other", topic_key: "OTHER PATIENT EXCLUSION",
+    });
+    expect((await call("/patient-data/export", "POST")).status).toBe(202);
+    await drainPatientExports();
+    const exportRow = mocks.supabase.tables.patient_data_exports[0];
+    expect(exportRow.status).toBe("ready");
+    const zip = await JSZip.loadAsync(mocks.saved.get(String(exportRow.object_path))!.buffer);
+    const chatText = await zip.file("chat.json")!.async("string");
+    const chat = JSON.parse(chatText) as Array<{ conversation: Record<string, unknown>; messages: Array<Record<string, unknown>> }>;
+    const archived = chat.find((entry) => entry.conversation.id === archivedId)!;
+    expect(archived.conversation).toMatchObject({ title: "Meal planning", archivedAt: "2026-09-04T12:00:00Z", version: 2 });
+    expect(archived.messages).toHaveLength(1_205);
+    expect(archived.messages[0]).toMatchObject({ client_id: "retained-1", seq: 1, created_at: "2026-09-02T00:00:00Z" });
+    expect(archived.messages[1_204].client_id).toBe("retained-1205");
+    const memoryText = await zip.file("coach-memory.json")!.async("string");
+    const memory = JSON.parse(memoryText) as { memories: Array<{ state: string }>; exclusions: unknown[] };
+    expect(memory.memories.map((item) => item.state)).toEqual(["active", "pending", "removed", "declined", "superseded"]);
+    expect(memory.exclusions).toHaveLength(1);
+    expect(chatText + memoryText).not.toMatch(/OTHER PATIENT|claim_token|claim_until/);
+    expect(JSON.stringify(mocks.supabase.tables.admin_audit_events)).not.toMatch(/Patient-reported preference|Retained coach message/);
+    const reads = mocks.supabase.calls.filter((entry) => entry.method === "GET" && /\/coach_memor/.test(entry.path));
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((entry) => entry.path.includes(`patient_id=eq.${P1}`))).toBe(true);
+  });
+
   it("queues one job at a time, builds a scoped archive, notifies, signs a short download, and expires", async () => {
     const humanConversationId = fakeUuid(502);
     mocks.supabase.tables.patient_chat_conversations.push({

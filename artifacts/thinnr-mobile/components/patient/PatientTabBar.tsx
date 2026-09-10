@@ -78,7 +78,7 @@ const ITEMS: BarItem[] = [
     label: 'Coach',
     sf: 'message',
     feather: 'message-circle',
-    href: '/coach-chat',
+    href: '/coach-history' as Href,
     kind: 'push',
   },
 ];

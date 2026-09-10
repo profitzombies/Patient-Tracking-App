@@ -197,6 +197,10 @@ export interface ChatWireMessage {
   id: string;
   role: 'user' | 'assistant' | 'staff';
   text: string;
+  /** Server-assigned transcript order, retained when historical pages load. */
+  seq?: number;
+  /** Original server timestamp for a stored finalized row. */
+  createdAt?: string;
   /** Present on care-team replies delivered by the server. */
   senderLabel?: string;
   stopped?: boolean;
@@ -213,6 +217,31 @@ export interface ChatThreadSnapshot {
   patient: { firstName: string; programDay: number };
 }
 
+/** Metadata for one patient-owned AI Coach conversation. */
+export interface CoachConversation {
+  id: string;
+  title: string;
+  titleState: 'pending' | 'ready' | 'failed';
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  processingState: 'pending' | 'ready' | 'failed';
+}
+
+/** Newest-first page used by the Coach history surface. */
+export interface CoachConversationPage {
+  conversations: CoachConversation[];
+  total: number;
+  nextOffset: number | null;
+}
+
+/** Chronological transcript page for one exact Coach conversation. */
+export interface CoachConversationSnapshot extends ChatThreadSnapshot {
+  conversation: CoachConversation;
+  nextBefore: number | null;
+}
+
 /**
  * Per-write options on the live rail. The offline write queue passes each
  * queued item's id as the idempotency key so a replay after a lost response
@@ -221,6 +250,10 @@ export interface ChatThreadSnapshot {
  */
 export interface WriteOptions {
   idempotencyKey?: string;
+}
+/** Ephemeral bearer captured by a scoped Coach outbox drain. Never persisted. */
+export interface CoachRequestOptions {
+  accessToken?: string;
 }
 /** The live diary rail (implemented by lib/patient-data-api.ts). */
 export interface PatientDataApi {
@@ -258,8 +291,33 @@ export interface PatientDataApi {
   fetchChatThread(thread: ChatThread, todayKey: string): Promise<ChatThreadSnapshot>;
   /** Upserts a batch of finalized messages by client id (idempotent). */
   appendChatMessages(thread: ChatThread, messages: ChatWireMessage[]): Promise<void>;
+  /** Lists this account's Coach conversations, newest activity first. */
+  listCoachConversations(archived: boolean, offset?: number): Promise<CoachConversationPage>;
+  /** Lazily creates a Coach conversation; `clientKey` makes retries safe. */
+  createCoachConversation(clientKey: string): Promise<CoachConversation>;
+  /** Reads one exact Coach transcript page, never an arbitrary current chat. */
+  fetchCoachConversation(
+    conversationId: string,
+    before: number | undefined,
+    todayKey: string,
+  ): Promise<CoachConversationSnapshot>;
+  /** Upserts finalized messages into one exact Coach conversation. */
+  appendCoachMessages(
+    conversationId: string,
+    messages: ChatWireMessage[],
+    options?: CoachRequestOptions,
+  ): Promise<void>;
+  /** Archives/restores a conversation using the server's optimistic version. */
+  updateCoachConversation(
+    conversationId: string,
+    archived: boolean,
+    expectedVersion: number,
+  ): Promise<CoachConversation>;
   /** Stores a chat photo (data URI) on the account's media rail. */
-  uploadChatPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }>;
+  uploadChatPhoto(
+    dataUri: string,
+    options?: CoachRequestOptions,
+  ): Promise<{ photoPath: string; photoUri: string }>;
   /**
    * Stores a progress photo (data URI) on the account's media rail. An
    * `uploadId` pins the server-minted object so a retry after a lost

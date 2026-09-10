@@ -66,6 +66,12 @@ export interface CoachRequestMessage {
 export interface CoachChatRequestBody {
   messages: CoachRequestMessage[];
   /**
+   * Exact patient-owned conversation being generated. Omitted only for the
+   * isolated demo/legacy compatibility path; real mobile sends always create
+   * and bind a conversation before opening the stream.
+   */
+  conversationId?: string;
+  /**
    * The patient's device-local wall clock at send time, 24-hour "HH:MM".
    * Sent on every app call: when a turn produces a recipe or meal card and
    * the patient named no meal, the server preselects the card's diary slot

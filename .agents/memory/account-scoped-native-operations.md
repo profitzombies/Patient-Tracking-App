@@ -9,4 +9,6 @@ description: Account-switch safety for long-running device prompts, health reads
 
 **How to apply:** Use this pattern for future device integrations, secure local enrollment, background/foreground reconciliation, and any account-owned upload initiated before a native await. Stale work should be discarded without mutating shared UI state.
 
+Saving a reference to a global API client does **not** capture authorization if its methods resolve the current token when called. **Why:** an account-keyed outbox can still upload old photo bytes under a new account before its post-upload epoch check runs. **How to apply:** acquire the owner's bearer, validate the epoch after acquisition, and use that fixed bearer through upload, finalize, and append; test a switch during token acquisition, not only after the upload returns.
+
 **Unsupported-platform rule:** an unsupported capability must explicitly settle its per-account loading gate, not merely return from the loading effect. **Why:** the native biometric gate treated an unset account-loaded marker as locked; skipping the web effect left real web patients permanently locked even though web cannot enroll biometrics. **How to apply:** test a real-account initial load and account switch on both supported and unsupported platforms; keep native fail-closed behavior while settling web as unavailable/unlocked.

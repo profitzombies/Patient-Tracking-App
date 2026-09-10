@@ -109,6 +109,8 @@ export async function generateBackOnTrackTurn(args: {
   /** Compartments already selected for this turn; approved-foods is forced in. */
   compartments: Compartment[];
   patient: PatientContext;
+  /** Server-recalled, bounded patient context for the coaching reply. */
+  coachingContext?: string;
   signal: AbortSignal;
   log: MinimalLog;
 }): Promise<BackOnTrackTurn> {
@@ -116,7 +118,8 @@ export async function generateBackOnTrackTurn(args: {
   const messages = [
     {
       role: "system" as const,
-      content: buildBackOnTrackSystemPrompt(args.patient, compartments),
+      content: [buildBackOnTrackSystemPrompt(args.patient, compartments), args.coachingContext]
+        .filter((part): part is string => Boolean(part)).join("\n\n"),
     },
     ...args.history,
   ];

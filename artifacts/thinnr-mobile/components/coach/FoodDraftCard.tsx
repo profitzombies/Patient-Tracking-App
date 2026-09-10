@@ -49,9 +49,11 @@ function extrasLine(payload: LabelFoodCardPayload): string | null {
 export function FoodDraftCard({
   payload,
   messageId,
+  readOnly = false,
 }: {
   payload: LabelFoodCardPayload;
   messageId: string;
+  readOnly?: boolean;
 }) {
   const colors = useColors();
   const patient = usePatient();
@@ -78,7 +80,7 @@ export function FoodDraftCard({
   };
 
   const add = async () => {
-    if (saving || payload.added) return;
+    if (saving || payload.added || readOnly) return;
     setSaving(true);
     try {
       // The same two steps Add Food runs: create the reusable custom food
@@ -143,8 +145,9 @@ export function FoodDraftCard({
                   key={s}
                   testID={`food-card-slot-${s}`}
                   accessibilityRole="button"
-                  accessibilityState={{ selected }}
+                  accessibilityState={{ selected, disabled: readOnly }}
                   accessibilityLabel={`Log under ${MEAL_LABELS[s]}`}
+                  disabled={readOnly}
                   onPress={() => {
                     Haptics.selectionAsync();
                     setSlot(s);
@@ -175,14 +178,14 @@ export function FoodDraftCard({
               testID={`food-card-qty-minus-${payload.id}`}
               accessibilityRole="button"
               accessibilityLabel="Fewer servings"
-              disabled={qty <= QTY_MIN}
+              disabled={readOnly || qty <= QTY_MIN}
               onPress={() => stepQty(-0.5)}
               style={[
                 styles.qtyButton,
                 {
                   borderColor: colors.border,
                   borderRadius: colors.radiusSm,
-                  opacity: qty <= QTY_MIN ? 0.35 : 1,
+                  opacity: readOnly || qty <= QTY_MIN ? 0.35 : 1,
                 },
               ]}
             >
@@ -199,14 +202,14 @@ export function FoodDraftCard({
               testID={`food-card-qty-plus-${payload.id}`}
               accessibilityRole="button"
               accessibilityLabel="More servings"
-              disabled={qty >= QTY_MAX}
+              disabled={readOnly || qty >= QTY_MAX}
               onPress={() => stepQty(0.5)}
               style={[
                 styles.qtyButton,
                 {
                   borderColor: colors.border,
                   borderRadius: colors.radiusSm,
-                  opacity: qty >= QTY_MAX ? 0.35 : 1,
+                  opacity: readOnly || qty >= QTY_MAX ? 0.35 : 1,
                 },
               ]}
             >
@@ -221,14 +224,14 @@ export function FoodDraftCard({
               testID={`food-card-add-${payload.id}`}
               accessibilityRole="button"
               accessibilityLabel={`Add ${formatQty(qty)} ${qty === 1 ? 'serving' : 'servings'} of ${payload.name} to ${MEAL_LABELS[slot]}`}
-              disabled={saving}
+              disabled={saving || readOnly}
               onPress={add}
               style={({ pressed }) => [
                 styles.addButton,
                 {
                   backgroundColor: colors.cobalt,
                   borderRadius: colors.radiusSm,
-                  opacity: pressed || saving ? 0.85 : 1,
+                  opacity: pressed || saving || readOnly ? 0.5 : 1,
                 },
               ]}
             >
@@ -240,6 +243,7 @@ export function FoodDraftCard({
               testID={`food-card-rename-${payload.id}`}
               accessibilityRole="button"
               accessibilityLabel={`Fix the name of ${payload.name}`}
+              disabled={readOnly}
               onPress={() => {
                 Haptics.selectionAsync();
                 beginLabelRename(messageId);
@@ -249,7 +253,7 @@ export function FoodDraftCard({
                 {
                   borderColor: colors.border,
                   borderRadius: colors.radiusSm,
-                  opacity: pressed ? 0.7 : 1,
+                  opacity: pressed || readOnly ? 0.45 : 1,
                 },
               ]}
             >

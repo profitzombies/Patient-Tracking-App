@@ -41,7 +41,8 @@ import { AppState } from 'react-native';
 import { usePatient } from '@/context/PatientContext';
 import {
   usePatientAccount,
-  type ChatThreadSnapshot,
+  type CoachConversation,
+  type CoachConversationPage,
   type ChatWireMessage,
   type PatientDataApi,
 } from '@/context/PatientAccountContext';
@@ -91,6 +92,9 @@ export interface SendPhotoOptions {
 
 export interface CoachMessage {
   id: string;
+  /** Server transcript order/timestamp are retained when historical pages load. */
+  seq?: number;
+  createdAt?: string;
 
   role: 'user' | 'assistant' | 'staff';
 
@@ -178,6 +182,19 @@ export interface CoachMessage {
 interface CoachChatContextValue {
   messages: CoachMessage[];
   isStreaming: boolean;
+  /** Null represents a fresh composer which has not created a server row yet. */
+  selectedConversation: CoachConversation | null;
+  /** Changes for every account/conversation selection; reset local UI by it. */
+  conversationScopeKey: string | null;
+  conversationError: string | null;
+  isConversationLoading: boolean;
+  hasOlderMessages: boolean;
+  isLoadingOlder: boolean;
+  startNewConversation: () => void;
+  selectConversation: (id: string) => Promise<void>;
+  listConversations: (archived: boolean, offset?: number) => Promise<CoachConversationPage>;
+  setArchived: (conversation: CoachConversation, archived: boolean) => Promise<void>;
+  loadOlder: () => Promise<void>;
   /**
    * Progress narration for the in-flight photo turn (null on text turns and
    * between exchanges). Set to "received" the instant a photo send starts —
@@ -300,6 +317,14 @@ interface RevealState {
   /** Held like the card: a label read opens its flow once the text is done. */
   labelDraft?: LabelDraft;
   timer: ReturnType<typeof setInterval> | null;
+}
+
+/** Captured before async persistence so a later selection cannot retarget it. */
+interface CoachOutboxEntry {
+  scopeKey: string;
+  conversationId: string;
+  api: PatientDataApi;
+  message: CoachMessage;
 }
 
 /**
@@ -467,19 +492,13 @@ function buildGreetingMessage(): CoachMessage {
  * greeting; the stored row upserts idempotently, and later opens hydrate
  * this message back instead of rebuilding it.
  */
-function buildRealGreetingMessage(patient: {
-  firstName: string;
-  programDay: number;
-}): CoachMessage {
-  const commitment =
-    patient.programDay >= 2
-      ? ` ${patient.programDay} days in. That's real commitment, and it shows.`
-      : '';
+/** A new conversation never summarizes or replays a prior conversation. */
+function buildFreshGreetingMessage(): CoachMessage {
   return {
     id: GREETING_MESSAGE_ID,
     role: 'assistant',
     status: 'done',
-    text: `Hey ${patient.firstName}, good to see you.${commitment}\n\nWhat's on your mind today? A meal idea, a craving, the exact wording of a rule. I've got you.`,
+    text: 'Hi. What would you like help with today?',
   };
 }
 
@@ -571,6 +590,8 @@ function isLocalPhotoUri(uri: string): boolean {
 
 function toWireMessage(m: CoachMessage, photoPath?: string): ChatWireMessage {
   const wire: ChatWireMessage = { id: m.id, role: m.role, text: m.text };
+  if (m.seq !== undefined) wire.seq = m.seq;
+  if (m.createdAt) wire.createdAt = m.createdAt;
   if (m.role === 'staff' && m.senderLabel) wire.senderLabel = m.senderLabel;
   if (m.stopped) wire.stopped = true;
   if (m.hidden) wire.hidden = true;
@@ -596,6 +617,8 @@ function toWireMessage(m: CoachMessage, photoPath?: string): ChatWireMessage {
 /** Rebuilds a stored message for the thread exactly as it last rendered. */
 function wireToCoachMessage(w: ChatWireMessage): CoachMessage {
   const m: CoachMessage = { id: w.id, role: w.role, text: w.text, status: 'done' };
+  if (w.seq !== undefined) m.seq = w.seq;
+  if (w.createdAt) m.createdAt = w.createdAt;
   if (w.role === 'staff' && w.senderLabel) m.senderLabel = w.senderLabel;
   if (w.stopped) m.stopped = true;
   if (w.hidden) m.hidden = true;
@@ -660,6 +683,36 @@ export function CoachChatProvider({
   accountRef.current = { resolving, kind: account.kind, getAccessToken };
   const chatApiRef = useRef<PatientDataApi | null>(realAccount ? realAccount.api : null);
   chatApiRef.current = realAccount ? realAccount.api : null;
+  // A fresh composer intentionally has no server conversation yet. Its row is
+  // created only by the first substantive send/photo, never by navigation.
+  const [selectedConversation, setSelectedConversation] = useState<CoachConversation | null>(null);
+  const selectedConversationRef = useRef<CoachConversation | null>(null);
+  selectedConversationRef.current = selectedConversation;
+  const [conversationError, setConversationError] = useState<string | null>(null);
+  const [isConversationLoading, setIsConversationLoading] = useState(false);
+  const [olderBefore, setOlderBefore] = useState<number | null>(null);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  // Pagination may outlive a focus refresh. The ref is set synchronously so
+  // refreshThread never replaces the transcript/epoch underneath its request.
+  const isLoadingOlderRef = useRef(false);
+  const demoConversationsRef = useRef<CoachConversation[]>([]);
+  const demoConversationCounterRef = useRef(0);
+  const scopeEpochRef = useRef(0);
+  const conversationScopeKey =
+    !resolving && account.kind === 'real'
+      ? selectedConversation
+        ? `real:${account.patientId}:${selectedConversation.id}`
+        : `real:${account.patientId}:fresh`
+      : !resolving && account.kind === 'demo'
+        ? selectedConversation
+          ? `demo:${selectedConversation.id}`
+          : 'demo:fresh'
+        : null;
+  const scopeKeyRef = useRef<string | null>(conversationScopeKey);
+  scopeKeyRef.current = conversationScopeKey;
+  // A render after account replacement must not briefly disclose the prior
+  // patient's transcript while effects are still being scheduled.
+  const [renderedScopeKey, setRenderedScopeKey] = useState(conversationScopeKey);
   // Lazy initializer: the demo greeting is built once per provider mount —
   // one session, one conversation. Real (and still-resolving) accounts start
   // empty instead: their opener comes from the stored transcript, or is
@@ -723,8 +776,9 @@ export function CoachChatProvider({
   // persistence effect diffs against it, so a card update or hidden flip
   // re-upserts its row while untouched messages never re-send.
   const persistedRef = useRef(new Map<string, string>());
-  // Ids waiting to be appended, in thread order (FIFO outbox).
-  const outboxRef = useRef<string[]>([]);
+  // Captured target/message pairs waiting to be appended. Never look up the
+  // current conversation after an await: selection may have changed.
+  const outboxRef = useRef<CoachOutboxEntry[]>([]);
   // Local photo uri → stored per-patient object path, so a photo uploads
   // once even when corrections re-use it or card updates re-upsert its turn.
   const photoPathsRef = useRef(new Map<string, string>());
@@ -734,6 +788,7 @@ export function CoachChatProvider({
   // enqueues for them).
   const hydratedKeyRef = useRef<string | null>(null);
   const flushingRef = useRef(false);
+  const flushGenerationRef = useRef(0);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushFailuresRef = useRef(0);
 
@@ -774,6 +829,10 @@ export function CoachChatProvider({
   useEffect(() => {
     if (accountKeyRef.current === accountKey) return;
     accountKeyRef.current = accountKey;
+    // A drain from the former account may still settle, but must not retain
+    // the current account's flush mutex or consume its pending writes.
+    flushGenerationRef.current += 1;
+    scopeEpochRef.current += 1;
     abortRef.current?.abort();
     if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
     revealRef.current = null;
@@ -786,7 +845,6 @@ export function CoachChatProvider({
     outreachSeededRef.current = false;
     hydratedKeyRef.current = null;
     persistedRef.current.clear();
-    outboxRef.current = [];
     photoPathsRef.current.clear();
     flushingRef.current = false;
     flushFailuresRef.current = 0;
@@ -794,9 +852,17 @@ export function CoachChatProvider({
       clearTimeout(flushTimerRef.current);
       flushTimerRef.current = null;
     }
+    selectedConversationRef.current = null;
+    scopeKeyRef.current = accountKey === 'demo' ? 'demo:fresh' : accountKey === 'resolving' ? null : `${accountKey}:fresh`;
+    setSelectedConversation(null);
+    setConversationError(null);
+    setOlderBefore(null);
+    setIsConversationLoading(false);
+    setIsLoadingOlder(false);
     const seed = accountKey === 'demo' ? [buildGreetingMessage()] : [];
     messagesRef.current = seed;
     setMessages(seed);
+    setRenderedScopeKey(scopeKeyRef.current);
   }, [accountKey, updateLabelFlow]);
 
   // A provider unmount mid-reveal must not leave a timer mutating state.
@@ -813,28 +879,33 @@ export function CoachChatProvider({
    * already carry their path, and a failed upload persists the turn without
    * its photo rather than blocking the transcript on image bytes.
    */
-  const storedPhotoPath = useCallback(async (m: CoachMessage): Promise<string | undefined> => {
+  const storedPhotoPath = useCallback(async (
+    m: CoachMessage,
+    api: PatientDataApi,
+    scopeKey: string,
+    accessToken: string,
+  ): Promise<string | undefined> => {
     if (!m.photo) return undefined;
     if (m.photo.path) return m.photo.path;
-    const known = photoPathsRef.current.get(m.photo.uri);
+    const known = photoPathsRef.current.get(`${scopeKey}:${m.photo.uri}`);
     if (known) return known;
     if (!m.photo.uri.startsWith('data:')) return undefined;
-    const api = chatApiRef.current;
-    if (!api) return undefined;
     const uri = m.photo.uri;
     try {
-      const uploaded = await api.uploadChatPhoto(uri);
-      photoPathsRef.current.set(uri, uploaded.photoPath);
+      const uploaded = await api.uploadChatPhoto(uri, { accessToken });
+      photoPathsRef.current.set(`${scopeKey}:${uri}`, uploaded.photoPath);
       // Stamp the path onto every message holding this photo (the origin
       // plus any correction turns that re-used it) so their wire signatures
       // settle on the stored shape.
-      setMessages(prev =>
-        prev.map(x =>
-          x.photo && x.photo.uri === uri && !x.photo.path
-            ? { ...x, photo: { ...x.photo, path: uploaded.photoPath } }
-            : x,
-        ),
-      );
+      if (scopeKeyRef.current === scopeKey) {
+        setMessages(prev =>
+          prev.map(x =>
+            x.photo && x.photo.uri === uri && !x.photo.path
+              ? { ...x, photo: { ...x.photo, path: uploaded.photoPath } }
+              : x,
+          ),
+        );
+      }
       return uploaded.photoPath;
     } catch {
       return undefined; // quiet: the turn persists as its replay text
@@ -851,32 +922,118 @@ export function CoachChatProvider({
   const flushOutbox = useCallback(async () => {
     if (flushingRef.current) return;
     flushingRef.current = true;
+    const generation = flushGenerationRef.current;
+    const activeAccountKey = accountKeyRef.current;
+    // Bind every request in this drain to one token before an upload can
+    // start. A generation/account recheck after the async token lookup means
+    // a P1 photo can never be minted/finalized under a newly active P2.
+    let accessToken: string | null;
+    try {
+      accessToken = await (getAccessToken ?? (async () => null))();
+    } catch (error) {
+      // The credential supplier can fail before any network request begins.
+      // Keep the exact queued rows, report it, and retry only if this is
+      // still the active drain generation. A stale P1 failure must never
+      // release or schedule work for P2.
+      if (generation === flushGenerationRef.current) {
+        flushingRef.current = false;
+        if (scopeKeyRef.current?.startsWith(`${activeAccountKey}:`)) {
+          setConversationError(
+            error instanceof Error
+              ? `Could not save this conversation: ${error.message}`
+              : 'Could not verify your session to save this conversation.',
+          );
+        }
+        flushFailuresRef.current += 1;
+        if (flushFailuresRef.current < 5 && !flushTimerRef.current) {
+          flushTimerRef.current = setTimeout(() => {
+            flushTimerRef.current = null;
+            void flushOutbox();
+          }, 5000);
+        }
+      }
+      return;
+    }
+    if (
+      generation !== flushGenerationRef.current ||
+      accountKeyRef.current !== activeAccountKey ||
+      !accessToken
+    ) {
+      if (generation === flushGenerationRef.current) flushingRef.current = false;
+      return;
+    }
     try {
       while (outboxRef.current.length > 0) {
-        const api = chatApiRef.current;
-        if (!api) return;
-        const batchIds = outboxRef.current.slice(0, 20);
-        outboxRef.current = outboxRef.current.slice(batchIds.length);
+        if (generation !== flushGenerationRef.current) break;
+        // A parked P1 write must never authorize with P2's credentials, and
+        // it must not prevent P2's own queue from draining.
+        const firstIndex = outboxRef.current.findIndex(entry =>
+          entry.scopeKey.startsWith(`${activeAccountKey}:`),
+        );
+        if (firstIndex < 0) break;
+        const [first] = outboxRef.current.splice(firstIndex, 1);
+        if (!first) break;
+        const batch = [
+          first,
+          ...outboxRef.current.filter(
+            entry => entry.scopeKey === first.scopeKey && entry.conversationId === first.conversationId,
+          ),
+        ].slice(0, 20);
+        const batchKeys = new Set(batch.map(entry => `${entry.scopeKey}:${entry.message.id}`));
+        outboxRef.current = outboxRef.current.filter(
+          entry => !batchKeys.has(`${entry.scopeKey}:${entry.message.id}`),
+        );
         const wires: ChatWireMessage[] = [];
         const sigs: Array<[string, string]> = [];
-        for (const id of batchIds) {
-          const m = messagesRef.current.find(x => x.id === id);
-          // Gone (a stopped bubble that kept nothing) or no longer final:
-          // nothing to store under this id.
-          if (!m || m.status !== 'done' || m.role === 'staff') continue;
-          const wire = toWireMessage(m, await storedPhotoPath(m));
+        for (const entry of batch) {
+          const m = entry.message;
+          if (m.status !== 'done' || m.role === 'staff') continue;
+          const wire = toWireMessage(
+            m,
+            await storedPhotoPath(m, entry.api, entry.scopeKey, accessToken),
+          );
           wires.push(wire);
-          sigs.push([id, JSON.stringify(wire)]);
+          sigs.push([`${entry.scopeKey}:${m.id}`, JSON.stringify(wire)]);
+        }
+        if (generation !== flushGenerationRef.current) {
+          outboxRef.current = [...batch, ...outboxRef.current];
+          break;
         }
         if (wires.length === 0) continue;
         try {
-          await api.appendChatMessages('coach', wires);
+          await first.api.appendCoachMessages(first.conversationId, wires, { accessToken });
+          if (generation !== flushGenerationRef.current) break;
           for (const [id, sig] of sigs) persistedRef.current.set(id, sig);
           flushFailuresRef.current = 0;
-        } catch {
+        } catch (error) {
+          // Another device may have archived this exact conversation after
+          // this client finalized a turn. Retrying that append forever cannot
+          // succeed; keep the completed local transcript visible, switch this
+          // conversation read-only, and make the save failure explicit.
+          if (error instanceof Error && /archiv|409|conflict/i.test(error.message)) {
+            if (scopeKeyRef.current === first.scopeKey) {
+              setSelectedConversation(current =>
+                current && current.id === first.conversationId
+                  ? { ...current, archivedAt: current.archivedAt ?? new Date().toISOString() }
+                  : current,
+              );
+              setConversationError(
+                'This conversation was archived elsewhere before it finished saving. Restore it to continue.',
+              );
+            }
+            flushFailuresRef.current = 0;
+            continue;
+          }
           // Requeue in place and back off; the transcript catches up in
           // order once the API is reachable again.
-          outboxRef.current = [...batchIds, ...outboxRef.current];
+          if (scopeKeyRef.current === first.scopeKey) {
+            setConversationError(
+              error instanceof Error
+                ? `Could not save this conversation: ${error.message}`
+                : 'Could not save this conversation. We will retry when the connection returns.',
+            );
+          }
+          outboxRef.current = [...batch, ...outboxRef.current];
           flushFailuresRef.current += 1;
           if (flushFailuresRef.current < 5 && !flushTimerRef.current) {
             flushTimerRef.current = setTimeout(() => {
@@ -888,14 +1045,22 @@ export function CoachChatProvider({
         }
       }
     } finally {
-      flushingRef.current = false;
+      if (generation === flushGenerationRef.current) flushingRef.current = false;
     }
     // A message finalized while the drain above was mid-await re-enters
     // here rather than waiting for the next thread change.
-    if (outboxRef.current.length > 0 && flushFailuresRef.current === 0) {
+    if (
+      generation === flushGenerationRef.current &&
+      outboxRef.current.some(entry => entry.scopeKey.startsWith(`${activeAccountKey}:`)) &&
+      flushFailuresRef.current === 0
+    ) {
       void flushOutbox();
     }
-  }, [storedPhotoPath]);
+  }, [getAccessToken, storedPhotoPath]);
+
+  useEffect(() => {
+    if (accountKey.startsWith('real:')) void flushOutbox();
+  }, [accountKey, flushOutbox]);
 
   // Coach availability: ask the server on open and whenever the account
   // changes. The demo persona is never paused; a probe that cannot answer
@@ -920,25 +1085,284 @@ export function CoachChatProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountKey]);
 
-  const refreshThread = useCallback(async () => {
+  const startNewConversation = useCallback(() => {
+    scopeEpochRef.current += 1;
+    abortRef.current?.abort();
+    if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
+    revealRef.current = null;
+    abortRef.current = null;
+    inFlightRef.current = false;
+    suggestionsRef.current.clear();
+    updateLabelFlow(null);
+    selectedConversationRef.current = null;
+    scopeKeyRef.current =
+      accountRef.current.kind === 'real'
+        ? `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:fresh`
+        : 'demo:fresh';
+    setSelectedConversation(null);
+    setConversationError(null);
+    setOlderBefore(null);
+    setIsLoadingOlder(false);
+    setPendingStage(null);
+    setIsStreaming(false);
+    const seed = accountRef.current.kind === 'demo' ? [buildFreshGreetingMessage()] : [buildFreshGreetingMessage()];
+    messagesRef.current = seed;
+    setMessages(seed);
+    setRenderedScopeKey(scopeKeyRef.current);
+  }, [account, updateLabelFlow]);
+
+  const listConversations = useCallback(
+    async (archived: boolean, offset = 0): Promise<CoachConversationPage> => {
+      const api = chatApiRef.current;
+      if (accountRef.current.kind === 'demo') {
+        const conversations = demoConversationsRef.current
+          .filter(conversation => Boolean(conversation.archivedAt) === archived)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        const slice = conversations.slice(offset, offset + 20);
+        return {
+          conversations: slice,
+          total: conversations.length,
+          nextOffset: offset + slice.length < conversations.length ? offset + slice.length : null,
+        };
+      }
+      if (!api || accountRef.current.resolving) {
+        throw new Error('Your coach conversations are still loading. Please try again.');
+      }
+      return api.listCoachConversations(archived, offset);
+    },
+    [],
+  );
+
+  const selectConversation = useCallback(
+    async (id: string) => {
+      const api = chatApiRef.current;
+      const epoch = ++scopeEpochRef.current;
+      const identity = accountKeyRef.current;
+      abortRef.current?.abort();
+      if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
+      revealRef.current = null;
+      abortRef.current = null;
+      inFlightRef.current = false;
+      suggestionsRef.current.clear();
+      updateLabelFlow(null);
+      setIsStreaming(false);
+      setPendingStage(null);
+      setConversationError(null);
+      setOlderBefore(null);
+      isLoadingOlderRef.current = false;
+      setIsLoadingOlder(false);
+      setIsConversationLoading(true);
+      // Hide the outgoing transcript synchronously while this exact row loads.
+      messagesRef.current = [];
+      setMessages([]);
+      setRenderedScopeKey(null);
+      selectedConversationRef.current = null;
+      scopeKeyRef.current = null;
+      if (accountRef.current.kind === 'demo') {
+        const conversation = demoConversationsRef.current.find(row => row.id === id);
+        if (!conversation) {
+          setConversationError('That conversation is no longer available.');
+          setIsConversationLoading(false);
+          return;
+        }
+        if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return;
+        selectedConversationRef.current = conversation;
+        scopeKeyRef.current = `demo:${conversation.id}`;
+        setSelectedConversation(conversation);
+        setRenderedScopeKey(`demo:${conversation.id}`);
+        const restored = (conversation as CoachConversation & { messages?: CoachMessage[] }).messages ?? [
+          buildFreshGreetingMessage(),
+        ];
+        messagesRef.current = restored;
+        setMessages(restored);
+        setIsConversationLoading(false);
+        return;
+      }
+      if (!api) {
+        setConversationError('Your coach conversations are still loading. Please try again.');
+        setIsConversationLoading(false);
+        return;
+      }
+      try {
+        const snapshot = await api.fetchCoachConversation(id, undefined, localTodayKey());
+        if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return;
+        const stored = snapshot.messages.map(wireToCoachMessage);
+        const scopeKey = `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:${snapshot.conversation.id}`;
+        persistedRef.current.clear();
+        photoPathsRef.current.clear();
+        for (const message of stored) {
+          persistedRef.current.set(`${scopeKey}:${message.id}`, JSON.stringify(toWireMessage(message)));
+          if (message.photo?.path) {
+            photoPathsRef.current.set(`${scopeKey}:${message.photo.uri}`, message.photo.path);
+          }
+          if (message.card?.kind === 'recipe') {
+            const suggestion = parseRecipeCardPayload(message.card.payload);
+            if (suggestion) {
+              const origin = message.replyToId
+                ? stored.find(candidate => candidate.id === message.replyToId)
+                : undefined;
+              suggestionsRef.current.set(
+                suggestion.id,
+                suggestion.mode === 'meal' && origin?.photo?.uri
+                  ? { ...suggestion, photoUri: origin.photo.uri }
+                  : suggestion,
+              );
+            }
+          }
+        }
+        hydratedKeyRef.current = scopeKey;
+        selectedConversationRef.current = snapshot.conversation;
+        scopeKeyRef.current = scopeKey;
+        setSelectedConversation(snapshot.conversation);
+        setOlderBefore(snapshot.nextBefore);
+        messagesRef.current = stored;
+        setMessages(stored);
+        setRenderedScopeKey(scopeKey);
+      } catch (error) {
+        if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return;
+        setConversationError(
+          error instanceof Error ? error.message : 'Could not load this conversation. Please try again.',
+        );
+        throw error;
+      } finally {
+        if (scopeEpochRef.current === epoch && accountKeyRef.current === identity) {
+          setIsConversationLoading(false);
+        }
+      }
+    },
+    [account, updateLabelFlow],
+  );
+
+  const loadOlder = useCallback(async () => {
+    const conversation = selectedConversationRef.current;
     const api = chatApiRef.current;
-    if (!api || accountRef.current.resolving || accountRef.current.kind !== 'real') return;
-    const snapshot = await api.fetchChatThread('coach', localTodayKey());
-    if (
-      chatApiRef.current !== api ||
-      accountRef.current.resolving ||
-      accountRef.current.kind !== 'real'
-    ) return;
-    const incoming = snapshot.messages.map(wireToCoachMessage);
-    for (const message of incoming) {
-      persistedRef.current.set(message.id, JSON.stringify(toWireMessage(message)));
+    const before = olderBefore;
+    const scopeKey = scopeKeyRef.current;
+    const epoch = scopeEpochRef.current;
+    if (!conversation || !api || before === null || !scopeKey || isLoadingOlderRef.current) return;
+    isLoadingOlderRef.current = true;
+    setIsLoadingOlder(true);
+    try {
+      const snapshot = await api.fetchCoachConversation(conversation.id, before, localTodayKey());
+      if (scopeEpochRef.current !== epoch || scopeKeyRef.current !== scopeKey) return;
+      const incoming = snapshot.messages.map(wireToCoachMessage);
+      for (const message of incoming) {
+        persistedRef.current.set(`${scopeKey}:${message.id}`, JSON.stringify(toWireMessage(message)));
+      }
+      // Snapshot before dispatching. React may eagerly run a functional state
+      // updater, so calculating additions afterwards can accidentally compare
+      // a page against the very merged ref it just created.
+      const known = new Set(messagesRef.current.map(message => message.id));
+      const added = incoming.filter(message => !known.has(message.id));
+      const merged = [...added, ...messagesRef.current];
+      messagesRef.current = merged;
+      setMessages(merged);
+      // A duplicate page can still be useful when its cursor advances: accept
+      // that cursor and continue. Only a duplicate page pointing to the same
+      // cursor is a no-progress loop; a clean null cursor is normal exhaustion.
+      if (added.length === 0 && snapshot.nextBefore === before) {
+        setOlderBefore(null);
+        setConversationError('Could not load older messages. Please try again.');
+        return;
+      }
+      setOlderBefore(snapshot.nextBefore);
+    } catch (error) {
+      if (scopeEpochRef.current === epoch && scopeKeyRef.current === scopeKey) {
+        setConversationError(
+          error instanceof Error ? error.message : 'Could not load older messages. Please try again.',
+        );
+      }
+    } finally {
+      if (scopeEpochRef.current === epoch && scopeKeyRef.current === scopeKey) {
+        isLoadingOlderRef.current = false;
+        setIsLoadingOlder(false);
+      }
     }
-    setMessages(current => {
-      const existing = new Set(current.map(message => message.id));
-      const additions = incoming.filter(message => !existing.has(message.id));
-      return additions.length === 0 ? current : [...current, ...additions];
-    });
-  }, []);
+  }, [olderBefore]);
+
+  const setArchived = useCallback(
+    async (conversation: CoachConversation, archived: boolean) => {
+      const isSelected = selectedConversationRef.current?.id === conversation.id;
+      if (archived && isSelected && inFlightRef.current) {
+        const message = 'Wait for the coach response to finish or stop it before archiving this conversation.';
+        setConversationError(message);
+        throw new Error(message);
+      }
+      if (archived && isSelected) {
+        // Persist the exact finalized transcript before the server closes the
+        // append gate. Do not silently park an append that an archive would
+        // make permanently invalid.
+        const scopeKey = scopeKeyRef.current;
+        const api = chatApiRef.current;
+        if (scopeKey && api && accountRef.current.kind === 'real') {
+          for (const message of messagesRef.current) {
+            if (message.status !== 'done' || message.role === 'staff') continue;
+            const signature = JSON.stringify(
+              toWireMessage(
+                message,
+                message.photo
+                  ? photoPathsRef.current.get(`${scopeKey}:${message.photo.uri}`)
+                  : undefined,
+              ),
+            );
+            if (persistedRef.current.get(`${scopeKey}:${message.id}`) === signature) continue;
+            const entry: CoachOutboxEntry = {
+              scopeKey,
+              conversationId: conversation.id,
+              api,
+              message,
+            };
+            const index = outboxRef.current.findIndex(
+              queued => queued.scopeKey === scopeKey && queued.message.id === message.id,
+            );
+            if (index === -1) outboxRef.current.push(entry);
+            else outboxRef.current[index] = entry;
+          }
+        }
+        await flushOutbox();
+        if (outboxRef.current.some(entry => entry.conversationId === conversation.id)) {
+          const message = 'This conversation is still saving. Please try archiving again in a moment.';
+          setConversationError(message);
+          throw new Error(message);
+        }
+      }
+      if (accountRef.current.kind === 'demo') {
+        const updated = { ...conversation, archivedAt: archived ? new Date().toISOString() : null, version: conversation.version + 1 };
+        demoConversationsRef.current = demoConversationsRef.current.map(row =>
+          row.id === conversation.id ? updated : row,
+        );
+        if (selectedConversationRef.current?.id === conversation.id) {
+          selectedConversationRef.current = updated;
+          setSelectedConversation(updated);
+        }
+        return;
+      }
+      const api = chatApiRef.current;
+      if (!api) throw new Error('Your coach conversations are still loading. Please try again.');
+      try {
+        const updated = await api.updateCoachConversation(conversation.id, archived, conversation.version);
+        if (selectedConversationRef.current?.id === updated.id) {
+          selectedConversationRef.current = updated;
+          setSelectedConversation(updated);
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Could not update this conversation. Refresh and try again.';
+        setConversationError(message);
+        throw error;
+      }
+    },
+    [flushOutbox],
+  );
+
+  const refreshThread = useCallback(async () => {
+    if (isLoadingOlderRef.current) return;
+    const conversation = selectedConversationRef.current;
+    if (!conversation) return;
+    await selectConversation(conversation.id);
+  }, [selectConversation]);
 
   useEffect(() => {
     if (!realAccount) return;
@@ -954,68 +1378,6 @@ export function CoachChatProvider({
     };
   }, [realAccount, refreshThread]);
 
-  // Real-account hydration: on open (or account switch) load the stored
-  // transcript and resume it. Runs once per accountKey; a failure retries a
-  // few times, then leaves the thread empty — sends still work, and the
-  // next app open tries again. The greeting seeds ONLY a genuinely new
-  // conversation: no stored rows and nothing typed while the load ran.
-  useEffect(() => {
-    if (!realAccount) return;
-    const key = accountKey;
-    if (hydratedKeyRef.current === key) return;
-    const api = realAccount.api;
-    let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let attempts = 0;
-    const run = async () => {
-      let snapshot: ChatThreadSnapshot;
-      try {
-        snapshot = await api.fetchChatThread('coach', localTodayKey());
-      } catch {
-        if (cancelled) return;
-        attempts += 1;
-        if (attempts < 4) retryTimer = setTimeout(() => void run(), 4000);
-        return;
-      }
-      if (cancelled || accountKeyRef.current !== key) return;
-      hydratedKeyRef.current = key;
-      const stored = snapshot.messages.map(wireToCoachMessage);
-      for (const m of stored) {
-        // Stored rows are persisted by definition: seed the diff baseline so
-        // hydration never re-appends them.
-        persistedRef.current.set(m.id, JSON.stringify(toWireMessage(m)));
-        if (m.photo?.path) photoPathsRef.current.set(m.photo.uri, m.photo.path);
-        // Re-register recipe cards so their preview screens reopen; a stored
-        // meal card keeps the patient's own photo as its picture.
-        if (m.card?.kind === 'recipe') {
-          const suggestion = parseRecipeCardPayload(m.card.payload);
-          if (suggestion) {
-            const origin = m.replyToId ? stored.find(o => o.id === m.replyToId) : undefined;
-            const registered =
-              suggestion.mode === 'meal' && origin?.photo?.uri
-                ? { ...suggestion, photoUri: origin.photo.uri }
-                : suggestion;
-            suggestionsRef.current.set(registered.id, registered);
-          }
-        }
-      }
-      setMessages(prev => {
-        if (stored.length === 0) {
-          // First conversation on this account. Anything already typed this
-          // session stays; the greeting seeds only a truly untouched thread.
-          return prev.length === 0 ? [buildRealGreetingMessage(snapshot.patient)] : prev;
-        }
-        const storedIds = new Set(stored.map(m => m.id));
-        const extras = prev.filter(m => !storedIds.has(m.id));
-        return [...stored, ...extras];
-      });
-    };
-    void run();
-    return () => {
-      cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
-    };
-  }, [realAccount, accountKey]);
 
   // Persistence: whenever the thread changes, enqueue every finalized
   // message whose wire shape differs from what the account already stores —
@@ -1024,21 +1386,45 @@ export function CoachChatProvider({
   // (card updates, the hidden flip, a photo path landing) re-upsert its row.
   // Streaming and error bubbles never match `done`, so they never persist.
   useEffect(() => {
-    if (!realAccount || hydratedKeyRef.current !== accountKey) return;
+    const conversation = selectedConversationRef.current;
+    const scopeKey = conversationScopeKey;
+    if (!realAccount || !conversation || !scopeKey || hydratedKeyRef.current !== scopeKey) return;
     let queued = false;
     for (const m of messages) {
       if (m.status !== 'done' || m.role === 'staff') continue;
       const sig = JSON.stringify(
-        toWireMessage(m, m.photo ? photoPathsRef.current.get(m.photo.uri) : undefined),
+        toWireMessage(m, m.photo ? photoPathsRef.current.get(`${scopeKey}:${m.photo.uri}`) : undefined),
       );
-      if (persistedRef.current.get(m.id) === sig) continue;
-      if (!outboxRef.current.includes(m.id)) {
-        outboxRef.current.push(m.id);
-        queued = true;
-      }
+      const persistedKey = `${scopeKey}:${m.id}`;
+      if (persistedRef.current.get(persistedKey) === sig) continue;
+      const entry: CoachOutboxEntry = {
+        scopeKey,
+        conversationId: conversation.id,
+        api: realAccount.api,
+        message: m,
+      };
+      const existing = outboxRef.current.findIndex(
+        queuedEntry => queuedEntry.scopeKey === scopeKey && queuedEntry.message.id === m.id,
+      );
+      if (existing === -1) outboxRef.current.push(entry);
+      else outboxRef.current[existing] = entry;
+      queued = true;
     }
     if (queued) void flushOutbox();
-  }, [messages, realAccount, accountKey, flushOutbox]);
+  }, [messages, realAccount, conversationScopeKey, selectedConversation, flushOutbox]);
+
+  // Demo is deliberately local, but still offers coherent multiple
+  // conversations for history previews without fabricating server history.
+  useEffect(() => {
+    const conversation = selectedConversationRef.current;
+    if (accountRef.current.kind !== 'demo' || !conversation) return;
+    const stored = { ...conversation, updatedAt: new Date().toISOString(), messages } as CoachConversation & {
+      messages: CoachMessage[];
+    };
+    demoConversationsRef.current = demoConversationsRef.current.map(row =>
+      row.id === conversation.id ? stored : row,
+    );
+  }, [messages]);
 
   /**
    * Completes a fully revealed reply: marks it done (trimming whitespace a
@@ -1140,7 +1526,12 @@ export function CoachChatProvider({
     ) => {
       // Callbacks from a stream the user already stopped must not run: stop()
       // finalized the UI and may even have let a new exchange begin.
-      const isStale = () => abortRef.current !== controller;
+      const capturedScopeKey = scopeKeyRef.current;
+      const capturedEpoch = scopeEpochRef.current;
+      const isStale = () =>
+        abortRef.current !== controller ||
+        scopeKeyRef.current !== capturedScopeKey ||
+        scopeEpochRef.current !== capturedEpoch;
 
       // Single-flight leaves no live reveal here; clear defensively anyway so
       // a leaked timer could never race two exchanges.
@@ -1273,6 +1664,61 @@ export function CoachChatProvider({
   );
 
   /**
+   * Materializes a server row only at the send gate. The captured account
+   * identity/epoch prevents a delayed create response from selecting a chat
+   * after sign-out or after the patient chose another conversation.
+   */
+  const ensureConversation = useCallback(async (): Promise<CoachConversation | null> => {
+    const current = selectedConversationRef.current;
+    if (current) return current;
+    const epoch = scopeEpochRef.current;
+    const identity = accountKeyRef.current;
+    if (accountRef.current.kind === 'demo') {
+      const now = new Date().toISOString();
+      const conversation: CoachConversation & { messages?: CoachMessage[] } = {
+        id: `demo-coach-${++demoConversationCounterRef.current}`,
+        title: 'New conversation',
+        titleState: 'ready',
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+        processingState: 'ready',
+        messages: messagesRef.current,
+      };
+      if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return null;
+      demoConversationsRef.current = [conversation, ...demoConversationsRef.current];
+      selectedConversationRef.current = conversation;
+      scopeKeyRef.current = `demo:${conversation.id}`;
+      setSelectedConversation(conversation);
+      setRenderedScopeKey(`demo:${conversation.id}`);
+      return conversation;
+    }
+    const api = chatApiRef.current;
+    if (!api || accountRef.current.resolving) return null;
+    try {
+      const conversation = await api.createCoachConversation(
+        `coach-${sessionNonceRef.current}-${++idRef.current}`,
+      );
+      if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return null;
+      const scopeKey = `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:${conversation.id}`;
+      selectedConversationRef.current = conversation;
+      scopeKeyRef.current = scopeKey;
+      setSelectedConversation(conversation);
+      hydratedKeyRef.current = scopeKey;
+      setRenderedScopeKey(scopeKey);
+      return conversation;
+    } catch (error) {
+      if (scopeEpochRef.current === epoch && accountKeyRef.current === identity) {
+        setConversationError(
+          error instanceof Error ? error.message : 'Could not start a new conversation. Please try again.',
+        );
+      }
+      return null;
+    }
+  }, [account]);
+
+  /**
    * Advances the label flow with the patient's text: proposes a Title Case
    * name, reads a confirm chip (or a typed correction), or applies a
    * rename. Entirely client-side — the assistant bubbles here are fixed
@@ -1360,6 +1806,7 @@ export function CoachChatProvider({
 
   const send = useCallback(
     (rawText: string) => {
+      void (async () => {
       const text = rawText.trim();
       if (!text || inFlightRef.current) return;
       // While a signed-in account is still resolving, hold sends: the thread
@@ -1369,11 +1816,22 @@ export function CoachChatProvider({
       // Care team has the coach paused: the composer is closed on screen;
       // a stray submit (keyboard "send") must not open a turn either.
       if (coachPausedRef.current) return;
+      if (selectedConversationRef.current?.archivedAt) return;
+      // New Chat remains local until this substantive send succeeds.
+      // This lock is deliberately acquired before the create await: two rapid
+      // taps must not materialize two different first conversations.
+      inFlightRef.current = true;
+      const conversation = await ensureConversation();
+      if (!conversation || conversation.archivedAt) {
+        inFlightRef.current = false;
+        return;
+      }
       // An active label flow answers this text client-side — the name
       // conversation is deterministic state, never a model exchange.
       const flow = labelFlowRef.current;
       if (flow) {
         resolveLabelFlowText(flow, text);
+        inFlightRef.current = false;
         return;
       }
 
@@ -1402,6 +1860,7 @@ export function CoachChatProvider({
             quickReplies: [NUDGE_KEEP_WATCH, NUDGE_PAUSE],
           },
         ]);
+        inFlightRef.current = false;
         return;
       }
       if (
@@ -1422,6 +1881,7 @@ export function CoachChatProvider({
             replyToId: userMessage.id,
           },
         ]);
+        inFlightRef.current = false;
         return;
       }
 
@@ -1487,6 +1947,7 @@ export function CoachChatProvider({
         streamInto(
           {
             messages: request,
+            ...(accountRef.current.kind === 'real' ? { conversationId: conversation.id } : {}),
             localTime: localTimeForDate(clock()),
             ...(correctionPhoto.mealSlot ? { mealSlot: correctionPhoto.mealSlot } : {}),
           },
@@ -1531,12 +1992,17 @@ export function CoachChatProvider({
 
       // The clock is read at send time so every turn carries a fresh reading.
       streamInto(
-        { messages: request, localTime: localTimeForDate(clock()) },
+        {
+          messages: request,
+          ...(accountRef.current.kind === 'real' ? { conversationId: conversation.id } : {}),
+          localTime: localTimeForDate(clock()),
+        },
         assistantId,
         controller,
       );
+      })();
     },
-    [streamInto, clock, resolveLabelFlowText, markNudgeEngaged, setNudgeOptOut],
+    [streamInto, clock, resolveLabelFlowText, markNudgeEngaged, setNudgeOptOut, ensureConversation],
   );
 
   const sendPhoto = useCallback(
@@ -1545,9 +2011,19 @@ export function CoachChatProvider({
       kind?: PhotoKind,
       options?: SendPhotoOptions,
     ) => {
+      void (async () => {
       if (!photo.uri || inFlightRef.current) return;
       if (accountRef.current.resolving) return;
       if (coachPausedRef.current) return;
+      if (selectedConversationRef.current?.archivedAt) return;
+      // See send(): this closes the new-conversation double-tap race before
+      // awaiting the idempotent server create.
+      inFlightRef.current = true;
+      const conversation = await ensureConversation();
+      if (!conversation || conversation.archivedAt) {
+        inFlightRef.current = false;
+        return;
+      }
       // A photo reply counts as engagement exactly like a text reply.
       if (messagesRef.current.some(m => isOutreachMessageId(m.id))) {
         void markNudgeEngaged();
@@ -1632,6 +2108,7 @@ export function CoachChatProvider({
       streamInto(
         {
           messages: request,
+          ...(accountRef.current.kind === 'real' ? { conversationId: conversation.id } : {}),
           localTime: localTimeForDate(clock()),
           // An entry point that already knows its diary slot pins it here;
           // the server then overrides both a named meal and the clock.
@@ -1643,14 +2120,17 @@ export function CoachChatProvider({
         // Lets the server's route announcement stamp this turn for retries.
         userMessage.id,
       );
+      })();
     },
-    [streamInto, clock, updateLabelFlow, markNudgeEngaged],
+    [streamInto, clock, updateLabelFlow, markNudgeEngaged, ensureConversation],
   );
 
   const retry = useCallback(
     (assistantMessageId: string) => {
       if (inFlightRef.current) return;
       if (accountRef.current.resolving) return;
+      const conversation = selectedConversationRef.current;
+      if (!conversation || conversation.archivedAt) return;
       const history = messagesRef.current;
       const errored = history.find(m => m.id === assistantMessageId);
       if (
@@ -1720,6 +2200,7 @@ export function CoachChatProvider({
       streamInto(
         {
           messages: request,
+          conversationId: conversation.id,
           // A fresh clock reading, not the original send's: the retry is
           // happening NOW, and that is the time a logged meal belongs to.
           localTime: localTimeForDate(clock()),
@@ -1874,11 +2355,24 @@ export function CoachChatProvider({
     setMessages(seed);
   }, [updateLabelFlow]);
 
+  const visibleMessages = renderedScopeKey === conversationScopeKey ? messages : [];
+
   const value = useMemo(
     () => ({
-      messages,
+      messages: visibleMessages,
       isStreaming,
       pendingStage,
+      selectedConversation,
+      conversationScopeKey,
+      conversationError,
+      isConversationLoading,
+      hasOlderMessages: olderBefore !== null,
+      isLoadingOlder,
+      startNewConversation,
+      selectConversation,
+      listConversations,
+      setArchived,
+      loadOlder,
       refreshThread,
       send,
       sendPhoto,
@@ -1893,9 +2387,20 @@ export function CoachChatProvider({
       coachPaused,
     }),
     [
-      messages,
+      visibleMessages,
       isStreaming,
       pendingStage,
+      selectedConversation,
+      conversationScopeKey,
+      conversationError,
+      isConversationLoading,
+      olderBefore,
+      isLoadingOlder,
+      startNewConversation,
+      selectConversation,
+      listConversations,
+      setArchived,
+      loadOlder,
       refreshThread,
       send,
       sendPhoto,

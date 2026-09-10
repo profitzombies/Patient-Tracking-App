@@ -38,4 +38,14 @@ export interface ConversationSummary {
   createdAt: string;
   /** Workflow status is open or waiting, but the thread has been idle past the organization's auto-close window and is reported as closed */
   autoClosed: boolean;
+  /**
+     * Coach conversation title when thread is coach
+     * @nullable
+     */
+  title: string | null;
+  /**
+     * Coach archive timestamp when thread is coach
+     * @nullable
+     */
+  archivedAt: Date | null;
 }

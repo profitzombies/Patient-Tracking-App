@@ -16,6 +16,8 @@
     "test:restaurant-guide": "node scripts/check-restaurant-guide-verbatim.mjs",
     "test:chat-account": "tsx --tsconfig tsconfig.chat-account.json scripts/verify-chat-account.ts",
     "test:coach-stop": "tsx --tsconfig tsconfig.coach-stop.json scripts/verify-coach-stop.ts",
+    "test:coach-review": "tsx --tsconfig tsconfig.coach-review.json scripts/verify-coach-review.tsx",
+    "test:coach-history-memories": "tsx --tsconfig tsconfig.coach-history-memories.json scripts/verify-coach-history-memories.tsx",
     "test:custom-food-undo": "tsx scripts/verify-custom-food-undo.ts",
     "test:diary-copy": "tsx scripts/verify-diary-copy.ts",
     "test:diary-edit": "tsx scripts/verify-diary-edit.ts",

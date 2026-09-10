@@ -17,6 +17,26 @@ export interface StubSession {
 
 let current: StubSession | null = null;
 const listeners = new Set<(next: StubSession | null) => void>();
+let nextSessionGate: Promise<void> | null = null;
+let releaseNextSessionGate: (() => void) | null = null;
+let sessionLookupsToSkip = 0;
+let rejectNextSessionLookup = false;
+
+/** Holds the next token lookup so account-switch races can be exercised. */
+export function holdNextStubSessionLookup(afterLookups = 0): () => void {
+  sessionLookupsToSkip = afterLookups;
+  nextSessionGate = new Promise<void>(resolve => {
+    releaseNextSessionGate = resolve;
+  });
+  return () => {
+    releaseNextSessionGate?.();
+    releaseNextSessionGate = null;
+  };
+}
+
+export function rejectNextStubSessionLookup(): void {
+  rejectNextSessionLookup = true;
+}
 
 export function setStubSession(next: StubSession | null): void {
   current = next;
@@ -28,6 +48,19 @@ export const supabaseConfigured = true;
 export const supabase = {
   auth: {
     async getSession() {
+      if (rejectNextSessionLookup) {
+        rejectNextSessionLookup = false;
+        throw new Error('session lookup failed once');
+      }
+      if (sessionLookupsToSkip > 0) {
+        sessionLookupsToSkip -= 1;
+        return { data: { session: current } };
+      }
+      const gate = nextSessionGate;
+      if (gate) {
+        nextSessionGate = null;
+        await gate;
+      }
       return { data: { session: current } };
     },
     /** Sign-out from a screen (consent gate's "Sign out") ends the session for every listener. */

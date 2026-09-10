@@ -6,6 +6,7 @@
 - [RN web deprecated/unmapped props](rn-web-shadow-props.md) — shadow*/textShadow*/pointerEvents props and accessibilityState objects do nothing on Expo web; use boxShadow/textShadow strings, style.pointerEvents, flat aria-*.
 - [Approved-foods entry points](approved-foods-entry-points.md) — every "Approved list" shortcut routes through one shared constant in the mobile app; retarget there, not per-callsite.
 - [Coach chat grounding](coach-grounding.md) — coach answers come from runtime-sliced verbatim doc compartments (1-3 per turn); structured sources contribute only verbatim fields; extend via card slot, not inlined text.
+- [Coach context routing](coach-context-routing.md) — verify recall before specialized dispatch and personalization in recommendation prompts; preferences must not bias visual facts extraction.
 - [OpenAPI codegen zod quirk](openapi-codegen-zod.md) — never use type: integer in openapi.yaml (orval emits zod-4 zod.int(), workspace is zod 3); use type: number + server-side clamp.
 - [Validation gate](validation-gate.md) — register suites via setValidationCommand (not workflows); completion runs ALL commands in parallel — EAGAIN/134/502 load flakes; re-run failures serially; repeated poll-budget stalls → skip_validation_reason with green evidence.
 - [Coach card attachments](coach-card-attachments.md) — cards and one-tap reply labels ride separate SSE events: model emits only marker ids, server allow-lists them and builds payloads from curated data.

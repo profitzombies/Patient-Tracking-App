@@ -187,6 +187,10 @@ export interface PatientArchiveSections {
   photos: Array<Record<string, unknown>>;
   media: Array<Record<string, unknown>>;
   chat: Array<{ conversation: Record<string, unknown>; messages: Array<Record<string, unknown>> }>;
+  coachMemory: {
+    memories: Array<Record<string, unknown>>;
+    exclusions: Array<Record<string, unknown>>;
+  };
   bloodwork: {
     reports: Array<Record<string, unknown>>;
     files: Array<Record<string, unknown>>;
@@ -228,7 +232,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       rows(`/rest/v1/patient_progress_photos?${scope}&select=photo_id,date_key,label,angle,object_path,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "progress photos"),
       rows(`/rest/v1/patient_media?${scope}&select=object_path,kind,content_type,size_bytes,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "media ledger"),
       allRows(
-        `/rest/v1/patient_chat_conversations?${scope}&select=id,thread,provider_id,created_at,updated_at&order=created_at.asc,id.asc`,
+        `/rest/v1/patient_chat_conversations?${scope}&select=id,thread,provider_id,title,title_state,archived_at,version,processing_state,created_at,updated_at&order=created_at.asc,id.asc`,
         "chat conversations",
       ),
     ]);
@@ -278,6 +282,13 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       thread: conversation.thread,
       channel: "ai",
       businessName,
+      ...(conversation.thread === "coach" ? {
+        title: conversation.title,
+        titleState: conversation.title_state,
+        archivedAt: conversation.archived_at,
+        version: conversation.version,
+        processingState: conversation.processing_state,
+      } : {}),
       createdAt: conversation.created_at,
       updatedAt: conversation.updated_at,
     };
@@ -296,6 +307,19 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     }));
     chat.push({ conversation: safeConversation, messages });
   }
+  // All lifecycle states belong in the patient's private export. Inactive
+  // memories are not personalization inputs; their source and exclusion
+  // records explain decisions without exposing worker leases or auth data.
+  const [memories, exclusions] = await Promise.all([
+    allRows(
+      `/rest/v1/coach_memories?${scope}&select=id,text,category,sensitivity,state,source_conversation_id,source_message_id,source_created_at,created_at,updated_at,confirmed_at,version&order=created_at.asc,id.asc`,
+      "coach memories",
+    ),
+    allRows(
+      `/rest/v1/coach_memory_source_suppressions?${scope}&select=source_conversation_id,source_message_id,topic_key,reason,created_at&order=created_at.asc,source_conversation_id.asc,source_message_id.asc`,
+      "coach memory exclusions",
+    ),
+  ]);
   const [bloodworkReports, bloodworkFiles, bloodworkResults, bloodworkCorrections] = await Promise.all([
     allRows(
       `/rest/v1/patient_bloodwork_reports?${scope}&select=id,client_request_id,title,report_date,kind,lifecycle_status,extraction_status,extraction_error,version,uploaded_at,committed_at,deleted_at,extraction_attempt&order=uploaded_at.asc,id.asc`,
@@ -366,6 +390,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     photos,
     media,
     chat,
+    coachMemory: { memories, exclusions },
     bloodwork: {
       reports: bloodworkReports,
       files: bloodworkFiles,
@@ -425,6 +450,7 @@ export async function buildPatientArchive(
   zip.file("medications.json", json(sections.medications));
   zip.file("photos.json", json(sections.photos));
   zip.file("chat.json", json(sections.chat));
+  zip.file("coach-memory.json", json(sections.coachMemory));
 
   const mediaPaths = mediaPathsOf({
     photos: sections.photos,
@@ -525,6 +551,8 @@ export async function buildPatientArchive(
       "medications.json    Medication list and dose logs (taken / skipped)",
       "photos.json         Progress photo records (bytes under media/)",
       "chat.json           AI and retained human transcripts, labeled by channel and business; human staff are attributed only as Care Team",
+      "coach-memory.json   Patient-reported memories, approval/lifecycle states, sources, dates, and reusable-memory exclusions",
+      "                    Archiving keeps memory. Forgetting excludes reusable memory, not the original saved conversation.",
       "media.json          Stored photo files included in media/ and any skipped",
       "bloodwork.json      Reports, source omissions, published results, corrections, and distinctly labeled incomplete transcription checkpoints",
       "bloodwork/files/    Original committed bloodwork source files included within the archive size limit",

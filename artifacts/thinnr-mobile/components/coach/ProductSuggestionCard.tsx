@@ -28,7 +28,7 @@ function payloadProductId(payload: unknown): string | null {
   return typeof id === 'string' ? id : null;
 }
 
-function ProductSuggestionCard({ payload }: { payload: unknown }) {
+function ProductSuggestionCard({ payload, readOnly = false }: { payload: unknown; readOnly?: boolean }) {
   const colors = useColors();
   const id = payloadProductId(payload);
   const product = id ? findCatalogProduct(id) : undefined;
@@ -44,6 +44,8 @@ function ProductSuggestionCard({ payload }: { payload: unknown }) {
       testID="coach-product-card"
       accessibilityRole="button"
       accessibilityLabel={`View ${product.name}`}
+      accessibilityState={{ disabled: readOnly }}
+      disabled={readOnly}
       onPress={openProduct}
       style={({ pressed }) => [
         styles.card,

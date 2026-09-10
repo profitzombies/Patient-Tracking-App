@@ -44,6 +44,14 @@ args = "care-team-api"
 task = "workflow.run"
 args = "scroll-boundary"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coach-history-memories"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coach-provider-review"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1232,12 +1240,23 @@ args = "pnpm --filter @workspace/thinnr-operations run test:care-team-conversati
 isValidation = true
 
 [[workflows.workflow]]
-name = "scroll-boundary"
+name = "coach-history-memories"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm --filter @workspace/thinnr-mobile run test:scroll-boundary"
+args = "pnpm --filter @workspace/thinnr-mobile run test:coach-history-memories"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "coach-provider-review"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:coach-review && pnpm --filter @workspace/thinnr-mobile run test:coach-review"
 
 [workflows.workflow.metadata]
 isValidation = true
@@ -1248,7 +1267,7 @@ expertMode = true
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 180000
 
 [userenv]
 
@@ -1285,3 +1304,14 @@ exposeLocalhost = true
 [[ports]]
 localPort = 21456
 externalPort = 3000
+
+[[workflows.workflow]]
+name = "scroll-boundary"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:scroll-boundary"
+
+[workflows.workflow.metadata]
+isValidation = true

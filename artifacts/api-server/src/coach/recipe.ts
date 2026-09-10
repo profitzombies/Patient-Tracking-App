@@ -143,6 +143,8 @@ export interface RecipeTurnArgs {
   history: { role: "user" | "assistant"; content: string }[];
   compartments: Compartment[];
   patient: PatientContext;
+  /** Server-recalled, bounded patient context. Never client-supplied. */
+  coachingContext?: string;
   /**
    * Meal-slot context for the card. An explicit client pin wins outright
    * (overriding even the model's answer); otherwise the prompt tells the
@@ -604,7 +606,10 @@ export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTu
   const baseMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
     {
       role: "system",
-      content: buildRecipeSystemPrompt(args.mode, compartments, args.patient, args.inspiration, slot),
+      content: [
+        buildRecipeSystemPrompt(args.mode, compartments, args.patient, args.inspiration, slot),
+        args.coachingContext,
+      ].filter((part): part is string => Boolean(part)).join("\n\n"),
     },
     ...args.history,
   ];

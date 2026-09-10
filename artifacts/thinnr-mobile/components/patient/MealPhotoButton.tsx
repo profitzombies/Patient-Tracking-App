@@ -92,7 +92,7 @@ export function useMealPhotoFlow({ mealSlot }: MealPhotoFlowOptions = {}): MealP
   const colors = useColors();
   const router = useRouter();
   const pathname = usePathname();
-  const { sendPhoto, isStreaming } = useCoachChat();
+  const { sendPhoto, isStreaming, startNewConversation } = useCoachChat();
 
   // The capture flow's modal state: the fallback sheet (library pick
   // failed → try again) and the use-photo/retake preview. `photo` set
@@ -197,6 +197,10 @@ export function useMealPhotoFlow({ mealSlot }: MealPhotoFlowOptions = {}): MealP
   const confirmPhoto = () => {
     if (!photo || isStreaming) return;
     Haptics.selectionAsync();
+    // A photo begun from Library/Diary/FAB is a deliberate new Coach context,
+    // never an implicit resume of whichever chat was last open. The in-chat
+    // retake path stays in its existing conversation.
+    if (pathname !== '/coach-chat') startNewConversation();
     sendPhoto(photo, 'meal', mealSlot ? { mealSlot } : undefined);
     setPhoto(null);
     setError(null);

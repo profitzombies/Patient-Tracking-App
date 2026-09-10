@@ -68,6 +68,8 @@ import {
   useCanEditLiveRecord,
 } from "@/components/office/LivePatientEdits";
 
+import { CoachReviewPanel } from "@/components/office/CoachReviewPanel";
+
 /**
  * Demo actions (logging a weight, adding a note) are stamped with the fixed
  * demo anchor — the same instant the seeded record uses — never the viewer's
@@ -332,6 +334,11 @@ function DemoPatientDetail() {
         <div className="lg:col-span-3">
           <SectionCard title="Bloodwork Reports">
             <EmptyState>Demo only: Bloodwork requires a real patient record.</EmptyState>
+          </SectionCard>
+        </div>
+        <div className="lg:col-span-3">
+          <SectionCard title="AI Coach History">
+            <EmptyState>Demo only: AI conversations and memories require a real patient record.</EmptyState>
           </SectionCard>
         </div>
         <div className="lg:col-span-3">
@@ -613,6 +620,9 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
               </div>
             </div>
           </SectionCard>
+        </div>
+        <div className="lg:col-span-3">
+          <CoachReviewPanel key={`${id}:${office ?? 'own'}`} patientId={id} office={office} isHq={isHq} />
         </div>
       </main>
     </div>

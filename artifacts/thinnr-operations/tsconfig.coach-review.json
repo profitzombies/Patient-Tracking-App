@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "scripts/verify-coach-review.tsx",
+    "scripts/a11y-stubs/session.ts",
+    "scripts/bloodwork-stubs/react-test-renderer.d.ts",
+    "src/components/office/CoachReviewPanel.tsx",
+    "src/components/conversations/shared.tsx",
+    "src/components/patient/heritage.tsx"
+  ]
+}

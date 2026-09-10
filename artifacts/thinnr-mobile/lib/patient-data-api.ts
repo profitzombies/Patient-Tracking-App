@@ -28,6 +28,9 @@ import type {
   ChatThreadSnapshot,
   ChatWireMessage,
   ChatWirePhoto,
+  CoachConversation,
+  CoachConversationPage,
+  CoachConversationSnapshot,
   DoseLogWrite,
   LibraryWrite,
   PatientDataApi,
@@ -269,6 +272,7 @@ async function uploadPatientPhoto(
   kind: 'food' | 'recipe' | 'chat' | 'progress',
   dataUri: string,
   uploadId?: string,
+  accessToken?: string,
 ): Promise<{ photoPath: string; photoUri: string }> {
   const commaAt = dataUri.indexOf(',');
   const header = commaAt > 0 ? dataUri.slice(0, commaAt) : '';
@@ -281,12 +285,17 @@ async function uploadPatientPhoto(
     bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
 
-  const minted = (await authedRequest('POST', '/patient-media/upload-url', {
-    kind,
-    contentType,
-    sizeBytes: bytes.byteLength,
-    ...(uploadId ? { uploadId } : {}),
-  })) as { uploadUrl?: unknown; objectPath?: unknown } | null;
+  const minted = (await authedRequest(
+    'POST',
+    '/patient-media/upload-url',
+    {
+      kind,
+      contentType,
+      sizeBytes: bytes.byteLength,
+      ...(uploadId ? { uploadId } : {}),
+    },
+    accessToken,
+  )) as { uploadUrl?: unknown; objectPath?: unknown } | null;
   if (typeof minted?.uploadUrl !== 'string' || typeof minted.objectPath !== 'string') {
     throw new PatientDataError(MALFORMED_MESSAGE);
   }
@@ -312,7 +321,12 @@ async function uploadPatientPhoto(
   }
   if (!put.ok) throw new PatientDataError(`Photo upload failed (${put.status}).`);
 
-  await authedRequest('POST', '/patient-media/finalize', { objectPath: minted.objectPath });
+  await authedRequest(
+    'POST',
+    '/patient-media/finalize',
+    { objectPath: minted.objectPath },
+    accessToken,
+  );
   return {
     photoPath: minted.objectPath,
     photoUri: patientMediaDisplayUrl(minted.objectPath),
@@ -517,6 +531,35 @@ function recipeWire(recipe: SavedRecipe): Record<string, unknown> {
 const CHAT_ROLES = new Set(['user', 'assistant', 'staff']);
 const CHAT_PHOTO_KINDS = new Set(['menu', 'meal', 'label']);
 
+function parseCoachConversation(raw: unknown): CoachConversation {
+  if (typeof raw !== 'object' || raw === null) throw new PatientDataError(MALFORMED_MESSAGE);
+  const row = raw as Record<string, unknown>;
+  if (
+    typeof row.id !== 'string' ||
+    typeof row.title !== 'string' ||
+    (row.titleState !== 'pending' && row.titleState !== 'ready' && row.titleState !== 'failed') ||
+    (row.archivedAt !== null && typeof row.archivedAt !== 'string') ||
+    typeof row.createdAt !== 'string' ||
+    typeof row.updatedAt !== 'string' ||
+    typeof row.version !== 'number' ||
+    (row.processingState !== 'pending' &&
+      row.processingState !== 'ready' &&
+      row.processingState !== 'failed')
+  ) {
+    throw new PatientDataError(MALFORMED_MESSAGE);
+  }
+  return {
+    id: row.id,
+    title: row.title,
+    titleState: row.titleState,
+    archivedAt: row.archivedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+    processingState: row.processingState,
+  };
+}
+
 function parseChatMessage(raw: unknown): ChatWireMessage {
   if (typeof raw !== 'object' || raw === null) throw new PatientDataError(MALFORMED_MESSAGE);
   const m = raw as Record<string, unknown>;
@@ -533,6 +576,8 @@ function parseChatMessage(raw: unknown): ChatWireMessage {
     role: m.role as ChatWireMessage['role'],
     text: m.text,
   };
+  if (typeof m.seq === 'number' && Number.isFinite(m.seq)) message.seq = m.seq;
+  if (typeof m.createdAt === 'string' && m.createdAt.length > 0) message.createdAt = m.createdAt;
   if (m.role === 'staff' && typeof m.senderLabel === 'string' && m.senderLabel.length > 0) {
     message.senderLabel = m.senderLabel;
   }
@@ -955,8 +1000,101 @@ export const patientDataApi: PatientDataApi = {
     await authedRequest('POST', `/patient-chat/${thread}/messages`, { messages });
   },
 
-  async uploadChatPhoto(dataUri: string): Promise<{ photoPath: string; photoUri: string }> {
-    return uploadPatientPhoto('chat', dataUri);
+  async listCoachConversations(archived: boolean, offset = 0): Promise<CoachConversationPage> {
+    const json = await authedRequest(
+      'GET',
+      `/patient-coach/conversations?archived=${archived ? 'true' : 'false'}&limit=20&offset=${offset}`,
+    );
+    const record = (json ?? {}) as Record<string, unknown>;
+    if (
+      !Array.isArray(record.conversations) ||
+      typeof record.total !== 'number' ||
+      (record.nextOffset !== null && typeof record.nextOffset !== 'number')
+    ) {
+      throw new PatientDataError(MALFORMED_MESSAGE);
+    }
+    return {
+      conversations: record.conversations.map(parseCoachConversation),
+      total: record.total,
+      nextOffset: record.nextOffset as number | null,
+    };
+  },
+
+  async createCoachConversation(clientKey: string): Promise<CoachConversation> {
+    const json = await authedRequest('POST', '/patient-coach/conversations', { clientKey });
+    return parseCoachConversation((json as Record<string, unknown> | null)?.conversation);
+  },
+
+  async fetchCoachConversation(
+    conversationId: string,
+    before: number | undefined,
+    todayKey: string,
+  ): Promise<CoachConversationSnapshot> {
+    const query = new URLSearchParams({ limit: '100', today: todayKey });
+    if (before !== undefined) query.set('before', String(before));
+    const json = await authedRequest(
+      'GET',
+      `/patient-coach/conversations/${encodeURIComponent(conversationId)}?${query.toString()}`,
+    );
+    const record = (json ?? {}) as Record<string, unknown>;
+    if (
+      !Array.isArray(record.messages) ||
+      (record.nextBefore !== null && typeof record.nextBefore !== 'number')
+    ) {
+      throw new PatientDataError(MALFORMED_MESSAGE);
+    }
+    const patient = (record.patient ?? {}) as Record<string, unknown>;
+    return {
+      conversation: parseCoachConversation(record.conversation),
+      messages: record.messages.map(parseChatMessage),
+      nextBefore: record.nextBefore as number | null,
+      patient: {
+        firstName:
+          typeof patient.firstName === 'string' && patient.firstName.length > 0
+            ? patient.firstName
+            : 'there',
+        programDay:
+          typeof patient.programDay === 'number' && Number.isFinite(patient.programDay)
+            ? patient.programDay
+            : 1,
+      },
+    };
+  },
+
+  async appendCoachMessages(
+    conversationId: string,
+    messages: ChatWireMessage[],
+    options?: { accessToken?: string },
+  ): Promise<void> {
+    if (messages.some(message => message.role === 'staff')) {
+      throw new PatientDataError('Care team messages cannot be appended by the patient app.');
+    }
+    await authedRequest(
+      'POST',
+      `/patient-coach/conversations/${encodeURIComponent(conversationId)}/messages`,
+      { messages },
+      options?.accessToken,
+    );
+  },
+
+  async updateCoachConversation(
+    conversationId: string,
+    archived: boolean,
+    expectedVersion: number,
+  ): Promise<CoachConversation> {
+    const json = await authedRequest(
+      'PATCH',
+      `/patient-coach/conversations/${encodeURIComponent(conversationId)}`,
+      { archived, expectedVersion },
+    );
+    return parseCoachConversation((json as Record<string, unknown> | null)?.conversation);
+  },
+
+  async uploadChatPhoto(
+    dataUri: string,
+    options?: { accessToken?: string },
+  ): Promise<{ photoPath: string; photoUri: string }> {
+    return uploadPatientPhoto('chat', dataUri, undefined, options?.accessToken);
   },
 
   async uploadProgressPhoto(

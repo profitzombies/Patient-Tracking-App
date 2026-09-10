@@ -96,7 +96,7 @@ function numberIn(value: unknown, min: number, max: number): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
 }
 
-interface WireRow {
+export interface ChatWireRow {
   client_id: string;
   role: string;
   text: string;
@@ -114,10 +114,10 @@ interface WireRow {
  * the photo reference must point inside the calling patient's own
  * patient-media prefix, so a row can never reference someone else's photo.
  */
-function parseWireMessage(
+export function parsePatientChatWireMessage(
   raw: unknown,
   patientId: string,
-): { row: WireRow } | { error: string } {
+): { row: ChatWireRow } | { error: string } {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { error: "Invalid message." };
   }
@@ -227,7 +227,7 @@ function parseWireMessage(
 }
 
 /** Stored row → the client's message shape (validated at write time). */
-function rowToClientMessage(raw: unknown): Record<string, unknown> {
+export function rowToPatientChatMessage(raw: unknown): Record<string, unknown> {
   const row = raw as Record<string, unknown>;
   const message: Record<string, unknown> = {
     id: row.client_id,
@@ -283,7 +283,7 @@ router.get("/patient-chat/:thread", async (req, res) => {
       fetchPatientProfile(auth.patientId),
       supabaseAdmin(
         "GET",
-        `/rest/v1/patient_chat_conversations?patient_id=eq.${enc(auth.patientId)}&thread=eq.${enc(thread)}&select=id`,
+          `/rest/v1/patient_chat_conversations?patient_id=eq.${enc(auth.patientId)}&thread=eq.${enc(thread)}${thread === "coach" ? "&legacy_compat=eq.true" : ""}&select=id`,
       ),
     ]);
     if (conversation.status >= 300 || !Array.isArray(conversation.json)) {
@@ -303,7 +303,7 @@ router.get("/patient-chat/:thread", async (req, res) => {
       if (stored.status >= 300 || !Array.isArray(stored.json)) {
         throw new Error(`chat transcript read failed (${stored.status})`);
       }
-      messages = (stored.json as unknown[]).reverse().map(rowToClientMessage);
+      messages = (stored.json as unknown[]).reverse().map(rowToPatientChatMessage);
     }
 
     res.json({
@@ -350,9 +350,9 @@ router.post("/patient-chat/:thread/messages", async (req, res) => {
       res.status(400).json({ error: "Invalid message batch." });
       return;
     }
-    const rows: WireRow[] = [];
+    const rows: ChatWireRow[] = [];
     for (const raw of body.messages) {
-      const parsed = parseWireMessage(raw, auth.patientId);
+      const parsed = parsePatientChatWireMessage(raw, auth.patientId);
       if ("error" in parsed) {
         res.status(400).json({ error: parsed.error });
         return;

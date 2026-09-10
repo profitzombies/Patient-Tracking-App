@@ -384,7 +384,7 @@ assert(
 const checkInSource = fs.readFileSync(new URL('../app/check-in.tsx', import.meta.url), 'utf8');
 assert('check-in note reads the shared assessment', checkInSource.includes('nudgeAssessment.active'));
 assert('check-in note hides once engaged', checkInSource.includes('nudgeEngaged'));
-assert('check-in note opens the coach chat', checkInSource.includes("router.push('/coach-chat')"));
+assert('check-in note opens Coach conversation history', checkInSource.includes("router.push('/coach-history'"));
 assert('check-in note offers the opt-out', checkInSource.includes('setNudgeOptOut(true)'));
 assert('paused row offers resume', checkInSource.includes('setNudgeOptOut(false)'));
 

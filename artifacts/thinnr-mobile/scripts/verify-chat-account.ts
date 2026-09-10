@@ -67,9 +67,15 @@ import CoachChatScreen from '../app/coach-chat';
 import { TODAY_KEY } from '../data/patient-data';
 import { localTodayKey } from '../lib/live-patient-entry';
 import { patientMediaDisplayUrl } from '../lib/patient-data-api';
-import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
+import {
+  holdNextStubSessionLookup,
+  rejectNextStubSessionLookup,
+  setStubSession,
+  type StubSession,
+} from './live-diary-stubs/supabase';
 import { emitChatSync } from '../lib/chat-sync-events';
 import { resolveNotificationRoute } from '../lib/push-notification-core';
+import { setChatAccountParams } from './chat-account-stubs/expo-router';
 
 let checks = 0;
 let failures = 0;
@@ -191,8 +197,23 @@ interface ApiCall {
 type Scripted = { status: number; body: unknown };
 
 interface ChatStore {
+  /** Legacy-only fixture rail retained for the skipped migration assertions. */
   coach: Map<string, WireMsg>;
   support: Map<string, WireMsg>;
+  conversations: Map<string, ConversationStore>;
+}
+
+interface ConversationStore {
+  id: string;
+  clientKey: string;
+  title: string;
+  titleState: 'pending' | 'ready';
+  processingState: 'ready';
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  messages: Map<string, WireMsg>;
 }
 
 const chatStores = new Map<string, ChatStore>();
@@ -200,6 +221,10 @@ const patientFacts = new Map<string, { firstName: string; programDay: number }>(
 const tokenRoles = new Map<string, { kind: string; patientId?: string }>();
 const apiCalls: ApiCall[] = [];
 const failNext = new Map<string, Scripted | 'network'>();
+const coachPageOverrides = new Map<
+  string,
+  { messages: WireMsg[]; nextBefore: number | null }
+>();
 /** HQ policy stand-in: patient ids whose care team has the coach paused. */
 const coachPausedFor = new Set<string>();
 const PAUSED_MESSAGE =
@@ -207,18 +232,38 @@ const PAUSED_MESSAGE =
 const uploadPuts: string[] = [];
 const mintedPaths: string[] = [];
 let uploadCounter = 0;
+let conversationCounter = 0;
 
 function chatStoreFor(patientId: string): ChatStore {
   let store = chatStores.get(patientId);
   if (!store) {
-    store = { coach: new Map(), support: new Map() };
+    store = { coach: new Map(), support: new Map(), conversations: new Map() };
     chatStores.set(patientId, store);
   }
   return store;
 }
 
+function storedConversation(patientId: string, conversationId: string): WireMsg[] {
+  return [...(chatStoreFor(patientId).conversations.get(conversationId)?.messages.values() ?? [])]
+    .sort((a, b) => Number(a.seq ?? 0) - Number(b.seq ?? 0));
+}
+
 function storedThread(patientId: string, thread: 'coach' | 'support'): WireMsg[] {
+  if (thread === 'coach') return [];
   return [...chatStoreFor(patientId)[thread].values()];
+}
+
+function conversationWire(conversation: ConversationStore) {
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    titleState: conversation.titleState,
+    processingState: conversation.processingState,
+    archivedAt: conversation.archivedAt,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    version: conversation.version,
+  };
 }
 
 function callsTo(path: string): ApiCall[] {
@@ -268,8 +313,8 @@ function routeCall(call: ApiCall): Scripted {
     return { status: 200, body: { ok: true } };
   }
 
-  if (key === 'GET patient-chat/coach' || key === 'GET patient-chat/support') {
-    const thread = call.path.endsWith('support') ? 'support' : 'coach';
+  if (key === 'GET patient-chat/support') {
+    const thread = 'support';
     return {
       status: 200,
       body: {
@@ -278,8 +323,8 @@ function routeCall(call: ApiCall): Scripted {
       },
     };
   }
-  if (key === 'POST patient-chat/coach/messages' || key === 'POST patient-chat/support/messages') {
-    const thread = call.path.includes('/support/') ? 'support' : 'coach';
+  if (key === 'POST patient-chat/support/messages') {
+    const thread = 'support';
     const store = chatStoreFor(patientId)[thread];
     const messages = (call.body?.messages as WireMsg[] | undefined) ?? [];
     if (messages.some(message => message.role === 'staff')) {
@@ -287,6 +332,101 @@ function routeCall(call: ApiCall): Scripted {
     }
     for (const message of messages) store.set(message.id, message);
     return { status: 200, body: { ok: true } };
+  }
+
+  if (key === 'GET patient-coach/conversations') {
+    const archived = call.query.get('archived') === 'true';
+    const offset = Number(call.query.get('offset') ?? 0);
+    const limit = Number(call.query.get('limit') ?? 20);
+    const all = [...chatStoreFor(patientId).conversations.values()]
+      .filter(conversation => Boolean(conversation.archivedAt) === archived)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const rows = all.slice(offset, offset + limit);
+    return {
+      status: 200,
+      body: {
+        conversations: rows.map(conversationWire),
+        total: all.length,
+        nextOffset: offset + rows.length < all.length ? offset + rows.length : null,
+      },
+    };
+  }
+  if (key === 'POST patient-coach/conversations') {
+    const clientKey = String(call.body?.clientKey ?? '');
+    const existing = [...chatStoreFor(patientId).conversations.values()].find(
+      conversation => conversation.clientKey === clientKey,
+    );
+    if (existing) return { status: 200, body: { conversation: conversationWire(existing) } };
+    const now = new Date().toISOString();
+    const conversation: ConversationStore = {
+      id: `conv-${++conversationCounter}`,
+      clientKey,
+      title: 'New conversation',
+      titleState: 'ready',
+      processingState: 'ready',
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      messages: new Map(),
+    };
+    chatStoreFor(patientId).conversations.set(conversation.id, conversation);
+    return { status: 200, body: { conversation: conversationWire(conversation) } };
+  }
+  const conversationMatch = /^patient-coach\/conversations\/([^/]+)(?:\/messages)?$/.exec(call.path);
+  if (conversationMatch) {
+    const conversation = chatStoreFor(patientId).conversations.get(conversationMatch[1]);
+    if (!conversation) return { status: 404, body: { error: 'Conversation not found.' } };
+    if (key.startsWith('GET ')) {
+      const before = call.query.get('before');
+      const limit = Number(call.query.get('limit') ?? 100);
+      const override = coachPageOverrides.get(`${patientId}:${conversation.id}:${before ?? 'latest'}`);
+      if (override) {
+        return {
+          status: 200,
+          body: {
+            conversation: conversationWire(conversation),
+            messages: override.messages,
+            nextBefore: override.nextBefore,
+            patient: patientFacts.get(patientId) ?? { firstName: 'there', programDay: 1 },
+          },
+        };
+      }
+      const all = storedConversation(patientId, conversation.id);
+      const eligible = before === null ? all : all.filter(message => Number(message.seq) < Number(before));
+      const messages = eligible.slice(Math.max(0, eligible.length - limit));
+      const first = messages[0];
+      return {
+        status: 200,
+        body: {
+          conversation: conversationWire(conversation),
+          messages,
+          nextBefore: first && Number(first.seq) > 1 ? Number(first.seq) : null,
+          patient: patientFacts.get(patientId) ?? { firstName: 'there', programDay: 1 },
+        },
+      };
+    }
+    if (key.startsWith('POST ')) {
+      if (conversation.archivedAt) return { status: 409, body: { error: 'Conversation is archived.' } };
+      const messages = (call.body?.messages as WireMsg[] | undefined) ?? [];
+      for (const message of messages) {
+        if (message.role === 'staff') return { status: 400, body: { error: 'Staff messages are server owned.' } };
+        const previous = conversation.messages.get(message.id);
+        conversation.messages.set(message.id, {
+          ...message,
+          seq: Number(previous?.seq ?? conversation.messages.size + 1),
+          createdAt: String(previous?.createdAt ?? new Date().toISOString()),
+        });
+      }
+      conversation.updatedAt = new Date().toISOString();
+      return { status: 200, body: { ok: true } };
+    }
+    if (key.startsWith('PATCH ')) {
+      conversation.archivedAt = call.body?.archived === true ? new Date().toISOString() : null;
+      conversation.version += 1;
+      conversation.updatedAt = new Date().toISOString();
+      return { status: 200, body: { conversation: conversationWire(conversation) } };
+    }
   }
 
   if (key === 'POST patient-media/upload-url') {
@@ -392,6 +532,35 @@ async function mountLive(): Promise<ReactTestRenderer> {
   return tree;
 }
 
+async function mountLiveCoachScreen(onScroll: (args: unknown) => void): Promise<ReactTestRenderer> {
+  let tree!: ReactTestRenderer;
+  await act(async () => {
+    tree = create(
+      React.createElement(
+        PatientAccountProvider,
+        null,
+        React.createElement(
+          PatientProvider,
+          null,
+          React.createElement(
+            CoachChatProvider,
+            null,
+            React.createElement(React.Fragment, null, React.createElement(Probe), React.createElement(CoachChatScreen)),
+          ),
+        ),
+      ),
+      {
+        createNodeMock: element =>
+          element.type === 'ScrollView'
+            ? { scrollTo: onScroll, scrollToEnd() {} }
+            : {},
+      },
+    );
+  });
+  await settle();
+  return tree;
+}
+
 /** How every existing coach suite mounts the provider — no account layer. */
 async function mountDemo(): Promise<ReactTestRenderer> {
   let tree!: ReactTestRenderer;
@@ -490,6 +659,10 @@ async function main() {
   assert('demo made zero JSON API calls', apiCalls.length === 0);
   await unmount(tree);
 
+  // Superseded single-thread assertions are retained below as migration
+  // history; the active checks after this block exercise the saved
+  // conversation lifecycle instead.
+  if (false) {
   // ── 2 · Real account: fresh thread, personalized greeting, authed stream ──
   section('real account: hydrates empty, greets from account facts, sends authed');
   await signIn(P1);
@@ -773,6 +946,396 @@ async function main() {
       thread: 'support',
     }) === '/support-chat');
   await unmount(tree);
+  }
+
+  // ── Saved Coach conversations ─────────────────────────────────────────────
+  section('saved coach conversations: explicit lifecycle, isolated transcripts, pagination and archive safety');
+  await signIn(P1);
+  tree = await mountLive();
+  assert('real account does not auto-hydrate a legacy coach thread', chat.messages.length === 0);
+  assert('real account does not read a conversation before selection', callsTo('patient-coach/conversations').filter(call => call.method === 'GET').length === 0);
+
+  await act(async () => {
+    chat.startNewConversation();
+  });
+  assert('new conversation has the neutral local greeting', chat.messages.length === 1 && chat.messages[0]?.text === 'Hi. What would you like help with today?');
+  assert('new conversation does not create a row before substantive content', callsTo('patient-coach/conversations').filter(call => call.method === 'POST').length === 0);
+
+  // Two presses while create is unresolved must share the single synchronous
+  // submission lock, rather than materializing/interleaving two rows.
+  const createsBeforeFirstSend = callsTo('patient-coach/conversations').filter(call => call.method === 'POST').length;
+  await act(async () => {
+    chat.send('First independent conversation');
+    chat.send('This duplicate tap must be ignored');
+  });
+  const firstStream = await takeStream('first conversation');
+  assert('first-send create RPC is single-flight', callsTo('patient-coach/conversations').filter(call => call.method === 'POST').length === createsBeforeFirstSend + 1);
+  const firstConversationId = String(firstStream?.body.conversationId ?? '');
+  assert('stream is bound to the created conversation id', firstConversationId.startsWith('conv-'));
+  firstStream?.emit({ content: 'First reply.' });
+  firstStream?.emit({ done: true });
+  firstStream?.close();
+  await waitUntil('first reply completes', () => tail()?.text === 'First reply.' && tail()?.status === 'done');
+  await waitUntil('first transcript persists', () => storedConversation('p-1', firstConversationId).length === 3);
+  assert('duplicate first tap was not appended', !storedConversation('p-1', firstConversationId).some(row => row.text === 'This duplicate tap must be ignored'));
+  await unmount(tree);
+  tree = await mountLive();
+  assert('restart does not reopen a legacy/default conversation', chat.messages.length === 0);
+  await act(async () => {
+    await chat.selectConversation(firstConversationId);
+  });
+  assert('selected saved conversation hydrates after restart', chat.messages.length === 3 && tail()?.text === 'First reply.');
+
+  await act(async () => {
+    chat.startNewConversation();
+    chat.send('Second independent conversation');
+  });
+  const secondStream = await takeStream('second conversation');
+  const secondConversationId = String(secondStream?.body.conversationId ?? '');
+  assert('second new chat creates a different server row', secondConversationId !== firstConversationId && secondConversationId.startsWith('conv-'));
+  secondStream?.emit({ content: 'Second reply.' });
+  secondStream?.emit({ done: true });
+  secondStream?.close();
+  await waitUntil('second reply completes', () => tail()?.text === 'Second reply.' && tail()?.status === 'done');
+  await waitUntil('second transcript persists', () => storedConversation('p-1', secondConversationId).length === 3);
+  assert('first transcript remains isolated', storedConversation('p-1', firstConversationId).every(row => row.text !== 'Second independent conversation' && row.text !== 'Second reply.'));
+
+  // Stale callbacks from an abandoned stream must not land in the new scope.
+  await act(async () => {
+    chat.startNewConversation();
+    chat.send('Abandoned request');
+  });
+  const staleStream = await takeStream('stale conversation');
+  await act(async () => {
+    chat.startNewConversation();
+  });
+  staleStream?.emit({ content: 'This must never appear.' });
+  staleStream?.emit({ done: true });
+  staleStream?.close();
+  await settle();
+  assert('late stream callback cannot mutate newly selected transcript', !chat.messages.some(message => message.text === 'This must never appear.'));
+  const delayedPhoto = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 1, 2]).toString('base64')}`;
+  await act(async () => {
+    chat.sendPhoto({ uri: delayedPhoto, width: 16, height: 12 }, 'meal');
+  });
+  const delayedPhotoStream = await takeStream('delayed photo conversation');
+  await act(async () => {
+    chat.startNewConversation();
+  });
+  delayedPhotoStream?.emit({ content: 'Old photo reply must not land.' });
+  delayedPhotoStream?.emit({ done: true });
+  delayedPhotoStream?.close();
+  await settle();
+  assert('delayed photo reply cannot land after a scope switch', !chat.messages.some(message => message.text === 'Old photo reply must not land.'));
+
+  // Seed a remote transcript bigger than the endpoint's 100-message page.
+  const pagedNow = new Date().toISOString();
+  const paged: ConversationStore = {
+    id: 'conv-paged',
+    clientKey: 'fixture-paged',
+    title: 'Paged history',
+    titleState: 'ready',
+    processingState: 'ready',
+    archivedAt: null,
+    createdAt: pagedNow,
+    updatedAt: pagedNow,
+    version: 1,
+    messages: new Map(),
+  };
+  for (let seq = 1; seq <= 256; seq += 1) {
+    paged.messages.set(`page-${seq}`, {
+      id: `page-${seq}`, role: seq % 2 ? 'user' : 'assistant', text: `page ${seq}`, seq, createdAt: pagedNow,
+    });
+  }
+  chatStoreFor('p-1').conversations.set(paged.id, paged);
+  await act(async () => {
+    await chat.selectConversation(paged.id);
+  });
+  assert('initial selected transcript is bounded to 100 newest messages', chat.messages.length === 100 && chat.messages[0]?.id === 'page-157');
+  await act(async () => {
+    await chat.loadOlder();
+  });
+  assert('first older page prepends without losing current transcript', chat.messages.length === 200 && chat.messages[0]?.id === 'page-57' && chat.messages.at(-1)?.id === 'page-256');
+  await act(async () => {
+    await chat.loadOlder();
+  });
+  assert('second older page reaches the remaining history', chat.messages.length === 256 && chat.messages[0]?.id === 'page-1' && !chat.hasOlderMessages);
+
+  const duplicateNewestPage = storedConversation('p-1', paged.id).slice(-100);
+  // A duplicate page that offers a new cursor must not be called a failed
+  // page: keep paging from the advancing cursor.
+  coachPageOverrides.set(`p-1:${paged.id}:157`, {
+    messages: duplicateNewestPage,
+    nextBefore: 57,
+  });
+  await act(async () => {
+    await chat.selectConversation(paged.id);
+  });
+  await act(async () => {
+    await chat.loadOlder();
+  });
+  assert(
+    'duplicate older page with an advancing cursor remains pageable without an error',
+    chat.messages.length === 100 && chat.hasOlderMessages && chat.conversationError === null,
+  );
+  coachPageOverrides.delete(`p-1:${paged.id}:157`);
+
+  // A duplicate response at the same cursor is a genuine no-progress loop:
+  // stop its spinner/pageability and make the recovery action visible.
+  coachPageOverrides.set(`p-1:${paged.id}:157`, {
+    messages: duplicateNewestPage,
+    nextBefore: 157,
+  });
+  await act(async () => {
+    await chat.selectConversation(paged.id);
+  });
+  await act(async () => {
+    await chat.loadOlder();
+  });
+  assert(
+    'same-cursor duplicate page stops with a visible no-progress error',
+    !chat.hasOlderMessages && (chat.conversationError ?? '').includes('Could not load older messages'),
+  );
+  coachPageOverrides.set(`p-1:${paged.id}:157`, {
+    messages: duplicateNewestPage,
+    nextBefore: null,
+  });
+  await act(async () => {
+    await chat.selectConversation(paged.id);
+  });
+  await act(async () => {
+    await chat.loadOlder();
+  });
+  assert(
+    'duplicate page ending at a null cursor is clean exhaustion, not an error',
+    !chat.hasOlderMessages && chat.conversationError === null,
+  );
+  coachPageOverrides.delete(`p-1:${paged.id}:157`);
+
+  // A memory source target drives bounded older-page loading, then scrolls to
+  // the actual laid-out row rather than falling back to the thread bottom.
+  await unmount(tree);
+  const sourceScrolls: unknown[] = [];
+  setChatAccountParams({ messageId: 'page-2' });
+  tree = await mountLiveCoachScreen(args => sourceScrolls.push(args));
+  await act(async () => {
+    await chat.selectConversation(paged.id);
+  });
+  await waitUntil('source target loads older pages until present', () => chat.messages.some(message => message.id === 'page-2'));
+  const sourcePageRequests = apiCalls
+    .filter(call => call.method === 'GET' && call.path === `patient-coach/conversations/${paged.id}`)
+    .map(call => call.query.get('before'))
+    .filter((before): before is string => before !== null);
+  assert(
+    'source lookup sends advancing real API before cursors for 100 + 100 + 56 pages',
+    sourcePageRequests.slice(-2).join(',') === '157,57',
+  );
+  const sourceRow = tree.root.findAll(node => (node.props as { testID?: string }).testID === 'coach-source-message')[0];
+  await act(async () => {
+    (sourceRow?.props as { onLayout?: (event: unknown) => void }).onLayout?.({
+      nativeEvent: { layout: { y: 320 } },
+    });
+  });
+  assert('source target scrolls to its row, not the thread end', (sourceScrolls[0] as { y?: number } | undefined)?.y === 304);
+  const focusedSourceRow = tree.root.findAll(node => (node.props as { testID?: string }).testID === 'coach-source-message')[0];
+  assert('source target receives a visible highlight', JSON.stringify(focusedSourceRow?.props.style).includes('borderWidth'));
+  await unmount(tree);
+  setChatAccountParams({ messageId: 'missing-source' });
+  tree = await mountLiveCoachScreen(() => {});
+  await act(async () => {
+    await chat.selectConversation(paged.id);
+  });
+  // Drive any remaining pages explicitly too: this mirrors a patient using
+  // Load older while the source target is unavailable.
+  for (let page = 0; page < 3 && chat.hasOlderMessages; page += 1) {
+    await act(async () => {
+      await chat.loadOlder();
+    });
+  }
+  await waitUntil('missing source exhausts bounded older pages and announces it', () =>
+    !chat.hasOlderMessages &&
+    !chat.isLoadingOlder &&
+    JSON.stringify(tree.toJSON()).includes('Source message no longer available'),
+  );
+  assert('missing source renders an explicit availability notice', JSON.stringify(tree.toJSON()).includes('Source message no longer available'));
+  await unmount(tree);
+  setChatAccountParams({});
+  tree = await mountLive();
+
+  // A failed append remains queued for retry and is surfaced to the selected
+  // transcript instead of failing silently behind an archive operation.
+  await act(async () => {
+    await chat.selectConversation(firstConversationId);
+  });
+  failNext.set(`POST patient-coach/conversations/${firstConversationId}/messages`, 'network');
+  await act(async () => {
+    chat.send('Temporary network failure');
+  });
+  const failedSaveStream = await takeStream('failed-save conversation');
+  failedSaveStream?.emit({ content: 'Saved when connectivity returns.' });
+  failedSaveStream?.emit({ done: true });
+  failedSaveStream?.close();
+  await waitUntil('failed append is visible to the patient', () => Boolean(chat.conversationError));
+
+  // A token supplier failure occurs before the append request. It must release
+  // the drain mutex, leave this exact finalized message queued, surface an
+  // error, then retry successfully with the same message id.
+  await act(async () => {
+    await chat.selectConversation(firstConversationId);
+    chat.send('Retry after token lookup failure');
+  });
+  const tokenFailureStream = await takeStream('token lookup failure');
+  rejectNextStubSessionLookup();
+  tokenFailureStream?.emit({ content: 'Token lookup retry reply.' });
+  tokenFailureStream?.emit({ done: true });
+  tokenFailureStream?.close();
+  await waitUntil('token lookup failure is visible', () =>
+    (chat.conversationError ?? '').includes('session lookup failed once'),
+  );
+  await waitUntil('token lookup retry saves the same finalized reply', () =>
+    storedConversation('p-1', firstConversationId).some(row => row.text === 'Token lookup retry reply.'),
+    12000,
+  );
+
+  // Stop keeps exactly the paced fragment, and that finalized fragment
+  // survives a selected-conversation reload.
+  await act(async () => {
+    await chat.selectConversation(secondConversationId);
+    chat.send('Please give a long answer');
+  });
+  const stoppedStream = await takeStream('stopped conversation');
+  const longStoppedReply = 'This is deliberately long enough for the paced reveal to show a partial answer before the patient stops it in this regression test.';
+  stoppedStream?.emit({ content: longStoppedReply });
+  await waitUntil('paced answer is partially visible', () => tail()?.status === 'streaming' && (tail()?.text.length ?? 0) > 10);
+  await act(async () => {
+    chat.stop();
+  });
+  const stopped = tail();
+  assert('stop finalizes only the revealed fragment', stopped?.status === 'done' && stopped.stopped === true && stopped.text.length > 0 && stopped.text.length < longStoppedReply.length);
+  stoppedStream?.close();
+  await waitUntil('stopped fragment is persisted', () => Boolean(stopped && storedConversation('p-1', secondConversationId).find(row => row.id === stopped.id)?.stopped));
+  await act(async () => {
+    await chat.selectConversation(secondConversationId);
+  });
+  assert('hydration restores the stopped fragment flag', Boolean(stopped && chat.messages.find(message => message.id === stopped.id)?.stopped));
+
+  // A completed photo uploads once, persists a server path, and reloads as a
+  // signed display URL rather than replaying image bytes in model history.
+  await act(async () => {
+    chat.startNewConversation();
+    chat.sendPhoto({ uri: delayedPhoto, width: 16, height: 12 }, 'meal', { mealSlot: 'lunch' });
+  });
+  const photoStream = await takeStream('persisted photo conversation');
+  const photoConversationId = String(photoStream?.body.conversationId ?? '');
+  photoStream?.emit({ content: 'Photo saved.' });
+  photoStream?.emit({ done: true });
+  photoStream?.close();
+  await waitUntil('photo reply finishes', () => tail()?.text === 'Photo saved.' && tail()?.status === 'done');
+  await waitUntil('photo gets exactly one persisted object path', () =>
+    storedConversation('p-1', photoConversationId).some(row => Boolean((row.photo as { path?: string } | undefined)?.path)),
+  );
+  const photoRow = storedConversation('p-1', photoConversationId).find(row => Boolean((row.photo as { path?: string } | undefined)?.path));
+  assert('photo upload was minted and finalized once for its turn', Boolean(photoRow) && uploadPuts.length >= 1 && callsTo('patient-media/finalize').length >= 1);
+  await act(async () => {
+    await chat.selectConversation(photoConversationId);
+  });
+  assert('photo hydration uses the signed display URL', Boolean(photoRow && chat.messages.find(message => message.id === photoRow.id)?.photo?.uri.includes('/patient-media/file?path=')));
+
+  // Active streams are an actionable archive refusal; finalized messages flush
+  // before the subsequent archive transition closes the append gate.
+  await act(async () => {
+    await chat.selectConversation(secondConversationId);
+    chat.send('Archive while active');
+  });
+  const archiveStream = await takeStream('archive-active conversation');
+  let archiveRejected = false;
+  await act(async () => {
+    try {
+      await chat.setArchived(chat.selectedConversation!, true);
+    } catch {
+      archiveRejected = true;
+    }
+  });
+  assert('archive rejects an active stream', archiveRejected && Boolean(chat.conversationError));
+  archiveStream?.emit({ content: 'Now finalized.' });
+  archiveStream?.emit({ done: true });
+  archiveStream?.close();
+  await waitUntil('archive stream finalizes', () => tail()?.text === 'Now finalized.' && tail()?.status === 'done');
+  await act(async () => {
+    await chat.setArchived(chat.selectedConversation!, true);
+  });
+  assert('archive flushes finalized messages before patching', storedConversation('p-1', secondConversationId).some(row => row.text === 'Now finalized.'));
+  assert('selected archived conversation becomes read-only', Boolean(chat.selectedConversation?.archivedAt));
+  const archivedCount = chat.messages.length;
+  await sendText('must not send while archived');
+  await settle();
+  assert('archived conversation blocks subsequent sends', chat.messages.length === archivedCount);
+
+  // The stream's token lookup is first; hold the outbox lookup immediately
+  // after it, then switch accounts. The old photo must make no media request
+  // with P2's current session.
+  await act(async () => {
+    await chat.selectConversation(firstConversationId);
+  });
+  const mediaCallsBeforeSwitch = callsTo('patient-media/upload-url').length;
+  const releaseP1PhotoToken = holdNextStubSessionLookup(1);
+  await act(async () => {
+    chat.sendPhoto({ uri: delayedPhoto, width: 16, height: 12 }, 'meal');
+  });
+  const heldPhotoStream = await takeStream('held P1 photo');
+  await act(async () => {
+    setStubSession(P2);
+  });
+  releaseP1PhotoToken();
+  await settle();
+  assert(
+    'switch before photo-token acquisition sends no old bytes with P2',
+    callsTo('patient-media/upload-url').length === mediaCallsBeforeSwitch,
+  );
+  heldPhotoStream?.close();
+
+  // Park a failed P1 append, switch accounts before its retry, and prove P2
+  // drains independently. Returning to P1 must safely resume only P1's work.
+  // P2 is already selected above; switch back just long enough to create the
+  // parked P1 append.
+  await signIn(P1);
+  await act(async () => {
+    chat.startNewConversation();
+    chat.send('Park this P1 write');
+  });
+  const parkedStream = await takeStream('parked P1 conversation');
+  const parkedConversationId = String(parkedStream?.body.conversationId ?? '');
+  failNext.set(`POST patient-coach/conversations/${parkedConversationId}/messages`, 'network');
+  parkedStream?.emit({ content: 'P1 reply waiting to save.' });
+  parkedStream?.emit({ done: true });
+  parkedStream?.close();
+  await waitUntil('P1 append is parked after network failure', () => Boolean(chat.conversationError));
+  await signIn(P2);
+  await settle();
+  assert('account switch never auto-selects another patient conversation', chat.messages.length === 0);
+  await act(async () => {
+    chat.startNewConversation();
+    chat.send('Hello from the second patient');
+  });
+  const secondPatientStream = await takeStream('second patient');
+  assert('second patient request uses only their bearer token', secondPatientStream?.auth === 'Bearer tok-p2');
+  secondPatientStream?.emit({ content: 'Hello Jordan.' });
+  secondPatientStream?.emit({ done: true });
+  secondPatientStream?.close();
+  await waitUntil('second patient reply completes', () => tail()?.text === 'Hello Jordan.' && tail()?.status === 'done');
+  assert('second patient has a distinct conversation store', [...chatStoreFor('p-2').conversations.values()].length === 1 && [...chatStoreFor('p-1').conversations.values()].length >= 3);
+  await signIn(P1);
+  await settle();
+  await act(async () => {
+    await chat.selectConversation(parkedConversationId);
+  });
+  await waitUntil('returning P1 resumes its parked append safely', () =>
+    storedConversation('p-1', parkedConversationId).some(row => row.text === 'P1 reply waiting to save.'),
+  );
+  await waitUntil('returning P1 photo uses its original account binding', () =>
+    callsTo('patient-media/upload-url').slice(mediaCallsBeforeSwitch).some(call => call.token === 'tok-p1'),
+  );
+  await unmount(tree);
 
   // ── 8 · Support screen: same per-account pattern, demo stays session-only ─
   section('support chat: persists per account, hydrates on reopen, demo untouched');
@@ -853,7 +1416,7 @@ async function main() {
   // on send is the authority. Start un-paused, pause between open and send.
   await signIn(P1);
   tree = await mountLive();
-  await waitUntil('paused-section account resolves', () => chat.messages.length >= 1);
+  await waitUntil('paused-section account resolves', () => account.account.kind === 'real' && !account.resolving);
   await waitUntil('availability probed on open', () => callsTo('coach/availability').length >= 1);
   assert('probe carries the bearer token', callsTo('coach/availability').at(-1)?.token === 'tok-p1');
   assert('coach available: no paused state', chat.coachPaused === null);

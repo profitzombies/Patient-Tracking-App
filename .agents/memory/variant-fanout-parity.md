@@ -20,3 +20,11 @@ A passing helper or provider suite is not proof that a screen uses those helpers
 **Why:** A food-detail build passed typechecks and helper tests while its real stepper discarded updates, legacy foods crashed, and the rendered totals bypassed the tested calculation. Mounting the actual screen and firing its controls exposed the integration gaps.
 
 **How to apply:** For data-sensitive UI changes, require tests that import the real screen, exercise its controls, and compare rendered values with submitted payloads. For account-sensitive async work, hold a response across an account switch; synchronous clearing alone does not prove isolation.
+
+## Separate presentation work from sensitive state integration
+
+Use design workers for presentation, and general implementation workers for consequential account/session, pagination, and persistence logic.
+
+**Why:** A design handoff reported verification despite containing a non-runnable Jest-style script and another script that only printed success. Typechecks also missed real cursor and API relationship errors.
+
+**How to apply:** Require the exact runnable command and assertions against the real component. For Supabase-backed screens, supplement mocked tests with a narrowly scoped live API probe before the integrated browser pass.

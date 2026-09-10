@@ -1158,6 +1158,143 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /patient-coach/conversations:
+    get:
+      operationId: listPatientCoachConversations
+      tags: [coach]
+      summary: List the signed-in patient's coach conversations
+      parameters:
+        - { name: archived, in: query, schema: { type: boolean, default: false } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 20 } }
+        - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
+      responses:
+        "200": { description: "Conversations, newest activity first", content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationList" } } } }
+        "401": { description: Missing or invalid patient session }
+    post:
+      operationId: createPatientCoachConversation
+      tags: [coach]
+      summary: Lazily create a coach conversation using an idempotent client key
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationCreateInput" } } }
+      responses:
+        "200": { description: Existing or newly created conversation, content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationResult" } } } }
+        "400": { description: Invalid client key }
+        "401": { description: Missing or invalid patient session }
+  /patient-coach/conversations/{conversationId}:
+    get:
+      operationId: getPatientCoachConversation
+      tags: [coach]
+      summary: Read one signed-in patient's coach transcript page
+      parameters:
+        - $ref: "#/components/parameters/CoachConversationId"
+        - { name: before, in: query, schema: { type: number, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 100 } }
+        - { name: today, in: query, schema: { type: string, maxLength: 20 } }
+      responses:
+        "200": { description: Chronological transcript page, content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationDetail" } } } }
+        "404": { description: Conversation not found }
+    patch:
+      operationId: updatePatientCoachConversation
+      tags: [coach]
+      summary: Archive or restore a coach conversation
+      parameters:
+        - $ref: "#/components/parameters/CoachConversationId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationUpdateInput" } } }
+      responses:
+        "200": { description: Updated conversation, content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationResult" } } } }
+        "404": { description: Conversation not found }
+        "409": { description: Conversation changed; refresh before retrying }
+  /patient-coach/conversations/{conversationId}/messages:
+    post:
+      operationId: appendPatientCoachMessages
+      tags: [coach]
+      summary: Idempotently append finalized visible coach messages
+      parameters:
+        - $ref: "#/components/parameters/CoachConversationId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationAppendInput" } } }
+      responses:
+        "200": { description: Messages stored, content: { application/json: { schema: { $ref: "#/components/schemas/OkResult" } } } }
+        "403": { description: Conversation is archived }
+        "404": { description: Conversation not found }
+  /patient-coach/conversations/{conversationId}/retry-processing:
+    post:
+      operationId: retryPatientCoachProcessing
+      tags: [coach]
+      summary: Retry failed bounded coach metadata processing
+      parameters:
+        - $ref: "#/components/parameters/CoachConversationId"
+      responses:
+        "200": { description: Processing queued, content: { application/json: { schema: { $ref: "#/components/schemas/OkResult" } } } }
+        "404": { description: Conversation not found }
+  /patient-coach/memories:
+    get:
+      operationId: listPatientCoachMemories
+      tags: [coach]
+      summary: List active and pending patient-owned coach memories
+      parameters:
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 20 } }
+        - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
+      responses:
+        "200": { description: Memories, content: { application/json: { schema: { $ref: "#/components/schemas/CoachMemoryList" } } } }
+  /patient-coach/memories/{memoryId}:
+    patch:
+      operationId: updatePatientCoachMemory
+      tags: [coach]
+      summary: Approve, decline, forget, or correct a coach memory
+      parameters:
+        - $ref: "#/components/parameters/CoachMemoryId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CoachMemoryUpdateInput" } } }
+      responses:
+        "200": { description: Updated memory, content: { application/json: { schema: { $ref: "#/components/schemas/CoachMemoryResult" } } } }
+        "404": { description: Memory not found }
+        "409": { description: Memory changed; refresh before retrying }
+  /office/patients/{patientId}/coach-conversations:
+    get:
+      operationId: listOfficePatientCoachConversations
+      tags: [coach, office]
+      summary: List authorized patient's coach conversations, including archived
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 20 } }
+        - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
+      responses:
+        "200": { description: Authorized coach conversations, content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationList" } } } }
+        "404": { description: Patient unavailable in this office }
+  /office/patients/{patientId}/coach-conversations/{conversationId}:
+    get:
+      operationId: getOfficePatientCoachConversation
+      tags: [coach, office]
+      summary: Read an authorized patient's paginated coach transcript
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/CoachConversationId"
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: before, in: query, schema: { type: number, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 100 } }
+      responses:
+        "200": { description: Authorized chronological transcript page, content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationDetail" } } } }
+        "404": { description: Conversation unavailable in this office }
+  /office/patients/{patientId}/coach-memories:
+    get:
+      operationId: listOfficePatientCoachMemories
+      tags: [coach, office]
+      summary: List active approved coach memories for an authorized patient
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 100, default: 20 } }
+        - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
+      responses:
+        "200": { description: Active approved memories, content: { application/json: { schema: { $ref: "#/components/schemas/CoachMemoryList" } } } }
+        "404": { description: Patient unavailable in this office }
   /office/roster:
     get:
       operationId: getOfficeRoster
@@ -2576,7 +2713,7 @@ components:
         department: { type: string, enum: [clinical, support] }
     ConversationSummary:
       type: object
-      required: [id, patientId, patientName, thread, channel, providerId, officeName, status, autoClosed, assignee, unread, messageCount, lastMessageAt, lastPatientMessageAt, lastStaffReplyAt, preview, noteCount, openEscalation, createdAt]
+      required: [id, patientId, patientName, thread, channel, providerId, officeName, status, autoClosed, assignee, unread, messageCount, lastMessageAt, lastPatientMessageAt, lastStaffReplyAt, preview, noteCount, openEscalation, createdAt, title, archivedAt]
       properties:
         id: { type: string }
         patientId: { type: string }
@@ -2603,6 +2740,120 @@ components:
             - type: "null"
         createdAt: { type: string }
         autoClosed: { type: boolean, description: "Workflow status is open or waiting, but the thread has been idle past the organization's auto-close window and is reported as closed" }
+        title: { type: ["string", "null"], description: "Coach conversation title when thread is coach" }
+        archivedAt: { type: ["string", "null"], format: date-time, description: "Coach archive timestamp when thread is coach" }
+    CoachConversation:
+      type: object
+      required: [id, title, titleState, archivedAt, createdAt, updatedAt, version, processingState]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        titleState: { type: string, enum: [pending, ready, failed] }
+        archivedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        version: { type: number }
+        processingState: { type: string, enum: [pending, ready, failed] }
+    CoachConversationList:
+      type: object
+      required: [conversations, total, nextOffset]
+      properties:
+        conversations: { type: array, items: { $ref: "#/components/schemas/CoachConversation" } }
+        total: { type: number }
+        nextOffset: { type: ["number", "null"] }
+    CoachConversationResult:
+      type: object
+      required: [conversation]
+      properties:
+        conversation: { $ref: "#/components/schemas/CoachConversation" }
+    CoachConversationCreateInput:
+      type: object
+      additionalProperties: false
+      required: [clientKey]
+      properties:
+        clientKey: { type: string, minLength: 1, maxLength: 128 }
+    CoachChatWireMessage:
+      type: object
+      required: [id, role, text]
+      properties:
+        id: { type: string, pattern: "^[A-Za-z0-9._:-]{1,64}$" }
+        role: { type: string, enum: [user, assistant] }
+        text: { type: string, maxLength: 40000 }
+        stopped: { type: boolean }
+        hidden: { type: boolean }
+        card: { type: object, additionalProperties: true }
+        quickReplies: { type: array, maxItems: 4, items: { type: string, maxLength: 80 } }
+        replyToId: { type: string, pattern: "^[A-Za-z0-9._:-]{1,64}$" }
+        photo: { type: object, additionalProperties: true }
+        seq: { type: number }
+        createdAt: { type: string, format: date-time }
+    CoachConversationAppendInput:
+      type: object
+      additionalProperties: false
+      required: [messages]
+      properties:
+        messages: { type: array, minItems: 1, maxItems: 20, items: { $ref: "#/components/schemas/CoachChatWireMessage" } }
+    CoachConversationUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [archived, expectedVersion]
+      properties:
+        archived: { type: boolean }
+        expectedVersion: { type: number, minimum: 1 }
+    CoachConversationDetail:
+      type: object
+      required: [conversation, messages, nextBefore, patient]
+      properties:
+        conversation: { $ref: "#/components/schemas/CoachConversation" }
+        messages: { type: array, items: { $ref: "#/components/schemas/CoachChatWireMessage" } }
+        nextBefore: { type: ["number", "null"] }
+        patient:
+          type: object
+          required: [firstName, programDay]
+          properties:
+            firstName: { type: string }
+            programDay: { type: number }
+    CoachMemory:
+      type: object
+      required: [id, text, category, sensitivity, state, sourceConversationId, sourceMessageId, sourceCreatedAt, createdAt, updatedAt, confirmedAt, version]
+      properties:
+        id: { type: string }
+        text: { type: string }
+        category: { type: string }
+        sensitivity: { type: string, enum: [ordinary, sensitive] }
+        state: { type: string, enum: [active, pending, declined, removed, superseded] }
+        sourceConversationId: { type: ["string", "null"] }
+        sourceMessageId: { type: ["string", "null"] }
+        sourceCreatedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        confirmedAt: { type: ["string", "null"], format: date-time }
+        version: { type: number }
+    CoachMemoryList:
+      type: object
+      required: [memories, total, nextOffset]
+      properties:
+        memories: { type: array, items: { $ref: "#/components/schemas/CoachMemory" } }
+        total: { type: number }
+        nextOffset: { type: ["number", "null"] }
+    CoachMemoryUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [action, expectedVersion]
+      properties:
+        action: { type: string, enum: [approve, decline, forget, correct] }
+        expectedVersion: { type: number, minimum: 1 }
+        text: { type: string, minLength: 1, maxLength: 2000 }
+    CoachMemoryResult:
+      type: object
+      required: [memory]
+      properties:
+        memory: { $ref: "#/components/schemas/CoachMemory" }
+    OkResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, const: true }
     ConversationSummaryResult:
       type: object
       required: [conversations, total, autoCloseDays]
@@ -3701,6 +3952,11 @@ components:
     CoachChatInput:
       type: object
       properties:
+        conversationId:
+          type: string
+          description: >-
+            Optional active Coach conversation. When omitted, the compatibility
+            Coach transcript is used for older clients.
         messages:
           type: array
           items:
@@ -4747,6 +5003,16 @@ components:
       required:
         - status
   parameters:
+    CoachConversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema: { type: string }
+    CoachMemoryId:
+      name: memoryId
+      in: path
+      required: true
+      schema: { type: string }
     BloodworkReportId:
       name: reportId
       in: path

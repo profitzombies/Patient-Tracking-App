@@ -39,11 +39,15 @@ import systemJobsRouter from "./system-jobs";
 import officeLeaderboardRouter from "./office-leaderboard";
 import bloodworkRouter from "./bloodwork";
 import patientCareTeamRouter from "./patient-care-team";
+import coachMemoryRouter from "./coach-memory";
+import coachConversationsRouter from "./coach-conversations";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(coachRouter);
+router.use(coachMemoryRouter);
+router.use(coachConversationsRouter);
 router.use(supportRouter);
 router.use(recipeImageRouter);
 router.use(menuScanRouter);

@@ -51,7 +51,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { CoachCardSlot } from "@/components/coach/CoachCardSlot";
 import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
 import type { CoachStage } from "@/lib/coach-api";
@@ -134,7 +134,23 @@ export default function CoachChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { messages, isStreaming, send, sendPhoto, stop, coachPaused, refreshThread } =
+  const {
+    messages,
+    isStreaming,
+    send,
+    sendPhoto,
+    stop,
+    coachPaused,
+    refreshThread,
+    selectedConversation,
+    conversationScopeKey,
+    conversationError,
+    isConversationLoading,
+    hasOlderMessages,
+    isLoadingOlder,
+    loadOlder,
+    startNewConversation,
+  } =
     useCoachChat();
   const [draft, setDraft] = useState("");
   const [photoOptionsOpen, setPhotoOptionsOpen] = useState(false);
@@ -148,11 +164,72 @@ export default function CoachChatScreen() {
   // Where the staged photo came from, so "Retake" reopens the same source
   // (the camera again, or straight back into the library).
   const stagedSourceRef = useRef<FoodCameraCapture["source"]>("camera");
+  const nativeOperationEpochRef = useRef(0);
+  const sourcePageRequestRef = useRef<string | null>(null);
+  const sourceLayoutsRef = useRef(new Map<string, number>());
+  const [focusedSourceMessageId, setFocusedSourceMessageId] = useState<string | null>(null);
+  const [sourceUnavailable, setSourceUnavailable] = useState(false);
   // Reveal ticks change `messages` ~30×/s while a reply types out; only pin
   // to the bottom while the patient is already reading there, so scrolling
   // up to re-read older answers never fights the typing animation.
   const nearBottomRef = useRef(true);
   const messageCountRef = useRef(0);
+
+  // Camera/library promises may settle after a different conversation (or
+  // account) was selected. Drop their result rather than staging its bytes in
+  // the new context.
+  useEffect(() => {
+    nativeOperationEpochRef.current += 1;
+    setDraft("");
+    setStagedPhoto(null);
+    setPhotoOptionsOpen(false);
+    setPhotoError(null);
+  }, [conversationScopeKey]);
+
+  // Memory source links can point beyond the newest transcript page. Page
+  // backward one bounded page at a time until the cited client message is
+  // present (or the server says there is no older history), never by loading
+  // another conversation or an unbounded transcript.
+  const sourceMessageId = useLocalSearchParams<{ messageId?: string }>().messageId;
+  const sourceIsPresent = Boolean(
+    sourceMessageId && messages.some(message => message.id === sourceMessageId),
+  );
+  const showSourceUnavailable =
+    sourceUnavailable ||
+    Boolean(sourceMessageId && !sourceIsPresent && !hasOlderMessages && !isLoadingOlder);
+  useEffect(() => {
+    sourceLayoutsRef.current.clear();
+    setFocusedSourceMessageId(null);
+    setSourceUnavailable(false);
+    if (sourceMessageId) nearBottomRef.current = false;
+  }, [sourceMessageId, conversationScopeKey]);
+  useEffect(() => {
+    if (!sourceMessageId || sourceIsPresent) {
+      sourcePageRequestRef.current = null;
+      return;
+    }
+    if (!hasOlderMessages || isLoadingOlder) return;
+    const requestKey = `${conversationScopeKey}:${sourceMessageId}:${messages.length}`;
+    if (sourcePageRequestRef.current === requestKey) return;
+    sourcePageRequestRef.current = requestKey;
+    void loadOlder();
+  }, [
+    sourceMessageId,
+    sourceIsPresent,
+    messages.length,
+    hasOlderMessages,
+    isLoadingOlder,
+    loadOlder,
+    conversationScopeKey,
+  ]);
+
+  useEffect(() => {
+    if (!sourceMessageId || sourceIsPresent || hasOlderMessages || isLoadingOlder) return;
+    setSourceUnavailable(true);
+    if (Platform.OS === "ios") {
+      AccessibilityInfo.announceForAccessibility("Source message no longer available");
+    }
+  }, [sourceMessageId, sourceIsPresent, hasOlderMessages, isLoadingOlder]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -170,7 +247,10 @@ export default function CoachChatScreen() {
     // home), but during a paced reveal only keep following from the bottom.
     const appended = messages.length !== messageCountRef.current;
     messageCountRef.current = messages.length;
-    if (appended) nearBottomRef.current = true;
+    if (appended && !sourceMessageId) nearBottomRef.current = true;
+    // Do not yank a memory source lookup to the newest bubble while it is
+    // paging backward or laying out the target row.
+    if (sourceMessageId && focusedSourceMessageId !== sourceMessageId) return;
     if (!nearBottomRef.current) return;
     // Immediate pin (reveal ticks outrun the debounce below), then a trailing
     // animated settle once the burst pauses and layout has caught up.
@@ -180,7 +260,15 @@ export default function CoachChatScreen() {
       40,
     );
     return () => clearTimeout(timer);
-  }, [messages]);
+  }, [messages, sourceMessageId, focusedSourceMessageId]);
+
+  const onSourceMessageLayout = (messageId: string, y: number) => {
+    sourceLayoutsRef.current.set(messageId, y);
+    if (messageId !== sourceMessageId || focusedSourceMessageId === messageId) return;
+    nearBottomRef.current = false;
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+    setFocusedSourceMessageId(messageId);
+  };
 
   // The sticky composer rides up OVER the thread when the keyboard opens; the
   // scroll area itself never shrinks. Track the keyboard so the thread can
@@ -233,17 +321,21 @@ export default function CoachChatScreen() {
 
   const submitDraft = () => {
     const text = draft.trim();
-    if (!text || isStreaming || coachPaused) return;
+    if (!text || isStreaming || coachPaused || selectedConversation?.archivedAt) return;
     Haptics.selectionAsync();
     setDraft("");
     send(text);
   };
 
-  const usePickedPhoto = async (result: ImagePicker.ImagePickerResult) => {
+  const usePickedPhoto = async (
+    result: ImagePicker.ImagePickerResult,
+    operationEpoch = nativeOperationEpochRef.current,
+  ) => {
     if (result.canceled || !result.assets?.[0]) return;
     setPreparing(true);
     try {
       const photo = await preparePhotoForUpload(result.assets[0]);
+      if (operationEpoch !== nativeOperationEpochRef.current) return;
       setPhotoError(null);
       setPhotoOptionsOpen(false);
       sendPhoto(photo);
@@ -259,10 +351,14 @@ export default function CoachChatScreen() {
 
   // ── The in-app camera path: stage the shot, confirm once, send ──────────
 
-  const stageCapture = async (capture: FoodCameraCapture) => {
+  const stageCapture = async (
+    capture: FoodCameraCapture,
+    operationEpoch = nativeOperationEpochRef.current,
+  ) => {
     setPreparing(true);
     try {
       const prepared = await preparePhotoForUpload(capture.asset);
+      if (operationEpoch !== nativeOperationEpochRef.current) return;
       setPhotoError(null);
       stagedSourceRef.current = capture.source;
       setStagedPhoto(prepared);
@@ -284,11 +380,12 @@ export default function CoachChatScreen() {
     // the library, so this control never dead-ends. Whichever shot or pick
     // comes back is staged behind the single blue confirmation; null means
     // the patient closed the camera without choosing.
+    const operationEpoch = nativeOperationEpochRef.current;
     const request = createFoodCameraRequest();
     router.push("/food-camera");
     const capture = await request;
-    if (!capture) return;
-    await stageCapture(capture);
+    if (!capture || operationEpoch !== nativeOperationEpochRef.current) return;
+    await stageCapture(capture, operationEpoch);
   };
 
   // The patient FAB's "Snap a meal photo" row deep-links here with
@@ -302,6 +399,9 @@ export default function CoachChatScreen() {
   useEffect(() => {
     if (deepLinkParams.camera !== "1" || autoCameraRan.current) return;
     autoCameraRan.current = true;
+    // A contextual camera deep link must not silently append to the patient's
+    // last unrelated conversation.
+    startNewConversation();
     void takePhoto();
   }, [deepLinkParams.camera]);
 
@@ -309,6 +409,7 @@ export default function CoachChatScreen() {
   // library picker, but staging the pick (unlike the send-straight-away
   // library chip in the options row).
   const restageFromLibrary = async () => {
+    const operationEpoch = nativeOperationEpochRef.current;
     setPhotoError(null);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -321,7 +422,7 @@ export default function CoachChatScreen() {
         quality: 1,
       });
       if (result.canceled || !result.assets?.[0]) return;
-      await stageCapture({ asset: result.assets[0], source: "library" });
+      await stageCapture({ asset: result.assets[0], source: "library" }, operationEpoch);
     } catch (error) {
       console.error("Photo library launch failed", error);
       setPhotoError(
@@ -353,6 +454,7 @@ export default function CoachChatScreen() {
   };
 
   const choosePhoto = async () => {
+    const operationEpoch = nativeOperationEpochRef.current;
     Haptics.selectionAsync();
     setPhotoError(null);
     if (Platform.OS !== "web") {
@@ -369,7 +471,7 @@ export default function CoachChatScreen() {
         quality: 1,
         base64: Platform.OS === "web",
       });
-      await usePickedPhoto(result);
+      await usePickedPhoto(result, operationEpoch);
     } catch (error) {
       console.error("Photo library launch failed", error);
       setPhotoError(
@@ -426,9 +528,63 @@ export default function CoachChatScreen() {
               </View>
             </View>
           </View>
-          <View style={styles.backBtnSpacer} />
+          <View style={styles.headerActions}>
+            <Pressable
+              testID="coach-history"
+              accessibilityRole="button"
+              accessibilityLabel="Coach chat history"
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push("/coach-history" as Href);
+              }}
+              style={({ pressed }) => [
+                styles.backBtn,
+                { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
+                pressed && { backgroundColor: colors.accent },
+              ]}
+            >
+              <Feather name="archive" size={16} color={colors.navy} />
+            </Pressable>
+            <Pressable
+              testID="coach-memories"
+              accessibilityRole="button"
+              accessibilityLabel="What the coach remembers"
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push("/coach-memories" as Href);
+              }}
+              style={({ pressed }) => [
+                styles.backBtn,
+                { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
+                pressed && { backgroundColor: colors.accent },
+              ]}
+            >
+              <Feather name="database" size={16} color={colors.navy} />
+            </Pressable>
+          </View>
         </View>
       </View>
+
+      {conversationError ? (
+        <View
+          testID="coach-conversation-error"
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          style={[
+            styles.conversationError,
+            {
+              backgroundColor: colors.riskBg,
+              borderColor: colors.riskBorder,
+              borderRadius: colors.radiusSm,
+            },
+          ]}
+        >
+          <Feather name="alert-triangle" size={14} color={colors.riskText} />
+          <Text style={[styles.conversationErrorText, { color: colors.riskText }]}>
+            {conversationError}
+          </Text>
+        </View>
+      ) : null}
 
       <ScrollView
         ref={scrollRef}
@@ -444,6 +600,30 @@ export default function CoachChatScreen() {
         }}
         scrollEventThrottle={32}
       >
+        {hasOlderMessages ? (
+          <Pressable
+            testID="coach-load-older"
+            accessibilityRole="button"
+            accessibilityLabel="Load older messages"
+            disabled={isLoadingOlder || isStreaming}
+            onPress={() => void loadOlder()}
+            style={({ pressed }) => [
+              styles.loadOlder,
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                borderRadius: colors.radiusSm,
+              },
+              (isLoadingOlder || isStreaming) && { opacity: 0.5 },
+              pressed && { backgroundColor: colors.accent },
+            ]}
+          >
+            {isLoadingOlder ? <ActivityIndicator size="small" color={colors.cobalt} /> : null}
+            <Text style={[styles.loadOlderText, { color: colors.cobalt }]}>
+              {isLoadingOlder ? "Loading older messages" : "Load older messages"}
+            </Text>
+          </Pressable>
+        ) : null}
         <View
           style={[
             styles.disclosureCard,
@@ -465,13 +645,51 @@ export default function CoachChatScreen() {
             matters.
           </Text>
         </View>
+        {showSourceUnavailable ? (
+          <View
+            testID="coach-source-unavailable"
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+            style={[
+              styles.sourceUnavailable,
+              {
+                backgroundColor: colors.warnBg,
+                borderColor: colors.warnBorder,
+                borderRadius: colors.radiusSm,
+              },
+            ]}
+          >
+            <Feather name="info" size={14} color={colors.warnText} />
+            <Text style={[styles.sourceUnavailableText, { color: colors.warnText }]}>
+              Source message no longer available
+            </Text>
+          </View>
+        ) : null}
 
         {/* A hidden greeting stays in state (and request history) but off
             screen: photo-opened sessions start with the photo itself. */}
         {messages
           .filter((message) => !message.hidden)
           .map((message) => (
-            <MessageBubble key={message.id} message={message} />
+            <View
+              key={message.id}
+              testID={message.id === sourceMessageId ? "coach-source-message" : undefined}
+              accessibilityLabel={
+                message.id === sourceMessageId ? "Source message" : undefined
+              }
+              onLayout={event => onSourceMessageLayout(message.id, event.nativeEvent.layout.y)}
+              style={[
+                message.id === focusedSourceMessageId && [
+                  styles.sourceHighlight,
+                  { borderColor: colors.cobalt, borderRadius: colors.radiusSm },
+                ],
+              ]}
+            >
+              <MessageBubble
+                message={message}
+                readOnly={Boolean(selectedConversation?.archivedAt)}
+              />
+            </View>
           ))}
         {/* Until the patient joins in, the starter prompts sit under the
             seeded greeting as ready-made conversation openers. */}
@@ -520,8 +738,9 @@ export default function CoachChatScreen() {
             in this one wrapping row — chip taps send their exact label as
             text (the server's follow-up detectors key on those labels), and
             the retake chip keeps its fresh-capture role alongside. */}
-        {offersQuickReplies(messages[messages.length - 1], isStreaming) ||
-        offersMealPhotoRetake(messages, isStreaming) ? (
+        {!selectedConversation?.archivedAt &&
+        (offersQuickReplies(messages[messages.length - 1], isStreaming) ||
+        offersMealPhotoRetake(messages, isStreaming)) ? (
           <View style={styles.quickReplyRow}>
             {offersQuickReplies(messages[messages.length - 1], isStreaming)
               ? quickRepliesFor(messages[messages.length - 1]).map(
@@ -582,7 +801,28 @@ export default function CoachChatScreen() {
             },
           ]}
         >
-          {coachPaused ? (
+          {selectedConversation?.archivedAt ? (
+            <View
+              testID="coach-archived-notice"
+              accessibilityRole="alert"
+              style={[
+                styles.pausedBox,
+                {
+                  backgroundColor: colors.warnBg,
+                  borderColor: colors.warnBorder,
+                  borderRadius: colors.radiusSm,
+                },
+              ]}
+            >
+              <Feather name="archive" size={14} color={colors.warnText} style={styles.photoErrorIcon} />
+              <View style={styles.pausedCopy}>
+                <Text style={[styles.pausedTitle, { color: colors.warnText }]}>Archived conversation</Text>
+                <Text style={[styles.pausedText, { color: colors.warnText }]}>
+                  Restore this conversation from its history controls to continue. Archiving does not remove what the coach remembers.
+                </Text>
+              </View>
+            </View>
+          ) : coachPaused ? (
             <View
               testID="coach-paused-notice"
               accessibilityRole="alert"
@@ -653,7 +893,7 @@ export default function CoachChatScreen() {
                       borderRadius: colors.radiusSm,
                       boxShadow: CHIP_SHADOW,
                     },
-                    (isStreaming || preparing) && { opacity: 0.5 },
+                    (isStreaming || preparing || !!selectedConversation?.archivedAt) && { opacity: 0.5 },
                     pressed && { backgroundColor: colors.accent },
                   ]}
                 >
@@ -668,7 +908,7 @@ export default function CoachChatScreen() {
               <Pressable
                 testID="coach-photo-choose"
                 accessibilityRole="button"
-                disabled={isStreaming || preparing}
+                disabled={isStreaming || preparing || !!selectedConversation?.archivedAt}
                 onPress={choosePhoto}
                 style={({ pressed }) => [
                   styles.photoOptionChip,
@@ -678,7 +918,7 @@ export default function CoachChatScreen() {
                     borderRadius: colors.radiusSm,
                     boxShadow: CHIP_SHADOW,
                   },
-                  (isStreaming || preparing) && { opacity: 0.5 },
+                  (isStreaming || preparing || !!selectedConversation?.archivedAt) && { opacity: 0.5 },
                   pressed && { backgroundColor: colors.accent },
                 ]}
               >
@@ -697,10 +937,10 @@ export default function CoachChatScreen() {
               accessibilityRole="button"
               accessibilityLabel="Send a photo"
               accessibilityState={{
-                disabled: isStreaming || preparing || !!coachPaused,
+                disabled: isStreaming || preparing || !!coachPaused || !!selectedConversation?.archivedAt,
                 expanded: photoOptionsOpen,
               }}
-              disabled={isStreaming || preparing || !!coachPaused}
+              disabled={isStreaming || preparing || !!coachPaused || !!selectedConversation?.archivedAt}
               onPress={() => {
                 Haptics.selectionAsync();
                 setPhotoError(null);
@@ -739,11 +979,17 @@ export default function CoachChatScreen() {
               value={draft}
               onChangeText={setDraft}
               placeholder={
-                coachPaused ? "Coach paused by your care team" : "Message your coach"
+                selectedConversation?.archivedAt
+                  ? "Restore this conversation to continue"
+                  : coachPaused
+                    ? "Coach paused by your care team"
+                    : isConversationLoading
+                      ? "Loading conversation…"
+                      : "Message your coach"
               }
               placeholderTextColor={colors.subtleText}
-              editable={!isStreaming && !coachPaused}
-              accessibilityState={{ disabled: !!coachPaused }}
+              editable={!isStreaming && !coachPaused && !selectedConversation?.archivedAt && !isConversationLoading}
+              accessibilityState={{ disabled: !!coachPaused || !!selectedConversation?.archivedAt || isConversationLoading }}
               returnKeyType="send"
               onSubmitEditing={submitDraft}
               submitBehavior="submit"
@@ -788,15 +1034,15 @@ export default function CoachChatScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Send message"
                 accessibilityState={{
-                  disabled: draft.trim().length === 0 || !!coachPaused,
+                  disabled: draft.trim().length === 0 || !!coachPaused || !!selectedConversation?.archivedAt || isConversationLoading,
                 }}
-                disabled={draft.trim().length === 0 || !!coachPaused}
+                disabled={draft.trim().length === 0 || !!coachPaused || !!selectedConversation?.archivedAt || isConversationLoading}
                 onPress={submitDraft}
                 style={({ pressed }) => [
                   styles.sendBtn,
                   {
                     backgroundColor:
-                      draft.trim().length === 0 || coachPaused
+                      draft.trim().length === 0 || coachPaused || selectedConversation?.archivedAt || isConversationLoading
                         ? colors.cobaltMuted
                         : colors.cobalt,
                     borderRadius: colors.radiusSm,
@@ -972,9 +1218,9 @@ const STAGE_LINES: Record<CoachStage, string> = {
   reading_label: "Reading the label…",
 };
 
-function MessageBubble({ message }: { message: CoachMessage }) {
+function MessageBubble({ message, readOnly = false }: { message: CoachMessage; readOnly?: boolean }) {
   const colors = useColors();
-  const { isStreaming, pendingStage, retry } = useCoachChat();
+  const { isStreaming, pendingStage, retry, selectedConversation } = useCoachChat();
   const isUser = message.role === "user";
 
   if (message.role === "staff") {
@@ -1120,11 +1366,13 @@ function MessageBubble({ message }: { message: CoachMessage }) {
           STOPPED
         </Text>
       ) : null}
-      {message.card ? <CoachCardSlot card={message.card} messageId={message.id} /> : null}
+      {message.card ? (
+        <CoachCardSlot card={message.card} messageId={message.id} readOnly={readOnly} />
+      ) : null}
       {/* Final failures (retryable === false, e.g. the daily budget is spent
           until tomorrow) hide the chip — the message already says waiting is
           the only fix, so offering RETRY would invite pointless taps. */}
-      {isError && !isStreaming && message.retryable !== false ? (
+      {isError && !isStreaming && message.retryable !== false && !selectedConversation?.archivedAt ? (
         <Pressable
           testID={`coach-retry-${message.id}`}
           accessibilityRole="button"
@@ -1171,6 +1419,52 @@ function InputAboveKeyboard({
 }
 
 const styles = StyleSheet.create({
+  sourceUnavailable: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    marginBottom: 10,
+    padding: 10,
+  },
+  sourceUnavailableText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  sourceHighlight: {
+    borderWidth: 2,
+    paddingHorizontal: 6,
+    marginHorizontal: -6,
+  },
+  conversationError: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderWidth: 1,
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 10,
+  },
+  conversationErrorText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: "Inter_500Medium",
+  },
+  loadOlder: {
+    minHeight: 38,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    justifyContent: "center",
+  },
+  loadOlderText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
   container: {
     flex: 1,
   },
@@ -1195,8 +1489,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  backBtnSpacer: {
-    width: 44,
+  headerActions: {
+    flexDirection: "row",
+    gap: 6,
   },
   headerCenter: {
     alignItems: "center",

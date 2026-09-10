@@ -10,9 +10,11 @@ export interface SendPhotoCall {
 }
 
 export const sendPhotoCalls: SendPhotoCall[] = [];
+export let startNewConversationCalls = 0;
 
 export function clearSendPhotoCalls(): void {
   sendPhotoCalls.length = 0;
+  startNewConversationCalls = 0;
 }
 
 export const coachState = { isStreaming: false };
@@ -20,6 +22,9 @@ export const coachState = { isStreaming: false };
 export function useCoachChat() {
   return {
     isStreaming: coachState.isStreaming,
+    startNewConversation(): void {
+      startNewConversationCalls += 1;
+    },
     sendPhoto(
       photo: { uri: string; width: number; height: number },
       kind: string,

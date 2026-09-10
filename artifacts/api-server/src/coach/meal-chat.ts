@@ -192,12 +192,18 @@ export async function generateMealMakeoverTurn(args: {
   /** Compartments already selected for this turn; approved-foods is forced in. */
   compartments: Compartment[];
   patient: PatientContext;
+  /** Server-recalled, bounded patient context for the coaching reply. */
+  coachingContext?: string;
   signal: AbortSignal;
   log: MinimalLog;
 }): Promise<MealMakeoverTurn> {
   const compartments = ensureApprovedFoodsCompartment(args.compartments);
   const messages = [
-    { role: "system" as const, content: buildMakeoverSystemPrompt(args.patient, compartments) },
+    {
+      role: "system" as const,
+      content: [buildMakeoverSystemPrompt(args.patient, compartments), args.coachingContext]
+        .filter((part): part is string => Boolean(part)).join("\n\n"),
+    },
     ...args.history,
   ];
   const raw = await callMakeoverModel(messages, args.signal, args.log);

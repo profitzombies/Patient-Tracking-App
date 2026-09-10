@@ -9,6 +9,8 @@ import type { CoachChatInputMealSlot } from './coachChatInputMealSlot';
 import type { CoachChatMessage } from './coachChatMessage';
 
 export interface CoachChatInput {
+  /** Optional active Coach conversation. When omitted, the compatibility Coach transcript is used for older clients. */
+  conversationId?: string;
   /**
      * @minItems 1
      * @maxItems 30

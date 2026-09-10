@@ -9,6 +9,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { CoachChatBody } from "@workspace/api-zod";
 
 /** Per-test control over what the mocked model streams back. */
 const DEFAULT_CHUNKS = ["Hello ", "Emma."];
@@ -55,7 +56,10 @@ function postChat(body: unknown, headers: Record<string, string> = {}) {
   });
 }
 
-const validBody = { messages: [{ role: "user", content: "Is grapefruit approved?" }] };
+const validBody = {
+  conversationId: "00000000-0000-4000-8000-000000000010",
+  messages: [{ role: "user", content: "Is grapefruit approved?" }],
+};
 
 describe("POST /api/coach/chat", () => {
   it("rejects an invalid body with 400", async () => {
@@ -100,6 +104,9 @@ describe("POST /api/coach/chat", () => {
   });
 
   it("streams a normal turn as SSE and finishes with done", async () => {
+    // This is the exact body sent through the route; generated Zod must retain
+    // its optional non-legacy conversation id instead of stripping it.
+    expect(CoachChatBody.parse(validBody).conversationId).toBe(validBody.conversationId);
     const res = await postChat(validBody);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");

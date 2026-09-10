@@ -18,7 +18,13 @@ import { registerCoachCard } from '@/components/coach/CoachCardSlot';
 import { useColors } from '@/hooks/useColors';
 import { parseRecipeCardPayload, type AiRecipeSuggestion } from '@/lib/ai-recipe';
 
-export function RecipeSuggestionCard({ suggestion }: { suggestion: AiRecipeSuggestion }) {
+export function RecipeSuggestionCard({
+  suggestion,
+  readOnly = false,
+}: {
+  suggestion: AiRecipeSuggestion;
+  readOnly?: boolean;
+}) {
   const colors = useColors();
   const router = useRouter();
   const isCravings = suggestion.mode === 'cravings';
@@ -33,6 +39,8 @@ export function RecipeSuggestionCard({ suggestion }: { suggestion: AiRecipeSugge
           ? `Open your meal breakdown ${suggestion.name}`
           : `Open recipe suggestion ${suggestion.name}`
       }
+      accessibilityState={{ disabled: readOnly }}
+      disabled={readOnly}
       onPress={() => {
         Haptics.selectionAsync();
         router.push(`/ai-recipe/${suggestion.id}`);
@@ -110,8 +118,8 @@ const styles = StyleSheet.create({
 });
 
 // Module side effect: make the chat thread render "recipe" cards.
-registerCoachCard('recipe', ({ payload }) => {
+registerCoachCard('recipe', ({ payload, readOnly }) => {
   const suggestion = parseRecipeCardPayload(payload);
   if (!suggestion) return null;
-  return <RecipeSuggestionCard suggestion={suggestion} />;
+  return <RecipeSuggestionCard suggestion={suggestion} readOnly={readOnly} />;
 });

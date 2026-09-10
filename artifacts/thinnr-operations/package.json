@@ -40,6 +40,7 @@
     "test:office-team": "TZ=UTC tsx --tsconfig tsconfig.office-admin.json scripts/verify-office-team.tsx",
     "test:office-audit": "TZ=UTC tsx --tsconfig tsconfig.office-admin.json scripts/verify-office-audit.tsx",
     "test:bloodwork": "TZ=UTC tsx --tsconfig tsconfig.bloodwork.json scripts/verify-bloodwork-ui.tsx",
+    "test:coach-review": "tsx --tsconfig tsconfig.coach-review.json scripts/verify-coach-review.tsx",
     "test:staff-inbox": "tsx scripts/verify-staff-inbox.ts",
     "test:care-team-conversations": "tsx --tsconfig tsconfig.conversations.json scripts/verify-conversations-office.tsx",
     "test:account-security": "TZ=UTC tsx --tsconfig tsconfig.account-security.json scripts/verify-account-security.tsx",

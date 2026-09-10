@@ -16,6 +16,8 @@ type CoachCardRenderer = (props: {
    * the chat context; display-only cards ignore it.
    */
   messageId: string;
+  /** Archived Coach conversations render cards without actionable controls. */
+  readOnly?: boolean;
 }) => React.ReactElement | null;
 
 const CARD_RENDERERS: Record<string, CoachCardRenderer> = {};
@@ -24,8 +26,16 @@ export function registerCoachCard(kind: string, renderer: CoachCardRenderer): vo
   CARD_RENDERERS[kind] = renderer;
 }
 
-export function CoachCardSlot({ card, messageId }: { card: CoachCard; messageId: string }) {
+export function CoachCardSlot({
+  card,
+  messageId,
+  readOnly = false,
+}: {
+  card: CoachCard;
+  messageId: string;
+  readOnly?: boolean;
+}) {
   const Renderer = CARD_RENDERERS[card.kind];
   if (!Renderer) return null;
-  return <Renderer payload={card.payload} messageId={messageId} />;
+  return <Renderer payload={card.payload} messageId={messageId} readOnly={readOnly} />;
 }

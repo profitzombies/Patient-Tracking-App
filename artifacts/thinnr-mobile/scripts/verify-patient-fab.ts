@@ -63,7 +63,11 @@ import {
 } from '../constants/layout';
 import { claimFoodCameraRequest } from '../lib/food-camera';
 import { appModeState } from './patient-fab-stubs/app-mode-context';
-import { clearSendPhotoCalls, sendPhotoCalls } from './patient-fab-stubs/coach-chat-context';
+import {
+  clearSendPhotoCalls,
+  sendPhotoCalls,
+  startNewConversationCalls,
+} from './patient-fab-stubs/coach-chat-context';
 import { selectionCalls } from './patient-fab-stubs/expo-haptics';
 import { pickerCalls, pickerScript } from './patient-fab-stubs/expo-image-picker';
 import { clearRouterCalls, routerCalls, routerState } from './patient-fab-stubs/expo-router';
@@ -435,7 +439,7 @@ const SEATS: SeatSpec[] = [
     method: 'navigate',
     target: '/progress',
   },
-  { key: 'coach', label: 'Coach', sf: 'message', feather: 'message-circle', method: 'push', target: '/coach-chat' },
+  { key: 'coach', label: 'Coach', sf: 'message', feather: 'message-circle', method: 'push', target: '/coach-history' },
 ];
 
 // ─── Run ─────────────────────────────────────────────────────────────────────
@@ -585,9 +589,9 @@ async function main(): Promise<void> {
   );
   pressSeat('coach');
   assertEqual(
-    'seat coach: stacks the chat over the current screen',
+    'seat coach: opens saved conversation history',
     JSON.stringify(routerCalls),
-    JSON.stringify([{ method: 'push', target: '/coach-chat' }]),
+    JSON.stringify([{ method: 'push', target: '/coach-history' }]),
   );
   pressSeat('today');
   assertEqual('seat today: already there, no re-navigation', routerCalls.length, 0);
@@ -628,14 +632,14 @@ async function main(): Promise<void> {
 
   // The coach seat pushes unconditionally — unlike the navigate seats it
   // never skips, so a second visit always stacks a fresh chat screen.
-  routerState.pathname = '/coach-chat';
+  routerState.pathname = '/coach-history';
   const onCoach = render(h(PatientTabLayout));
   clearRouterCalls();
   tap(only(onCoach.root, 'patient-tab-coach'));
   assertEqual(
     'coach seat never skips (push, not navigate)',
     JSON.stringify(routerCalls),
-    JSON.stringify([{ method: 'push', target: '/coach-chat' }]),
+    JSON.stringify([{ method: 'push', target: '/coach-history' }]),
   );
   unmount(onCoach);
   routerState.pathname = '/today';
@@ -706,6 +710,7 @@ async function main(): Promise<void> {
   assertEqual('meal photo: nothing sent before confirm', sendPhotoCalls.length, 0);
   await tapAndSettle(only(root, 'meal-photo-use'));
   assertEqual('meal photo: one photo handed to the coach', sendPhotoCalls.length, 1);
+  assertEqual('meal photo: starts a fresh coach conversation', startNewConversationCalls, 1);
   assertEqual('meal photo: sent as a meal read', String(sendPhotoCalls[0]?.kind), 'meal');
   assertEqual('meal photo: the picked shot rides through', String(sendPhotoCalls[0]?.photo.uri), 'blob:meal-fixture');
   assert('meal photo: no meal-slot pin from the menu', sendPhotoCalls[0]?.options === undefined);
@@ -894,7 +899,7 @@ async function main(): Promise<void> {
   );
   assert(
     'the pill bar carries the coach seat instead',
-    read('components/patient/PatientTabBar.tsx').includes("href: '/coach-chat'"),
+    read('components/patient/PatientTabBar.tsx').includes("href: '/coach-history'"),
   );
 
   finish();

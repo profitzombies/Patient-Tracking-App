@@ -556,13 +556,17 @@ export default function OfficeConversations() {
                       <InitialsAvatar name={conv.patientName} />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline justify-between gap-2">
-                           <b className={`truncate text-xs text-navy ${conv.unread ? 'font-bold' : 'font-semibold'}`}>{conv.patientName}</b>
+                           <b className={`truncate text-xs text-navy ${conv.unread ? 'font-bold' : 'font-semibold'}`}>
+                             {conv.patientName}
+                             {conv.thread === 'coach' && <span className="font-normal text-muted-foreground"> · {conv.title || 'New conversation'}</span>}
+                           </b>
                           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
                             {conv.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : ''}
                           </span>
                         </span>
                          <span className="mt-1 flex flex-wrap gap-1 text-[9px] font-semibold uppercase">
                            <span className={CHIP_WARM}>{channel === 'ai' ? conv.thread : 'Care Team'}</span>
+                           {conv.archivedAt && <span className="rounded bg-secondary px-1.5 py-0.5 text-muted-foreground border border-border">Archived</span>}
                            <span className="rounded bg-secondary px-1.5 py-0.5" data-testid={conv.autoClosed ? `chip-conversation-auto-closed-${conv.id}` : undefined}>{conv.autoClosed ? 'closed · quiet' : conv.status.replace('_', ' ')}</span>
                            {conv.openEscalation && <span className="rounded bg-warn-bg px-1.5 py-0.5 text-warn">Escalated · {conv.openEscalation.department}</span>}
                          </span>

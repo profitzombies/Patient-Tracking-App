@@ -11,15 +11,16 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-const modelState = vi.hoisted(() => ({ content: "" }));
+const modelState = vi.hoisted(() => ({ content: "", requests: [] as Array<{ messages?: Array<{ role: string; content: string }> }> }));
 
 vi.mock("@workspace/integrations-openai-ai-server", () => ({
   openai: {
     chat: {
       completions: {
-        create: vi.fn(async () => ({
-          choices: [{ message: { content: modelState.content } }],
-        })),
+        create: vi.fn(async (request: { messages?: Array<{ role: string; content: string }> }) => {
+          modelState.requests.push(request);
+          return { choices: [{ message: { content: modelState.content } }] };
+        }),
       },
     },
   },
@@ -31,6 +32,7 @@ const silentLog = { info: () => {}, warn: () => {} };
 
 describe("generateRecipeTurn output cleaning", () => {
   it("spells the brand THINNR in the reply and every card field, sparing genuine English", async () => {
+    modelState.requests.length = 0;
     modelState.content = JSON.stringify({
       reply: "Here is a THINNER classic your plan loves.",
       recipe: {
@@ -89,5 +91,20 @@ describe("generateRecipeTurn output cleaning", () => {
 
     // Belt and braces: no field anywhere on the wire still carries the misspelling.
     expect(JSON.stringify(result)).not.toMatch(misspelled);
+  });
+
+  it("supplies bounded server-recalled context to the recipe coaching model", async () => {
+    modelState.requests.length = 0;
+    modelState.content = JSON.stringify({ reply: "A recipe can use that preference." });
+    await generateRecipeTurn({
+      mode: "recipe",
+      history: [{ role: "user", content: "Please suggest dinner" }],
+      compartments: [],
+      patient: { firstName: "Emma", programDay: 10, phaseName: "Metabolic Thinning" },
+      coachingContext: "Approved patient-provided memory relevant to this request:\n- I prefer tofu.",
+      signal: new AbortController().signal,
+      log: silentLog,
+    });
+    expect(modelState.requests[0]?.messages?.[0]?.content).toContain("I prefer tofu.");
   });
 });

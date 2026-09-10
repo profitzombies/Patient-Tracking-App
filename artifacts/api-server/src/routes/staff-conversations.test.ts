@@ -139,6 +139,9 @@ beforeEach(() => {
   on("GET", "/rest/v1/providers?provider_id=", () => ({ status: 200, json: [{ auth_user_id: STAFF_USER, provider_name: "Dr. Ellis", office_name: "Office A" }] }));
   on("GET", "/rest/v1/team_members?provider_id=", () => ({ status: 200, json: [{ auth_user_id: TEAMMATE, name: "Nurse Kim" }] }));
   on("GET", "/rest/v1/hq_memberships?", () => ({ status: 200, json: [{ display_name: "Pat Rivera" }] }));
+  on("GET", "/rest/v1/patient_chat_conversations?id=in.", () => ({
+    status: 200, json: [{ id: CONV, title: "A pasta question", archived_at: null }],
+  }));
   on("POST", "/rest/v1/rpc/patient_chat_workflow_mutate", c => {
     const input = c.body as { p_action: string };
     if (input.p_action === "note") return { status: 200, json: { id: "note-1" } };
@@ -165,6 +168,7 @@ describe("inbox list", () => {
     expect(result.json.total).toBe(1);
     expect(result.json.conversations[0]).toMatchObject({
       id: CONV, patientName: "Anna O'Neil", status: "open", unread: true, assignee: null, preview: "Can I have pasta tonight?", noteCount: 0, openEscalation: null,
+      title: "A pasta question", archivedAt: null,
     });
     const args = rpcCalls("patient_chat_inbox_list_guarded")[0].body as Record<string, unknown>;
     expect(args).toMatchObject({

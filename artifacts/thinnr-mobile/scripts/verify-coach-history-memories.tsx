@@ -15,6 +15,7 @@ import CoachMemoriesScreen from "../app/coach-memories";
 import { apiState, type CoachMemory } from "./coach-history-memories-stubs/api-client";
 import { coachState, type Conversation } from "./coach-history-memories-stubs/coach-chat";
 import { patientAccount } from "./coach-history-memories-stubs/patient-account";
+import { routerCalls } from "./coach-history-memories-stubs/router";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,6 +60,10 @@ function byTestId(tree: ReactTestRenderer, id: string): Node | null {
   // their host node; both intentionally retain the same testID.
   assert(`renders ${id}`, nodes.length >= 1);
   return nodes.find(node => typeof node.props.onPress === "function") ?? nodes[0] ?? null;
+}
+
+function hasTestId(tree: ReactTestRenderer, id: string): boolean {
+  return (tree.root as unknown as Node).findAll(node => node.props.testID === id).length > 0;
 }
 
 function includesText(tree: ReactTestRenderer, value: string): boolean {
@@ -158,11 +163,13 @@ async function main() {
     return Promise.resolve({ conversations: [conversation("conversation-21")], nextOffset: null });
   };
   const history = await renderHistory();
+  assert("history renders an explicit loading state", hasTestId(history, "history-loading"));
   await tap(byTestId(history, "tab-archived"));
   await act(async () => { archivedHeld.resolve({ conversations: conversationPage("archived", 20), nextOffset: 20 }); await Promise.resolve(); });
   await act(async () => { activeHeld.resolve({ conversations: [conversation("active-stale")], nextOffset: null }); await Promise.resolve(); });
   await settle();
   assert("archived tab wins over late active request", includesText(history, "archived-1") && !includesText(history, "active-stale"));
+  assert("history renders an explicit populated state", hasTestId(history, "history-list"));
   assert("history requested both tab pages", historyCalls === 2);
   await tap(byTestId(history, "history-load-more"));
   await settle();
@@ -177,6 +184,49 @@ async function main() {
   await settle();
   assert("history pagination failure is an accessible inline ErrorBox", alertByTestId(history, "history-load-more-error") !== null);
   assert("history pagination failure exposes retry", byTestId(history, "history-load-more-retry") !== null);
+
+  // First-page failures stay visibly distinct from a successful empty result.
+  await act(async () => { history.unmount(); });
+  let retrySucceeds = false;
+  coachState.list = async () => {
+    if (!retrySucceeds) throw new Error("network");
+    return { conversations: [], nextOffset: null };
+  };
+  const errorHistory = await renderHistory();
+  await settle();
+  assert("history first-page failure renders an explicit error state", hasTestId(errorHistory, "history-error-state"));
+  assert("history first-page failure exposes Retry", byTestId(errorHistory, "history-retry") !== null);
+  assert("history failure does not render a false empty state", !hasTestId(errorHistory, "history-empty-state"));
+  retrySucceeds = true;
+  await tap(byTestId(errorHistory, "history-retry"));
+  await settle();
+  assert("successful retry can transition to the empty state", hasTestId(errorHistory, "history-empty-state"));
+  await act(async () => { errorHistory.unmount(); });
+
+  // Empty active/archived states have distinct copy and their actions use the
+  // same new-chat and tab behavior as the header controls.
+  coachState.list = async () => ({ conversations: [], nextOffset: null });
+  routerCalls.length = 0;
+  const emptyHistory = await renderHistory();
+  await settle();
+  assert("active empty state explains that there are no chats yet", includesText(emptyHistory, "No active conversations yet"));
+  assert("active empty state offers a prominent new-conversation action", byTestId(emptyHistory, "history-empty-new-chat") !== null);
+  assert("header keeps an accessible new-chat action", byTestId(emptyHistory, "history-new-chat") !== null);
+  await tap(byTestId(emptyHistory, "history-new-chat"));
+  assert("header new-chat action uses the real chat route", routerCalls.includes("push:/coach-chat"));
+  await tap(byTestId(emptyHistory, "history-memories"));
+  assert("memories row keeps its real route", routerCalls.includes("push:/coach-memories"));
+  await tap(byTestId(emptyHistory, "history-empty-new-chat"));
+  assert("empty-state new conversation uses the real chat route", routerCalls.includes("push:/coach-chat"));
+  await tap(byTestId(emptyHistory, "tab-archived"));
+  await settle();
+  assert("archived empty state uses archive-specific copy", includesText(emptyHistory, "No archived conversations"));
+  assert("archived empty state offers a way back to active chats", byTestId(emptyHistory, "history-view-active") !== null);
+  assert("archived empty state also keeps new conversation available", byTestId(emptyHistory, "history-empty-new-chat") !== null);
+  await tap(byTestId(emptyHistory, "history-view-active"));
+  await settle();
+  assert("archived empty state can return to active history", includesText(emptyHistory, "No active conversations yet"));
+  await act(async () => { emptyHistory.unmount(); });
 
   // ── Memories: demo must never invoke a generated read/write ───────────────
   let memoryReads = 0;
@@ -290,7 +340,7 @@ async function main() {
     await act(async () => { filtered.unmount(); });
   }
 
-  await act(async () => { history.unmount(); memories.unmount(); });
+  await act(async () => { memories.unmount(); });
   finish();
 }
 

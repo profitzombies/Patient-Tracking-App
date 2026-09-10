@@ -19,7 +19,7 @@
 - [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
 - [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).
 - [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
-- [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — merges don't restart workflows; Metro AND the build-at-startup api-server go stale silently — restart, then grep the served bundle/dist for a new-code marker.
+- [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — reconciliation can leave old listeners alive; verify port ownership and feature routes, not just workflow state or a green health check.
 - [Rebase configuration and runtimes](rebase-config-runtime.md) — conflicted .replit can temporarily remove Node/pnpm/Python from shells; validate the merged config before reinstalling tools.
 - [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel subagents drift on state semantics AND promise shared-layer behavior that isn't implemented; spec briefs + review the seams.

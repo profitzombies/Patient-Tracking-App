@@ -1,15 +1,15 @@
 ---
 name: Post-merge stale dev servers
-description: Task merges don't restart running workflows; how stale Metro produces false "still broken" reports and how to prove freshness.
+description: Merge reconciliation can leave orphaned listeners serving old code; verify actual port ownership and served behavior, not only workflow state.
 ---
 
 # Post-merge stale dev servers
 
-**Rule:** platform task merges update the working tree but do NOT restart
-running workflows. A dev server (especially Metro/Expo) started before a
-merge batch keeps serving the pre-merge app — so a bug "fixed by a merged
-task" can keep generating on-device reports until the workflow is restarted
-and testers reload.
+**Rule:** merge reconciliation attempts workflow restarts, but old service
+processes can survive and retain their ports. The replacement may fail with
+an address-in-use error, or Metro may wait for an interactive alternate-port
+answer while the workflow still appears running. Verify the actual listener
+and served behavior before trusting workflow state.
 
 **Why:** tofu-icon reports continued after the Android font fix merged; the
 screenshot showed the *old* silent-failure behavior (system fonts + tofu, no
@@ -24,6 +24,11 @@ alive and holding its port, so workflow restarts crash-loop ("address in
 use" errors, or Metro falling back to another port while the stale server
 keeps serving the pre-merge bundle). Kill the stale processes first, then
 restart the workflow, and re-verify freshness as below.
+
+A green health endpoint does not prove feature freshness: the old API can
+serve normal traffic while returning 404 for a newly merged route. Check
+that route separately; an unauthenticated 401 is useful proof it is registered,
+but is not proof that authenticated reads succeed.
 
 **Built-server variant (API server):** the api-server dev workflow is
 `build && start` — it bundles a dist at startup and then serves that frozen

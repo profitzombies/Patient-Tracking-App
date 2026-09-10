@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useRouter, Link } from "expo-router";
+import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect } from "expo-router";
 import { useColors } from "@/hooks/useColors";
@@ -297,66 +297,101 @@ function CoachHistoryContent({
       </View>
 
       <View style={[styles.memoriesLinkContainer, { borderBottomColor: colors.border }]}>
-        <Link href={({ pathname: "/coach-memories" }) as any} asChild>
-          <Pressable 
-            accessibilityRole="link" 
-            accessibilityLabel="View what the coach remembers"
-            style={({ pressed }) => [
-              styles.memoriesLink, 
-              pressed && { backgroundColor: colors.accent }
-            ]}
-          >
-            <Feather name="database" size={16} color={colors.cobalt} style={{ marginRight: 8 }} />
-            <Text style={[styles.memoriesLinkText, { color: colors.cobalt }]}>What the coach remembers</Text>
-            <Feather name="chevron-right" size={16} color={colors.cobalt} />
-          </Pressable>
-        </Link>
+        <Pressable
+          testID="history-memories"
+          accessibilityRole="link"
+          accessibilityLabel="View what the coach remembers"
+          onPress={() => {
+            Haptics.selectionAsync();
+            router.push("/coach-memories");
+          }}
+          style={({ pressed }) => [
+            styles.memoriesLink,
+            pressed && { backgroundColor: colors.accent }
+          ]}
+        >
+          <Feather name="database" size={16} color={colors.cobalt} style={{ marginRight: 8 }} />
+          <Text style={[styles.memoriesLinkText, { color: colors.cobalt }]}>What the coach remembers</Text>
+          <Feather name="chevron-right" size={16} color={colors.cobalt} />
+        </Pressable>
       </View>
 
       {error ? (
-        <View style={styles.errorState} accessibilityRole="alert">
-          <ErrorBox testID="history-error" message={error} />
-          <Pressable
-            testID="history-retry"
-            accessibilityRole="button"
-            onPress={load}
-            style={({ pressed }) => [
-              styles.emptyBtn,
-              { backgroundColor: colors.cobalt, borderRadius: colors.radius },
-              pressed && { opacity: 0.9 }
-            ]}
-          >
-            <Text style={styles.emptyBtnText}>Retry</Text>
-          </Pressable>
-        </View>
-      ) : loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.cobalt} />
-        </View>
-      ) : conversations.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Feather name="message-square" size={32} color={colors.mutedForeground} style={styles.emptyIcon} />
-          <Text style={[styles.emptyTitle, { color: colors.navy }]}>
-            {archivedTab ? "No archived conversations" : "No active conversations"}
-          </Text>
-          <Text style={[styles.emptyBody, { color: colors.bodyText }]}>
-            {archivedTab ? "Conversations you archive will appear here." : "Start a new chat to talk with your AI Coach."}
-          </Text>
-          {!archivedTab && (
+        <View testID="history-error-state" style={styles.errorState} accessibilityRole="alert">
+          <View style={styles.stateContent}>
+            <View style={styles.errorMessage}>
+              <ErrorBox testID="history-error" message={error} />
+            </View>
             <Pressable
-              onPress={handleNewChat}
+              testID="history-retry"
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading conversations"
+              onPress={load}
               style={({ pressed }) => [
                 styles.emptyBtn,
                 { backgroundColor: colors.cobalt, borderRadius: colors.radius },
                 pressed && { opacity: 0.9 }
               ]}
             >
-              <Text style={styles.emptyBtnText}>Start New Chat</Text>
+              <Text style={styles.emptyBtnText}>Retry</Text>
             </Pressable>
-          )}
+          </View>
+        </View>
+      ) : loading ? (
+        <View testID="history-loading" style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading chat history">
+          <ActivityIndicator testID="history-loading-indicator" color={colors.cobalt} />
+        </View>
+      ) : conversations.length === 0 ? (
+        <View testID="history-empty-state" style={styles.emptyState}>
+          <View style={styles.stateContent}>
+            <Feather name={archivedTab ? "archive" : "message-square"} size={32} color={colors.mutedForeground} style={styles.emptyIcon} />
+            <Text style={[styles.emptyTitle, { color: colors.navy }]}>
+              {archivedTab ? "No archived conversations" : "No active conversations yet"}
+            </Text>
+            <Text style={[styles.emptyBody, { color: colors.bodyText }]}>
+              {archivedTab
+                ? "Conversations you archive will appear here. Your active chats are still available on the Active tab."
+                : "Start a new conversation with your AI Coach to see it here."}
+            </Text>
+            <View style={styles.emptyActions}>
+              {archivedTab && (
+                <Pressable
+                  testID="history-view-active"
+                  accessibilityRole="button"
+                  accessibilityLabel="View active conversations"
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setArchivedTab(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.emptyBtn,
+                    styles.emptyBtnSecondary,
+                    { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radius },
+                    pressed && { backgroundColor: colors.accent }
+                  ]}
+                >
+                  <Text style={[styles.emptyBtnSecondaryText, { color: colors.cobalt }]}>View active conversations</Text>
+                </Pressable>
+              )}
+              <Pressable
+                testID="history-empty-new-chat"
+                accessibilityRole="button"
+                accessibilityLabel="Start a new conversation"
+                onPress={handleNewChat}
+                style={({ pressed }) => [
+                  styles.emptyBtn,
+                  { backgroundColor: colors.cobalt, borderRadius: colors.radius },
+                  pressed && { opacity: 0.9 }
+                ]}
+              >
+                <Text style={styles.emptyBtnText}>Start a new conversation</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       ) : (
         <FlatList
+          testID="history-list"
           data={conversations}
           keyExtractor={item => item.id}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
@@ -508,15 +543,18 @@ const styles = StyleSheet.create({
   },
   memoriesLinkContainer: {
     borderBottomWidth: 1,
+    paddingHorizontal: 16,
   },
   memoriesLink: {
     flexDirection: "row",
     alignItems: "center",
+    alignSelf: "stretch",
+    minHeight: 52,
     paddingVertical: 14,
-    paddingHorizontal: 16,
   },
   memoriesLinkText: {
     flex: 1,
+    minWidth: 0,
     fontFamily: fonts.sansSemiBold,
     fontSize: 14,
   },
@@ -529,13 +567,23 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 32,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
   },
   errorState: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 32,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+  },
+  stateContent: {
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+  },
+  errorMessage: {
+    width: "100%",
   },
   emptyIcon: {
     marginBottom: 16,
@@ -549,21 +597,38 @@ const styles = StyleSheet.create({
   emptyBody: {
     fontFamily: fonts.sans,
     fontSize: 15,
+    maxWidth: 340,
     textAlign: "center",
     lineHeight: 22,
-    marginBottom: 24,
+    marginBottom: 20,
+  },
+  emptyActions: {
+    width: "100%",
+    maxWidth: 280,
+    gap: 12,
   },
   emptyBtn: {
+    minHeight: 48,
     paddingHorizontal: 24,
     paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyBtnText: {
     color: "#fff",
     fontFamily: fonts.sansSemiBold,
     fontSize: 15,
   },
+  emptyBtnSecondary: {
+    borderWidth: 1,
+  },
+  emptyBtnSecondaryText: {
+    fontFamily: fonts.sansSemiBold,
+    fontSize: 15,
+  },
   listContent: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
     gap: 12,
   },
   rowContainer: {

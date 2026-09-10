@@ -15,6 +15,7 @@ const migrationNames = [
   "20261008020000_coach_privacy.sql",
   "20261008030000_coach_review_guards.sql",
   "20261008040000_coach_memory_sentence_policy.sql",
+  "20261009000000_patient_bloodwork_progress.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
@@ -76,11 +77,19 @@ await query(`
     if to_regclass('public.coach_memories') is null
        or to_regclass('public.coach_memory_source_suppressions') is null
        or to_regclass('public.coach_conversation_work') is null
+       or to_regclass('public.patient_bloodwork_reports') is null
+       or (select count(*) from information_schema.columns
+           where table_schema='public' and table_name='patient_bloodwork_reports'
+             and column_name in (
+               'extraction_phase', 'extraction_completed_pages', 'extraction_total_pages',
+               'extraction_started_at', 'extraction_progress_updated_at',
+               'extraction_completed_at', 'extraction_finished_at'
+             )) <> 7
        or not exists (
          select 1 from information_schema.columns
           where table_schema='public' and table_name='patient_chat_conversations' and column_name='legacy_compat'
        ) then raise exception 'Coach migration postconditions are not satisfied'; end if;
-  end $proof$;
+    end $proof$;
   notify pgrst, 'reload schema';
 `);
-console.log("Coach schema postconditions verified.");
+console.log("Coach and bloodwork schema postconditions verified.");

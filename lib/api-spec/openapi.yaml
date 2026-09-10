@@ -2382,7 +2382,7 @@ components:
         consent: { type: object, additionalProperties: true }
     BloodworkReport:
       type: object
-      required: [id, patientId, title, reportDate, uploadedAt, version, kind, fileCount, pageCount, extractionStatus, extractionError, reviewStatus]
+      required: [id, patientId, title, reportDate, uploadedAt, version, kind, fileCount, pageCount, extractionStatus, extractionError, reviewStatus, processing]
       properties:
         id: { type: string }
         patientId: { type: string }
@@ -2396,6 +2396,21 @@ components:
         extractionStatus: { type: string, enum: [queued, processing, completed, failed] }
         extractionError: { type: ["string", "null"] }
         reviewStatus: { type: string, enum: [unreviewed] }
+        processing: { $ref: "#/components/schemas/BloodworkProcessing" }
+    BloodworkProcessing:
+      type: object
+      required: [phase, completedPages, totalPages, startedAt, updatedAt, completedAt, observedAt, activity, elapsedSeconds, leaseUntil]
+      properties:
+        phase: { type: string, enum: [waiting, reading_pages, preparing_results, completed, failed] }
+        completedPages: { type: number, minimum: 0, maximum: 100 }
+        totalPages: { type: number, minimum: 0, maximum: 100 }
+        startedAt: { type: ["string", "null"], format: date-time }
+        updatedAt: { type: ["string", "null"], format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+        observedAt: { type: string, format: date-time }
+        activity: { type: string, enum: [active, waiting, delayed, unknown] }
+        elapsedSeconds: { type: ["number", "null"], minimum: 0 }
+        leaseUntil: { type: ["string", "null"], format: date-time }
     BloodworkFile:
       type: object
       required: [id, position, mimeType, size, pageCount, width, height]

@@ -87,6 +87,36 @@ async function main(): Promise<void> {
   assert.equal(cancelBeforeCreate.root.findAllByType('Text').some(node => textOf(node) === 'Save & Process'), true);
   await act(async () => cancelBeforeCreate.unmount());
 
+  // Upload bytes stop at 90% while the commit is held. The final 10% is
+  // reserved for the server transition to a committed/queued report.
+  resetAll();
+  await clearAllRetainedBloodworkDrafts();
+  api.createBehaviors = [{ kind: 'upload' }];
+  api.commitDeferred = true;
+  const heldCommit = await mount();
+  await act(async () => {
+    heldCommit.root.findByProps({ placeholder: 'e.g. Annual Bloodwork 2026' }).props.onChangeText('Annual checkup');
+  });
+  await choosePdf(heldCommit);
+  assert.equal(
+    heldCommit.root.findByProps({ placeholder: 'e.g. Annual Bloodwork 2026' }).props.value,
+    'Annual checkup',
+    'choosing a source preserves an already entered report title',
+  );
+  await pressWithTextAndWait(heldCommit, 'Save & Process');
+  const progressBar = heldCommit.root.findByProps({ accessibilityRole: 'progressbar' });
+  assert.deepEqual(progressBar.props.accessibilityValue, { min: 0, max: 100, now: 90 }, 'upload progress reserves the final save segment');
+  assert.equal(
+    heldCommit.root.findAllByType('Text').some(node => textOf(node) === 'Saving report... 90%'),
+    true,
+    'saving label never claims 100% before commit succeeds',
+  );
+  assert(api.commitResolve);
+  await act(async () => api.commitResolve?.());
+  await flush();
+  assert.equal(routeEvents.at(-1)?.href, '/bloodwork/report-upload', 'commit completion reaches the queued report');
+  await act(async () => heldCommit.unmount());
+
   // A stale/disabled media action cannot become a newer generation while the
   // save owns the UI. The mounted camera path is exercised here rather than
   // only checking the helper guard.

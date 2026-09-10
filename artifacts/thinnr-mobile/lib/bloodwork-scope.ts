@@ -1,3 +1,5 @@
+import { isBloodworkDateKey } from './bloodwork-date';
+
 export const BLOODWORK_MAX_FILES = 10;
 export const BLOODWORK_MAX_BYTES = 20_000_000;
 export const BLOODWORK_TRANSCRIPTION_DISCLOSURE =
@@ -91,8 +93,10 @@ export function buildBloodworkMetadataUpdate(input: {
   dateDraft: string;
 }): { expectedVersion: number; title: string; reportDate: string | null } | null {
   const title = input.titleDraft.trim();
-  const reportDate = input.dateDraft.trim() || null;
+  const dateDraft = input.dateDraft.trim();
+  const reportDate = dateDraft || null;
   if (!title) return null;
+  if (reportDate && !isBloodworkDateKey(reportDate)) return null;
   if (title === input.originalTitle && reportDate === input.originalReportDate) return null;
   return { expectedVersion: input.version, title, reportDate };
 }

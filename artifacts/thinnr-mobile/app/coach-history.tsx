@@ -21,6 +21,7 @@ import { usePatientAccount, type PatientAccountState } from "@/context/PatientAc
 import { retryPatientCoachProcessing } from "@workspace/api-client-react";
 import type { CoachConversation } from "@workspace/api-client-react";
 import { ErrorBox } from "@/components/onboarding/OnboardingFields";
+import { CoachHistorySkeleton } from "@/components/coach/CoachHistorySkeleton";
 import { PageFlatList as FlatList } from "@/components/ui/PageScrollView";
 
 export default function CoachHistoryScreen() {
@@ -75,6 +76,15 @@ function CoachHistoryContent({
   const loadMoreLockRef = useRef(false);
   const archiveLockRef = useRef(new Set<string>());
   const retryLockRef = useRef(false);
+  const archivedTabRef = useRef(false);
+  archivedTabRef.current = archivedTab;
+  const initialLoading = loading && conversations.length === 0 && !error;
+
+  useEffect(() => {
+    if (initialLoading && Platform.OS === "ios") {
+      AccessibilityInfo.announceForAccessibility("Loading chat history");
+    }
+  }, [initialLoading]);
 
   const load = useCallback(async () => {
     if (resolving || account.kind === "unresolved") return;
@@ -138,6 +148,23 @@ function CoachHistoryContent({
     router.push("/coach-chat");
   };
 
+  const handleTabChange = (nextArchived: boolean) => {
+    if (archivedTab === nextArchived) return;
+    // Do not leave rows from the previous tab tappable while its replacement
+    // page is in flight. Invalidate held requests before clearing old rows so
+    // late responses cannot paint them back into the new tab.
+    listRequestRef.current += 1;
+    loadMoreLockRef.current = false;
+    setConversations([]);
+    setNextOffset(null);
+    setLoadingMore(false);
+    setLoadMoreError(null);
+    setError(null);
+    setLoading(true);
+    Haptics.selectionAsync();
+    setArchivedTab(nextArchived);
+  };
+
   const handleSelect = async (id: string) => {
     if (loadingRowId) return;
     Haptics.selectionAsync();
@@ -162,15 +189,16 @@ function CoachHistoryContent({
 
   const handleToggleArchive = async (conversation: CoachConversation) => {
     if (archiveLockRef.current.has(conversation.id)) return;
+    const requestedArchived = archivedTabRef.current;
     archiveLockRef.current.add(conversation.id);
     Haptics.selectionAsync();
     setArchivingId(conversation.id);
     try {
-      await setArchived(conversation, !archivedTab);
+      await setArchived(conversation, !requestedArchived);
       if (!isCurrent()) return;
       setConversations(prev => prev.filter(c => c.id !== conversation.id));
       if (Platform.OS === 'ios') {
-        AccessibilityInfo.announceForAccessibility(`Conversation ${!archivedTab ? 'archived' : 'restored'}`);
+        AccessibilityInfo.announceForAccessibility(`Conversation ${!requestedArchived ? 'archived' : 'restored'}`);
       }
     } catch {
       if (!isCurrent()) return;
@@ -268,12 +296,7 @@ function CoachHistoryContent({
             accessibilityRole="tab"
             accessibilityState={{ selected: !archivedTab }}
             aria-selected={!archivedTab}
-            onPress={() => {
-              if (archivedTab) {
-                Haptics.selectionAsync();
-                setArchivedTab(false);
-              }
-            }}
+            onPress={() => handleTabChange(false)}
             style={[styles.tab, !archivedTab && { borderBottomColor: colors.cobalt }]}
           >
             <Text style={[styles.tabText, { color: !archivedTab ? colors.cobalt : colors.subtleText }]}>Active</Text>
@@ -283,12 +306,7 @@ function CoachHistoryContent({
             accessibilityRole="tab"
             accessibilityState={{ selected: archivedTab }}
             aria-selected={archivedTab}
-            onPress={() => {
-              if (!archivedTab) {
-                Haptics.selectionAsync();
-                setArchivedTab(true);
-              }
-            }}
+            onPress={() => handleTabChange(true)}
             style={[styles.tab, archivedTab && { borderBottomColor: colors.cobalt }]}
           >
             <Text style={[styles.tabText, { color: archivedTab ? colors.cobalt : colors.subtleText }]}>Archived</Text>
@@ -337,10 +355,13 @@ function CoachHistoryContent({
             </Pressable>
           </View>
         </View>
-      ) : loading ? (
-        <View testID="history-loading" style={styles.center} accessibilityRole="progressbar" accessibilityLabel="Loading chat history">
-          <ActivityIndicator testID="history-loading-indicator" color={colors.cobalt} />
-        </View>
+      ) : initialLoading ? (
+        <CoachHistorySkeleton
+          backgroundColor={colors.card}
+          borderColor={colors.border}
+          placeholderColor={colors.track}
+          radius={colors.radius}
+        />
       ) : conversations.length === 0 ? (
         <View testID="history-empty-state" style={styles.emptyState}>
           <View style={styles.stateContent}>
@@ -359,10 +380,7 @@ function CoachHistoryContent({
                   testID="history-view-active"
                   accessibilityRole="button"
                   accessibilityLabel="View active conversations"
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    setArchivedTab(false);
-                  }}
+                  onPress={() => handleTabChange(false)}
                   style={({ pressed }) => [
                     styles.emptyBtn,
                     styles.emptyBtnSecondary,

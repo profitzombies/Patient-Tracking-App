@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migration = path.resolve(here, "../../../../supabase/migrations/20261006000000_patient_bloodwork.sql");
 const hardening = path.resolve(here, "../../../../supabase/migrations/20261006020000_patient_bloodwork_hardening.sql");
+const progress = path.resolve(here, "../../../../supabase/migrations/20261009000000_patient_bloodwork_progress.sql");
 const available = ["initdb", "pg_ctl", "psql"].every((name) => spawn("which", [name]).status === 0);
 if (!available) console.warn("bloodwork.sql.test: PostgreSQL binaries unavailable — skipped");
 
@@ -18,6 +19,11 @@ const patient = "00000000-0000-4000-8000-000000000001";
 const request = "00000000-0000-4000-8000-000000000002";
 const file = "00000000-0000-4000-8000-000000000003";
 const clientFile = "00000000-0000-4000-8000-000000000004";
+const legacyReport = "00000000-0000-4000-8000-000000000005";
+const legacyFile = "00000000-0000-4000-8000-000000000006";
+const legacyProcessingReport = "00000000-0000-4000-8000-000000000009";
+const legacyProcessingFile = "00000000-0000-4000-8000-000000000010";
+const legacyProcessingToken = "00000000-0000-4000-8000-000000000011";
 
 function psql(sql: string): string {
   return execFileSync("psql", ["-h", dir, "-p", String(port), "-U", "postgres", "-d", "postgres",
@@ -56,6 +62,32 @@ describe.skipIf(!available)("patient bloodwork migration (real PostgreSQL)", () 
       execFileSync("psql", ["-h", dir, "-p", String(port), "-U", "postgres", "-d", "postgres",
         "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", target], { stdio: "pipe" });
     }
+    psql(`insert into public.patient_bloodwork_reports(
+      id,patient_id,client_request_id,manifest_hash,title,kind,lifecycle_status,extraction_status,committed_at)
+      values('${legacyReport}','${patient}','00000000-0000-4000-8000-000000000007',repeat('9',64),
+        'Legacy','images','committed','completed',now()-interval '2 days');
+      insert into public.patient_bloodwork_files(
+        id,patient_id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,
+        staging_object_path,object_path,mime_type,size_bytes,page_count,width,height)
+      values('${legacyFile}','${patient}','${legacyReport}','00000000-0000-4000-8000-000000000008',0,
+        'image/png',10,'/objects/patients/${patient}/bloodwork/staging/${legacyReport}/${legacyFile}',
+        '/objects/patients/${patient}/bloodwork/reports/${legacyReport}/${legacyFile}',
+        'image/png',10,1,1,1);`);
+    psql(`insert into public.patient_bloodwork_reports(
+      id,patient_id,client_request_id,manifest_hash,title,kind,lifecycle_status,extraction_status,
+      committed_at,extraction_lease_token,extraction_lease_until)
+      values('${legacyProcessingReport}','${patient}','00000000-0000-4000-8000-000000000012',repeat('8',64),
+        'Legacy in flight','images','committed','processing',now()-interval '2 days',
+        '${legacyProcessingToken}',now()+interval '5 minutes');
+      insert into public.patient_bloodwork_files(
+        id,patient_id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,
+        staging_object_path,object_path,mime_type,size_bytes,page_count,width,height)
+      values('${legacyProcessingFile}','${patient}','${legacyProcessingReport}','00000000-0000-4000-8000-000000000013',0,
+        'image/png',10,'/objects/patients/${patient}/bloodwork/staging/${legacyProcessingReport}/${legacyProcessingFile}',
+        '/objects/patients/${patient}/bloodwork/reports/${legacyProcessingReport}/${legacyProcessingFile}',
+        'image/png',10,1,1,1);`);
+    execFileSync("psql", ["-h", dir, "-p", String(port), "-U", "postgres", "-d", "postgres",
+      "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", progress], { stdio: "pipe" });
   }, 60_000);
   afterAll(() => {
     if (data) spawn("pg_ctl", ["-D", data, "-m", "immediate", "stop"]);
@@ -68,6 +100,15 @@ describe.skipIf(!available)("patient bloodwork migration (real PostgreSQL)", () 
       where c.relname like 'patient_bloodwork_%' and t.tgname='patient_identity_write_guard'`)).toBe("4");
     expect(scalar(`has_table_privilege('authenticated','public.patient_bloodwork_results','select')`)).toBe("f");
     expect(scalar(`has_function_privilege('service_role','public.bloodwork_commit_report(uuid,uuid,jsonb)','execute')`)).toBe("t");
+    expect(scalar(`has_function_privilege('service_role','public.bloodwork_prepare_extraction(uuid,uuid)','execute')`)).toBe("t");
+    expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${legacyReport}'`)).toBe("1");
+    expect(scalar(`extraction_started_at from public.patient_bloodwork_reports where id='${legacyReport}'`)).toBe("");
+    expect(scalar(`extraction_completed_at from public.patient_bloodwork_reports where id='${legacyReport}'`)).toBe("");
+    expect(scalar(`extraction_finished_at from public.patient_bloodwork_reports where id='${legacyReport}'`)).toBe("");
+    const legacyCommittedAt = Date.parse(scalar(`committed_at::text from public.patient_bloodwork_reports where id='${legacyProcessingReport}'`));
+    expect(scalar(`public.bloodwork_renew_extraction('${legacyProcessingReport}','${legacyProcessingToken}',300)`)).toBe("t");
+    const legacyStartedAt = Date.parse(scalar(`extraction_started_at::text from public.patient_bloodwork_reports where id='${legacyProcessingReport}'`));
+    expect(legacyStartedAt).toBeGreaterThan(legacyCommittedAt);
   });
 
   it("creates idempotently, rejects conflicting manifests, and commits atomically", () => {
@@ -81,17 +122,67 @@ describe.skipIf(!available)("patient bloodwork migration (real PostgreSQL)", () 
     const files = `[{"id":"${file}","objectPath":"${committedPath}","mimeType":"image/png","size":10,"pageCount":1,"width":1,"height":1}]`;
     expect(scalar(`public.bloodwork_commit_report('${patient}','${first}','${files}'::jsonb)`)).toBe("t");
     expect(scalar(`lifecycle_status from public.patient_bloodwork_reports where id='${first}'`)).toBe("committed");
+    expect(scalar(`extraction_total_pages from public.patient_bloodwork_reports where id='${first}'`)).toBe("1");
+    expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${first}'`)).toBe("0");
     expect(scalar(`count(*) from public.patient_bloodwork_files where report_id='${first}' and object_path='${committedPath}'`)).toBe("1");
     psql("select * from public.bloodwork_lease_extraction(1,300);");
     const lease = scalar(`extraction_lease_token from public.patient_bloodwork_reports where id='${first}'`);
     const extracted = `[{"sourceFileId":"${file}","sourcePage":1,"position":0,"testName":"HCG","valueText":"<5","units":"mIU/mL","referenceRange":"Negative: <5","labFlag":null,"uncertain":false}]`;
     expect(scalar(`public.bloodwork_complete_extraction('${first}','${lease}','${extracted}'::jsonb)`)).toBe("t");
+    expect(scalar(`extraction_phase from public.patient_bloodwork_reports where id='${first}'`)).toBe("completed");
+    expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${first}'`)).toBe("1");
     const result = scalar(`id from public.patient_bloodwork_results where report_id='${first}'`);
     const changed = `{"testName":"HCG","valueText":"Negative","units":null,"referenceRange":"Negative: <5","labFlag":null,"uncertain":true}`;
     expect(psql(`select id from public.bloodwork_correct_result('${patient}','${first}','${result}',1,'patient','${request}','${changed}'::jsonb);`).trim()).toBe(result);
     expect(scalar(`version from public.patient_bloodwork_results where id='${result}'`)).toBe("2");
     expect(scalar(`count(*) from public.patient_bloodwork_corrections where result_id='${result}' and actor_role='patient' and version=2`)).toBe("1");
     expect(scalar(`public.bloodwork_retry_extraction('${patient}','${first}')`)).toBe("f");
+  });
+
+  it("retains page checkpoints across continuation and retry until atomic completion", () => {
+    const fileId = "00000000-0000-4000-8000-000000000031";
+    const clientId = "00000000-0000-4000-8000-000000000032";
+    const requestId = "00000000-0000-4000-8000-000000000033";
+    const manifest = `[{"fileId":"${fileId}","clientFileId":"${clientId}","position":0,"mimeType":"image/png","size":10}]`;
+    psql(`select public.bloodwork_create_report('${patient}','${requestId}','Batched',null,
+      '${manifest}'::jsonb,repeat('e',64));`);
+    const actualReport = scalar(`id from public.patient_bloodwork_reports where client_request_id='${requestId}'`);
+    const destination = `/objects/patients/${patient}/bloodwork/reports/${actualReport}/${fileId}`;
+    const files = `[{"id":"${fileId}","objectPath":"${destination}","mimeType":"image/png","size":10,"pageCount":3,"width":1,"height":1}]`;
+    expect(scalar(`public.bloodwork_commit_report('${patient}','${actualReport}','${files}'::jsonb)`)).toBe("t");
+    const lease = scalar(`extraction_lease_token from public.bloodwork_lease_extraction(1,300) where id='${actualReport}'`);
+    expect(scalar(`public.bloodwork_save_extraction_page('${actualReport}','${lease}','${fileId}',1,'[]'::jsonb)`)).toBe("t");
+    expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${actualReport}'`)).toBe("1");
+    expect(scalar(`public.bloodwork_release_extraction('${actualReport}','${lease}')`)).toBe("t");
+    expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${actualReport}'`)).toBe("1");
+    const resumedLease = scalar(`extraction_lease_token from public.bloodwork_lease_extraction(1,300) where id='${actualReport}'`);
+    expect(scalar(`public.bloodwork_save_extraction_page('${actualReport}','${resumedLease}','${fileId}',2,'[]'::jsonb)`)).toBe("t");
+    expect(scalar(`public.bloodwork_save_extraction_page('${actualReport}','${resumedLease}','${fileId}',3,'[]'::jsonb)`)).toBe("t");
+    expect(scalar(`public.bloodwork_prepare_extraction('${actualReport}','${resumedLease}')`)).toBe("t");
+    expect(scalar(`extraction_phase from public.patient_bloodwork_reports where id='${actualReport}'`)).toBe("preparing_results");
+    expect(scalar(`public.bloodwork_complete_extraction_from_pages('${actualReport}','${resumedLease}')`)).toBe("t");
+    expect(scalar(`extraction_phase from public.patient_bloodwork_reports where id='${actualReport}'`)).toBe("completed");
+    expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${actualReport}'`)).toBe("3");
+    expect(scalar(`count(*) from public.patient_bloodwork_results where report_id='${actualReport}'`)).toBe("0");
+
+    const failedReport = "00000000-0000-4000-8000-000000000040";
+    const failedFile = "00000000-0000-4000-8000-000000000041";
+    const failedClient = "00000000-0000-4000-8000-000000000042";
+    const failedRequest = "00000000-0000-4000-8000-000000000043";
+    const failedManifest = `[{"fileId":"${failedFile}","clientFileId":"${failedClient}","position":0,"mimeType":"image/png","size":10}]`;
+    psql(`select public.bloodwork_create_report('${patient}','${failedRequest}','Retry',null,
+      '${failedManifest}'::jsonb,repeat('f',64));`);
+    const actualFailed = scalar(`id from public.patient_bloodwork_reports where client_request_id='${failedRequest}'`);
+    const failedDestination = `/objects/patients/${patient}/bloodwork/reports/${actualFailed}/${failedFile}`;
+    const failedFiles = `[{"id":"${failedFile}","objectPath":"${failedDestination}","mimeType":"image/png","size":10,"pageCount":2,"width":1,"height":1}]`;
+    expect(scalar(`public.bloodwork_commit_report('${patient}','${actualFailed}','${failedFiles}'::jsonb)`)).toBe("t");
+    const failedLease = scalar(`extraction_lease_token from public.bloodwork_lease_extraction(1,300) where id='${actualFailed}'`);
+    expect(scalar(`public.bloodwork_save_extraction_page('${actualFailed}','${failedLease}','${failedFile}',1,'[]'::jsonb)`)).toBe("t");
+    expect(scalar(`public.bloodwork_fail_extraction('${actualFailed}','${failedLease}','TRANSIENT')`)).toBe("t");
+    expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${actualFailed}'`)).toBe("1");
+    expect(scalar(`public.bloodwork_retry_extraction('${patient}','${actualFailed}')`)).toBe("t");
+    expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${actualFailed}'`)).toBe("1");
+    expect(scalar(`extraction_phase from public.patient_bloodwork_reports where id='${actualFailed}'`)).toBe("waiting");
   });
 
   it("serializes cleanup/deletion and enforces live extraction leases at maximum output", () => {

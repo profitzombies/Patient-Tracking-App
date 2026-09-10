@@ -18,6 +18,7 @@ import {
   type BloodworkDraftFile,
 } from '../lib/bloodwork-media';
 import { loadBloodworkHistoryPages } from '../lib/use-bloodwork-history';
+import { formatBloodworkDate, isBloodworkDateKey } from '../lib/bloodwork-date';
 import { setDocumentAsset } from './bloodwork-browser-stubs/expo-document-picker';
 import { setManipulatedResult } from './bloodwork-browser-stubs/expo-image-manipulator';
 
@@ -37,6 +38,18 @@ function report(id: string): BloodworkReport {
     extractionStatus: 'completed',
     extractionError: null,
     reviewStatus: 'unreviewed',
+    processing: {
+      phase: 'completed',
+      completedPages: 1,
+      totalPages: 1,
+      startedAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:01Z',
+      completedAt: '2026-01-01T00:00:01Z',
+      observedAt: '2026-01-01T00:00:01Z',
+      activity: 'active',
+      elapsedSeconds: 1,
+      leaseUntil: null,
+    },
   };
 }
 
@@ -76,6 +89,19 @@ async function main(): Promise<void> {
     }),
     { expectedVersion: 7, title: 'CBC', reportDate: '2026-02-02' },
     'date-only metadata edit retains the edit-start version',
+  );
+  assert.equal(formatBloodworkDate('2026-09-10'), '09/10/26');
+  assert.equal(isBloodworkDateKey('2026-02-29'), false);
+  assert.deepEqual(
+    buildBloodworkMetadataUpdate({
+      version: 8,
+      originalTitle: 'CBC',
+      originalReportDate: '2026-01-01',
+      titleDraft: 'CBC',
+      dateDraft: '',
+    }),
+    { expectedVersion: 8, title: 'CBC', reportDate: null },
+    'clearing the optional date stores null',
   );
 
   const capture = new BloodworkCaptureGuard();

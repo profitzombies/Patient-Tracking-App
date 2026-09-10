@@ -12,6 +12,8 @@ import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
 import { disposeBloodworkDraftFiles, disposeBloodworkOwnedUri, pickBloodworkPdf, prepareBloodworkImage, prepareBloodworkImageBatch, type BloodworkDraftFile } from '@/lib/bloodwork-media';
 import { BloodworkCamera } from '@/components/bloodwork/BloodworkCamera';
+import { BloodworkBackRow } from '@/components/bloodwork/BloodworkBackRow';
+import { BloodworkDateField } from '@/components/bloodwork/BloodworkDateField';
 import { uploadFileWithProgress } from '@/lib/bloodwork-upload';
 import { createBloodworkReport, commitBloodworkReport, deleteBloodworkReport } from '@workspace/api-client-react';
 import { supabase, useSupabaseSession } from '@/lib/supabase';
@@ -217,7 +219,7 @@ export default function NewBloodwork() {
       }
       setDraftType('pdf');
       setFiles([file]);
-      setTitle(file.fileName || 'PDF Report');
+      setTitle(current => current.trim() ? current : file.fileName || 'PDF Report');
     } catch (e: any) {
       if (isCurrent(key, operation.generation, operation.signal)) Alert.alert('Error', e.message);
     } finally {
@@ -400,7 +402,7 @@ export default function NewBloodwork() {
     let stagedReportId: string | null = null;
     let committed = false;
     let capturedToken: string | null = null;
-    const busyNonce = beginBusy(key, 'Creating report...');
+    const busyNonce = beginBusy(key, 'Starting upload...');
     setProgress(0);
     setRecovery(null);
     saveInFlightRef.current = true;
@@ -459,11 +461,14 @@ export default function NewBloodwork() {
         return;
       }
       
-      setProgress(10);
+      setProgress(0);
       setStatusText('Uploading files...');
       
-      let uploadProgress = 10;
-      const step = 80 / selectedFiles.length;
+       let uploadProgress = 0;
+       // Reserve the final 10% for the server-side commit. Upload byte
+       // progress must never claim that the report is saved before commit
+       // succeeds.
+       const step = 90 / selectedFiles.length;
       
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
@@ -480,7 +485,7 @@ export default function NewBloodwork() {
         if (!isCurrent(key, operation.generation, operation.signal)) return;
       }
 
-      setStatusText('Committing report...');
+       setStatusText('Saving report...');
       await commitBloodworkReport(
         account.patientId,
         reportId,
@@ -617,12 +622,8 @@ export default function NewBloodwork() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PatientHeader
         title="New Report"
-        right={(
-          <Pressable onPress={() => router.back()} accessibilityLabel="Back to bloodwork">
-            <Feather name="arrow-left" size={20} color={colors.navy} />
-          </Pressable>
-        )}
       />
+      <BloodworkBackRow onPress={() => router.back()} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
         
         <View style={styles.formGroup}>
@@ -631,7 +632,7 @@ export default function NewBloodwork() {
             style={[styles.input, { borderColor: colors.border, color: colors.navy }]}
             value={title}
             editable={!busy && !saveInFlightRef.current}
-            onChangeText={value => {
+            onChangeText={(value: string) => {
               if (busyOwnerRef.current || saveInFlightRef.current) return;
               if (value !== title) abandonRetainedDraft();
               setTitle(value);
@@ -643,17 +644,15 @@ export default function NewBloodwork() {
 
         <View style={styles.formGroup}>
           <Text style={[styles.label, { color: colors.labelText }]}>REPORT DATE (OPTIONAL)</Text>
-          <TextInput
-            style={[styles.input, { borderColor: colors.border, color: colors.navy }]}
+          <BloodworkDateField
+            testID="bloodwork-report-date"
             value={reportDate}
-            editable={!busy && !saveInFlightRef.current}
-            onChangeText={value => {
+            disabled={busy || saveInFlightRef.current}
+            onChange={value => {
               if (busyOwnerRef.current || saveInFlightRef.current) return;
               if (value !== reportDate) abandonRetainedDraft();
               setReportDate(value);
             }}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={colors.subtleText}
           />
         </View>
 
@@ -767,10 +766,25 @@ export default function NewBloodwork() {
             ) : null}
             {busy && (
                <View style={styles.progressWrap}>
-                  <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+                  <Text
+                    accessibilityRole="text"
+                    style={{ fontSize: 12, color: colors.navy, marginBottom: 7, fontFamily: 'Inter_600SemiBold' }}
+                  >
+                    Upload and save progress
+                  </Text>
+                  <View
+                    accessibilityRole="progressbar"
+                    accessibilityLabel={`Upload and save progress: ${statusText}`}
+                    accessibilityValue={{ min: 0, max: 100, now: Math.round(progress) }}
+                    style={[styles.progressBar, { backgroundColor: colors.border }]}
+                  >
                     <View style={[styles.progressFill, { backgroundColor: colors.cobalt, width: `${progress}%` }]} />
                   </View>
-                  <Text style={{ fontSize: 11, color: colors.subtleText, marginTop: 4 }}>{statusText} {Math.round(progress)}%</Text>
+                   <Text
+                     style={{ fontSize: 11, color: colors.subtleText, marginTop: 4 }}
+                   >
+                     {statusText} {Math.round(progress)}%
+                   </Text>
                   <Pressable
                     onPress={() => {
                       generationRef.current.cancel();
@@ -793,7 +807,7 @@ export default function NewBloodwork() {
                  pressed && !busy && { opacity: 0.8 }
                ]}
             >
-              {busy && statusText.startsWith('Upload') ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Save & Process</Text>}
+               {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Save & Process</Text>}
             </Pressable>
           </View>
         )}

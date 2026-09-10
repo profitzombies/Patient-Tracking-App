@@ -7,6 +7,7 @@ import { AppModal } from '@/components/ui/AppModal';
 import { ZoomableImage } from '@/components/bloodwork/ZoomableImage';
 import { useColors } from '@/hooks/useColors';
 import { resolveBloodworkSourceUrl } from '@/lib/bloodwork-url';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface BloodworkViewerProps {
   visible: boolean;
@@ -28,6 +29,9 @@ export function BloodworkViewer({
   initialIndex = 0,
 }: BloodworkViewerProps) {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
+  const bottomInset = Platform.OS === 'web' ? Math.max(insets.bottom, 34) : insets.bottom;
   const [index, setIndex] = useState(initialIndex);
   const [webUri, setWebUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,9 +92,9 @@ export function BloodworkViewer({
   return (
     <AppModal visible={visible} onRequestClose={onClose} animationType="fade" transparent>
       <View style={styles.root}>
-        <View style={styles.top}>
+        <View style={[styles.top, { paddingTop: topInset }]}>
           <Text style={styles.title}>{reportDetail?.report.title ?? 'Bloodwork source'}</Text>
-          <Pressable onPress={onClose} style={styles.control} accessibilityLabel="Close bloodwork viewer">
+          <Pressable testID="bloodwork-viewer-close" onPress={onClose} style={styles.control} accessibilityLabel="Close bloodwork viewer">
             <Feather name="x" size={22} color={colors.navy} />
           </Pressable>
         </View>
@@ -116,7 +120,7 @@ export function BloodworkViewer({
           />
         )}
         {!tooLarge && pages.length > 1 ? (
-          <View style={styles.pager}>
+          <View style={[styles.pager, { paddingBottom: Math.max(bottomInset, 12) }]}>
             <Pressable accessibilityRole="button" accessibilityLabel="Previous source page" disabled={index === 0} onPress={() => setIndex(value => value - 1)} style={[styles.control, index === 0 && styles.disabled]}>
               <Feather name="chevron-left" size={22} color={colors.navy} />
             </Pressable>
@@ -133,12 +137,12 @@ export function BloodworkViewer({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#111820' },
-  top: { height: 64, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fdfcf9' },
+  top: { minHeight: 64, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fdfcf9' },
   title: { color: '#203b64', fontSize: 15, fontFamily: 'Inter_600SemiBold', flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   error: { color: '#ffffff', padding: 24, textAlign: 'center', fontSize: 14 },
   retry: { padding: 12, backgroundColor: '#fdfcf9', borderRadius: 8 },
-  pager: { flexShrink: 0, paddingTop: 8, paddingBottom: 24, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
+  pager: { flexShrink: 0, paddingTop: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
   control: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: '#fdfcf9' },
   disabled: { opacity: 0.4 },
   pageText: { color: '#ffffff', fontSize: 13, fontFamily: 'Inter_600SemiBold' },

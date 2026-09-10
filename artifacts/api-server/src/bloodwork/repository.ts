@@ -13,6 +13,14 @@ export interface ReportRow {
   extraction_status: "queued" | "processing" | "completed" | "failed";
   extraction_error: string | null;
   lifecycle_status: "staging" | "committed" | "deleted";
+  extraction_phase?: "waiting" | "reading_pages" | "preparing_results" | "completed" | "failed";
+  extraction_completed_pages?: number | null;
+  extraction_total_pages?: number | null;
+  extraction_started_at?: string | null;
+  extraction_progress_updated_at?: string | null;
+  extraction_completed_at?: string | null;
+  extraction_finished_at?: string | null;
+  extraction_lease_until?: string | null;
 }
 
 export interface FileRow {
@@ -49,7 +57,7 @@ interface ResultRow {
   updated_at: string;
 }
 
-const REPORT_SELECT = "id,patient_id,title,report_date,uploaded_at,version,kind,extraction_status,extraction_error,lifecycle_status";
+const REPORT_SELECT = "id,patient_id,title,report_date,uploaded_at,version,kind,extraction_status,extraction_error,lifecycle_status,extraction_phase,extraction_completed_pages,extraction_total_pages,extraction_started_at,extraction_progress_updated_at,extraction_completed_at,extraction_finished_at,extraction_lease_until";
 const FILE_SELECT = "id,patient_id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,staging_object_path,object_path,mime_type,size_bytes,page_count,width,height";
 const RESULT_SELECT = "id,report_id,source_file_id,source_page,position,test_name,value_text,units,reference_range,lab_flag,uncertain,version,corrected,updated_at";
 
@@ -77,7 +85,87 @@ export async function fetchAllRows<T>(path: string, label: string, maximum = 20_
   return out;
 }
 
-export function reportDto(row: ReportRow, files: FileRow[]) {
+const PROCESSING_STALE_AFTER_MS = 5 * 60 * 1000;
+const MAX_BLOODWORK_PAGES = 100;
+const PROCESSING_PHASES = new Set(["waiting", "reading_pages", "preparing_results", "completed", "failed"]);
+
+function isoOrNull(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString() : null;
+}
+
+function boundedCount(value: number | null | undefined, maximum: number): number {
+  if (!Number.isFinite(Number(value))) return 0;
+  return Math.max(0, Math.min(maximum, Math.trunc(Number(value))));
+}
+
+function processingDto(row: ReportRow, files: FileRow[], observedAt = new Date().toISOString()) {
+  const observedMs = Date.parse(observedAt);
+  const totalFromFiles = files.reduce((sum, file) => sum + boundedCount(file.page_count, MAX_BLOODWORK_PAGES), 0);
+  const totalPages = boundedCount(row.extraction_total_pages ?? totalFromFiles, MAX_BLOODWORK_PAGES);
+  const completedPages = Math.min(
+    totalPages,
+    boundedCount(row.extraction_completed_pages, MAX_BLOODWORK_PAGES),
+  );
+  const fallbackPhase = row.extraction_status === "queued"
+    ? "waiting"
+    : row.extraction_status === "processing"
+      ? (completedPages >= totalPages && totalPages > 0 ? "preparing_results" : "reading_pages")
+      : row.extraction_status;
+  const phase = PROCESSING_PHASES.has(String(row.extraction_phase))
+    ? row.extraction_phase!
+    : fallbackPhase as ReportRow["extraction_phase"];
+  const startedAt = isoOrNull(row.extraction_started_at);
+  const completedAt = row.extraction_status === "completed"
+    ? isoOrNull(row.extraction_completed_at ?? row.extraction_finished_at)
+    : null;
+  const finishedAt = isoOrNull(row.extraction_finished_at);
+  const endMs = completedAt ? Date.parse(completedAt) : row.extraction_status === "failed" && finishedAt
+    ? Date.parse(finishedAt)
+    : observedMs;
+  const elapsedSeconds = startedAt && Number.isFinite(endMs) && Number.isFinite(Date.parse(startedAt))
+    ? Math.max(0, Math.floor((endMs - Date.parse(startedAt)) / 1000))
+    : null;
+  const persistedUpdatedAt = isoOrNull(row.extraction_progress_updated_at);
+  const updatedAt = persistedUpdatedAt;
+  const updatedMs = persistedUpdatedAt ? Date.parse(persistedUpdatedAt) : Number.NaN;
+  const leaseUntil = row.extraction_status === "processing" ? isoOrNull(row.extraction_lease_until) : null;
+  let activity: "active" | "waiting" | "delayed" | "unknown";
+  if (phase === "completed" || phase === "failed") {
+    activity = "waiting";
+  } else if (row.extraction_status === "processing") {
+    const leaseLive = leaseUntil !== null && Date.parse(leaseUntil) > observedMs;
+    const heartbeatFresh = persistedUpdatedAt !== null
+      && Number.isFinite(updatedMs)
+      && observedMs - updatedMs <= PROCESSING_STALE_AFTER_MS;
+    if (!persistedUpdatedAt || !leaseUntil) activity = "unknown";
+    else if (leaseLive && heartbeatFresh) activity = "active";
+    else activity = "delayed";
+  } else if (phase === "waiting") {
+    activity = !persistedUpdatedAt
+      ? "unknown"
+      : Number.isFinite(updatedMs) && observedMs - updatedMs > PROCESSING_STALE_AFTER_MS
+      ? "delayed"
+      : "waiting";
+  } else {
+    activity = "unknown";
+  }
+  return {
+    phase,
+    completedPages,
+    totalPages,
+    startedAt,
+    updatedAt,
+    completedAt,
+    observedAt,
+    activity,
+    elapsedSeconds,
+    leaseUntil,
+  };
+}
+
+export function reportDto(row: ReportRow, files: FileRow[], observedAt = new Date().toISOString()) {
   return {
     id: row.id,
     patientId: row.patient_id,
@@ -91,6 +179,7 @@ export function reportDto(row: ReportRow, files: FileRow[]) {
     extractionStatus: row.extraction_status,
     extractionError: row.extraction_error,
     reviewStatus: "unreviewed" as const,
+    processing: processingDto(row, files, observedAt),
   };
 }
 

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/bloodwork-native-ui-stubs/react-native.ts"],
+      "react-native-safe-area-context": ["./scripts/bloodwork-native-ui-stubs/safe-area.ts"],
+      "@expo/vector-icons": ["./scripts/bloodwork-native-ui-stubs/vector-icons.ts"],
+      "@/hooks/useColors": ["./scripts/bloodwork-native-ui-stubs/colors.ts"],
+      "@/components/ui/AppModal": ["./scripts/bloodwork-native-ui-stubs/modal.tsx"],
+      "@/components/bloodwork/ZoomableImage": ["./scripts/bloodwork-native-ui-stubs/zoomable-image.tsx"]
+    }
+  }
+}

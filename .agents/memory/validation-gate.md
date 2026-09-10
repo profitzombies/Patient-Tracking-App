@@ -29,3 +29,11 @@ Keep the ordinary Run-button group limited to managed artifact services. A manua
 **Why:** The workspace can retain validation suites in its normal Project startup group. Starting the project then launches the entire test collection alongside Expo and the API, exhausting the container's process/thread limit before the app starts. This has produced exit-134 aborts and EAGAIN without any application-code regression.
 
 **How to apply:** When diagnosing an artifact startup abort, inspect the Run-button group's membership as well as current process pressure. Adding a validation command must not silently restore tests to ordinary app startup. A successful server restart alone does not prevent the next startup overload if the group still includes the test collection.
+
+## Missing completion runs
+
+Treat completion `RUN_LOST` separately from failing checks; do not assume any commands actually ran.
+
+**Why:** Completion can return a run identifier that the validation lookup immediately reports as not found, with no command results. This is missing orchestration evidence, not a code failure or a green validation run.
+
+**How to apply:** Look up the exact returned run once. If it is absent, rely only on independently completed checks, and use an explicit `skip_validation_reason` if the missing run prevents completion. State the unavailable gate and the checks that actually passed; never claim all registered checks passed.

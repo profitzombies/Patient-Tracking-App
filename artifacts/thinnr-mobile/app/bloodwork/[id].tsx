@@ -9,12 +9,16 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { ResultRow } from '@/components/bloodwork/ResultRow';
 import { ResultEditModal } from '@/components/bloodwork/ResultEditModal';
 import { BloodworkViewer } from '@/components/bloodwork/BloodworkViewer';
+import { BloodworkBackRow } from '@/components/bloodwork/BloodworkBackRow';
+import { BloodworkDateField } from '@/components/bloodwork/BloodworkDateField';
+import { BloodworkProcessingStatus } from '@/components/bloodwork/BloodworkProcessingStatus';
 import { AppModal } from '@/components/ui/AppModal';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useSupabaseSession } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
   useGetBloodworkReport, 
+  getListBloodworkReportsQueryKey,
   useUpdateBloodworkReport, 
   useDeleteBloodworkReport, 
   useCorrectBloodworkResult,
@@ -22,6 +26,7 @@ import {
   useRetryBloodworkExtraction,
 } from '@workspace/api-client-react';
 import { buildBloodworkMetadataUpdate } from '@/lib/bloodwork-scope';
+import { formatBloodworkDate } from '@/lib/bloodwork-date';
 
 export default function BloodworkDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -67,8 +72,10 @@ export default function BloodworkDetailScreen() {
   const [viewerIndex, setViewerIndex] = useState(0);
   const [editResult, setEditResult] = useState<any>(null);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const retryInFlightRef = useRef(false);
+  const retryEpochRef = useRef(0);
   
-  const scopeKey = `${userId}:${patientId}`;
+  const scopeKey = `${userId}:${patientId}:${reportId}`;
   const scopeKeyRef = useRef(scopeKey);
   scopeKeyRef.current = scopeKey;
   const checkScope = useCallback((captured: string) => (
@@ -76,6 +83,8 @@ export default function BloodworkDetailScreen() {
   ), [accountCtx.account.kind]);
 
   useEffect(() => {
+    retryEpochRef.current += 1;
+    retryInFlightRef.current = false;
     setViewerVisible(false);
     setEditResult(null);
     setEditingTitle(false);
@@ -106,7 +115,7 @@ export default function BloodworkDetailScreen() {
   );
 
   const saveTitle = async () => {
-    if (!detail || !metadataSnapshot || !titleDraft.trim()) {
+    if (!detail || !metadataSnapshot || !titleDraft.trim() || updateReport.isPending) {
       setEditingTitle(false);
       return;
     }
@@ -126,7 +135,7 @@ export default function BloodworkDetailScreen() {
 
     const captured = scopeKey;
     try {
-      await updateReport.mutateAsync({
+      const updatedReport = await updateReport.mutateAsync({
         patientId,
         reportId,
         data: {
@@ -134,11 +143,27 @@ export default function BloodworkDetailScreen() {
         }
       });
       if (!checkScope(captured)) return;
-      queryClient.invalidateQueries({ queryKey: getGetBloodworkReportQueryKey(patientId, reportId) });
+      const baseDetailQueryKey = getGetBloodworkReportQueryKey(patientId, reportId);
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: detailQueryKey }),
+        queryClient.cancelQueries({ queryKey: baseDetailQueryKey }),
+      ]);
+      if (!checkScope(captured)) return;
+      const nextDetail = detail
+        ? { ...detail, report: updatedReport }
+        : undefined;
+      if (nextDetail) {
+        queryClient.setQueryData(detailQueryKey, nextDetail);
+        queryClient.setQueryData(baseDetailQueryKey, nextDetail);
+      }
+      await queryClient.invalidateQueries({
+        queryKey: getListBloodworkReportsQueryKey(patientId),
+      });
+      if (!checkScope(captured)) return;
       setEditingTitle(false);
       setMetadataSnapshot(null);
     } catch (e: any) {
-      Alert.alert('Failed to update title', e.message);
+      if (checkScope(captured)) Alert.alert('Failed to update title', e.message);
     }
   };
 
@@ -174,7 +199,7 @@ export default function BloodworkDetailScreen() {
       if (!checkScope(captured)) return;
       queryClient.invalidateQueries({ queryKey: getGetBloodworkReportQueryKey(patientId, reportId) });
     } catch (e: any) {
-      throw e;
+      if (checkScope(captured)) throw e;
     }
   };
 
@@ -186,10 +211,11 @@ export default function BloodworkDetailScreen() {
     );
   }
 
-  if (isError || !detail) {
+  if (!detail) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <PatientHeader title="Error" right={<Pressable accessibilityLabel="Back to bloodwork" onPress={() => router.replace('/bloodwork')}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
+        <PatientHeader title="Error" />
+        <BloodworkBackRow onPress={() => router.back()} />
         <View style={styles.emptyWrap}>
            <Text style={[styles.emptyText, { color: colors.destructive }]}>Could not load report.</Text>
            <Pressable onPress={() => void refetch()} style={styles.iconBtn}><Text style={{ color: colors.cobalt }}>Retry</Text></Pressable>
@@ -200,29 +226,38 @@ export default function BloodworkDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PatientHeader title="Report Detail" right={<Pressable accessibilityLabel="Back to bloodwork" onPress={() => router.replace('/bloodwork')}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
+      <PatientHeader title="Report Detail" />
+      <BloodworkBackRow onPress={() => router.back()} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
         
         {/* Header section */}
         <View style={styles.headerBox}>
            {editingTitle ? (
-             <View style={styles.titleEditRow}>
-                <TextInput
+              <View testID="bloodwork-edit-metadata-row" style={styles.titleEditRow}>
+                  <TextInput
+                   testID="bloodwork-edit-title"
                   style={[styles.titleInput, { borderColor: colors.border, color: colors.navy }]}
                   value={titleDraft}
                   onChangeText={setTitleDraft}
+                   editable={!updateReport.isPending}
                   autoFocus
                   onSubmitEditing={saveTitle}
                 />
-                 <TextInput
-                   style={[styles.dateInput, { borderColor: colors.border, color: colors.navy }]}
-                   value={dateDraft}
-                   onChangeText={setDateDraft}
-                   placeholder="YYYY-MM-DD"
-                   placeholderTextColor={colors.subtleText}
-                   onSubmitEditing={saveTitle}
-                 />
-                 <Pressable onPress={() => void saveTitle()} style={styles.iconBtn} accessibilityLabel="Save report title and date">
+                 <View style={styles.dateField}>
+                   <BloodworkDateField
+                     testID="bloodwork-edit-date"
+                     value={dateDraft}
+                     disabled={updateReport.isPending}
+                     onChange={setDateDraft}
+                   />
+                 </View>
+                  <Pressable
+                    disabled={updateReport.isPending}
+                    onPress={() => void saveTitle()}
+                   style={[styles.metadataSaveButton, updateReport.isPending && { opacity: 0.5 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Save report changes"
+                  >
                    <Feather name="check" size={20} color={colors.cobalt} />
                  </Pressable>
              </View>
@@ -230,6 +265,9 @@ export default function BloodworkDetailScreen() {
              <View style={styles.titleRow}>
                <Text style={[styles.title, { color: colors.navy }]} numberOfLines={2}>{detail.report.title}</Text>
                 <Pressable
+                   testID="bloodwork-edit-metadata"
+                   accessibilityRole="button"
+                   accessibilityLabel="Edit report details"
                   onPress={() => {
                     setTitleDraft(detail.report.title);
                     setDateDraft(detail.report.reportDate ?? '');
@@ -247,7 +285,7 @@ export default function BloodworkDetailScreen() {
              </View>
            )}
            <Text style={[styles.meta, { color: colors.subtleText }]}>
-             {detail.report.reportDate ? new Date(detail.report.reportDate).toLocaleDateString() : 'No date'}
+              {formatBloodworkDate(detail.report.reportDate)}
              {' • '}
              {detail.report.kind === 'pdf' ? `${detail.report.pageCount} pages` : `${detail.report.fileCount} images`}
            </Text>
@@ -270,38 +308,33 @@ export default function BloodworkDetailScreen() {
         {/* Results section */}
         <View style={styles.resultsBox}>
             <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>Extracted Results · Unreviewed</Text>
-           {isProcessing ? (
-              <View style={styles.emptyWrap}>
-                 <ActivityIndicator color={colors.cobalt} style={{ marginBottom: 12 }} />
-                 <Text style={[styles.emptyText, { color: colors.subtleText }]}>Processing document...</Text>
-              </View>
-           ) : detail.report.extractionStatus === 'failed' ? (
-              <View style={styles.emptyWrap}>
-                  <Feather name="alert-triangle" size={24} color={colors.destructive} style={{ marginBottom: 12 }} />
-                  <Text style={[styles.emptyText, { color: colors.destructive }]}>Extraction failed. The saved source is still available.</Text>
-                  <Pressable
-                    onPress={async () => {
-                      const captured = scopeKey;
-                      try {
-                        await retryExtraction.mutateAsync({ patientId, reportId });
-                        if (checkScope(captured)) await refetch();
-                      } catch (error) {
-                        if (checkScope(captured)) {
-                          Alert.alert('Retry failed', error instanceof Error ? error.message : 'Extraction could not be retried.');
-                        }
-                      }
-                    }}
-                    disabled={retryExtraction.isPending}
-                    style={styles.iconBtn}
-                  >
-                    <Text style={{ color: colors.cobalt }}>{retryExtraction.isPending ? 'Retrying…' : 'Retry extraction'}</Text>
-                  </Pressable>
-              </View>
-           ) : detail.results.length === 0 ? (
+            <BloodworkProcessingStatus
+              report={detail.report}
+              pollingError={isError && isProcessing}
+              onRefresh={() => void refetch()}
+              onRetryExtraction={detail.report.extractionStatus === 'failed' ? async () => {
+                if (retryInFlightRef.current) return;
+                retryInFlightRef.current = true;
+                const captured = scopeKey;
+                const retryEpoch = retryEpochRef.current;
+                try {
+                  await retryExtraction.mutateAsync({ patientId, reportId });
+                  if (checkScope(captured)) await refetch();
+                } catch (error) {
+                  if (checkScope(captured)) {
+                    Alert.alert('Retry failed', error instanceof Error ? error.message : 'Extraction could not be retried.');
+                  }
+                } finally {
+                  if (retryEpochRef.current === retryEpoch) retryInFlightRef.current = false;
+                }
+              } : undefined}
+              retryPending={retryExtraction.isPending || retryInFlightRef.current}
+            />
+            {detail.report.extractionStatus === 'completed' && detail.results.length === 0 ? (
               <View style={styles.emptyWrap}>
                  <Text style={[styles.emptyText, { color: colors.subtleText }]}>No results found in this document.</Text>
               </View>
-           ) : (
+            ) : detail.report.extractionStatus === 'completed' ? (
               <View style={styles.list}>
                   {[...detail.results].sort((a, b) => (a.sourcePage - b.sourcePage) || (a.position - b.position)).map((r, i) => (
                    <React.Fragment key={r.id}>
@@ -322,8 +355,8 @@ export default function BloodworkDetailScreen() {
                      />
                    </React.Fragment>
                  ))}
-              </View>
-           )}
+               </View>
+            ) : null}
         </View>
 
       </ScrollView>
@@ -377,13 +410,14 @@ const styles = StyleSheet.create({
   content: { padding: 16 },
   headerBox: { marginBottom: 24 },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  titleEditRow: { flexDirection: 'row', alignItems: 'center' },
+  titleEditRow: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
   title: { fontSize: 24, fontFamily: 'PlayfairDisplay_600SemiBold', flex: 1, paddingRight: 16, lineHeight: 32 },
   titleInput: { 
-    flex: 1, height: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, 
+    width: '100%', height: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12,
     fontSize: 18, fontFamily: 'PlayfairDisplay_600SemiBold' 
   },
-  dateInput: { height: 44, width: 130, marginLeft: 8, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10 },
+  dateField: { width: '100%' },
+  metadataSaveButton: { alignSelf: 'flex-end', minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   iconBtn: { padding: 8, margin: -8 },
   meta: { fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 8 },
   actions: { flexDirection: 'row', gap: 12, marginTop: 16 },

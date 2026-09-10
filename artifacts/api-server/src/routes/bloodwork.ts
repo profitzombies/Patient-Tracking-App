@@ -16,7 +16,7 @@ import {
   BLOODWORK_MAX_FILE_BYTES, inspectBloodworkFile, renderBloodworkPage, BloodworkDocumentError,
 } from "../bloodwork/documents";
 import {
-  detailDto, ensureRows, fetchAllRows, FILE_SELECT, fileDto, loadReport, reportDto, resultDto, rpc,
+  detailDto, ensureRows, fetchAllRows, FILE_SELECT, REPORT_SELECT, fileDto, loadReport, reportDto, resultDto, rpc,
   type FileRow, type ReportRow,
 } from "../bloodwork/repository";
 import { recordUploadIntent } from "../jobs/upload-intents";
@@ -63,13 +63,14 @@ router.get(BASE, async (req, res): Promise<void> => {
     const reportsRes = await supabaseAdmin("GET",
       `/rest/v1/patient_bloodwork_reports?patient_id=eq.${enc(actor.patientId)}&lifecycle_status=eq.committed` +
       (cursor ? `&uploaded_at=lt.${enc(cursor)}` : "") +
-      `&select=id,patient_id,title,report_date,uploaded_at,version,kind,extraction_status,extraction_error,lifecycle_status&order=uploaded_at.desc,id.desc&limit=21`);
+      `&select=${REPORT_SELECT}&order=uploaded_at.desc,id.desc&limit=21`);
     const reports = ensureRows<ReportRow>(reportsRes.status, reportsRes.json, "bloodwork list");
     const visible = reports.slice(0, 20);
+    const observedAt = new Date().toISOString();
     const output = await Promise.all(visible.map(async (report) => {
       const filesRes = await supabaseAdmin("GET",
         `/rest/v1/patient_bloodwork_files?report_id=eq.${enc(report.id)}&select=${FILE_SELECT}&order=position.asc`);
-      return reportDto(report, ensureRows<FileRow>(filesRes.status, filesRes.json, "bloodwork file counts"));
+      return reportDto(report, ensureRows<FileRow>(filesRes.status, filesRes.json, "bloodwork file counts"), observedAt);
     }));
     res.json({ reports: output, nextCursor: reports.length > 20 ? visible[visible.length - 1].uploaded_at : null });
   } catch (error) {

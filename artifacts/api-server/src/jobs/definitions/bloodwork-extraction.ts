@@ -113,6 +113,10 @@ export async function runBloodworkExtraction(ctx: JobContext): Promise<void> {
         p_report_id: report.id, p_lease_token: report.extraction_lease_token, p_lease_seconds: 600,
       });
       if (renewed !== true) throw new Error("bloodwork extraction lease no longer owned");
+      const prepared = await callRpc("bloodwork_prepare_extraction", {
+        p_report_id: report.id, p_lease_token: report.extraction_lease_token,
+      });
+      if (prepared !== true) throw new Error("bloodwork extraction preparation refused");
       ctx.checkpoint();
       const completed = await callRpc("bloodwork_complete_extraction_from_pages", {
         p_report_id: report.id, p_lease_token: report.extraction_lease_token,

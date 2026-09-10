@@ -7,6 +7,7 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { useColors } from '@/hooks/useColors';
 import { BloodworkHistoryList } from '@/components/bloodwork/BloodworkHistoryList';
 import { Feather } from '@expo/vector-icons';
+import { BloodworkBackRow } from '@/components/bloodwork/BloodworkBackRow';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
 import { supabase, useSupabaseSession } from '@/lib/supabase';
@@ -134,12 +135,8 @@ export default function BloodworkIndex() {
       <PatientHeader
         title="Bloodwork"
         subtitle="Manage reports & results"
-        right={(
-          <Pressable onPress={() => router.back()} accessibilityLabel="Back to Plan">
-            <Feather name="arrow-left" size={20} color={colors.navy} />
-          </Pressable>
-        )}
       />
+      <BloodworkBackRow label="Back to Plan" onPress={() => router.back()} />
       <ScrollView
         scrollBoundary="refresh"
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}

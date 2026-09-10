@@ -1,6 +1,7 @@
 export type CreateBehavior =
   | { kind: 'reject'; error: unknown }
   | { kind: 'deferred' }
+  | { kind: 'upload' }
   | { kind: 'replay' };
 
 export const state: {
@@ -8,13 +9,17 @@ export const state: {
   createCalls: Array<{ clientRequestId: string; patientId: string }>;
   deleteCalls: string[];
   deferredReject: ((error: unknown) => void) | null;
-  deferredResolve: ((value: { reportId: string; uploads: [] }) => void) | null;
+  deferredResolve: ((value: { reportId: string; uploads: Array<{ fileId: string; clientFileId: string; uploadUrl: string; expiresAt: string }> }) => void) | null;
+  commitDeferred: boolean;
+  commitResolve: (() => void) | null;
 } = {
   createBehaviors: [],
   createCalls: [],
   deleteCalls: [],
   deferredReject: null,
   deferredResolve: null,
+  commitDeferred: false,
+  commitResolve: null,
 };
 
 export function resetApi(): void {
@@ -23,17 +28,30 @@ export function resetApi(): void {
   state.deleteCalls = [];
   state.deferredReject = null;
   state.deferredResolve = null;
+  state.commitDeferred = false;
+  state.commitResolve = null;
 }
 
 export async function createBloodworkReport(
   patientId: string,
   body: { clientRequestId: string },
   options?: { signal?: AbortSignal },
-): Promise<{ reportId: string; uploads: [] }> {
+): Promise<{ reportId: string; uploads: Array<{ fileId: string; clientFileId: string; uploadUrl: string; expiresAt: string }> }> {
   state.createCalls.push({ clientRequestId: body.clientRequestId, patientId });
   const behavior = state.createBehaviors.shift() ?? { kind: 'replay' as const };
   if (behavior.kind === 'reject') throw behavior.error;
   if (behavior.kind === 'replay') return { reportId: 'report-replay', uploads: [] };
+  if (behavior.kind === 'upload') {
+    return {
+      reportId: 'report-upload',
+      uploads: [{
+        fileId: 'file-upload',
+        clientFileId: 'file-a',
+        uploadUrl: 'https://storage.example.test/upload',
+        expiresAt: '2026-09-10T13:00:00Z',
+      }],
+    };
+  }
   return new Promise((resolve, reject) => {
     state.deferredResolve = resolve;
     state.deferredReject = reject;
@@ -44,7 +62,11 @@ export async function createBloodworkReport(
 }
 
 export async function commitBloodworkReport(): Promise<void> {
-  return;
+  if (state.commitDeferred) {
+    await new Promise<void>(resolve => {
+      state.commitResolve = resolve;
+    });
+  }
 }
 
 export async function deleteBloodworkReport(

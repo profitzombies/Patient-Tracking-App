@@ -9,9 +9,12 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { ResultRow } from '@/components/bloodwork/ResultRow';
 import { ResultEditModal } from '@/components/bloodwork/ResultEditModal';
 import { BloodworkViewer } from '@/components/bloodwork/BloodworkViewer';
+import { BloodworkBackRow } from '@/components/bloodwork/BloodworkBackRow';
+import { BloodworkProcessingStatus } from '@/components/bloodwork/BloodworkProcessingStatus';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOfficeRoster } from '@/components/office/LiveOfficeRoster';
 import { useSupabaseSession } from '@/lib/supabase';
+import { formatBloodworkDate } from '@/lib/bloodwork-date';
 import { 
   useGetBloodworkReport, 
   useCorrectBloodworkResult,
@@ -55,11 +58,16 @@ export default function ProviderBloodworkDetailScreen() {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const [editResult, setEditResult] = useState<any>(null);
-  const scopeKey = `${session?.user.id ?? ''}:${officeId ?? ''}:${pid}`;
+  const retryInFlightRef = useRef(false);
+  const retryEpochRef = useRef(0);
+  const scopeKey = `${session?.user.id ?? ''}:${officeId ?? ''}:${pid}:${rid}`;
   const scopeRef = useRef(scopeKey);
   scopeRef.current = scopeKey;
   useEffect(() => {
+    retryEpochRef.current += 1;
+    retryInFlightRef.current = false;
     setViewerVisible(false);
+    setViewerIndex(0);
     setEditResult(null);
   }, [scopeKey]);
 
@@ -94,7 +102,7 @@ export default function ProviderBloodworkDetailScreen() {
 
       queryClient.invalidateQueries({ queryKey: getGetBloodworkReportQueryKey(pid, rid, { office: officeId }) });
     } catch (e: any) {
-      throw e;
+      if (captured === scopeRef.current) throw e;
     }
   };
 
@@ -106,11 +114,12 @@ export default function ProviderBloodworkDetailScreen() {
     );
   }
 
-  if (isError || !detail) {
+   if (!detail) {
     const accessDenied = officeRoster.status === 'denied' || !userId;
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <PatientHeader title="Error" right={<Pressable onPress={() => router.back()}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
+        <PatientHeader title="Error" />
+        <BloodworkBackRow label="Back to patient" onPress={() => router.back()} />
         <View style={styles.emptyWrap}>
            <Text style={[styles.emptyText, { color: colors.destructive }]}>
              {accessDenied ? 'This private report is unavailable for this account.' : 'Could not load report.'}
@@ -125,14 +134,15 @@ export default function ProviderBloodworkDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PatientHeader title="Report Detail" right={<Pressable onPress={() => router.back()}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
+      <PatientHeader title="Report Detail" />
+      <BloodworkBackRow label="Back to patient" onPress={() => router.back()} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
         
         {/* Header section */}
         <View style={styles.headerBox}>
            <Text style={[styles.title, { color: colors.navy }]} numberOfLines={2}>{detail.report.title}</Text>
            <Text style={[styles.meta, { color: colors.subtleText }]}>
-             {detail.report.reportDate ? new Date(detail.report.reportDate).toLocaleDateString() : 'No date'}
+              {formatBloodworkDate(detail.report.reportDate)}
              {' • '}
              {detail.report.kind === 'pdf' ? `${detail.report.pageCount} pages` : `${detail.report.fileCount} images`}
            </Text>
@@ -151,38 +161,33 @@ export default function ProviderBloodworkDetailScreen() {
         {/* Results section */}
         <View style={styles.resultsBox}>
             <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>Extracted Results · Unreviewed</Text>
-           {isProcessing ? (
-              <View style={styles.emptyWrap}>
-                 <ActivityIndicator color={colors.cobalt} style={{ marginBottom: 12 }} />
-                 <Text style={[styles.emptyText, { color: colors.subtleText }]}>Processing document...</Text>
-              </View>
-           ) : detail.report.extractionStatus === 'failed' ? (
-              <View style={styles.emptyWrap}>
-                  <Feather name="alert-triangle" size={24} color={colors.destructive} style={{ marginBottom: 12 }} />
-                  <Text style={[styles.emptyText, { color: colors.destructive }]}>Extraction failed. The saved source is still available.</Text>
-                  <Pressable
-                    disabled={retryExtraction.isPending}
-                    onPress={async () => {
-                      const captured = scopeKey;
-                      try {
-                        await retryExtraction.mutateAsync({ patientId: pid, reportId: rid, params });
-                        if (captured === scopeRef.current) await refetch();
-                      } catch (error) {
-                        if (captured === scopeRef.current) {
-                          Alert.alert('Retry failed', error instanceof Error ? error.message : 'Extraction could not be retried.');
-                        }
-                      }
-                    }}
-                    style={{ padding: 12 }}
-                  >
-                    <Text style={{ color: colors.cobalt }}>{retryExtraction.isPending ? 'Retrying…' : 'Retry extraction'}</Text>
-                  </Pressable>
-              </View>
-           ) : detail.results.length === 0 ? (
+            <BloodworkProcessingStatus
+              report={detail.report}
+              pollingError={isError && isProcessing}
+              onRefresh={() => void refetch()}
+              onRetryExtraction={detail.report.extractionStatus === 'failed' ? async () => {
+                if (retryInFlightRef.current) return;
+                retryInFlightRef.current = true;
+                const captured = scopeKey;
+                const retryEpoch = retryEpochRef.current;
+                try {
+                  await retryExtraction.mutateAsync({ patientId: pid, reportId: rid, params });
+                  if (captured === scopeRef.current) await refetch();
+                } catch (error) {
+                  if (captured === scopeRef.current) {
+                    Alert.alert('Retry failed', error instanceof Error ? error.message : 'Extraction could not be retried.');
+                  }
+                } finally {
+                  if (retryEpochRef.current === retryEpoch) retryInFlightRef.current = false;
+                }
+              } : undefined}
+              retryPending={retryExtraction.isPending || retryInFlightRef.current}
+            />
+            {detail.report.extractionStatus === 'completed' && detail.results.length === 0 ? (
               <View style={styles.emptyWrap}>
                  <Text style={[styles.emptyText, { color: colors.subtleText }]}>No results found in this document.</Text>
               </View>
-           ) : (
+            ) : detail.report.extractionStatus === 'completed' ? (
               <View style={styles.list}>
                   {[...detail.results].sort((a, b) => (a.sourcePage - b.sourcePage) || (a.position - b.position)).map((r, i) => (
                    <React.Fragment key={r.id}>
@@ -204,8 +209,8 @@ export default function ProviderBloodworkDetailScreen() {
                      />
                    </React.Fragment>
                  ))}
-              </View>
-           )}
+               </View>
+            ) : null}
         </View>
       </ScrollView>
 

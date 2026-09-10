@@ -19,6 +19,9 @@ export type PressableProps = {
   onPress?: () => void;
   disabled?: boolean;
   testID?: string;
+  accessibilityRole?: string;
+  accessibilityLabel?: string;
+  accessibilityState?: Record<string, unknown>;
   style?: StyleProp<ViewStyle> | ((state: { pressed: boolean }) => StyleProp<ViewStyle>);
   children?: React.ReactNode | ((state: { pressed: boolean }) => React.ReactNode);
 };

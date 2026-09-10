@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import type { BloodworkReport } from '@/lib/bloodwork-types';
+import { formatBloodworkDate } from '@/lib/bloodwork-date';
 
 interface BloodworkHistoryListProps {
   reports: BloodworkReport[];
@@ -45,7 +46,7 @@ export function BloodworkHistoryList({ reports, onPressReport, emptyMessage = 'N
                 {report.title}
               </Text>
               <Text style={[styles.meta, { color: colors.subtleText }]}>
-                {report.reportDate ? new Date(report.reportDate).toLocaleDateString() : 'No date'}
+                {formatBloodworkDate(report.reportDate)}
                 {' • '}
                 {report.kind === 'pdf' ? `${report.pageCount} pages` : `${report.fileCount} images`}
               </Text>
@@ -59,7 +60,13 @@ export function BloodworkHistoryList({ reports, onPressReport, emptyMessage = 'N
                   (report.extractionStatus === 'queued' || report.extractionStatus === 'processing') && { color: colors.cobalt },
                 ]}
               >
-                {report.extractionStatus.toUpperCase()}
+                {report.extractionStatus === 'queued'
+                  ? 'WAITING'
+                  : report.extractionStatus === 'processing'
+                    ? 'READING'
+                    : report.extractionStatus === 'completed'
+                      ? 'READY · UNREVIEWED'
+                      : 'FAILED'}
               </Text>
               <Feather name="chevron-right" size={16} color={colors.subtleText} />
             </View>

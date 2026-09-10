@@ -61,6 +61,56 @@ export const BloodworkReportReviewStatus = {
   unreviewed: 'unreviewed',
 } as const;
 
+export type BloodworkProcessingPhase = typeof BloodworkProcessingPhase[keyof typeof BloodworkProcessingPhase];
+
+
+export const BloodworkProcessingPhase = {
+  waiting: 'waiting',
+  reading_pages: 'reading_pages',
+  preparing_results: 'preparing_results',
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export type BloodworkProcessingActivity = typeof BloodworkProcessingActivity[keyof typeof BloodworkProcessingActivity];
+
+
+export const BloodworkProcessingActivity = {
+  active: 'active',
+  waiting: 'waiting',
+  delayed: 'delayed',
+  unknown: 'unknown',
+} as const;
+
+export interface BloodworkProcessing {
+  phase: BloodworkProcessingPhase;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  completedPages: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  totalPages: number;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  updatedAt: string | null;
+  /** @nullable */
+  completedAt: string | null;
+  observedAt: string;
+  activity: BloodworkProcessingActivity;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  elapsedSeconds: number | null;
+  /** @nullable */
+  leaseUntil: string | null;
+}
+
 export interface BloodworkReport {
   id: string;
   patientId: string;
@@ -76,6 +126,7 @@ export interface BloodworkReport {
   /** @nullable */
   extractionError: string | null;
   reviewStatus: BloodworkReportReviewStatus;
+  processing: BloodworkProcessing;
 }
 
 export type BloodworkFileMimeType = typeof BloodworkFileMimeType[keyof typeof BloodworkFileMimeType];

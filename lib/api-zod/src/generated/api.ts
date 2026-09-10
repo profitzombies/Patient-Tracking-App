@@ -3781,6 +3781,16 @@ export const ListBloodworkReportsQueryParams = zod.object({
   "cursor": zod.coerce.string().optional()
 })
 
+export const listBloodworkReportsResponseReportsItemProcessingCompletedPagesMin = 0;
+export const listBloodworkReportsResponseReportsItemProcessingCompletedPagesMax = 100;
+
+export const listBloodworkReportsResponseReportsItemProcessingTotalPagesMin = 0;
+export const listBloodworkReportsResponseReportsItemProcessingTotalPagesMax = 100;
+
+export const listBloodworkReportsResponseReportsItemProcessingElapsedSecondsMin = 0;
+
+
+
 export const ListBloodworkReportsResponse = zod.object({
   "reports": zod.array(zod.object({
   "id": zod.string(),
@@ -3794,7 +3804,19 @@ export const ListBloodworkReportsResponse = zod.object({
   "pageCount": zod.number(),
   "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
   "extractionError": zod.string().nullable(),
-  "reviewStatus": zod.enum(['unreviewed'])
+  "reviewStatus": zod.enum(['unreviewed']),
+  "processing": zod.object({
+  "phase": zod.enum(['waiting', 'reading_pages', 'preparing_results', 'completed', 'failed']),
+  "completedPages": zod.number().min(listBloodworkReportsResponseReportsItemProcessingCompletedPagesMin).max(listBloodworkReportsResponseReportsItemProcessingCompletedPagesMax),
+  "totalPages": zod.number().min(listBloodworkReportsResponseReportsItemProcessingTotalPagesMin).max(listBloodworkReportsResponseReportsItemProcessingTotalPagesMax),
+  "startedAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "completedAt": zod.coerce.date().nullable(),
+  "observedAt": zod.coerce.date(),
+  "activity": zod.enum(['active', 'waiting', 'delayed', 'unknown']),
+  "elapsedSeconds": zod.number().min(listBloodworkReportsResponseReportsItemProcessingElapsedSecondsMin).nullable(),
+  "leaseUntil": zod.coerce.date().nullable()
+})
 })),
   "nextCursor": zod.string().nullable()
 })
@@ -3849,6 +3871,14 @@ export const GetBloodworkReportQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
 })
 
+export const getBloodworkReportResponseReportProcessingCompletedPagesMin = 0;
+export const getBloodworkReportResponseReportProcessingCompletedPagesMax = 100;
+
+export const getBloodworkReportResponseReportProcessingTotalPagesMin = 0;
+export const getBloodworkReportResponseReportProcessingTotalPagesMax = 100;
+
+export const getBloodworkReportResponseReportProcessingElapsedSecondsMin = 0;
+
 export const getBloodworkReportResponseResultsItemOneTestNameMax = 500;
 
 export const getBloodworkReportResponseResultsItemOneValueTextMax = 500;
@@ -3874,7 +3904,19 @@ export const GetBloodworkReportResponse = zod.object({
   "pageCount": zod.number(),
   "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
   "extractionError": zod.string().nullable(),
-  "reviewStatus": zod.enum(['unreviewed'])
+  "reviewStatus": zod.enum(['unreviewed']),
+  "processing": zod.object({
+  "phase": zod.enum(['waiting', 'reading_pages', 'preparing_results', 'completed', 'failed']),
+  "completedPages": zod.number().min(getBloodworkReportResponseReportProcessingCompletedPagesMin).max(getBloodworkReportResponseReportProcessingCompletedPagesMax),
+  "totalPages": zod.number().min(getBloodworkReportResponseReportProcessingTotalPagesMin).max(getBloodworkReportResponseReportProcessingTotalPagesMax),
+  "startedAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "completedAt": zod.coerce.date().nullable(),
+  "observedAt": zod.coerce.date(),
+  "activity": zod.enum(['active', 'waiting', 'delayed', 'unknown']),
+  "elapsedSeconds": zod.number().min(getBloodworkReportResponseReportProcessingElapsedSecondsMin).nullable(),
+  "leaseUntil": zod.coerce.date().nullable()
+})
 }),
   "files": zod.array(zod.object({
   "id": zod.string(),
@@ -3924,6 +3966,16 @@ export const UpdateBloodworkReportBody = zod.object({
   "reportDate": zod.coerce.date().nullable()
 })
 
+export const updateBloodworkReportResponseProcessingCompletedPagesMin = 0;
+export const updateBloodworkReportResponseProcessingCompletedPagesMax = 100;
+
+export const updateBloodworkReportResponseProcessingTotalPagesMin = 0;
+export const updateBloodworkReportResponseProcessingTotalPagesMax = 100;
+
+export const updateBloodworkReportResponseProcessingElapsedSecondsMin = 0;
+
+
+
 export const UpdateBloodworkReportResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
@@ -3936,7 +3988,19 @@ export const UpdateBloodworkReportResponse = zod.object({
   "pageCount": zod.number(),
   "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
   "extractionError": zod.string().nullable(),
-  "reviewStatus": zod.enum(['unreviewed'])
+  "reviewStatus": zod.enum(['unreviewed']),
+  "processing": zod.object({
+  "phase": zod.enum(['waiting', 'reading_pages', 'preparing_results', 'completed', 'failed']),
+  "completedPages": zod.number().min(updateBloodworkReportResponseProcessingCompletedPagesMin).max(updateBloodworkReportResponseProcessingCompletedPagesMax),
+  "totalPages": zod.number().min(updateBloodworkReportResponseProcessingTotalPagesMin).max(updateBloodworkReportResponseProcessingTotalPagesMax),
+  "startedAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "completedAt": zod.coerce.date().nullable(),
+  "observedAt": zod.coerce.date(),
+  "activity": zod.enum(['active', 'waiting', 'delayed', 'unknown']),
+  "elapsedSeconds": zod.number().min(updateBloodworkReportResponseProcessingElapsedSecondsMin).nullable(),
+  "leaseUntil": zod.coerce.date().nullable()
+})
 })
 
 
@@ -3965,6 +4029,14 @@ export const CommitBloodworkReportParams = zod.object({
   "reportId": zod.coerce.string().regex(commitBloodworkReportPathReportIdRegExp)
 })
 
+export const commitBloodworkReportResponseReportProcessingCompletedPagesMin = 0;
+export const commitBloodworkReportResponseReportProcessingCompletedPagesMax = 100;
+
+export const commitBloodworkReportResponseReportProcessingTotalPagesMin = 0;
+export const commitBloodworkReportResponseReportProcessingTotalPagesMax = 100;
+
+export const commitBloodworkReportResponseReportProcessingElapsedSecondsMin = 0;
+
 export const commitBloodworkReportResponseResultsItemOneTestNameMax = 500;
 
 export const commitBloodworkReportResponseResultsItemOneValueTextMax = 500;
@@ -3990,7 +4062,19 @@ export const CommitBloodworkReportResponse = zod.object({
   "pageCount": zod.number(),
   "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
   "extractionError": zod.string().nullable(),
-  "reviewStatus": zod.enum(['unreviewed'])
+  "reviewStatus": zod.enum(['unreviewed']),
+  "processing": zod.object({
+  "phase": zod.enum(['waiting', 'reading_pages', 'preparing_results', 'completed', 'failed']),
+  "completedPages": zod.number().min(commitBloodworkReportResponseReportProcessingCompletedPagesMin).max(commitBloodworkReportResponseReportProcessingCompletedPagesMax),
+  "totalPages": zod.number().min(commitBloodworkReportResponseReportProcessingTotalPagesMin).max(commitBloodworkReportResponseReportProcessingTotalPagesMax),
+  "startedAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "completedAt": zod.coerce.date().nullable(),
+  "observedAt": zod.coerce.date(),
+  "activity": zod.enum(['active', 'waiting', 'delayed', 'unknown']),
+  "elapsedSeconds": zod.number().min(commitBloodworkReportResponseReportProcessingElapsedSecondsMin).nullable(),
+  "leaseUntil": zod.coerce.date().nullable()
+})
 }),
   "files": zod.array(zod.object({
   "id": zod.string(),
@@ -4034,6 +4118,16 @@ export const RetryBloodworkExtractionQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
 })
 
+export const retryBloodworkExtractionResponseProcessingCompletedPagesMin = 0;
+export const retryBloodworkExtractionResponseProcessingCompletedPagesMax = 100;
+
+export const retryBloodworkExtractionResponseProcessingTotalPagesMin = 0;
+export const retryBloodworkExtractionResponseProcessingTotalPagesMax = 100;
+
+export const retryBloodworkExtractionResponseProcessingElapsedSecondsMin = 0;
+
+
+
 export const RetryBloodworkExtractionResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
@@ -4046,7 +4140,19 @@ export const RetryBloodworkExtractionResponse = zod.object({
   "pageCount": zod.number(),
   "extractionStatus": zod.enum(['queued', 'processing', 'completed', 'failed']),
   "extractionError": zod.string().nullable(),
-  "reviewStatus": zod.enum(['unreviewed'])
+  "reviewStatus": zod.enum(['unreviewed']),
+  "processing": zod.object({
+  "phase": zod.enum(['waiting', 'reading_pages', 'preparing_results', 'completed', 'failed']),
+  "completedPages": zod.number().min(retryBloodworkExtractionResponseProcessingCompletedPagesMin).max(retryBloodworkExtractionResponseProcessingCompletedPagesMax),
+  "totalPages": zod.number().min(retryBloodworkExtractionResponseProcessingTotalPagesMin).max(retryBloodworkExtractionResponseProcessingTotalPagesMax),
+  "startedAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "completedAt": zod.coerce.date().nullable(),
+  "observedAt": zod.coerce.date(),
+  "activity": zod.enum(['active', 'waiting', 'delayed', 'unknown']),
+  "elapsedSeconds": zod.number().min(retryBloodworkExtractionResponseProcessingElapsedSecondsMin).nullable(),
+  "leaseUntil": zod.coerce.date().nullable()
+})
 })
 
 

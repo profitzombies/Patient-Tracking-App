@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { BloodworkProcessing } from './bloodworkProcessing';
 import type { BloodworkReportExtractionStatus } from './bloodworkReportExtractionStatus';
 import type { BloodworkReportKind } from './bloodworkReportKind';
 import type { BloodworkReportReviewStatus } from './bloodworkReportReviewStatus';
@@ -24,4 +25,5 @@ export interface BloodworkReport {
   /** @nullable */
   extractionError: string | null;
   reviewStatus: BloodworkReportReviewStatus;
+  processing: BloodworkProcessing;
 }

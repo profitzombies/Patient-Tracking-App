@@ -4,17 +4,19 @@ export type Conversation = {
 };
 export const coachState: {
   list: (archived: boolean, offset: number) => Promise<{ conversations: Conversation[]; nextOffset: number | null }>;
+  start: () => void;
   select: (id: string) => Promise<void>;
   archive: (conversation: Conversation, archived: boolean) => Promise<void>;
 } = {
   list: async () => ({ conversations: [], nextOffset: null }),
+  start: () => {},
   select: async () => {},
   archive: async () => {},
 };
 export const useCoachChat = () => ({
-  startNewConversation: () => {},
+  startNewConversation: coachState.start,
   selectConversation: coachState.select,
   listConversations: coachState.list,
-  setArchived: coachState.archive,
+  setArchived: (conversation: Conversation, archived: boolean) => coachState.archive(conversation, archived),
   loadOlder: async () => {},
 });

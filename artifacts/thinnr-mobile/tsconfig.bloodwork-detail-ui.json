@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/bloodwork-native-ui-stubs/react-native.ts"],
+      "react-native-safe-area-context": ["./scripts/bloodwork-native-ui-stubs/safe-area.ts"],
+      "@expo/vector-icons": ["./scripts/bloodwork-native-ui-stubs/vector-icons.ts"],
+      "@/hooks/useColors": ["./scripts/bloodwork-native-ui-stubs/colors.ts"],
+      "@/components/ui/PageScrollView": ["./scripts/bloodwork-detail-ui-stubs/page-scroll.tsx"],
+      "@/components/patient/PatientHeader": ["./scripts/bloodwork-detail-ui-stubs/patient-header.tsx"],
+      "@/components/bloodwork/ResultRow": ["./scripts/bloodwork-detail-ui-stubs/result-row.tsx"],
+      "@/components/bloodwork/ResultEditModal": ["./scripts/bloodwork-detail-ui-stubs/result-edit-modal.tsx"],
+      "@/components/bloodwork/BloodworkViewer": ["./scripts/bloodwork-detail-ui-stubs/viewer.tsx"],
+      "@/components/ui/AppModal": ["./scripts/bloodwork-detail-ui-stubs/modal.tsx"],
+      "@/context/PatientAccountContext": ["./scripts/bloodwork-detail-ui-stubs/account.ts"],
+      "@/lib/supabase": ["./scripts/bloodwork-detail-ui-stubs/supabase.ts"],
+      "@tanstack/react-query": ["./scripts/bloodwork-detail-ui-stubs/query-client.ts"],
+      "expo-router": ["./scripts/bloodwork-detail-ui-stubs/router.ts"],
+      "@workspace/api-client-react": ["./scripts/bloodwork-detail-ui-stubs/api-client-react.ts"]
+    }
+  }
+}

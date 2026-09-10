@@ -119,3 +119,4 @@
 - [Bloodwork review semantics](bloodwork-review-semantics.md) — extract to unreviewed results; patient and provider corrections do not imply clinical sign-off; recommendations remain a separate future scope.
 - [Private document platforms](private-document-platforms.md) — native image requests need absolute URLs; Expo legacy filesystem types do not imply web support; test each platform's real boundary.
 - [Untrusted PDF processing](untrusted-pdf-processing.md) — raster dimensions do not bound embedded decoding; isolate native parsing and verify the emitted production worker, not only source tests.
+- [FatSecret permission gates](fatsecret-evaluation-permissions.md) — Basic caching and advice rights cannot be inferred from keys or the 24-hour rule; verify actual standard-method access without extra scopes.

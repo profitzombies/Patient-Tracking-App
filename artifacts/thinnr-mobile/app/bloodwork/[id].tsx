@@ -189,7 +189,7 @@ export default function BloodworkDetailScreen() {
   if (isError || !detail) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <PatientHeader title="Error" right={<Pressable onPress={() => router.back()}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
+        <PatientHeader title="Error" right={<Pressable accessibilityLabel="Back to bloodwork" onPress={() => router.replace('/bloodwork')}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
         <View style={styles.emptyWrap}>
            <Text style={[styles.emptyText, { color: colors.destructive }]}>Could not load report.</Text>
            <Pressable onPress={() => void refetch()} style={styles.iconBtn}><Text style={{ color: colors.cobalt }}>Retry</Text></Pressable>
@@ -200,7 +200,7 @@ export default function BloodworkDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PatientHeader title="Report Detail" right={<Pressable onPress={() => router.back()}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
+      <PatientHeader title="Report Detail" right={<Pressable accessibilityLabel="Back to bloodwork" onPress={() => router.replace('/bloodwork')}><Feather name="arrow-left" size={20} color={colors.navy} /></Pressable>} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
         
         {/* Header section */}

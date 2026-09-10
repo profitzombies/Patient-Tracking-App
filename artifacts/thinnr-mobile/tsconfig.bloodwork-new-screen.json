@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "react-native-safe-area-context": ["./scripts/bloodwork-new-screen-stubs/safe-area.ts"],
+      "@expo/vector-icons": ["./scripts/bloodwork-new-screen-stubs/vector-icons.ts"],
+      "expo-image": ["./scripts/bloodwork-new-screen-stubs/image.ts"],
+      "expo-image-picker": ["./scripts/bloodwork-new-screen-stubs/image-picker.ts"],
+      "expo-router": ["./scripts/bloodwork-new-screen-stubs/router.ts"],
+      "@/hooks/useColors": ["./scripts/bloodwork-new-screen-stubs/colors.ts"],
+      "@/components/patient/PatientHeader": ["./scripts/bloodwork-new-screen-stubs/patient-header.tsx"],
+      "@/context/PatientAccountContext": ["./scripts/bloodwork-new-screen-stubs/account-context.ts"],
+      "@/context/PatientContext": ["./scripts/bloodwork-new-screen-stubs/patient-context.ts"],
+      "@/lib/supabase": ["./scripts/bloodwork-new-screen-stubs/supabase.ts"],
+      "@/lib/bloodwork-media": ["./scripts/bloodwork-new-screen-stubs/media.ts"],
+      "@/components/bloodwork/BloodworkCamera": ["./scripts/bloodwork-new-screen-stubs/camera.tsx"],
+      "@/components/ui/AppModal": ["./scripts/bloodwork-new-screen-stubs/modal.tsx"],
+      "@/lib/bloodwork-upload": ["./scripts/bloodwork-new-screen-stubs/upload.ts"],
+      "@workspace/api-client-react": ["./scripts/bloodwork-new-screen-stubs/api-client.ts"]
+    }
+  }
+}

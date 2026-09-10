@@ -23,6 +23,7 @@ import type {
   AddOfficeConversationNoteParams,
   AssignOfficeConversationParams,
   BarcodeLookupResult,
+  BloodworkAccessError,
   BloodworkCorrectionList,
   BloodworkDeleteResult,
   BloodworkDetail,
@@ -6887,7 +6888,7 @@ export const getListBloodworkReportsQueryKey = (patientId: string,
     }
 
 
-export const getListBloodworkReportsQueryOptions = <TData = Awaited<ReturnType<typeof listBloodworkReports>>, TError = ErrorType<void>>(patientId: string,
+export const getListBloodworkReportsQueryOptions = <TData = Awaited<ReturnType<typeof listBloodworkReports>>, TError = ErrorType<BloodworkAccessError | void>>(patientId: string,
     params?: ListBloodworkReportsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBloodworkReports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -6907,11 +6908,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type ListBloodworkReportsQueryResult = NonNullable<Awaited<ReturnType<typeof listBloodworkReports>>>
-export type ListBloodworkReportsQueryError = ErrorType<void>
+export type ListBloodworkReportsQueryError = ErrorType<BloodworkAccessError | void>
 
 
 
-export function useListBloodworkReports<TData = Awaited<ReturnType<typeof listBloodworkReports>>, TError = ErrorType<void>>(
+export function useListBloodworkReports<TData = Awaited<ReturnType<typeof listBloodworkReports>>, TError = ErrorType<BloodworkAccessError | void>>(
  patientId: string,
     params?: ListBloodworkReportsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBloodworkReports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
@@ -6954,7 +6955,7 @@ export const createBloodworkReport = async (patientId: string,
 
 
 
-export const getCreateBloodworkReportMutationOptions = <TError = ErrorType<void>,
+export const getCreateBloodworkReportMutationOptions = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBloodworkReport>>, TError,{patientId: string;data: BodyType<BloodworkReportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createBloodworkReport>>, TError,{patientId: string;data: BodyType<BloodworkReportInput>}, TContext> => {
 
@@ -6983,9 +6984,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof createBloodworkReport>>>
     export type CreateBloodworkReportMutationBody = BodyType<BloodworkReportInput>
-    export type CreateBloodworkReportMutationError = ErrorType<void>
+    export type CreateBloodworkReportMutationError = ErrorType<BloodworkAccessError | void>
 
-    export const useCreateBloodworkReport = <TError = ErrorType<void>,
+    export const useCreateBloodworkReport = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBloodworkReport>>, TError,{patientId: string;data: BodyType<BloodworkReportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createBloodworkReport>>,
@@ -7039,7 +7040,7 @@ export const getGetBloodworkReportQueryKey = (patientId: string,
     }
 
 
-export const getGetBloodworkReportQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkReport>>, TError = ErrorType<void>>(patientId: string,
+export const getGetBloodworkReportQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkReport>>, TError = ErrorType<BloodworkAccessError | void>>(patientId: string,
     reportId: string,
     params?: GetBloodworkReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
@@ -7060,11 +7061,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetBloodworkReportQueryResult = NonNullable<Awaited<ReturnType<typeof getBloodworkReport>>>
-export type GetBloodworkReportQueryError = ErrorType<void>
+export type GetBloodworkReportQueryError = ErrorType<BloodworkAccessError | void>
 
 
 
-export function useGetBloodworkReport<TData = Awaited<ReturnType<typeof getBloodworkReport>>, TError = ErrorType<void>>(
+export function useGetBloodworkReport<TData = Awaited<ReturnType<typeof getBloodworkReport>>, TError = ErrorType<BloodworkAccessError | void>>(
  patientId: string,
     reportId: string,
     params?: GetBloodworkReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
@@ -7110,7 +7111,7 @@ export const updateBloodworkReport = async (patientId: string,
 
 
 
-export const getUpdateBloodworkReportMutationOptions = <TError = ErrorType<void>,
+export const getUpdateBloodworkReportMutationOptions = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportUpdate>}, TContext> => {
 
@@ -7139,9 +7140,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UpdateBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof updateBloodworkReport>>>
     export type UpdateBloodworkReportMutationBody = BodyType<BloodworkReportUpdate>
-    export type UpdateBloodworkReportMutationError = ErrorType<void>
+    export type UpdateBloodworkReportMutationError = ErrorType<BloodworkAccessError | void>
 
-    export const useUpdateBloodworkReport = <TError = ErrorType<void>,
+    export const useUpdateBloodworkReport = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateBloodworkReport>>,
@@ -7186,7 +7187,7 @@ export const deleteBloodworkReport = async (patientId: string,
 
 
 
-export const getDeleteBloodworkReportMutationOptions = <TError = ErrorType<void>,
+export const getDeleteBloodworkReportMutationOptions = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBloodworkReport>>, TError,{patientId: string;reportId: string;params: DeleteBloodworkReportParams}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteBloodworkReport>>, TError,{patientId: string;reportId: string;params: DeleteBloodworkReportParams}, TContext> => {
 
@@ -7215,9 +7216,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type DeleteBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBloodworkReport>>>
 
-    export type DeleteBloodworkReportMutationError = ErrorType<void>
+    export type DeleteBloodworkReportMutationError = ErrorType<BloodworkAccessError | void>
 
-    export const useDeleteBloodworkReport = <TError = ErrorType<void>,
+    export const useDeleteBloodworkReport = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBloodworkReport>>, TError,{patientId: string;reportId: string;params: DeleteBloodworkReportParams}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof deleteBloodworkReport>>,
@@ -7253,7 +7254,7 @@ export const commitBloodworkReport = async (patientId: string,
 
 
 
-export const getCommitBloodworkReportMutationOptions = <TError = ErrorType<void>,
+export const getCommitBloodworkReportMutationOptions = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof commitBloodworkReport>>, TError,{patientId: string;reportId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof commitBloodworkReport>>, TError,{patientId: string;reportId: string}, TContext> => {
 
@@ -7282,9 +7283,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CommitBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof commitBloodworkReport>>>
 
-    export type CommitBloodworkReportMutationError = ErrorType<void>
+    export type CommitBloodworkReportMutationError = ErrorType<BloodworkAccessError | void>
 
-    export const useCommitBloodworkReport = <TError = ErrorType<void>,
+    export const useCommitBloodworkReport = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof commitBloodworkReport>>, TError,{patientId: string;reportId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof commitBloodworkReport>>,
@@ -7329,7 +7330,7 @@ export const retryBloodworkExtraction = async (patientId: string,
 
 
 
-export const getRetryBloodworkExtractionMutationOptions = <TError = ErrorType<void>,
+export const getRetryBloodworkExtractionMutationOptions = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryBloodworkExtraction>>, TError,{patientId: string;reportId: string;params?: RetryBloodworkExtractionParams}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof retryBloodworkExtraction>>, TError,{patientId: string;reportId: string;params?: RetryBloodworkExtractionParams}, TContext> => {
 
@@ -7358,9 +7359,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type RetryBloodworkExtractionMutationResult = NonNullable<Awaited<ReturnType<typeof retryBloodworkExtraction>>>
 
-    export type RetryBloodworkExtractionMutationError = ErrorType<void>
+    export type RetryBloodworkExtractionMutationError = ErrorType<BloodworkAccessError | void>
 
-    export const useRetryBloodworkExtraction = <TError = ErrorType<void>,
+    export const useRetryBloodworkExtraction = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryBloodworkExtraction>>, TError,{patientId: string;reportId: string;params?: RetryBloodworkExtractionParams}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof retryBloodworkExtraction>>,
@@ -7417,7 +7418,7 @@ export const getGetBloodworkFileSourceQueryKey = (patientId: string,
     }
 
 
-export const getGetBloodworkFileSourceQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkFileSource>>, TError = ErrorType<void>>(patientId: string,
+export const getGetBloodworkFileSourceQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkFileSource>>, TError = ErrorType<BloodworkAccessError | void>>(patientId: string,
     reportId: string,
     fileId: string,
     params?: GetBloodworkFileSourceParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBloodworkFileSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
@@ -7439,11 +7440,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetBloodworkFileSourceQueryResult = NonNullable<Awaited<ReturnType<typeof getBloodworkFileSource>>>
-export type GetBloodworkFileSourceQueryError = ErrorType<void>
+export type GetBloodworkFileSourceQueryError = ErrorType<BloodworkAccessError | void>
 
 
 
-export function useGetBloodworkFileSource<TData = Awaited<ReturnType<typeof getBloodworkFileSource>>, TError = ErrorType<void>>(
+export function useGetBloodworkFileSource<TData = Awaited<ReturnType<typeof getBloodworkFileSource>>, TError = ErrorType<BloodworkAccessError | void>>(
  patientId: string,
     reportId: string,
     fileId: string,
@@ -7513,7 +7514,7 @@ export const getGetBloodworkFilePageQueryKey = (patientId: string,
     }
 
 
-export const getGetBloodworkFilePageQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkFilePage>>, TError = ErrorType<void>>(patientId: string,
+export const getGetBloodworkFilePageQueryOptions = <TData = Awaited<ReturnType<typeof getBloodworkFilePage>>, TError = ErrorType<BloodworkAccessError | void>>(patientId: string,
     reportId: string,
     fileId: string,
     page: number,
@@ -7536,11 +7537,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetBloodworkFilePageQueryResult = NonNullable<Awaited<ReturnType<typeof getBloodworkFilePage>>>
-export type GetBloodworkFilePageQueryError = ErrorType<void>
+export type GetBloodworkFilePageQueryError = ErrorType<BloodworkAccessError | void>
 
 
 
-export function useGetBloodworkFilePage<TData = Awaited<ReturnType<typeof getBloodworkFilePage>>, TError = ErrorType<void>>(
+export function useGetBloodworkFilePage<TData = Awaited<ReturnType<typeof getBloodworkFilePage>>, TError = ErrorType<BloodworkAccessError | void>>(
  patientId: string,
     reportId: string,
     fileId: string,
@@ -7599,7 +7600,7 @@ export const correctBloodworkResult = async (patientId: string,
 
 
 
-export const getCorrectBloodworkResultMutationOptions = <TError = ErrorType<void>,
+export const getCorrectBloodworkResultMutationOptions = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctBloodworkResult>>, TError,{patientId: string;reportId: string;resultId: string;data: BodyType<BloodworkResultUpdate>;params?: CorrectBloodworkResultParams}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof correctBloodworkResult>>, TError,{patientId: string;reportId: string;resultId: string;data: BodyType<BloodworkResultUpdate>;params?: CorrectBloodworkResultParams}, TContext> => {
 
@@ -7628,9 +7629,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CorrectBloodworkResultMutationResult = NonNullable<Awaited<ReturnType<typeof correctBloodworkResult>>>
     export type CorrectBloodworkResultMutationBody = BodyType<BloodworkResultUpdate>
-    export type CorrectBloodworkResultMutationError = ErrorType<void>
+    export type CorrectBloodworkResultMutationError = ErrorType<BloodworkAccessError | void>
 
-    export const useCorrectBloodworkResult = <TError = ErrorType<void>,
+    export const useCorrectBloodworkResult = <TError = ErrorType<BloodworkAccessError | void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctBloodworkResult>>, TError,{patientId: string;reportId: string;resultId: string;data: BodyType<BloodworkResultUpdate>;params?: CorrectBloodworkResultParams}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof correctBloodworkResult>>,
@@ -7687,7 +7688,7 @@ export const getListBloodworkCorrectionsQueryKey = (patientId: string,
     }
 
 
-export const getListBloodworkCorrectionsQueryOptions = <TData = Awaited<ReturnType<typeof listBloodworkCorrections>>, TError = ErrorType<unknown>>(patientId: string,
+export const getListBloodworkCorrectionsQueryOptions = <TData = Awaited<ReturnType<typeof listBloodworkCorrections>>, TError = ErrorType<BloodworkAccessError | void>>(patientId: string,
     reportId: string,
     resultId: string,
     params?: ListBloodworkCorrectionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBloodworkCorrections>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
@@ -7709,11 +7710,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type ListBloodworkCorrectionsQueryResult = NonNullable<Awaited<ReturnType<typeof listBloodworkCorrections>>>
-export type ListBloodworkCorrectionsQueryError = ErrorType<unknown>
+export type ListBloodworkCorrectionsQueryError = ErrorType<BloodworkAccessError | void>
 
 
 
-export function useListBloodworkCorrections<TData = Awaited<ReturnType<typeof listBloodworkCorrections>>, TError = ErrorType<unknown>>(
+export function useListBloodworkCorrections<TData = Awaited<ReturnType<typeof listBloodworkCorrections>>, TError = ErrorType<BloodworkAccessError | void>>(
  patientId: string,
     reportId: string,
     resultId: string,

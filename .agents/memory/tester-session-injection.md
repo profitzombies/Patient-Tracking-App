@@ -18,3 +18,9 @@ description: Principle for getting the browser tester past code-login screens wi
 **Why:** a browser context shares cookies with Playwright's request client, but not the app's bearer-token getter. A tester reported successful live forms as broken because its separate cookie-only probes returned 401.
 
 **How to apply:** assert policy/session response status from app-generated requests and never log headers or auth bodies. Loaded forms plus an empty late-attached response listener do not prove a failed API call.
+
+**Mobile session envelope:** a temporary Supabase storage seed must contain the complete session shape, including `expires_at` and `user`, not just access/refresh tokens.
+
+**Why:** GoTrue silently discarded an incomplete synthetic session, so the Expo app redirected to its public welcome screen even though the helper ran successfully.
+
+**How to apply:** mirror the real SDK session envelope without exposing it in tool output. On the direct Expo domain, helper paths and redirects are root-relative, not prefixed by the artifact preview path.

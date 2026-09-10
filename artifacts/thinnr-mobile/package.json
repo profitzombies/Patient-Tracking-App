@@ -52,7 +52,8 @@
     "test:food-nutrition": "tsx scripts/verify-food-nutrition.ts",
     "test:food-portions": "tsx scripts/verify-food-portions.ts",
     "test:food-detail": "tsx --tsconfig tsconfig.food-detail.json scripts/verify-food-detail.tsx",
-    "test:bloodwork": "tsx scripts/verify-bloodwork.ts && tsx --tsconfig tsconfig.bloodwork-upload.json scripts/verify-bloodwork-upload.ts && tsx --tsconfig tsconfig.bloodwork.json scripts/verify-bloodwork-panel.ts && tsx --tsconfig tsconfig.bloodwork-browser.json scripts/verify-bloodwork-final-seams.ts && tsx --tsconfig tsconfig.bloodwork-camera.json scripts/verify-bloodwork-camera.ts && tsx --tsconfig tsconfig.bloodwork-native-media.json scripts/verify-bloodwork-native-pdf-cleanup.ts"
+    "test:bloodwork": "tsx scripts/verify-bloodwork.ts && tsx --tsconfig tsconfig.bloodwork-upload.json scripts/verify-bloodwork-upload.ts && tsx --tsconfig tsconfig.bloodwork.json scripts/verify-bloodwork-panel.ts && tsx --tsconfig tsconfig.bloodwork-browser.json scripts/verify-bloodwork-final-seams.ts && tsx --tsconfig tsconfig.bloodwork-camera.json scripts/verify-bloodwork-camera.ts && tsx --tsconfig tsconfig.bloodwork-native-media.json scripts/verify-bloodwork-native-pdf-cleanup.ts && tsx --tsconfig tsconfig.bloodwork-recovery.json scripts/verify-bloodwork-recovery.ts && tsx --tsconfig tsconfig.bloodwork-new-screen.json scripts/verify-bloodwork-new-screen.tsx",
+    "test:bloodwork-recovery": "tsx --tsconfig tsconfig.bloodwork-recovery.json scripts/verify-bloodwork-recovery.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

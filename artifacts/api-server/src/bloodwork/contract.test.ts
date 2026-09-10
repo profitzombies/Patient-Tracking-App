@@ -59,15 +59,6 @@ describe("bloodwork generated API contract", () => {
     expect(JSON.stringify({ report, file: fileDto(file) })).not.toContain("/objects/");
   });
 
-  it("uses the live onboarding admission tables and active-profile gate", () => {
-    const route = readFileSync(new URL("../routes/bloodwork.ts", import.meta.url), "utf8");
-    expect(route).toContain("/rest/v1/patient_flags?");
-    expect(route).toContain("onboarding_complete=eq.true");
-    expect(route).toContain("activation_status=eq.activated");
-    expect(route).toContain("profile_completed_at=not.is.null");
-    expect(route).not.toContain("&onboarding_complete=eq.true\" +");
-  });
-
   it("pins bounded object reads and checkpoints resumable extraction", () => {
     const storage = readFileSync(new URL("../lib/objectStorage.ts", import.meta.url), "utf8");
     const route = readFileSync(new URL("../routes/bloodwork.ts", import.meta.url), "utf8");

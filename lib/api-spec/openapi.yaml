@@ -1963,9 +1963,16 @@ paths:
           description: Private metadata-only report history
           headers: { Cache-Control: { schema: { type: string } } }
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReportList" } } }
-        "401": { description: Sign in required }
-        "403": { description: Not authorized }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, account, or office access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
         "404": { description: Patient unavailable }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
     post:
       operationId: createBloodworkReport
       tags: [bloodwork]
@@ -1985,6 +1992,16 @@ paths:
         "409": { description: Client request key conflicts }
         "413": { description: File or count limit exceeded }
         "422": { description: Invalid manifest }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "404": { description: Patient unavailable }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
   /bloodwork/patients/{patientId}/reports/{reportId}:
     get:
       operationId: getBloodworkReport
@@ -1999,6 +2016,15 @@ paths:
           description: Report, files, and structured results
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkDetail" } } }
         "404": { description: Report not found }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
     patch:
       operationId: updateBloodworkReport
       tags: [bloodwork]
@@ -2014,6 +2040,15 @@ paths:
           description: Updated report
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReport" } } }
         "409": { description: Version conflict }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
     delete:
       operationId: deleteBloodworkReport
       tags: [bloodwork]
@@ -2027,6 +2062,15 @@ paths:
           description: Tombstoned
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkDeleteResult" } } }
         "409": { description: Version conflict }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
   /bloodwork/patients/{patientId}/reports/{reportId}/commit:
     post:
       operationId: commitBloodworkReport
@@ -2041,6 +2085,16 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkDetail" } } }
         "413": { description: Stored file exceeds limit }
         "422": { description: "Corrupt, unsupported, or incomplete upload" }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "404": { description: Report or patient not found }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
   /bloodwork/patients/{patientId}/reports/{reportId}/retry-extraction:
     post:
       operationId: retryBloodworkExtraction
@@ -2055,6 +2109,16 @@ paths:
           description: Failed extraction queued again
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReport" } } }
         "409": { description: Extraction is not failed }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "404": { description: Patient or report not found }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
   /bloodwork/patients/{patientId}/reports/{reportId}/files/{fileId}/source:
     get:
       operationId: getBloodworkFileSource
@@ -2073,6 +2137,15 @@ paths:
             image/jpeg: { schema: { type: string, format: binary } }
             image/png: { schema: { type: string, format: binary } }
         "404": { description: File not found }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
   /bloodwork/patients/{patientId}/reports/{reportId}/files/{fileId}/pages/{page}:
     get:
       operationId: getBloodworkFilePage
@@ -2092,6 +2165,15 @@ paths:
             image/png: { schema: { type: string, format: binary } }
         "404": { description: Page not found }
         "422": { description: Document cannot be rendered }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
   /bloodwork/patients/{patientId}/reports/{reportId}/results/{resultId}:
     put:
       operationId: correctBloodworkResult
@@ -2110,6 +2192,15 @@ paths:
           description: Corrected transcription
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkResult" } } }
         "409": { description: Version conflict }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
   /bloodwork/patients/{patientId}/reports/{reportId}/results/{resultId}/corrections:
     get:
       operationId: listBloodworkCorrections
@@ -2124,12 +2215,34 @@ paths:
         "200":
           description: Private correction history
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkCorrectionList" } } }
+        "401":
+          description: Session required
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "403":
+          description: Patient setup, consent, or account access is unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+        "404": { description: Patient or result not found }
+        "503":
+          description: Account or bloodwork lookup unavailable
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
   schemas:
+    BloodworkAccessError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [PATIENT_SETUP_REQUIRED, CONSENT_REQUIRED, PATIENT_ACCOUNT_UNAVAILABLE, SESSION_REQUIRED, ACCOUNT_LOOKUP_UNAVAILABLE]
+        recovery:
+          type: string
+          enum: [setup, consent, sign_in, retry, account]
+        consent: { type: object, additionalProperties: true }
     BloodworkReport:
       type: object
       required: [id, patientId, title, reportDate, uploadedAt, version, kind, fileCount, pageCount, extractionStatus, extractionError, reviewStatus]

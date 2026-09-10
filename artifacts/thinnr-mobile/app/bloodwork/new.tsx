@@ -9,12 +9,22 @@ import * as ImagePicker from 'expo-image-picker';
 import { useColors } from '@/hooks/useColors';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { usePatientAccount } from '@/context/PatientAccountContext';
+import { usePatient } from '@/context/PatientContext';
 import { disposeBloodworkDraftFiles, disposeBloodworkOwnedUri, pickBloodworkPdf, prepareBloodworkImage, prepareBloodworkImageBatch, type BloodworkDraftFile } from '@/lib/bloodwork-media';
 import { BloodworkCamera } from '@/components/bloodwork/BloodworkCamera';
 import { uploadFileWithProgress } from '@/lib/bloodwork-upload';
 import { createBloodworkReport, commitBloodworkReport, deleteBloodworkReport } from '@workspace/api-client-react';
-import { useSupabaseSession } from '@/lib/supabase';
+import { supabase, useSupabaseSession } from '@/lib/supabase';
 import { assertImageCapacity, bloodworkDraftFingerprint, BLOODWORK_TRANSCRIPTION_DISCLOSURE, BloodworkGeneration, clearDeletedStageRequest, emptyBloodworkDraftMetadata, isCommittedUploadReplay, makeBloodworkUuid } from '@/lib/bloodwork-scope';
+import {
+  bloodworkEntryRecovery,
+  classifyBloodworkError,
+  clearRetainedBloodworkDraft,
+  setBloodworkRecoveryRoute,
+  readRetainedBloodworkDraft,
+  retainBloodworkDraft,
+  type BloodworkRecovery,
+} from '@/lib/bloodwork-recovery';
 import { AppModal } from '@/components/ui/AppModal';
 
 type DraftType = 'none' | 'pdf' | 'images';
@@ -22,33 +32,61 @@ type CameraCaptureScope = {
   key: string;
   operation: { generation: number; signal: AbortSignal };
   replacing: number | null;
+  busyNonce: number;
+};
+
+type BusyOwner = {
+  accountKey: string;
+  nonce: number;
 };
 
 export default function NewBloodwork() {
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const accountCtx = usePatientAccount();
+  const patient = usePatient();
   const { session } = useSupabaseSession();
-  
-  const [draftType, setDraftType] = useState<DraftType>('none');
-  const [files, setFiles] = useState<BloodworkDraftFile[]>([]);
-  const [title, setTitle] = useState('');
-  const [reportDate, setReportDate] = useState('');
+
+  const realAccount = accountCtx.account.kind === 'real' ? accountCtx.account : null;
+  const canonicalAccountKey = realAccount && session?.user.id
+    ? `${session.user.id}:${realAccount.patientId}`
+    : null;
+  const canonicalAccountKeyRef = useRef<string | null>(canonicalAccountKey);
+  if (canonicalAccountKey) canonicalAccountKeyRef.current = canonicalAccountKey;
+  // Keep the last verified patient binding as the draft scope while account
+  // lookup is transient. Never rewrite a retained draft to an unresolved or
+  // newly resolved patient key.
+  const accountKey = canonicalAccountKey
+    ?? (accountCtx.account.kind === 'unresolved' && session?.user.id &&
+      canonicalAccountKeyRef.current?.startsWith(`${session.user.id}:`)
+      ? canonicalAccountKeyRef.current
+      : 'unavailable');
+  const initialRetainedDraft = readRetainedBloodworkDraft(accountKey);
+  const [draftType, setDraftType] = useState<DraftType>(
+    initialRetainedDraft?.files.length ? (initialRetainedDraft.files[0].mimeType === 'application/pdf' ? 'pdf' : 'images') : 'none',
+  );
+  const [files, setFiles] = useState<BloodworkDraftFile[]>(() => [...(initialRetainedDraft?.files ?? [])]);
+  const [title, setTitle] = useState(initialRetainedDraft?.title ?? '');
+  const [reportDate, setReportDate] = useState(initialRetainedDraft?.reportDate ?? '');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0); 
   const [cameraVisible, setCameraVisible] = useState(false);
   const [statusText, setStatusText] = useState('Saving...');
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [retakeIndex, setRetakeIndex] = useState<number | null>(null);
+  const [recovery, setRecovery] = useState<BloodworkRecovery | null>(null);
   
   const generationRef = useRef(new BloodworkGeneration());
-  const requestRef = useRef<{ fingerprint: string; id: string } | null>(null);
+  const requestRef = useRef<{ fingerprint: string; id: string } | null>(initialRetainedDraft?.request ?? null);
+  const saveInFlightRef = useRef(false);
+  const busyNonceRef = useRef(0);
+  const busyOwnerRef = useRef<BusyOwner | null>(null);
+  const cameraCaptureRef = useRef<CameraCaptureScope | null>(null);
   const filesRef = useRef(files);
   filesRef.current = files;
-  const realAccount = accountCtx.account.kind === 'real' ? accountCtx.account : null;
-  const accountKey = realAccount && session?.user.id ? `${session.user.id}:${realAccount.patientId}` : 'unavailable';
   const accountKeyRef = useRef(accountKey);
   accountKeyRef.current = accountKey;
+  const initializedAccountKeyRef = useRef<string | null>(null);
 
   const isCurrent = useCallback((key: string, generation: number, signal?: AbortSignal) => (
     accountKeyRef.current === key
@@ -56,36 +94,122 @@ export default function NewBloodwork() {
     && generationRef.current.isCurrent(generation, signal)
   ), [accountCtx.account.kind]);
 
+  const beginBusy = useCallback((key: string, nextStatus: string): number => {
+    const owner = { accountKey: key, nonce: ++busyNonceRef.current };
+    busyOwnerRef.current = owner;
+    setBusy(true);
+    setStatusText(nextStatus);
+    return owner.nonce;
+  }, []);
+
+  const ownsBusy = useCallback((key: string, nonce: number): boolean => (
+    busyOwnerRef.current?.accountKey === key
+    && busyOwnerRef.current.nonce === nonce
+  ), []);
+
+  const finishBusy = useCallback((key: string, nonce: number, cancelled = false): void => {
+    if (!ownsBusy(key, nonce)) return;
+    busyOwnerRef.current = null;
+    setBusy(false);
+    if (cancelled) setStatusText('Upload cancelled');
+  }, [ownsBusy]);
+
   useEffect(() => {
+    const previousKey = initializedAccountKeyRef.current;
+    initializedAccountKeyRef.current = accountKey;
     generationRef.current.cancel();
+    busyOwnerRef.current = null;
+    saveInFlightRef.current = false;
     requestRef.current = null;
     const staleFiles = filesRef.current;
-    setFiles([]);
-    setDraftType('none');
+    const retained = readRetainedBloodworkDraft(accountKey);
+    if (previousKey && previousKey !== accountKey) {
+      void clearRetainedBloodworkDraft(previousKey, { disposeFiles: false });
+    }
+    setFiles(retained ? [...retained.files] : []);
+    setDraftType(
+      retained?.files.length
+        ? retained.files[0].mimeType === 'application/pdf' ? 'pdf' : 'images'
+        : 'none',
+    );
     setCameraVisible(false);
     setPreviewIndex(null);
     setRetakeIndex(null);
     setBusy(false);
-    const clearedMetadata = emptyBloodworkDraftMetadata();
-    setTitle(clearedMetadata.title);
-    setReportDate(clearedMetadata.reportDate);
-    void disposeBloodworkDraftFiles(staleFiles);
+    setRecovery(null);
+    setTitle(retained?.title ?? emptyBloodworkDraftMetadata().title);
+    setReportDate(retained?.reportDate ?? emptyBloodworkDraftMetadata().reportDate);
+    requestRef.current = retained?.request ?? null;
+    const retainedFileIds = new Set(retained?.files.map(file => file.clientFileId) ?? []);
+    const staleOwnedFiles = staleFiles.filter(file => !retainedFileIds.has(file.clientFileId));
+    if (staleOwnedFiles.length > 0) void disposeBloodworkDraftFiles(staleOwnedFiles);
   }, [accountKey]);
+
+  useEffect(() => {
+    if (accountCtx.account.kind !== 'real') {
+      generationRef.current.cancel();
+      busyOwnerRef.current = null;
+      saveInFlightRef.current = false;
+      setBusy(false);
+    }
+  }, [accountCtx.account.kind]);
 
   useEffect(() => () => {
     generationRef.current.cancel();
-    void disposeBloodworkDraftFiles(filesRef.current);
+    saveInFlightRef.current = false;
+    // A retained draft is deliberately allowed to cross the setup/consent/
+    // sign-in route transition. The root lifecycle rail disposes it on a
+    // real sign-out or patient identity switch.
+    if (!readRetainedBloodworkDraft(accountKeyRef.current)) {
+      void disposeBloodworkDraftFiles(filesRef.current);
+    }
   }, []);
 
+  const abandonRetainedDraft = useCallback(() => {
+    void clearRetainedBloodworkDraft(accountKey, { disposeFiles: false });
+    requestRef.current = null;
+    setRecovery(null);
+  }, [accountKey]);
+
+  useEffect(() => {
+    if (!recovery || busy || recovery.actionLabel !== null) return;
+    const entry = bloodworkEntryRecovery({
+      accountKind: accountCtx.account.kind,
+      accountResolving: accountCtx.resolving,
+      patientHydrated: patient.hydrated,
+      onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
+      consentSatisfied: patient.hydratedPrivacy?.consent.satisfied ?? null,
+    });
+    if (entry !== null) return;
+    if (recovery.action !== 'retry' && recovery.action !== 'account') return;
+    setRecovery({
+      ...recovery,
+      title: recovery.action === 'account' ? 'Account ready to check' : 'Ready to retry',
+      message: 'Your account is ready. Try the report again without losing this draft.',
+      actionLabel: recovery.action === 'account' ? 'Try account again' : 'Try again',
+    });
+  }, [
+    accountCtx.account.kind,
+    accountCtx.resolving,
+    busy,
+    patient.hydrated,
+    patient.hydratedFlags?.onboardingComplete,
+    patient.hydratedPrivacy?.consent.satisfied,
+    recovery,
+  ]);
+
   const addPdf = async () => {
+    if (busyOwnerRef.current || saveInFlightRef.current) return;
     const key = accountKey;
     const operation = generationRef.current.begin();
+    const busyNonce = beginBusy(key, 'Choosing PDF...');
     try {
       const file = await pickBloodworkPdf();
       if (!file || !isCurrent(key, operation.generation, operation.signal)) {
         if (file) void disposeBloodworkDraftFiles([file]);
         return;
       }
+      abandonRetainedDraft();
       await disposeBloodworkDraftFiles(filesRef.current);
       if (!isCurrent(key, operation.generation, operation.signal)) {
         void disposeBloodworkDraftFiles([file]);
@@ -95,29 +219,42 @@ export default function NewBloodwork() {
       setFiles([file]);
       setTitle(file.fileName || 'PDF Report');
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      if (isCurrent(key, operation.generation, operation.signal)) Alert.alert('Error', e.message);
+    } finally {
+      finishBusy(key, busyNonce, operation.signal.aborted);
     }
   };
 
   const beginCameraCapture = useCallback((): CameraCaptureScope | null => {
+    if (busyOwnerRef.current || saveInFlightRef.current) return null;
     try {
       if (retakeIndex === null) assertImageCapacity(filesRef.current.length, 1);
     } catch (error) {
       Alert.alert('Limit Reached', error instanceof Error ? error.message : 'You can upload up to 10 images.');
       return null;
     }
-    return {
+    const operation = generationRef.current.begin();
+    const busyNonce = beginBusy(accountKey, 'Preparing image...');
+    const scope = {
       key: accountKey,
-      operation: generationRef.current.begin(),
+      operation,
       replacing: retakeIndex,
+      busyNonce,
     };
-  }, [accountKey, retakeIndex]);
+    cameraCaptureRef.current = scope;
+    return scope;
+  }, [accountKey, beginBusy, busy, retakeIndex]);
 
   const handleCameraCapture = async (uri: string, width: number, height: number, rawScope: unknown) => {
     const { key, operation, replacing } = rawScope as CameraCaptureScope;
+    const scope = rawScope as CameraCaptureScope;
+    if (saveInFlightRef.current || !ownsBusy(key, scope.busyNonce)) {
+      void disposeBloodworkOwnedUri(uri);
+      return;
+    }
+    if (cameraCaptureRef.current?.busyNonce === scope.busyNonce) cameraCaptureRef.current = null;
     setCameraVisible(false);
-    setBusy(true);
-    setStatusText('Preparing image...');
+    abandonRetainedDraft();
     try {
       const prepped = await prepareBloodworkImage({ uri, width, height, type: 'image' });
       if (!isCurrent(key, operation.generation, operation.signal)) {
@@ -139,17 +276,19 @@ export default function NewBloodwork() {
       if (isCurrent(key, operation.generation, operation.signal)) Alert.alert('Error', e.message);
     } finally {
       await disposeBloodworkOwnedUri(uri);
-      if (isCurrent(key, operation.generation, operation.signal)) setBusy(false);
+      finishBusy(key, scope.busyNonce, operation.signal.aborted);
     }
   };
 
   const addLibraryImages = async () => {
+    if (busyOwnerRef.current || saveInFlightRef.current) return;
     if (files.length >= 10) {
       Alert.alert('Limit Reached', 'You can upload up to 10 images.');
       return;
     }
     const key = accountKey;
     const operation = generationRef.current.begin();
+    const busyNonce = beginBusy(key, 'Choosing images...');
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!isCurrent(key, operation.generation, operation.signal)) return;
@@ -167,7 +306,7 @@ export default function NewBloodwork() {
       if (result.canceled || !result.assets.length) return;
       assertImageCapacity(filesRef.current.length, result.assets.length);
 
-      setBusy(true);
+      abandonRetainedDraft();
       setStatusText('Preparing images...');
       const prepared = await prepareBloodworkImageBatch(
         result.assets,
@@ -181,11 +320,13 @@ export default function NewBloodwork() {
     } catch (e: any) {
       if (isCurrent(key, operation.generation, operation.signal)) Alert.alert('Error', e.message);
     } finally {
-      setBusy(false);
+      finishBusy(key, busyNonce, operation.signal.aborted);
     }
   };
 
   const removeFile = (index: number) => {
+    if (busyOwnerRef.current || saveInFlightRef.current) return;
+    abandonRetainedDraft();
     const next = [...files];
     const [removed] = next.splice(index, 1);
     if (removed) void disposeBloodworkDraftFiles([removed]);
@@ -194,25 +335,56 @@ export default function NewBloodwork() {
   };
 
   const moveUp = (index: number) => {
-    if (index === 0) return;
+    if (index === 0 || busyOwnerRef.current || saveInFlightRef.current) return;
+    abandonRetainedDraft();
     const next = [...files];
     [next[index - 1], next[index]] = [next[index], next[index - 1]];
     setFiles(next);
   };
 
   const moveDown = (index: number) => {
-    if (index === files.length - 1) return;
+    if (index === files.length - 1 || busyOwnerRef.current || saveInFlightRef.current) return;
+    abandonRetainedDraft();
     const next = [...files];
     [next[index + 1], next[index]] = [next[index], next[index + 1]];
     setFiles(next);
   };
 
-  const saveReport = async () => {
-    if (accountCtx.account.kind !== 'real') {
+  const handleUpload = async () => {
+    if (busyOwnerRef.current || saveInFlightRef.current) return;
+    if (accountCtx.account.kind === 'demo') {
       Alert.alert('Demo Mode', 'Uploading is disabled in demo mode.');
       return;
     }
+    if (accountCtx.account.kind === 'unresolved') {
+      const unresolvedRecovery = bloodworkEntryRecovery({
+        accountKind: accountCtx.account.kind,
+        accountResolving: accountCtx.resolving,
+        patientHydrated: patient.hydrated,
+        onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
+        consentSatisfied: patient.hydratedPrivacy?.consent.satisfied ?? null,
+      });
+      if (unresolvedRecovery && accountKey !== 'unavailable' && files.length > 0 && title.trim()) {
+        const unresolvedTitle = title.trim();
+        const unresolvedDate = reportDate.trim();
+        const unresolvedFingerprint = bloodworkDraftFingerprint(unresolvedTitle, unresolvedDate, files);
+        const unresolvedRequest = requestRef.current?.fingerprint === unresolvedFingerprint
+          ? requestRef.current
+          : { fingerprint: unresolvedFingerprint, id: makeBloodworkUuid() };
+        requestRef.current = unresolvedRequest;
+        retainBloodworkDraft({
+          accountKey,
+          files: [...files],
+          title: unresolvedTitle,
+          reportDate: unresolvedDate,
+          request: unresolvedRequest,
+        });
+      }
+      setRecovery(unresolvedRecovery);
+      return;
+    }
     if (!title.trim() || files.length === 0) return;
+    if (saveInFlightRef.current) return;
 
     const account = accountCtx.account;
     const key = accountKey;
@@ -228,15 +400,35 @@ export default function NewBloodwork() {
     let stagedReportId: string | null = null;
     let committed = false;
     let capturedToken: string | null = null;
-    setBusy(true);
+    const busyNonce = beginBusy(key, 'Creating report...');
     setProgress(0);
-    setStatusText('Creating report...');
+    setRecovery(null);
+    saveInFlightRef.current = true;
 
     try {
+      const entryRecovery = bloodworkEntryRecovery({
+        accountKind: accountCtx.account.kind,
+        accountResolving: accountCtx.resolving,
+        patientHydrated: patient.hydrated,
+        onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
+        consentSatisfied: patient.hydratedPrivacy?.consent.satisfied ?? null,
+      });
+      if (entryRecovery) {
+        retainBloodworkDraft({
+          accountKey: key,
+          files: selectedFiles,
+          title: selectedTitle,
+          reportDate: selectedDate,
+          request: { fingerprint, id: clientRequestId },
+        });
+        setRecovery(entryRecovery);
+        return;
+      }
+
       const token = await accountCtx.getAccessToken?.();
       capturedToken = token ?? null;
       if (!isCurrent(key, operation.generation, operation.signal)) return;
-      if (!token) throw new Error('Not authenticated');
+      if (!token) throw { status: 401, data: { code: 'SESSION_REQUIRED' } };
 
       const headers = { Authorization: `Bearer ${token}` };
 
@@ -261,6 +453,8 @@ export default function NewBloodwork() {
       if (isCommittedUploadReplay(uploads.length, selectedFiles.length)) {
         committed = true;
         setProgress(100);
+        await clearRetainedBloodworkDraft(key);
+        if (!isCurrent(key, operation.generation, operation.signal)) return;
         router.replace(`/bloodwork/${reportId}`);
         return;
       }
@@ -296,13 +490,33 @@ export default function NewBloodwork() {
       if (!isCurrent(key, operation.generation, operation.signal)) return;
       
       setProgress(100);
+      await clearRetainedBloodworkDraft(key);
+      if (!isCurrent(key, operation.generation, operation.signal)) return;
       router.replace(`/bloodwork/${reportId}`);
     } catch (e: unknown) {
       if (isCurrent(key, operation.generation, operation.signal)) {
-        Alert.alert('Upload Failed', e instanceof Error ? e.message : 'The report could not be uploaded.');
+        const nextRecovery = classifyBloodworkError(e);
+        // Keep this exact request id and manifest. The server replays the
+        // staged report for a repeated clientRequestId, so same-draft retries
+        // cannot create a second report.
+        requestRef.current = { fingerprint, id: clientRequestId };
+        retainBloodworkDraft({
+          accountKey: key,
+          files: selectedFiles,
+          title: selectedTitle,
+          reportDate: selectedDate,
+          request: { fingerprint, id: clientRequestId },
+        });
+        setRecovery(nextRecovery);
       }
     } finally {
-      const cleaningCancelledStage = operation.signal.aborted && stagedReportId && capturedToken && !committed;
+      const retainedForRecovery = Boolean(readRetainedBloodworkDraft(key));
+      const cleaningCancelledStage =
+        operation.signal.aborted &&
+        stagedReportId &&
+        capturedToken &&
+        !committed &&
+        !retainedForRecovery;
       if (cleaningCancelledStage) {
         try {
           await deleteBloodworkReport(
@@ -316,14 +530,88 @@ export default function NewBloodwork() {
           // The server's staged-object reconciliation is the final cleanup rail.
         }
       }
-      if (isCurrent(key, operation.generation, operation.signal)) {
-        setBusy(false);
-      } else if (cleaningCancelledStage && accountKeyRef.current === key) {
-        setBusy(false);
-        setStatusText('Upload cancelled');
+      if (accountKeyRef.current === key) {
+        finishBusy(key, busyNonce, operation.signal.aborted);
       }
+      saveInFlightRef.current = false;
     }
   };
+
+  const handleRecoveryAction = async () => {
+    if (!recovery || busy) return;
+    switch (recovery.action) {
+      case 'setup':
+        patient.rehydrate();
+        setBloodworkRecoveryRoute('/onboarding/welcome', accountKey);
+        router.push('/onboarding/welcome');
+        return;
+      case 'consent':
+        patient.rehydrate();
+        setBloodworkRecoveryRoute('/consent', accountKey);
+        router.push('/consent');
+        return;
+      case 'account':
+        setRecovery({
+          ...recovery,
+          title: 'Checking your account…',
+          message: 'Refreshing your patient account before offering another action.',
+          actionLabel: null,
+        });
+        patient.rehydrate();
+        accountCtx.retryResolve();
+        return;
+      case 'retry': {
+        const entry = bloodworkEntryRecovery({
+          accountKind: accountCtx.account.kind,
+          accountResolving: accountCtx.resolving,
+          patientHydrated: patient.hydrated,
+          onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
+          consentSatisfied: patient.hydratedPrivacy?.consent.satisfied ?? null,
+        });
+        if (
+          accountCtx.account.kind === 'real' &&
+          !accountCtx.resolving &&
+          entry === null
+        ) {
+          await handleUpload();
+          return;
+        }
+        setRecovery({
+          ...recovery,
+          title: 'Checking your account…',
+          message: 'Refreshing your patient account before offering another action.',
+          actionLabel: null,
+        });
+        patient.rehydrate();
+        accountCtx.retryResolve();
+        return;
+      }
+      case 'sign_in': {
+        const result = await supabase?.auth.refreshSession();
+        if (result?.error || !result?.data.session) {
+          router.push('/patient-login');
+          return;
+        }
+        patient.rehydrate();
+        accountCtx.retryResolve();
+        setRecovery(null);
+        return;
+      }
+      case 'none':
+        return;
+    }
+  };
+
+  const closeCamera = useCallback(() => {
+    const scope = cameraCaptureRef.current;
+    if (scope) {
+      cameraCaptureRef.current = null;
+      generationRef.current.cancel();
+      finishBusy(scope.key, scope.busyNonce, true);
+    }
+    setCameraVisible(false);
+    setRetakeIndex(null);
+  }, [finishBusy]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -342,7 +630,12 @@ export default function NewBloodwork() {
           <TextInput
             style={[styles.input, { borderColor: colors.border, color: colors.navy }]}
             value={title}
-            onChangeText={setTitle}
+            editable={!busy && !saveInFlightRef.current}
+            onChangeText={value => {
+              if (busyOwnerRef.current || saveInFlightRef.current) return;
+              if (value !== title) abandonRetainedDraft();
+              setTitle(value);
+            }}
             placeholder="e.g. Annual Bloodwork 2026"
             placeholderTextColor={colors.subtleText}
           />
@@ -353,7 +646,12 @@ export default function NewBloodwork() {
           <TextInput
             style={[styles.input, { borderColor: colors.border, color: colors.navy }]}
             value={reportDate}
-            onChangeText={setReportDate}
+            editable={!busy && !saveInFlightRef.current}
+            onChangeText={value => {
+              if (busyOwnerRef.current || saveInFlightRef.current) return;
+              if (value !== reportDate) abandonRetainedDraft();
+              setReportDate(value);
+            }}
             placeholder="YYYY-MM-DD"
             placeholderTextColor={colors.subtleText}
           />
@@ -362,15 +660,15 @@ export default function NewBloodwork() {
         {draftType === 'none' && (
           <View style={styles.pickerActions}>
             <Text style={[styles.label, { color: colors.labelText, marginBottom: 8 }]}>ADD FILES</Text>
-            <Pressable onPress={() => { setRetakeIndex(null); setCameraVisible(true); }} style={[styles.btn, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable disabled={busy || saveInFlightRef.current} onPress={() => { setRetakeIndex(null); setCameraVisible(true); }} style={[styles.btn, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Feather name="camera" size={18} color={colors.cobalt} />
               <Text style={[styles.btnText, { color: colors.navy }]}>Take Photos (up to 10)</Text>
             </Pressable>
-            <Pressable onPress={addLibraryImages} style={[styles.btn, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable disabled={busy || saveInFlightRef.current} onPress={addLibraryImages} style={[styles.btn, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Feather name="image" size={18} color={colors.cobalt} />
               <Text style={[styles.btnText, { color: colors.navy }]}>Choose Images</Text>
             </Pressable>
-            <Pressable onPress={addPdf} style={[styles.btn, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable disabled={busy || saveInFlightRef.current} onPress={addPdf} style={[styles.btn, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Feather name="file-text" size={18} color={colors.cobalt} />
               <Text style={[styles.btnText, { color: colors.navy }]}>Choose PDF (up to 20MB)</Text>
             </Pressable>
@@ -385,7 +683,7 @@ export default function NewBloodwork() {
                   <Text style={[styles.pdfName, { color: colors.navy }]} numberOfLines={1}>{files[0].fileName}</Text>
                   <Text style={[styles.pdfSize, { color: colors.subtleText }]}>{(files[0].size / 1024 / 1024).toFixed(2)} MB</Text>
                 </View>
-                <Pressable onPress={() => removeFile(0)} style={styles.removeBtn}>
+                <Pressable disabled={busy || saveInFlightRef.current} onPress={() => removeFile(0)} style={styles.removeBtn}>
                   <Feather name="x" size={18} color={colors.subtleText} />
                 </Pressable>
              </View>
@@ -398,8 +696,8 @@ export default function NewBloodwork() {
                <Text style={[styles.label, { color: colors.labelText }]}>IMAGES ({files.length}/10)</Text>
                {files.length < 10 && (
                   <View style={{ flexDirection: 'row', gap: 10 }}>
-                     <Pressable onPress={() => { setRetakeIndex(null); setCameraVisible(true); }}><Feather name="camera" size={18} color={colors.cobalt}/></Pressable>
-                    <Pressable onPress={addLibraryImages}><Feather name="image" size={18} color={colors.cobalt}/></Pressable>
+                     <Pressable disabled={busy || saveInFlightRef.current} onPress={() => { setRetakeIndex(null); setCameraVisible(true); }}><Feather name="camera" size={18} color={colors.cobalt}/></Pressable>
+                    <Pressable disabled={busy || saveInFlightRef.current} onPress={addLibraryImages}><Feather name="image" size={18} color={colors.cobalt}/></Pressable>
                   </View>
                )}
              </View>
@@ -411,13 +709,14 @@ export default function NewBloodwork() {
                        <Image source={{ uri: file.uri }} style={styles.gridImg} contentFit="cover" />
                      </Pressable>
                     <View style={styles.gridActions}>
-                      <Pressable onPress={() => moveUp(i)} disabled={i === 0} style={styles.gridBtn}>
+                       <Pressable onPress={() => moveUp(i)} disabled={i === 0 || busy || saveInFlightRef.current} style={styles.gridBtn}>
                         <Feather name="arrow-left" size={12} color={i === 0 ? 'rgba(255,255,255,0.2)' : '#fff'} />
                       </Pressable>
-                      <Pressable onPress={() => removeFile(i)} style={styles.gridBtn}>
+                       <Pressable onPress={() => removeFile(i)} disabled={busy || saveInFlightRef.current} style={styles.gridBtn}>
                         <Feather name="x" size={12} color="#fff" />
                       </Pressable>
-                       <Pressable
+                         <Pressable
+                           disabled={busy || saveInFlightRef.current}
                          onPress={() => {
                            setRetakeIndex(i);
                            setCameraVisible(true);
@@ -426,7 +725,7 @@ export default function NewBloodwork() {
                        >
                          <Feather name="camera" size={12} color="#fff" />
                        </Pressable>
-                      <Pressable onPress={() => moveDown(i)} disabled={i === files.length - 1} style={styles.gridBtn}>
+                       <Pressable onPress={() => moveDown(i)} disabled={i === files.length - 1 || busy || saveInFlightRef.current} style={styles.gridBtn}>
                         <Feather name="arrow-right" size={12} color={i === files.length - 1 ? 'rgba(255,255,255,0.2)' : '#fff'} />
                       </Pressable>
                     </View>
@@ -441,6 +740,31 @@ export default function NewBloodwork() {
             <Text style={[styles.disclosure, { color: colors.subtleText }]}>
               {BLOODWORK_TRANSCRIPTION_DISCLOSURE}
             </Text>
+            {recovery ? (
+              <View
+                testID="bloodwork-recovery"
+                accessibilityRole="alert"
+                style={[
+                  styles.recoveryBox,
+                  { backgroundColor: colors.warnBg, borderColor: colors.warnBorder },
+                ]}
+              >
+                <Text style={[styles.recoveryTitle, { color: colors.navy }]}>{recovery.title}</Text>
+                <Text style={[styles.recoveryMessage, { color: colors.bodyText }]}>{recovery.message}</Text>
+                {recovery.actionLabel ? (
+                  <Pressable
+                    testID="bloodwork-recovery-action"
+                    onPress={() => void handleRecoveryAction()}
+                    disabled={busy}
+                    style={[styles.recoveryAction, { borderColor: colors.cobalt }]}
+                  >
+                    <Text style={[styles.recoveryActionText, { color: colors.cobalt }]}>
+                      {recovery.actionLabel}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
             {busy && (
                <View style={styles.progressWrap}>
                   <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
@@ -460,12 +784,12 @@ export default function NewBloodwork() {
             )}
             
             <Pressable 
-               onPress={saveReport}
-               disabled={busy || !title}
+               onPress={handleUpload}
+               disabled={busy || saveInFlightRef.current || !title}
                style={({pressed}) => [
                  styles.submitBtn,
                  { backgroundColor: colors.cobalt },
-                 (busy || !title) && { opacity: 0.5 },
+                 (busy || saveInFlightRef.current || !title) && { opacity: 0.5 },
                  pressed && !busy && { opacity: 0.8 }
                ]}
             >
@@ -478,10 +802,7 @@ export default function NewBloodwork() {
 
       <BloodworkCamera 
          visible={cameraVisible} 
-         onClose={() => {
-           setCameraVisible(false);
-           setRetakeIndex(null);
-         }}
+         onClose={closeCamera}
          onCaptureStart={beginCameraCapture}
          onCapture={handleCameraCapture}
          onDiscard={uri => { void disposeBloodworkOwnedUri(uri); }}
@@ -555,6 +876,11 @@ const styles = StyleSheet.create({
   gridBtn: { padding: 4 },
   footer: { marginTop: 32 },
   disclosure: { fontSize: 12, lineHeight: 18, fontFamily: 'Inter_400Regular', marginBottom: 14 },
+  recoveryBox: { borderWidth: 1, borderRadius: 8, padding: 14, marginBottom: 16 },
+  recoveryTitle: { fontSize: 15, fontFamily: 'Inter_700Bold' },
+  recoveryMessage: { fontSize: 13, lineHeight: 19, fontFamily: 'Inter_400Regular', marginTop: 6 },
+  recoveryAction: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 7, paddingHorizontal: 13, paddingVertical: 9, marginTop: 12 },
+  recoveryActionText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   submitBtn: {
     height: 52,
     borderRadius: 8,

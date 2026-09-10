@@ -5,6 +5,37 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export type BloodworkAccessErrorCode = typeof BloodworkAccessErrorCode[keyof typeof BloodworkAccessErrorCode];
+
+
+export const BloodworkAccessErrorCode = {
+  PATIENT_SETUP_REQUIRED: 'PATIENT_SETUP_REQUIRED',
+  CONSENT_REQUIRED: 'CONSENT_REQUIRED',
+  PATIENT_ACCOUNT_UNAVAILABLE: 'PATIENT_ACCOUNT_UNAVAILABLE',
+  SESSION_REQUIRED: 'SESSION_REQUIRED',
+  ACCOUNT_LOOKUP_UNAVAILABLE: 'ACCOUNT_LOOKUP_UNAVAILABLE',
+} as const;
+
+export type BloodworkAccessErrorRecovery = typeof BloodworkAccessErrorRecovery[keyof typeof BloodworkAccessErrorRecovery];
+
+
+export const BloodworkAccessErrorRecovery = {
+  setup: 'setup',
+  consent: 'consent',
+  sign_in: 'sign_in',
+  retry: 'retry',
+  account: 'account',
+} as const;
+
+export type BloodworkAccessErrorConsent = { [key: string]: unknown };
+
+export interface BloodworkAccessError {
+  error: string;
+  code?: BloodworkAccessErrorCode;
+  recovery?: BloodworkAccessErrorRecovery;
+  consent?: BloodworkAccessErrorConsent;
+}
+
 export type BloodworkReportKind = typeof BloodworkReportKind[keyof typeof BloodworkReportKind];
 
 

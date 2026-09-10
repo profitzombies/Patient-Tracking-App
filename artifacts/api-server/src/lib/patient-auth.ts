@@ -67,7 +67,7 @@ export async function resolvePatient(
   req: { headers: Record<string, unknown> },
   options: ResolvePatientOptions = {},
 ): Promise<ResolvedPatient> {
-  const identity = await resolvePatientIdentity(req);
+  const identity = await resolvePatientIdentityInternal(req, "throw");
   if (!identity.ok) return identity;
   const mode = options.consent ?? "required";
   if (mode === "skip") return { ...identity, consent: consentDto(null) };
@@ -97,9 +97,23 @@ type ResolvedIdentity =
   | { ok: true; patientId: string; authUserId: string }
   | { ok: false; status: number; error: string };
 
-async function resolvePatientIdentity(req: {
+/**
+ * Resolve only the canonical patient identity.  Bloodwork uses this first so
+ * it can compare the URL patient id before checking setup, consent, or account
+ * lifecycle state.  That ordering is important: a patient must not learn
+ * whether another patient's account is archived, incomplete, or missing
+ * consent.
+ */
+export async function resolvePatientIdentity(req: {
   headers: Record<string, unknown>;
 }): Promise<ResolvedIdentity> {
+  return resolvePatientIdentityInternal(req, "respond");
+}
+
+async function resolvePatientIdentityInternal(
+  req: { headers: Record<string, unknown> },
+  lookupFailure: "throw" | "respond",
+): Promise<ResolvedIdentity> {
   const token = bearerToken(req);
   if (!token) return { ok: false, status: 401, error: "Sign in required." };
   let user: Awaited<ReturnType<typeof fetchAuthUser>>;
@@ -109,12 +123,23 @@ async function resolvePatientIdentity(req: {
     return { ok: false, status: 503, error: "Account lookup is unavailable right now." };
   }
   if (!user) return { ok: false, status: 401, error: "Sign in required." };
-  const lookup = await supabaseAdmin(
-    "GET",
-    `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id`,
-  );
+  let lookup;
+  try {
+    lookup = await supabaseAdmin(
+      "GET",
+      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id&limit=2`,
+    );
+  } catch (error) {
+    if (lookupFailure === "throw") throw error;
+    return { ok: false, status: 503, error: "Account lookup is unavailable right now." };
+  }
   if (lookup.status >= 300 || !Array.isArray(lookup.json)) {
-    throw new Error(`patient lookup failed (${lookup.status})`);
+    if (lookupFailure === "throw") throw new Error(`patient lookup failed (${lookup.status})`);
+    return { ok: false, status: 503, error: "Account lookup is unavailable right now." };
+  }
+  if (lookup.json.length > 1) {
+    if (lookupFailure === "throw") throw new Error("patient lookup is ambiguous");
+    return { ok: false, status: 503, error: "Account lookup is unavailable right now." };
   }
   const row = lookup.json[0] as { id?: unknown } | undefined;
   if (!row || typeof row.id !== "string" || row.id.length === 0) {

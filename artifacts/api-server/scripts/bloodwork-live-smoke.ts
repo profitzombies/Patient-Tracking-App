@@ -5,6 +5,9 @@
  *   pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts prepare
  *   BLOODWORK_SMOKE_API_BASE_URL=http://127.0.0.1:3000/api \
  *     pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts verify --keep
+ *   BLOODWORK_SMOKE_API_BASE_URL=http://127.0.0.1:3000/api \
+ *     pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts verify-access --keep
+ *   pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts helper
  *   pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts cleanup
  *
  * Secrets, passwords and sessions are written only to the mode-0600 fixture
@@ -25,6 +28,7 @@ import {
 const FIXTURE_PATH = "/tmp/thinnr-bloodwork-fixture.json";
 const DEFAULT_API_BASE = "http://127.0.0.1:3000/api";
 const MAX_BYTES = 20_000_000;
+const MOBILE_PUBLIC_DIR = resolve(dirname(new URL(import.meta.url).pathname), "../../thinnr-mobile/public");
 
 type IdentityLabel =
   | "patient"
@@ -50,6 +54,10 @@ interface FixtureState {
   createdAt: string;
   apiBase: string;
   assetsDir: string;
+  helper: {
+    directory: string;
+    route: string;
+  };
   assets: {
     pdf: string;
     encryptedPdf: string;
@@ -236,6 +244,13 @@ function imageBytes(mime: "image/png" | "image/jpeg", page: number): Buffer {
     : canvas.toBuffer("image/jpeg", 92);
 }
 
+function syntheticPhone(index: number): string {
+  const suffix = Number.parseInt(randomBytes(4).toString("hex"), 16) % 10_000_000;
+  // E.164 US shape: +1, the synthetic 555 area code, and seven subscriber
+  // digits (eleven digits after the plus sign).
+  return `+1555${String((suffix + index) % 10_000_000).padStart(7, "0")}`;
+}
+
 async function prepareAssets(state: FixtureState): Promise<void> {
   await mkdir(state.assetsDir, { recursive: true, mode: 0o700 });
   await chmod(state.assetsDir, 0o700);
@@ -259,12 +274,17 @@ async function prepareAssets(state: FixtureState): Promise<void> {
 function initialState(): FixtureState {
   const runId = randomUUID();
   const assetsDir = `/tmp/thinnr-bloodwork-assets-${runId}`;
+  const helperName = `__bloodwork-session-${randomBytes(24).toString("base64url")}`;
   return {
     version: 1,
     runId,
     createdAt: new Date().toISOString(),
     apiBase: process.env.BLOODWORK_SMOKE_API_BASE_URL?.replace(/\/$/, "") || DEFAULT_API_BASE,
     assetsDir,
+    helper: {
+      directory: resolve(MOBILE_PUBLIC_DIR, helperName),
+      route: `/${helperName}/`,
+    },
     assets: {
       pdf: `${assetsDir}/synthetic-two-page.pdf`,
       encryptedPdf: `${assetsDir}/synthetic-encrypted.pdf`,
@@ -351,21 +371,21 @@ async function prepare(): Promise<void> {
       id: state.ids.patientId,
       name: "Synthetic Bloodwork Patient",
       email: identity("patient").email,
-      activation_status: "activated",
+      phone: syntheticPhone(1),
+      activation_status: "unactivated",
       created_at: now,
       auth_user_id: identity("patient").userId,
       provider_id: state.ids.providerId,
-      profile_completed_at: now,
     },
     {
       id: state.ids.otherPatientId,
       name: "Synthetic Other Patient",
       email: identity("otherPatient").email,
-      activation_status: "activated",
+      phone: syntheticPhone(2),
+      activation_status: "unactivated",
       created_at: now,
       auth_user_id: identity("otherPatient").userId,
       provider_id: state.ids.wrongProviderId,
-      profile_completed_at: now,
     },
   ]);
   const enabledId = randomUUID();
@@ -391,32 +411,6 @@ async function prepare(): Promise<void> {
       office_role: "staff",
     },
   ]);
-  await serviceRest("POST", "patient_flags", [
-    { patient_id: state.ids.patientId, onboarding_complete: true },
-    { patient_id: state.ids.otherPatientId, onboarding_complete: true },
-  ]);
-  await serviceRest("POST", "patient_consents", [
-    {
-      patient_id: state.ids.patientId,
-      policy_version: CONSENT_POLICY_VERSION,
-      terms_accepted: true,
-      privacy_accepted: true,
-      health_data_accepted: true,
-      photo_analysis_accepted: true,
-      app_version: "bloodwork-live-smoke",
-      platform: "server",
-    },
-    {
-      patient_id: state.ids.otherPatientId,
-      policy_version: CONSENT_POLICY_VERSION,
-      terms_accepted: true,
-      privacy_accepted: true,
-      health_data_accepted: true,
-      photo_analysis_accepted: true,
-      app_version: "bloodwork-live-smoke",
-      platform: "server",
-    },
-  ]);
   for (const [label, role] of [
     ["hqClinical", "clinical"],
     ["hqSupport", "support"],
@@ -439,7 +433,6 @@ async function prepare(): Promise<void> {
   console.log(`Patient ID: ${state.ids.patientId}`);
   console.log(`Other patient ID: ${state.ids.otherPatientId}`);
   console.log(`Provider IDs: ${state.ids.providerId}, ${state.ids.wrongProviderId}`);
-  for (const label of labels) console.log(`${label}: ${identity(label).email}`);
 }
 
 async function refreshSessions(state: FixtureState): Promise<void> {
@@ -456,6 +449,76 @@ function fixtureIdentity(state: FixtureState, label: IdentityLabel): StoredIdent
   const value = state.identities[label];
   if (!value) throw new Error(`Fixture is missing ${label}.`);
   return value;
+}
+
+function supabaseStorageKey(): string {
+  const host = new URL(credentials().url).hostname;
+  const projectRef = host.split(".")[0];
+  if (!projectRef) throw new Error("Could not derive the Supabase project reference.");
+  return `sb-${projectRef}-auth-token`;
+}
+
+function jwtExpiresAt(accessToken: string): number {
+  const encodedPayload = accessToken.split(".")[1];
+  if (!encodedPayload) throw new Error("Synthetic access token has no JWT payload.");
+  let payload: unknown;
+  try {
+    payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("Synthetic access token has an invalid JWT payload.");
+  }
+  const expiresAt = (payload as Record<string, unknown>)?.exp;
+  if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) {
+    throw new Error("Synthetic access token has no numeric expiry.");
+  }
+  return expiresAt;
+}
+
+async function writeBrowserHelper(state: FixtureState): Promise<void> {
+  credentials();
+  await refreshSessions(state);
+  await mkdir(state.helper.directory, { recursive: true, mode: 0o700 });
+  await chmod(state.helper.directory, 0o700);
+  const identity = fixtureIdentity(state, "patient");
+  const expiresAt = jwtExpiresAt(identity.accessToken);
+  const session = {
+    access_token: identity.accessToken,
+    refresh_token: identity.refreshToken,
+    token_type: "bearer",
+    expires_in: Math.max(0, expiresAt - Math.floor(Date.now() / 1000)),
+    expires_at: expiresAt,
+    // The mobile client reads session.user.id during PatientAccountProvider
+    // resolution.  Supabase's persisted Session type requires this metadata;
+    // storing only access/refresh tokens is not a recoverable app session.
+    user: {
+      id: identity.userId,
+      aud: "authenticated",
+      role: "authenticated",
+      email: identity.email,
+      app_metadata: { provider: "email", providers: ["email"] },
+      user_metadata: { display_name: "Synthetic Bloodwork Smoke" },
+    },
+  };
+  const storageKey = supabaseStorageKey();
+  const usedKey = `${state.helper.route}:used:v2`;
+  const html = `<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex,nofollow">
+<title>Temporary synthetic patient session</title><script>
+(() => {
+  "use strict";
+  const usedKey = ${JSON.stringify(usedKey)};
+  if (!sessionStorage.getItem(usedKey)) {
+    const session = ${JSON.stringify(session).replace(/</g, "\\u003c")};
+    localStorage.setItem(${JSON.stringify(storageKey)}, JSON.stringify(session));
+    sessionStorage.setItem(usedKey, "1");
+  }
+  location.replace("/bloodwork");
+})();
+</script><noscript>JavaScript is required.</noscript>`;
+  await writeFile(resolve(state.helper.directory, "index.html"), html, { mode: 0o600 });
+  await chmod(resolve(state.helper.directory, "index.html"), 0o600);
+  await saveState(state);
+  const directRoute = state.helper.route.replace(/^\/thinnr-mobile(?=\/)/, "");
+  console.log(`Temporary patient session helper: ${directRoute}`);
 }
 
 async function api(
@@ -509,6 +572,16 @@ function assert(condition: unknown, label: string): asserts condition {
   console.log(`PASS ${label}`);
 }
 
+function responseCode(result: HttpResult): string | null {
+  if (!result.body || typeof result.body !== "object") return null;
+  const code = (result.body as Record<string, unknown>).code;
+  return typeof code === "string" ? code : null;
+}
+
+function assertResponseCode(result: HttpResult, code: string, label: string): void {
+  assert(responseCode(result) === code, `${label} (${code})`);
+}
+
 const verificationFailures: string[] = [];
 
 function check(condition: unknown, label: string): void {
@@ -529,6 +602,144 @@ async function deleteStaged(state: FixtureState, reportId: string): Promise<void
     undefined,
     [200, 204, 404],
   );
+}
+
+async function recordConsent(state: FixtureState, label: IdentityLabel): Promise<void> {
+  const result = await api(
+    state,
+    "PUT",
+    "/patient-data/consent",
+    label,
+    {
+      policyVersion: CONSENT_POLICY_VERSION,
+      terms: true,
+      privacy: true,
+      healthData: true,
+      photoAnalysis: true,
+      appVersion: "bloodwork-live-smoke",
+      platform: "server",
+    },
+    [200],
+  );
+  assert((result.body as any)?.consent?.satisfied === true, `${label} recorded current consent`);
+}
+
+async function completeSetup(state: FixtureState, label: "patient" | "otherPatient"): Promise<void> {
+  // Keep this live smoke on the public THINNR setup choice. A prior
+  // diagnostic GLP-1 attempt exposed a separate deployed-schema constraint
+  // mismatch; this path must not hide that follow-up by pre-admitting anyone.
+  const profile = await api(
+    state,
+    "POST",
+    "/patient-data/setup/complete",
+    label,
+    {
+      profile: {
+        firstName: label === "patient" ? "Synthetic" : "Synthetic Other",
+        lastName: "Bloodwork",
+        dateOfBirth: "1985-04-03",
+        gender: "female",
+        heightUnit: "imperial",
+        heightInches: 66,
+        heightCm: 167.64,
+        startingWeight: 205,
+        currentWeight: 191,
+        goalWeight: 165,
+         programId: "thinnr",
+        programStartDate: "2026-01-05",
+        timezone: "America/New_York",
+      },
+       onboardingAnswers: {
+         program: "thinnr",
+         reminderMorning: "08:00",
+         reminderAfternoon: "15:00",
+         reminderEvening: "22:00",
+       },
+      notificationPrefs: { reminders: true },
+    },
+    [200],
+  );
+  assert((profile.body as any)?.profile?.setupComplete === true, `${label} completed setup through API`);
+}
+
+/**
+ * Keep the fixture's admission edge cases synthetic and explicit.  Setup is
+ * completed through the same patient-facing route first, then service-role
+ * metadata simulates a legacy row and office program statuses.  No production
+ * patient is ever looked up or changed by this harness.
+ */
+async function simulateLegacyAdmission(state: FixtureState): Promise<void> {
+  await serviceRest(
+    "PATCH",
+    `patients?id=eq.${encodeURIComponent(state.ids.patientId)}`,
+    { activation_status: "paused", profile_completed_at: null },
+    [200, 204],
+  );
+  await serviceRest(
+    "PATCH",
+    `patients?id=eq.${encodeURIComponent(state.ids.otherPatientId)}`,
+    { activation_status: "discharged", profile_completed_at: null },
+    [200, 204],
+  );
+  const legacy = await serviceRest(
+    "GET",
+    `patients?id=eq.${encodeURIComponent(state.ids.patientId)}&select=id,activation_status,profile_completed_at`,
+    undefined,
+    [200],
+  );
+  const legacyRow = Array.isArray(legacy.body) ? legacy.body[0] as Record<string, unknown> | undefined : undefined;
+  assert(
+    legacyRow?.activation_status === "paused" && legacyRow.profile_completed_at == null,
+    "legacy synthetic patient has paused status and null profile timestamp",
+  );
+  const discharged = await serviceRest(
+    "GET",
+    `patients?id=eq.${encodeURIComponent(state.ids.otherPatientId)}&select=id,activation_status,profile_completed_at`,
+    undefined,
+    [200],
+  );
+  const dischargedRow = Array.isArray(discharged.body)
+    ? discharged.body[0] as Record<string, unknown> | undefined
+    : undefined;
+  assert(
+    dischargedRow?.activation_status === "discharged" && dischargedRow.profile_completed_at == null,
+    "discharged synthetic patient has null profile timestamp",
+  );
+  const flags = await serviceRest(
+    "GET",
+    `patient_flags?patient_id=eq.${encodeURIComponent(state.ids.patientId)}&select=onboarding_complete`,
+    undefined,
+    [200],
+  );
+  const flagsRow = Array.isArray(flags.body) ? flags.body[0] as Record<string, unknown> | undefined : undefined;
+  assert(flagsRow?.onboarding_complete === true, "legacy synthetic patient remains server-onboarded");
+}
+
+async function verifyUnavailableSyntheticAccount(state: FixtureState): Promise<void> {
+  await serviceRest(
+    "PATCH",
+    `patients?id=eq.${encodeURIComponent(state.ids.patientId)}`,
+    { activation_status: "disabled", profile_completed_at: null },
+    [200, 204],
+  );
+  try {
+    const denied = await api(state, "GET", reportsPath(state), "patient", undefined, [403]);
+    assertResponseCode(denied, "PATIENT_ACCOUNT_UNAVAILABLE", "disabled synthetic account is unavailable");
+    const rows = await serviceRest(
+      "GET",
+      `patient_bloodwork_reports?patient_id=eq.${encodeURIComponent(state.ids.patientId)}&select=id`,
+      undefined,
+      [200],
+    );
+    assert(Array.isArray(rows.body) && rows.body.length === 0, "unavailable account creates no report");
+  } finally {
+    await serviceRest(
+      "PATCH",
+      `patients?id=eq.${encodeURIComponent(state.ids.patientId)}`,
+      { activation_status: "paused", profile_completed_at: null },
+      [200, 204],
+    );
+  }
 }
 
 async function runExtractionJob(): Promise<void> {
@@ -596,35 +807,211 @@ async function pollDetail(
   }
 }
 
-async function verify(keep: boolean): Promise<void> {
-  const state = await loadState();
-  credentials();
-  await refreshSessions(state);
+async function clearTrackedReports(state: FixtureState): Promise<void> {
   for (const reportId of state.ids.reportIds) {
     const existing = await api(
-      state, "GET", `${reportsPath(state)}/${reportId}`, "patient", undefined, [200, 404],
+      state,
+      "GET",
+      `${reportsPath(state)}/${reportId}`,
+      "patient",
+      undefined,
+      [200, 404],
     );
     if (existing.status === 200) {
       await api(
-        state, "DELETE",
+        state,
+        "DELETE",
         `${reportsPath(state)}/${reportId}?expectedVersion=${(existing.body as any).report.version}`,
-        "patient", undefined, [200, 204],
+        "patient",
+        undefined,
+        [200, 204],
       );
     }
   }
   state.ids.reportIds = [];
   await saveState(state);
+}
+
+/**
+ * Narrow live proof for the admission mismatch and recovery path.  Keep this
+ * separate from the broad verify command so a tester can repeat the task's
+ * journey without rerunning image validation, extraction, or AI work.
+ */
+async function verifyAccess(keep: boolean): Promise<void> {
+  const state = await loadState();
+  credentials();
+  await refreshSessions(state);
+  await clearTrackedReports(state);
+  const base = reportsPath(state);
+  const pdf = await readFile(state.assets.pdf);
+
+  const whoami = await api(state, "GET", "/claim/whoami", "patient", undefined, [200]);
+  assert(
+    (whoami.body as any)?.kind === "patient" &&
+      (whoami.body as any)?.patientId === state.ids.patientId,
+    "access proof whoami resolves the linked synthetic patient",
+  );
+  const noConsent = await api(state, "GET", base, "patient", undefined, [403]);
+  assertResponseCode(noConsent, "CONSENT_REQUIRED", "access proof requires consent");
+  await recordConsent(state, "patient");
+  const setupRequired = await api(state, "GET", base, "patient", undefined, [403]);
+  assertResponseCode(setupRequired, "PATIENT_SETUP_REQUIRED", "access proof requires setup");
+  await completeSetup(state, "patient");
+  await recordConsent(state, "otherPatient");
+  await completeSetup(state, "otherPatient");
+  await simulateLegacyAdmission(state);
+
+  const dischargedHistory = await api(
+    state,
+    "GET",
+    reportsPath(state, state.ids.otherPatientId),
+    "otherPatient",
+    undefined,
+    [200],
+  );
+  assert(
+    Array.isArray((dischargedHistory.body as any)?.reports),
+    "access proof keeps a discharged patient eligible",
+  );
+  // The operations app has no bloodwork report screen in this fixture.  The
+  // provider whoami plus read-only detail/history calls below are the
+  // provider-workspace proof; no provider session is installed in a browser.
+  const providerWhoami = await api(state, "GET", "/claim/whoami", "providerOwner", undefined, [200]);
+  assert((providerWhoami.body as any)?.kind === "provider", "access proof resolves synthetic provider workspace");
+
+  const created = await createReport(
+    state,
+    [{ clientFileId: randomUUID(), mimeType: "application/pdf", size: pdf.length }],
+    randomUUID(),
+  );
+  const createdBody = created.body as any;
+  assert(typeof createdBody.reportId === "string" && createdBody.uploads?.length === 1, "access proof creates one PDF upload");
+  state.ids.reportIds.push(createdBody.reportId);
+  await saveState(state);
+  await upload(createdBody.uploads[0].uploadUrl, pdf, "application/pdf");
+  const committed = await api(
+    state,
+    "POST",
+    `${base}/${createdBody.reportId}/commit`,
+    "patient",
+    undefined,
+    [200],
+  );
+  assert(
+    (committed.body as any)?.report?.lifecycleStatus === "committed" ||
+      (committed.body as any)?.report?.extractionStatus === "queued",
+    "access proof commits the synthetic PDF",
+  );
+  const reopened = await api(state, "GET", `${base}/${createdBody.reportId}`, "patient", undefined, [200]);
+  assert((reopened.body as any)?.report?.id === createdBody.reportId, "access proof reopens the committed PDF");
+  const history = await api(state, "GET", base, "patient", undefined, [200]);
+  assert(
+    (history.body as any)?.reports?.some((report: any) => report.id === createdBody.reportId),
+    "access proof lists the committed PDF in patient history",
+  );
+  const providerDetail = await api(
+    state,
+    "GET",
+    `${base}/${createdBody.reportId}`,
+    "providerOwner",
+    undefined,
+    [200],
+  );
+  assert(
+    (providerDetail.body as any)?.report?.id === createdBody.reportId,
+    "access proof provider can read the committed PDF",
+  );
+  const providerHistory = await api(state, "GET", base, "providerOwner", undefined, [200]);
+  assert(
+    (providerHistory.body as any)?.reports?.some((report: any) => report.id === createdBody.reportId),
+    "access proof provider history includes the committed PDF",
+  );
+
+  if (!keep) await cleanup();
+  else {
+    console.log(`Access fixture retained: ${FIXTURE_PATH}`);
+    console.log(`Access PDF report ID: ${createdBody.reportId}`);
+    console.log(`Synthetic assets directory: ${state.assetsDir}`);
+  }
+}
+
+async function verify(keep: boolean): Promise<void> {
+  const state = await loadState();
+  credentials();
+  await refreshSessions(state);
+  await clearTrackedReports(state);
   const base = reportsPath(state);
   const png = await readFile(state.assets.png);
   const jpeg = await readFile(state.assets.jpeg);
   const pdf = await readFile(state.assets.pdf);
 
-  await api(state, "GET", base, undefined, undefined, [401]);
-  assert(true, "signed-out bloodwork list denied");
-  await api(state, "GET", base, "otherPatient", undefined, [403, 404]);
-  assert(true, "wrong patient denied");
-  await api(state, "GET", base, "wrongOfficeOwner", undefined, [403, 404]);
-  assert(true, "wrong office denied");
+  const whoami = await api(state, "GET", "/claim/whoami", "patient", undefined, [200]);
+  assert(
+    (whoami.body as any)?.kind === "patient" &&
+      (whoami.body as any)?.patientId === state.ids.patientId,
+    "public whoami resolves the linked synthetic patient",
+  );
+  const anonymousWhoami = await api(state, "GET", "/claim/whoami", undefined, undefined, [401]);
+  assert(anonymousWhoami.status === 401, "public whoami denies a missing session");
+
+  const noConsent = await api(state, "GET", base, "patient", undefined, [403]);
+  assertResponseCode(noConsent, "CONSENT_REQUIRED", "bloodwork without consent is denied safely");
+  const signedOut = await api(state, "GET", base, undefined, undefined, [401]);
+  assertResponseCode(signedOut, "SESSION_REQUIRED", "signed-out bloodwork list denied");
+
+  await recordConsent(state, "patient");
+  const setupRequired = await api(state, "GET", base, "patient", undefined, [403]);
+  assertResponseCode(setupRequired, "PATIENT_SETUP_REQUIRED", "bloodwork requires normal patient setup");
+  const deniedCreate = await createReport(
+    state,
+    [{ clientFileId: randomUUID(), mimeType: "application/pdf", size: pdf.length }],
+    randomUUID(),
+    [403],
+  );
+  assertResponseCode(deniedCreate, "PATIENT_SETUP_REQUIRED", "setup denial blocks report creation");
+  const deniedRows = await serviceRest(
+    "GET",
+    `patient_bloodwork_reports?patient_id=eq.${encodeURIComponent(state.ids.patientId)}&select=id`,
+    undefined,
+    [200],
+  );
+  assert(Array.isArray(deniedRows.body) && deniedRows.body.length === 0, "setup denial creates no report");
+
+  await completeSetup(state, "patient");
+  await recordConsent(state, "otherPatient");
+  await completeSetup(state, "otherPatient");
+  await simulateLegacyAdmission(state);
+  await verifyUnavailableSyntheticAccount(state);
+
+  const dischargedHistory = await api(
+    state,
+    "GET",
+    reportsPath(state, state.ids.otherPatientId),
+    "otherPatient",
+    undefined,
+    [200],
+  );
+  assert(
+    Array.isArray((dischargedHistory.body as any)?.reports),
+    "discharged patient remains eligible for own bloodwork history",
+  );
+  const dischargedProviderRead = await api(
+    state,
+    "GET",
+    reportsPath(state, state.ids.otherPatientId),
+    "wrongOfficeOwner",
+    undefined,
+    [200],
+  );
+  assert(
+    Array.isArray((dischargedProviderRead.body as any)?.reports),
+    "authorized provider can read a discharged patient's history",
+  );
+
+  const wrongPatient = await api(state, "GET", base, "otherPatient", undefined, [403, 404]);
+  assert(responseCode(wrongPatient) === null, "wrong patient denial reveals no account status");
+  const wrongOffice = await api(state, "GET", base, "wrongOfficeOwner", undefined, [403, 404]);
+  assert(responseCode(wrongOffice) === null, "wrong office denial reveals no account status");
   await api(state, "GET", base, "disabledTeam", undefined, [403]);
   assert(true, "disabled team member denied");
   await api(
@@ -752,6 +1139,22 @@ async function verify(keep: boolean): Promise<void> {
     "PDF preserved as two pages and extraction queued",
   );
   const pdfFileId = (queued.body as any).files[0].id;
+  const reopened = await api(state, "GET", `${base}/${pdfBody.reportId}`, "patient");
+  assert(
+    (reopened.body as any).report?.id === pdfBody.reportId &&
+      (reopened.body as any).files?.length === 1,
+    "committed PDF reopens from the patient detail route",
+  );
+  const patientHistory = await api(state, "GET", base, "patient");
+  assert(
+    (patientHistory.body as any).reports?.some((report: any) => report.id === pdfBody.reportId),
+    "committed PDF appears in patient bloodwork history",
+  );
+  const providerRead = await api(state, "GET", `${base}/${pdfBody.reportId}`, "providerOwner");
+  assert(
+    (providerRead.body as any).report?.id === pdfBody.reportId,
+    "authorized provider can read the committed PDF report",
+  );
   const source = await api(
     state, "GET", `${base}/${pdfBody.reportId}/files/${pdfFileId}/source`, "patient",
   );
@@ -927,19 +1330,38 @@ async function cleanup(): Promise<void> {
   for (const lockId of state.ids.lockIds) {
     await serviceRest("DELETE", `provider_account_locks?account_id=eq.${encodeURIComponent(lockId)}`);
   }
+  const patientOwnedTables = [
+    "patient_bloodwork_corrections",
+    "patient_bloodwork_results",
+    "patient_bloodwork_files",
+    "patient_bloodwork_reports",
+    "patient_write_receipts",
+    "patient_medication_dose_logs",
+    "patient_medications",
+    "patient_consents",
+    "patient_flags",
+  ];
   for (const patientId of [state.ids.patientId, state.ids.otherPatientId]) {
     const encoded = encodeURIComponent(patientId);
-    for (const table of [
-      "patient_bloodwork_corrections",
-      "patient_bloodwork_results",
-      "patient_bloodwork_files",
-      "patient_bloodwork_reports",
-      "patient_consents",
-      "patient_flags",
-    ]) {
+    for (const table of patientOwnedTables) {
       await serviceRest("DELETE", `${table}?patient_id=eq.${encoded}`);
     }
     await serviceRest("DELETE", `patients?id=eq.${encoded}`);
+  }
+  const patientFilter = [state.ids.patientId, state.ids.otherPatientId]
+    .map(encodeURIComponent)
+    .join(",");
+  for (const table of patientOwnedTables) {
+    const remaining = await serviceRest(
+      "GET",
+      `${table}?patient_id=in.(${patientFilter})&select=patient_id`,
+      undefined,
+      [200],
+    );
+    assert(
+      Array.isArray(remaining.body) && remaining.body.length === 0,
+      `fixture ${table} rows removed`,
+    );
   }
   for (const id of state.ids.hqMembershipIds) {
     await serviceRest("DELETE", `hq_memberships?id=eq.${encodeURIComponent(id)}`);
@@ -964,6 +1386,9 @@ async function cleanup(): Promise<void> {
   for (const identity of Object.values(state.identities)) {
     if (identity) await deleteAuthUser(identity.userId);
   }
+  if (state.helper?.directory) {
+    await rm(state.helper.directory, { recursive: true, force: true });
+  }
   await rm(state.assetsDir, { recursive: true, force: true });
   await rm(FIXTURE_PATH, { force: true });
   console.log(`Cleaned fixture: ${FIXTURE_PATH}`);
@@ -972,9 +1397,16 @@ async function cleanup(): Promise<void> {
 async function main(): Promise<void> {
   const [command, ...flags] = process.argv.slice(2);
   if (command === "prepare") return prepare();
+  if (command === "verify-access") return verifyAccess(flags.includes("--keep"));
   if (command === "verify") return verify(flags.includes("--keep"));
+  if (command === "helper") {
+    const state = await loadState();
+    return writeBrowserHelper(state);
+  }
   if (command === "cleanup") return cleanup();
-  throw new Error("Usage: bloodwork-live-smoke.ts prepare | verify [--keep] | cleanup");
+  throw new Error(
+    "Usage: bloodwork-live-smoke.ts prepare | verify-access [--keep] | verify [--keep] | helper | cleanup",
+  );
 }
 
 main().catch((error) => {

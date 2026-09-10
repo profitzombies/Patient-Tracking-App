@@ -9,8 +9,7 @@ import {
   RetryBloodworkExtractionParams, RetryBloodworkExtractionQueryParams, UpdateBloodworkReportBody,
   UpdateBloodworkReportParams,
 } from "@workspace/api-zod";
-import { resolvePatient } from "../lib/patient-auth";
-import { resolveOfficeScope, respondOfficeScopeDenied, type OfficeScope } from "../auth/office-scope";
+import { authorize, type Actor } from "../bloodwork/authorization";
 import { objectStorage, ObjectNotFoundError, ObjectTooLargeError, UPLOAD_URL_TTL_SEC } from "../lib/objectStorage";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import {
@@ -28,57 +27,8 @@ const enc = encodeURIComponent;
 const BASE = "/bloodwork/patients/:patientId/reports";
 const NO_STORE = "private, no-store, max-age=0";
 
-type Actor =
-  | { kind: "patient"; patientId: string; actorUserId: string; role: "patient" }
-  | { kind: "staff"; patientId: string; actorUserId: string; role: "provider" | "hq"; scope: OfficeScope };
-
 function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
-}
-
-async function admittedPatient(patientId: string, providerId?: string): Promise<boolean> {
-  const [patient, flags] = await Promise.all([
-    supabaseAdmin("GET",
-      `/rest/v1/patients?id=eq.${enc(patientId)}&archived_at=is.null&activation_status=eq.activated` +
-      "&profile_completed_at=not.is.null" +
-      (providerId ? `&provider_id=eq.${enc(providerId)}` : "") + "&select=id&limit=1"),
-    supabaseAdmin("GET",
-      `/rest/v1/patient_flags?patient_id=eq.${enc(patientId)}&onboarding_complete=eq.true&select=patient_id&limit=1`),
-  ]);
-  if (patient.status >= 300 || !Array.isArray(patient.json) ||
-      flags.status >= 300 || !Array.isArray(flags.json)) {
-    throw new Error(`patient admission lookup failed (${patient.status}/${flags.status})`);
-  }
-  return patient.json.length === 1 && flags.json.length === 1;
-}
-
-async function authorize(req: Request, res: Response, mode: "read" | "edit" | "patient"): Promise<Actor | null> {
-  const requested = first(req.params.patientId);
-  const patient = await resolvePatient(req);
-  if (patient.ok) {
-    if (patient.patientId !== requested || !(await admittedPatient(requested))) {
-      res.status(404).json({ error: "Patient record not found." }); return null;
-    }
-    return { kind: "patient", patientId: requested, actorUserId: patient.authUserId, role: "patient" };
-  }
-  if (mode === "patient" || patient.status !== 403 || patient.code) {
-    res.status(patient.status).json({ error: patient.error, ...patient.details }); return null;
-  }
-  const office = await resolveOfficeScope({
-    authorization: req.headers.authorization,
-    explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
-    hqPermission: mode === "edit" ? "provider_manage" : "provider_read",
-    // Bloodwork is sensitive clinical data: locked offices cannot read it.
-    requireUnlocked: true,
-  });
-  if (office.kind !== "ok") { respondOfficeScopeDenied(req, res, office); return null; }
-  if (!(await admittedPatient(requested, office.scope.providerId))) {
-    res.status(404).json({ error: "Patient record not found." }); return null;
-  }
-  return {
-    kind: "staff", patientId: requested, actorUserId: office.scope.actorUserId,
-    role: office.scope.actorKind === "hq" ? "hq" : "provider", scope: office.scope,
-  };
 }
 
 function invalid(res: Response, error = "Check the request and try again."): void {

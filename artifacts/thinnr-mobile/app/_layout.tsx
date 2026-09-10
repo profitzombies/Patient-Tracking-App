@@ -44,7 +44,6 @@ import { PatientSyncNotice } from '@/components/patient/PatientSyncNotice';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
-import { liveEntryDecision } from '@/lib/live-patient-entry';
 import { supabase } from '@/lib/supabase';
 import { markNotificationOpened } from '@/lib/push-notifications-api';
 import {
@@ -53,6 +52,9 @@ import {
   resolveNotificationRoute,
 } from '@/lib/push-notification-core';
 import { reminderDoseFromResponse, type ReminderDoseIntent } from '@/lib/reminder-response';
+import { BloodworkDraftLifecycle, useBloodworkRecoveryRoute } from '@/lib/bloodwork-recovery';
+import { bloodworkRecoveryEntryDecision } from '@/lib/bloodwork-entry-policy';
+import { useSupabaseSession } from '@/lib/supabase';
 
 const publicDomain = process.env.EXPO_PUBLIC_DOMAIN;
 if (publicDomain) setBaseUrl(`https://${publicDomain}`);
@@ -314,18 +316,23 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
   const { mode, hydrated: modeHydrated, demoAdmitted } = useAppMode();
   const { resolving, account } = usePatientAccount();
   const patient = usePatient();
-  const decision = liveEntryDecision({
-    modeHydrated,
-    mode,
-    accountResolving: resolving,
-    accountKind: account.kind,
-    patientHydrated: patient.hydrated,
-    onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
-    consentSatisfied: patient.hydratedPrivacy?.consent.satisfied ?? null,
-    deletionPending: patient.hydratedPrivacy?.deletion !== null && patient.hydratedPrivacy?.deletion !== undefined,
-    pathname,
-    demoAdmitted,
-  });
+  const { session } = useSupabaseSession();
+  const accountKey = account.kind === 'real' && session?.user.id
+    ? `${session.user.id}:${account.patientId}`
+    : null;
+  const recoveryRoute = useBloodworkRecoveryRoute(accountKey);
+  const decision = bloodworkRecoveryEntryDecision({
+      modeHydrated,
+      mode,
+      accountResolving: resolving,
+      accountKind: account.kind,
+      patientHydrated: patient.hydrated,
+      onboardingComplete: patient.hydratedFlags?.onboardingComplete ?? null,
+      consentSatisfied: patient.hydratedPrivacy?.consent.satisfied ?? null,
+      deletionPending: patient.hydratedPrivacy?.deletion !== null && patient.hydratedPrivacy?.deletion !== undefined,
+      pathname,
+      demoAdmitted,
+    }, recoveryRoute);
 
   // Keep the root Stack mounted while Redirect dispatches. Returning Redirect
   // instead of the Stack leaves no navigator to receive Expo Router's nested
@@ -489,6 +496,7 @@ export default function RootLayout() {
                   <OperationsProvider>
                     <PatientAccountProvider>
                       <PatientProvider>
+                        <BloodworkDraftLifecycle />
                         <FoodLoggingProvider>
                         <DeviceFeaturesProvider>
                          <OnboardingProvider>

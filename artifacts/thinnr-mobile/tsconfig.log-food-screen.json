@@ -1,0 +1,29 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/components/KeyboardAwareScrollViewCompat": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/components/patient/ApprovedBadge": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/components/ui/LedgerPrimitives": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/components/ui/OrdinaryTextInput": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/context/AppModeContext": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/context/FoodLoggingContext": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/context/PatientAccountContext": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/context/PatientContext": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/data/diary-entries": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/data/food-nutrition": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/data/patient-data": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/hooks/useColors": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/hooks/useFoodCatalogSearch": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/hooks/useLoggableItems": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/lib/food-catalog": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/lib/title-case": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/log-food-screen-stubs/react-native.ts"],
+      "@expo/vector-icons": ["./scripts/log-food-screen-stubs/vector-icons.ts"],
+      "expo-router": ["./scripts/log-food-screen-stubs/state.ts"],
+      "react-native-safe-area-context": ["./scripts/log-food-screen-stubs/safe-area.ts"]
+    }
+  }
+}

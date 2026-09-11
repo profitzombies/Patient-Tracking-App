@@ -14,6 +14,7 @@ import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { FoodSearchSkeleton } from '@/components/patient/FoodSearchSkeleton';
 import { Divider, EmptyState, LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
@@ -145,6 +146,11 @@ export default function LogFoodScreen() {
   const bottomPad = Platform.OS === 'web' ? 20 : Math.max(insets.bottom, 16);
 
   const [intent, setIntent] = useState<Intent>('basic');
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    setMoreWaysOpen(false);
+    if (!value.trim()) setIntent('basic');
+  };
 
   // One catalog shared with the "Yesterday's [meal]" review, so both search
   // the exact same items.
@@ -242,6 +248,11 @@ export default function LogFoodScreen() {
   }, [query, scope, approvedOnly, allItems, byId, patient.recents, patient.favorites, catalogItems, intent, favoriteLimit]);
 
   const totalVisible = groups.reduce((sum, group) => sum + group.items.length, 0);
+  const isCatalogQuery = query.trim().length >= 2 && intent !== 'recipe';
+  const isSearching = isCatalogQuery && catalogSearch.loading;
+  const isLoadingMore = isCatalogQuery && catalogSearch.loadingMore;
+  const searchFailed = isCatalogQuery && !isSearching &&
+    Boolean(catalogSearch.error || catalogSearch.upstreamUnavailable);
 
   // Patient-only route: deep links must not bypass the persona flow.
   if (!modeHydrated) return null;
@@ -523,43 +534,28 @@ export default function LogFoodScreen() {
             <TextInput
               testID="logfood-search"
               value={query}
-              onChangeText={setQuery}
+              onChangeText={changeQuery}
               placeholder="Search foods and recipes..."
               placeholderTextColor={colors.subtleText}
               style={[styles.searchInput, { color: colors.foreground }]}
             />
             {query.length > 0 && (
-              <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Pressable accessibilityLabel="Clear food search" onPress={() => changeQuery('')} hitSlop={8}>
                 <Feather name="x" size={14} color={colors.subtleText} />
               </Pressable>
             )}
           </View>
         </View>
 
-        {query.trim().length > 0 && (
+        {query.trim().length > 0 && !isSearching && (
           <>
-          <View style={styles.intentLinks}>
-            {([
-              ['basic', 'Basic foods'],
-              ['packaged', 'Search packaged foods'],
-              ['recipe', 'Search recipes'],
-            ] as const).map(([value, label]) => (
-              <Pressable key={value} onPress={() => setIntent(value)} hitSlop={8}>
-                <Text style={[
-                  styles.intentLink,
-                  { color: intent === value ? colors.navyLight : colors.cobalt },
-                  intent === value && styles.intentLinkActive,
-                ]}>{label}</Text>
-              </Pressable>
-            ))}
-          </View>
           {intent !== 'recipe' && !!catalogSearch.querySuggestions?.length && (
             <View testID="logfood-search-suggestions" style={styles.intentLinks}>
               {catalogSearch.querySuggestions.map(suggestion => (
                 <Pressable
                   key={suggestion}
                   testID={`logfood-suggestion-${suggestion}`}
-                  onPress={() => setQuery(suggestion)}
+                  onPress={() => changeQuery(suggestion)}
                   style={[styles.suggestion, { borderColor: colors.border }]}
                 >
                   <Text style={[styles.intentLink, { color: colors.cobalt }]}>{suggestion}</Text>
@@ -701,17 +697,15 @@ export default function LogFoodScreen() {
           </LedgerCard>
         ))}
 
-        {query.trim().length >= 2 && (catalogSearch.loading || catalogSearch.error || catalogSearch.upstreamUnavailable) && (
+        {searchFailed && (
           <View testID="logfood-catalog-state" style={styles.catalogState}>
             <Feather
-              name={catalogSearch.loading ? 'loader' : 'wifi-off'}
+              name="wifi-off"
               size={12}
               color={colors.subtleText}
             />
             <Text style={[styles.catalogStateText, { color: colors.subtleText }]}>
-              {catalogSearch.loading
-                ? 'Searching the shared catalog… Local matches are ready.'
-                : catalogSearch.error ?? catalogSearch.message ?? 'Branded search is unavailable. Local matches are still shown.'}
+              {catalogSearch.error ?? catalogSearch.message ?? 'Branded search is unavailable. Local matches are still shown.'}
             </Text>
             {!!catalogSearch.error && (
               <Pressable testID="logfood-catalog-retry" onPress={catalogSearch.retry} hitSlop={8}>
@@ -722,9 +716,11 @@ export default function LogFoodScreen() {
         )}
 
         {/* ── Quick add ── */}
-        <LedgerCard style={{ marginTop: 12 }}>
+        {!isSearching && <LedgerCard style={{ marginTop: 12 }}>
           <Pressable
             testID="logfood-more-ways-toggle"
+            accessibilityRole="button"
+            aria-expanded={moreWaysOpen}
             onPress={() => setMoreWaysOpen(open => !open)}
             style={({ pressed }) => [styles.quickToggle, pressed && { backgroundColor: colors.accent }]}
           >
@@ -736,6 +732,30 @@ export default function LogFoodScreen() {
           {moreWaysOpen && (
             <View style={styles.quickForm}>
               <Divider style={{ marginBottom: 12 }} />
+              <View style={[styles.toolLinks, { marginBottom: 12 }]}>
+                {([
+                  ['basic', 'Basic foods'],
+                  ['packaged', 'Search packaged foods'],
+                  ['recipe', 'Search recipes'],
+                ] as const).map(([value, label]) => (
+                  <Pressable
+                    key={value}
+                    accessibilityRole="button"
+                    aria-pressed={intent === value}
+                    onPress={() => {
+                      setIntent(value);
+                      setMoreWaysOpen(false);
+                    }}
+                    hitSlop={8}
+                  >
+                    <Text style={[
+                      styles.intentLink,
+                      { color: intent === value ? colors.navyLight : colors.cobalt },
+                      intent === value && styles.intentLinkActive,
+                    ]}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <View style={styles.toolLinks}>
                 <Pressable onPress={() => router.push('/barcode-scan')}><Text style={[styles.intentLink, { color: colors.cobalt }]}>Scan barcode</Text></Pressable>
                 <Pressable onPress={() => router.push('/food-camera')}><Text style={[styles.intentLink, { color: colors.cobalt }]}>Photo or label</Text></Pressable>
@@ -843,7 +863,7 @@ export default function LogFoodScreen() {
               )}
             </View>
           )}
-        </LedgerCard>
+        </LedgerCard>}
 
         {/* ── Yesterday's [meal] — review & log the previous day's slot ── */}
         {query.trim() === '' && yesterdayOption && (
@@ -882,11 +902,14 @@ export default function LogFoodScreen() {
         )}
 
         {/* ── Results ── */}
-        <Text style={[styles.resultCount, { color: colors.labelText }]}>
-          {totalVisible} ITEM{totalVisible === 1 ? '' : 'S'}
-          {approvedOnly ? ' · APPROVED' : ''}
-        </Text>
-        {totalVisible === 0 ? (
+        {!isSearching && !(searchFailed && totalVisible === 0) && (
+          <Text style={[styles.resultCount, { color: colors.labelText }]}>
+            {totalVisible} ITEM{totalVisible === 1 ? '' : 'S'}
+            {approvedOnly ? ' · APPROVED' : ''}
+          </Text>
+        )}
+        {totalVisible === 0 && !isSearching ? (
+          !searchFailed && (
           <LedgerCard>
             <EmptyState
               icon={<Feather name="search" size={22} color={colors.subtleText} />}
@@ -910,8 +933,9 @@ export default function LogFoodScreen() {
               }
             />
           </LedgerCard>
+          )
         ) : (
-          <LedgerCard>
+          <LedgerCard style={isSearching ? { marginTop: 12 } : undefined}>
             {groups.map((group, groupIndex) => (
               <View key={group.key}>
                 {groupIndex > 0 && <Divider />}
@@ -1001,6 +1025,19 @@ export default function LogFoodScreen() {
               </View>
             ))}
 
+            {isSearching && (
+              <>
+                {totalVisible > 0 && <Divider />}
+                <FoodSearchSkeleton count={Math.max(1, 6 - totalVisible)} />
+              </>
+            )}
+            {isLoadingMore && (
+              <>
+                <Divider />
+                <FoodSearchSkeleton count={3} testID="logfood-search-loading-more" />
+              </>
+            )}
+
             {query.trim() === '' && scope === 'favorites' && patient.favorites.length > favoriteLimit && (
               <View>
                 <Divider />
@@ -1014,28 +1051,24 @@ export default function LogFoodScreen() {
               </View>
             )}
 
-            {query.trim().length > 0 && catalogSearch.hasMore && !catalogSearch.pagingError && (
+            {isCatalogQuery && !isSearching && !isLoadingMore && catalogSearch.hasMore && !catalogSearch.pagingError && (
               <View>
                 <Divider />
                 <Pressable
                   testID="logfood-show-more"
                   onPress={catalogSearch.showMore}
-                  disabled={catalogSearch.loadingMore}
                   style={({ pressed }) => [
                     styles.showMoreBtn,
                     pressed && { backgroundColor: colors.accent }
                   ]}
                 >
-                  {catalogSearch.loadingMore ? (
-                    <Feather name="loader" size={16} color={colors.subtleText} style={{ marginRight: 6 }} />
-                  ) : null}
                   <Text style={[styles.showMoreText, { color: colors.cobalt }]}>
-                    {catalogSearch.loadingMore ? 'Loading...' : 'Show more results'}
+                    Show more results
                   </Text>
                 </Pressable>
               </View>
             )}
-            {query.trim().length > 0 && !!catalogSearch.pagingError && (
+            {isCatalogQuery && !isSearching && !isLoadingMore && !!catalogSearch.pagingError && (
               <View>
                 <Divider />
                 <Pressable testID="logfood-show-more-retry" onPress={catalogSearch.showMore} style={styles.showMoreBtn}>

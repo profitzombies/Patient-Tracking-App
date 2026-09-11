@@ -28,6 +28,18 @@ literal fluid ounces as weight.
 **Why:** Correcting fresh defaults alone leaves later unit/preparation changes
 using incompatible conversion rules despite an apparently valid snapshot.
 
+Keep original archives, checked-in projection documents, and deployed catalog
+snapshots as separate evidence levels during audits. Missing numeric amounts in
+FNDDS can be intentional: the amount is expressed in the portion description.
+
+**Why:** Legacy projections can demonstrate a quantity-loss mechanism without
+establishing its current live prevalence. Treating every release like SR Legacy
+also falsely classifies FNDDS's description-based portions as missing data.
+
+**How to apply:** Verify archive hashes and exact release/food/portion identities.
+Report reproducible rule failures separately from stored-row findings, and mark
+live impact unmeasured unless the actual food-only deployed population was read.
+
 **How to apply:** Recognize documented volume units without inventing density.
 Keep original labels and gram weights unchanged, and validate initial selection,
 unit changes, and type changes through the same semantic classification.

@@ -206,3 +206,17 @@ mtime_ms = 1788908418612
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:4c78631c-d629-4f46-aa2e-dbe1e90c6e41/32010f65-8aa3-4b61-b8c1-336cbd4b3e6d/244a1d77-0603-4bc0-ab42-e3e6b16fdd4a"
 storage_version_token = "1788908442583092"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "6Taya8W7U8pHOI2q2QbNo"
+uri = "file://docs/food-portion-audit/food-portion-audit.html"
+type = "text"
+title = "Food portions and conversions audit"
+description = "Final source-backed report with prioritized issues, uncertainties, calculations, and reproducible evidence. No food records, patient history, or application behavior changed."
+logical_id = "f266c679-7bfd-4f8c-8dd1-c1fdab0a7d7f"
+content_hash = "sha256:9b4ee371952b0c1d23b3acb723212ed9fc64ae04d138ee7563b7746e73608cd0"
+size = 24600
+mtime_ms = 1789145973129
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:4c78631c-d629-4f46-aa2e-dbe1e90c6e41/f266c679-7bfd-4f8c-8dd1-c1fdab0a7d7f/28a397cf-8b50-49a5-b1fe-11ee96e97644"
+storage_version_token = "1789145981681266"
+content_type = "text/html"

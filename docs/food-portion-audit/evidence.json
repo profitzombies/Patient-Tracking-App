@@ -1,0 +1,1576 @@
+{
+  "schemaVersion": 1,
+  "scope": "Offline source/code audit, not a live database census or a patient-history audit",
+  "checkoutCommitAtRun": "987f992073257443536be8f1d70364c731ab0f4e",
+  "codeHashes": {
+    "artifacts/thinnr-mobile/data/food-nutrition.ts": "a5eadd97ed220aaea8c0b9a85b777fcb799b174b2889075cd46ef74c96d81f24",
+    "artifacts/thinnr-mobile/data/ingredient-measures.ts": "d4799f02f7e4f6b8813f0492a53fa490091541d78512f70cbe188bec7267f9de",
+    "artifacts/thinnr-mobile/data/ingredient-nutrition.ts": "b23b6d08903a7ae80307b924a573865b502ff3a85c3d32d71511c5176fa797bb",
+    "artifacts/thinnr-mobile/context/FoodLoggingContext.tsx": "bed7aa6c08fbc3f111e42b7e6c36acbcf05e2b533d930b8eae2b1d195f4169ee",
+    "artifacts/thinnr-mobile/lib/food-catalog.ts": "a5c363eedfccfd108191ffed4f40270b584657e31a3cb54f69d61a3704547d2a"
+  },
+  "releases": [
+    {
+      "id": "sr-legacy-2018-04",
+      "sha256": "70d4235ae3a2bdf48a7b9eaa1286a83fa67b6f3270436c9ce8b008213f500129",
+      "sourceUrl": "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2018-04.zip",
+      "foods": 7793,
+      "portions": 14449,
+      "missingAmounts": 0,
+      "nonUnitAmounts": 3464,
+      "nonPositiveGrams": 0,
+      "withoutPortions": 260
+    },
+    {
+      "id": "fndds-2021-2023",
+      "sha256": "2e7eb9fda92adf1d4d784dba5eaa3a7fd4418cd86ccff383c7c9294d79e9b808",
+      "sourceUrl": "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_survey_food_json_2024-10-31.zip",
+      "foods": 5432,
+      "portions": 22194,
+      "missingAmounts": 22194,
+      "nonUnitAmounts": 0,
+      "nonPositiveGrams": 1,
+      "withoutPortions": 0
+    },
+    {
+      "id": "foundation-2026-04",
+      "sha256": "27d1fe3fd89edfbe528ed915da5619320e1d004d4594603a1b19bdb1511590cc",
+      "sourceUrl": "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_json_2026-04-30.zip",
+      "foods": 363,
+      "portions": 383,
+      "missingAmounts": 0,
+      "nonUnitAmounts": 11,
+      "nonPositiveGrams": 0,
+      "withoutPortions": 78
+    }
+  ],
+  "nonPositiveSourcePortions": [
+    {
+      "release": "fndds-2021-2023",
+      "fdcId": 2705383,
+      "description": "Milk, human",
+      "portion": {
+        "id": 290507,
+        "measureUnit": {
+          "id": 9999,
+          "name": "undetermined",
+          "abbreviation": "undetermined"
+        },
+        "modifier": "90000",
+        "gramWeight": 0,
+        "portionDescription": "Quantity not specified",
+        "sequenceNumber": 2
+      }
+    }
+  ],
+  "sourceComparisons": [
+    {
+      "file": "docs/food-library-cleanup/source-review-records-v3.json",
+      "sha256": "b018c4b0c9668d088b0ad1ae663446114e9d5219ba062911a05ce26fbc5ce61c",
+      "rows": 118,
+      "portions": 345,
+      "discrepancies": []
+    },
+    {
+      "file": "docs/food-library-cleanup/bulk-catalog-source-v1.json",
+      "sha256": "4e7795d25e0945db65776c78a9e42e9df7d802d65b00ecb902b029bc5464911d",
+      "rows": 5121,
+      "portions": 9456,
+      "discrepancies": []
+    }
+  ],
+  "historicalAmountLoss": [
+    {
+      "file": "reviewed-food-families-v1",
+      "family": "yogurt",
+      "source": "sr-legacy-2018-04:171284",
+      "description": "Yogurt, plain, whole milk",
+      "portionId": 88364,
+      "sourceAmount": 0.5,
+      "sourceModifier": "container (4 oz)",
+      "sourceGrams": 113,
+      "projectionLabel": "container (4 oz)",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 68.93
+    },
+    {
+      "file": "reviewed-food-families-v1",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:174030",
+      "description": "Beef, ground, 90% lean meat / 10% fat, raw",
+      "portionId": 93663,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 198.88
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "chicken-breast",
+      "source": "sr-legacy-2018-04:171509",
+      "description": "Chicken, broilers or fryers, breast, skinless, boneless, meat only, with added solution, raw",
+      "portionId": 88885,
+      "sourceAmount": 0.5,
+      "sourceModifier": "breast",
+      "sourceGrams": 118,
+      "projectionLabel": "breast",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 127.44
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "chicken-breast",
+      "source": "sr-legacy-2018-04:171509",
+      "description": "Chicken, broilers or fryers, breast, skinless, boneless, meat only, with added solution, raw",
+      "portionId": 88883,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 122.04
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "chicken-breast",
+      "source": "sr-legacy-2018-04:171474",
+      "description": "Chicken, broilers or fryers, breast, meat and skin, raw",
+      "portionId": 88810,
+      "sourceAmount": 0.5,
+      "sourceModifier": "breast, bone removed (yield from 1 lb ready-to-cook chicken)",
+      "sourceGrams": 87,
+      "projectionLabel": "breast, bone removed (yield from 1 lb ready-to-cook chicken)",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 149.64
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "chicken-breast",
+      "source": "sr-legacy-2018-04:171474",
+      "description": "Chicken, broilers or fryers, breast, meat and skin, raw",
+      "portionId": 88811,
+      "sourceAmount": 0.5,
+      "sourceModifier": "breast, bone removed",
+      "sourceGrams": 145,
+      "projectionLabel": "breast, bone removed",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 249.4
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "chicken-breast",
+      "source": "sr-legacy-2018-04:171534",
+      "description": "Chicken, broiler or fryers, breast, skinless, boneless, meat only, cooked, grilled",
+      "portionId": 88942,
+      "sourceAmount": 3,
+      "sourceModifier": "oz",
+      "sourceGrams": 85,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 128.35
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "chicken-thighs",
+      "source": "sr-legacy-2018-04:172385",
+      "description": "Chicken, broilers or fryers, thigh, meat and skin, raw",
+      "portionId": 90504,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 249.73
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "chicken-wings",
+      "source": "sr-legacy-2018-04:172390",
+      "description": "Chicken, broilers or fryers, wing, meat and skin, raw",
+      "portionId": 90517,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 215.83
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:174030",
+      "description": "Beef, ground, 90% lean meat / 10% fat, raw",
+      "portionId": 93663,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 198.88
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:171794",
+      "description": "Beef, ground, 90% lean meat / 10% fat, crumbles, cooked, pan-browned",
+      "portionId": 89378,
+      "sourceAmount": 3,
+      "sourceModifier": "oz",
+      "sourceGrams": 85,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 195.5
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:171796",
+      "description": "Beef, ground, 85% lean meat / 15% fat, raw (Includes foods for USDA's Food Distribution Program)",
+      "portionId": 89381,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 242.95
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:174034",
+      "description": "Beef, ground, 85% lean meat / 15% fat, crumbles, cooked, pan-browned",
+      "portionId": 93669,
+      "sourceAmount": 3,
+      "sourceModifier": "oz",
+      "sourceGrams": 85,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 217.6
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:174036",
+      "description": "Beef, ground, 80% lean meat / 20% fat, raw",
+      "portionId": 93671,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 287.02
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:171799",
+      "description": "Beef, ground, 80% lean meat / 20% fat, crumbles, cooked, pan-browned",
+      "portionId": 89384,
+      "sourceAmount": 3,
+      "sourceModifier": "oz",
+      "sourceGrams": 85,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 231.2
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:171790",
+      "description": "Beef, ground, 95% lean meat / 5% fat, raw",
+      "portionId": 89374,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 154.81
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:174028",
+      "description": "Beef, ground, 95% lean meat / 5% fat, crumbles, cooked, pan-browned",
+      "portionId": 93661,
+      "sourceAmount": 3,
+      "sourceModifier": "oz",
+      "sourceGrams": 85,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 164.05
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "ground-beef",
+      "source": "sr-legacy-2018-04:168608",
+      "description": "Beef, grass-fed, ground, raw",
+      "portionId": 83412,
+      "sourceAmount": 4,
+      "sourceModifier": "oz",
+      "sourceGrams": 113,
+      "projectionLabel": "oz",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 223.74
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "yogurt",
+      "source": "sr-legacy-2018-04:171284",
+      "description": "Yogurt, plain, whole milk",
+      "portionId": 88364,
+      "sourceAmount": 0.5,
+      "sourceModifier": "container (4 oz)",
+      "sourceGrams": 113,
+      "projectionLabel": "container (4 oz)",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 68.93
+    },
+    {
+      "file": "reviewed-food-family-variants-v2",
+      "family": "yogurt",
+      "source": "sr-legacy-2018-04:170886",
+      "description": "Yogurt, plain, low fat",
+      "portionId": 87496,
+      "sourceAmount": 0.5,
+      "sourceModifier": "container (4 oz)",
+      "sourceGrams": 113,
+      "projectionLabel": "container (4 oz)",
+      "parsedDisplayAmount": 1,
+      "selectedSourceCalories": 71.19
+    }
+  ],
+  "reviewedMacroComparisons": {
+    "records": 46,
+    "nutrientEntries": 184,
+    "discrepancies": []
+  },
+  "ingredientCandidates": [
+    {
+      "source": "sr-legacy-2018-04:168462",
+      "description": "Spinach, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 2.86
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.39
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 3.63
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 23
+        }
+      ],
+      "portion": {
+        "id": 83132,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 30
+      },
+      "inputName": "Spinach, raw",
+      "inferredOuncesPerCup": 1.1,
+      "inferredGramsPerCup": 31.184475437500005,
+      "sourceGramsPerCup": 30,
+      "gramDifferencePercent": 3.9482514583333517,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:168463",
+      "description": "Spinach, cooked, boiled, drained, without salt",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 3.75
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.26
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 2.97
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 23
+        }
+      ],
+      "portion": {
+        "id": 83136,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 180
+      },
+      "inputName": "Spinach, cooked, boiled, drained, without salt",
+      "inferredOuncesPerCup": 10.2,
+      "inferredGramsPerCup": 289.165135875,
+      "sourceGramsPerCup": 180,
+      "gramDifferencePercent": 60.647297708333326,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:168463",
+      "description": "Spinach, cooked, boiled, drained, without salt",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 3.75
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.26
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 2.97
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 23
+        }
+      ],
+      "portion": {
+        "id": 83136,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 180
+      },
+      "inputName": "spinach, cooked",
+      "inferredOuncesPerCup": 1.1,
+      "inferredGramsPerCup": 31.184475437500005,
+      "sourceGramsPerCup": 180,
+      "gramDifferencePercent": -82.67529142361111,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:168874",
+      "description": "Quinoa, uncooked",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 14.1
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 6.07
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 64.2
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 368
+        }
+      ],
+      "portion": {
+        "id": 83924,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 170
+      },
+      "inputName": "Quinoa, uncooked",
+      "inferredOuncesPerCup": 6.5,
+      "inferredGramsPerCup": 184.2719003125,
+      "sourceGramsPerCup": 170,
+      "gramDifferencePercent": 8.395235477941188,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:168874",
+      "description": "Quinoa, uncooked",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 14.1
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 6.07
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 64.2
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 368
+        }
+      ],
+      "portion": {
+        "id": 83924,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 170
+      },
+      "inputName": "quinoa, rinsed",
+      "inferredOuncesPerCup": 6,
+      "inferredGramsPerCup": 170.09713875,
+      "sourceGramsPerCup": 170,
+      "gramDifferencePercent": 0.057140441176462,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:168917",
+      "description": "Quinoa, cooked",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 4.4
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 1.92
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21.3
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 120
+        }
+      ],
+      "portion": {
+        "id": 83990,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 185
+      },
+      "inputName": "Quinoa, cooked",
+      "inferredOuncesPerCup": 6.5,
+      "inferredGramsPerCup": 184.2719003125,
+      "sourceGramsPerCup": 185,
+      "gramDifferencePercent": -0.3935673986486421,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:172420",
+      "description": "Lentils, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 1.06
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 24.6
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 63.4
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 352
+        }
+      ],
+      "portion": {
+        "id": 90594,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 192
+      },
+      "inputName": "Lentils, raw",
+      "inferredOuncesPerCup": 7,
+      "inferredGramsPerCup": 198.44666187500002,
+      "sourceGramsPerCup": 192,
+      "gramDifferencePercent": 3.3576363932291686,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:172420",
+      "description": "Lentils, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 1.06
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 24.6
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 63.4
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 352
+        }
+      ],
+      "portion": {
+        "id": 90594,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 192
+      },
+      "inputName": "dried green lentils, rinsed",
+      "inferredOuncesPerCup": 6.8,
+      "inferredGramsPerCup": 192.77675725,
+      "sourceGramsPerCup": 192,
+      "gramDifferencePercent": 0.4045610677083422,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:172421",
+      "description": "Lentils, mature seeds, cooked, boiled, without salt",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 20.1
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 116
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 9.02
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.38
+        }
+      ],
+      "portion": {
+        "id": 90596,
+        "amount": 1,
+        "modifier": "cup",
+        "gramWeight": 198
+      },
+      "inputName": "Lentils, mature seeds, cooked, boiled, without salt",
+      "inferredOuncesPerCup": 10.2,
+      "inferredGramsPerCup": 289.165135875,
+      "sourceGramsPerCup": 198,
+      "gramDifferencePercent": 46.042997916666664,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:167762",
+      "description": "Strawberries, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.67
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.68
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 32
+        }
+      ],
+      "portion": {
+        "id": 81920,
+        "amount": 1,
+        "modifier": "cup, pureed",
+        "gramWeight": 232
+      },
+      "inputName": "Strawberries, raw",
+      "inferredOuncesPerCup": 5.9,
+      "inferredGramsPerCup": 167.26218643750002,
+      "sourceGramsPerCup": 232,
+      "gramDifferencePercent": -27.904229983836192,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:167762",
+      "description": "Strawberries, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.67
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.68
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 32
+        }
+      ],
+      "portion": {
+        "id": 81920,
+        "amount": 1,
+        "modifier": "cup, pureed",
+        "gramWeight": 232
+      },
+      "inputName": "strawberries, sliced",
+      "inferredOuncesPerCup": 5.9,
+      "inferredGramsPerCup": 167.26218643750002,
+      "sourceGramsPerCup": 232,
+      "gramDifferencePercent": -27.904229983836192,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:167762",
+      "description": "Strawberries, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.67
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.68
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 32
+        }
+      ],
+      "portion": {
+        "id": 81921,
+        "amount": 1,
+        "modifier": "cup, sliced",
+        "gramWeight": 166
+      },
+      "inputName": "Strawberries, raw",
+      "inferredOuncesPerCup": 5.9,
+      "inferredGramsPerCup": 167.26218643750002,
+      "sourceGramsPerCup": 166,
+      "gramDifferencePercent": 0.7603532756024212,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:167762",
+      "description": "Strawberries, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.67
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.68
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 32
+        }
+      ],
+      "portion": {
+        "id": 81921,
+        "amount": 1,
+        "modifier": "cup, sliced",
+        "gramWeight": 166
+      },
+      "inputName": "strawberries, sliced",
+      "inferredOuncesPerCup": 5.9,
+      "inferredGramsPerCup": 167.26218643750002,
+      "sourceGramsPerCup": 166,
+      "gramDifferencePercent": 0.7603532756024212,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:167762",
+      "description": "Strawberries, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.67
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.68
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 32
+        }
+      ],
+      "portion": {
+        "id": 81919,
+        "amount": 1,
+        "modifier": "cup, halves",
+        "gramWeight": 152
+      },
+      "inputName": "Strawberries, raw",
+      "inferredOuncesPerCup": 5.9,
+      "inferredGramsPerCup": 167.26218643750002,
+      "sourceGramsPerCup": 152,
+      "gramDifferencePercent": 10.040912129934231,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:167762",
+      "description": "Strawberries, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.67
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.68
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 32
+        }
+      ],
+      "portion": {
+        "id": 81919,
+        "amount": 1,
+        "modifier": "cup, halves",
+        "gramWeight": 152
+      },
+      "inputName": "strawberries, sliced",
+      "inferredOuncesPerCup": 5.9,
+      "inferredGramsPerCup": 167.26218643750002,
+      "sourceGramsPerCup": 152,
+      "gramDifferencePercent": 10.040912129934231,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:167762",
+      "description": "Strawberries, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.67
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.68
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 32
+        }
+      ],
+      "portion": {
+        "id": 81922,
+        "amount": 1,
+        "modifier": "cup, whole",
+        "gramWeight": 144
+      },
+      "inputName": "Strawberries, raw",
+      "inferredOuncesPerCup": 5.9,
+      "inferredGramsPerCup": 167.26218643750002,
+      "sourceGramsPerCup": 144,
+      "gramDifferencePercent": 16.1542961371528,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:167762",
+      "description": "Strawberries, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.3
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 0.67
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.68
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 32
+        }
+      ],
+      "portion": {
+        "id": 81922,
+        "amount": 1,
+        "modifier": "cup, whole",
+        "gramWeight": 144
+      },
+      "inputName": "strawberries, sliced",
+      "inferredOuncesPerCup": 5.9,
+      "inferredGramsPerCup": 167.26218643750002,
+      "sourceGramsPerCup": 144,
+      "gramDifferencePercent": 16.1542961371528,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170567",
+      "description": "Nuts, almonds",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 21.2
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 49.9
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21.6
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 579
+        }
+      ],
+      "portion": {
+        "id": 86863,
+        "amount": 1,
+        "modifier": "cup, whole",
+        "gramWeight": 143
+      },
+      "inputName": "Nuts, almonds",
+      "inferredOuncesPerCup": 5,
+      "inferredGramsPerCup": 141.747615625,
+      "sourceGramsPerCup": 143,
+      "gramDifferencePercent": -0.8757932692307624,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170567",
+      "description": "Nuts, almonds",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 21.2
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 49.9
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21.6
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 579
+        }
+      ],
+      "portion": {
+        "id": 86865,
+        "amount": 1,
+        "modifier": "cup, slivered",
+        "gramWeight": 108
+      },
+      "inputName": "Nuts, almonds",
+      "inferredOuncesPerCup": 5,
+      "inferredGramsPerCup": 141.747615625,
+      "sourceGramsPerCup": 108,
+      "gramDifferencePercent": 31.247792245370377,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170567",
+      "description": "Nuts, almonds",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 21.2
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 49.9
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21.6
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 579
+        }
+      ],
+      "portion": {
+        "id": 86865,
+        "amount": 1,
+        "modifier": "cup, slivered",
+        "gramWeight": 108
+      },
+      "inputName": "almonds, slivered",
+      "inferredOuncesPerCup": 5,
+      "inferredGramsPerCup": 141.747615625,
+      "sourceGramsPerCup": 108,
+      "gramDifferencePercent": 31.247792245370377,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170567",
+      "description": "Nuts, almonds",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 21.2
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 49.9
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21.6
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 579
+        }
+      ],
+      "portion": {
+        "id": 86866,
+        "amount": 1,
+        "modifier": "cup, ground",
+        "gramWeight": 95
+      },
+      "inputName": "Nuts, almonds",
+      "inferredOuncesPerCup": 5,
+      "inferredGramsPerCup": 141.747615625,
+      "sourceGramsPerCup": 95,
+      "gramDifferencePercent": 49.20801644736843,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170567",
+      "description": "Nuts, almonds",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 21.2
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 49.9
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21.6
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 579
+        }
+      ],
+      "portion": {
+        "id": 86866,
+        "amount": 1,
+        "modifier": "cup, ground",
+        "gramWeight": 95
+      },
+      "inputName": "almonds, ground",
+      "inferredOuncesPerCup": 5,
+      "inferredGramsPerCup": 141.747615625,
+      "sourceGramsPerCup": 95,
+      "gramDifferencePercent": 49.20801644736843,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170567",
+      "description": "Nuts, almonds",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 21.2
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 49.9
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21.6
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 579
+        }
+      ],
+      "portion": {
+        "id": 86864,
+        "amount": 1,
+        "modifier": "cup, sliced",
+        "gramWeight": 92
+      },
+      "inputName": "Nuts, almonds",
+      "inferredOuncesPerCup": 5,
+      "inferredGramsPerCup": 141.747615625,
+      "sourceGramsPerCup": 92,
+      "gramDifferencePercent": 54.073495244565216,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170567",
+      "description": "Nuts, almonds",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 21.2
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 49.9
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 21.6
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 579
+        }
+      ],
+      "portion": {
+        "id": 86864,
+        "amount": 1,
+        "modifier": "cup, sliced",
+        "gramWeight": 92
+      },
+      "inputName": "almonds, sliced",
+      "inferredOuncesPerCup": 5,
+      "inferredGramsPerCup": 141.747615625,
+      "sourceGramsPerCup": 92,
+      "gramDifferencePercent": 54.073495244565216,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:169967",
+      "description": "Broccoli, cooked, boiled, drained, without salt",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.41
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 2.38
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.18
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 35
+        }
+      ],
+      "portion": {
+        "id": 85772,
+        "amount": 0.5,
+        "modifier": "cup, chopped",
+        "gramWeight": 78
+      },
+      "inputName": "Broccoli, cooked, boiled, drained, without salt",
+      "inferredOuncesPerCup": 10.2,
+      "inferredGramsPerCup": 289.165135875,
+      "sourceGramsPerCup": 156,
+      "gramDifferencePercent": 85.36226658653845,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:169967",
+      "description": "Broccoli, cooked, boiled, drained, without salt",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.41
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 2.38
+        },
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 7.18
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 35
+        }
+      ],
+      "portion": {
+        "id": 85772,
+        "amount": 0.5,
+        "modifier": "cup, chopped",
+        "gramWeight": 78
+      },
+      "inputName": "broccoli, cooked",
+      "inferredOuncesPerCup": 3.2,
+      "inferredGramsPerCup": 90.71847400000001,
+      "sourceGramsPerCup": 156,
+      "gramDifferencePercent": -41.847132051282045,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170379",
+      "description": "Broccoli, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 6.64
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 34
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.37
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 2.82
+        }
+      ],
+      "portion": {
+        "id": 86532,
+        "amount": 0.5,
+        "modifier": "cup, chopped or diced",
+        "gramWeight": 44
+      },
+      "inputName": "Broccoli, raw",
+      "inferredOuncesPerCup": 3.2,
+      "inferredGramsPerCup": 90.71847400000001,
+      "sourceGramsPerCup": 88,
+      "gramDifferencePercent": 3.0891750000000107,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    },
+    {
+      "source": "sr-legacy-2018-04:170379",
+      "description": "Broccoli, raw",
+      "sourceNutrientsPer100g": [
+        {
+          "id": "1005",
+          "name": "Carbohydrate, by difference",
+          "unit": "g",
+          "amount": 6.64
+        },
+        {
+          "id": "1008",
+          "name": "Energy",
+          "unit": "kcal",
+          "amount": 34
+        },
+        {
+          "id": "1004",
+          "name": "Total lipid (fat)",
+          "unit": "g",
+          "amount": 0.37
+        },
+        {
+          "id": "1003",
+          "name": "Protein",
+          "unit": "g",
+          "amount": 2.82
+        }
+      ],
+      "portion": {
+        "id": 86528,
+        "amount": 1,
+        "modifier": "cup chopped",
+        "gramWeight": 91
+      },
+      "inputName": "Broccoli, raw",
+      "inferredOuncesPerCup": 3.2,
+      "inferredGramsPerCup": 90.71847400000001,
+      "sourceGramsPerCup": 91,
+      "gramDifferencePercent": -0.30936923076921863,
+      "reviewNote": "Candidate comparison only: input must match the exact portion cut/state before claiming an error."
+    }
+  ],
+  "controls": {
+    "multiUnitSource": {
+      "source": "sr-legacy-2018-04:172179",
+      "portion": {
+        "id": 90034,
+        "value": 4,
+        "measureUnit": {
+          "id": 9999,
+          "name": "undetermined",
+          "abbreviation": "undetermined"
+        },
+        "modifier": "oz",
+        "gramWeight": 113,
+        "sequenceNumber": 1,
+        "amount": 4
+      },
+      "eightDisplayedOzScale": 2.26,
+      "eightDisplayedOzGrams": 225.99999999999997,
+      "displayed": "8 oz",
+      "exactFourOzGrams": 113.3980925
+    },
+    "pureVolumeCupToFluidOunces": 8,
+    "pureVolumeCupToWeightOunces": null,
+    "unknownFoodCupToWeightOunces": null,
+    "milkCupToWeightOunces": null
+  },
+  "syntheticProbes": {
+    "inconsistentGramSnapshotAccepted": true,
+    "claimedGrams": 200,
+    "scaledBasisGrams": 150,
+    "mismatchedSelectedScaleRejected": true,
+    "noDensityVolumeSelectable": true,
+    "partialMacroSnapshotAccepted": true,
+    "partialMacroLog": {
+      "selectedScale": 2,
+      "loggedCalories": 98,
+      "expectedScaledCalories": 196
+    },
+    "malformedCatalogSnapshotDroppedButFoodAccepted": true,
+    "countUnitNotBoundToMeasure": {
+      "eggToOz": 1.8,
+      "dozenToOz": 1.8
+    }
+  },
+  "staticFoodInventory": {
+    "rows": 79,
+    "sourceReferencesInRows": 0,
+    "limitation": "Static seeds have serving text/macros, not record-level source provenance; no source correction asserted."
+  }
+}

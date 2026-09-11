@@ -343,7 +343,10 @@ export default function LogFoodScreen() {
       const prepared = await Promise.all(basket.selected.map(async selection => {
         const item = selection.item;
         const configuredSnapshot = getItemNutritionSnapshot(item);
-        if (item.refId.startsWith('cfg_')) {
+        if (
+          item.refId.startsWith('cfg_') ||
+          (configuredSnapshot && (!item.catalog || item.catalog.group === 'personal'))
+        ) {
           if (!configuredSnapshot) return selection;
           const totals = scaledSnapshotMacros(configuredSnapshot);
           const expectedId = snapshotConfigurationId(configuredSnapshot);
@@ -372,6 +375,8 @@ export default function LogFoodScreen() {
             item: withItemNutritionSnapshot({ ...item, refId: configured.id }, configuredSnapshot),
           };
         }
+        // Snapshotless legacy/personal rows still do not need a private
+        // configuration copy.
         if (!item.catalog || item.catalog.group === 'personal') return selection;
 
         const totals = configuredSnapshot ? scaledSnapshotMacros(configuredSnapshot) : null;

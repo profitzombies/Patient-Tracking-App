@@ -48,6 +48,14 @@ export function initializeFreshItemSnapshot(
   snapshot: FoodNutritionSnapshot,
 ): FoodNutritionSnapshot {
   const selected = snapshotPortion(snapshot);
+  // Saved exact configurations are identified by their stable cfg_ id even
+  // when an older/local record did not carry catalog.persisted. They must
+  // reopen at the recorded amount rather than being treated as a fresh
+  // weighed draft (which defaults to five ounces).
+  const persistedConfiguration = item.refId.startsWith('cfg_')
+    || item.catalog?.catalogId.startsWith('cfg_')
+    || item.catalog?.persisted === true;
+  if (persistedConfiguration) return snapshot;
   // A non-baseline selection came from a remembered/configured/saved choice,
   // even if an older local record lacks the newer persisted marker.
   if (Math.abs(snapshot.selected.scale - 1) > 1e-10 || selected?.dimension !== 'weight') {

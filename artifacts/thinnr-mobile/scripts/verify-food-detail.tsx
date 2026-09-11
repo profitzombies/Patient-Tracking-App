@@ -4,13 +4,18 @@ import { create } from 'react-test-renderer';
 import type { ReactTestInstance } from 'react-test-renderer';
 import { NutritionFacts, nutrientDailyValuePercent } from '../components/patient/NutritionFacts';
 import { DiaryEntryCalories, DiaryEntryNutritionLine } from '../components/patient/DiaryEntryNutrition';
-import { selectSnapshotPortion, snapshotConfigurationId } from '../data/food-nutrition';
+import { FOOD_DB } from '../data/patient-data';
+import {
+  formatNutritionAmount, nutritionPortionDimension, nutritionPortionPresentation,
+  scaledSnapshotMacros, selectSnapshotDisplayedPortion, selectSnapshotPortion, snapshotConfigurationId,
+} from '../data/food-nutrition';
 import type { FoodNutritionSnapshot } from '../data/food-nutrition';
 import type { LoggableItem } from '../hooks/useLoggableItems';
+import { createLegacyFoodDetailSnapshot } from '../data/food-detail-amount';
 import FoodDetailScreen from '../app/food/[id]';
 import {
   configureCalls, favoriteCalls, resetDetailState, route, routerCalls, savedConfigurations,
-  selectedCatalogFoods, setDetailAccountKind, setSubmitOutcome, submittedEntries,
+  selectedCatalogFoods, setDetailAccountKind, setDetailFavorites, setSubmitOutcome, submittedEntries, setRecalledDetailItem,
 } from './food-detail-stubs/state';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -73,6 +78,73 @@ async function press(renderer: ReturnType<typeof create>, id: string) {
   });
 }
 
+function unitOptions(root: ReactTestInstance): ReactTestInstance[] {
+  return root.findAll(node =>
+    typeof node.type === 'string' &&
+    typeof node.props.testID === 'string' &&
+    node.props.testID.startsWith('food-detail-unit-') &&
+    node.props.testID !== 'food-detail-unit-picker',
+  );
+}
+
+function unitId(root: ReactTestInstance, label: RegExp): string {
+  const matches = unitOptions(root).filter(option => label.test(String(option.props.accessibilityLabel ?? textOf(option))));
+  assert.equal(matches.length, 1, `expected one open unit option matching ${label}`);
+  return matches[0].props.testID;
+}
+
+async function openUnits(renderer: ReturnType<typeof create>) {
+  if (renderer.root.findAll(node => node.props.testID === 'food-detail-units').length === 0) {
+    await press(renderer, 'food-detail-unit-picker');
+  }
+  assert(renderer.root.findAll(node => node.props.testID === 'food-detail-units').length > 0, 'the picker panel is mounted');
+  assert(unitOptions(renderer.root).length > 0, 'the open picker exposes its options');
+}
+
+async function chooseUnit(renderer: ReturnType<typeof create>, label: RegExp) {
+  await openUnits(renderer);
+  await press(renderer, unitId(renderer.root, label));
+}
+
+function foodItemFromSeed(id: string): LoggableItem {
+  const food = FOOD_DB.find(candidate => candidate.id === id);
+  assert(food, `expected seeded food ${id}`);
+  return {
+    ...food,
+    kind: 'food',
+    refId: food.id,
+    sub: food.category,
+    approved: true,
+  };
+}
+
+function snapshotForSeed(id: string): FoodNutritionSnapshot {
+  const item = foodItemFromSeed(id);
+  const snapshot = createLegacyFoodDetailSnapshot(item, undefined);
+  assert(snapshot, `expected legacy snapshot for seeded food ${id}`);
+  return snapshot;
+}
+
+function expectedNutritionText(snapshot: FoodNutritionSnapshot): string {
+  const macros = scaledSnapshotMacros(snapshot);
+  assert(macros);
+  return `${Math.round(macros.calories)}CALORIES`;
+}
+
+function assertNutritionPreview(
+  renderer: ReturnType<typeof create>,
+  expected: FoodNutritionSnapshot,
+  message: string,
+) {
+  const formatted = formatNutritionAmount(expected);
+  assert.equal(
+    textOf(byTestId(renderer.root, 'food-detail-nutrition-heading')),
+    `Nutrition · ${formatted.text}`,
+    `${message}: heading uses the displayed mixed-case amount`,
+  );
+  assert.match(textOf(renderer.root), new RegExp(expectedNutritionText(expected)), `${message}: calories use the selected source`);
+}
+
 function detailedItem(baseSnapshot: FoodNutritionSnapshot = snapshot): LoggableItem {
   return {
     ...item,
@@ -94,6 +166,7 @@ function detailedItem(baseSnapshot: FoodNutritionSnapshot = snapshot): LoggableI
 
 async function main() {
   let facts!: ReturnType<typeof create>;
+  let detail!: ReturnType<typeof create>;
   await act(async () => {
     facts = create(<NutritionFacts snapshot={snapshot} />);
   });
@@ -163,6 +236,126 @@ async function main() {
     catalog: { ...detailedItem(variantSnapshot).catalog!, catalogId: 'food-cooked' },
   };
 
+  // The seeded Brown Rice is intentionally exercised through the legacy
+  // adapter, not a hand-authored test snapshot. This catches drift between
+  // Food Details initialization and the real FOOD_DB row.
+  const brownRice = foodItemFromSeed('fd_brown_rice');
+  const brownRiceSnapshot = snapshotForSeed('fd_brown_rice');
+  const brownRiceCup = brownRiceSnapshot.portions.find(portion =>
+    nutritionPortionDimension(portion) === 'volume' &&
+    nutritionPortionPresentation(portion).singular === 'cup');
+  const brownRiceOunce = brownRiceSnapshot.portions.find(portion =>
+    nutritionPortionDimension(portion) === 'weight' &&
+    nutritionPortionPresentation(portion).singular === 'oz');
+  const brownRiceGram = brownRiceSnapshot.portions.find(portion =>
+    nutritionPortionDimension(portion) === 'weight' &&
+    nutritionPortionPresentation(portion).singular === 'g');
+  assert(brownRiceCup && brownRiceOunce && brownRiceGram, 'Brown Rice legacy snapshot documents cup, ounce, and gram');
+  assert.equal(brownRiceCup.grams, 195, 'Brown Rice uses its confirmed one-cup source weight');
+  assert.match(brownRiceCup.evidence ?? '', /FDC 168875.*1 cup = 195 g/, 'Brown Rice keeps food-specific USDA evidence');
+  const brownRiceTwoCups = selectSnapshotDisplayedPortion(brownRiceSnapshot, 2, brownRiceCup.id);
+  const brownRiceTwoOunces = selectSnapshotDisplayedPortion(brownRiceSnapshot, 2, brownRiceOunce.id);
+  const brownRiceTwoGrams = selectSnapshotDisplayedPortion(brownRiceSnapshot, 2, brownRiceGram.id);
+  assert(brownRiceTwoCups && brownRiceTwoOunces && brownRiceTwoGrams);
+
+  resetDetailState(brownRice);
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '1', 'seeded Brown Rice starts at one cup');
+  assertNutritionPreview(detail, brownRiceSnapshot, 'seeded Brown Rice starts from its source serving');
+  assert.equal(textOf(byTestId(detail.root, 'food-detail-nutrition-heading')), 'Nutrition · 1 cup');
+  assert.equal(unitOptions(detail.root).length, 0, 'unit option ids are absent while the picker is closed');
+  await openUnits(detail);
+  assert.equal(byTestId(detail.root, 'food-detail-unit-picker').props['aria-expanded'], true, 'picker exposes its expanded state');
+  assert.equal(unitOptions(detail.root).length, 3, 'Brown Rice exposes all source/cup, ounce, and gram choices');
+  assert.equal(
+    unitId(detail.root, /cup/i),
+    `food-detail-unit-${brownRiceCup.id}`,
+    'the source/cup option uses the helper-provided portion id',
+  );
+  assert.equal(unitId(detail.root, /\boz\b/i), `food-detail-unit-${brownRiceOunce.id}`, 'the ounce id is discovered from the open picker');
+  assert.equal(unitId(detail.root, /\bg\b/i), `food-detail-unit-${brownRiceGram.id}`, 'the gram id is discovered from the open picker');
+  assert.equal(detail.root.findAll(node => node.props.testID === 'food-detail-more-units').length, 0, 'there is no More units affordance');
+  assert.equal(detail.root.findAll(node => node.props.testID === 'food-detail-source-measure').length, 0, 'the source accordion is removed');
+
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2');
+  });
+  assertNutritionPreview(detail, brownRiceTwoCups, 'pending two cups');
+  assert.equal(textOf(byTestId(detail.root, 'food-detail-nutrition-heading')), 'Nutrition · 2 cups');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '2', 'raw 2 remains editable mid-entry');
+  assert.equal(
+    byTestId(detail.root, 'food-detail-amount-input').props.accessibilityLabel,
+    'Current amount 2 cups. Enter a positive amount.',
+    'amount accessibility names the pending displayed amount',
+  );
+  assert.equal(
+    byTestId(detail.root, 'food-detail-unit-picker').props.accessibilityLabel,
+    'Change unit, cups',
+    'unit picker accessibility names the current plural unit',
+  );
+  const brownMacro = scaledSnapshotMacros(brownRiceTwoCups);
+  assert(brownMacro);
+  const brownNutrition = detail.root.findAll(node =>
+    node.props.accessibilityLabel ===
+      `${Math.round(brownMacro.calories)} calories, ${Number(brownMacro.protein.toFixed(1))} grams protein, ` +
+      `${Number(brownMacro.carbs.toFixed(1))} grams carbs, ${Number(brownMacro.fat.toFixed(1))} grams fat`,
+  );
+  assert(brownNutrition.length > 0, 'nutrition summary exposes exact accessible macro values');
+  await press(detail, 'food-detail-nutrition-toggle');
+  const brownFactsText = textOf(detail.root);
+  assert.match(brownFactsText, /432/, 'Nutrition Facts follows the pending two-cup preview');
+  assert.match(brownFactsText, /Protein10 g/, 'Nutrition Facts reports the exact two-cup protein');
+  assert.match(brownFactsText, /Carbohydrates?90 g/, 'Nutrition Facts reports the exact two-cup carbohydrate');
+  assert.match(brownFactsText, /Total Fat4 g/, 'Nutrition Facts reports the exact two-cup fat');
+
+  // Explicit unit selection consumes "2" but keeps the displayed amount. In
+  // particular this is deliberately not the old physical-scale conversion.
+  await chooseUnit(detail, /\boz\b/i);
+  assertNutritionPreview(detail, brownRiceTwoOunces, 'two ounces after pending two cups');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '2');
+  assert.equal(unitOptions(detail.root).length, 0, 'choosing a unit closes and removes the option ids');
+  assert.equal(byTestId(detail.root, 'food-detail-unit-picker').props['aria-expanded'], false, 'picker exposes its collapsed state after selection');
+  await chooseUnit(detail, /\bg\b/i);
+  assertNutritionPreview(detail, brownRiceTwoGrams, 'two grams after two ounces');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '2');
+  await act(async () => detail.unmount());
+
+  // Favorite persistence uses the stable configuration id and reopens the
+  // exact displayed amount rather than regenerating a fresh serving.
+  resetDetailState(brownRice);
+  setDetailFavorites([brownRice.refId]);
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.equal(
+    byTestId(detail.root, 'food-detail-favorite').props.accessibilityLabel,
+    'Remove Brown Rice, cooked from favorites',
+    'a legacy favorite id matches Brown Rice only at its original baseline',
+  );
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2');
+  });
+  assert.equal(
+    byTestId(detail.root, 'food-detail-favorite').props.accessibilityLabel,
+    'Favorite Brown Rice, cooked at 2 cups',
+    'a changed Brown Rice amount is not treated as the legacy baseline favorite',
+  );
+  await act(async () => detail.unmount());
+
+  resetDetailState(brownRice);
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  await act(async () => { byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2'); });
+  await press(detail, 'food-detail-favorite');
+  assert.equal(favoriteCalls.length, 1);
+  assert.equal(favoriteCalls[0].options.favorite, true);
+  assert.equal(favoriteCalls[0].food.nutritionSnapshot.selected.amount, 2);
+  const brownSaved = savedConfigurations[0];
+  assert.equal(brownSaved.id, snapshotConfigurationId(favoriteCalls[0].food.nutritionSnapshot));
+  await act(async () => detail.unmount());
+  resetDetailState({ ...brownSaved, kind: 'food', refId: brownSaved.id });
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '2', 'saved Brown Rice configuration reopens at two cups');
+  assert.equal(textOf(byTestId(detail.root, 'food-detail-nutrition-heading')), 'Nutrition · 2 cups');
+  await act(async () => detail.unmount());
+
   const legacySevenOunces = selectSnapshotPortion({
     ...rawSnapshot,
     variant: {
@@ -221,7 +414,6 @@ async function main() {
     { ...canonicalRawItem, catalogId: canonicalRawItem.refId, dimensions: canonicalRawItem.catalog!.dimensions, loggable: canonicalRawItem },
     { ...canonicalCookedItem, catalogId: canonicalCookedItem.refId, dimensions: canonicalCookedItem.catalog!.dimensions, loggable: canonicalCookedItem },
   ]);
-  let detail!: ReturnType<typeof create>;
   await act(async () => { detail = create(<FoodDetailScreen />); await Promise.resolve(); });
   assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '7', 'a saved legacy-family snapshot reopens at its exact amount');
   await press(detail, 'food-detail-change-type');
@@ -248,9 +440,18 @@ async function main() {
   assert.match(textOf(detail.root), /100.5 G/i, 'actual plus control changes the visible selected amount');
   assert.match(textOf(detail.root), /201CALORIES/, 'actual plus control changes visible macros from the same snapshot');
   assert.doesNotMatch(textOf(detail.root), /\d+\.\d{2,}g(?:PROTEIN|CARBS|FAT)/, 'detail macro summaries round display to at most one decimal');
-  await press(detail, 'food-detail-unit-ounce');
-  await press(detail, 'food-detail-unit-gram');
-  assert.match(textOf(detail.root), /100.5 G/i, 'actual unit controls round-trip without changing physical scale');
+  await chooseUnit(detail, /oz/i);
+  assert.equal(
+    byTestId(detail.root, 'food-detail-amount-input').props.value,
+    '100.5',
+    'an explicit unit change preserves the displayed number rather than physical weight',
+  );
+  await chooseUnit(detail, /\bg\b/i);
+  assert.equal(
+    byTestId(detail.root, 'food-detail-amount-input').props.value,
+    '100.5',
+    'a weight-to-weight unit change also preserves the displayed number',
+  );
   await press(detail, 'food-detail-select');
   assert.equal(configureCalls[0].basketId, 'edited-basket-id', 'actual footer preserves the edited basket id');
   assert.equal(configureCalls[0].amount.ounces, undefined, 'actual footer does not pass legacy ounces for snapshots');
@@ -383,6 +584,8 @@ async function main() {
   route.meal = 'snack';
   setSubmitOutcome({ outcome: 'queued' });
   await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '100', 'snapshotless shared foods retain their 100 g source baseline');
+  assert.equal(textOf(byTestId(detail.root, 'food-detail-nutrition-heading')), 'Nutrition · 100 g');
   const directAdd = byTestId(detail.root, 'food-detail-select').props.onPress;
   await act(async () => {
     await Promise.all([directAdd(), directAdd()]);
@@ -390,10 +593,13 @@ async function main() {
   });
   assert.equal(selectedCatalogFoods.length, 1, 'rapid repeated taps promote a snapshotless singleton once');
   assert.equal(savedConfigurations.length, 1, 'snapshotless shared singleton gets one private recents lookup copy');
-  assert.equal(savedConfigurations[0].id, 'stable-singleton-id');
+  const singletonConfigurationId = snapshotConfigurationId(savedConfigurations[0].nutritionSnapshot);
+  assert.match(singletonConfigurationId, /^cfg_/);
+  assert.equal(savedConfigurations[0].id, singletonConfigurationId, 'shared singleton persists under its stable snapshot configuration id');
+  assert.equal(savedConfigurations[0].nutritionSnapshot.selected.amount, 1, 'the persisted singleton keeps its original 100 g amount');
   assert.equal(savedConfigurations[0].name, 'Friendly Singleton', 'lookup copy retains the shown friendly name');
   assert.equal(submittedEntries.length, 1, 'rapid repeated queued add submits one recoverable queue entry');
-  assert.equal(submittedEntries[0].refId, 'stable-singleton-id', 'queued entry resolves through the persisted stable lookup id');
+  assert.equal(submittedEntries[0].refId, singletonConfigurationId, 'queued entry resolves through the persisted snapshot configuration id');
   assert.match(textOf(detail.root), /waiting to sync/, 'queued singleton remains visible as pending recovery');
   assert.equal(configureCalls.length, 0, 'queued Library singleton never enters the Add Food basket');
   await act(async () => detail.unmount());
@@ -421,10 +627,12 @@ async function main() {
   await press(detail, 'food-detail-select');
   assert.equal(selectedCatalogFoods.length, 0, 'guided demo never calls the protected catalog-selection transport');
   assert.equal(savedConfigurations.length, 1, 'guided demo saves a local shared-food lookup copy');
-  assert.equal(savedConfigurations[0].id, demoBroccoli.refId);
+  const demoConfigurationId = snapshotConfigurationId(savedConfigurations[0].nutritionSnapshot);
+  assert.equal(savedConfigurations[0].id, demoConfigurationId, 'guided demo saves under its stable snapshot configuration id');
   assert.equal(submittedEntries.length, 1);
+  assert.equal(submittedEntries[0].refId, demoConfigurationId);
   assert.equal(submittedEntries[0].calories, 34, 'guided demo logs the visible 34 calorie, 100 g singleton');
-  assert.equal(submittedEntries[0].detail, '100 g');
+  assert.equal(submittedEntries[0].detail, '100 g', 'direct logging uses the real snapshot entry formatter');
   assert.match(textOf(detail.root), /Added to Lunch/, 'guided demo receives the normal visible success confirmation');
   await act(async () => detail.unmount());
 
@@ -434,7 +642,12 @@ async function main() {
   assert.match(textOf(detail.root), /Test food/, 'actual detail screen renders a legacy null-snapshot food');
   await press(detail, 'food-detail-plus');
   await press(detail, 'food-detail-select');
-  assert.equal(configureCalls[0].amount.quantity, 1.5, 'legacy serving multiplier remains usable');
+  assert.equal(configureCalls[0].item.nutritionSnapshot.selected.unitId, 'gram', 'legacy gram servings retain their documented source unit');
+  assert.equal(configureCalls[0].item.nutritionSnapshot.selected.amount, 1.005, 'legacy weighed food keeps its stepped displayed amount');
+  assert(
+    closeTo(configureCalls[0].amount.quantity, configureCalls[0].item.nutritionSnapshot.selected.scale),
+    'legacy snapshot saves its exact physical scale',
+  );
   await act(async () => detail.unmount());
 
   const offGridSnapshot: FoodNutritionSnapshot = {
@@ -491,7 +704,7 @@ async function main() {
     'a genuinely fresh weighed catalog food is initialized to five ounces before selection',
   );
   const freshCalories = textOf(detail.root);
-  await press(detail, 'food-detail-unit-ounce');
+  await chooseUnit(detail, /oz/i);
   assert.equal(textOf(detail.root), freshCalories, 'tapping the selected unit is a complete no-op');
   await act(async () => {
     byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('7.25');
@@ -511,16 +724,16 @@ async function main() {
     /Sodium456\.4 mg/,
     'expanded Nutrition Facts follows the valid pending seven-ounce preview',
   );
-  await press(detail, 'food-detail-unit-gram');
+  await chooseUnit(detail, /\bg\b/i);
   assert.equal(
     byTestId(detail.root, 'food-detail-amount-input').props.value,
-    '198.4467',
-    'an unblurred seven ounces shows readable converted grams',
+    '7',
+    'an explicit unit change consumes pending input while preserving its displayed number',
   );
-  assert.match(textOf(detail.root), /397CALORIES/, 'the ounce-to-gram conversion preserves pending macro totals');
+  assert.match(textOf(detail.root), /14CALORIES/, 'the explicit seven-gram selection recomputes nutrition');
   await press(detail, 'food-detail-select');
-  assert(closeTo(configureCalls[0].item.nutritionSnapshot.selected.amount, 198.446661875));
-  assert(closeTo(configureCalls[0].item.calories, 200.125 * 1.98446661875), 'final save preserves converted exact macro totals');
+  assert(closeTo(configureCalls[0].item.nutritionSnapshot.selected.amount, 7));
+  assert(closeTo(configureCalls[0].item.calories, 200.125 * 0.07), 'final save preserves exact selected unit nutrition');
   await act(async () => detail.unmount());
 
   resetDetailState(roastedWing, { basketId: 'pending-wing', item: roastedWing, quantity: 1 }, [
@@ -539,7 +752,7 @@ async function main() {
   await act(async () => {
     byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('0');
   });
-  await press(detail, 'food-detail-unit-gram');
+  await chooseUnit(detail, /\bg\b/i);
   assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0', 'invalid pending input blocks unit conversion without being consumed');
   await press(detail, 'food-detail-dimension-Preparation-Fried');
   assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0', 'invalid pending input blocks direct type changes without being consumed');
@@ -600,18 +813,16 @@ async function main() {
       { id: 'ten-beans', label: '10 beans (4" long)', unit: 'bean', dimension: 'count', basisMultiplier: 0.55, grams: 55 },
       { id: 'cup-pieces', label: '1 cup 1/2" pieces', unit: 'cup', dimension: 'volume', basisMultiplier: 1, grams: 100 },
     ],
+    selected: { amount: 1, unitId: 'cup-pieces', scale: 1 },
   };
   resetDetailState(detailedItem(beanSnapshot));
   await act(async () => { detail = create(<FoodDetailScreen />); });
-  assert.match(textOf(detail.root), /OuncesCupsGramsMore units/, 'green-bean primary controls stay compact and useful');
-  await press(detail, 'food-detail-more-units');
-  assert.match(
-    textOf(byTestId(detail.root, 'food-detail-source-measure-ten-beans')),
-    /Source measure: 10 beans \(4" long\) = 55 g/,
-    'More units keeps the original ten-bean source bundle visible without changing one-bean editing',
-  );
-  await press(detail, 'food-detail-unit-cup-pieces');
-  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '1', 'choosing cups intentionally starts at one cup');
+  await openUnits(detail);
+  assert.equal(unitOptions(detail.root).length, 4, 'the picker shows every documented unit at once');
+  assert.equal(detail.root.findAll(node => node.props.testID === 'food-detail-more-units').length, 0, 'the old More units control is gone');
+  assert.equal(detail.root.findAll(node => node.props.testID === 'food-detail-source-measure-ten-beans').length, 0, 'the old source accordion is gone');
+  await press(detail, unitId(detail.root, /cup/i));
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '1', 'choosing the already displayed cup is a no-op');
   assert.match(textOf(detail.root), /1\/2" pieces/, 'the source inch qualifier remains visible separately');
   await press(detail, 'food-detail-minus');
   assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0.75', 'cups step by a useful quarter cup');
@@ -625,6 +836,78 @@ async function main() {
   await press(detail, 'food-detail-select');
   assert.equal(configureCalls[0].item.nutritionSnapshot.selected.amount, 0.5, 'the exact displayed half cup is saved without rounding');
   assert.equal(configureCalls[0].item.nutritionSnapshot.portions[3].label, '1 cup 1/2" pieces', 'saving preserves the source portion statement');
+  await act(async () => detail.unmount());
+
+  const fractionalSourceSnapshot: FoodNutritionSnapshot = {
+    ...snapshot,
+    source: { ...snapshot.source, recordId: 'fractional-source', revision: 'sha256:fractional-source' },
+    portions: [
+      { id: 'half-cup', label: '1/2 cup', unit: 'cup', dimension: 'volume', basisMultiplier: 1, grams: 120 },
+      { id: 'four-ounce', label: '4 oz', unit: 'oz', dimension: 'weight', basisMultiplier: 1.134, grams: 113.3980925 },
+      { id: 'gram', label: 'g', unit: 'g', dimension: 'weight', basisMultiplier: 0.01, grams: 1 },
+    ],
+    selected: { amount: 1, unitId: 'half-cup', scale: 1 },
+  };
+  const fractionalItem = detailedItem(fractionalSourceSnapshot);
+  resetDetailState(fractionalItem);
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0.5', 'a 1/2-cup source displays its fractional amount');
+  assert.equal(textOf(byTestId(detail.root, 'food-detail-nutrition-heading')), 'Nutrition · ½ cup');
+  await openUnits(detail);
+  assert.deepEqual(
+    fractionalSourceSnapshot.portions.map(portion => portion.label),
+    ['1/2 cup', '4 oz', 'g'],
+    'fractional source and four-ounce source labels remain authentic',
+  );
+  assert.equal(unitOptions(detail.root).length, 3, 'fractional source still exposes every documented unit');
+  await chooseUnit(detail, /\boz\b/i);
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '0.5', 'fractional pending amounts are preserved by explicit unit changes');
+  assert.equal(textOf(byTestId(detail.root, 'food-detail-nutrition-heading')), 'Nutrition · 0.5 oz');
+  await act(async () => detail.unmount());
+
+  const legacyCustom: LoggableItem = {
+    ...item,
+    refId: 'custom-without-alternatives',
+    name: 'My family recipe',
+    serving: '1 serving',
+    nutritionSnapshot: undefined,
+    catalog: {
+      catalogId: 'custom-without-alternatives',
+      group: 'personal',
+      source: 'user',
+      sourceLabel: 'My Foods',
+      measures: [],
+    },
+  };
+  resetDetailState(legacyCustom);
+  setDetailFavorites([legacyCustom.refId]);
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.match(textOf(detail.root), /My family recipe/, 'legacy custom foods remain usable without a nutrition snapshot');
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '1');
+  assert.equal(textOf(byTestId(detail.root, 'food-detail-nutrition-heading')), 'Nutrition · 1 serving');
+  assert.equal(
+    byTestId(detail.root, 'food-detail-favorite').props.accessibilityLabel,
+    'Remove My family recipe from favorites',
+    'a custom legacy favorite id matches only the original serving baseline',
+  );
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2');
+  });
+  assert.equal(
+    byTestId(detail.root, 'food-detail-favorite').props.accessibilityLabel,
+    'Favorite My family recipe at 2 servings',
+    'a changed custom serving is saved as a distinct configuration',
+  );
+  await act(async () => {
+    byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('1');
+  });
+  await press(detail, 'food-detail-unit-picker');
+  assert(detail.root.findAll(node => node.props.testID === 'food-detail-units').length > 0, 'legacy foods expose their original source measure');
+  assert.equal(unitOptions(detail.root).length, 1, 'a legacy custom food without alternatives has only its source measure');
+  assert(unitId(detail.root, /serving/i), 'the source serving id is present without fabricated alternatives');
+  await press(detail, 'food-detail-select');
+  assert.equal(configureCalls[0].item.nutritionSnapshot.portions.length, 1, 'saving keeps the custom source-only snapshot intact');
+  assert.equal(detail.root.findAll(node => node.props.testID === 'food-detail-more-units').length, 0);
   await act(async () => detail.unmount());
 
   const fractionalWingSnapshot: FoodNutritionSnapshot = {
@@ -668,7 +951,12 @@ async function main() {
     byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2');
   });
   assert.doesNotMatch(textOf(detail.root), /greater than zero/, 'typing a valid replacement clears the stale validation error');
-  assert.match(textOf(detail.root), /NUTRITION · 2 DRUMETTES111CALORIES/, 'valid unblurred input previews matching amount and nutrition');
+  assert.equal(
+    textOf(byTestId(detail.root, 'food-detail-nutrition-heading')),
+    'Nutrition · 2 drumettes',
+    'valid unblurred input previews the exact mixed-case amount',
+  );
+  assert.match(textOf(detail.root), /111CALORIES/, 'valid unblurred input previews matching nutrition');
   await act(async () => {
     byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2.');
   });
@@ -677,7 +965,8 @@ async function main() {
     byTestId(detail.root, 'food-detail-amount-input').props.onChangeText('2.5');
   });
   assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '2.5');
-  assert.match(textOf(detail.root), /NUTRITION · 2.5 DRUMETTES139CALORIES/, 'fractional valid text previews exact nutrition before blur');
+  assert.equal(textOf(byTestId(detail.root, 'food-detail-nutrition-heading')), 'Nutrition · 2.5 drumettes');
+  assert.match(textOf(detail.root), /139CALORIES/, 'fractional valid text previews exact nutrition before blur');
   await act(async () => detail.unmount());
 
   const tenthCupSnapshot: FoodNutritionSnapshot = {
@@ -707,9 +996,21 @@ async function main() {
   resetDetailState(offItem);
   await act(async () => { detail = create(<FoodDetailScreen />); });
   assert.match(textOf(detail.root), /75CALORIES/, 'real OFF nutrient ids scale a 30 g selection in the actual screen');
+  assert.equal(byTestId(detail.root, 'food-detail-off-attribution').props.accessibilityRole, 'link');
+  assert.equal(byTestId(detail.root, 'food-detail-off-license').props.accessibilityRole, 'link');
+  assert.match(textOf(detail.root), /Open Food Facts.*ODbL 1\.0/, 'required attribution remains outside the removed Source accordion');
   await press(detail, 'food-detail-favorite');
   assert.equal(favoriteCalls[0].food.calories, 75.0375, 'OFF favorite retains unrounded selected root calories');
   assert.equal(favoriteCalls[0].food.protein, 3.675, 'OFF favorite retains unrounded selected protein');
+
+  await act(async () => detail.unmount());
+  resetDetailState(rawItem);
+  setRecalledDetailItem(rawItem);
+  await act(async () => { detail = create(<FoodDetailScreen />); });
+  assert.equal(byTestId(detail.root, 'food-detail-amount-input').props.value, '100', 'recalled baseline weight stays 100 g, not the fresh five-ounce default');
+  await press(detail, 'food-detail-select');
+  assert.equal(configureCalls[0].item.nutritionSnapshot.selected.unitId, 'gram');
+  assert.equal(configureCalls[0].item.nutritionSnapshot.selected.amount, 100);
 
   await act(async () => {
     detail.unmount();

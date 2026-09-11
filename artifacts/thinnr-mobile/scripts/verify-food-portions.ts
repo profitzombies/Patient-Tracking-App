@@ -164,8 +164,20 @@ assert(Math.abs(ouncesAgain.selected.amount - 5) < 1e-12, 'gram/ounce round trip
 assert.deepEqual(
   scaledSnapshotMacros(ouncesAgain),
   scaledSnapshotMacros(fiveOunces),
-  'unit round trips do not double-scale root nutrient fields',
+  'explicit physical conversions (used for type/preparation changes, not the unit picker) do not double-scale',
 );
+
+const twoCups = selectSnapshotDisplayedPortion(snapshot, 2, 'cup-cooked')!;
+const twoOunces = selectSnapshotDisplayedPortion(twoCups, formatNutritionAmount(twoCups).amount, 'ounce')!;
+const twoGrams = selectSnapshotDisplayedPortion(twoOunces, formatNutritionAmount(twoOunces).amount, 'gram')!;
+assert.equal(formatNutritionAmount(twoCups).text, '2 cups');
+assert.equal(formatNutritionAmount(twoOunces).text, '2 oz');
+assert.equal(formatNutritionAmount(twoGrams).text, '2 g', 'Food Details explicit unit choices preserve the number, never the physical amount');
+assert.equal(scaledSnapshotMacros(twoCups)!.calories, 230 * 2.7);
+assert.equal(scaledSnapshotMacros(twoOunces)!.calories, 230 * 2 * 0.28349523125);
+assert.equal(scaledSnapshotMacros(twoGrams)!.calories, 230 * 0.02);
+assert.deepEqual(twoGrams.basis, snapshot.basis);
+assert.deepEqual(twoGrams.portions, rawPortions, 'unit changes never modify source evidence');
 
 assert.equal(selectSnapshotPortion(snapshot, 0, 'gram'), null, 'zero selections stay invalid');
 assert.equal(selectSnapshotPortion(snapshot, 1, 'missing'), null, 'missing units stay invalid');

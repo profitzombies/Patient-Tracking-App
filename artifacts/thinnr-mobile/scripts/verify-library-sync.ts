@@ -52,7 +52,7 @@ import { WRITE_QUEUE_TUNING } from '../lib/patient-write-queue';
 import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
 import { TODAY_KEY, type FoodItem, type MealLogEntry, type SavedRecipe } from '../data/patient-data';
-import { parseNutritionSnapshot } from '../data/food-nutrition';
+import { parseNutritionSnapshot, snapshotConfigurationId } from '../data/food-nutrition';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
 import { holdNextImpact, releaseImpact } from './onboarding-gate-stubs/expo-haptics';
 
@@ -719,6 +719,115 @@ async function main() {
     () => exactFood !== null
       && storeFor('p-1').catalogFoods.some(row => row.id === exactFood!.id)
       && sync.items.length === 0);
+  // A legacy/custom detail adapter can produce a source-backed snapshot even
+  // when the original food had no catalog row. Saving it must use the stable
+  // configuration id and the private catalog rail, while retaining the legacy
+  // provenance and exact selected weight.
+  const legacySnapshot = parseNutritionSnapshot({
+    version: 1,
+    source: {
+      provider: 'legacy',
+      recordId: 'fd_brown_rice',
+      revision: 'legacy-v1',
+      canonicalName: 'Brown Rice, cooked',
+    },
+    basis: { amount: 100, unit: 'g', label: '100 g', grams: 100 },
+    nutrients: [
+      { id: 'energy', name: 'Energy', unit: 'kcal', amount: 216 },
+      { id: 'protein', name: 'Protein', unit: 'g', amount: 5 },
+      { id: 'carbohydrate', name: 'Carbohydrate', unit: 'g', amount: 45 },
+      { id: 'fat', name: 'Total Fat', unit: 'g', amount: 2 },
+    ],
+    portions: [
+      {
+        id: 'gram',
+        label: 'g',
+        unit: 'g',
+        dimension: 'weight',
+        basisMultiplier: 0.01,
+        grams: 1,
+        evidence: 'legacy serving conversion',
+      },
+      {
+        id: 'ounce',
+        label: 'oz',
+        unit: 'oz',
+        dimension: 'weight',
+        basisMultiplier: 0.28349523125,
+        grams: 28.349523125,
+        evidence: 'legacy serving conversion',
+      },
+    ],
+    selected: { amount: 100, unitId: 'gram', scale: 1 },
+    provenance: 'personal_label',
+  });
+  assert('legacy custom snapshot fixture parses', Boolean(legacySnapshot));
+  let legacyFood: FoodItem | null = null;
+  await act(async () => {
+    legacyFood = await ctx.saveFoodConfiguration({
+      id: 'fd_brown_rice',
+      name: 'Brown Rice, cooked',
+      serving: '100 g',
+      calories: 216,
+      protein: 5,
+      carbs: 45,
+      fat: 2,
+      category: 'My Foods',
+      nutritionSnapshot: legacySnapshot!,
+    }, { favorite: true });
+  });
+  const expectedLegacyId = legacySnapshot ? snapshotConfigurationId(legacySnapshot) : 'cfg_missing';
+  await waitFor('legacy exact configuration is server-confirmed with favorite',
+    () => legacyFood !== null
+      && legacyFood.id === expectedLegacyId
+      && storeFor('p-1').catalogFoods.some(row => row.id === expectedLegacyId)
+      && ctx.favorites.includes(expectedLegacyId)
+      && sync.items.length === 0);
+  const legacyWire = storeFor('p-1').catalogFoods.find(row => row.id === expectedLegacyId);
+  assert('legacy save uses cfg_ identity and catalog rail',
+    legacyFood?.id === expectedLegacyId
+      && legacyWire?.id === expectedLegacyId
+      && legacyWire?.catalogShared === true);
+  assert('legacy save preserves source provenance and exact selected amount',
+    legacyWire?.nutritionSnapshot !== undefined
+      && (legacyWire.nutritionSnapshot as Record<string, unknown>).provenance === 'personal_label'
+      && ((legacyWire.nutritionSnapshot as Record<string, unknown>).selected as Record<string, unknown>).amount === 100
+      && ((legacyWire.nutritionSnapshot as Record<string, unknown>).selected as Record<string, unknown>).unitId === 'gram');
+  assert('legacy save computes selected macros exactly once',
+    legacyFood?.calories === 216
+      && legacyFood?.protein === 5
+      && legacyFood?.carbs === 45
+      && legacyFood?.fat === 2);
+
+  let legacyReceipt!: Awaited<ReturnType<Ctx['submitFoodEntries']>>;
+  await act(async () => {
+    legacyReceipt = await ctx.submitFoodEntries([{
+      dateKey: TODAY_KEY,
+      meal: 'lunch',
+      kind: 'food',
+      refId: legacyFood!.id,
+      name: legacyFood!.name,
+      detail: '100 g',
+      quantity: legacySnapshot!.selected.scale,
+      calories: legacyFood!.calories,
+      protein: legacyFood!.protein,
+      carbs: legacyFood!.carbs,
+      fat: legacyFood!.fat,
+      nutritionSnapshot: legacySnapshot!,
+    }]);
+  });
+  assert('legacy snapshot diary submit is accepted',
+    legacyReceipt.outcome === 'queued' || legacyReceipt.outcome === 'server_confirmed');
+  await waitFor('legacy snapshot diary row replays',
+    () => storeFor('p-1').entries.some(entry =>
+      entry.refId === expectedLegacyId
+      && entry.nutritionSnapshot?.source.recordId === 'fd_brown_rice'
+      && entry.nutritionSnapshot.selected.amount === 100
+      && entry.calories === 216
+      && entry.protein === 5
+      && entry.carbs === 45
+      && entry.fat === 2,
+    ));
   await unmount(tree);
   failNext.set('GET patient-data/state', 'network');
   tree = await mountLive();
@@ -726,6 +835,20 @@ async function main() {
     exactFood !== null
       && ctx.allFoods.some(item => item.id === exactFood!.id && item.nutritionSnapshot?.source.recordId === '171077')
       && ctx.favorites.includes(exactFood.id));
+  assert('cached restart keeps legacy cfg configuration, favorite, provenance, and exact amount',
+    legacyFood !== null
+      && ctx.allFoods.some(item =>
+        item.id === legacyFood!.id
+        && item.nutritionSnapshot?.source.recordId === 'fd_brown_rice'
+        && item.nutritionSnapshot.provenance === 'personal_label'
+        && item.nutritionSnapshot.selected.amount === 100
+        && item.nutritionSnapshot.selected.unitId === 'gram'
+        && item.calories === 216
+        && item.protein === 5
+        && item.carbs === 45
+        && item.fat === 2,
+      )
+      && ctx.favorites.includes(legacyFood.id));
   assert('cached exact configuration remains scoped to its account key',
     !((localStorageBacking.get(STORAGE_KEY) ?? '').includes(exactFood?.id ?? 'cfg_missing')));
 
@@ -799,10 +922,13 @@ async function main() {
       && !storeFor('p-2').customFoods.some(row => row.name === 'Must Not Change Owner')
       && !ctx.customFoods.some(item => item.name === 'Must Not Change Owner'));
   assert('second account starts with an empty library', ctx.customFoods.length === 0 && ctx.savedRecipes.length === 0);
-  assert('p-1 cached exact configuration and favorite never bleed to p-2',
+  assert('p-1 cached exact configurations and favorites never bleed to p-2',
     exactFood !== null
       && !ctx.allFoods.some(item => item.id === exactFood!.id)
-      && !ctx.favorites.includes(exactFood.id));
+      && !ctx.favorites.includes(exactFood.id)
+      && legacyFood !== null
+      && !ctx.allFoods.some(item => item.id === legacyFood!.id)
+      && !ctx.favorites.includes(legacyFood.id));
   await act(async () => {
     await ctx.addCustomFood(foodInput('P2 Yogurt'));
   });

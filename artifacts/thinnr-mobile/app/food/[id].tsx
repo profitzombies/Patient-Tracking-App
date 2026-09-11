@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo, ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View,
+  AccessibilityInfo, ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { Feather } from '@expo/vector-icons';
@@ -24,6 +24,7 @@ import {
   snapshotDisplayedAmount, snapshotPortion,
 } from '@/data/food-nutrition';
 import type { FoodNutritionSnapshot } from '@/data/food-nutrition';
+import { createLegacyFoodDetailSnapshot } from '@/data/food-detail-amount';
 import { useColors } from '@/hooks/useColors';
 import { catalogFoodToLoggable, type LoggableItem, useLoggableItems } from '@/hooks/useLoggableItems';
 import {
@@ -40,6 +41,13 @@ type Draft = {
 
 function display(value: number, decimalPlaces = 2): string {
   return Number(value.toFixed(decimalPlaces)).toString();
+}
+
+function positiveAmountInput(value: string): number | null {
+  const text = value.trim();
+  const number = Number(text);
+  return /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(text) && Number.isFinite(number) && number > 0
+    ? number : null;
 }
 
 function accountKey(account: ReturnType<typeof usePatientAccount>['account']): string {
@@ -128,7 +136,8 @@ export default function FoodDetailScreen() {
   const selected = libraryOrigin ? undefined : routeBasketId
     ? basket.selected.find(entry => entry.basketId === routeBasketId)
     : basket.selected.find(entry => entry.item.refId === id);
-  const initialItem = selected?.item ?? basket.recalled(id ?? '') ?? byId.get(id ?? '')
+  const recalledItem = basket.recalled(id ?? '');
+  const initialItem = selected?.item ?? recalledItem ?? byId.get(id ?? '')
     ?? allItems.find(candidate => candidate.refId === id);
   const currentAccountKey = accountKey(patientAccount.account);
   const initialKeyRef = useRef(`${currentAccountKey}:${id ?? ''}:${routeBasketId ?? ''}`);
@@ -137,14 +146,14 @@ export default function FoodDetailScreen() {
   const [draft, setDraft] = useState<Draft | null>(() => {
     if (!initialItem) return null;
     const storedSnapshot = getItemNutritionSnapshot(initialItem);
-    const snapshot = storedSnapshot && !selected && !initialItem.catalog?.persisted
+    const snapshot = storedSnapshot && !selected && !recalledItem && !initialItem.catalog?.persisted
       ? initializeFreshItemSnapshot(initialItem, storedSnapshot)
-      : storedSnapshot;
+      : storedSnapshot ?? createLegacyFoodDetailSnapshot(initialItem, selected);
     return {
       key: initialKeyRef.current,
       item: initialItem,
       snapshot,
-      quantity: selected?.quantity ?? 1,
+      quantity: snapshot?.selected.scale ?? selected?.quantity ?? 1,
       ...(selected?.ounces !== undefined
         ? { ounces: selected.ounces }
         : !snapshot && supportsOunces(initialItem) ? { ounces: 5 } : {}),
@@ -156,9 +165,8 @@ export default function FoodDetailScreen() {
   const [variantAttempt, setVariantAttempt] = useState(0);
   const [showVariants, setShowVariants] = useState(false);
   const [expandedDimensions, setExpandedDimensions] = useState<Record<string, boolean>>({});
-  const [showAllUnits, setShowAllUnits] = useState(false);
+  const [showUnits, setShowUnits] = useState(false);
   const [showNutrition, setShowNutrition] = useState(false);
-  const [showSource, setShowSource] = useState(false);
   const [proposedVariant, setProposedVariant] = useState<CatalogFood | null>(null);
   const [portionNotice, setPortionNotice] = useState<string | null>(null);
   const [amountInput, setAmountInput] = useState<string | null>(null);
@@ -173,19 +181,19 @@ export default function FoodDetailScreen() {
     if (draft || !initialItem) return;
     if (`${currentAccountKey}:${id ?? ''}:${routeBasketId ?? ''}` !== initialKeyRef.current) return;
     const storedSnapshot = getItemNutritionSnapshot(initialItem);
-    const initialSnapshot = storedSnapshot && !selected && !initialItem.catalog?.persisted
+    const initialSnapshot = storedSnapshot && !selected && !recalledItem && !initialItem.catalog?.persisted
       ? initializeFreshItemSnapshot(initialItem, storedSnapshot)
-      : storedSnapshot;
+      : storedSnapshot ?? createLegacyFoodDetailSnapshot(initialItem, selected);
     setDraft({
       key: initialKeyRef.current,
       item: initialItem,
       snapshot: initialSnapshot,
-      quantity: selected?.quantity ?? 1,
+      quantity: initialSnapshot?.selected.scale ?? selected?.quantity ?? 1,
       ...(selected?.ounces !== undefined
         ? { ounces: selected.ounces }
         : !initialSnapshot && supportsOunces(initialItem) ? { ounces: 5 } : {}),
     });
-  }, [draft, initialItem, currentAccountKey, id, routeBasketId, selected]);
+  }, [draft, initialItem, currentAccountKey, id, routeBasketId, selected, recalledItem]);
 
   useEffect(() => {
     if (`${currentAccountKey}:${id ?? ''}:${routeBasketId ?? ''}` === initialKeyRef.current) return;
@@ -227,7 +235,7 @@ export default function FoodDetailScreen() {
 
   const item = draft.item;
   const snapshot = draft.snapshot;
-  const pendingAmount = amountInput === null ? null : Number(amountInput.trim());
+  const pendingAmount = amountInput === null ? null : positiveAmountInput(amountInput);
   const previewSnapshot = snapshot && pendingAmount !== null && Number.isFinite(pendingAmount) && pendingAmount > 0
     ? selectSnapshotDisplayedPortion(snapshot, pendingAmount, snapshot.selected.unitId) ?? snapshot
     : snapshot;
@@ -263,20 +271,22 @@ export default function FoodDetailScreen() {
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 67 : 12);
   const bottomPad = Platform.OS === 'web' ? 34 : Math.max(insets.bottom, 16);
   const configurationId = previewSnapshot ? snapshotConfigurationId(previewSnapshot) : item.refId;
-  const isFavorite = patient.favorites.includes(configurationId);
+  // Old favorites stored just the food id, meaning one original serving.
+  // Recognize that exact baseline without making every new amount a favorite.
+  const legacyBaseline = initialItem && !getItemNutritionSnapshot(initialItem)
+    ? createLegacyFoodDetailSnapshot(initialItem) : null;
+  const legacyFavoriteId = legacyBaseline && initialItem &&
+    snapshotConfigurationId(legacyBaseline) === configurationId &&
+    patient.favorites.includes(initialItem.refId) ? initialItem.refId : null;
+  const isFavorite = patient.favorites.includes(configurationId) || legacyFavoriteId !== null;
+  const openFoodFacts = item.catalog?.source === 'openfoodfacts' ||
+    /openfoodfacts/i.test(snapshot?.source.provider.replace(/[\s_-]/g, '') ?? '');
   const selectablePortions = snapshot
     ? orderedNutritionPortions(snapshot, {
-        preserveSelected: Boolean(selected || item.catalog?.persisted),
+        // An existing custom food may document only its original serving.
+        // Keep that measure available even without alternate conversion evidence.
+        preserveSelected: true,
       })
-    : [];
-  const visiblePortions = snapshot
-    ? showAllUnits || selectablePortions.length <= 3
-      ? selectablePortions
-      : selectablePortions.slice(0, 3).some(portion => portion.id === snapshot.selected.unitId)
-        ? selectablePortions.slice(0, 3)
-        : [...selectablePortions.slice(0, 2), snapshotPortion(snapshot)!].filter(
-            (portion, index, portions) => !!portion && portions.findIndex(candidate => candidate?.id === portion.id) === index,
-          )
     : [];
 
   const updateVariant = (food: CatalogFood) => {
@@ -382,40 +392,13 @@ export default function FoodDetailScreen() {
   };
 
   const commitAmountInput = () => {
-    if (amountInput === null) return;
-    const nextAmount = Number(amountInput.trim());
-    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
-      setPortionNotice('Enter an amount greater than zero.');
-      return;
-    }
-    if (!snapshot) {
-      setDraft(current => current ? current.ounces !== undefined
-        ? { ...current, ounces: nextAmount }
-        : { ...current, quantity: nextAmount } : current);
-      setAmountInput(null);
-      setPortionNotice(null);
-      return;
-    }
-    const nextSnapshot = selectSnapshotDisplayedPortion(snapshot, nextAmount, snapshot.selected.unitId);
-    if (!nextSnapshot) {
-      setPortionNotice('That amount is not supported.');
-      return;
-    }
-    setDraft(current => current ? {
-      ...current,
-      snapshot: nextSnapshot,
-      item: withItemNutritionSnapshot(current.item, nextSnapshot),
-      quantity: nextSnapshot.selected.scale,
-      ounces: undefined,
-    } : current);
-    setAmountInput(null);
-    setPortionNotice(null);
+    if (amountInput !== null) resolvePendingAmount();
   };
 
   const resolvePendingAmount = (): Draft | null => {
     if (amountInput === null) return draft;
-    const nextAmount = Number(amountInput.trim());
-    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+    const nextAmount = positiveAmountInput(amountInput);
+    if (nextAmount === null) {
       const message = 'Enter an amount greater than zero.';
       setPortionNotice(message);
       AccessibilityInfo.announceForAccessibility(message);
@@ -448,6 +431,26 @@ export default function FoodDetailScreen() {
     setAmountInput(null);
     setPortionNotice(null);
     return resolved;
+  };
+
+  const changeUnit = (unitId: string) => {
+    const resolved = resolvePendingAmount();
+    if (!resolved?.snapshot) return;
+    // Explicit unit changes preserve the typed number, NOT physical weight.
+    // Type/preparation changes above retain their separate conversion policy.
+    const next = selectSnapshotDisplayedPortion(
+      resolved.snapshot, snapshotDisplayedAmount(resolved.snapshot), unitId,
+    );
+    if (!next) return;
+    setDraft({
+      ...resolved,
+      snapshot: next,
+      item: withItemNutritionSnapshot(resolved.item, next),
+      quantity: next.selected.scale,
+      ounces: undefined,
+    });
+    setShowUnits(false);
+    AccessibilityInfo.announceForAccessibility(`Amount changed to ${formatNutritionAmount(next).text}`);
   };
 
   const save = () => {
@@ -559,9 +562,15 @@ export default function FoodDetailScreen() {
         await patient.toggleFavorite(actionItem.refId);
         return;
       }
+      const actionConfigurationId = snapshotConfigurationId(actionSnapshot);
+      if (legacyFavoriteId && legacyBaseline && snapshotConfigurationId(legacyBaseline) === actionConfigurationId) {
+        await patient.toggleFavorite(legacyFavoriteId);
+        if (guardRef.current.accountKey !== requestAccount || guardRef.current.pathname !== requestPath) return;
+        if (!patient.favorites.includes(actionConfigurationId)) return;
+      }
       const saved = await patient.saveFoodConfiguration(
         foodItemForSave(actionItem, actionSnapshot),
-        { favorite: !patient.favorites.includes(snapshotConfigurationId(actionSnapshot)) },
+        { favorite: !patient.favorites.includes(actionConfigurationId) },
       );
       if (guardRef.current.accountKey !== requestAccount || guardRef.current.pathname !== requestPath) return;
       if (!saved) setFavoriteError('Could not update this favorite. Please try again.');
@@ -579,6 +588,9 @@ export default function FoodDetailScreen() {
   const dimensionKeys = Array.from(new Set(variants.flatMap(variant => Object.keys(variant.dimensions ?? {}))));
   const selectableDimensionKeys = dimensionKeys.filter(key =>
     new Set(variants.map(variant => variant.dimensions?.[key]).filter(Boolean)).size > 1);
+  const openAttribution = (url: string) => {
+    void Linking.openURL(url).catch(() => setPortionNotice('Could not open the attribution link. Please try again.'));
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -591,7 +603,7 @@ export default function FoodDetailScreen() {
         <Text style={[styles.headerLabel, { color: colors.labelText }]}>FOOD DETAILS</Text>
         <View style={styles.iconButton} />
       </View>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90 }}>
         <Text testID="food-detail-name" style={[styles.foodName, { color: colors.navy }]}>{item.name}</Text>
         {!!(snapshot?.variant?.summary ?? item.catalog?.variantSummary) && (
           <Text style={[styles.summary, { color: colors.bodyText }]}>
@@ -601,62 +613,6 @@ export default function FoodDetailScreen() {
 
         <LedgerCard style={{ padding: 16, marginTop: 16 }}>
           <Text style={[styles.label, { color: colors.labelText }]}>{weightBased ? 'AMOUNT' : 'SERVING QUANTITY'}</Text>
-          {snapshot && (
-            <View style={styles.optionRow}>
-              {visiblePortions.map(portion => (
-                <Pressable
-                  testID={`food-detail-unit-${portion.id}`}
-                  key={portion.id}
-                  onPress={() => {
-                    if (snapshot.selected.unitId === portion.id) return;
-                     const resolved = resolvePendingAmount();
-                     if (!resolved?.snapshot) return;
-                     const workingSnapshot = resolved.snapshot;
-                     const workingPortion = snapshotPortion(workingSnapshot);
-                     const isWeightConversion = !!workingPortion &&
-                       nutritionPortionDimension(workingPortion) === 'weight' &&
-                       nutritionPortionDimension(portion) === 'weight';
-                    const next = isWeightConversion
-                       ? selectSnapshotPortion(workingSnapshot, workingSnapshot.selected.scale / portion.basisMultiplier, portion.id)
-                       : selectSnapshotDisplayedPortion(workingSnapshot, 1, portion.id);
-                    if (next) {
-                      setDraft(current => current ? {
-                        ...current, snapshot: next,
-                        item: withItemNutritionSnapshot(current.item, next),
-                        quantity: next.selected.scale, ounces: undefined,
-                      } : current);
-                      if (!isWeightConversion) {
-                        const changed = formatNutritionAmount(next).text;
-                        AccessibilityInfo.announceForAccessibility(`Amount changed to ${changed}`);
-                      }
-                    }
-                  }}
-                  style={[styles.option, { borderColor: snapshot.selected.unitId === portion.id ? colors.cobalt : colors.border },
-                    snapshot.selected.unitId === portion.id && { backgroundColor: colors.accent }]}
-                >
-                  <Text style={[styles.optionText, { color: snapshot.selected.unitId === portion.id ? colors.cobalt : colors.bodyText }]}>
-                    {nutritionPortionPresentation(portion).shortLabel}
-                  </Text>
-                </Pressable>
-              ))}
-               {!showAllUnits && selectablePortions.length > 3 && (
-                 <Pressable testID="food-detail-more-units" onPress={() => setShowAllUnits(true)} style={styles.more}>
-                  <Text style={[styles.moreText, { color: colors.cobalt }]}>More units</Text>
-                </Pressable>
-              )}
-            </View>
-          )}
-          {snapshot && showAllUnits && selectablePortions
-            .filter(portion => nutritionPortionPresentation(portion).sourceAmount > 1)
-            .map(portion => (
-              <Text
-                testID={`food-detail-source-measure-${portion.id}`}
-                key={`source-measure-${portion.id}`}
-                style={[styles.sourceMeasure, { color: colors.subtleText }]}
-              >
-                Source measure: {portion.label}{portion.grams ? ` = ${display(portion.grams, 4)} g` : ''}
-              </Text>
-            ))}
           <View style={styles.amountRow}>
             <Pressable testID="food-detail-minus" accessibilityLabel="Decrease amount" onPress={() => adjust(-1)} style={[styles.step, { borderColor: colors.border }]}>
               <Feather name="minus" size={16} color={colors.bodyText} />
@@ -673,35 +629,69 @@ export default function FoodDetailScreen() {
                   : display(draft.ounces ?? draft.quantity, 4))}
                 onChangeText={value => {
                   setAmountInput(value);
-                  const number = Number(value.trim());
-                  if (value.trim() && Number.isFinite(number) && number > 0) setPortionNotice(null);
+                  if (positiveAmountInput(value) !== null) setPortionNotice(null);
                 }}
                 onBlur={commitAmountInput}
                 onSubmitEditing={commitAmountInput}
                 style={[styles.amountInput, { color: colors.navy, borderColor: colors.border }]}
               />
-              <Text testID="food-detail-amount" style={[styles.amountUnit, { color: colors.navy }]}>
-                {formattedAmount?.unit ?? (draft.ounces !== undefined ? 'oz' : item.serving)}
-              </Text>
+              <Pressable
+                testID="food-detail-unit-picker"
+                accessibilityRole="button"
+                accessibilityLabel={`Change unit, ${formattedAmount?.unit ?? item.serving}`}
+                aria-expanded={showUnits}
+                onPress={() => setShowUnits(value => !value)}
+                style={[styles.unitPicker, { borderColor: colors.border, borderRadius: colors.radiusSm }]}
+              >
+                <Text testID="food-detail-amount" style={[styles.amountUnit, { color: colors.navy }]}>
+                  {formattedAmount?.unit ?? (draft.ounces !== undefined ? 'oz' : item.serving)}
+                </Text>
+                <Feather name={showUnits ? 'chevron-up' : 'chevron-down'} size={14} color={colors.bodyText} />
+              </Pressable>
             </View>
             <Pressable testID="food-detail-plus" accessibilityLabel="Increase amount" onPress={() => adjust(1)} style={[styles.step, { borderColor: colors.border }]}>
               <Feather name="plus" size={16} color={colors.bodyText} />
             </Pressable>
           </View>
+          {snapshot && showUnits && (
+            <View testID="food-detail-units" style={[styles.unitOptions, { borderColor: colors.border, borderRadius: colors.radiusSm }]}>
+              {selectablePortions.map(portion => {
+                const presentation = nutritionPortionPresentation(portion);
+                const label = (formattedAmount?.amount ?? 1) <= 1 ? presentation.singular : presentation.plural;
+                const chosen = snapshot.selected.unitId === portion.id;
+                return (
+                  <Pressable
+                    testID={`food-detail-unit-${portion.id}`}
+                    key={portion.id}
+                    accessibilityRole="radio"
+                    aria-checked={chosen}
+                    accessibilityLabel={`${label}${presentation.qualifier ? `, ${presentation.qualifier}` : ''}`}
+                    onPress={() => changeUnit(portion.id)}
+                    style={[styles.unitOption, chosen && { backgroundColor: colors.accent }]}
+                  >
+                    <Text style={[styles.optionText, { color: chosen ? colors.cobalt : colors.bodyText }]}>
+                      {label}{presentation.qualifier ? ` · ${presentation.qualifier}` : ''}
+                    </Text>
+                    {chosen && <Feather name="check" size={16} color={colors.cobalt} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           {formattedAmount?.qualifier && (
             <Text testID="food-detail-portion-qualifier" style={[styles.qualifier, { color: colors.subtleText }]}>
               {formattedAmount.qualifier}
             </Text>
           )}
           {portionNotice && (
-            <Text testID="food-detail-amount-error" style={[styles.note, { color: colors.bodyText, marginTop: 8 }]}>
+            <Text testID="food-detail-amount-error" accessibilityRole="alert" aria-live="polite" style={[styles.note, { color: colors.bodyText, marginTop: 8 }]}>
               {portionNotice}
             </Text>
           )}
         </LedgerCard>
 
         <LedgerCard style={{ padding: 16, marginTop: 12 }}>
-          <Text style={[styles.label, { color: colors.labelText }]}>NUTRITION · {amount.toUpperCase()}</Text>
+          <Text testID="food-detail-nutrition-heading" style={[styles.label, { color: colors.labelText }]}>Nutrition · {amount}</Text>
           <View
             style={styles.nutrition}
             accessibilityLabel={`${Math.round(macroValues.calories)} calories, ${display(macroValues.protein, 1)} grams protein, ${display(macroValues.carbs, 1)} grams carbs, ${display(macroValues.fat, 1)} grams fat`}
@@ -822,34 +812,27 @@ export default function FoodDetailScreen() {
           )}
         </LedgerCard>
 
-        <LedgerCard style={{ marginTop: 12 }}>
-          <Pressable testID="food-detail-source-toggle" onPress={() => setShowSource(value => !value)} style={styles.collapseHeader}>
-            <Text style={[styles.label, { color: colors.labelText }]}>SOURCE</Text>
-            <Feather name={showSource ? 'chevron-up' : 'chevron-down'} size={16} color={colors.subtleText} />
-          </Pressable>
-          {showSource && (
-            <View style={styles.collapseBody}>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              {snapshot ? (
-                <Text style={[styles.sourceText, { color: colors.bodyText }]}>
-                  {snapshot.source.canonicalName ? `${snapshot.source.canonicalName}\n` : ''}
-                  {snapshot.source.provider}{snapshot.source.release ? ` · ${snapshot.source.release}` : ''}{'\n'}
-                  Record {snapshot.source.recordId} · revision {snapshot.source.revision}{'\n'}
-                  Baseline: {snapshot.basis.label}{'\n'}
-                  {activePortion?.evidence ? `Portion evidence: ${activePortion.evidence}\n` : ''}
-                  {snapshot.provenance === 'generic_dish_estimate' ? 'Generic dish estimate'
-                    : snapshot.provenance === 'identified_product' ? 'Identified product nutrition'
-                      : snapshot.provenance === 'personal_label' ? 'Personal or label-provided nutrition'
-                        : 'Generic source record'}
-                </Text>
-              ) : (
-                <Text style={[styles.sourceText, { color: colors.bodyText }]}>
-                  {item.sub}. This legacy food does not include extended source or portion evidence.
-                </Text>
-              )}
-            </View>
-          )}
-        </LedgerCard>
+        {openFoodFacts && (
+          <View style={styles.attribution}>
+            <Pressable
+              testID="food-detail-off-attribution"
+              accessibilityRole="link"
+              accessibilityLabel="Nutrition data from Open Food Facts"
+              onPress={() => openAttribution('https://world.openfoodfacts.org/')}
+            >
+              <Text style={[styles.note, { color: colors.cobalt }]}>Open Food Facts</Text>
+            </Pressable>
+            <Text style={[styles.note, { color: colors.subtleText }]}> · </Text>
+            <Pressable
+              testID="food-detail-off-license"
+              accessibilityRole="link"
+              accessibilityLabel="Open Database License, ODbL 1.0"
+              onPress={() => openAttribution('https://opendatacommons.org/licenses/odbl/1-0/')}
+            >
+              <Text style={[styles.note, { color: colors.cobalt }]}>ODbL 1.0</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={styles.favoriteArea}>
           <Pressable
@@ -913,13 +896,15 @@ const styles = StyleSheet.create({
   foodName: { fontSize: 27, lineHeight: 32, fontFamily: 'PlayfairDisplay_600SemiBold' },
   summary: { marginTop: 7, fontSize: 13, lineHeight: 18, fontFamily: 'Inter_400Regular' },
   label: { fontSize: 9, letterSpacing: 1, fontFamily: 'Inter_700Bold' },
-  amountRow: { marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22 },
+  amountRow: { marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
   step: { width: 42, height: 42, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  amountEditor: { minWidth: 132, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  amountEditor: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   amountInput: { width: 76, height: 42, borderWidth: 1, paddingHorizontal: 8, textAlign: 'center', fontSize: 20, fontFamily: 'Inter_600SemiBold' },
-  amountUnit: { maxWidth: 90, fontSize: 17, fontFamily: 'Inter_600SemiBold' },
+  amountUnit: { flexShrink: 1, fontSize: 17, fontFamily: 'Inter_600SemiBold' },
+  unitPicker: { minHeight: 44, maxWidth: 130, flexShrink: 1, paddingHorizontal: 8, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  unitOptions: { marginTop: 12, borderWidth: 1, overflow: 'hidden' },
+  unitOption: { minHeight: 44, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   qualifier: { marginTop: 8, textAlign: 'center', fontSize: 11, lineHeight: 15, fontFamily: 'Inter_400Regular' },
-  sourceMeasure: { marginTop: 7, fontSize: 11, lineHeight: 15, fontFamily: 'Inter_400Regular' },
   nutrition: { flexDirection: 'row', marginTop: 16 },
   nutritionCell: { flex: 1, alignItems: 'center', gap: 4 },
   nutritionValue: { fontSize: 17, fontFamily: 'Inter_600SemiBold' },
@@ -937,8 +922,8 @@ const styles = StyleSheet.create({
   confirm: { borderWidth: 1, padding: 12, gap: 10 },
   confirmActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 20 },
   note: { fontSize: 12, lineHeight: 17, fontFamily: 'Inter_400Regular' },
-  sourceText: { fontSize: 12, lineHeight: 18, fontFamily: 'Inter_400Regular' },
   favoriteArea: { marginTop: 12, gap: 8 },
+  attribution: { marginTop: 12, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' },
   favoriteButton: { minHeight: 44, borderWidth: 1, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' },
   favoriteText: { fontSize: 12.5, fontFamily: 'Inter_600SemiBold' },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 12, borderTopWidth: 1 },

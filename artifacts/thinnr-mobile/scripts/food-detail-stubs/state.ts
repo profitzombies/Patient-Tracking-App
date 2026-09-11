@@ -1,7 +1,15 @@
 import React from 'react';
 import {
-  initializeFreshNutritionSnapshot, parseNutritionSnapshot, scaledSnapshotMacros,
+  parseNutritionSnapshot, snapshotConfigurationId,
 } from '../../data/food-nutrition';
+import {
+  buildFoodLogEntry as realBuildFoodLogEntry,
+  getItemNutritionSnapshot as realGetItemNutritionSnapshot,
+  initializeFreshItemSnapshot as realInitializeFreshItemSnapshot,
+  selectionScale as realSelectionScale,
+  supportsOunces as realSupportsOunces,
+  withItemNutritionSnapshot as realWithItemNutritionSnapshot,
+} from '../../context/FoodLoggingContext';
 
 export type LoggableItem = any;
 export type CatalogFood = any;
@@ -28,17 +36,41 @@ export function setSubmitOutcome(outcome: { outcome: string; message?: string })
   submitOutcome = outcome;
 }
 export const selected: any[] = [];
+export const detailFavoriteIds: string[] = [];
+export function setDetailFavorites(ids: string[]) {
+  detailFavoriteIds.splice(0, detailFavoriteIds.length, ...ids);
+}
 export let variants: any[] = [];
 export let currentItem: any = null;
+let recalledDetailItem: any = undefined;
+export function setRecalledDetailItem(item: any) {
+  recalledDetailItem = item;
+}
+
+function asLoggableItem(item: any): any {
+  if (!item) return item;
+  if (item.kind === 'food' && item.refId) return item;
+  return {
+    ...item,
+    kind: item.kind ?? 'food',
+    refId: item.refId ?? item.id,
+    sub: item.sub ?? item.category,
+    approved: item.approved ?? true,
+  };
+}
 
 export function resetDetailState(item: any, selection?: any, familyVariants: any[] = []) {
-  currentItem = item;
-  selected.splice(0, selected.length, ...(selection ? [selection] : []));
+  recalledDetailItem = undefined;
+  currentItem = asLoggableItem(item);
+  selected.splice(0, selected.length, ...(selection ? [{
+    ...selection,
+    item: asLoggableItem(selection.item),
+  }] : []));
   variants = familyVariants;
   configureCalls.length = 0;
   favoriteCalls.length = 0;
   routerCalls.length = 0;
-  route.id = item.refId;
+  route.id = currentItem.refId;
   route.basketId = selection?.basketId;
   route.approvedOnly = 'true';
   route.origin = undefined;
@@ -47,6 +79,7 @@ export function resetDetailState(item: any, selection?: any, familyVariants: any
   submittedEntries.length = 0;
   selectedCatalogFoods.length = 0;
   savedConfigurations.length = 0;
+  detailFavoriteIds.length = 0;
   submitOutcome = { outcome: 'saved' };
   detailAccountKind = 'demo';
 }
@@ -69,14 +102,20 @@ export function usePatientAccount() {
 export function usePatient() {
   return {
     hydrated: true,
-    favorites: [],
+    favorites: detailFavoriteIds,
     allFoods: [],
     savedRecipes: [],
     todayKey: '2026-09-08',
     async saveFoodConfiguration(food: any, options: any) {
       favoriteCalls.push({ food, options });
-      savedConfigurations.push(food);
-      return food;
+      const snapshot = parseNutritionSnapshot(food?.nutritionSnapshot);
+      // PatientContext persists snapshot configurations under their stable
+      // configuration id, rather than trusting the caller's source id.
+      const saved = snapshot
+        ? { ...food, id: snapshotConfigurationId(snapshot) }
+        : food;
+      savedConfigurations.push(saved);
+      return saved;
     },
     async saveCatalogFood(food: any) {
       savedConfigurations.push(food);
@@ -100,57 +139,20 @@ export function catalogFoodToLoggable(food: any) {
   return food.loggable ?? food;
 }
 
-export function getItemNutritionSnapshot(item: any) {
-  return parseNutritionSnapshot(item?.nutritionSnapshot ?? item?.catalog?.nutritionSnapshot);
-}
-export function initializeFreshItemSnapshot(_item: any, snapshot: any) {
-  return Math.abs(snapshot.selected.scale - 1) < 1e-10
-    ? initializeFreshNutritionSnapshot(snapshot)
-    : snapshot;
-}
-
-export function withItemNutritionSnapshot(item: any, snapshot: any) {
-  const macros = scaledSnapshotMacros(snapshot);
-  return {
-    ...item,
-    ...(macros ?? {}),
-    nutritionSnapshot: snapshot,
-    ...(item.catalog ? { catalog: { ...item.catalog, nutritionSnapshot: snapshot } } : {}),
-  };
-}
-
-export function selectionScale(value: any) {
-  const snapshot = getItemNutritionSnapshot(value.item);
-  if (snapshot) return snapshot.selected.scale;
-  return value.ounces === undefined ? value.quantity : value.ounces * 28.349523125 / value.item.catalog.servingGrams;
-}
-
-export function supportsOunces(item: any) {
-  return !!item.catalog?.servingGrams;
-}
-
-export function buildFoodLogEntry(selection: any, target: any) {
-  const snapshot = getItemNutritionSnapshot(selection.item);
-  const macros = snapshot ? scaledSnapshotMacros(snapshot) : null;
-  return {
-    ...target,
-    kind: 'food',
-    refId: selection.item.refId,
-    name: selection.item.name,
-    detail: snapshot ? `${snapshot.selected.amount} ${snapshot.selected.unitId}` : selection.item.serving,
-    quantity: snapshot?.selected.scale ?? selection.quantity,
-    calories: macros?.calories ?? selection.item.calories * selection.quantity,
-    protein: macros?.protein ?? selection.item.protein * selection.quantity,
-    carbs: macros?.carbs ?? selection.item.carbs * selection.quantity,
-    fat: macros?.fat ?? selection.item.fat * selection.quantity,
-    ...(snapshot ? { nutritionSnapshot: snapshot } : {}),
-  };
-}
+// Keep the screen seam small, but do not reimplement production nutrition
+// semantics in this test module. These are the same pure functions used by
+// FoodLoggingContext; only its account/provider hooks remain stubbed below.
+export const getItemNutritionSnapshot = realGetItemNutritionSnapshot;
+export const initializeFreshItemSnapshot = realInitializeFreshItemSnapshot;
+export const withItemNutritionSnapshot = realWithItemNutritionSnapshot;
+export const selectionScale = realSelectionScale;
+export const supportsOunces = realSupportsOunces;
+export const buildFoodLogEntry = realBuildFoodLogEntry;
 
 export function useFoodLogging() {
   return {
     selected,
-    recalled() { return undefined; },
+    recalled() { return recalledDetailItem; },
     configure(item: any, amount: any, basketId?: string) {
       configureCalls.push({ item, amount, ...(basketId ? { basketId } : {}) });
     },

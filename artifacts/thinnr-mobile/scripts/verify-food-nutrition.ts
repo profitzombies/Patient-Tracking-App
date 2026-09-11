@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { initializeFreshItemSnapshot } from '../context/FoodLoggingContext';
 import {
   parseNutritionSnapshot,
   rescaleSnapshotSelection,
@@ -55,6 +56,59 @@ assert.deepEqual(
 assert.equal(snapshotConfigurationKey(snapshot), snapshotConfigurationKey(repeated));
 assert.equal(snapshotConfigurationId(snapshot), snapshotConfigurationId(repeated));
 assert.match(snapshotConfigurationId(snapshot), /^cfg_[a-z0-9]+_[a-z0-9]+$/);
+
+// A saved legacy configuration can legitimately have a scale-one weight
+// selection. Its cfg_ identity is the persisted marker; reopening it must not
+// send it through the fresh weighed-food five-ounce initializer.
+const legacyWeightSnapshot = parseNutritionSnapshot({
+  ...raw,
+  source: { provider: 'legacy', recordId: 'fd_brown_rice', revision: 'legacy-v1' },
+  portions: [
+    ...raw.portions,
+    {
+      id: 'ounce',
+      label: 'oz',
+      unit: 'oz',
+      dimension: 'weight',
+      basisMultiplier: 0.28349523125,
+      grams: 28.349523125,
+    },
+  ],
+  selected: { amount: 100, unitId: 'gram', scale: 1 },
+  provenance: 'personal_label',
+});
+assert(legacyWeightSnapshot, 'synthetic legacy weight snapshot parses');
+const legacyConfigurationId = snapshotConfigurationId(legacyWeightSnapshot);
+const reopenedLegacy = initializeFreshItemSnapshot(
+  {
+    refId: legacyConfigurationId,
+    kind: 'food',
+    name: 'Brown Rice, cooked',
+    sub: 'My Foods',
+    serving: '100 g',
+    calories: 155.123456,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+    approved: false,
+  },
+  legacyWeightSnapshot,
+);
+assert.equal(
+  reopenedLegacy.selected.amount,
+  100,
+  'cfg_ scale-one weight configuration reopens at its saved amount',
+);
+assert.equal(
+  reopenedLegacy.selected.unitId,
+  'gram',
+  'cfg_ scale-one weight configuration keeps its saved unit',
+);
+assert.equal(
+  reopenedLegacy.provenance,
+  'personal_label',
+  'legacy configuration keeps its source provenance',
+);
 
 assert.equal(
   parseNutritionSnapshot({ ...raw, selected: { amount: 0, unitId: 'gram', scale: 0 } }),

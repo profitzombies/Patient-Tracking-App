@@ -197,6 +197,20 @@ assertEqual('formatQty two digits', formatQty(10), '10');
   );
   assertEqual('repeat snapshot edit restores exact source calories', restored.addedEntries[0].calories, 155.123456);
   assertEqual('repeat snapshot edit restores exact source protein', restored.addedEntries[0].protein, 12.58);
+  assert(
+    'snapshot edit replay preserves source identity',
+    restored.addedEntries[0].nutritionSnapshot?.source.recordId === seed.nutritionSnapshot.source.recordId,
+  );
+  assertEqual(
+    'snapshot edit replay preserves selected unit',
+    restored.addedEntries[0].nutritionSnapshot?.selected.unitId ?? '',
+    'gram',
+  );
+  assertEqual(
+    'snapshot edit replay restores selected amount',
+    restored.addedEntries[0].nutritionSnapshot?.selected.amount ?? 0,
+    100,
+  );
 }
 
 // ── 5. Every real seeded entry rescales cleanly ──────────────────────────────

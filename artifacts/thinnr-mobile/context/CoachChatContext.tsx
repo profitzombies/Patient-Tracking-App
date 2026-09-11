@@ -179,20 +179,47 @@ export interface CoachMessage {
   hidden?: boolean;
 }
 
-interface CoachChatContextValue {
+export interface CoachChatContextValue {
   messages: CoachMessage[];
   isStreaming: boolean;
   /** Null represents a fresh composer which has not created a server row yet. */
   selectedConversation: CoachConversation | null;
   /** Changes for every account/conversation selection; reset local UI by it. */
   conversationScopeKey: string | null;
+  /**
+   * Changes whenever the signed-in owner is replaced or local access is
+   * revoked. History uses it to ensure a page cached for a former account is
+   * never rendered for the next account.
+   */
+  historyScopeKey: string | null;
   conversationError: string | null;
+  /** Account-level Coach denial (401/403); history must stop auto-loading until Retry. */
+  accessDeniedError: string | null;
+  /** True only while no transcript is available for the selected destination. */
   isConversationLoading: boolean;
+  /** True while an already-visible transcript is being refreshed. */
+  isConversationRefreshing: boolean;
+  /** True when the current destination has a locally available transcript. */
+  hasConversationLoaded: boolean;
   hasOlderMessages: boolean;
   isLoadingOlder: boolean;
   startNewConversation: () => void;
   selectConversation: (id: string) => Promise<void>;
-  listConversations: (archived: boolean, offset?: number) => Promise<CoachConversationPage>;
+  /**
+   * Returns a page immediately, if this account epoch has one. Callers may
+   * render stale rows while listConversations refreshes them in background.
+   */
+  getCachedConversations: (archived: boolean, offset?: number) => CoachConversationPage | undefined;
+  /**
+   * Fresh cached pages resolve without a transport request; stale pages are
+   * refreshed and simultaneous requests for the same page share one promise.
+   * `force` bypasses the freshness TTL but still coalesces in-flight work.
+   */
+  listConversations: (
+    archived: boolean,
+    offset?: number,
+    force?: boolean,
+  ) => Promise<CoachConversationPage>;
   setArchived: (conversation: CoachConversation, archived: boolean) => Promise<void>;
   loadOlder: () => Promise<void>;
   /**
@@ -204,8 +231,12 @@ interface CoachChatContextValue {
    * while no reply text is on screen yet.
    */
   pendingStage: CoachStage | null;
-  /** Re-fetches and merges server-owned transcript rows for real accounts. */
-  refreshThread: () => Promise<void>;
+  /**
+   * Re-fetches server-owned transcript rows for the selected conversation.
+   * `force` bypasses the freshness TTL (use for an explicit Retry or sync
+   * event); it never hides a cached transcript while the request is pending.
+   */
+  refreshThread: (force?: boolean) => Promise<void>;
   send: (text: string) => void;
   /**
    * Sends a photo as its own user turn: the bubble shows the photo and the
@@ -325,6 +356,38 @@ interface CoachOutboxEntry {
   conversationId: string;
   api: PatientDataApi;
   message: CoachMessage;
+}
+
+interface CachedConversation {
+  conversation: CoachConversation;
+  messages: CoachMessage[];
+  nextBefore: number | null;
+  fetchedAt: number;
+  /** Only these ids were confirmed by a successful transcript read. */
+  serverMessageIds: Set<string>;
+}
+
+interface CachedConversationPage {
+  page: CoachConversationPage;
+  fetchedAt: number;
+}
+
+/** A short TTL prevents focus churn while still making ordinary returns fresh. */
+export const COACH_CONVERSATION_CACHE_TTL_MS = 15_000;
+export const COACH_READ_STALE = 'COACH_READ_STALE';
+
+function staleCoachReadError(): Error & { code: typeof COACH_READ_STALE } {
+  return Object.assign(new Error('This Coach read belongs to an earlier account session.'), {
+    code: COACH_READ_STALE,
+  } as const);
+}
+
+function isTerminalConversationAccessError(error: unknown): boolean {
+  const status =
+    error && typeof error === 'object' && 'status' in error
+      ? (error as { status?: unknown }).status
+      : undefined;
+  return status === 401 || status === 403 || status === 404;
 }
 
 /**
@@ -688,8 +751,17 @@ export function CoachChatProvider({
   const [selectedConversation, setSelectedConversation] = useState<CoachConversation | null>(null);
   const selectedConversationRef = useRef<CoachConversation | null>(null);
   selectedConversationRef.current = selectedConversation;
+  // Selection identity lands before the transcript request. This makes the
+  // destination scope observable synchronously and prevents a cold selection
+  // from accidentally creating/sending into a fresh conversation.
+  const [pendingConversationId, setPendingConversationId] = useState<string | null>(null);
+  const pendingConversationIdRef = useRef<string | null>(null);
+  pendingConversationIdRef.current = pendingConversationId;
   const [conversationError, setConversationError] = useState<string | null>(null);
+  const [accessDeniedError, setAccessDeniedError] = useState<string | null>(null);
   const [isConversationLoading, setIsConversationLoading] = useState(false);
+  const [isConversationRefreshing, setIsConversationRefreshing] = useState(false);
+  const [loadedConversationScopeKey, setLoadedConversationScopeKey] = useState<string | null>(null);
   const [olderBefore, setOlderBefore] = useState<number | null>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   // Pagination may outlive a focus refresh. The ref is set synchronously so
@@ -698,16 +770,30 @@ export function CoachChatProvider({
   const demoConversationsRef = useRef<CoachConversation[]>([]);
   const demoConversationCounterRef = useRef(0);
   const scopeEpochRef = useRef(0);
-  const conversationScopeKey =
-    !resolving && account.kind === 'real'
-      ? selectedConversation
-        ? `real:${account.patientId}:${selectedConversation.id}`
-        : `real:${account.patientId}:fresh`
-      : !resolving && account.kind === 'demo'
-        ? selectedConversation
-          ? `demo:${selectedConversation.id}`
-          : 'demo:fresh'
-        : null;
+  // Account epochs deliberately do not reuse a cache after sign-out/revoke,
+  // even if the same patient signs back in during this provider's lifetime.
+  const accountEpochRef = useRef(0);
+  const [accountEpoch, setAccountEpoch] = useState(0);
+  const historyScopeKey =
+    !resolving && account.kind !== 'unresolved'
+      ? `${accountKey}:epoch-${accountEpoch}`
+      : null;
+  const historyScopeKeyRef = useRef<string | null>(historyScopeKey);
+  historyScopeKeyRef.current = historyScopeKey;
+  const conversationCacheRef = useRef(new Map<string, CachedConversation>());
+  const conversationRequestsRef = useRef(new Map<string, Promise<CachedConversation>>());
+  const historyCacheRef = useRef(new Map<string, CachedConversationPage>());
+  const historyRequestsRef = useRef(new Map<string, Promise<CoachConversationPage>>());
+  // Separates request validity from the public account epoch: revocation must
+  // invalidate held writes without changing historyScopeKey and remounting a
+  // history screen into an automatic 401/403 retry loop.
+  const cacheGenerationRef = useRef(0);
+  const selectionRequestRef = useRef(0);
+  // Public/UI scope is epoch-qualified. A sign-out followed by the same
+  // account returning must still reset route-local draft/focus state.
+  const conversationScopeKey = historyScopeKey
+    ? `${historyScopeKey}:${selectedConversation?.id ?? pendingConversationId ?? 'fresh'}`
+    : null;
   const scopeKeyRef = useRef<string | null>(conversationScopeKey);
   scopeKeyRef.current = conversationScopeKey;
   // A render after account replacement must not briefly disclose the prior
@@ -745,6 +831,58 @@ export function CoachChatProvider({
     labelFlowRef.current = next;
     setLabelFlow(next);
   }, []);
+  /** Terminal account denial is a revocation boundary, not a retryable row error. */
+  const revokeConversationAccess = useCallback((message: string) => {
+    flushGenerationRef.current += 1;
+    scopeEpochRef.current += 1;
+    selectionRequestRef.current += 1;
+    cacheGenerationRef.current += 1;
+    const deniedId = pendingConversationIdRef.current ?? selectedConversationRef.current?.id;
+    abortRef.current?.abort();
+    if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
+    revealRef.current = null;
+    abortRef.current = null;
+    inFlightRef.current = false;
+    conversationCacheRef.current.clear();
+    conversationRequestsRef.current.clear();
+    historyCacheRef.current.clear();
+    historyRequestsRef.current.clear();
+    outboxRef.current = [];
+    persistedRef.current.clear();
+    photoPathsRef.current.clear();
+    hydratedKeyRef.current = null;
+    flushingRef.current = false;
+    flushFailuresRef.current = 0;
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    suggestionsRef.current.clear();
+    updateLabelFlow(null);
+    selectedConversationRef.current = null;
+    pendingConversationIdRef.current = deniedId ?? null;
+    scopeKeyRef.current =
+      deniedId
+        ? `${accountKeyRef.current}:epoch-${accountEpochRef.current}:${deniedId}`
+        : accountKeyRef.current === 'demo'
+          ? `demo:epoch-${accountEpochRef.current}:fresh`
+          : `${accountKeyRef.current}:epoch-${accountEpochRef.current}:fresh`;
+    messagesRef.current = [];
+    setSelectedConversation(null);
+    setPendingConversationId(deniedId ?? null);
+    setMessages([]);
+    setRenderedScopeKey(scopeKeyRef.current);
+    setLoadedConversationScopeKey(null);
+    setOlderBefore(null);
+    isLoadingOlderRef.current = false;
+    setIsLoadingOlder(false);
+    setIsConversationLoading(false);
+    setIsConversationRefreshing(false);
+    setIsStreaming(false);
+    setPendingStage(null);
+    setConversationError(message);
+    setAccessDeniedError(message);
+  }, [updateLabelFlow]);
   // Mirror of `messages` so `send` can snapshot history without re-memoizing;
   // safe because sends are single-flight (inFlightRef) while it lags. Seeded
   // with the same initial array so a send before the first effect run still
@@ -833,6 +971,14 @@ export function CoachChatProvider({
     // the current account's flush mutex or consume its pending writes.
     flushGenerationRef.current += 1;
     scopeEpochRef.current += 1;
+    selectionRequestRef.current += 1;
+    cacheGenerationRef.current += 1;
+    accountEpochRef.current += 1;
+    setAccountEpoch(accountEpochRef.current);
+    conversationCacheRef.current.clear();
+    conversationRequestsRef.current.clear();
+    historyCacheRef.current.clear();
+    historyRequestsRef.current.clear();
     abortRef.current?.abort();
     if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
     revealRef.current = null;
@@ -845,6 +991,7 @@ export function CoachChatProvider({
     outreachSeededRef.current = false;
     hydratedKeyRef.current = null;
     persistedRef.current.clear();
+    outboxRef.current = [];
     photoPathsRef.current.clear();
     flushingRef.current = false;
     flushFailuresRef.current = 0;
@@ -853,11 +1000,19 @@ export function CoachChatProvider({
       flushTimerRef.current = null;
     }
     selectedConversationRef.current = null;
-    scopeKeyRef.current = accountKey === 'demo' ? 'demo:fresh' : accountKey === 'resolving' ? null : `${accountKey}:fresh`;
+    pendingConversationIdRef.current = null;
+    scopeKeyRef.current =
+      accountKey === 'resolving' || accountKey === 'unresolved'
+        ? null
+        : `${accountKey}:epoch-${accountEpochRef.current}:fresh`;
     setSelectedConversation(null);
+    setPendingConversationId(null);
     setConversationError(null);
+    setAccessDeniedError(null);
     setOlderBefore(null);
     setIsConversationLoading(false);
+    setIsConversationRefreshing(false);
+    setLoadedConversationScopeKey(null);
     setIsLoadingOlder(false);
     const seed = accountKey === 'demo' ? [buildGreetingMessage()] : [];
     messagesRef.current = seed;
@@ -884,16 +1039,36 @@ export function CoachChatProvider({
     api: PatientDataApi,
     scopeKey: string,
     accessToken: string,
+    conversationId: string,
   ): Promise<string | undefined> => {
     if (!m.photo) return undefined;
     if (m.photo.path) return m.photo.path;
     const known = photoPathsRef.current.get(`${scopeKey}:${m.photo.uri}`);
     if (known) return known;
     if (!m.photo.uri.startsWith('data:')) return undefined;
+    const capturedAccountKey = accountKeyRef.current;
+    const capturedFlushGeneration = flushGenerationRef.current;
+    const cacheKey = `${historyScopeKeyRef.current}:conversation:${conversationId}`;
     const uri = m.photo.uri;
     try {
       const uploaded = await api.uploadChatPhoto(uri, { accessToken });
+      if (
+        capturedAccountKey !== accountKeyRef.current ||
+        capturedFlushGeneration !== flushGenerationRef.current
+      ) {
+        return undefined;
+      }
       photoPathsRef.current.set(`${scopeKey}:${uri}`, uploaded.photoPath);
+      const cached = conversationCacheRef.current.get(cacheKey);
+      if (cached) {
+        conversationCacheRef.current.set(cacheKey, {
+          ...cached,
+          messages: cached.messages.map(message =>
+            message.photo?.uri === uri
+              ? { ...message, photo: { ...message.photo, path: uploaded.photoPath } }
+              : message),
+        });
+      }
       // Stamp the path onto every message holding this photo (the origin
       // plus any correction turns that re-used it) so their wire signatures
       // settle on the stored shape.
@@ -990,13 +1165,14 @@ export function CoachChatProvider({
           if (m.status !== 'done' || m.role === 'staff') continue;
           const wire = toWireMessage(
             m,
-            await storedPhotoPath(m, entry.api, entry.scopeKey, accessToken),
+            await storedPhotoPath(m, entry.api, entry.scopeKey, accessToken, entry.conversationId),
           );
           wires.push(wire);
           sigs.push([`${entry.scopeKey}:${m.id}`, JSON.stringify(wire)]);
         }
         if (generation !== flushGenerationRef.current) {
-          outboxRef.current = [...batch, ...outboxRef.current];
+          // A revoke/account replacement deliberately purged the outbox.
+          // Never reinsert private rows after an awaited photo upload lands.
           break;
         }
         if (wires.length === 0) continue;
@@ -1006,6 +1182,24 @@ export function CoachChatProvider({
           for (const [id, sig] of sigs) persistedRef.current.set(id, sig);
           flushFailuresRef.current = 0;
         } catch (error) {
+          // Never let a rejected append from a former account/revoked epoch
+          // mutate UI or reinsert its batch after the purge.
+          if (
+            generation !== flushGenerationRef.current ||
+            accountKeyRef.current !== activeAccountKey
+          ) {
+            break;
+          }
+          const status =
+            error && typeof error === 'object' && 'status' in error
+              ? (error as { status?: unknown }).status
+              : undefined;
+          if (status === 401 || status === 403) {
+            revokeConversationAccess(
+              error instanceof Error ? error.message : 'Your coach access is no longer available.',
+            );
+            break;
+          }
           // Another device may have archived this exact conversation after
           // this client finalized a turn. Retrying that append forever cannot
           // succeed; keep the completed local transcript visible, switch this
@@ -1056,7 +1250,7 @@ export function CoachChatProvider({
     ) {
       void flushOutbox();
     }
-  }, [getAccessToken, storedPhotoPath]);
+  }, [getAccessToken, revokeConversationAccess, storedPhotoPath]);
 
   useEffect(() => {
     if (accountKey.startsWith('real:')) void flushOutbox();
@@ -1095,14 +1289,20 @@ export function CoachChatProvider({
     suggestionsRef.current.clear();
     updateLabelFlow(null);
     selectedConversationRef.current = null;
+    pendingConversationIdRef.current = null;
     scopeKeyRef.current =
       accountRef.current.kind === 'real'
-        ? `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:fresh`
-        : 'demo:fresh';
+        ? `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:epoch-${accountEpochRef.current}:fresh`
+        : `demo:epoch-${accountEpochRef.current}:fresh`;
     setSelectedConversation(null);
+    setPendingConversationId(null);
     setConversationError(null);
+    setAccessDeniedError(null);
     setOlderBefore(null);
     setIsLoadingOlder(false);
+    setIsConversationLoading(false);
+    setIsConversationRefreshing(false);
+    setLoadedConversationScopeKey(null);
     setPendingStage(null);
     setIsStreaming(false);
     const seed = accountRef.current.kind === 'demo' ? [buildFreshGreetingMessage()] : [buildFreshGreetingMessage()];
@@ -1111,33 +1311,123 @@ export function CoachChatProvider({
     setRenderedScopeKey(scopeKeyRef.current);
   }, [account, updateLabelFlow]);
 
+  const getCachedConversations = useCallback(
+    (archived: boolean, offset = 0): CoachConversationPage | undefined => {
+      const scope = historyScopeKey;
+      if (!scope) return undefined;
+      return historyCacheRef.current.get(`${scope}:${archived ? 'archived' : 'active'}:${offset}`)?.page;
+    },
+    [historyScopeKey],
+  );
+
   const listConversations = useCallback(
-    async (archived: boolean, offset = 0): Promise<CoachConversationPage> => {
+    async (archived: boolean, offset = 0, force = false): Promise<CoachConversationPage> => {
+      const scope = historyScopeKeyRef.current;
       const api = chatApiRef.current;
       if (accountRef.current.kind === 'demo') {
         const conversations = demoConversationsRef.current
           .filter(conversation => Boolean(conversation.archivedAt) === archived)
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
         const slice = conversations.slice(offset, offset + 20);
-        return {
+        const page = {
           conversations: slice,
           total: conversations.length,
           nextOffset: offset + slice.length < conversations.length ? offset + slice.length : null,
         };
+        if (scope) {
+          historyCacheRef.current.set(`${scope}:${archived ? 'archived' : 'active'}:${offset}`, {
+            page,
+            fetchedAt: Date.now(),
+          });
+        }
+        return page;
       }
-      if (!api || accountRef.current.resolving) {
+      if (!api || !scope || accountRef.current.resolving) {
         throw new Error('Your coach conversations are still loading. Please try again.');
       }
-      return api.listCoachConversations(archived, offset);
+      const cacheKey = `${scope}:${archived ? 'archived' : 'active'}:${offset}`;
+      const cached = historyCacheRef.current.get(cacheKey);
+      if (!force && cached && Date.now() - cached.fetchedAt < COACH_CONVERSATION_CACHE_TTL_MS) {
+        return cached.page;
+      }
+      const inFlight = historyRequestsRef.current.get(cacheKey);
+      if (inFlight) return inFlight;
+      const requestGeneration = cacheGenerationRef.current;
+      const request = api
+        .listCoachConversations(archived, offset)
+        .then(page => {
+          if (
+            cacheGenerationRef.current !== requestGeneration ||
+            historyScopeKeyRef.current !== scope
+          ) {
+            throw staleCoachReadError();
+          }
+          historyCacheRef.current.set(cacheKey, { page, fetchedAt: Date.now() });
+          setAccessDeniedError(null);
+          return page;
+        })
+        .catch(error => {
+          if (cacheGenerationRef.current !== requestGeneration || historyScopeKeyRef.current !== scope) {
+            throw staleCoachReadError();
+          }
+          // A terminal access/not-found response makes retained rows unsafe;
+          // transient failures intentionally leave the stale page available.
+          const status =
+            error && typeof error === 'object' && 'status' in error
+              ? (error as { status?: unknown }).status
+              : undefined;
+          if (status === 401 || status === 403) {
+            revokeConversationAccess(
+              error instanceof Error ? error.message : 'Your coach access is no longer available.',
+            );
+          } else if (isTerminalConversationAccessError(error)) {
+            historyCacheRef.current.delete(cacheKey);
+          }
+          throw error;
+        })
+        .finally(() => {
+          if (historyRequestsRef.current.get(cacheKey) === request) {
+            historyRequestsRef.current.delete(cacheKey);
+          }
+        });
+      historyRequestsRef.current.set(cacheKey, request);
+      return request;
     },
-    [],
+    [revokeConversationAccess],
   );
 
   const selectConversation = useCallback(
-    async (id: string) => {
+    async (id: string, force = false) => {
       const api = chatApiRef.current;
       const epoch = ++scopeEpochRef.current;
+      const selection = ++selectionRequestRef.current;
       const identity = accountKeyRef.current;
+      const historyScope = historyScopeKeyRef.current;
+      const scopeKey = `${identity}:epoch-${accountEpochRef.current}:${id}`;
+      const cacheKey = historyScope ? `${historyScope}:conversation:${id}` : null;
+      const cached = cacheKey ? conversationCacheRef.current.get(cacheKey) : undefined;
+      const outgoing = selectedConversationRef.current;
+      const outgoingScope = scopeKeyRef.current;
+      if (
+        historyScope &&
+        outgoing &&
+        outgoingScope?.startsWith(`${identity}:`) &&
+        outgoingScope !== scopeKey
+      ) {
+        // Selection aborts a live stream. Keep finalized local turns for a
+        // warm return, but never cache a transient waiting/reveal bubble.
+        conversationCacheRef.current.set(`${historyScope}:conversation:${outgoing.id}`, {
+          conversation: outgoing,
+          messages: messagesRef.current.filter(message => message.status === 'done'),
+          nextBefore: olderBefore,
+          // Moving away never validates the newest server page.
+          fetchedAt:
+            conversationCacheRef.current.get(`${historyScope}:conversation:${outgoing.id}`)?.fetchedAt ?? 0,
+          serverMessageIds:
+            conversationCacheRef.current.get(`${historyScope}:conversation:${outgoing.id}`)?.serverMessageIds ??
+            new Set(),
+        });
+      }
       abortRef.current?.abort();
       if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
       revealRef.current = null;
@@ -1151,47 +1441,22 @@ export function CoachChatProvider({
       setOlderBefore(null);
       isLoadingOlderRef.current = false;
       setIsLoadingOlder(false);
-      setIsConversationLoading(true);
-      // Hide the outgoing transcript synchronously while this exact row loads.
-      messagesRef.current = [];
-      setMessages([]);
-      setRenderedScopeKey(null);
-      selectedConversationRef.current = null;
-      scopeKeyRef.current = null;
-      if (accountRef.current.kind === 'demo') {
-        const conversation = demoConversationsRef.current.find(row => row.id === id);
-        if (!conversation) {
-          setConversationError('That conversation is no longer available.');
-          setIsConversationLoading(false);
-          return;
-        }
-        if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return;
-        selectedConversationRef.current = conversation;
-        scopeKeyRef.current = `demo:${conversation.id}`;
-        setSelectedConversation(conversation);
-        setRenderedScopeKey(`demo:${conversation.id}`);
-        const restored = (conversation as CoachConversation & { messages?: CoachMessage[] }).messages ?? [
-          buildFreshGreetingMessage(),
-        ];
-        messagesRef.current = restored;
-        setMessages(restored);
-        setIsConversationLoading(false);
-        return;
-      }
-      if (!api) {
-        setConversationError('Your coach conversations are still loading. Please try again.');
-        setIsConversationLoading(false);
-        return;
-      }
-      try {
-        const snapshot = await api.fetchCoachConversation(id, undefined, localTodayKey());
-        if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return;
-        const stored = snapshot.messages.map(wireToCoachMessage);
-        const scopeKey = `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:${snapshot.conversation.id}`;
-        persistedRef.current.clear();
-        photoPathsRef.current.clear();
-        for (const message of stored) {
-          persistedRef.current.set(`${scopeKey}:${message.id}`, JSON.stringify(toWireMessage(message)));
+      // Establish the destination before any await. A loaded cache remains
+      // usable while stale data refreshes; an unknown destination blanks the
+      // outgoing transcript immediately.
+      pendingConversationIdRef.current = id;
+      scopeKeyRef.current = scopeKey;
+      setPendingConversationId(id);
+      selectedConversationRef.current = cached?.conversation ?? null;
+      setSelectedConversation(cached?.conversation ?? null);
+      if (cached) {
+        // These maps are already keyed by account epoch AND conversation.
+        // Retain off-screen upload/save confirmations across thread changes.
+        // Only account reset/revocation may purge all scoped bookkeeping.
+        for (const message of cached.messages) {
+          if (cached.serverMessageIds.has(message.id) && !persistedRef.current.has(`${scopeKey}:${message.id}`)) {
+            persistedRef.current.set(`${scopeKey}:${message.id}`, JSON.stringify(toWireMessage(message)));
+          }
           if (message.photo?.path) {
             photoPathsRef.current.set(`${scopeKey}:${message.photo.uri}`, message.photo.path);
           }
@@ -1199,7 +1464,7 @@ export function CoachChatProvider({
             const suggestion = parseRecipeCardPayload(message.card.payload);
             if (suggestion) {
               const origin = message.replyToId
-                ? stored.find(candidate => candidate.id === message.replyToId)
+                ? cached.messages.find(candidate => candidate.id === message.replyToId)
                 : undefined;
               suggestionsRef.current.set(
                 suggestion.id,
@@ -1211,26 +1476,235 @@ export function CoachChatProvider({
           }
         }
         hydratedKeyRef.current = scopeKey;
-        selectedConversationRef.current = snapshot.conversation;
-        scopeKeyRef.current = scopeKey;
-        setSelectedConversation(snapshot.conversation);
-        setOlderBefore(snapshot.nextBefore);
-        messagesRef.current = stored;
-        setMessages(stored);
+        messagesRef.current = cached.messages;
+        setMessages(cached.messages);
+        setOlderBefore(cached.nextBefore);
         setRenderedScopeKey(scopeKey);
+        setLoadedConversationScopeKey(scopeKey);
+      } else {
+        messagesRef.current = [];
+        setMessages([]);
+        setRenderedScopeKey(null);
+        setLoadedConversationScopeKey(null);
+      }
+      const cacheIsFresh =
+        cached && Date.now() - cached.fetchedAt < COACH_CONVERSATION_CACHE_TTL_MS;
+      setIsConversationLoading(!cached);
+      setIsConversationRefreshing(Boolean(cached && (!cacheIsFresh || force)));
+
+      if (accountRef.current.kind === 'demo') {
+        const conversation = demoConversationsRef.current.find(row => row.id === id);
+        if (!conversation) {
+          if (selectionRequestRef.current === selection && accountKeyRef.current === identity) {
+            setConversationError('That conversation is no longer available.');
+            setIsConversationLoading(false);
+            setIsConversationRefreshing(false);
+          }
+          return;
+        }
+        if (selectionRequestRef.current !== selection || accountKeyRef.current !== identity) return;
+        const restored = (conversation as CoachConversation & { messages?: CoachMessage[] }).messages ?? [
+          buildFreshGreetingMessage(),
+        ];
+        selectedConversationRef.current = conversation;
+        pendingConversationIdRef.current = null;
+        hydratedKeyRef.current = `demo:epoch-${accountEpochRef.current}:${conversation.id}`;
+        setSelectedConversation(conversation);
+        setPendingConversationId(null);
+        setOlderBefore(null);
+        messagesRef.current = restored;
+        setMessages(restored);
+        setRenderedScopeKey(scopeKey);
+        setLoadedConversationScopeKey(scopeKey);
+        setIsConversationLoading(false);
+        setIsConversationRefreshing(false);
+        return;
+      }
+      if (!api || !cacheKey) {
+        if (selectionRequestRef.current === selection && accountKeyRef.current === identity) {
+          setConversationError('Your coach conversations are still loading. Please try again.');
+          setIsConversationLoading(false);
+          setIsConversationRefreshing(false);
+        }
+        return;
+      }
+      if (cacheIsFresh && !force) {
+        if (selectionRequestRef.current === selection && accountKeyRef.current === identity) {
+          pendingConversationIdRef.current = null;
+          setPendingConversationId(null);
+          setIsConversationLoading(false);
+          setIsConversationRefreshing(false);
+        }
+        return;
+      }
+      let request = conversationRequestsRef.current.get(cacheKey);
+      if (!request) {
+        const requestGeneration = cacheGenerationRef.current;
+        request = api.fetchCoachConversation(id, undefined, localTodayKey()).then(snapshot => {
+          const entry: CachedConversation = {
+            conversation: snapshot.conversation,
+            messages: snapshot.messages.map(wireToCoachMessage),
+            nextBefore: snapshot.nextBefore,
+            fetchedAt: Date.now(),
+            serverMessageIds: new Set(snapshot.messages.map(message => message.id)),
+          };
+          if (
+            cacheGenerationRef.current === requestGeneration &&
+            historyScopeKeyRef.current === historyScope
+          ) {
+            conversationCacheRef.current.set(cacheKey, entry);
+          }
+          return entry;
+        });
+        conversationRequestsRef.current.set(cacheKey, request);
+        void request.then(
+          () => {
+            if (conversationRequestsRef.current.get(cacheKey) === request) {
+              conversationRequestsRef.current.delete(cacheKey);
+            }
+          },
+          () => {
+            if (conversationRequestsRef.current.get(cacheKey) === request) {
+              conversationRequestsRef.current.delete(cacheKey);
+            }
+          },
+        );
+      }
+      try {
+        const loaded = await request;
+        // A→B→A is valid: only the latest A selection owns this paint. A
+        // completion for an account that signed out/replaced never can.
+        if (
+          selectionRequestRef.current !== selection ||
+          scopeEpochRef.current !== epoch ||
+          accountKeyRef.current !== identity ||
+          scopeKeyRef.current !== scopeKey
+        ) {
+          return;
+        }
+        // A refresh is a newest-page replacement, not permission to discard
+        // local finalized/outbox turns, a paced reply, or pages already
+        // loaded above this cursor. Merge by id against the CURRENT scope.
+        const currentMessages = messagesRef.current;
+        const incomingIds = new Set(loaded.messages.map(message => message.id));
+        const preservedOlder = currentMessages.filter(
+          message => !incomingIds.has(message.id) && message.seq !== undefined,
+        );
+        const preservedLocal = currentMessages.filter(
+          message => !incomingIds.has(message.id) && message.seq === undefined,
+        );
+        const currentById = new Map(currentMessages.map(message => [message.id, message]));
+        const mergedMessages = [
+          ...preservedOlder,
+          ...loaded.messages.map(message => {
+            const current = currentById.get(message.id);
+            return current && current.status !== 'done' ? current : message;
+          }),
+          ...preservedLocal,
+        ];
+        const nextBefore =
+          preservedOlder.length > 0 ? olderBefore : loaded.nextBefore;
+        const priorPersisted = new Map(persistedRef.current);
+        const incomingById = new Map(loaded.messages.map(message => [message.id, message]));
+        for (const message of mergedMessages) {
+          // Only the just-read server version establishes a new persistence
+          // signature. A preserved local/outbox row remains unsaved unless a
+          // prior signature already proved it landed.
+          if (incomingById.get(message.id) === message) {
+            persistedRef.current.set(`${scopeKey}:${message.id}`, JSON.stringify(toWireMessage(message)));
+          } else {
+            const known = priorPersisted.get(`${scopeKey}:${message.id}`);
+            if (known) persistedRef.current.set(`${scopeKey}:${message.id}`, known);
+          }
+          if (message.photo?.path) {
+            photoPathsRef.current.set(`${scopeKey}:${message.photo.uri}`, message.photo.path);
+          }
+          if (message.card?.kind === 'recipe') {
+            const suggestion = parseRecipeCardPayload(message.card.payload);
+            if (suggestion) {
+              const origin = message.replyToId
+                ? mergedMessages.find(candidate => candidate.id === message.replyToId)
+                : undefined;
+              suggestionsRef.current.set(
+                suggestion.id,
+                suggestion.mode === 'meal' && origin?.photo?.uri
+                  ? { ...suggestion, photoUri: origin.photo.uri }
+                  : suggestion,
+              );
+            }
+          }
+        }
+        hydratedKeyRef.current = scopeKey;
+        setAccessDeniedError(null);
+        selectedConversationRef.current = loaded.conversation;
+        pendingConversationIdRef.current = null;
+        setSelectedConversation(loaded.conversation);
+        setPendingConversationId(null);
+        setOlderBefore(nextBefore);
+        messagesRef.current = mergedMessages;
+        setMessages(mergedMessages);
+        setRenderedScopeKey(scopeKey);
+        setLoadedConversationScopeKey(scopeKey);
+        conversationCacheRef.current.set(cacheKey, {
+          conversation: loaded.conversation,
+          messages: mergedMessages,
+          nextBefore,
+          // Only a successful newest-page read refreshes cache freshness.
+          fetchedAt: loaded.fetchedAt,
+          serverMessageIds: new Set(loaded.serverMessageIds),
+        });
       } catch (error) {
-        if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return;
+        if (
+          selectionRequestRef.current !== selection ||
+          scopeEpochRef.current !== epoch ||
+          accountKeyRef.current !== identity ||
+          scopeKeyRef.current !== scopeKey
+        ) {
+          return;
+        }
+        const status =
+          error && typeof error === 'object' && 'status' in error
+            ? (error as { status?: unknown }).status
+            : undefined;
+        if (status === 401 || status === 403) {
+          revokeConversationAccess(
+            error instanceof Error ? error.message : 'Your coach access is no longer available.',
+          );
+        } else if (isTerminalConversationAccessError(error)) {
+          conversationCacheRef.current.delete(cacheKey);
+          for (const key of historyCacheRef.current.keys()) {
+            if (key.startsWith(`${historyScope}:`)) historyCacheRef.current.delete(key);
+          }
+          selectedConversationRef.current = null;
+          messagesRef.current = [];
+          setSelectedConversation(null);
+          setMessages([]);
+          setRenderedScopeKey(null);
+          setLoadedConversationScopeKey(null);
+        } else if (cached) {
+          // A retryable background failure does not revoke the transcript we
+          // already have. It remains readable/sendable and Retry can force a
+          // new request; only a cold/terminal failure keeps the send gate shut.
+          pendingConversationIdRef.current = null;
+          setPendingConversationId(null);
+        }
         setConversationError(
           error instanceof Error ? error.message : 'Could not load this conversation. Please try again.',
         );
         throw error;
       } finally {
-        if (scopeEpochRef.current === epoch && accountKeyRef.current === identity) {
+        if (
+          selectionRequestRef.current === selection &&
+          scopeEpochRef.current === epoch &&
+          accountKeyRef.current === identity &&
+          scopeKeyRef.current === scopeKey
+        ) {
           setIsConversationLoading(false);
+          setIsConversationRefreshing(false);
         }
       }
     },
-    [account, updateLabelFlow],
+    [olderBefore, revokeConversationAccess, updateLabelFlow],
   );
 
   const loadOlder = useCallback(async () => {
@@ -1257,6 +1731,21 @@ export function CoachChatProvider({
       const merged = [...added, ...messagesRef.current];
       messagesRef.current = merged;
       setMessages(merged);
+      const historyScope = historyScopeKeyRef.current;
+      if (historyScope) {
+        conversationCacheRef.current.set(`${historyScope}:conversation:${conversation.id}`, {
+          conversation,
+          messages: merged,
+          nextBefore: snapshot.nextBefore,
+          // Older pagination cannot validate freshness of the newest page.
+          fetchedAt:
+            conversationCacheRef.current.get(`${historyScope}:conversation:${conversation.id}`)?.fetchedAt ?? 0,
+          serverMessageIds: new Set([
+            ...(conversationCacheRef.current.get(`${historyScope}:conversation:${conversation.id}`)?.serverMessageIds ?? []),
+            ...incoming.map(message => message.id),
+          ]),
+        });
+      }
       // A duplicate page can still be useful when its cursor advances: accept
       // that cursor and continue. Only a duplicate page pointing to the same
       // cursor is a no-progress loop; a clean null cursor is normal exhaustion.
@@ -1268,9 +1757,19 @@ export function CoachChatProvider({
       setOlderBefore(snapshot.nextBefore);
     } catch (error) {
       if (scopeEpochRef.current === epoch && scopeKeyRef.current === scopeKey) {
-        setConversationError(
-          error instanceof Error ? error.message : 'Could not load older messages. Please try again.',
-        );
+        const status =
+          error && typeof error === 'object' && 'status' in error
+            ? (error as { status?: unknown }).status
+            : undefined;
+        if (status === 401 || status === 403) {
+          revokeConversationAccess(
+            error instanceof Error ? error.message : 'Your coach access is no longer available.',
+          );
+        } else {
+          setConversationError(
+            error instanceof Error ? error.message : 'Could not load older messages. Please try again.',
+          );
+        }
       }
     } finally {
       if (scopeEpochRef.current === epoch && scopeKeyRef.current === scopeKey) {
@@ -1278,10 +1777,22 @@ export function CoachChatProvider({
         setIsLoadingOlder(false);
       }
     }
-  }, [olderBefore]);
+  }, [olderBefore, revokeConversationAccess]);
 
   const setArchived = useCallback(
     async (conversation: CoachConversation, archived: boolean) => {
+      const operationAccount = accountKeyRef.current;
+      const operationGeneration = cacheGenerationRef.current;
+      const operationCurrent = () =>
+        accountKeyRef.current === operationAccount && cacheGenerationRef.current === operationGeneration;
+      const invalidateHistory = () => {
+        const scope = historyScopeKeyRef.current;
+        if (!scope) return;
+        for (const key of historyCacheRef.current.keys()) {
+          if (key.startsWith(`${scope}:`)) historyCacheRef.current.delete(key);
+        }
+        conversationCacheRef.current.delete(`${scope}:conversation:${conversation.id}`);
+      };
       const isSelected = selectedConversationRef.current?.id === conversation.id;
       if (archived && isSelected && inFlightRef.current) {
         const message = 'Wait for the coach response to finish or stop it before archiving this conversation.';
@@ -1320,6 +1831,7 @@ export function CoachChatProvider({
           }
         }
         await flushOutbox();
+        if (!operationCurrent()) throw staleCoachReadError();
         if (outboxRef.current.some(entry => entry.conversationId === conversation.id)) {
           const message = 'This conversation is still saving. Please try archiving again in a moment.';
           setConversationError(message);
@@ -1335,42 +1847,53 @@ export function CoachChatProvider({
           selectedConversationRef.current = updated;
           setSelectedConversation(updated);
         }
+        invalidateHistory();
         return;
       }
       const api = chatApiRef.current;
       if (!api) throw new Error('Your coach conversations are still loading. Please try again.');
       try {
         const updated = await api.updateCoachConversation(conversation.id, archived, conversation.version);
+        if (!operationCurrent()) throw staleCoachReadError();
         if (selectedConversationRef.current?.id === updated.id) {
           selectedConversationRef.current = updated;
           setSelectedConversation(updated);
         }
+        invalidateHistory();
       } catch (error) {
+        if (!operationCurrent()) throw staleCoachReadError();
         const message =
           error instanceof Error
             ? error.message
             : 'Could not update this conversation. Refresh and try again.';
-        setConversationError(message);
+        const status =
+          error && typeof error === 'object' && 'status' in error
+            ? (error as { status?: unknown }).status
+            : undefined;
+        if (status === 401 || status === 403) revokeConversationAccess(message);
+        else setConversationError(message);
         throw error;
       }
     },
-    [flushOutbox],
+    [flushOutbox, revokeConversationAccess],
   );
 
-  const refreshThread = useCallback(async () => {
-    if (isLoadingOlderRef.current) return;
-    const conversation = selectedConversationRef.current;
-    if (!conversation) return;
-    await selectConversation(conversation.id);
+  const refreshThread = useCallback(async (force = false) => {
+    // Never replace a live paced exchange with a focus/sync refresh; the
+    // stream owns this transcript until it finalizes or the patient stops it.
+    if (isLoadingOlderRef.current || inFlightRef.current) return;
+    const id = selectedConversationRef.current?.id ?? pendingConversationIdRef.current;
+    if (!id) return;
+    await selectConversation(id, force);
   }, [selectConversation]);
 
   useEffect(() => {
     if (!realAccount) return;
     const appState = AppState.addEventListener('change', state => {
-      if (state === 'active') void refreshThread().catch(() => {});
+      if (state === 'active') void refreshThread(true).catch(() => {});
     });
     const unsubscribe = subscribeChatSync(thread => {
-      if (thread === 'coach') void refreshThread().catch(() => {});
+      if (thread === 'coach') void refreshThread(true).catch(() => {});
     });
     return () => {
       appState.remove();
@@ -1425,6 +1948,36 @@ export function CoachChatProvider({
       row.id === conversation.id ? stored : row,
     );
   }, [messages]);
+
+  // Keep finalized local turns available on a warm return. stop() produces a
+  // deliberate fragment after the initial server snapshot; without this a
+  // same-conversation cache hit could resurrect that older snapshot and hide
+  // the patient's own finalized turn.
+  useEffect(() => {
+    const conversation = selectedConversationRef.current;
+    const historyScope = historyScopeKeyRef.current;
+    const scopeKey = scopeKeyRef.current;
+    if (
+      !conversation ||
+      !historyScope ||
+      !scopeKey ||
+      scopeKey !== `${historyScope}:${conversation.id}` ||
+      isStreaming
+    ) {
+      return;
+    }
+    conversationCacheRef.current.set(`${historyScope}:conversation:${conversation.id}`, {
+      conversation,
+      messages: messagesRef.current.filter(message => message.status === 'done'),
+      nextBefore: olderBefore,
+      // A local finalization is not a server newest-page validation.
+      fetchedAt:
+        conversationCacheRef.current.get(`${historyScope}:conversation:${conversation.id}`)?.fetchedAt ?? 0,
+      serverMessageIds:
+        conversationCacheRef.current.get(`${historyScope}:conversation:${conversation.id}`)?.serverMessageIds ??
+        new Set(),
+    });
+  }, [messages, isStreaming, olderBefore, selectedConversation]);
 
   /**
    * Completes a fully revealed reply: marks it done (trimming whitespace a
@@ -1669,7 +2222,11 @@ export function CoachChatProvider({
    * after sign-out or after the patient chose another conversation.
    */
   const ensureConversation = useCallback(async (): Promise<CoachConversation | null> => {
+    // A selected destination without a transcript must finish (or report its
+    // error) before a send may create anything. This is the last gate against
+    // a tap during a cold A→B selection landing in a brand-new conversation.
     const current = selectedConversationRef.current;
+    if (pendingConversationIdRef.current && current?.id !== pendingConversationIdRef.current) return null;
     if (current) return current;
     const epoch = scopeEpochRef.current;
     const identity = accountKeyRef.current;
@@ -1688,10 +2245,18 @@ export function CoachChatProvider({
       };
       if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return null;
       demoConversationsRef.current = [conversation, ...demoConversationsRef.current];
+      const historyScope = historyScopeKeyRef.current;
+      if (historyScope) {
+        for (const key of historyCacheRef.current.keys()) {
+          if (key.startsWith(`${historyScope}:`)) historyCacheRef.current.delete(key);
+        }
+      }
       selectedConversationRef.current = conversation;
-      scopeKeyRef.current = `demo:${conversation.id}`;
+      pendingConversationIdRef.current = null;
+      scopeKeyRef.current = `demo:epoch-${accountEpochRef.current}:${conversation.id}`;
       setSelectedConversation(conversation);
-      setRenderedScopeKey(`demo:${conversation.id}`);
+      setPendingConversationId(null);
+      setRenderedScopeKey(`demo:epoch-${accountEpochRef.current}:${conversation.id}`);
       return conversation;
     }
     const api = chatApiRef.current;
@@ -1701,10 +2266,18 @@ export function CoachChatProvider({
         `coach-${sessionNonceRef.current}-${++idRef.current}`,
       );
       if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return null;
-      const scopeKey = `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:${conversation.id}`;
+      const scopeKey = `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:epoch-${accountEpochRef.current}:${conversation.id}`;
+      const historyScope = historyScopeKeyRef.current;
+      if (historyScope) {
+        for (const key of historyCacheRef.current.keys()) {
+          if (key.startsWith(`${historyScope}:`)) historyCacheRef.current.delete(key);
+        }
+      }
       selectedConversationRef.current = conversation;
+      pendingConversationIdRef.current = null;
       scopeKeyRef.current = scopeKey;
       setSelectedConversation(conversation);
+      setPendingConversationId(null);
       hydratedKeyRef.current = scopeKey;
       setRenderedScopeKey(scopeKey);
       return conversation;
@@ -2325,6 +2898,16 @@ export function CoachChatProvider({
   }, []);
 
   const clearLocalState = useCallback(() => {
+    flushGenerationRef.current += 1;
+    scopeEpochRef.current += 1;
+    selectionRequestRef.current += 1;
+    cacheGenerationRef.current += 1;
+    accountEpochRef.current += 1;
+    setAccountEpoch(accountEpochRef.current);
+    conversationCacheRef.current.clear();
+    conversationRequestsRef.current.clear();
+    historyCacheRef.current.clear();
+    historyRequestsRef.current.clear();
     abortRef.current?.abort();
     if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
     revealRef.current = null;
@@ -2347,15 +2930,40 @@ export function CoachChatProvider({
       clearTimeout(flushTimerRef.current);
       flushTimerRef.current = null;
     }
+    selectedConversationRef.current = null;
+    pendingConversationIdRef.current = null;
+    scopeKeyRef.current =
+      accountRef.current.resolving
+        ? null
+        : accountRef.current.kind === 'real'
+          ? `${accountKeyRef.current}:epoch-${accountEpochRef.current}:fresh`
+          : `demo:epoch-${accountEpochRef.current}:fresh`;
+    setSelectedConversation(null);
+    setPendingConversationId(null);
+    setConversationError(null);
+    setAccessDeniedError(null);
+    setOlderBefore(null);
+    isLoadingOlderRef.current = false;
+    setIsLoadingOlder(false);
+    setIsConversationLoading(false);
+    setIsConversationRefreshing(false);
+    setLoadedConversationScopeKey(null);
     const seed =
       !accountRef.current.resolving && accountRef.current.kind === 'demo'
         ? [buildGreetingMessage()]
         : [];
     messagesRef.current = seed;
     setMessages(seed);
+    setRenderedScopeKey(scopeKeyRef.current);
   }, [updateLabelFlow]);
 
   const visibleMessages = renderedScopeKey === conversationScopeKey ? messages : [];
+  // A fresh composer is a ready local destination, even though it correctly
+  // has no server transcript/row yet. Only a selected cold/error destination
+  // is "not loaded" and must keep the composer blocked.
+  const hasConversationLoaded =
+    loadedConversationScopeKey === conversationScopeKey ||
+    Boolean(conversationScopeKey?.endsWith(':fresh'));
 
   const value = useMemo(
     () => ({
@@ -2364,12 +2972,17 @@ export function CoachChatProvider({
       pendingStage,
       selectedConversation,
       conversationScopeKey,
+      historyScopeKey,
       conversationError,
+      accessDeniedError,
       isConversationLoading,
+      isConversationRefreshing,
+      hasConversationLoaded,
       hasOlderMessages: olderBefore !== null,
       isLoadingOlder,
       startNewConversation,
       selectConversation,
+      getCachedConversations,
       listConversations,
       setArchived,
       loadOlder,
@@ -2392,12 +3005,17 @@ export function CoachChatProvider({
       pendingStage,
       selectedConversation,
       conversationScopeKey,
+      historyScopeKey,
       conversationError,
+      accessDeniedError,
       isConversationLoading,
+      isConversationRefreshing,
+      hasConversationLoaded,
       olderBefore,
       isLoadingOlder,
       startNewConversation,
       selectConversation,
+      getCachedConversations,
       listConversations,
       setArchived,
       loadOlder,

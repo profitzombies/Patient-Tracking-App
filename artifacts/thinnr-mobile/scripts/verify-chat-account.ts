@@ -230,6 +230,7 @@ const coachPausedFor = new Set<string>();
 const PAUSED_MESSAGE =
   'Your care team has paused the coach for now. Your diary, check-ins, and photos keep working, and the coach will be back as soon as they turn it on again.';
 const uploadPuts: string[] = [];
+let uploadPutGate: Promise<void> | null = null;
 const mintedPaths: string[] = [];
 let uploadCounter = 0;
 let conversationCounter = 0;
@@ -454,6 +455,9 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   if (url.pathname.startsWith('/upload/')) {
     if (method !== 'PUT') throw new Error(`unexpected ${method} to ${url.pathname}`);
     uploadPuts.push(url.pathname);
+    const gate = uploadPutGate;
+    uploadPutGate = null;
+    if (gate) await gate;
     return { ok: true, status: 200, json: async () => ({}) } as Response;
   }
 
@@ -1061,37 +1065,39 @@ async function main() {
   });
   assert('second older page reaches the remaining history', chat.messages.length === 256 && chat.messages[0]?.id === 'page-1' && !chat.hasOlderMessages);
 
+  // A forced newest-page refresh must not discard already loaded pagination.
+  // The context now merges by id instead of wholesale replacing the thread.
+  await act(async () => {
+    await chat.refreshThread(true);
+  });
+  assert(
+    'forced newest refresh preserves older loaded pages without an error',
+    chat.messages.length === 256 && !chat.hasOlderMessages && chat.conversationError === null,
+  );
+
   const duplicateNewestPage = storedConversation('p-1', paged.id).slice(-100);
-  // A duplicate page that offers a new cursor must not be called a failed
-  // page: keep paging from the advancing cursor.
+  // Begin each pagination protocol with a genuinely cold account cache, not
+  // a re-selection that is now correctly served from already loaded pages.
+  async function reopenPagedCold() {
+    await act(async () => { chat.clearLocalState(); });
+    await act(async () => { await chat.selectConversation(paged.id); });
+  }
   coachPageOverrides.set(`p-1:${paged.id}:157`, {
     messages: duplicateNewestPage,
     nextBefore: 57,
   });
-  await act(async () => {
-    await chat.selectConversation(paged.id);
-  });
-  await act(async () => {
-    await chat.loadOlder();
-  });
+  await reopenPagedCold();
+  await act(async () => { await chat.loadOlder(); });
   assert(
     'duplicate older page with an advancing cursor remains pageable without an error',
     chat.messages.length === 100 && chat.hasOlderMessages && chat.conversationError === null,
   );
-  coachPageOverrides.delete(`p-1:${paged.id}:157`);
-
-  // A duplicate response at the same cursor is a genuine no-progress loop:
-  // stop its spinner/pageability and make the recovery action visible.
   coachPageOverrides.set(`p-1:${paged.id}:157`, {
     messages: duplicateNewestPage,
     nextBefore: 157,
   });
-  await act(async () => {
-    await chat.selectConversation(paged.id);
-  });
-  await act(async () => {
-    await chat.loadOlder();
-  });
+  await reopenPagedCold();
+  await act(async () => { await chat.loadOlder(); });
   assert(
     'same-cursor duplicate page stops with a visible no-progress error',
     !chat.hasOlderMessages && (chat.conversationError ?? '').includes('Could not load older messages'),
@@ -1100,12 +1106,8 @@ async function main() {
     messages: duplicateNewestPage,
     nextBefore: null,
   });
-  await act(async () => {
-    await chat.selectConversation(paged.id);
-  });
-  await act(async () => {
-    await chat.loadOlder();
-  });
+  await reopenPagedCold();
+  await act(async () => { await chat.loadOlder(); });
   assert(
     'duplicate page ending at a null cursor is clean exhaustion, not an error',
     !chat.hasOlderMessages && chat.conversationError === null,
@@ -1237,7 +1239,7 @@ async function main() {
   const photoRow = storedConversation('p-1', photoConversationId).find(row => Boolean((row.photo as { path?: string } | undefined)?.path));
   assert('photo upload was minted and finalized once for its turn', Boolean(photoRow) && uploadPuts.length >= 1 && callsTo('patient-media/finalize').length >= 1);
   await act(async () => {
-    await chat.selectConversation(photoConversationId);
+    await chat.refreshThread(true);
   });
   assert('photo hydration uses the signed display URL', Boolean(photoRow && chat.messages.find(message => message.id === photoRow.id)?.photo?.uri.includes('/patient-media/file?path=')));
 
@@ -1277,6 +1279,54 @@ async function main() {
   await act(async () => {
     await chat.selectConversation(firstConversationId);
   });
+  const putCount = uploadPuts.length;
+  let releaseUploadPut!: () => void;
+  uploadPutGate = new Promise<void>(resolve => { releaseUploadPut = resolve; });
+  await act(async () => { chat.sendPhoto({ uri: delayedPhoto, width: 16, height: 12 }, 'meal'); });
+  const uploadingStream = await takeStream('photo PUT held across clear');
+  await waitUntil('photo persistence reaches the actual presigned PUT', () => uploadPuts.length > putCount);
+  const appendCountBeforeClear = callsTo(`patient-coach/conversations/${firstConversationId}/messages`).length;
+  await act(async () => { chat.clearLocalState(); releaseUploadPut(); });
+  uploadingStream?.close();
+  await settle();
+  assert('completed photo upload after clear cannot append a purged old turn',
+    callsTo(`patient-coach/conversations/${firstConversationId}/messages`).length === appendCountBeforeClear);
+  assert('completed photo upload after clear cannot restore a transcript or save error',
+    chat.messages.length === 0 && chat.conversationError === null);
+  await act(async () => { await chat.selectConversation(firstConversationId); });
+
+  // Selection is not revocation: an in-flight upload must still save to its
+  // captured old thread when the same patient simply opens another one.
+  const movingPutCount = uploadPuts.length;
+  let releaseMovingPut!: () => void;
+  uploadPutGate = new Promise<void>(resolve => { releaseMovingPut = resolve; });
+  await act(async () => { chat.sendPhoto({ uri: delayedPhoto, width: 16, height: 12 }, 'meal'); });
+  const movingPhotoStream = await takeStream('photo PUT held across same-account selection');
+  const movingPhotoId = [...chat.messages].reverse().find(message => message.role === 'user' && message.photo)?.id;
+  await waitUntil('same-account photo reaches PUT', () => uploadPuts.length > movingPutCount);
+  const destinationRowsBefore = JSON.stringify(storedConversation('p-1', secondConversationId));
+  await act(async () => { await chat.selectConversation(secondConversationId); releaseMovingPut(); });
+  movingPhotoStream?.close();
+  await waitUntil('original thread receives its completed photo association', () =>
+    storedConversation('p-1', firstConversationId).some(row =>
+      row.id === movingPhotoId && Boolean((row.photo as { path?: string } | undefined)?.path)));
+  assert('photo completion never mutates the newly selected conversation',
+    chat.selectedConversation?.id === secondConversationId &&
+    !chat.messages.some(message => message.id === movingPhotoId) &&
+    JSON.stringify(storedConversation('p-1', secondConversationId)) === destinationRowsBefore);
+  const readsBeforePhotoReturn = callsTo(`patient-coach/conversations/${firstConversationId}`).filter(call => call.method === 'GET').length;
+  await act(async () => { await chat.selectConversation(firstConversationId); });
+  await settle();
+  assert('photo return is a genuinely warm cache hit',
+    callsTo(`patient-coach/conversations/${firstConversationId}`).filter(call => call.method === 'GET').length === readsBeforePhotoReturn);
+  assert('warm return retains uploaded photo in UI and cannot null its server row',
+    Boolean(chat.messages.find(message => message.id === movingPhotoId)?.photo?.path) &&
+    storedConversation('p-1', firstConversationId).some(row =>
+      row.id === movingPhotoId && Boolean((row.photo as { path?: string } | undefined)?.path)));
+  await act(async () => { chat.clearLocalState(); });
+  await act(async () => { await chat.selectConversation(firstConversationId); });
+  assert('uploaded photo survives subsequent server rehydration',
+    Boolean(chat.messages.find(message => message.id === movingPhotoId)?.photo?.path));
   const mediaCallsBeforeSwitch = callsTo('patient-media/upload-url').length;
   const releaseP1PhotoToken = holdNextStubSessionLookup(1);
   await act(async () => {
@@ -1294,8 +1344,9 @@ async function main() {
   );
   heldPhotoStream?.close();
 
-  // Park a failed P1 append, switch accounts before its retry, and prove P2
-  // drains independently. Returning to P1 must safely resume only P1's work.
+  // Park a failed P1 append, then switch accounts. The account boundary
+  // purges the private outbox; returning to P1 may hydrate server truth but
+  // must never revive the abandoned queued write under a new epoch.
   // P2 is already selected above; switch back just long enough to create the
   // parked P1 append.
   await signIn(P1);
@@ -1329,11 +1380,13 @@ async function main() {
   await act(async () => {
     await chat.selectConversation(parkedConversationId);
   });
-  await waitUntil('returning P1 resumes its parked append safely', () =>
-    storedConversation('p-1', parkedConversationId).some(row => row.text === 'P1 reply waiting to save.'),
+  assert(
+    'returning P1 does not revive a purged parked append',
+    !storedConversation('p-1', parkedConversationId).some(row => row.text === 'P1 reply waiting to save.'),
   );
-  await waitUntil('returning P1 photo uses its original account binding', () =>
-    callsTo('patient-media/upload-url').slice(mediaCallsBeforeSwitch).some(call => call.token === 'tok-p1'),
+  assert(
+    'returning P1 does not revive the abandoned photo upload',
+    !callsTo('patient-media/upload-url').slice(mediaCallsBeforeSwitch).some(call => call.token === 'tok-p1'),
   );
   await unmount(tree);
 

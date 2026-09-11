@@ -54,6 +54,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { CoachCardSlot } from "@/components/coach/CoachCardSlot";
 import { ThinkingIndicator } from "@/components/coach/ThinkingIndicator";
+import { CoachTranscriptSkeleton } from "@/components/coach/CoachTranscriptSkeleton";
 import type { CoachStage } from "@/lib/coach-api";
 // Side-effect imports: register the "product" and "recipe" card renderers
 // into the card slot.
@@ -146,12 +147,20 @@ export default function CoachChatScreen() {
     conversationScopeKey,
     conversationError,
     isConversationLoading,
+    isConversationRefreshing,
+    hasConversationLoaded,
+    accessDeniedError,
     hasOlderMessages,
     isLoadingOlder,
     loadOlder,
     startNewConversation,
   } =
     useCoachChat();
+  // Unknown/denied selections cannot send (including quick replies and photos).
+  // A cached transcript remains readable during refresh, but never represents
+  // a different selected thread. The provider enforces the same write barrier.
+  const transcriptUnknown = hasConversationLoaded === false || isConversationLoading;
+  const composerBlocked = transcriptUnknown || !!coachPaused || !!selectedConversation?.archivedAt || !!accessDeniedError;
   const [draft, setDraft] = useState("");
   const [photoOptionsOpen, setPhotoOptionsOpen] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -195,8 +204,8 @@ export default function CoachChatScreen() {
     sourceMessageId && messages.some(message => message.id === sourceMessageId),
   );
   const showSourceUnavailable =
-    sourceUnavailable ||
-    Boolean(sourceMessageId && !sourceIsPresent && !hasOlderMessages && !isLoadingOlder);
+    !transcriptUnknown && !conversationError && (sourceUnavailable ||
+    Boolean(sourceMessageId && !sourceIsPresent && !hasOlderMessages && !isLoadingOlder));
   useEffect(() => {
     sourceLayoutsRef.current.clear();
     setFocusedSourceMessageId(null);
@@ -208,7 +217,7 @@ export default function CoachChatScreen() {
       sourcePageRequestRef.current = null;
       return;
     }
-    if (!hasOlderMessages || isLoadingOlder) return;
+    if (transcriptUnknown || !hasOlderMessages || isLoadingOlder) return;
     const requestKey = `${conversationScopeKey}:${sourceMessageId}:${messages.length}`;
     if (sourcePageRequestRef.current === requestKey) return;
     sourcePageRequestRef.current = requestKey;
@@ -221,15 +230,16 @@ export default function CoachChatScreen() {
     isLoadingOlder,
     loadOlder,
     conversationScopeKey,
+    transcriptUnknown,
   ]);
 
   useEffect(() => {
-    if (!sourceMessageId || sourceIsPresent || hasOlderMessages || isLoadingOlder) return;
+    if (transcriptUnknown || conversationError || !sourceMessageId || sourceIsPresent || hasOlderMessages || isLoadingOlder) return;
     setSourceUnavailable(true);
     if (Platform.OS === "ios") {
       AccessibilityInfo.announceForAccessibility("Source message no longer available");
     }
-  }, [sourceMessageId, sourceIsPresent, hasOlderMessages, isLoadingOlder]);
+  }, [sourceMessageId, sourceIsPresent, hasOlderMessages, isLoadingOlder, transcriptUnknown, conversationError]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -321,7 +331,7 @@ export default function CoachChatScreen() {
 
   const submitDraft = () => {
     const text = draft.trim();
-    if (!text || isStreaming || coachPaused || selectedConversation?.archivedAt) return;
+    if (!text || isStreaming || composerBlocked) return;
     Haptics.selectionAsync();
     setDraft("");
     send(text);
@@ -373,6 +383,7 @@ export default function CoachChatScreen() {
   };
 
   const takePhoto = async () => {
+    if (composerBlocked) return;
     Haptics.selectionAsync();
     setPhotoError(null);
     // The app's own full-screen camera (app/food-camera) owns permission
@@ -439,7 +450,7 @@ export default function CoachChatScreen() {
   };
 
   const confirmStagedPhoto = () => {
-    if (!stagedPhoto || isStreaming) return;
+    if (!stagedPhoto || isStreaming || composerBlocked) return;
     Haptics.selectionAsync();
     sendPhoto(stagedPhoto);
     setStagedPhoto(null);
@@ -454,6 +465,7 @@ export default function CoachChatScreen() {
   };
 
   const choosePhoto = async () => {
+    if (composerBlocked) return;
     const operationEpoch = nativeOperationEpochRef.current;
     Haptics.selectionAsync();
     setPhotoError(null);
@@ -499,7 +511,8 @@ export default function CoachChatScreen() {
             accessibilityLabel="Go back"
             onPress={() => {
               Haptics.selectionAsync();
-              router.back();
+              if (router.canGoBack()) router.back();
+              else router.replace("/coach-history");
             }}
             style={({ pressed }) => [
               styles.backBtn,
@@ -583,7 +596,18 @@ export default function CoachChatScreen() {
           <Text style={[styles.conversationErrorText, { color: colors.riskText }]}>
             {conversationError}
           </Text>
+          <Pressable testID="coach-conversation-retry" accessibilityRole="button"
+            accessibilityLabel="Retry loading conversation"
+            onPress={() => void refreshThread(true).catch(() => {})}>
+            <Text style={[styles.loadOlderText, { color: colors.cobalt }]}>Retry</Text>
+          </Pressable>
         </View>
+      ) : null}
+      {isConversationRefreshing && !isConversationLoading ? (
+        <Text testID="coach-refresh-status" accessibilityLiveRegion="polite"
+          style={[styles.loadOlderText, { color: colors.subtleText, paddingHorizontal: 18, paddingTop: 8 }]}>
+          Refreshing conversation…
+        </Text>
       ) : null}
 
       <ScrollView
@@ -600,7 +624,7 @@ export default function CoachChatScreen() {
         }}
         scrollEventThrottle={32}
       >
-        {hasOlderMessages ? (
+        {isLoadingOlder ? <CoachTranscriptSkeleton older /> : hasOlderMessages ? (
           <Pressable
             testID="coach-load-older"
             accessibilityRole="button"
@@ -645,6 +669,7 @@ export default function CoachChatScreen() {
             matters.
           </Text>
         </View>
+        {isConversationLoading ? <CoachTranscriptSkeleton /> : null}
         {showSourceUnavailable ? (
           <View
             testID="coach-source-unavailable"
@@ -693,7 +718,7 @@ export default function CoachChatScreen() {
           ))}
         {/* Until the patient joins in, the starter prompts sit under the
             seeded greeting as ready-made conversation openers. */}
-        {hasUserMessage ? null : (
+        {hasUserMessage || composerBlocked ? null : (
           <View style={styles.starterBlock}>
             <Text style={[styles.starterLabel, { color: colors.labelText }]}>
               TRY ASKING
@@ -738,7 +763,7 @@ export default function CoachChatScreen() {
             in this one wrapping row — chip taps send their exact label as
             text (the server's follow-up detectors key on those labels), and
             the retake chip keeps its fresh-capture role alongside. */}
-        {!selectedConversation?.archivedAt &&
+        {!composerBlocked &&
         (offersQuickReplies(messages[messages.length - 1], isStreaming) ||
         offersMealPhotoRetake(messages, isStreaming)) ? (
           <View style={styles.quickReplyRow}>
@@ -877,13 +902,13 @@ export default function CoachChatScreen() {
               </Text>
             </View>
           ) : null}
-          {photoOptionsOpen && !coachPaused ? (
+          {photoOptionsOpen && !composerBlocked ? (
             <View style={styles.photoOptionsRow}>
               {Platform.OS !== "web" ? (
                 <Pressable
                   testID="coach-photo-take"
                   accessibilityRole="button"
-                  disabled={isStreaming || preparing}
+                  disabled={isStreaming || preparing || composerBlocked}
                   onPress={takePhoto}
                   style={({ pressed }) => [
                     styles.photoOptionChip,
@@ -908,7 +933,7 @@ export default function CoachChatScreen() {
               <Pressable
                 testID="coach-photo-choose"
                 accessibilityRole="button"
-                disabled={isStreaming || preparing || !!selectedConversation?.archivedAt}
+                disabled={isStreaming || preparing || composerBlocked}
                 onPress={choosePhoto}
                 style={({ pressed }) => [
                   styles.photoOptionChip,
@@ -937,10 +962,11 @@ export default function CoachChatScreen() {
               accessibilityRole="button"
               accessibilityLabel="Send a photo"
               accessibilityState={{
-                disabled: isStreaming || preparing || !!coachPaused || !!selectedConversation?.archivedAt,
+                disabled: isStreaming || preparing || composerBlocked,
                 expanded: photoOptionsOpen,
               }}
-              disabled={isStreaming || preparing || !!coachPaused || !!selectedConversation?.archivedAt}
+              disabled={isStreaming || preparing || composerBlocked}
+              aria-disabled={isStreaming || preparing || composerBlocked}
               onPress={() => {
                 Haptics.selectionAsync();
                 setPhotoError(null);
@@ -983,13 +1009,14 @@ export default function CoachChatScreen() {
                   ? "Restore this conversation to continue"
                   : coachPaused
                     ? "Coach paused by your care team"
-                    : isConversationLoading
-                      ? "Loading conversation…"
+                    : transcriptUnknown
+                      ? isConversationLoading ? "Loading conversation…" : "Retry to load this conversation"
                       : "Message your coach"
               }
               placeholderTextColor={colors.subtleText}
-              editable={!isStreaming && !coachPaused && !selectedConversation?.archivedAt && !isConversationLoading}
-              accessibilityState={{ disabled: !!coachPaused || !!selectedConversation?.archivedAt || isConversationLoading }}
+              editable={!isStreaming && !composerBlocked}
+              accessibilityState={{ disabled: isStreaming || composerBlocked }}
+              aria-disabled={isStreaming || composerBlocked}
               returnKeyType="send"
               onSubmitEditing={submitDraft}
               submitBehavior="submit"
@@ -1034,15 +1061,16 @@ export default function CoachChatScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Send message"
                 accessibilityState={{
-                  disabled: draft.trim().length === 0 || !!coachPaused || !!selectedConversation?.archivedAt || isConversationLoading,
+                  disabled: draft.trim().length === 0 || composerBlocked,
                 }}
-                disabled={draft.trim().length === 0 || !!coachPaused || !!selectedConversation?.archivedAt || isConversationLoading}
+                disabled={draft.trim().length === 0 || composerBlocked}
+                aria-disabled={draft.trim().length === 0 || composerBlocked}
                 onPress={submitDraft}
                 style={({ pressed }) => [
                   styles.sendBtn,
                   {
                     backgroundColor:
-                      draft.trim().length === 0 || coachPaused || selectedConversation?.archivedAt || isConversationLoading
+                      draft.trim().length === 0 || composerBlocked
                         ? colors.cobaltMuted
                         : colors.cobalt,
                     borderRadius: colors.radiusSm,

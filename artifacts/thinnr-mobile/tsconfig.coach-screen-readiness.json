@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.chat-account.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "@/context/CoachChatContext": ["./scripts/coach-readiness-stubs/screen-context.ts"],
+      "@/lib/supabase": ["./scripts/live-diary-stubs/supabase.ts"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/chat-account-stubs/expo-router.ts"],
+      "react-native-reanimated": ["./scripts/chat-account-stubs/react-native-reanimated.ts"],
+      "@/components/ui/AppModal": ["./scripts/meal-photo-stubs/app-modal.ts"],
+      "@/data/product-images": ["./scripts/chat-account-stubs/product-images.ts"],
+      "@/data/recipe-images": ["./scripts/guided-photo-stubs/recipe-images.ts"],
+      "expo-camera": ["./scripts/meal-photo-stubs/expo-camera.ts"],
+      "expo-media-library": ["./scripts/meal-photo-stubs/expo-media-library.ts"],
+      "expo-media-library/legacy": ["./scripts/meal-photo-stubs/expo-media-library.ts"],
+      "expo-image": ["./scripts/label-scan-stubs/expo-image.ts"],
+      "expo-image-picker": ["./scripts/label-scan-stubs/expo-image-picker.ts"],
+      "expo-image-manipulator": ["./scripts/label-scan-stubs/expo-image-manipulator.ts"],
+      "react-native-safe-area-context": ["./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"],
+      "react-native-keyboard-controller": ["./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/onboarding-gate-stubs/async-storage.ts"]
+    }
+  }
+}

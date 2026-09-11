@@ -64,6 +64,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
+args = "coach-readiness"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
 args = "care-team-api"
 
 [[workflows.workflow.tasks]]
@@ -1327,6 +1331,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:food-detail && pnpm --filter @workspace/thinnr-mobile run test:food-portions && pnpm --filter @workspace/thinnr-mobile run test:food-nutrition && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "coach-readiness"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile exec tsx --tsconfig tsconfig.coach-readiness.json scripts/verify-coach-readiness.tsx && pnpm --filter @workspace/thinnr-mobile exec tsx --tsconfig tsconfig.coach-screen-readiness.json scripts/verify-coach-screen-readiness.tsx && pnpm --filter @workspace/thinnr-mobile exec tsx --tsconfig tsconfig.route-hydration.json scripts/verify-route-hydration-shells.tsx && node artifacts/thinnr-mobile/scripts/verify-route-hydration-shells.mjs"
 
 [workflows.workflow.metadata]
 isValidation = true

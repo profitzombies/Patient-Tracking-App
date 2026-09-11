@@ -9,6 +9,10 @@ export function usePatient(): { hydrated: boolean } {
   return { hydrated: patientState.hydrated };
 }
 
+export function usePatientSyncNotice() {
+  return null;
+}
+
 /** Demo posture: the offline queue is disabled, so the chip never renders. */
 export function usePatientSync() {
   return {

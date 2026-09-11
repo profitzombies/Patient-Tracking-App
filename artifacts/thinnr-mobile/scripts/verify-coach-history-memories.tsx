@@ -191,6 +191,17 @@ async function main() {
   assert("archived tab wins over late active request", includesText(history, "archived-1") && !includesText(history, "active-stale"));
   assert("history renders an explicit populated state", hasTestId(history, "history-list"));
   assert("history requested both tab pages", historyCalls === 2);
+  const openHeld = deferred<void>();
+  let selectedId: string | null = null;
+  coachState.select = id => { selectedId = id; return openHeld.promise; };
+  routerCalls.length = 0;
+  const navigationStarted = performance.now();
+  await tap(buttonByLabel(history, "Open conversation: archived-1"));
+  const navigationElapsed = performance.now() - navigationStarted;
+  assert("selection establishes the requested conversation immediately", selectedId === "archived-1");
+  assert("history opens destination before held transcript completes", routerCalls.includes("push:/coach-chat"));
+  console.log(`synthetic history tap→destination dispatch=${navigationElapsed.toFixed(2)}ms; transcript still held`);
+  await act(async () => { openHeld.resolve(); });
   await tap(byTestId(history, "history-load-more"));
   await settle();
   assert("history appends the 21st row after a 20-row first page", includesText(history, "conversation-21"));
@@ -207,6 +218,13 @@ async function main() {
   assert("history rows remain usable during incremental refresh", buttonByLabel(history, "Open conversation: archived-1") !== null);
   await act(async () => { refreshHeld.resolve({ conversations: conversationPage("refreshed", 2), nextOffset: null }); await Promise.resolve(); });
   await settle();
+
+  // A retryable background failure must not remove already-visible rows.
+  coachState.list = async () => { throw new Error("offline"); };
+  await update(history, React.createElement(CoachHistoryScreen));
+  assert("refresh failure retains populated history", includesText(history, "refreshed-1") && hasTestId(history, "history-list"));
+  assert("stale history explicitly offers retry", hasTestId(history, "history-refresh-retry"));
+  assert("stale failure is neither skeleton nor empty", !hasTestId(history, "history-loading") && !hasTestId(history, "history-empty-state"));
 
   // Pagination errors are visible/retryable rather than console-only.
   coachState.list = (_archived, offset) =>
@@ -284,6 +302,35 @@ async function main() {
   assert("archived empty state can return to active history", includesText(emptyHistory, "No active conversations yet"));
   await act(async () => { emptyHistory.unmount(); });
   coachState.start = () => {};
+
+  // Account cache is only used as a synchronous initial value; successful
+  // empty pages count as known data and do not flash a skeleton on refresh.
+  coachState.cached = () => ({ conversations: [conversation("cached-a")], nextOffset: 20 });
+  const cachedRefresh = deferred<{ conversations: Conversation[]; nextOffset: number | null }>();
+  coachState.list = () => cachedRefresh.promise;
+  const warmHistory = await renderHistory();
+  assert("warm mount paints cached row while network held", includesText(warmHistory, "cached-a"));
+  assert("warm mount has no initial skeleton", !hasTestId(warmHistory, "history-loading"));
+  await act(async () => { cachedRefresh.reject(Object.assign(new Error("denied"), { status: 403 })); });
+  assert("denied history removes cached rows", !includesText(warmHistory, "cached-a") && hasTestId(warmHistory, "history-error-state"));
+  await act(async () => { warmHistory.unmount(); });
+  const revokedPage = deferred<{ conversations: Conversation[]; nextOffset: number | null }>();
+  coachState.list = () => revokedPage.promise;
+  const revokedHistory = await renderHistory();
+  coachState.accessDeniedError = "Your account access is unavailable. Retry to continue.";
+  await act(async () => { revokedHistory.update(<CoachHistoryScreen />); });
+  assert("revocation from another Coach operation immediately hides local cached rows", !includesText(revokedHistory, "cached-a") && hasTestId(revokedHistory, "history-error-state"));
+  await act(async () => { revokedPage.resolve({ conversations: [conversation("late-private-page")], nextOffset: null }); });
+  assert("held history success after shared revocation cannot paint private rows", !includesText(revokedHistory, "late-private-page") && !includesText(revokedHistory, "cached-a"));
+  await act(async () => { revokedHistory.unmount(); });
+  coachState.accessDeniedError = null;
+  coachState.cached = () => ({ conversations: [], nextOffset: null });
+  const emptyRefresh = deferred<{ conversations: Conversation[]; nextOffset: number | null }>();
+  coachState.list = () => emptyRefresh.promise;
+  const knownEmptyHistory = await renderHistory();
+  assert("known-empty warm mount does not flash skeleton", hasTestId(knownEmptyHistory, "history-empty-state") && !hasTestId(knownEmptyHistory, "history-loading"));
+  await act(async () => { emptyRefresh.resolve({ conversations: [], nextOffset: null }); knownEmptyHistory.unmount(); });
+  coachState.cached = () => undefined;
 
   // ── Memories: demo must never invoke a generated read/write ───────────────
   let memoryReads = 0;

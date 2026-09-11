@@ -12,11 +12,12 @@ import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInpu
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientContentBottom } from '@/constants/layout';
 import { Feather } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
 import { FavoriteStar } from '@/components/patient/FavoriteStar';
+import { FoodSearchSkeleton } from '@/components/patient/FoodSearchSkeleton';
+import { LibraryImage } from '@/components/patient/LibraryImage';
 import { MealPhotoButton } from '@/components/patient/MealPhotoButton';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { Divider, EmptyState, LedgerCard, PillSelector, SectionHeader } from '@/components/ui/LedgerPrimitives';
@@ -49,7 +50,7 @@ export default function LibraryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
-  const { account } = usePatientAccount();
+  const { account, resolving } = usePatientAccount();
   const basket = useFoodLogging();
   const { byId: loggableById } = useLoggableItems();
   const [view, setView] = useState<LibraryView>('recipes');
@@ -64,6 +65,36 @@ export default function LibraryScreen() {
   const [foodFavoritesOnly, setFoodFavoritesOnly] = useState(false);
   const [foodApprovedOnly, setFoodApprovedOnly] = useState(false);
   const [foodFavoriteLimit, setFoodFavoriteLimit] = useState(6);
+  // Remote catalog searches are debounced. Keep the last completed result for
+  // this exact account-epoch/query/filter key so a retry or an in-flight
+  // refresh never turns valid rows into a false empty state.
+  const catalogCacheRef = useRef(new Map<string, FoodItem[]>());
+  const lastRemoteQueryRef = useRef('');
+  const cacheScopeRef = useRef({
+    owner: resolving
+      ? 'resolving'
+      : account.kind === 'real'
+        ? `real:${account.patientId}`
+        : account.kind,
+    epoch: 0,
+  });
+  const cacheOwner = resolving
+    ? 'resolving'
+    : account.kind === 'real'
+      ? `real:${account.patientId}`
+      : account.kind;
+  // The account resolver can move A → B → A.  The owner identity alone is
+  // not enough: returning to A must not revive rows from the previous
+  // hydration epoch. Clear synchronously before rendering the new owner.
+  if (cacheScopeRef.current.owner !== cacheOwner) {
+    cacheScopeRef.current = {
+      owner: cacheOwner,
+      epoch: cacheScopeRef.current.epoch + 1,
+    };
+    catalogCacheRef.current.clear();
+    lastRemoteQueryRef.current = '';
+  }
+  const cacheNamespace = `${cacheOwner}:epoch-${cacheScopeRef.current.epoch}`;
   // Selection tracks a row key (section + food id) instead of a bare food id:
   // a favorited food appears both in the pinned Favorites section and in its
   // category, and only the tapped copy should expand.
@@ -124,6 +155,51 @@ export default function LibraryScreen() {
     patient.catalogFoods,
     patient.recents,
   );
+  const catalogCacheKey = [
+    cacheNamespace,
+    foodQuery.trim().toLowerCase(),
+    foodApprovedOnly ? 'approved' : 'all',
+  ].join('\0');
+  const remoteQueryKey = [
+    cacheNamespace,
+    foodQuery.trim().toLowerCase(),
+  ].join('\0');
+  const cachedCatalogResults = catalogCacheRef.current.get(catalogCacheKey);
+  const hasCachedCatalogResults = catalogCacheRef.current.has(catalogCacheKey);
+  const searchResults = catalogSearch.results ?? [];
+  const catalogResults =
+    hasCachedCatalogResults &&
+    (catalogSearch.loading || !!catalogSearch.error || catalogSearch.upstreamUnavailable)
+      ? cachedCatalogResults ?? []
+      : searchResults;
+  const remoteSearchPending =
+    foodQuery.trim().length >= 2 &&
+    catalogSearch.loading &&
+    remoteQueryKey !== lastRemoteQueryRef.current &&
+    !hasCachedCatalogResults;
+
+  useEffect(() => {
+    const trimmed = foodQuery.trim();
+    if (trimmed.length < 2 || catalogSearch.loading || !catalogSearch.remoteAttempted) return;
+    if (
+      cacheNamespace !==
+      `${cacheScopeRef.current.owner}:epoch-${cacheScopeRef.current.epoch}`
+    ) {
+      return;
+    }
+    lastRemoteQueryRef.current = remoteQueryKey;
+    if (!catalogSearch.error && !catalogSearch.upstreamUnavailable) {
+      catalogCacheRef.current.set(catalogCacheKey, searchResults);
+    }
+  }, [
+    catalogCacheKey,
+    catalogSearch.loading,
+    catalogSearch.remoteAttempted,
+    searchResults,
+    foodQuery,
+    remoteQueryKey,
+    cacheNamespace,
+  ]);
 
   // Starred recipes lead the grid in browse mode, mirroring the Foods view's
   // pinned Favorites section. With the star filter on, everything shown is a
@@ -141,7 +217,7 @@ export default function LibraryScreen() {
     if (q) {
       // Preserve the API's authoritative ranking across result types.
       const groups: Array<{ key: string; title: string; pinned?: boolean; data: FoodItem[] }> = [
-        { key: 'catalog-results', title: 'Results', data: catalogSearch.results ?? [] },
+        { key: 'catalog-results', title: 'Results', data: catalogResults ?? [] },
       ];
       const filteredGroups = groups
         .map(group => ({
@@ -191,7 +267,7 @@ export default function LibraryScreen() {
     foodApprovedOnly,
     foodFavoriteLimit,
     favoriteIds,
-    catalogSearch.results,
+    catalogResults,
   ]);
 
   // Only foods the patient created can be edited or deleted — membership in
@@ -256,18 +332,13 @@ export default function LibraryScreen() {
         style={styles.gridCard}
       >
         <View>
-          {coachPhoto || staticImage ? (
-            <Image
-              source={coachPhoto ? { uri: coachPhoto } : staticImage}
-              style={styles.cardImage}
-              contentFit="cover"
-              transition={120}
-            />
-          ) : (
-            <View style={[styles.cardImage, styles.cardImageEmpty, { backgroundColor: colors.sidebarBg }]}>
-              <Feather name="image" size={18} color={colors.subtleText} />
-            </View>
-          )}
+          <LibraryImage
+            testID={`recipe-image-${recipe.id}`}
+            source={coachPhoto ? { uri: coachPhoto } : staticImage}
+            sourceKey={coachPhoto ? `coach:${coachPhoto}` : `recipe:${recipe.id}`}
+            label={recipe.name}
+            style={styles.cardImage}
+          />
           {isCoach && (
             <View style={[styles.coachTag, { backgroundColor: colors.cobalt }]}>
               <Text style={[styles.coachTagText, { color: colors.primaryForeground }]}>COACH · AI</Text>
@@ -580,13 +651,22 @@ export default function LibraryScreen() {
               </View>
             )}
 
-            <Text style={[styles.countText, { color: colors.labelText }]}>
-              {foodCount} FOOD{foodCount === 1 ? '' : 'S'}
-              {foodFavoritesOnly ? ' · FAVORITES' : ''}
-              {foodApprovedOnly ? ' · APPROVED' : ''}
-            </Text>
+            {!(
+              foodCount === 0 &&
+              (remoteSearchPending || !!catalogSearch.error || catalogSearch.upstreamUnavailable)
+            ) && (
+              <Text style={[styles.countText, { color: colors.labelText }]}>
+                {foodCount} FOOD{foodCount === 1 ? '' : 'S'}
+                {foodFavoritesOnly ? ' · FAVORITES' : ''}
+                {foodApprovedOnly ? ' · APPROVED' : ''}
+              </Text>
+            )}
 
-            {foodCount === 0 ? (
+            {foodCount === 0 && remoteSearchPending ? (
+              <LedgerCard testID="library-food-search-loading">
+                <FoodSearchSkeleton count={4} testID="library-food-search-skeleton" />
+              </LedgerCard>
+            ) : foodCount === 0 && (catalogSearch.error || catalogSearch.upstreamUnavailable) ? null : foodCount === 0 ? (
               <LedgerCard>
                 <EmptyState
                   icon={
@@ -748,6 +828,11 @@ export default function LibraryScreen() {
                   </LedgerCard>
                 </View>
               ))
+            )}
+            {foodCount > 0 && remoteSearchPending && (
+              <LedgerCard testID="library-food-search-loading">
+                <FoodSearchSkeleton count={3} testID="library-food-search-skeleton" />
+              </LedgerCard>
             )}
             {!!foodQuery.trim() && catalogSearch.hasMore && !catalogSearch.pagingError && (
               <Pressable

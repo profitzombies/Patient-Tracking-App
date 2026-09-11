@@ -6,6 +6,7 @@ type CoachHistorySkeletonProps = {
   borderColor: string;
   placeholderColor: string;
   radius: number;
+  loadMore?: boolean;
 };
 
 const SKELETON_ROWS = 5;
@@ -20,19 +21,20 @@ export function CoachHistorySkeleton({
   borderColor,
   placeholderColor,
   radius,
+  loadMore = false,
 }: CoachHistorySkeletonProps) {
   return (
     <View
-      testID="history-loading"
-      style={styles.loading}
+      testID={loadMore ? "history-loading-more" : "history-loading"}
+      style={!loadMore && styles.loading}
       accessibilityRole="progressbar"
-      accessibilityLabel="Loading chat history"
+      accessibilityLabel={loadMore ? "Loading more conversations" : "Loading chat history"}
       accessibilityLiveRegion={Platform.OS === "ios" ? undefined : "polite"}
       aria-busy={true}
       aria-live="polite"
     >
-      <View testID="history-skeleton" style={styles.list}>
-        {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+      <View testID="history-skeleton" style={[styles.list, loadMore && { paddingHorizontal: 0 }]}>
+        {Array.from({ length: loadMore ? 2 : SKELETON_ROWS }, (_, index) => (
           <View
             key={index}
             testID="history-skeleton-row"
@@ -42,7 +44,8 @@ export function CoachHistorySkeleton({
             ]}
             accessible={false}
           >
-            <View style={styles.rowMain}>
+            <View style={styles.rowTop}>
+              <View style={styles.rowMain}>
               <View
                 testID="history-skeleton-title"
                 style={[styles.titlePlaceholder, { backgroundColor: placeholderColor }]}
@@ -51,11 +54,16 @@ export function CoachHistorySkeleton({
                 testID="history-skeleton-date"
                 style={[styles.datePlaceholder, { backgroundColor: placeholderColor }]}
               />
+              </View>
+              <View
+                testID="history-skeleton-chevron"
+                style={[styles.chevronPlaceholder, { backgroundColor: placeholderColor }]}
+              />
             </View>
-            <View
-              testID="history-skeleton-chevron"
-              style={[styles.chevronPlaceholder, { backgroundColor: placeholderColor }]}
-            />
+            <View style={[styles.actionRow, { borderTopColor: borderColor }]}>
+              <View style={[styles.datePlaceholder, { width: "56%", backgroundColor: placeholderColor }]} />
+              <View style={[styles.datePlaceholder, { width: 44, backgroundColor: placeholderColor }]} />
+            </View>
           </View>
         ))}
       </View>
@@ -73,12 +81,21 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   row: {
-    minHeight: 82,
     borderWidth: 1,
+    overflow: "hidden",
+  },
+  rowTop: {
     padding: 16,
     flexDirection: "row",
     alignItems: "center",
-    overflow: "hidden",
+  },
+  actionRow: {
+    borderTopWidth: 1,
+    minHeight: 40,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   rowMain: {
     flex: 1,

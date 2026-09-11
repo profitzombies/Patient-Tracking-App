@@ -1,0 +1,14 @@
+{
+  // Node-only CoachChatContext selection/cache harness.
+  "extends": "./tsconfig.coach-stop.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "@/context/PatientContext": ["./scripts/coach-readiness-stubs/patient-context.ts"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/meal-photo-stubs/async-storage.ts"],
+      "expo-haptics": ["./scripts/meal-photo-stubs/expo-haptics.ts"]
+    }
+  }
+}

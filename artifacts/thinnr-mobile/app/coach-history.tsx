@@ -26,7 +26,8 @@ import { PageFlatList as FlatList } from "@/components/ui/PageScrollView";
 
 export default function CoachHistoryScreen() {
   const accountState = usePatientAccount();
-  const accountKey = accountState.account.kind === "real" ? accountState.account.patientId : accountState.account.kind;
+  const { historyScopeKey } = useCoachChat();
+  const accountKey = historyScopeKey ?? (accountState.resolving ? "resolving" : accountState.account.kind === "real" ? accountState.account.patientId : accountState.account.kind);
   const accountEpochRef = useRef({ key: accountKey, value: 0 });
   if (accountEpochRef.current.key !== accountKey) {
     accountEpochRef.current = { key: accountKey, value: accountEpochRef.current.value + 1 };
@@ -54,21 +55,24 @@ function CoachHistoryContent({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
-  const { startNewConversation, selectConversation, listConversations, setArchived, loadOlder } = useCoachChat();
+  const { startNewConversation, selectConversation, listConversations, getCachedConversations, historyScopeKey, setArchived, accessDeniedError } = useCoachChat();
   const { account, resolving, getAccessToken } = accountState;
-  const accountKey = account.kind === "real" ? account.patientId : account.kind;
+  const accountKey = historyScopeKey ?? (resolving ? "resolving" : account.kind === "real" ? account.patientId : account.kind);
   const isCurrent = useCallback(
     () => accountEpochRef.current.value === accountEpoch && accountEpochRef.current.key === accountKey,
     [accountEpoch, accountEpochRef, accountKey],
   );
 
   const [archivedTab, setArchivedTab] = useState(false);
-  const [conversations, setConversations] = useState<CoachConversation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedPage = getCachedConversations?.(false);
+  const [storedConversations, setConversations] = useState<CoachConversation[]>(() => cachedPage?.conversations ?? []);
+  const conversations = accessDeniedError ? [] : storedConversations;
+  const [known, setKnown] = useState(() => cachedPage !== undefined);
+  const [loading, setLoading] = useState(() => cachedPage === undefined);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [loadingRowId, setLoadingRowId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [nextOffset, setNextOffset] = useState<number | null>(() => cachedPage?.nextOffset ?? null);
+  const [loadError, setError] = useState<string | null>(null);
+  const error = accessDeniedError ?? loadError;
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
@@ -78,7 +82,19 @@ function CoachHistoryContent({
   const retryLockRef = useRef(false);
   const archivedTabRef = useRef(false);
   archivedTabRef.current = archivedTab;
-  const initialLoading = loading && conversations.length === 0 && !error;
+  const initialLoading = !known && loading && !error;
+
+  useEffect(() => {
+    if (!accessDeniedError) return;
+    listRequestRef.current += 1;
+    loadMoreLockRef.current = false;
+    setConversations([]);
+    setNextOffset(null);
+    setKnown(false);
+    setLoading(false);
+    setLoadingMore(false);
+    setLoadMoreError(null);
+  }, [accessDeniedError]);
 
   useEffect(() => {
     if (initialLoading && Platform.OS === "ios") {
@@ -86,27 +102,42 @@ function CoachHistoryContent({
     }
   }, [initialLoading]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (resolving || account.kind === "unresolved") return;
+    if (accessDeniedError && !force) return;
     const requestId = ++listRequestRef.current;
     const requestedArchived = archivedTab;
+    // A focus refresh supersedes an older-page request. Retire its UI lock
+    // as well as its request generation so a late finally cannot pin the footer.
+    loadMoreLockRef.current = false;
+    setLoadingMore(false);
     setLoading(true);
     setError(null);
     setLoadMoreError(null);
     try {
-      const page = await listConversations(requestedArchived, 0);
+      const page = await listConversations(requestedArchived, 0, force);
       if (!isCurrent() || listRequestRef.current !== requestId) return;
       setConversations(page.conversations);
       setNextOffset(page.nextOffset);
-    } catch {
+      setKnown(true);
+    } catch (cause) {
       if (!isCurrent() || listRequestRef.current !== requestId) return;
-      setError("Failed to load conversations. Please try again.");
+      if ((cause as { code?: string })?.code === "COACH_READ_STALE") return;
+      const status = (cause as { status?: number })?.status;
+      if (status === 401 || status === 403 || status === 404) {
+        setConversations([]);
+        setNextOffset(null);
+        setKnown(false);
+        setError("Conversation access is unavailable. Check your account and try again.");
+      } else {
+        setError("Couldn't refresh conversations. Check your connection and try again.");
+      }
     } finally {
       if (isCurrent() && listRequestRef.current === requestId) {
         setLoading(false);
       }
     }
-  }, [account.kind, archivedTab, isCurrent, listConversations, resolving]);
+  }, [account.kind, archivedTab, isCurrent, listConversations, resolving, accessDeniedError]);
 
   useFocusEffect(
     useCallback(() => {
@@ -131,9 +162,18 @@ function CoachHistoryContent({
         return [...prev, ...additions];
       });
       setNextOffset(page.nextOffset);
-    } catch {
+    } catch (cause) {
       if (!isCurrent() || listRequestRef.current !== requestId) return;
-      setLoadMoreError("Couldn't load more conversations. Please try again.");
+      if ((cause as { code?: string })?.code === "COACH_READ_STALE") return;
+      const status = (cause as { status?: number })?.status;
+      if (status === 401 || status === 403 || status === 404) {
+        setConversations([]);
+        setNextOffset(null);
+        setKnown(false);
+        setError("Conversation access is unavailable. Check your account and try again.");
+      } else {
+        setLoadMoreError("Couldn't load more conversations. Please try again.");
+      }
     } finally {
       loadMoreLockRef.current = false;
       if (isCurrent() && listRequestRef.current === requestId) {
@@ -143,6 +183,7 @@ function CoachHistoryContent({
   };
 
   const handleNewChat = () => {
+    if (resolving || account.kind === "unresolved" || accessDeniedError) return;
     Haptics.selectionAsync();
     startNewConversation();
     router.push("/coach-chat");
@@ -155,36 +196,25 @@ function CoachHistoryContent({
     // late responses cannot paint them back into the new tab.
     listRequestRef.current += 1;
     loadMoreLockRef.current = false;
-    setConversations([]);
-    setNextOffset(null);
+    const cached = getCachedConversations?.(nextArchived);
+    setConversations(cached?.conversations ?? []);
+    setNextOffset(cached?.nextOffset ?? null);
+    setKnown(cached !== undefined);
     setLoadingMore(false);
     setLoadMoreError(null);
     setError(null);
-    setLoading(true);
+    setLoading(cached === undefined);
     Haptics.selectionAsync();
     setArchivedTab(nextArchived);
   };
 
-  const handleSelect = async (id: string) => {
-    if (loadingRowId) return;
+  const handleSelect = (id: string) => {
+    if (resolving || account.kind === "unresolved" || accessDeniedError || !isCurrent()) return;
     Haptics.selectionAsync();
-    setLoadingRowId(id);
-    try {
-      await selectConversation(id);
-      if (!isCurrent()) return;
-      router.push("/coach-chat");
-    } catch {
-      if (!isCurrent()) return;
-      if (Platform.OS === 'web') {
-        window.alert("Failed to open conversation. Please try again.");
-      } else {
-        Alert.alert("Error", "Failed to open conversation. Please try again.");
-      }
-    } finally {
-      if (isCurrent()) {
-        setLoadingRowId(null);
-      }
-    }
+    // Selection publishes its account/thread identity synchronously. Open the
+    // destination now; its transcript region owns loading and retry, not this row.
+    void selectConversation(id).catch(() => {});
+    router.push("/coach-chat");
   };
 
   const handleToggleArchive = async (conversation: CoachConversation) => {
@@ -334,7 +364,22 @@ function CoachHistoryContent({
         </Pressable>
       </View>
 
-      {error ? (
+      {known && (loading || error) && (!error || conversations.length > 0) ? (
+        <View testID="history-refresh-status" style={{ padding: 12, gap: 8 }}>
+          <Text accessibilityLiveRegion="polite" style={{ color: colors.subtleText, fontFamily: fonts.sans }}>
+            {error ? "Showing saved history. It may be out of date." : "Refreshing history…"}
+          </Text>
+          {error ? (
+            <>
+              <ErrorBox message={error} />
+              <Pressable testID="history-refresh-retry" accessibilityRole="button" onPress={() => void load(true)}>
+                <Text style={{ color: colors.cobalt, fontFamily: fonts.sansMedium }}>Retry</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+      ) : null}
+      {error && conversations.length === 0 ? (
         <View testID="history-error-state" style={styles.errorState} accessibilityRole="alert">
           <View style={styles.stateContent}>
             <View style={styles.errorMessage}>
@@ -344,7 +389,7 @@ function CoachHistoryContent({
               testID="history-retry"
               accessibilityRole="button"
               accessibilityLabel="Retry loading conversations"
-              onPress={load}
+              onPress={() => void load(true)}
               style={({ pressed }) => [
                 styles.emptyBtn,
                 { backgroundColor: colors.cobalt, borderRadius: colors.radius },
@@ -362,7 +407,7 @@ function CoachHistoryContent({
           placeholderColor={colors.track}
           radius={colors.radius}
         />
-      ) : conversations.length === 0 ? (
+       ) : known && conversations.length === 0 ? (
         <View testID="history-empty-state" style={styles.emptyState}>
           <View style={styles.stateContent}>
             <Feather name={archivedTab ? "archive" : "message-square"} size={32} color={colors.mutedForeground} style={styles.emptyIcon} />
@@ -407,7 +452,7 @@ function CoachHistoryContent({
             </View>
           </View>
         </View>
-      ) : (
+       ) : (
         <FlatList
           testID="history-list"
           data={conversations}
@@ -417,9 +462,7 @@ function CoachHistoryContent({
           onEndReachedThreshold={0.2}
           ListFooterComponent={
             loadingMore ? (
-              <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color={colors.subtleText} />
-              </View>
+               <CoachHistorySkeleton backgroundColor={colors.card} borderColor={colors.border} placeholderColor={colors.track} radius={colors.radius} loadMore />
             ) : loadMoreError ? (
                <View style={styles.footerLoader}>
                  <ErrorBox testID="history-load-more-error" message={loadMoreError} />
@@ -457,11 +500,7 @@ function CoachHistoryContent({
                     <Text style={[styles.failedBadgeText, { color: colors.riskText }]}>Failed</Text>
                   </View>
                 )}
-                {loadingRowId === item.id ? (
-                  <ActivityIndicator size="small" color={colors.subtleText} style={styles.rowChevron} />
-                ) : (
-                  <Feather name="chevron-right" size={18} color={colors.subtleText} style={styles.rowChevron} />
-                )}
+                 <Feather name="chevron-right" size={18} color={colors.subtleText} style={styles.rowChevron} />
               </Pressable>
               
               {item.processingState === 'failed' && (

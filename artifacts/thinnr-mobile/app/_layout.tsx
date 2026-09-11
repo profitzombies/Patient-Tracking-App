@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
@@ -41,9 +42,13 @@ import { PatientProvider } from '@/context/PatientContext';
 import { FoodLoggingProvider } from '@/context/FoodLoggingContext';
 import { DeviceBiometricGate, DeviceFeaturesProvider } from '@/context/DeviceFeaturesContext';
 import { PatientSyncNotice } from '@/components/patient/PatientSyncNotice';
+import {
+  PatientRouteShell,
+  type PatientShellStatus,
+} from '@/components/patient/PatientRouteShell';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
-import { usePatient } from '@/context/PatientContext';
+import { usePatient, usePatientSyncNotice } from '@/context/PatientContext';
 import { supabase } from '@/lib/supabase';
 import { markNotificationOpened } from '@/lib/push-notifications-api';
 import {
@@ -314,10 +319,10 @@ function RootLayoutNav() {
 
 function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const colors = useColors();
   const { mode, hydrated: modeHydrated, demoAdmitted } = useAppMode();
-  const { resolving, account } = usePatientAccount();
+  const { resolving, account, accountNotice, retryResolve } = usePatientAccount();
   const patient = usePatient();
+  const syncNotice = usePatientSyncNotice();
   const { session } = useSupabaseSession();
   const accountKey = account.kind === 'real' && session?.user.id
     ? `${session.user.id}:${account.patientId}`
@@ -336,16 +341,73 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
       demoAdmitted,
     }, recoveryRoute);
 
+  /**
+   * Keep the root navigator mounted for redirects, but replace its old opaque
+   * first-hydration veil with a route-safe frame.  This frame never contains
+   * patient data or patient controls; an admitted account gets its own
+   * destination navigation from (patient)/_layout once the decision allows.
+   */
+  const gateStatus: PatientShellStatus =
+    syncNotice
+      ? 'error'
+      : account.kind === 'unresolved' && !resolving
+      ? 'offline'
+      : decision.kind === 'redirect'
+        ? 'denied'
+        : 'loading';
+  const gateDetail =
+    syncNotice
+      ? syncNotice.message
+      : account.kind === 'unresolved' && !resolving
+      ? accountNotice ?? 'Your account could not be reached. Retry when you are online.'
+      : decision.kind === 'redirect'
+        ? decision.href === '/consent'
+          ? 'Consent is required before your private record can open.'
+          : decision.href === '/onboarding/welcome'
+            ? 'Finish onboarding before opening your private record.'
+            : 'Sign in or choose the guided patient demo before opening patient data.'
+        : undefined;
+  const gateRetry = syncNotice
+    ? account.kind === 'unresolved'
+      ? retryResolve
+      : patient.rehydrate
+    : account.kind === 'unresolved' && !resolving
+      ? retryResolve
+      : undefined;
+  const gateBlocked = decision.kind !== 'allow';
+  const gatedNavigatorProps = {
+    accessibilityElementsHidden: gateBlocked,
+    importantForAccessibility: gateBlocked ? 'no-hide-descendants' : 'auto',
+    'aria-hidden': gateBlocked,
+    pointerEvents: gateBlocked ? 'none' : 'auto',
+    ...(Platform.OS === 'web' ? { inert: gateBlocked } : {}),
+  } as unknown as React.ComponentProps<typeof View>;
+
+  useEffect(() => {
+    if (gateBlocked) Keyboard.dismiss();
+  }, [gateBlocked]);
+
   // Keep the root Stack mounted while Redirect dispatches. Returning Redirect
   // instead of the Stack leaves no navigator to receive Expo Router's nested
   // "(patient) / today" replace action and triggers the development LogBox.
   return (
     <>
-      {children}
-      {decision.kind !== 'allow' ? (
+      <View style={gateStyles.gatedNavigator} {...gatedNavigatorProps}>
+        {children}
+      </View>
+      {gateBlocked ? (
         <View
-          style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, pointerEvents: 'auto', zIndex: 1000 }]}
-        />
+          style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}
+          pointerEvents="auto"
+          accessibilityViewIsModal
+        >
+          <PatientRouteShell
+            pathname={pathname}
+            status={gateStatus}
+            detail={gateDetail}
+            onRetry={gateRetry}
+          />
+        </View>
       ) : null}
       {decision.kind === 'redirect' ? <Redirect href={decision.href} /> : null}
     </>
@@ -530,6 +592,9 @@ export default function RootLayout() {
 }
 
 const gateStyles = StyleSheet.create({
+  gatedNavigator: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     alignItems: 'center',

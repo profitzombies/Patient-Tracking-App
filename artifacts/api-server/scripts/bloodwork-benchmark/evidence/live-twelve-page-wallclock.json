@@ -1,0 +1,30 @@
+{
+  "transport": "live-development-http-object-storage-supabase",
+  "syntheticOnly": true,
+  "pages": 12,
+  "expectedRows": 72,
+  "actualRows": 72,
+  "status": "completed",
+  "reviewStatus": "unreviewed",
+  "pageCount": 12,
+  "sourcePageCount": true,
+  "allPagesCompleted": true,
+  "allRowsCompleted": true,
+  "fieldChecks": {
+    "testName": true,
+    "valueText": true,
+    "units": true,
+    "referenceRange": true,
+    "labFlag": true,
+    "uncertain": true
+  },
+  "timings": {
+    "clientCreateMs": 837.101,
+    "uploadTransferMs": 344.656,
+    "commitMs": 2855.949,
+    "pollElapsedMs": 46083.382,
+    "pollRequestAggregateMs": 21076.804,
+    "pollCount": 51,
+    "endToEndCreateToCompletedDetectionMs": 50122.838
+  }
+}

@@ -91,12 +91,21 @@ successful timing sample and must not be omitted from the conclusions.
 
 This creates and cleans up only new, fixture-owned synthetic accounts/data.
 It does not reprocess existing reports or create a browser session helper.
+`benchmark-live` defaults to the existing six-page measurement. Pass the strict
+`--pages 12` option to exercise a twelve-page mixed PDF; `--pages 6` explicitly
+selects the default-sized run. Each page count writes its own wall-clock
+evidence file (`live-six-page-wallclock.json` or
+`live-twelve-page-wallclock.json`) and asserts the matching page count and six
+synthetic rows per page. A timeout or extraction failure writes metadata-only
+failure evidence to the matching path (`status`, `stage`, elapsed time, and
+last observed processing status/phase/page counters; no report or identity
+IDs) before the command exits.
 
 ```sh
 export BLOODWORK_SMOKE_API_BASE_URL="https://$REPLIT_DEV_DOMAIN/api"
 pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts prepare
 pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts prepare-ui --no-helper
-pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts benchmark-live
+pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts benchmark-live --pages 12
 pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts cleanup
 ```
 

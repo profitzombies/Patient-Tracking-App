@@ -21,8 +21,14 @@ export interface JobContext {
   now: Date;
   /** Add to a named tally (creates it at 0). */
   tally(key: string, by?: number): void;
-  /** Record one item that failed without aborting the run. */
-  failItem(item: string, error: unknown): void;
+  /**
+   * Record one item that failed without aborting the run.
+   *
+   * Report-local failures are durable item observations, but do not make the
+   * shared job unhealthy or activate its infrastructure backoff. The item
+   * remains visible in the run ledger and recent item-failure health view.
+   */
+  failItem(item: string, error: unknown, options?: { reportLocal?: boolean }): void;
   /** Structured log line attributed to the run. */
   log(event: string, detail?: Record<string, unknown>): void;
   /**
@@ -75,6 +81,7 @@ export interface JobRunRecord {
   startedAt: string;
   finishedAt: string | null;
   counts: JobCounts;
+  /** Infrastructure/item failures that make the run fail; report-local failures are counted in `counts`. */
   failureCount: number;
   error: string | null;
 }

@@ -16,11 +16,15 @@ export type BloodworkDocumentErrorCode =
   | "PAGE_OUT_OF_RANGE" | "RENDER_FAILED" | "PROCESSING_TIMEOUT"
   | "PROCESSING_LIMIT" | "PROCESSING_BUSY";
 
+export type BloodworkDocumentErrorScope = "report_local" | "infrastructure";
+
 export class BloodworkDocumentError extends Error {
   constructor(
     public readonly code: BloodworkDocumentErrorCode,
     message: string,
     options?: ErrorOptions,
+    public readonly scope: BloodworkDocumentErrorScope =
+      code === "PROCESSING_BUSY" ? "infrastructure" : "report_local",
   ) {
     super(message, options);
     this.name = "BloodworkDocumentError";
@@ -85,8 +89,16 @@ export type PreparedBloodworkPage = {
 let active = 0;
 const queue: Task[] = [];
 
-function documentError(code: BloodworkDocumentErrorCode, message: string): BloodworkDocumentError {
-  return new BloodworkDocumentError(code, message);
+function documentError(
+  code: BloodworkDocumentErrorCode,
+  message: string,
+  scope?: BloodworkDocumentErrorScope,
+): BloodworkDocumentError {
+  return new BloodworkDocumentError(code, message, undefined, scope);
+}
+
+export function isReportLocalBloodworkDocumentError(error: unknown): error is BloodworkDocumentError {
+  return error instanceof BloodworkDocumentError && error.scope === "report_local";
 }
 
 function workerLocation(): URL {
@@ -96,7 +108,11 @@ function workerLocation(): URL {
   // The worker is a separately emitted production artifact. Do not silently
   // fall back to parsing untrusted files in this process if packaging omitted it.
   if (!existsSync(fileURLToPath(location))) {
-    throw documentError("PROCESSING_LIMIT", "Document processing worker is unavailable.");
+    throw documentError(
+      "PROCESSING_LIMIT",
+      "Document processing worker is unavailable.",
+      "infrastructure",
+    );
   }
   return location;
 }
@@ -189,7 +205,11 @@ function execute(task: Task): void {
   });
   // Worker stderr can contain parser details or document text; deliberately discard it.
   child.stderr.resume();
-  child.on("error", () => finish(documentError("PROCESSING_LIMIT", "Document processing could not be started safely.")));
+  child.on("error", () => finish(documentError(
+    "PROCESSING_LIMIT",
+    "Document processing could not be started safely.",
+    "infrastructure",
+  )));
   child.on("close", () => {
     if (forcedError) return finish(forcedError);
     try {

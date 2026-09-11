@@ -46,12 +46,18 @@ afterAll(() => server.close());
 
 beforeEach(() => {
   clock = new Date("2026-09-07T12:00:00Z");
+  // Keep HTTP timers real, but align the router's date with the test ledger.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(clock);
   store.reset();
   resetJobRegistry();
   mocks.audit.mockReset().mockResolvedValue(undefined);
   delete process.env.NOTIFICATIONS_INTERNAL_TOKEN;
 });
-afterEach(() => resetJobRegistry());
+afterEach(() => {
+  resetJobRegistry();
+  vi.useRealTimers();
+});
 
 const admin = { authorization: "Bearer admin", "content-type": "application/json" };
 
@@ -100,6 +106,25 @@ describe("GET /hq/system-health", () => {
     expect(byName["bad-job"].nextEligibleAt).not.toBeNull();
     expect(byName["idle-job"]).toMatchObject({ status: "on_demand", schedule: "On demand", lastSuccessAt: null });
     expect(body.recentRuns.map((r) => [r.jobName, r.status])).toEqual([["bad-job", "failed"], ["ok-job", "succeeded"]]);
+  });
+
+  it("exposes report-local errors without putting healthy queued work into backoff", async () => {
+    registerJob(def({
+      name: "report-job",
+      run: async (ctx) => ctx.failItem("synthetic-report", "PROCESSING_TIMEOUT", { reportLocal: true }),
+    }));
+    const { runJob } = await import("../jobs/scheduler");
+    await runJob("report-job", { trigger: "schedule", store, now: clock });
+    const response = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { jobs: JobHealthDto[] };
+    expect(body.jobs.find((job) => job.name === "report-job")).toMatchObject({
+      status: "ok",
+      lastSuccessCounts: { reportLocalFailures: 1 },
+      consecutiveFailures: 0,
+      nextEligibleAt: null,
+      recentFailures: [{ item: "synthetic-report", error: "PROCESSING_TIMEOUT", occurredAt: expect.any(String) }],
+    });
   });
 
   it("answers 502 (never a healthy-looking empty list) when the ledger is unreadable", async () => {

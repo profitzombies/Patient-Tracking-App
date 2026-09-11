@@ -1,13 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobContext } from "../jobs/types";
 
-const mocks = vi.hoisted(() => ({
-  supabaseAdmin: vi.fn(),
-  readObjectBounded: vi.fn(),
-  prepareBloodworkPages: vi.fn(),
-  transcribeBloodworkPage: vi.fn(),
-  signalJob: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  class MockBloodworkDocumentError extends Error {
+    constructor(public readonly code: string, message: string) {
+      super(message);
+      this.name = "BloodworkDocumentError";
+    }
+  }
+  return {
+    supabaseAdmin: vi.fn(),
+    readObjectBounded: vi.fn(),
+    inspectBloodworkFile: vi.fn(),
+    prepareBloodworkPages: vi.fn(),
+    transcribeBloodworkPage: vi.fn(),
+    signalJob: vi.fn(),
+    BloodworkDocumentError: MockBloodworkDocumentError,
+  };
+});
 
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: mocks.supabaseAdmin }));
 vi.mock("../lib/objectStorage", () => ({
@@ -15,6 +25,10 @@ vi.mock("../lib/objectStorage", () => ({
 }));
 vi.mock("../bloodwork/documents", () => ({
   BLOODWORK_MAX_FILE_BYTES: 20_000_000,
+  BloodworkDocumentError: mocks.BloodworkDocumentError,
+  inspectBloodworkFile: mocks.inspectBloodworkFile,
+  isReportLocalBloodworkDocumentError: (error: unknown) =>
+    error instanceof mocks.BloodworkDocumentError && error.code !== "PROCESSING_BUSY",
   prepareBloodworkPages: mocks.prepareBloodworkPages,
 }));
 vi.mock("../bloodwork/extraction", () => ({
@@ -50,9 +64,15 @@ describe("bloodwork extraction worker progress protocol", () => {
   beforeEach(() => {
     mocks.supabaseAdmin.mockReset();
     mocks.readObjectBounded.mockReset();
+    mocks.inspectBloodworkFile.mockReset();
     mocks.prepareBloodworkPages.mockReset();
     mocks.transcribeBloodworkPage.mockReset();
     mocks.signalJob.mockReset();
+    mocks.inspectBloodworkFile.mockResolvedValue({
+      mimeType: "application/pdf",
+      pageCount: 2,
+      sha256: "a".repeat(64),
+    });
   });
 
   it("retains a four-page batch, resumes page five, prepares, then commits", async () => {
@@ -167,7 +187,7 @@ describe("bloodwork extraction worker progress protocol", () => {
     await runBloodworkExtraction(context());
     expect(peak).toBe(2);
     expect(mocks.prepareBloodworkPages).toHaveBeenCalledWith(
-      Buffer.from("source"), "application/pdf", [1, 2], { sha256: null, pageCount: 2 }, expect.any(AbortSignal),
+      Buffer.from("source"), "application/pdf", [1, 2], { sha256: "a".repeat(64), pageCount: 2 }, expect.any(AbortSignal),
     );
   });
 
@@ -281,6 +301,127 @@ describe("bloodwork extraction worker progress protocol", () => {
     expect(saved).toHaveLength(1);
     expect(saved[0]?.[2]).toMatchObject({ p_source_page: 1 });
     expect(ctx.failItem).toHaveBeenCalledWith(REPORT, "EXTRACTION_FAILED");
+  });
+
+  it("fails a legacy twelve-page report locally at page four, reuses one admission, and preserves checkpoints", async () => {
+    const healthyReport = "00000000-0000-4000-8000-000000000104";
+    const healthyFile = "00000000-0000-4000-8000-000000000105";
+    let leases = 0;
+    const savedPages = new Map<string, number[]>();
+    mocks.supabaseAdmin.mockImplementation(async (method: string, path: string) => {
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_lease_extraction") {
+        leases += 1;
+        return response([{
+          id: leases === 1 ? REPORT : healthyReport,
+          extraction_lease_token: TOKEN,
+        }]);
+      }
+      if (method === "GET" && path.includes("patient_bloodwork_files")) {
+        const healthy = path.includes(healthyReport);
+        return response([{
+          id: healthy ? healthyFile : FILE,
+          object_path: healthy ? "/private/healthy-report" : "/private/legacy-report",
+          mime_type: "application/pdf",
+          page_count: healthy ? 1 : 12,
+          position: 0,
+          content_sha256: healthy ? "b".repeat(64) : null,
+        }]);
+      }
+      if (method === "GET" && path.includes("patient_bloodwork_extraction_pages")) {
+        const reportId = path.includes(healthyReport) ? healthyReport : REPORT;
+        return response((savedPages.get(reportId) ?? []).map((source_page) => ({
+          source_file_id: reportId === healthyReport ? healthyFile : FILE,
+          source_page,
+        })));
+      }
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_renew_extraction") return response(true);
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_save_extraction_page") return response(true);
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_fail_extraction") return response(true);
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_prepare_extraction") return response(true);
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_complete_extraction_from_pages") return response(true);
+      throw new Error(`unexpected local-failure request ${method} ${path}`);
+    });
+    mocks.readObjectBounded.mockImplementation(async (path: string) => ({
+      bytes: Buffer.from(path.includes("healthy") ? "healthy-source" : "legacy-source"),
+    }));
+    mocks.inspectBloodworkFile.mockResolvedValue({
+      mimeType: "application/pdf",
+      pageCount: 12,
+      sha256: "c".repeat(64),
+    });
+    mocks.prepareBloodworkPages.mockImplementation(async (_bytes: Buffer, _mime: string, pages: number[]) =>
+      pages.map((page) => ({ page, bytes: Buffer.from(`page-${page}`), mimeType: "image/png", width: 1, height: 1 })));
+    mocks.transcribeBloodworkPage.mockImplementation(async (input: { sourcePage: number }) => {
+      if (input.sourcePage === 4) {
+        throw new mocks.BloodworkDocumentError("PROCESSING_TIMEOUT", "document timed out");
+      }
+      return [];
+    });
+
+    const failed = context();
+    await runBloodworkExtraction(failed);
+
+    expect(mocks.inspectBloodworkFile).toHaveBeenCalledOnce();
+    expect(mocks.prepareBloodworkPages.mock.calls.slice(0, 2).map((call) => call[3])).toEqual([
+      { sha256: "c".repeat(64), pageCount: 12 },
+      { sha256: "c".repeat(64), pageCount: 12 },
+    ]);
+    expect(mocks.inspectBloodworkFile.mock.calls[0]?.[0]).toBe(mocks.prepareBloodworkPages.mock.calls[0]?.[0]);
+    expect(mocks.prepareBloodworkPages.mock.calls[0]?.[0]).toBe(mocks.prepareBloodworkPages.mock.calls[1]?.[0]);
+    expect(mocks.supabaseAdmin.mock.calls
+      .filter(([, path]) => path === "/rest/v1/rpc/bloodwork_save_extraction_page")
+      .map(([, , body]) => (body as { p_source_page: number }).p_source_page))
+      .toEqual([1, 2, 3]);
+    expect(mocks.supabaseAdmin).toHaveBeenCalledWith(
+      "POST",
+      "/rest/v1/rpc/bloodwork_fail_extraction",
+      { p_report_id: REPORT, p_lease_token: TOKEN, p_error: "PROCESSING_TIMEOUT" },
+    );
+    expect(failed.failItem).toHaveBeenCalledWith(REPORT, "PROCESSING_TIMEOUT", { reportLocal: true });
+    expect(mocks.signalJob).toHaveBeenCalledWith("bloodwork-extraction");
+
+    const healthy = context();
+    await runBloodworkExtraction(healthy);
+    expect(healthy.failItem).not.toHaveBeenCalled();
+    expect(mocks.supabaseAdmin).toHaveBeenCalledWith(
+      "POST",
+      "/rest/v1/rpc/bloodwork_complete_extraction_from_pages",
+      { p_report_id: healthyReport, p_lease_token: TOKEN },
+    );
+  });
+
+  it.each([
+    ["page count", { mimeType: "application/pdf", pageCount: 11 }],
+    ["mime type", { mimeType: "image/png", pageCount: 12 }],
+  ])("fails closed when a legacy PDF admission has a stored %s mismatch", async (_label, inspected) => {
+    mocks.supabaseAdmin.mockImplementation(async (method: string, path: string) => {
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_lease_extraction") {
+        return response([{ id: REPORT, extraction_lease_token: TOKEN }]);
+      }
+      if (method === "GET" && path.includes("patient_bloodwork_files")) {
+        return response([{
+          id: FILE,
+          object_path: "/private/legacy-report",
+          mime_type: "application/pdf",
+          page_count: 12,
+          position: 0,
+          content_sha256: null,
+        }]);
+      }
+      if (method === "GET" && path.includes("patient_bloodwork_extraction_pages")) return response([]);
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_renew_extraction") return response(true);
+      if (method === "POST" && path === "/rest/v1/rpc/bloodwork_fail_extraction") return response(true);
+      throw new Error(`unexpected legacy-admission request ${method} ${path}`);
+    });
+    mocks.readObjectBounded.mockResolvedValue({ bytes: Buffer.from("legacy-source") });
+    mocks.inspectBloodworkFile.mockResolvedValue({ ...inspected, sha256: "c".repeat(64) });
+
+    const failed = context();
+    await runBloodworkExtraction(failed);
+
+    expect(mocks.inspectBloodworkFile).toHaveBeenCalledOnce();
+    expect(mocks.prepareBloodworkPages).not.toHaveBeenCalled();
+    expect(failed.failItem).toHaveBeenCalledWith(REPORT, "CORRUPT_FILE", { reportLocal: true });
   });
 
   it("releases and signals a continuation when the seven-minute quantum expires", async () => {

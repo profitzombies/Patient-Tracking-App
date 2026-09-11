@@ -57,3 +57,17 @@ Remind testers to reload (Expo Go: rescan QR / shake → Reload) — their open
 session keeps the old bundle.
 
 **Bundle-marker gotcha:** pick grep markers that exist as LITERAL strings in source (a11y labels, copy). Computed values — e.g. testIDs built via template strings — never appear in the served bundle, so grepping for them false-negatives a perfectly fresh server.
+
+**Shared-queue variant:** check published worker logs as well as the preview
+when jobs use the same external Supabase queue. A fresh preview API does not
+ensure its worker handles an upload: an older published process can acquire
+the shared lease and process that upload instead.
+
+**Why:** a PDF uploaded through the development app was processed and timed
+out by the published worker; restarting the development API alone could not
+replace that worker's old behavior.
+
+**How to apply:** correlate non-clinical job metadata across both runtimes,
+verify which process performed the work, and distinguish preview repairs
+from changes that still require the user to publish. Never treat a shared
+queue's delay as proof that the new processor itself is slow.

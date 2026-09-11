@@ -18,3 +18,14 @@ description: Conventions for the api-server job scheduler (job runs/leases, uplo
 - Supabase runs `pg-safeupdate`: a bare `delete from temp_table;` inside a PL/pgSQL function fails with 21000 at runtime. Use `truncate` (or `where true`).
 - Prefix listing must derive the bucket directory from the object-dir env, not by locating an empty object id (that throws not-found).
 - SQL `AND` in PL/pgSQL does not short-circuit; nest IFs when a column may not exist on the row type.
+
+**Queued document failures:** distinguish a terminal problem with one document
+from a service outage when choosing shared-job backoff.
+
+**Why:** applying the maintenance scheduler's failure policy to a malformed
+or timed-out PDF paused unrelated uploads and explicit retries for minutes.
+Faster parsing alone cannot remove that queue delay.
+
+**How to apply:** preserve the document error and failure ledger, settle the
+document under its lease, then allow other queued documents to continue.
+Keep infrastructure failure backoff and all lease/privacy checks intact.

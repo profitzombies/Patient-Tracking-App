@@ -116,6 +116,7 @@ function errorText(error: unknown): string {
 interface RunState {
   counts: JobCounts;
   failures: number;
+  reportLocalFailures: number;
   /** Set by the heartbeat once the lease could not be renewed. */
   leaseLost: boolean;
 }
@@ -145,10 +146,19 @@ function buildContext(input: {
     tally(key, by = 1) {
       state.counts[key] = (state.counts[key] ?? 0) + by;
     },
-    failItem(item, error) {
-      state.failures += 1;
+    failItem(item, error, options) {
+      const reportLocal = options?.reportLocal === true;
+      if (reportLocal) {
+        state.reportLocalFailures += 1;
+        state.counts.reportLocalFailures = state.reportLocalFailures;
+      } else {
+        state.failures += 1;
+      }
       const message = errorText(error);
-      logger.warn({ job: run.jobName, runId: run.id, item, err: message }, "job item failed");
+      logger.warn(
+        { job: run.jobName, runId: run.id, item, err: message, reportLocal },
+        reportLocal ? "job report-local item failed" : "job item failed",
+      );
       // Best effort: a ledger hiccup must not turn one item failure into a run abort.
       store.recordItemFailure({ runId: run.id, jobName: run.jobName, item, error: message }).catch((err) => {
         logger.error({ err, job: run.jobName, runId: run.id }, "job item failure not recorded");
@@ -203,7 +213,7 @@ async function runJobOwned(name: string, options: RunJobOptions): Promise<JobOut
     throw error;
   }
 
-  const state: RunState = { counts: {}, failures: 0, leaseLost: false };
+  const state: RunState = { counts: {}, failures: 0, reportLocalFailures: 0, leaseLost: false };
   const ctx = buildContext({ run, store, dryRun, now, state });
   let status: "succeeded" | "failed" = "succeeded";
   let error: string | null = null;
@@ -360,7 +370,7 @@ export async function runUserJob<T>(
   } catch (error) {
     logger.error({ err: error, job: name }, "user job run not recorded; proceeding");
   }
-  const state: RunState = { counts: {}, failures: 0, leaseLost: false };
+  const state: RunState = { counts: {}, failures: 0, reportLocalFailures: 0, leaseLost: false };
   const ctx: JobContext = run
     ? buildContext({ run, store, dryRun: false, now, state })
     : {
@@ -371,9 +381,18 @@ export async function runUserJob<T>(
         tally(key, by = 1) {
           state.counts[key] = (state.counts[key] ?? 0) + by;
         },
-        failItem(item, error) {
-          state.failures += 1;
-          logger.warn({ job: name, item, err: errorText(error) }, "job item failed");
+        failItem(item, error, options) {
+          const reportLocal = options?.reportLocal === true;
+          if (reportLocal) {
+            state.reportLocalFailures += 1;
+            state.counts.reportLocalFailures = state.reportLocalFailures;
+          } else {
+            state.failures += 1;
+          }
+          logger.warn(
+            { job: name, item, err: errorText(error), reportLocal },
+            reportLocal ? "job report-local item failed" : "job item failed",
+          );
         },
         log(event, detail = {}) {
           logger.info({ job: name, ...detail }, event);

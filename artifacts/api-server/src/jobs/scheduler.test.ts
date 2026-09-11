@@ -86,6 +86,34 @@ describe("job scheduler", () => {
     expect((await store.getState("demo"))?.lastError).toBe("1 item failed");
   });
 
+  it("records report-local failures without putting healthy queue work into global backoff", async () => {
+    registerJob(job({
+      run: async (ctx) => {
+        ctx.failItem("report-a", "PROCESSING_TIMEOUT", { reportLocal: true });
+        ctx.tally("healthyReports");
+      },
+    }));
+
+    const outcome = await runJob("demo", { trigger: "schedule", store, now: clock });
+    expect(outcome.kind).toBe("ran");
+    if (outcome.kind !== "ran") return;
+    expect(outcome.run).toMatchObject({
+      status: "succeeded",
+      failureCount: 0,
+      error: null,
+      counts: { healthyReports: 1, reportLocalFailures: 1 },
+    });
+    expect(await store.getState("demo")).toMatchObject({
+      lastStatus: "succeeded",
+      consecutiveFailures: 0,
+      nextEligibleAt: null,
+      lastSuccessCounts: { healthyReports: 1, reportLocalFailures: 1 },
+    });
+    expect(store.failures).toEqual([
+      expect.objectContaining({ item: "report-a", error: "PROCESSING_TIMEOUT" }),
+    ]);
+  });
+
   it("dry runs are recorded but never move the health state", async () => {
     let sawDry = false;
     registerJob(job({ run: async (ctx: JobContext) => { sawDry = ctx.dryRun; ctx.tally("wouldDelete", 5); } }));

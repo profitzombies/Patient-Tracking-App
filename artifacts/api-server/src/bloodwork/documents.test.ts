@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BLOODWORK_MAX_FILE_BYTES,
   BloodworkDocumentError,
+  isReportLocalBloodworkDocumentError,
   inspectBloodworkFile,
   prepareBloodworkPages,
   renderBloodworkPage,
@@ -243,5 +244,7 @@ describe("bloodwork page rendering", () => {
   it("exposes only documented document errors", () => {
     const error = new BloodworkDocumentError("RENDER_FAILED", "safe");
     expect(error).toMatchObject({ code: "RENDER_FAILED", message: "safe" });
+    expect(isReportLocalBloodworkDocumentError(error)).toBe(true);
+    expect(isReportLocalBloodworkDocumentError(new BloodworkDocumentError("PROCESSING_BUSY", "busy"))).toBe(false);
   });
 });

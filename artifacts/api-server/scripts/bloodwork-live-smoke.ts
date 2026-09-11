@@ -8,7 +8,7 @@
  *   BLOODWORK_SMOKE_API_BASE_URL=http://127.0.0.1:3000/api \
  *     pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts verify-access --keep
  *   BLOODWORK_SMOKE_API_BASE_URL=https://$REPLIT_DEV_DOMAIN/api \
- *     pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts benchmark-live
+ *     pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts benchmark-live [--pages 6|12]
  *   pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts helper
  *   pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts cleanup
  *
@@ -33,10 +33,65 @@ const FIXTURE_PATH = "/tmp/thinnr-bloodwork-fixture.json";
 const DEFAULT_API_BASE = "http://127.0.0.1:3000/api";
 const MAX_BYTES = 20_000_000;
 const MOBILE_PUBLIC_DIR = resolve(dirname(new URL(import.meta.url).pathname), "../../thinnr-mobile/public");
-const LIVE_BENCHMARK_EVIDENCE_PATH = resolve(
+const LIVE_BENCHMARK_EVIDENCE_DIRECTORY = resolve(
   dirname(new URL(import.meta.url).pathname),
-  "bloodwork-benchmark/evidence/live-six-page-wallclock.json",
+  "bloodwork-benchmark/evidence",
 );
+const BENCHMARK_PAGE_COUNTS = [6, 12] as const;
+type BenchmarkPageCount = (typeof BENCHMARK_PAGE_COUNTS)[number];
+
+function liveBenchmarkEvidencePath(pages: BenchmarkPageCount): string {
+  const name = pages === 6 ? "live-six-page-wallclock.json" : "live-twelve-page-wallclock.json";
+  return resolve(LIVE_BENCHMARK_EVIDENCE_DIRECTORY, name);
+}
+
+function parseBenchmarkPages(flags: string[]): BenchmarkPageCount {
+  if (flags.length === 0) return 6;
+  if (flags.length !== 2 || flags[0] !== "--pages" || (flags[1] !== "6" && flags[1] !== "12")) {
+    throw new Error("benchmark-live accepts only --pages 6 or --pages 12.");
+  }
+  return flags[1] === "12" ? 12 : 6;
+}
+
+type BenchmarkPollObservation = {
+  status: string | null;
+  phase: string | null;
+  pageCount: number | null;
+  completedPages: number | null;
+  totalPages: number | null;
+  activity: string | null;
+};
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function benchmarkPollObservation(body: Record<string, unknown>): BenchmarkPollObservation {
+  const report = body.report && typeof body.report === "object"
+    ? body.report as Record<string, unknown>
+    : {};
+  const processing = report.processing && typeof report.processing === "object"
+    ? report.processing as Record<string, unknown>
+    : {};
+  return {
+    status: typeof report.extractionStatus === "string" ? report.extractionStatus : null,
+    phase: typeof processing.phase === "string" ? processing.phase : null,
+    pageCount: finiteNumber(report.pageCount),
+    completedPages: finiteNumber(processing.completedPages),
+    totalPages: finiteNumber(processing.totalPages),
+    activity: typeof processing.activity === "string" ? processing.activity : null,
+  };
+}
+
+async function writeBenchmarkEvidence(
+  pages: BenchmarkPageCount,
+  evidence: Record<string, unknown>,
+): Promise<void> {
+  const evidencePath = liveBenchmarkEvidencePath(pages);
+  await mkdir(dirname(evidencePath), { recursive: true, mode: 0o700 });
+  await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+  await chmod(evidencePath, 0o600);
+}
 
 type IdentityLabel =
   | "patient"
@@ -815,11 +870,14 @@ async function pollDetail(
   }
 }
 
-async function benchmarkLive(): Promise<void> {
+async function benchmarkLive(pages: BenchmarkPageCount): Promise<void> {
   const state = await loadState();
   credentials();
   await refreshSessions(state);
-  const report = syntheticBenchmarkReport("mixed", 6);
+  // The shared fixture builder is length-driven at runtime, although its
+  // exported union still reflects the native 1/2/6-page matrix. Keep the
+  // twelve-page live extension local to this smoke harness.
+  const report = syntheticBenchmarkReport("mixed", pages as unknown as 1 | 2 | 6);
   const source = report.pages[0]!;
   const expected = report.pages.flatMap((page) =>
     page.expected.map((row) => ({ sourcePage: page.sourcePage, ...row })),
@@ -851,52 +909,98 @@ async function benchmarkLive(): Promise<void> {
   const committed = await api(state, "POST", `${base}/${reportId}/commit`, "patient");
   const commitMs = Number((performance.now() - commitStartedAt).toFixed(3));
   const queued = committed.body as { report?: { extractionStatus?: unknown; pageCount?: unknown } };
-  if (queued.report?.extractionStatus !== "queued" || queued.report.pageCount !== 6) {
-    throw new Error("Live benchmark commit did not queue the expected six-page report.");
+  if (queued.report?.extractionStatus !== "queued" || queued.report.pageCount !== pages) {
+    throw new Error(`Live benchmark commit did not queue the expected ${pages}-page report.`);
   }
 
   const pollStartedAt = performance.now();
   let pollRequestMs = 0;
   let polls = 0;
   let completed: Record<string, unknown> | undefined;
+  let lastObserved: BenchmarkPollObservation = {
+    status: typeof queued.report.extractionStatus === "string" ? queued.report.extractionStatus : null,
+    phase: null,
+    pageCount: finiteNumber(queued.report.pageCount),
+    completedPages: null,
+    totalPages: null,
+    activity: null,
+  };
   while (performance.now() - pollStartedAt < 240_000) {
     const pollRequestStartedAt = performance.now();
     const detail = await api(state, "GET", `${base}/${reportId}`, "patient");
     pollRequestMs += performance.now() - pollRequestStartedAt;
     polls++;
     const body = detail.body as Record<string, unknown>;
-    const status = (body.report as { extractionStatus?: unknown } | undefined)?.extractionStatus;
+    lastObserved = benchmarkPollObservation(body);
+    const status = lastObserved.status;
     if (status === "completed") {
       completed = body;
       break;
     }
-    if (status === "failed") throw new Error("Live benchmark extraction failed.");
+    if (status === "failed") {
+      await writeBenchmarkEvidence(pages, {
+        transport: "live-development-http-object-storage-supabase",
+        syntheticOnly: true,
+        pages,
+        status: "failed",
+        stage: "poll",
+        totalElapsedMs: Number((performance.now() - startedAt).toFixed(3)),
+        lastObserved,
+      });
+      throw new Error(
+        `Live benchmark extraction failed (status=${lastObserved.status} phase=${lastObserved.phase ?? "unknown"} ` +
+        `pages=${lastObserved.pageCount ?? "unknown"}).`,
+      );
+    }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
   }
-  if (!completed) throw new Error("Live benchmark did not complete within 240000ms.");
+  if (!completed) {
+    await writeBenchmarkEvidence(pages, {
+      transport: "live-development-http-object-storage-supabase",
+      syntheticOnly: true,
+      pages,
+      status: "timeout",
+      stage: "poll",
+      totalElapsedMs: Number((performance.now() - startedAt).toFixed(3)),
+      lastObserved,
+    });
+    throw new Error(
+      `Live benchmark did not complete within 240000ms ` +
+      `(last status=${lastObserved.status ?? "unknown"} phase=${lastObserved.phase ?? "unknown"} ` +
+      `pages=${lastObserved.pageCount ?? "unknown"}).`,
+    );
+  }
 
   const completedReport = completed.report as { pageCount?: unknown; reviewStatus?: unknown };
   const results = Array.isArray(completed.results) ? completed.results as Array<Record<string, unknown>> : [];
+  const expectedRows = pages * 6;
   const resultFields = ["testName", "valueText", "units", "referenceRange", "labFlag", "uncertain"] as const;
   const fieldChecks = Object.fromEntries(resultFields.map((field) => [
     field,
-    results.length === expected.length && results.every((row, index) => row[field] === expected[index]![field]),
+    results.length === expectedRows &&
+      results.length === expected.length &&
+      results.every((row, index) => row[field] === expected[index]![field]),
   ]));
-  const sourcePageCount = results.length === expected.length &&
+  const sourcePageCount = results.length === expectedRows &&
+    results.length === expected.length &&
     results.every((row, index) => row.sourcePage === expected[index]!.sourcePage);
   const unreviewed = completedReport.reviewStatus === "unreviewed" &&
     results.every((row) => row.reviewStatus === "unreviewed");
+  const allPagesCompleted = completedReport.pageCount === pages && sourcePageCount;
+  const allRowsCompleted = results.length === expectedRows && Object.values(fieldChecks).every(Boolean);
   const endToEndMs = Number((performance.now() - startedAt).toFixed(3));
   const evidence = {
     transport: "live-development-http-object-storage-supabase",
     syntheticOnly: true,
-    pages: 6,
-    expectedRows: 36,
+    pages,
+    expectedRows,
     actualRows: results.length,
     status: "completed",
     reviewStatus: unreviewed ? "unreviewed" : "unexpected",
     pageCount: completedReport.pageCount,
     sourcePageCount,
+    allPagesCompleted,
+    allRowsCompleted,
     fieldChecks,
     timings: {
       clientCreateMs: createMs,
@@ -909,17 +1013,14 @@ async function benchmarkLive(): Promise<void> {
     },
   };
   if (
-    results.length !== 36 ||
-    completedReport.pageCount !== 6 ||
-    !sourcePageCount ||
+    !allPagesCompleted ||
+    !allRowsCompleted ||
     !unreviewed ||
-    !Object.values(fieldChecks).every(Boolean)
+    expected.length !== expectedRows
   ) {
     throw new Error("Live benchmark result fidelity or review-state assertion failed.");
   }
-  await mkdir(dirname(LIVE_BENCHMARK_EVIDENCE_PATH), { recursive: true, mode: 0o700 });
-  await writeFile(LIVE_BENCHMARK_EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
-  await chmod(LIVE_BENCHMARK_EVIDENCE_PATH, 0o600);
+  await writeBenchmarkEvidence(pages, evidence);
   console.log(
     `Live benchmark passed: pages=${evidence.pages} rows=${evidence.actualRows} ` +
     `createMs=${createMs} uploadMs=${uploadTransferMs} commitMs=${commitMs} ` +
@@ -1527,14 +1628,14 @@ async function main(): Promise<void> {
   }
   if (command === "verify-access") return verifyAccess(flags.includes("--keep"));
   if (command === "verify") return verify(flags.includes("--keep"));
-  if (command === "benchmark-live") return benchmarkLive();
+  if (command === "benchmark-live") return benchmarkLive(parseBenchmarkPages(flags));
   if (command === "helper") {
     const state = await loadState();
     return writeBrowserHelper(state);
   }
   if (command === "cleanup") return cleanup();
   throw new Error(
-    "Usage: bloodwork-live-smoke.ts prepare | prepare-ui [--no-helper] | verify-access [--keep] | verify [--keep] | benchmark-live | helper | cleanup",
+    "Usage: bloodwork-live-smoke.ts prepare | prepare-ui [--no-helper] | verify-access [--keep] | verify [--keep] | benchmark-live [--pages 6|12] | helper | cleanup",
   );
 }
 

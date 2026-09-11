@@ -1,6 +1,12 @@
 import { objectStorage } from "../../lib/objectStorage";
 import { supabaseAdmin } from "../../lib/supabase-admin";
-import { BLOODWORK_MAX_FILE_BYTES, prepareBloodworkPages } from "../../bloodwork/documents";
+import {
+  BLOODWORK_MAX_FILE_BYTES,
+  BloodworkDocumentError,
+  inspectBloodworkFile,
+  isReportLocalBloodworkDocumentError,
+  prepareBloodworkPages,
+} from "../../bloodwork/documents";
 import {
   BloodworkTranscriptionError,
   BLOODWORK_TRANSCRIPTION_TIMEOUT_MS,
@@ -260,6 +266,36 @@ export async function runBloodworkExtraction(ctx: JobContext): Promise<void> {
       if (missing.length === 0) continue;
       heartbeat.assertOwned();
       const { bytes } = await objectStorage.readObjectBounded(file.object_path, BLOODWORK_MAX_FILE_BYTES);
+      // Storage adapters return a bounded snapshot, but take one more copy so
+      // the admission digest and every render in this lease refer to the same
+      // immutable bytes. Legacy rows predate content_sha256; fully inspect
+      // those PDFs once, then reuse the trusted in-memory admission for all
+      // page batches in this run.
+      const sourceBytes = Buffer.from(bytes);
+      let admission = {
+        sha256: file.content_sha256 ?? null,
+        pageCount: file.page_count,
+      };
+      if (file.mime_type === "application/pdf" && admission.sha256 === null) {
+        const inspected = await inspectBloodworkFile(sourceBytes, file.mime_type, signal);
+        if (
+          inspected.mimeType !== file.mime_type
+          || inspected.pageCount !== file.page_count
+          || !/^[a-f0-9]{64}$/.test(inspected.sha256)
+        ) {
+          throw new BloodworkDocumentError(
+            "CORRUPT_FILE",
+            "This document no longer matches its admitted contents.",
+          );
+        }
+        admission = { sha256: inspected.sha256, pageCount: inspected.pageCount };
+        ctx.tally("legacyPdfAdmissions");
+        ctx.log("bloodwork_legacy_admission_upgraded", {
+          reportId: report.id,
+          fileId: file.id,
+          pageCount: inspected.pageCount,
+        });
+      }
 
       for (let offset = 0; offset < missing.length; offset += PREPARE_BATCH_SIZE) {
         // A model request is bounded to 90 seconds. Do not begin another wave
@@ -275,10 +311,10 @@ export async function runBloodworkExtraction(ctx: JobContext): Promise<void> {
         const prepared = await (async () => {
           try {
             return await prepareBloodworkPages(
-              bytes,
+              sourceBytes,
               file.mime_type,
               requestedPages,
-              { sha256: file.content_sha256 ?? null, pageCount: file.page_count },
+              admission,
               signal,
             );
           } finally {
@@ -362,11 +398,38 @@ export async function runBloodworkExtraction(ctx: JobContext): Promise<void> {
       }
     }
     const code = safeFailure(error);
-    await callRpc("bloodwork_fail_extraction", {
+    let persistError: unknown;
+    const persisted = await callRpc("bloodwork_fail_extraction", {
       p_report_id: report.id,
       p_lease_token: report.extraction_lease_token,
       p_error: code,
-    }).catch(() => undefined);
+    }).catch((failure) => {
+      persistError = failure;
+      return false;
+    });
+    if (persisted !== true) {
+      // A failed terminal transition is an infrastructure failure: the report
+      // may still be processing and must not be treated as safely settled.
+      ctx.failItem(report.id, persistError ?? code);
+      return;
+    }
+    if (
+      isReportLocalBloodworkDocumentError(error)
+      && !heartbeat.signal.aborted
+      && !ctx.leaseLost
+    ) {
+      ctx.failItem(report.id, code, { reportLocal: true });
+      ctx.log("bloodwork_report_failed", {
+        reportId: report.id,
+        error: code,
+        scope: "report_local",
+      });
+      // Keep a healthy queued report moving immediately after this terminal
+      // report-local outcome. signalJob remains best-effort and durable queue
+      // state remains the source of truth.
+      signalJob("bloodwork-extraction");
+      return;
+    }
     ctx.failItem(report.id, code);
   } finally {
     await heartbeat.stop();

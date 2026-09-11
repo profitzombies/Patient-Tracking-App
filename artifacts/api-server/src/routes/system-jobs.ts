@@ -128,7 +128,13 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
       const jobs: JobHealthDto[] = [];
       for (const definition of listJobs()) {
         const state = stateByName.get(definition.name) ?? null;
-        const failures = state?.lastFailureAt ? await store.listRecentItemFailures(definition.name, 5) : [];
+        // Report-local bloodwork failures intentionally leave the shared job
+        // healthy so other reports keep running. Their successful run carries
+        // a durable count, which is also the signal to include item failures.
+        const reportLocalFailures = state?.lastSuccessCounts?.reportLocalFailures ?? 0;
+        const failures = state?.lastFailureAt || reportLocalFailures > 0
+          ? await store.listRecentItemFailures(definition.name, 5)
+          : [];
         jobs.push(toJobHealthDto(definition, state, failures, now));
       }
       res.json({ asOf: now.toISOString(), jobs, recentRuns: recentRuns.map(runDto) });

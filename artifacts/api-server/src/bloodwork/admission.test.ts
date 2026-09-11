@@ -20,8 +20,11 @@ const mocks = vi.hoisted(() => ({
     deleteObjectStrict: vi.fn(),
   },
   inspectBloodworkFile: vi.fn(),
+  signalJob: vi.fn(),
+  renderBloodworkPage: vi.fn(),
 }));
 
+vi.mock("../jobs/scheduler", () => ({ signalJob: mocks.signalJob }));
 vi.mock("../lib/supabase-admin", () => ({
   fetchAuthUser: mocks.fetchAuthUser,
   supabaseAdmin: mocks.supabaseAdmin,
@@ -39,7 +42,7 @@ vi.mock("../lib/objectStorage", () => ({
 vi.mock("../bloodwork/documents", () => ({
   BLOODWORK_MAX_FILE_BYTES: 20_000_000,
   inspectBloodworkFile: mocks.inspectBloodworkFile,
-  renderBloodworkPage: vi.fn(),
+  renderBloodworkPage: mocks.renderBloodworkPage,
   BloodworkDocumentError: class BloodworkDocumentError extends Error {},
 }));
 
@@ -142,6 +145,7 @@ function configureBackend(): void {
           page_count: files[0].pageCount,
           width: files[0].width,
           height: files[0].height,
+          content_sha256: files[0].sha256,
         });
       }
       return result(true);
@@ -238,6 +242,10 @@ beforeEach(() => {
   });
   for (const mock of Object.values(mocks.storage)) mock.mockReset();
   mocks.inspectBloodworkFile.mockReset();
+  mocks.signalJob.mockReset();
+  mocks.renderBloodworkPage.mockReset().mockResolvedValue({
+    bytes: Buffer.from("page"), mimeType: "image/png", width: 1, height: 1,
+  });
   reportState = null;
   fileState = null;
   configureBackend();
@@ -253,10 +261,45 @@ beforeEach(() => {
     pageCount: 1,
     width: null,
     height: null,
+    sha256: "a".repeat(64),
   });
 });
 
 describe("bloodwork admission", () => {
+  it("persists the private admission receipt and prompts only after durable commit", async () => {
+    const path = `/api/bloodwork/patients/${PATIENT}/reports`;
+    await api("POST", path, { token: TOKEN, body: PDF_DRAFT });
+    expect(mocks.signalJob).not.toHaveBeenCalled();
+    mocks.signalJob.mockImplementation(() => {
+      expect(reportState?.lifecycle_status).toBe("committed");
+    });
+    const committed = await api("POST", `${path}/${REPORT}/commit`, { token: TOKEN });
+    expect(committed.status).toBe(200);
+    expect(mocks.signalJob).toHaveBeenCalledWith("bloodwork-extraction");
+    expect(fileState?.content_sha256).toBe("a".repeat(64));
+    expect(JSON.stringify(committed.json)).not.toContain("sha256");
+    await api("POST", `${path}/${REPORT}/commit`, { token: TOKEN });
+    expect(mocks.inspectBloodworkFile).toHaveBeenCalledTimes(1);
+    expect(mocks.storage.saveBufferImmutable).toHaveBeenCalledTimes(1);
+    expect(mocks.signalJob).toHaveBeenCalledTimes(2);
+
+    const fileId = String(fileState?.id);
+    const page = await api("GET", `${path}/${REPORT}/files/${fileId}/pages/1`, { token: TOKEN });
+    expect(page.status).toBe(200);
+    expect(mocks.renderBloodworkPage).toHaveBeenCalledWith(
+      expect.any(Buffer), "application/pdf", 1, undefined,
+      { sha256: "a".repeat(64), pageCount: 1 },
+    );
+  });
+
+  it("does not signal a denied or size-mismatched upload or inspect mismatched bytes", async () => {
+    const path = `/api/bloodwork/patients/${PATIENT}/reports`;
+    await api("POST", path, { token: TOKEN, body: PDF_DRAFT });
+    mocks.storage.readObjectBounded.mockResolvedValue({ bytes: Buffer.alloc(9), sizeBytes: 9 });
+    expect((await api("POST", `${path}/${REPORT}/commit`, { token: TOKEN })).status).toBe(422);
+    expect(mocks.inspectBloodworkFile).not.toHaveBeenCalled();
+    expect(mocks.signalJob).not.toHaveBeenCalled();
+  });
   it.each(["activated", "active", "invited", "paused", "discharged"])(
     "admits a completed account with %s status even when profile_completed_at is null",
     async (activationStatus) => {

@@ -1,0 +1,1392 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-11T16:33:17.183Z",
+  "baselineCommit": "c2a1caa3b16191d1aba39430f26660566d598a98",
+  "transport": {
+    "kind": "fixture-local",
+    "liveHttp": false,
+    "liveDatabase": false,
+    "liveObjectStorage": false,
+    "note": "Fixture-local repository/checkpoints; actual isolated native document worker. Do not treat as live HTTP/database evidence."
+  },
+  "scheduling": {
+    "reportConcurrency": 4,
+    "pageQuantum": 4,
+    "admittedPrepareBatchSize": 2,
+    "aiConcurrency": 2,
+    "queueTiming": "Measured wall-clock duration of real document calls, including actual worker queue wait; no derived queue time."
+  },
+  "transcription": {
+    "mode": "recorded-synthetic",
+    "usage": "not-requested",
+    "noRawModelReplies": true
+  },
+  "phases": [
+    {
+      "phase": "before",
+      "reports": [
+        {
+          "kind": "born-digital",
+          "pageCount": 1,
+          "repeat": 1,
+          "inspectionMs": 788.147,
+          "nativeElapsedMs": 1620.589,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1620.527,
+              "transcriptionMs": 0.008,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 1,
+          "repeat": 2,
+          "inspectionMs": 215.526,
+          "nativeElapsedMs": 991.53,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 991.494,
+              "transcriptionMs": 0.005,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 2,
+          "repeat": 1,
+          "inspectionMs": 603.809,
+          "nativeElapsedMs": 2847.176,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1389.808,
+              "transcriptionMs": 0.009,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 1457.326,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 2,
+          "repeat": 2,
+          "inspectionMs": 404.387,
+          "nativeElapsedMs": 2604.936,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1191.789,
+              "transcriptionMs": 0.006,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 1413.097,
+              "transcriptionMs": 0.003,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 6,
+          "repeat": 1,
+          "inspectionMs": 1406.164,
+          "nativeElapsedMs": 13565.293,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1445.547,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 1393.042,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 2942.216,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 136563,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 1544.463,
+              "transcriptionMs": 0,
+              "renderedBytes": 134367,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 3104.133,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134654,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 3135.777,
+              "transcriptionMs": 0,
+              "renderedBytes": 136689,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 6,
+          "repeat": 2,
+          "inspectionMs": 1242.522,
+          "nativeElapsedMs": 14300.279,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1390.417,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 2913.772,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 1548.825,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 136563,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 3104.238,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134367,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 3156.829,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134654,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 2186.09,
+              "transcriptionMs": 0,
+              "renderedBytes": 136689,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 1,
+          "repeat": 1,
+          "inspectionMs": 1314.728,
+          "nativeElapsedMs": 2174.516,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 2174.484,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 174758,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 1,
+          "repeat": 2,
+          "inspectionMs": 1160.072,
+          "nativeElapsedMs": 2910.13,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 2910.072,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 174758,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 2,
+          "repeat": 1,
+          "inspectionMs": 2239.428,
+          "nativeElapsedMs": 5376.318,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 2288.892,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 3087.373,
+              "transcriptionMs": 0,
+              "renderedBytes": 175290,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 2,
+          "repeat": 2,
+          "inspectionMs": 1560.99,
+          "nativeElapsedMs": 6236.007,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 3117.459,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 3118.501,
+              "transcriptionMs": 0,
+              "renderedBytes": 175290,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 6,
+          "repeat": 1,
+          "inspectionMs": 2698.824,
+          "nativeElapsedMs": 23764.519,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 2842.171,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 4153.499,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 219897,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 4253.99,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 220288,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 4202.141,
+              "transcriptionMs": 0,
+              "renderedBytes": 219679,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 4444.482,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 219138,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 3868.133,
+              "transcriptionMs": 0,
+              "renderedBytes": 176496,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 6,
+          "repeat": 2,
+          "inspectionMs": 2146.991,
+          "nativeElapsedMs": 24683.642,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 3618.495,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 4257.252,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 219897,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 4297.602,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 220288,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 4180.413,
+              "transcriptionMs": 0,
+              "renderedBytes": 219679,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 4500.916,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 219138,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 3828.853,
+              "transcriptionMs": 0,
+              "renderedBytes": 176496,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 1,
+          "repeat": 1,
+          "inspectionMs": 2050.352,
+          "nativeElapsedMs": 4210.172,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 4210.143,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 174758,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 1,
+          "repeat": 2,
+          "inspectionMs": 3403.048,
+          "nativeElapsedMs": 5020.539,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 5020.51,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 174758,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 2,
+          "repeat": 1,
+          "inspectionMs": 4232.599,
+          "nativeElapsedMs": 8663.357,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 4277.74,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 4385.579,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 2,
+          "repeat": 2,
+          "inspectionMs": 3551.525,
+          "nativeElapsedMs": 8919.362,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 4925.455,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 3993.719,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 6,
+          "repeat": 1,
+          "inspectionMs": 3931.577,
+          "nativeElapsedMs": 13952.071,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 4466.935,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 2000.87,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 1964.274,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 220288,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 1755.594,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134367,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 1989.166,
+              "transcriptionMs": 0,
+              "renderedBytes": 219138,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 1775.123,
+              "transcriptionMs": 0,
+              "renderedBytes": 136689,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 6,
+          "repeat": 2,
+          "inspectionMs": 3700.587,
+          "nativeElapsedMs": 11281.448,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 2566.111,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 1271.873,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 2459.72,
+              "transcriptionMs": 0,
+              "renderedBytes": 220288,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 1244.326,
+              "transcriptionMs": 0,
+              "renderedBytes": 134367,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 2487.128,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 219138,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 1252.137,
+              "transcriptionMs": 0,
+              "renderedBytes": 136689,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "requestEvents": 0,
+        "responseEvents": 0,
+        "retryEvents": 0,
+        "failureEvents": 0,
+        "promptTokens": null,
+        "completionTokens": null,
+        "totalTokens": null,
+        "costUsd": null,
+        "tokenAvailability": "not-requested",
+        "costAvailability": "not-requested"
+      }
+    },
+    {
+      "phase": "after",
+      "reports": [
+        {
+          "kind": "born-digital",
+          "pageCount": 1,
+          "repeat": 1,
+          "inspectionMs": 616.688,
+          "nativeElapsedMs": 1003.153,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1003.074,
+              "transcriptionMs": 0.009,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 1,
+          "repeat": 2,
+          "inspectionMs": 814.238,
+          "nativeElapsedMs": 1197.316,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1197.283,
+              "transcriptionMs": 0.004,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 2,
+          "repeat": 1,
+          "inspectionMs": 1004.193,
+          "nativeElapsedMs": 1601.55,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1601.517,
+              "transcriptionMs": 0.006,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 1601.525,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 2,
+          "repeat": 2,
+          "inspectionMs": 1205.261,
+          "nativeElapsedMs": 2010.241,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 2010.198,
+              "transcriptionMs": 0.005,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 2010.216,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 6,
+          "repeat": 1,
+          "inspectionMs": 1791.396,
+          "nativeElapsedMs": 6464.985,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1378.462,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 1378.47,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 3140.423,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 136563,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 3140.431,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 134367,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 1946.03,
+              "transcriptionMs": 0,
+              "renderedBytes": 134654,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 1946.042,
+              "transcriptionMs": 0,
+              "renderedBytes": 136689,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "born-digital",
+          "pageCount": 6,
+          "repeat": 2,
+          "inspectionMs": 1596.164,
+          "nativeElapsedMs": 6899.472,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1845.39,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 134988,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 1845.398,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 3115.388,
+              "transcriptionMs": 0,
+              "renderedBytes": 136563,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 3115.4,
+              "transcriptionMs": 0,
+              "renderedBytes": 134367,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 1938.6,
+              "transcriptionMs": 0,
+              "renderedBytes": 134654,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 1938.612,
+              "transcriptionMs": 0,
+              "renderedBytes": 136689,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 1,
+          "repeat": 1,
+          "inspectionMs": 1289.011,
+          "nativeElapsedMs": 2467.606,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 2467.575,
+              "transcriptionMs": 0.008,
+              "renderedBytes": 174758,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 1,
+          "repeat": 2,
+          "inspectionMs": 956.96,
+          "nativeElapsedMs": 3128.88,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 3128.853,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 174758,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 2,
+          "repeat": 1,
+          "inspectionMs": 2528.964,
+          "nativeElapsedMs": 3324.293,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 3324.257,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 3324.266,
+              "transcriptionMs": 0,
+              "renderedBytes": 175290,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 2,
+          "repeat": 2,
+          "inspectionMs": 1958.055,
+          "nativeElapsedMs": 4732.929,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 4732.899,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 4732.908,
+              "transcriptionMs": 0,
+              "renderedBytes": 175290,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 6,
+          "repeat": 1,
+          "inspectionMs": 4743.033,
+          "nativeElapsedMs": 12844.656,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 3028.893,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 3028.904,
+              "transcriptionMs": 0,
+              "renderedBytes": 219897,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 5615.174,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 220288,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 5615.185,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 219679,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 4200.507,
+              "transcriptionMs": 0,
+              "renderedBytes": 219138,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 4200.521,
+              "transcriptionMs": 0,
+              "renderedBytes": 176496,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "scanned",
+          "pageCount": 6,
+          "repeat": 2,
+          "inspectionMs": 4778.003,
+          "nativeElapsedMs": 13991.734,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 4179.529,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 4179.54,
+              "transcriptionMs": 0,
+              "renderedBytes": 219897,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 5632.31,
+              "transcriptionMs": 0,
+              "renderedBytes": 220288,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 5632.321,
+              "transcriptionMs": 0,
+              "renderedBytes": 219679,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 4179.812,
+              "transcriptionMs": 0,
+              "renderedBytes": 219138,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 4179.823,
+              "transcriptionMs": 0,
+              "renderedBytes": 176496,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 1,
+          "repeat": 1,
+          "inspectionMs": 3345.723,
+          "nativeElapsedMs": 4878.428,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 4878.396,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 174758,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 1,
+          "repeat": 2,
+          "inspectionMs": 1838.78,
+          "nativeElapsedMs": 5591.722,
+          "checkpointCount": 1,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 5591.69,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 174758,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 2,
+          "repeat": 1,
+          "inspectionMs": 4959.532,
+          "nativeElapsedMs": 5068.624,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 5068.591,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 5068.604,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 2,
+          "repeat": 2,
+          "inspectionMs": 4273.946,
+          "nativeElapsedMs": 5905.718,
+          "checkpointCount": 2,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 5905.688,
+              "transcriptionMs": 0.002,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 5905.697,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 6,
+          "repeat": 1,
+          "inspectionMs": 4560.031,
+          "nativeElapsedMs": 6415.515,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 1611.04,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 1611.048,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 2353.501,
+              "transcriptionMs": 0,
+              "renderedBytes": 220288,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 2353.511,
+              "transcriptionMs": 0,
+              "renderedBytes": 134367,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 2450.9,
+              "transcriptionMs": 0,
+              "renderedBytes": 219138,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 2450.913,
+              "transcriptionMs": 0,
+              "renderedBytes": 136689,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        },
+        {
+          "kind": "mixed",
+          "pageCount": 6,
+          "repeat": 2,
+          "inspectionMs": 3178.316,
+          "nativeElapsedMs": 7187.605,
+          "checkpointCount": 6,
+          "pages": [
+            {
+              "page": 1,
+              "checkpointed": true,
+              "renderMs": 2380.076,
+              "transcriptionMs": 0.001,
+              "renderedBytes": 218389,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 2,
+              "checkpointed": true,
+              "renderMs": 2380.086,
+              "transcriptionMs": 0,
+              "renderedBytes": 134690,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 3,
+              "checkpointed": true,
+              "renderMs": 2381.603,
+              "transcriptionMs": 0,
+              "renderedBytes": 220288,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 4,
+              "checkpointed": true,
+              "renderMs": 2381.616,
+              "transcriptionMs": 0,
+              "renderedBytes": 134367,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 5,
+              "checkpointed": true,
+              "renderMs": 2425.829,
+              "transcriptionMs": 0,
+              "renderedBytes": 219138,
+              "rows": 6,
+              "errorCode": null
+            },
+            {
+              "page": 6,
+              "checkpointed": true,
+              "renderMs": 2425.846,
+              "transcriptionMs": 0,
+              "renderedBytes": 136689,
+              "rows": 6,
+              "errorCode": null
+            }
+          ]
+        }
+      ],
+      "usage": {
+        "requestEvents": 0,
+        "responseEvents": 0,
+        "retryEvents": 0,
+        "failureEvents": 0,
+        "promptTokens": null,
+        "completionTokens": null,
+        "totalTokens": null,
+        "costUsd": null,
+        "tokenAvailability": "not-requested",
+        "costAvailability": "not-requested"
+      }
+    }
+  ]
+}

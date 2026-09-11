@@ -9,10 +9,12 @@ interface ZoomableImageProps {
   headers?: Record<string, string>;
   label?: string;
   cachePolicy?: 'none' | 'disk';
+  onLoadStart?: () => void;
+  onLoad?: () => void;
   onError?: () => void;
 }
 
-export function ZoomableImage({ uri, headers, label, cachePolicy = 'none', onError }: ZoomableImageProps) {
+export function ZoomableImage({ uri, headers, label, cachePolicy = 'none', onLoadStart, onLoad, onError }: ZoomableImageProps) {
   const colors = useColors();
   const [scale, setScale] = React.useState(1);
   const scrollRef = useRef<ScrollView>(null);
@@ -40,6 +42,8 @@ export function ZoomableImage({ uri, headers, label, cachePolicy = 'none', onErr
             style={[styles.webImage, { width: `${scale * 100}%`, height: `${scale * 100}%` }]}
             contentFit="contain"
             cachePolicy={cachePolicy}
+            onLoadStart={onLoadStart}
+            onLoad={onLoad}
             onError={onError}
           />
         </ScrollView>

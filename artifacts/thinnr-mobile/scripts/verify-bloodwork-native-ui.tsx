@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { Platform } from 'react-native';
 import { BloodworkDateField } from '../components/bloodwork/BloodworkDateField';
 import { BloodworkProcessingStatus } from '../components/bloodwork/BloodworkProcessingStatus';
 import { BloodworkViewer } from '../components/bloodwork/BloodworkViewer';
@@ -70,12 +71,12 @@ async function main(): Promise<void> {
   assert.match(text(status), /0 of 4 pages read/);
   assert.match(text(status), /safely leave this screen/);
   assert.equal(status.root.findAllByType('ActivityIndicator').length, 0, 'waiting uses a clock, not active spinner');
-  assert.deepEqual(byTestId(status, 'bloodwork-processing-progress').props.accessibilityValue, { min: 0, max: 5, now: 0 });
+   assert.deepEqual(byTestId(status, 'bloodwork-processing-progress').props.accessibilityValue, { min: 0, max: 4, now: 0 });
 
   await act(async () => {
     status.update(<BloodworkProcessingStatus report={report('processing', 'reading_pages', 'active', 2)} onRefresh={() => {}} />);
   });
-  assert.match(text(status), /Reading pages/);
+   assert.match(text(status), /Reading/);
   assert.equal(status.root.findAllByType('ActivityIndicator').length, 1);
   assert.equal(byTestId(status, 'bloodwork-processing-progress').props.accessibilityValue.now, 2);
 
@@ -83,7 +84,7 @@ async function main(): Promise<void> {
     status.update(<BloodworkProcessingStatus report={report('processing', 'preparing_results', 'active', 4)} onRefresh={() => {}} />);
   });
   assert.match(text(status), /Preparing results/);
-  assert.deepEqual(byTestId(status, 'bloodwork-processing-progress').props.accessibilityValue, { min: 0, max: 5, now: 4 }, 'final save is a distinct unit');
+   assert.deepEqual(byTestId(status, 'bloodwork-processing-progress').props.accessibilityValue, { min: 0, max: 4, now: 4 }, 'progress uses only reported source pages');
 
   let refreshCalls = 0;
   await act(async () => {
@@ -105,7 +106,7 @@ async function main(): Promise<void> {
     status.update(<BloodworkProcessingStatus report={report('completed', 'completed', 'active', 4)} />);
   });
   assert.match(text(status), /Results ready · Unreviewed/);
-  assert.deepEqual(byTestId(status, 'bloodwork-processing-progress').props.accessibilityValue, { min: 0, max: 5, now: 5 });
+   assert.deepEqual(byTestId(status, 'bloodwork-processing-progress').props.accessibilityValue, { min: 0, max: 4, now: 4 });
 
   let selectedDate = '';
   const date = await mount(<BloodworkDateField testID="date" value="" onChange={value => { selectedDate = value; }} />);
@@ -143,6 +144,32 @@ async function main(): Promise<void> {
   );
   const close = byTestId(viewer, 'bloodwork-viewer-close');
   assert.equal(close.props.style.width, 44);
+  assert(viewer.root.findAllByProps({ testID: 'bloodwork-source-skeleton' }).length > 0, 'source pages show a placeholder while the image is loading');
+  const imageBeforeRetry = viewer.root.findAllByType('ZoomableImage')[0];
+  assert(imageBeforeRetry, 'mounted source image keeps native load callbacks');
+  const staleError = imageBeforeRetry.props.onError as () => void;
+  await act(async () => staleError());
+  const sourceRetryBeforeStaleEvent = byTestId(viewer, 'bloodwork-source-retry');
+  await act(async () => sourceRetryBeforeStaleEvent.props.onPress());
+  await act(async () => staleError());
+  assert.equal(viewer.root.findAllByProps({ testID: 'bloodwork-source-retry' }).length, 0, 'a late same-page image error cannot poison the retried page');
+  const imageAfterRetry = viewer.root.findAllByType('ZoomableImage')[0];
+  await act(async () => imageAfterRetry.props.onLoad());
+  assert.equal(viewer.root.findAllByProps({ testID: 'bloodwork-source-skeleton' }).length, 0, 'loaded source page leaves its skeleton');
+  await act(async () => viewer.update(
+    <BloodworkViewer
+      visible
+      onClose={() => { closed += 1; }}
+      reportDetail={{
+        report: { ...report('completed', 'completed', 'active', 4), title: 'CBC refreshed' },
+        files: [{ id: 'file-a', position: 0, mimeType: 'application/pdf', size: 10, pageCount: 2, width: null, height: null }],
+        results: [],
+      }}
+      token="token-a"
+      patientId="patient-a"
+    />,
+  ));
+  assert.equal(viewer.root.findAllByProps({ testID: 'bloodwork-source-skeleton' }).length, 0, 'same source page stays loaded across a detail refresh');
   const top = viewer.root.findAllByType('View').find(node => {
     const styles = Array.isArray(node.props.style) ? node.props.style : [node.props.style];
     return styles.some(style => style?.paddingTop === 18);
@@ -151,6 +178,40 @@ async function main(): Promise<void> {
   await act(async () => close.props.onPress());
   assert.equal(closed, 1, 'viewer closes without changing report context');
   viewer.unmount();
+
+  // The web source request has its own retryable error state. A failed page
+  // request must not leave a spinner that implies work is still progressing.
+  Platform.OS = 'web';
+  const originalFetch = globalThis.fetch;
+  let sourceFetches = 0;
+  globalThis.fetch = (async () => {
+    sourceFetches += 1;
+    return new Response(null, { status: 503 });
+  }) as typeof globalThis.fetch;
+  const failedSource = await mount(
+    <BloodworkViewer
+      visible
+      onClose={() => {}}
+      reportDetail={{
+        report: report('completed', 'completed', 'active', 4),
+        files: [{ id: 'file-a', position: 0, mimeType: 'application/pdf', size: 10, pageCount: 1, width: null, height: null }],
+        results: [],
+      }}
+      token="token-a"
+      patientId="patient-a"
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.match(text(failedSource), /could not be loaded/i);
+  const sourceRetry = byTestId(failedSource, 'bloodwork-source-retry');
+  await act(async () => sourceRetry.props.onPress());
+  assert.equal(sourceFetches, 2, 'source page retry starts a fresh request');
+  failedSource.unmount();
+  globalThis.fetch = originalFetch;
+  Platform.OS = 'ios';
   date.unmount();
   status.unmount();
   console.log('bloodwork native UI checks passed: phases, held polling, dates, progressbar, and safe-area viewer');

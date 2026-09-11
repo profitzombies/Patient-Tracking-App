@@ -4,6 +4,7 @@ import {
   BLOODWORK_MAX_FILE_BYTES,
   BloodworkDocumentError,
   inspectBloodworkFile,
+  prepareBloodworkPages,
   renderBloodworkPage,
 } from "./documents";
 import {
@@ -35,8 +36,10 @@ describe("bloodwork document inspection", () => {
   it("fully decodes valid PNG and JPEG images", async () => {
     const png = await inspectBloodworkFile(syntheticImage("png"), "image/png");
     const jpeg = await inspectBloodworkFile(syntheticImage("jpeg"), "image/jpeg");
-    expect(png).toEqual({ mimeType: "image/png", pageCount: 1, width: 320, height: 180 });
-    expect(jpeg).toEqual({ mimeType: "image/jpeg", pageCount: 1, width: 320, height: 180 });
+    expect(png).toMatchObject({ mimeType: "image/png", pageCount: 1, width: 320, height: 180 });
+    expect(jpeg).toMatchObject({ mimeType: "image/jpeg", pageCount: 1, width: 320, height: 180 });
+    expect(png.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(jpeg.sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("rejects mislabeled and truncated images with stable sanitized codes", async () => {
@@ -123,6 +126,28 @@ describe("bloodwork document inspection", () => {
     ).toBe(2);
   });
 
+  it("removes cancelled queued work before it starts a native worker", async () => {
+    const active = new AbortController();
+    const queued = new AbortController();
+    const running = inspectBloodworkFile(
+      syntheticMaxPageBloodworkPdf(),
+      "application/pdf",
+      active.signal,
+    );
+    const pending = inspectBloodworkFile(
+      syntheticTwoPageBloodworkPdf(),
+      "application/pdf",
+      queued.signal,
+    );
+    queued.abort();
+    await expect(pending).rejects.toEqual(expectCode("PROCESSING_TIMEOUT"));
+    active.abort();
+    await expect(running).rejects.toEqual(expectCode("PROCESSING_TIMEOUT"));
+    expect(
+      (await inspectBloodworkFile(syntheticTwoPageBloodworkPdf(), "application/pdf")).pageCount,
+    ).toBe(2);
+  });
+
   it("rejects excess queued decoder work with stable backpressure", async () => {
     const work = Array.from({ length: 6 }, () =>
       inspectBloodworkFile(syntheticTwoPageBloodworkPdf(), "application/pdf"),
@@ -145,6 +170,7 @@ describe("bloodwork page rendering", () => {
       pageCount: 2,
       width: null,
       height: null,
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
 
     const first = await renderBloodworkPage(original, "application/pdf", 1);
@@ -165,6 +191,53 @@ describe("bloodwork page rendering", () => {
     await expect(renderBloodworkPage(image, "image/jpeg", 2)).rejects.toEqual(
       expectCode("PAGE_OUT_OF_RANGE"),
     );
+  });
+
+  it("prepares up to two admitted PDF pages in one isolated operation", async () => {
+    const original = syntheticTwoPageBloodworkPdf();
+    const admission = await inspectBloodworkFile(original, "application/pdf");
+    const rendered = await prepareBloodworkPages(
+      original,
+      "application/pdf",
+      [1, 2],
+      { sha256: admission.sha256, pageCount: admission.pageCount },
+    );
+    expect(rendered.map((page) => page.page)).toEqual([1, 2]);
+    expect(rendered.every((page) => page.mimeType === "image/png")).toBe(true);
+    await expect(
+      prepareBloodworkPages(original, "application/pdf", [1, 2, 1], {
+        sha256: admission.sha256,
+        pageCount: admission.pageCount,
+      }),
+    ).rejects.toEqual(expectCode("PAGE_OUT_OF_RANGE"));
+    await expect(
+      prepareBloodworkPages(original, "application/pdf", [1, 1], {
+        sha256: admission.sha256,
+        pageCount: admission.pageCount,
+      }),
+    ).rejects.toEqual(expectCode("PAGE_OUT_OF_RANGE"));
+  });
+
+  it("rejects changed bytes against an admitted receipt before rendering", async () => {
+    const original = syntheticTwoPageBloodworkPdf();
+    const admission = await inspectBloodworkFile(original, "application/pdf");
+    const changed = Buffer.from(original);
+    changed[changed.indexOf("Glucose")] ^= 1;
+    await expect(
+      prepareBloodworkPages(changed, "application/pdf", [1], {
+        sha256: admission.sha256,
+        pageCount: admission.pageCount,
+      }),
+    ).rejects.toEqual(expectCode("CORRUPT_FILE"));
+  });
+
+  it("does a full legacy inspection rather than trusting its legacy page count", async () => {
+    await expect(
+      prepareBloodworkPages(syntheticDanglingPageBloodworkPdf(), "application/pdf", [1], {
+        sha256: null,
+        pageCount: 1,
+      }),
+    ).rejects.toEqual(expectCode("CORRUPT_FILE"));
   });
 
   it("exposes only documented document errors", () => {

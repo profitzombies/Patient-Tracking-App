@@ -2,8 +2,8 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
-import type { BloodworkReport } from '@/lib/bloodwork-types';
 import { formatBloodworkDate } from '@/lib/bloodwork-date';
+import { getBloodworkProcessingLabel, type BloodworkReport } from '@/lib/bloodwork-types';
 
 interface BloodworkHistoryListProps {
   reports: BloodworkReport[];
@@ -28,7 +28,9 @@ export function BloodworkHistoryList({ reports, onPressReport, emptyMessage = 'N
 
   return (
     <View style={styles.container}>
-      {reports.map((report, index) => (
+      {reports.map((report, index) => {
+        const processingLabel = getBloodworkProcessingLabel(report);
+        return (
         <React.Fragment key={report.id}>
           {index > 0 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
           <Pressable
@@ -55,24 +57,31 @@ export function BloodworkHistoryList({ reports, onPressReport, emptyMessage = 'N
               <Text
                 style={[
                   styles.status,
-                  report.extractionStatus === 'failed' && { color: colors.destructive },
-                  report.extractionStatus === 'completed' && { color: colors.activeGreen },
-                  (report.extractionStatus === 'queued' || report.extractionStatus === 'processing') && { color: colors.cobalt },
+                  processingLabel === 'failed' && { color: colors.destructive },
+                  processingLabel === 'completed' && { color: colors.activeGreen },
+                  processingLabel !== 'failed'
+                    && processingLabel !== 'completed'
+                    && { color: colors.cobalt },
                 ]}
               >
-                {report.extractionStatus === 'queued'
-                  ? 'WAITING'
-                  : report.extractionStatus === 'processing'
-                    ? 'READING'
-                    : report.extractionStatus === 'completed'
-                      ? 'READY · UNREVIEWED'
-                      : 'FAILED'}
+                {processingLabel === 'checking'
+                  ? 'CHECKING'
+                  : processingLabel === 'queued'
+                    ? 'QUEUED'
+                    : processingLabel === 'reading'
+                      ? 'READING'
+                      : processingLabel === 'organizing'
+                        ? 'ORGANIZING'
+                        : processingLabel === 'completed'
+                          ? 'COMPLETED · UNREVIEWED'
+                          : 'FAILED'}
               </Text>
               <Feather name="chevron-right" size={16} color={colors.subtleText} />
             </View>
           </Pressable>
         </React.Fragment>
-      ))}
+        );
+      })}
       {nextCursor && onLoadMore ? (
         <Pressable
           testID="bloodwork-load-more"

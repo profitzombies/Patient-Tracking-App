@@ -10,6 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "harness:meal-read": "tsx scripts/meal-read-harness/run.ts",
+    "harness:bloodwork-benchmark": "tsx scripts/bloodwork-benchmark/run.ts",
+    "harness:bloodwork-accuracy": "tsx scripts/bloodwork-benchmark/accuracy.ts",
     "test:usda-catalog-seed": "tsx scripts/verify-usda-catalog-seed.ts",
     "test:patient-snapshot-sql": "vitest run src/routes/patient-data.sql.test.ts"
   },

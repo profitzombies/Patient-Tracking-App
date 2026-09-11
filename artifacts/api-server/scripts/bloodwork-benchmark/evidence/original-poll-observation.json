@@ -1,0 +1,70 @@
+{
+  "phase": "original-60s",
+  "fixture": "born-digital",
+  "pages": 6,
+  "transport": "fixture-local",
+  "aiTransport": "recorded-from-openai-existing-connection",
+  "productionSchedulerIntervalMs": 60000,
+  "benchmarkPollIntervalMs": 60000,
+  "timingsMs": {
+    "uploadLocalWrite": 0.461,
+    "immutableInspect": 310.073,
+    "commitAdapter": 0.018,
+    "queueWait": 2,
+    "storageRead": 1.619,
+    "render": 0,
+    "transcriptionWall": 0,
+    "transcriptionAggregate": 0,
+    "saveDbAdapter": 0.078,
+    "aggregationDbAdapter": 0.008,
+    "otherDbAdapter": 0.273,
+    "totalWall": 61112.777
+  },
+  "worker": {
+    "actualRunBloodworkExtraction": true,
+    "schedulerRuns": 2,
+    "pagesSaved": 6,
+    "finalAggregationCompleted": true,
+    "storageReads": 2,
+    "dbCalls": 22,
+    "successfulModelResponses": 0,
+    "modelRequestAttempts": 0,
+    "aiPromptTokens": null,
+    "aiCompletionTokens": null,
+    "aiTotalTokens": null,
+    "tokenAvailability": "unavailable",
+    "costAvailability": "unavailable",
+    "replayAi": true
+  },
+  "strictRows": true,
+  "failure": null,
+  "orchestration": {
+    "workerImplementation": "git-head worker",
+    "transcriberImplementation": "working-tree extraction.ts for both phases",
+    "comparisonValidity": "controlled old/new orchestration comparison; not a complete old-production baseline"
+  },
+  "caseEndedAt": "2026-09-11T17:00:53.695Z",
+  "resumed": false,
+  "noRawModelReplies": true,
+  "originalPoll": {
+    "actualSchedulerTickMs": 60000,
+    "measuredTotalWallMs": 60802.644,
+    "measuredContinuationWaitMs": 58406,
+    "runsObserved": 2,
+    "firstQuantumPages": 4,
+    "secondQuantumPages": 2,
+    "predictedWaitUsed": false
+  },
+  "generatedAt": "2026-09-11T17:00:53.698Z",
+  "sourceHashes": {
+    "src/jobs/definitions/bloodwork-extraction.ts": "71834eb6c85e0a4108bd51a60152c48f75bed29aaf43320d695241f047596a9f",
+    "src/bloodwork/documents.ts": "17e12b053b6b5f27b293196d82c8dabcf754bdefe260bcf8fe0742e75905197e",
+    "src/bloodwork/document-worker-core.ts": "22898e2ab411d08b1bf759c0c2abf9c1292b112dfaa65d278844a6f4b43c3352",
+    "src/bloodwork/document-worker.ts": "d3db2d468919d0836b200966fb6e01487b642cb431aa1dd40ce0a5cbe50c6f66",
+    "src/jobs/scheduler.ts": "e10eecf79ef51dbf59bc78423001ed2cde120ee8d9ba91b7c16c911504fa8676",
+    "src/bloodwork/extraction.ts": "ce876f437cefce18e1bfa970a0ccfdf59f33e25b8de7f505d30c4a45b9f7a209",
+    "src/bloodwork/fixtures/synthetic.ts": "7e693d57cb2f36d66aacecd6edf446259758c22e37ed439b13a32a936c65175c",
+    "src/bloodwork/performance.benchmark.test.ts": "e8af51820f00e179750730d0475a916c295106ff63f2afbf6939f647b45a8119"
+  },
+  "transcriptionSource": "Deterministic expected synthetic fixture rows; no model requests or model accuracy claims."
+}

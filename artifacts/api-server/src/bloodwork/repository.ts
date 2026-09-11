@@ -38,6 +38,8 @@ export interface FileRow {
   page_count: number | null;
   width: number | null;
   height: number | null;
+  /** Server-only admission receipt; never included in the public file DTO. */
+  content_sha256?: string | null;
 }
 
 interface ResultRow {
@@ -58,7 +60,7 @@ interface ResultRow {
 }
 
 const REPORT_SELECT = "id,patient_id,title,report_date,uploaded_at,version,kind,extraction_status,extraction_error,lifecycle_status,extraction_phase,extraction_completed_pages,extraction_total_pages,extraction_started_at,extraction_progress_updated_at,extraction_completed_at,extraction_finished_at,extraction_lease_until";
-const FILE_SELECT = "id,patient_id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,staging_object_path,object_path,mime_type,size_bytes,page_count,width,height";
+const FILE_SELECT = "id,patient_id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,staging_object_path,object_path,mime_type,size_bytes,page_count,width,height,content_sha256";
 const RESULT_SELECT = "id,report_id,source_file_id,source_page,position,test_name,value_text,units,reference_range,lab_flag,uncertain,version,corrected,updated_at";
 
 function ensureRows<T>(status: number, json: unknown, label: string): T[] {

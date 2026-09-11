@@ -17,7 +17,7 @@
 - [Staging coach failures](coach-failure-staging.md) — env-override restarts stage failures: break the model upstream, or zero the limiter knobs to stage denials; the tester heals it in-session.
 - [Coach upstream reliability](coach-upstream-reliability.md) — SSE keepalives + idle deadlines; client end-without-done = error, never silent success; abort-guard every stream callback (drain + screen controller check).
 - [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
-- [Long-running builds](long-running-builds.md) — detached shell procs get reaped; run multi-minute builds as a temp console workflow; mobile build's Metro needs 8081 (stop mockup-sandbox first).
+- [Long-running commands](long-running-builds.md) — use managed background/workflows, not detached shells; fingerprint and checkpoint model benchmarks per case.
 - [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
 - [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — reconciliation can leave old listeners alive; verify port ownership and feature routes, not just workflow state or a green health check.
 - [Rebase configuration and runtimes](rebase-config-runtime.md) — conflicted .replit can temporarily remove Node/pnpm/Python from shells; validate the merged config before reinstalling tools.
@@ -58,7 +58,7 @@
 - [Knowledge doc library](knowledge-doc-library.md) — AI Support grounding docs: extract-on-finalize with object-path-conditional persists, routing aids at ingest; HTTP seed path now behind the HQ content gate.
 - [Support chat grounding](support-chat-grounding.md) — broaden-marker routing; brand fixes via stream rewrite; history caps fit replayed replies (turn TWO); chat open per-IP-limited, knowledge routes now HQ-gated; never bundle creds.
 - [Unicode in authored TSX](tsx-unicode-escapes.md) — \uXXXX in JSX text renders literally (green builds, broken UI); write real characters when generating files.
-- [Synthetic image fixtures](synthetic-image-fixtures.md) — no sharp/PIL/chromium here: a no-deps Node PNG encoder + 5x7 pixel font makes vision-readable fixtures; certify via curl before e2e.
+- [Synthetic image fixtures](synthetic-image-fixtures.md) — deterministic encoders avoid optional tooling; benchmark expected values must match visible rendered content, not just generator arrays.
 - [In-app food camera handoff](food-camera-handoff.md) — camera route settles a module promise with the RAW asset; prep + single blue confirm live at entry points; denied fallbacks live inside the surface.
 - [HQ toast layer](hq-toast-layer.md) — sound rides the variant; Radix won't announce in-place morphs (ANNOUNCE live region); progress toasts pin vs eviction; gated writes return landed booleans.
 - [Composite typecheck staleness](composite-typecheck-staleness.md) — phantom "no exported member" typecheck errors = stale referenced-lib dist d.ts; tsc -b the lib first; ts lib predates es2023 (no findLastIndex).
@@ -104,7 +104,7 @@
 - [Organization-wide send caps](outreach-daily-cap.md) — caps are reserved by one DB RPC under an advisory lock, never a worker-local tally; prove with real-PG lock test + mutation-proven memory test.
 - [Coach paused state](coach-paused-state.md) — HQ availability toggle → probe on open + paused 503 on send is terminal and non-retryable; one probe source for every coach entry point.
 - [Office team roles & audit read layer](office-team-and-audit.md) — owner/admin/staff with DB last-owner guard, fail-closed disabled members, app-side audit allowlists; DOM-free Radix stubs + form onSubmit for RTR suites.
-- [Patient purge lifecycle](patient-purge-lifecycle.md) — tombstone-first FK-ordered idempotent purge; null-patient_id guard skip + analytics detach carve-out; grace fixtures ride the real clock.
+- [Patient purge lifecycle](patient-purge-lifecycle.md) — tombstone-first FK-ordered purge; revoke processors at purge start, before deleting storage; preserve cancellable grace.
 - [Shared conversation inbox](staff-inbox-workflow.md) — human chats stay outside AI; ownership includes metrics; first-read races and service-role RPCs need real-PG proof.
 - [System jobs framework](system-jobs-framework.md) — all clean-up rides the leased job ledger (intents, two-way reconcile flags, dry-run neutrality); live traps: pg-safeupdate bare DELETE, locate("/objects/"), real-HQ tester login recipe.
 - [Offline patient write queue](offline-write-queue.md) — state=project(base,queue), head-first drain, cached launches refresh truth first; receipts claimed BEFORE the write; photo uploads pinned by client id.

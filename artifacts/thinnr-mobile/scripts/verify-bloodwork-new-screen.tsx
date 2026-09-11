@@ -15,6 +15,7 @@ import { state as patient, resetPatient } from './bloodwork-new-screen-stubs/pat
 import { resetSupabase } from './bloodwork-new-screen-stubs/supabase';
 import { prepareCalls, resetMedia } from './bloodwork-new-screen-stubs/media';
 import { resetApi, state as api } from './bloodwork-new-screen-stubs/api-client';
+import { resetQueryClient, state as queryClient } from './bloodwork-new-screen-stubs/query-client';
 import { routeEvents } from './bloodwork-new-screen-stubs/router';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -61,6 +62,7 @@ function resetAll(): void {
   resetSupabase();
   resetMedia();
   resetApi();
+  resetQueryClient();
   routeEvents.length = 0;
   clearBloodworkRecoveryRoute();
 }
@@ -111,11 +113,39 @@ async function main(): Promise<void> {
     true,
     'saving label never claims 100% before commit succeeds',
   );
+  assert.equal(
+    heldCommit.root.findAllByType('Text').some(node => textOf(node) === 'Upload received'),
+    true,
+    'receipt is shown only after every source object is uploaded',
+  );
   assert(api.commitResolve);
   await act(async () => api.commitResolve?.());
   await flush();
   assert.equal(routeEvents.at(-1)?.href, '/bloodwork/report-upload', 'commit completion reaches the queued report');
+  assert.equal(
+    queryClient.invalidated.some(entry => (
+      entry.queryKey[0] === '/api/bloodwork/patients/patient-a/reports'
+      && entry.queryKey[1] === 'user-a'
+      && entry.queryKey[2] === 'retained-pages'
+    )),
+    true,
+    'successful upload invalidates the scoped history query before returning to the report',
+  );
   await act(async () => heldCommit.unmount());
+
+  // A replayed commit (the idempotent retry path) invalidates the same
+  // patient-scoped history prefix, so returning to the list cannot show the
+  // pre-upload empty cache.
+  resetAll();
+  await clearAllRetainedBloodworkDrafts();
+  api.createBehaviors = [{ kind: 'replay' }];
+  const replay = await mount();
+  await choosePdf(replay);
+  await pressWithTextAndWait(replay, 'Save & Process');
+  await flush();
+  assert.equal(routeEvents.at(-1)?.href, '/bloodwork/report-replay');
+  assert.equal(queryClient.invalidated.length, 1, 'replayed commit also invalidates history');
+  await act(async () => replay.unmount());
 
   // A stale/disabled media action cannot become a newer generation while the
   // save owns the UI. The mounted camera path is exercised here rather than

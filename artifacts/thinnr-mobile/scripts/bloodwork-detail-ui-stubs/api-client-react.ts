@@ -33,9 +33,9 @@ export function publishDetail(data: BloodworkDetail | undefined, error = false) 
   detailState.listeners.forEach(listener => listener());
 }
 
-export function resetDetailState(data: BloodworkDetail) {
+export function resetDetailState(data?: BloodworkDetail, error = false) {
   detailState.data = data;
-  detailState.error = false;
+  detailState.error = error;
   detailState.refetches = 0;
   detailState.retryCalls = 0;
   detailState.retryResolvers = [];

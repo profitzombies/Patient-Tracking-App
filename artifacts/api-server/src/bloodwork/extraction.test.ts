@@ -6,10 +6,13 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
 }));
 
 import {
+  BLOODWORK_BENCHMARK_MODELS,
   BLOODWORK_TRANSCRIPTION_MODEL,
   BLOODWORK_TRANSCRIPTION_PROMPT,
   transcribeBloodworkPage,
+  transcribeBloodworkPageBenchmark,
 } from "./extraction";
+import { syntheticOverflowBenchmarkPage } from "./fixtures/synthetic";
 
 const input = {
   bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47]),
@@ -165,5 +168,84 @@ describe("bloodwork AI transcription", () => {
     const error = await transcribeBloodworkPage(input).catch((caught) => caught);
     expect(error).toMatchObject({ code: "AI_FAILED" });
     expect(error.message).not.toContain("sensitive");
+  });
+
+  it("keeps candidate models benchmark-only and reports bounded usage without content", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    createMock
+      .mockRejectedValueOnce(new Error("synthetic transport failure"))
+      .mockResolvedValueOnce({
+        choices: [{
+          finish_reason: "stop",
+          message: {
+            content: JSON.stringify({
+              results: [{
+                testName: "Glucose",
+                valueText: "92.00",
+                units: "mg/dL",
+                referenceRange: "70-99",
+                labFlag: "N",
+                uncertain: false,
+              }],
+              overflow: false,
+            }),
+          },
+        }],
+        usage: { prompt_tokens: 101, completion_tokens: 23, total_tokens: 124 },
+      });
+
+    const results = await transcribeBloodworkPageBenchmark(
+      input,
+      {
+        model: BLOODWORK_BENCHMARK_MODELS[0],
+        maxAttempts: 2,
+        timeoutMs: 5_000,
+        observer: (event) => events.push(event as unknown as Record<string, unknown>),
+      },
+    );
+
+    expect(results[0]).toMatchObject({
+      testName: "Glucose",
+      valueText: "92.00",
+      sourceFileId: "trusted-file-id",
+      sourcePage: 2,
+    });
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(createMock.mock.calls[0][0]).toMatchObject({ model: BLOODWORK_BENCHMARK_MODELS[0] });
+    expect(createMock.mock.calls[0][1]).toMatchObject({ maxRetries: 0 });
+    expect(events.map((event) => event.phase)).toEqual(["request", "retry", "request", "response"]);
+    expect(events.at(-1)).toMatchObject({
+      phase: "response",
+      model: BLOODWORK_BENCHMARK_MODELS[0],
+      usage: {
+        promptTokens: 101,
+        completionTokens: 23,
+        totalTokens: 124,
+        costUsd: null,
+      },
+    });
+    expect(JSON.stringify(events)).not.toContain("synthetic transport failure");
+    expect(JSON.stringify(events)).not.toContain("trusted-file-id");
+  });
+
+  it("retains terra as the production model and does not retry the production worker call", async () => {
+    createMock.mockResolvedValueOnce(completion('{"results":[],"overflow":false}'));
+    await transcribeBloodworkPage(input);
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(createMock.mock.calls[0][0]).toMatchObject({ model: BLOODWORK_TRANSCRIPTION_MODEL });
+    expect(createMock.mock.calls[0][1]).not.toHaveProperty("maxRetries");
+  });
+
+  it("keeps every synthetic overflow row visibly inside the PDF page", () => {
+    const overflow = syntheticOverflowBenchmarkPage();
+    expect(overflow.expectedRows).toBe(201);
+    expect(overflow.rowCoordinates).toHaveLength(201);
+    expect(new Set(overflow.rowCoordinates.map((row) => row.label)).size).toBe(201);
+    for (const row of overflow.rowCoordinates) {
+      expect(row.x).toBeGreaterThanOrEqual(20);
+      expect(row.x + row.width).toBeLessThanOrEqual(600);
+      expect(row.y).toBeGreaterThanOrEqual(160);
+      expect(row.y).toBeLessThanOrEqual(760);
+    }
   });
 });

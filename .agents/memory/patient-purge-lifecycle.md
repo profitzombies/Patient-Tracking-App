@@ -16,3 +16,9 @@ Rule: a purge is a **service-only RPC that walks every table carrying `patient_i
 - Consent is enforced at the server's `resolvePatient` choke point (every patient route refuses with `CONSENT_REQUIRED` until the current version is recorded; privacy/consent/deletion routes opt out). The client `/consent` redirect is UX only — never the gate. Mobile hydration treats that 403 as "fetch privacy, park on /consent, no outage notice", and the consent screen rehydrates after recording.
 - Anonymous photo routes (menu/label scan) gate photo-analysis opt-out **only when a bearer is present**; signed-in clients must send the token, the demo stays tokenless. Code review rejected consent that was client-side only and an opt-out with no server effect.
 - Keep consent admission ahead of onboarding admission in the entry ladder; the consent screen doubles as the pending-deletion keep/sign-out fork. A policy-bump re-prompt must seed the photo choice from the recorded value, never default it back on.
+
+Background processors must lose their authorization when irreversible account purge begins, before storage deletion—not only when report rows are eventually removed.
+
+**Why:** A tombstone-first purge has an intentional interval between revoking the account, deleting objects, and deleting database rows. A processor that checks only its report lease can otherwise keep sending already-read health data to an external service during that interval or between failed purge attempts. Identity write barriers alone do not stop those network side effects.
+
+**How to apply:** New patient-data processors need purge-aware admission and renewal, atomic lease invalidation at purge start, and guarded checkpoint/completion writes. Preserve the cancellable grace period; do not confuse a pending deletion request with an irreversible purge.

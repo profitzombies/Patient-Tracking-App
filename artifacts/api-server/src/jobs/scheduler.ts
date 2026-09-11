@@ -40,6 +40,15 @@ export function jobsDisabled(): boolean {
 }
 
 const registry = new Map<string, JobDefinition>();
+// A local prompt is deliberately only an acceleration mechanism. The report
+// queue remains durable in Postgres, so a dropped process or a busy peer can
+// never lose work. Keeping this state here does, however, close the common
+// race where a commit asks for another run while this process still owns the
+// job's global lease.
+const prompted = new Set<string>();
+const promptDispatching = new Set<string>();
+const activeRuns = new Map<string, number>();
+const activeRunStores = new Map<string, JobStore>();
 
 export function registerJob(definition: JobDefinition): void {
   if (!/^[a-z0-9_-]{1,64}$/.test(definition.name)) {
@@ -59,6 +68,44 @@ export function listJobs(): JobDefinition[] {
 /** Test hook: forget every registered job. */
 export function resetJobRegistry(): void {
   registry.clear();
+  prompted.clear();
+  promptDispatching.clear();
+  activeRuns.clear();
+  activeRunStores.clear();
+}
+
+function activeRunCount(name: string): number {
+  return activeRuns.get(name) ?? 0;
+}
+
+function dispatchPrompt(name: string, store?: JobStore): void {
+  if (promptDispatching.has(name)) return;
+  promptDispatching.add(name);
+  queueMicrotask(() => {
+    promptDispatching.delete(name);
+    if (!prompted.has(name) || jobsDisabled() || !registry.has(name)) return;
+    // A job body may signal its own continuation before runJob has released
+    // the global lease. Leave the request set; its finally block dispatches it
+    // immediately after finish_system_job_run releases that lease.
+    if (activeRunCount(name) > 0) return;
+    prompted.delete(name);
+    void runJob(name, { trigger: "internal", store }).catch((error) => {
+      logger.error({ err: error, job: name }, "prompted job run could not start");
+    });
+  });
+}
+
+/**
+ * Ask this process to run a job promptly after the current holder finishes.
+ * This never bypasses JOBS_DISABLED or failure backoff. It is intentionally
+ * best-effort: the job's database queue is the durable fallback if this
+ * process is unavailable or another process owns the lease.
+ */
+export function signalJob(name: string): boolean {
+  if (jobsDisabled() || !registry.has(name)) return false;
+  prompted.add(name);
+  dispatchPrompt(name);
+  return true;
 }
 
 function errorText(error: unknown): string {
@@ -130,7 +177,7 @@ export interface RunJobOptions {
  * closed; the outcome says whether it ran, was skipped for a live lease,
  * or is still backing off after failures.
  */
-export async function runJob(name: string, options: RunJobOptions): Promise<JobOutcome> {
+async function runJobOwned(name: string, options: RunJobOptions): Promise<JobOutcome> {
   const definition = registry.get(name);
   if (!definition) return { kind: "unknown_job" };
   const store = options.store ?? supabaseJobStore;
@@ -165,7 +212,7 @@ export async function runJob(name: string, options: RunJobOptions): Promise<JobO
   // renewal that comes back false means the lease lapsed (or another owner
   // took it); the job is told through ctx.checkpoint() and the run is
   // recorded as failed even if the job body finishes on its own.
-  const renewEvery = options.renewIntervalMs ?? leaseRenewIntervalMs(definition.leaseSeconds);
+  const renewEvery = options.renewIntervalMs ?? definition.renewEveryMs ?? leaseRenewIntervalMs(definition.leaseSeconds);
   let renewing: Promise<void> | null = null;
   const heartbeat = setInterval(() => {
     if (renewing || state.leaseLost) return;
@@ -233,6 +280,23 @@ export async function runJob(name: string, options: RunJobOptions): Promise<JobO
     error,
   };
   return { kind: "ran", run: closed };
+}
+
+export function runJob(name: string, options: RunJobOptions): Promise<JobOutcome> {
+  const active = activeRunCount(name);
+  activeRuns.set(name, active + 1);
+  if (active === 0) activeRunStores.set(name, options.store ?? supabaseJobStore);
+  return runJobOwned(name, options).finally(() => {
+    const remaining = activeRunCount(name) - 1;
+    if (remaining <= 0) {
+      const store = activeRunStores.get(name);
+      activeRuns.delete(name);
+      activeRunStores.delete(name);
+      if (prompted.has(name)) dispatchPrompt(name, store);
+    } else {
+      activeRuns.set(name, remaining);
+    }
+  });
 }
 
 /** Whether a scheduled job's interval (or failure backoff) has elapsed. */

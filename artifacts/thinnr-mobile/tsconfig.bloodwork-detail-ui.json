@@ -16,6 +16,7 @@
       "@/components/ui/AppModal": ["./scripts/bloodwork-detail-ui-stubs/modal.tsx"],
       "@/context/PatientAccountContext": ["./scripts/bloodwork-detail-ui-stubs/account.ts"],
       "@/lib/supabase": ["./scripts/bloodwork-detail-ui-stubs/supabase.ts"],
+      "@/lib/bloodwork-recovery": ["./scripts/bloodwork-detail-ui-stubs/recovery.ts"],
       "@tanstack/react-query": ["./scripts/bloodwork-detail-ui-stubs/query-client.ts"],
       "expo-router": ["./scripts/bloodwork-detail-ui-stubs/router.ts"],
       "@workspace/api-client-react": ["./scripts/bloodwork-detail-ui-stubs/api-client-react.ts"]

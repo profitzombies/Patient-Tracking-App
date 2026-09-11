@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { BloodworkDetail } from '@workspace/api-client-react';
@@ -8,6 +8,7 @@ import { ZoomableImage } from '@/components/bloodwork/ZoomableImage';
 import { useColors } from '@/hooks/useColors';
 import { resolveBloodworkSourceUrl } from '@/lib/bloodwork-url';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BloodworkSourcePageSkeleton } from '@/components/bloodwork/BloodworkSkeletons';
 
 interface BloodworkViewerProps {
   visible: boolean;
@@ -36,6 +37,8 @@ export function BloodworkViewer({
   const [webUri, setWebUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [pageLoading, setPageLoading] = useState(false);
+  const pageRequestRef = useRef(0);
 
   const pages = useMemo(() => {
     if (!reportDetail) return [];
@@ -59,13 +62,33 @@ export function BloodworkViewer({
   }, [initialIndex, pages.length, visible]);
 
   const page = pages[index];
+  const tooLarge = pages.length > 100;
+  const pageKey = page?.key ?? null;
+  const pageUrl = page?.url ?? null;
+  const imageIdentity = `${pageKey ?? 'source'}:${pageUrl ?? ''}:${retryNonce}:${token}`;
+  const imageIdentityRef = useRef(imageIdentity);
+  // Update during render so a late native image event from the previous
+  // rendered image is rejected even before the next effect runs.
+  imageIdentityRef.current = imageIdentity;
   useEffect(() => {
+    const requestId = ++pageRequestRef.current;
+    const requestIdentity = imageIdentity;
     setError(null);
     setWebUri(null);
-    if (!visible || Platform.OS !== 'web' || !page || !token) return;
+    setPageLoading(Boolean(visible && pageKey && pageUrl && !tooLarge));
+    if (!visible || !pageKey || !pageUrl || tooLarge) {
+      setPageLoading(false);
+      return;
+    }
+    if (!token) {
+      setPageLoading(false);
+      setError('Source access is unavailable. Refresh your sign-in and try again.');
+      return;
+    }
+    if (Platform.OS !== 'web') return;
     const controller = new AbortController();
     let objectUrl: string | null = null;
-    void fetch(page.url, {
+    void fetch(pageUrl, {
       headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' },
       cache: 'no-store',
       signal: controller.signal,
@@ -73,10 +96,20 @@ export function BloodworkViewer({
       if (!response.ok) throw new Error(`The source page could not be loaded (${response.status}).`);
       const contentType = response.headers.get('content-type') ?? '';
       if (!contentType.startsWith('image/')) throw new Error('The source page returned an unsupported file.');
-      objectUrl = URL.createObjectURL(await response.blob());
-      if (!controller.signal.aborted) setWebUri(objectUrl);
+      const nextObjectUrl = URL.createObjectURL(await response.blob());
+      if (
+        controller.signal.aborted
+        || requestId !== pageRequestRef.current
+        || imageIdentityRef.current !== requestIdentity
+      ) {
+        URL.revokeObjectURL(nextObjectUrl);
+        return;
+      }
+      objectUrl = nextObjectUrl;
+      setWebUri(nextObjectUrl);
     }).catch(reason => {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && requestId === pageRequestRef.current && imageIdentityRef.current === requestIdentity) {
+        setPageLoading(false);
         setError(reason instanceof Error ? reason.message : 'The source page could not be loaded.');
       }
     });
@@ -84,10 +117,10 @@ export function BloodworkViewer({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [page, retryNonce, token, visible]);
+  }, [imageIdentity, pageKey, pageUrl, retryNonce, token, tooLarge, visible]);
 
   const uri = Platform.OS === 'web' ? webUri : page?.url ?? null;
-  const tooLarge = pages.length > 100;
+  const imageLoading = !tooLarge && !error && pageLoading;
 
   return (
     <AppModal visible={visible} onRequestClose={onClose} animationType="fade" transparent>
@@ -103,21 +136,37 @@ export function BloodworkViewer({
         ) : error ? (
           <View style={styles.center}>
             <Text style={styles.error}>{error}</Text>
-            <Pressable onPress={() => setRetryNonce(value => value + 1)} style={styles.retry}>
+            <Pressable testID="bloodwork-source-retry" onPress={() => setRetryNonce(value => value + 1)} style={styles.retry}>
               <Text style={{ color: colors.cobalt }}>Try again</Text>
             </Pressable>
           </View>
         ) : !uri ? (
-          <ActivityIndicator color={colors.cobalt} style={styles.center} />
+          imageLoading ? <BloodworkSourcePageSkeleton /> : <ActivityIndicator color={colors.cobalt} style={styles.center} />
         ) : (
-          <ZoomableImage
-            key={page?.key}
-            uri={uri}
-            headers={Platform.OS === 'web' ? undefined : { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' }}
-            label={`${page?.label ?? ''} · ${index + 1} of ${pages.length}`}
-            cachePolicy="none"
-            onError={() => setError('The source page could not be displayed. Try loading it again.')}
-          />
+          <>
+            {imageLoading ? <BloodworkSourcePageSkeleton /> : null}
+            <View style={imageLoading ? styles.hiddenImage : styles.loadedImage}>
+              <ZoomableImage
+                key={`${page?.key ?? 'source'}:${retryNonce}`}
+                uri={uri}
+                headers={Platform.OS === 'web' ? undefined : { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' }}
+                label={`${page?.label ?? ''} · ${index + 1} of ${pages.length}`}
+                cachePolicy="none"
+                onLoadStart={() => {
+                  if (imageIdentityRef.current === imageIdentity) setPageLoading(true);
+                }}
+                onLoad={() => {
+                  if (imageIdentityRef.current === imageIdentity) setPageLoading(false);
+                }}
+                onError={() => {
+                  if (imageIdentityRef.current === imageIdentity) {
+                    setPageLoading(false);
+                    setError('The source page could not be displayed. Try loading it again.');
+                  }
+                }}
+              />
+            </View>
+          </>
         )}
         {!tooLarge && pages.length > 1 ? (
           <View style={[styles.pager, { paddingBottom: Math.max(bottomInset, 12) }]}>
@@ -146,4 +195,6 @@ const styles = StyleSheet.create({
   control: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: '#fdfcf9' },
   disabled: { opacity: 0.4 },
   pageText: { color: '#ffffff', fontSize: 13, fontFamily: 'Inter_600SemiBold' },
+  hiddenImage: { ...StyleSheet.absoluteFill, opacity: 0 },
+  loadedImage: { flex: 1, width: '100%' },
 });

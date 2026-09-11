@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, Text, Pressable, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
+import { View, StyleSheet, Text, Pressable, Alert, TextInput } from 'react-native';
 import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
@@ -12,6 +12,7 @@ import { BloodworkViewer } from '@/components/bloodwork/BloodworkViewer';
 import { BloodworkBackRow } from '@/components/bloodwork/BloodworkBackRow';
 import { BloodworkDateField } from '@/components/bloodwork/BloodworkDateField';
 import { BloodworkProcessingStatus } from '@/components/bloodwork/BloodworkProcessingStatus';
+import { BloodworkDetailSkeleton } from '@/components/bloodwork/BloodworkSkeletons';
 import { AppModal } from '@/components/ui/AppModal';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useSupabaseSession } from '@/lib/supabase';
@@ -27,6 +28,7 @@ import {
 } from '@workspace/api-client-react';
 import { buildBloodworkMetadataUpdate } from '@/lib/bloodwork-scope';
 import { formatBloodworkDate } from '@/lib/bloodwork-date';
+import { classifyBloodworkError } from '@/lib/bloodwork-recovery';
 
 export default function BloodworkDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -41,7 +43,7 @@ export default function BloodworkDetailScreen() {
   const userId = session?.user.id ?? '';
   const detailQueryKey = [...getGetBloodworkReportQueryKey(patientId, reportId), userId] as const;
 
-  const { data: detail, isLoading, isError, refetch } = useGetBloodworkReport(
+  const { data: detail, isLoading, isError, error, refetch } = useGetBloodworkReport(
     patientId,
     reportId,
     undefined,
@@ -58,6 +60,7 @@ export default function BloodworkDetailScreen() {
   const deleteReport = useDeleteBloodworkReport({ request: pinnedRequest });
   const correctResult = useCorrectBloodworkResult({ request: pinnedRequest });
   const retryExtraction = useRetryBloodworkExtraction({ request: pinnedRequest });
+  const detailRecovery = isError ? classifyBloodworkError(error) : null;
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -203,10 +206,14 @@ export default function BloodworkDetailScreen() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading && !isError) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center' }]}>
-        <ActivityIndicator color={colors.cobalt} />
+        <PatientHeader title="Report Detail" />
+        <BloodworkBackRow onPress={() => router.back()} />
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+          <BloodworkDetailSkeleton />
+        </ScrollView>
       </View>
     );
   }
@@ -217,8 +224,15 @@ export default function BloodworkDetailScreen() {
         <PatientHeader title="Error" />
         <BloodworkBackRow onPress={() => router.back()} />
         <View style={styles.emptyWrap}>
-           <Text style={[styles.emptyText, { color: colors.destructive }]}>Could not load report.</Text>
-           <Pressable onPress={() => void refetch()} style={styles.iconBtn}><Text style={{ color: colors.cobalt }}>Retry</Text></Pressable>
+            <Text style={[styles.emptyText, { color: colors.destructive }]}>
+              {detailRecovery?.title ?? 'Could not load report.'}
+            </Text>
+            <Text style={[styles.emptyText, { color: colors.subtleText, marginTop: 8 }]}>
+              {detailRecovery?.message ?? 'Try again in a moment.'}
+            </Text>
+            <Pressable testID="bloodwork-detail-retry" onPress={() => void refetch()} style={styles.iconBtn}>
+              <Text style={{ color: colors.cobalt }}>{detailRecovery?.actionLabel ?? 'Retry'}</Text>
+            </Pressable>
         </View>
       </View>
     );
@@ -229,6 +243,21 @@ export default function BloodworkDetailScreen() {
       <PatientHeader title="Report Detail" />
       <BloodworkBackRow onPress={() => router.back()} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+        {isError && detailRecovery ? (
+          <View
+            testID="bloodwork-detail-refresh-error"
+            accessibilityRole="alert"
+            style={[styles.refreshError, { backgroundColor: colors.warnBg, borderColor: colors.warnBorder }]}
+          >
+            <Text style={[styles.recoveryTitle, { color: colors.navy }]}>{detailRecovery.title}</Text>
+            <Text style={[styles.recoveryMessage, { color: colors.bodyText }]}>{detailRecovery.message}</Text>
+            <Pressable testID="bloodwork-detail-refresh-retry" onPress={() => void refetch()} style={styles.retry}>
+              <Text style={[styles.actionText, { color: colors.cobalt }]}>
+                {detailRecovery.actionLabel ?? 'Retry'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
         
         {/* Header section */}
         <View style={styles.headerBox}>
@@ -432,6 +461,10 @@ const styles = StyleSheet.create({
   divider: { height: 1, width: '100%' },
   emptyWrap: { padding: 32, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  refreshError: { borderWidth: 1, borderRadius: 8, padding: 14, marginBottom: 16 },
+  recoveryTitle: { fontSize: 15, fontFamily: 'Inter_700Bold' },
+  recoveryMessage: { fontSize: 13, lineHeight: 19, fontFamily: 'Inter_400Regular', marginTop: 6 },
+  retry: { alignSelf: 'flex-start', paddingVertical: 10, paddingHorizontal: 2 },
   confirmBackdrop: { flex: 1, backgroundColor: 'rgba(13,18,25,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
   confirmCard: { width: '100%', maxWidth: 380, borderWidth: 1, borderRadius: 12, padding: 20 },
   confirmTitle: { fontSize: 18, fontFamily: 'Inter_600SemiBold', marginBottom: 8 },

@@ -59,6 +59,31 @@ function text(renderer: TestRenderer.ReactTestRenderer): string {
 }
 
 async function main(): Promise<void> {
+  // First load has a dedicated skeleton. A failed first request has no
+  // content to preserve, so it becomes an explicit retry state instead.
+  resetDetailState();
+  let firstLoad!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    firstLoad = TestRenderer.create(<BloodworkDetailScreen />);
+  });
+  assert(firstLoad.root.findAllByProps({ testID: 'bloodwork-detail-skeleton' }).length > 0);
+  await act(async () => publishDetail(undefined, true));
+  assert.equal(firstLoad.root.findAllByProps({ testID: 'bloodwork-detail-skeleton' }).length, 0);
+  assert(firstLoad.root.findAllByProps({ testID: 'bloodwork-detail-retry' }).length > 0);
+  firstLoad.unmount();
+
+  // A refresh failure keeps the last server response mounted, with an
+  // explicit retry/error rail rather than replacing the report with a spinner.
+  resetDetailState(detail(report('queued', 'waiting', 'waiting')));
+  await act(async () => {
+    firstLoad = TestRenderer.create(<BloodworkDetailScreen />);
+  });
+  await act(async () => publishDetail(detail(report('queued', 'waiting', 'waiting')), true));
+  assert.match(text(firstLoad), /CBC/);
+  assert(firstLoad.root.findAllByProps({ testID: 'bloodwork-detail-refresh-error' }).length > 0);
+  assert(firstLoad.root.findAllByProps({ testID: 'bloodwork-detail-refresh-retry' }).length > 0);
+  firstLoad.unmount();
+
   resetDetailState(detail(report('queued', 'waiting', 'waiting')));
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => {
@@ -67,7 +92,7 @@ async function main(): Promise<void> {
   assert.match(text(renderer), /Waiting to read pages/, 'detail starts in a held queued state');
 
   await act(async () => publishDetail(detail(report('processing', 'reading_pages', 'active', 2))));
-  assert.match(text(renderer), /Reading pages/);
+  assert.match(text(renderer), /Reading/);
   await act(async () => publishDetail(detail(report('processing', 'preparing_results', 'active', 4))));
   assert.match(text(renderer), /Preparing results/);
   await act(async () => publishDetail(detail(report('completed', 'completed', 'active', 4))));

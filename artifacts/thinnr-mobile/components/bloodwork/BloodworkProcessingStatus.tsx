@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import {
   formatBloodworkElapsedSeconds,
+  getBloodworkProcessingLabel,
   getBloodworkProcessingSnapshot,
   type BloodworkReportLike,
 } from '@/lib/bloodwork-types';
@@ -32,22 +33,15 @@ export function BloodworkProcessingStatus({
   const total = snapshot.totalPages;
   const completed = snapshot.completedPages;
   const hasCounts = total !== null && completed !== null;
-  const finalStep = total === null ? null : total + 1;
-  const progressNow = report.extractionStatus === 'completed' && finalStep !== null
-    ? finalStep
+  const progressNow = report.extractionStatus === 'completed' && total !== null
+    ? total
     : completed;
-  const phase = report.extractionStatus === 'queued'
-    ? 'waiting'
-    : snapshot.phase === 'preparing_results'
-      ? 'preparing'
-      : snapshot.phase === 'reading_pages'
-        ? 'reading'
-        : 'unknown';
+  const processingLabel = getBloodworkProcessingLabel(report);
   const delayed = snapshot.activity === 'delayed';
-  const unknown = snapshot.activity === 'unknown' || phase === 'unknown';
+  const unknown = snapshot.activity === 'unknown' || processingLabel === 'checking';
   const refreshNeeded = pollingError || delayed || unknown;
   const showActiveIndicator = snapshot.activity === 'active'
-    && phase !== 'waiting'
+    && processingLabel !== 'queued'
     && !pollingError
     && !delayed
     && !unknown;
@@ -62,14 +56,14 @@ export function BloodworkProcessingStatus({
         style={[styles.card, { backgroundColor: colors.accent, borderColor: colors.border }]}
       >
         <Feather name="check-circle" size={18} color={colors.activeGreen} />
-        <Text style={[styles.title, { color: colors.navy }]}>Results ready · Unreviewed</Text>
+        <Text style={[styles.title, { color: colors.navy }]}>Completed · Results ready · Unreviewed</Text>
         <Text style={[styles.body, { color: colors.bodyText }]}>
           Results are available as an unreviewed transcription. Review them against the printed report.
         </Text>
         {elapsed ? (
           <Text style={[styles.caption, { color: colors.subtleText }]}>Elapsed {elapsed} · completed</Text>
         ) : null}
-        {hasCounts && finalStep !== null ? (
+        {hasCounts && total !== null ? (
           <>
             <Text style={[styles.caption, { color: colors.subtleText }]}>
               {total} of {total} pages read · results saved
@@ -78,7 +72,7 @@ export function BloodworkProcessingStatus({
               testID="bloodwork-processing-progress"
               accessibilityRole="progressbar"
               accessibilityLabel={`Bloodwork processing: ${total} of ${total} pages read; results saved`}
-              accessibilityValue={{ min: 0, max: finalStep, now: finalStep }}
+              accessibilityValue={{ min: 0, max: total, now: total }}
               style={[styles.progressTrack, { backgroundColor: colors.border }]}
             >
               <View style={[styles.progressFill, { backgroundColor: colors.activeGreen, width: '100%' }]} />
@@ -104,7 +98,7 @@ export function BloodworkProcessingStatus({
         {elapsed ? (
           <Text style={[styles.caption, { color: colors.subtleText }]}>Elapsed {elapsed} · last server update</Text>
         ) : null}
-        {hasCounts && finalStep !== null && progressNow !== null ? (
+        {hasCounts && total !== null && progressNow !== null ? (
           <>
             <Text style={[styles.caption, { color: colors.subtleText }]}>
               {completed} of {total} pages read · results not saved
@@ -113,13 +107,13 @@ export function BloodworkProcessingStatus({
               testID="bloodwork-processing-progress"
               accessibilityRole="progressbar"
               accessibilityLabel={`Bloodwork processing: ${completed} of ${total} pages read; results not saved`}
-              accessibilityValue={{ min: 0, max: finalStep, now: progressNow }}
+              accessibilityValue={{ min: 0, max: total, now: progressNow }}
               style={[styles.progressTrack, { backgroundColor: colors.border }]}
             >
               <View
                 style={[
                   styles.progressFill,
-                  { backgroundColor: colors.destructive, width: `${Math.max(0, Math.min(100, (progressNow / finalStep) * 100))}%` },
+                   { backgroundColor: colors.destructive, width: `${Math.max(0, Math.min(100, (progressNow / total) * 100))}%` },
                 ]}
               />
             </View>
@@ -143,16 +137,20 @@ export function BloodworkProcessingStatus({
   }
 
   const label = unknown
-    ? 'Processing status unavailable'
+    ? 'Checking processing status'
     : delayed
-      ? 'Reading pages is taking longer than expected'
-    : phase === 'preparing'
-      ? 'Preparing results'
-      : snapshot.activity === 'waiting' || phase === 'waiting'
-        ? 'Waiting to read pages'
-      : 'Reading pages';
+      ? processingLabel === 'organizing'
+        ? 'Organizing results is taking longer than expected'
+        : 'Reading pages is taking longer than expected'
+      : processingLabel === 'organizing'
+        ? 'Organizing results'
+        : processingLabel === 'queued'
+          ? 'Queued'
+          : processingLabel === 'reading'
+            ? 'Reading'
+            : 'Checking processing status';
   const countText = hasCounts
-    ? `${completed} of ${total} pages read${phase === 'preparing' ? ' · preparing results' : ''}`
+    ? `${completed} of ${total} pages read${processingLabel === 'organizing' ? ' · Preparing results' : processingLabel === 'queued' ? ' · Waiting to read pages' : ''}`
     : 'Page progress is not available yet';
 
   return (
@@ -167,7 +165,7 @@ export function BloodworkProcessingStatus({
           <ActivityIndicator color={colors.cobalt} />
         ) : (
           <Feather
-            name={phase === 'waiting' ? 'clock' : 'alert-triangle'}
+            name={processingLabel === 'queued' ? 'clock' : 'alert-triangle'}
             size={18}
             color={pollingError || delayed || unknown ? colors.warnBorder : colors.cobalt}
           />
@@ -183,12 +181,12 @@ export function BloodworkProcessingStatus({
           <Text style={[styles.caption, { color: colors.subtleText }]}>{pendingCopy}</Text>
         </View>
       </View>
-      {hasCounts && finalStep !== null && progressNow !== null ? (
+       {hasCounts && total !== null && progressNow !== null ? (
         <View
           testID="bloodwork-processing-progress"
           accessibilityRole="progressbar"
-          accessibilityLabel={`Bloodwork processing: ${countText}`}
-          accessibilityValue={{ min: 0, max: finalStep, now: progressNow }}
+           accessibilityLabel={`Bloodwork processing: ${countText}`}
+           accessibilityValue={{ min: 0, max: total, now: progressNow }}
           style={[styles.progressTrack, { backgroundColor: colors.border }]}
         >
           <View
@@ -196,7 +194,7 @@ export function BloodworkProcessingStatus({
               styles.progressFill,
               {
                 backgroundColor: colors.cobalt,
-                width: `${Math.max(0, Math.min(100, (progressNow / finalStep) * 100))}%`,
+                 width: `${Math.max(0, Math.min(100, (progressNow / total) * 100))}%`,
               },
             ]}
           />

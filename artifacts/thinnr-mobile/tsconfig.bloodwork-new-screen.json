@@ -10,6 +10,7 @@
       "expo-image": ["./scripts/bloodwork-new-screen-stubs/image.ts"],
       "expo-image-picker": ["./scripts/bloodwork-new-screen-stubs/image-picker.ts"],
       "expo-router": ["./scripts/bloodwork-new-screen-stubs/router.ts"],
+      "@tanstack/react-query": ["./scripts/bloodwork-new-screen-stubs/query-client.ts"],
       "@/hooks/useColors": ["./scripts/bloodwork-new-screen-stubs/colors.ts"],
       "@/components/patient/PatientHeader": ["./scripts/bloodwork-new-screen-stubs/patient-header.tsx"],
       "@/context/PatientAccountContext": ["./scripts/bloodwork-new-screen-stubs/account-context.ts"],

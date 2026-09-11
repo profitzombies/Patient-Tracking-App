@@ -57,6 +57,11 @@ export interface JobDefinition {
   intervalMs: number | null;
   /** Lease length; must exceed the longest plausible run. */
   leaseSeconds: number;
+  /**
+   * Optional bounded global-lease heartbeat for work that can wait on an
+   * external system. Defaults to a third of leaseSeconds when omitted.
+   */
+  renewEveryMs?: number;
   run(ctx: JobContext): Promise<void>;
 }
 

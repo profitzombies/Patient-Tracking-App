@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-11T16:31:47.539Z",
+  "sourceCommit": "working-tree",
+  "transport": "openai-existing-connection",
+  "syntheticOnly": true,
+  "concurrency": 2,
+  "retries": "extraction-explicit-bounded",
+  "timeoutMs": 90000,
+  "models": [
+    {
+      "model": "gpt-5.6-terra",
+      "cases": [
+        {
+          "fixture": "overflow-201",
+          "renderMs": 532.235,
+          "transcriptionMs": 99.771,
+          "expectedRows": 201,
+          "actualRows": 0,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "overflowExpected": true,
+          "errorCode": "AI_FAILED",
+          "fieldChecks": {
+            "decimals": false,
+            "comparators": false,
+            "units": false,
+            "referenceRanges": false,
+            "flags": false,
+            "qualitative": false
+          },
+          "strictAcceptance": "fail",
+          "usage": {
+            "responseEvents": 0,
+            "requestEvents": 2,
+            "retryEvents": 1,
+            "failureEvents": 1,
+            "promptTokens": null,
+            "completionTokens": null,
+            "totalTokens": null,
+            "costUsd": null,
+            "tokenAvailability": "unavailable",
+            "costAvailability": "unavailable"
+          }
+        }
+      ],
+      "strictAcceptance": "fail"
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "cases": [
+        {
+          "fixture": "overflow-201",
+          "renderMs": 505.504,
+          "transcriptionMs": 67.43,
+          "expectedRows": 201,
+          "actualRows": 0,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "overflowExpected": true,
+          "errorCode": "AI_FAILED",
+          "fieldChecks": {
+            "decimals": false,
+            "comparators": false,
+            "units": false,
+            "referenceRanges": false,
+            "flags": false,
+            "qualitative": false
+          },
+          "strictAcceptance": "fail",
+          "usage": {
+            "responseEvents": 0,
+            "requestEvents": 2,
+            "retryEvents": 1,
+            "failureEvents": 1,
+            "promptTokens": null,
+            "completionTokens": null,
+            "totalTokens": null,
+            "costUsd": null,
+            "tokenAvailability": "unavailable",
+            "costAvailability": "unavailable"
+          }
+        }
+      ],
+      "strictAcceptance": "fail"
+    },
+    {
+      "model": "gpt-5.4-mini",
+      "cases": [
+        {
+          "fixture": "overflow-201",
+          "renderMs": 502.591,
+          "transcriptionMs": 73.151,
+          "expectedRows": 201,
+          "actualRows": 0,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "overflowExpected": true,
+          "errorCode": "AI_FAILED",
+          "fieldChecks": {
+            "decimals": false,
+            "comparators": false,
+            "units": false,
+            "referenceRanges": false,
+            "flags": false,
+            "qualitative": false
+          },
+          "strictAcceptance": "fail",
+          "usage": {
+            "responseEvents": 0,
+            "requestEvents": 2,
+            "retryEvents": 1,
+            "failureEvents": 1,
+            "promptTokens": null,
+            "completionTokens": null,
+            "totalTokens": null,
+            "costUsd": null,
+            "tokenAvailability": "unavailable",
+            "costAvailability": "unavailable"
+          }
+        }
+      ],
+      "strictAcceptance": "fail"
+    }
+  ],
+  "noRawModelReplies": true
+}

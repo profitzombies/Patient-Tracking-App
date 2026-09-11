@@ -20,7 +20,9 @@ import {
   type FileRow, type ReportRow,
 } from "../bloodwork/repository";
 import { recordUploadIntent } from "../jobs/upload-intents";
+import { signalJob } from "../jobs/scheduler";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -125,23 +127,34 @@ router.post(BASE, async (req, res): Promise<void> => {
 
 router.post(`${BASE}/:reportId/commit`, async (req, res): Promise<void> => {
   if (!CommitBloodworkReportParams.safeParse(req.params).success) { invalid(res); return; }
+  const started = performance.now();
+  const timing = { readMs: 0, inspectionMs: 0, immutableSaveMs: 0, commitSaveMs: 0, detailMs: 0 };
   try {
     const actor = await authorize(req, res, "patient"); if (!actor) return;
     const reportId = first(req.params.reportId);
     const staged = await loadReport(actor.patientId, reportId, true);
     if (!staged) { res.status(404).json({ error: "Report not found." }); return; }
-    if (staged.report.lifecycle_status === "committed") { res.json(await detailDto(actor.patientId, reportId)); return; }
+    if (staged.report.lifecycle_status === "committed") {
+      if (staged.report.extraction_status === "queued") signalJob("bloodwork-extraction");
+      res.json(await detailDto(actor.patientId, reportId)); return;
+    }
     const committed: Array<Record<string, unknown>> = [];
     for (const file of staged.files) {
       let stored;
+      let phaseStarted = performance.now();
       try { stored = await objectStorage.readObjectBounded(file.staging_object_path, BLOODWORK_MAX_FILE_BYTES); }
       catch (error) {
         if (error instanceof ObjectNotFoundError) { res.status(422).json({ error: "One or more files did not finish uploading." }); return; }
         if (error instanceof ObjectTooLargeError) { res.status(413).json({ error: "Bloodwork files must be 20 MB or smaller." }); return; }
         throw error;
       }
+      timing.readMs += performance.now() - phaseStarted;
       const bytes = stored.bytes;
+      if (stored.sizeBytes !== Number(file.declared_size_bytes)) {
+        res.status(422).json({ error: "An uploaded file size did not match the selected file." }); return;
+      }
       let inspection;
+      phaseStarted = performance.now();
       try { inspection = await inspectBloodworkFile(bytes, file.declared_mime_type); }
       catch (error) {
         if (error instanceof BloodworkDocumentError) {
@@ -149,14 +162,15 @@ router.post(`${BASE}/:reportId/commit`, async (req, res): Promise<void> => {
         }
         throw error;
       }
-      if (stored.sizeBytes !== Number(file.declared_size_bytes)) {
-        res.status(422).json({ error: "An uploaded file size did not match the selected file." }); return;
-      }
+      timing.inspectionMs += performance.now() - phaseStarted;
       const objectPath = `/objects/patients/${actor.patientId}/bloodwork/reports/${reportId}/${file.id}`;
+      phaseStarted = performance.now();
       await objectStorage.saveBufferImmutable(objectPath, Buffer.from(bytes), inspection.mimeType);
+      timing.immutableSaveMs += performance.now() - phaseStarted;
       committed.push({ id: file.id, objectPath, mimeType: inspection.mimeType, size: bytes.byteLength,
-        pageCount: inspection.pageCount, width: inspection.width, height: inspection.height });
+        pageCount: inspection.pageCount, width: inspection.width, height: inspection.height, sha256: inspection.sha256 });
     }
+    const saveStarted = performance.now();
     const committedMetadata = await rpc("bloodwork_commit_report", {
       p_patient_id: actor.patientId, p_report_id: reportId, p_files: committed,
     });
@@ -165,8 +179,22 @@ router.post(`${BASE}/:reportId/commit`, async (req, res): Promise<void> => {
       res.status(409).json({ error: "This upload expired. Start a new report upload." });
       return;
     }
+    timing.commitSaveMs = performance.now() - saveStarted;
+    // The committed queue row is durable. This best-effort hint only advances
+    // eligible leased work; it must never make an already saved upload fail.
+    signalJob("bloodwork-extraction");
+    const detailStarted = performance.now();
     const detail = await detailDto(actor.patientId, reportId);
     if (!detail) throw new Error("committed report missing");
+    timing.detailMs = performance.now() - detailStarted;
+    // Deliberately not req.log: performance evidence has no patient/report IDs,
+    // names, paths, hashes, signed URLs, source contents, or model responses.
+    logger.info({
+      ...Object.fromEntries(Object.entries(timing).map(([key, value]) => [key, Math.round(value)])),
+      totalMs: Math.round(performance.now() - started),
+      files: committed.length, pages: detail.report.pageCount,
+      bytes: committed.reduce((sum, file) => sum + Number(file.size), 0),
+    }, "bloodwork_commit_timing");
     audit(req, actor, "bloodwork.report_committed", "bloodwork_report", reportId);
     res.json(detail);
   } catch (error) {
@@ -229,6 +257,7 @@ router.post(`${BASE}/:reportId/retry-extraction`, async (req, res): Promise<void
     if (await rpc("bloodwork_retry_extraction", { p_patient_id: actor.patientId, p_report_id: reportId }) !== true) {
       res.status(409).json({ error: "Only a failed extraction without saved results can be retried." }); return;
     }
+    signalJob("bloodwork-extraction");
     const loaded = await loadReport(actor.patientId, reportId);
     if (!loaded) { res.status(404).json({ error: "Report not found." }); return; }
     audit(req, actor, "bloodwork.extraction_retried", "bloodwork_report", reportId);
@@ -264,8 +293,13 @@ router.get(`${BASE}/:reportId/files/:fileId/pages/:page`, async (req, res): Prom
   if (!parsed.success) { invalid(res); return; }
   try {
     const found = await authorizedFile(req, res); if (!found) return;
+    if (parsed.data.page > Number(found.file.page_count)) {
+      res.status(404).json({ error: "Page not found." }); return;
+    }
     const { bytes } = await objectStorage.readObjectBounded(found.file.object_path!, BLOODWORK_MAX_FILE_BYTES);
-    const rendered = await renderBloodworkPage(bytes, found.file.mime_type!, parsed.data.page);
+    const rendered = await renderBloodworkPage(bytes, found.file.mime_type!, parsed.data.page, undefined, {
+      sha256: found.file.content_sha256 ?? null, pageCount: Number(found.file.page_count),
+    });
     res.setHeader("Content-Type", rendered.mimeType);
     res.setHeader("Content-Length", String(rendered.bytes.byteLength));
     res.send(rendered.bytes);

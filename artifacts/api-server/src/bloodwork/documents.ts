@@ -1,5 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 export const BLOODWORK_MAX_FILE_BYTES = 20_000_000;
 export const BLOODWORK_MAX_PDF_PAGES = 100;
@@ -28,19 +31,55 @@ export class BloodworkDocumentError extends Error {
 const MAX_CONCURRENT_WORKERS = 1;
 const MAX_QUEUED_WORKERS = 4;
 const WORKER_DEADLINE_MS = 30_000;
+const MAX_PREPARED_PAGES = 2;
 const WORKER_RSS_BYTES = 384 * 1024 * 1024;
 const MAX_WORKER_OUTPUT_BYTES = 42_000_000;
 
 type Task = {
   bytes: Uint8Array;
-  metadata: { operation: "inspect" | "render"; mime: string; page?: number };
+  metadata: WorkerMetadata;
   signal?: AbortSignal;
+  queuedAbort?: () => void;
   resolve: (value: WorkerReply) => void;
   reject: (error: unknown) => void;
 };
+type WorkerMetadata =
+  | { operation: "inspect"; mime: string }
+  | {
+    operation: "prepare";
+    mime: string;
+    pages: number[];
+    admission: BloodworkPageAdmission;
+  };
+type PreparedWorkerPage = {
+  page: number;
+  mimeType: "image/jpeg" | "image/png";
+  width: number;
+  height: number;
+  outputBytes: number;
+};
 type WorkerReply = {
-  result: { mimeType: BloodworkMimeType; pageCount: number; width: number | null; height: number | null };
+  result: {
+    mimeType: BloodworkMimeType;
+    pageCount: number;
+    width?: number | null;
+    height?: number | null;
+    pages?: PreparedWorkerPage[];
+  };
   output: Buffer;
+};
+
+export type BloodworkPageAdmission = {
+  sha256: string | null;
+  pageCount: number;
+};
+
+export type PreparedBloodworkPage = {
+  page: number;
+  bytes: Buffer;
+  mimeType: "image/jpeg" | "image/png";
+  width: number;
+  height: number;
 };
 
 let active = 0;
@@ -51,9 +90,15 @@ function documentError(code: BloodworkDocumentErrorCode, message: string): Blood
 }
 
 function workerLocation(): URL {
-  return import.meta.url.endsWith(".ts")
+  const location = import.meta.url.endsWith(".ts")
     ? new URL("./document-worker.ts", import.meta.url)
     : new URL("./document-worker.mjs", import.meta.url);
+  // The worker is a separately emitted production artifact. Do not silently
+  // fall back to parsing untrusted files in this process if packaging omitted it.
+  if (!existsSync(fileURLToPath(location))) {
+    throw documentError("PROCESSING_LIMIT", "Document processing worker is unavailable.");
+  }
+  return location;
 }
 
 function terminate(child: ChildProcessWithoutNullStreams): void {
@@ -72,7 +117,16 @@ async function rssBytes(pid: number): Promise<number> {
 
 function execute(task: Task): void {
   active++;
-  const location = workerLocation();
+  if (task.queuedAbort) task.signal?.removeEventListener("abort", task.queuedAbort);
+  let location: URL;
+  try {
+    location = workerLocation();
+  } catch (error) {
+    active--;
+    task.reject(error);
+    drain();
+    return;
+  }
   const child = spawn(
     process.execPath,
     [
@@ -104,10 +158,15 @@ function execute(task: Task): void {
   };
   task.signal?.addEventListener("abort", abort, { once: true });
   if (task.signal?.aborted) abort();
+  // A two-page operation remains one isolated worker, but receives the
+  // equivalent bounded budget of two former single-page operations.
+  const deadlineMs = task.metadata.operation === "prepare"
+    ? WORKER_DEADLINE_MS * task.metadata.pages.length
+    : WORKER_DEADLINE_MS;
   const deadline = setTimeout(() => {
     forcedError = documentError("PROCESSING_TIMEOUT", "Document processing took too long. Export a simpler document and retry.");
     terminate(child);
-  }, WORKER_DEADLINE_MS);
+  }, deadlineMs);
   const watchdog = setInterval(() => {
     if (!child.pid) return;
     void rssBytes(child.pid).then((rss) => {
@@ -173,17 +232,140 @@ function runWorker(task: Omit<Task, "resolve" | "reject">): Promise<WorkerReply>
     return Promise.reject(documentError("PROCESSING_BUSY", "Document processing is busy. Retry shortly."));
   }
   return new Promise((resolve, reject) => {
-    queue.push({ ...task, resolve, reject });
+    const queued = { ...task, resolve, reject };
+    const abortWhileQueued = () => {
+      const index = queue.indexOf(queued);
+      if (index === -1) return;
+      queue.splice(index, 1);
+      task.signal?.removeEventListener("abort", abortWhileQueued);
+      reject(documentError("PROCESSING_TIMEOUT", "Document processing was cancelled."));
+      drain();
+    };
+    queued.queuedAbort = abortWhileQueued;
+    task.signal?.addEventListener("abort", abortWhileQueued, { once: true });
+    if (task.signal?.aborted) {
+      abortWhileQueued();
+      return;
+    }
+    queue.push(queued);
     drain();
   });
+}
+
+function immutableBytes(bytes: Uint8Array): Buffer {
+  if (bytes.byteLength === 0) {
+    throw documentError("EMPTY_FILE", "The selected report is empty. Choose it again.");
+  }
+  if (bytes.byteLength > BLOODWORK_MAX_FILE_BYTES) {
+    throw documentError("FILE_TOO_LARGE", "Bloodwork files must be 20 MB or smaller.");
+  }
+  return Buffer.from(bytes);
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 export async function inspectBloodworkFile(
   bytes: Uint8Array,
   declaredMime: string,
   signal?: AbortSignal,
-): Promise<{ mimeType: BloodworkMimeType; pageCount: number; width: number | null; height: number | null }> {
-  return (await runWorker({ bytes, metadata: { operation: "inspect", mime: declaredMime }, signal })).result;
+): Promise<{
+  mimeType: BloodworkMimeType;
+  pageCount: number;
+  width: number | null;
+  height: number | null;
+  sha256: string;
+}> {
+  // Hash and process the same private snapshot; callers retaining a mutable
+  // Uint8Array cannot change the bytes represented by the receipt.
+  const input = immutableBytes(bytes);
+  const digest = sha256(input);
+  const result = (await runWorker({ bytes: input, metadata: { operation: "inspect", mime: declaredMime }, signal })).result;
+  return {
+    mimeType: result.mimeType,
+    pageCount: result.pageCount,
+    width: result.width ?? null,
+    height: result.height ?? null,
+    sha256: digest,
+  };
+}
+
+function requireMatchingAdmission(
+  input: Uint8Array,
+  admission: BloodworkPageAdmission,
+): void {
+  if (admission.sha256 === null) return;
+  if (
+    !/^[a-f0-9]{64}$/.test(admission.sha256) ||
+    !Number.isSafeInteger(admission.pageCount) ||
+    admission.pageCount < 1 ||
+    admission.pageCount > BLOODWORK_MAX_PDF_PAGES ||
+    sha256(input) !== admission.sha256
+  ) {
+    throw documentError("CORRUPT_FILE", "This document does not match its admitted contents. Upload it again.");
+  }
+}
+
+function validPageRequest(pages: number[]): void {
+  if (
+    !Array.isArray(pages) ||
+    pages.length < 1 ||
+    pages.length > MAX_PREPARED_PAGES ||
+    pages.some((page) => !Number.isSafeInteger(page) || page < 1) ||
+    new Set(pages).size !== pages.length
+  ) {
+    throw documentError("PAGE_OUT_OF_RANGE", "Choose one or two valid document pages.");
+  }
+}
+
+export async function prepareBloodworkPages(
+  bytes: Uint8Array,
+  mimeType: string,
+  pages: number[],
+  admission: BloodworkPageAdmission,
+  signal?: AbortSignal,
+): Promise<PreparedBloodworkPage[]> {
+  validPageRequest(pages);
+  const requestedPages = [...pages];
+  const admitted: BloodworkPageAdmission = { sha256: admission.sha256, pageCount: admission.pageCount };
+  const input = immutableBytes(bytes);
+  requireMatchingAdmission(input, admitted);
+  if (admitted.sha256 !== null && requestedPages.some((page) => page > admitted.pageCount)) {
+    throw documentError("PAGE_OUT_OF_RANGE", `Choose a page between 1 and ${admitted.pageCount}.`);
+  }
+  const reply = await runWorker({
+    bytes: input,
+    metadata: { operation: "prepare", mime: mimeType, pages: requestedPages, admission: admitted },
+    signal,
+  });
+  const prepared = reply.result.pages;
+  if (!prepared || prepared.length !== requestedPages.length) {
+    throw documentError("CORRUPT_FILE", "This document could not be processed safely. Export it again and retry.");
+  }
+  let offset = 0;
+  const output = prepared.map((item, index) => {
+    if (
+      item.page !== requestedPages[index] ||
+      !Number.isSafeInteger(item.outputBytes) ||
+      item.outputBytes < 1 ||
+      offset + item.outputBytes > reply.output.length ||
+      !Number.isSafeInteger(item.width) ||
+      !Number.isSafeInteger(item.height) ||
+      item.width < 1 ||
+      item.height < 1 ||
+      (item.mimeType !== "image/jpeg" && item.mimeType !== "image/png")
+    ) {
+      throw documentError("CORRUPT_FILE", "This document could not be processed safely. Export it again and retry.");
+    }
+    const pageBytes = Buffer.from(reply.output.subarray(offset, offset + item.outputBytes));
+    offset += item.outputBytes;
+    return { page: item.page, bytes: pageBytes, mimeType: item.mimeType, width: item.width, height: item.height };
+  });
+  if (offset !== reply.output.length) {
+    throw documentError("CORRUPT_FILE", "This document could not be processed safely. Export it again and retry.");
+  }
+  return output;
 }
 
 export async function renderBloodworkPage(
@@ -191,10 +373,13 @@ export async function renderBloodworkPage(
   mimeType: string,
   page: number,
   signal?: AbortSignal,
+  admission: BloodworkPageAdmission = { sha256: null, pageCount: 0 },
 ): Promise<{ bytes: Buffer; mimeType: "image/jpeg" | "image/png"; width: number; height: number }> {
-  const reply = await runWorker({ bytes, metadata: { operation: "render", mime: mimeType, page }, signal });
-  if (reply.result.mimeType !== "application/pdf" && reply.output.length === 0) {
-    return { bytes: Buffer.from(bytes), mimeType: reply.result.mimeType, width: reply.result.width!, height: reply.result.height! };
-  }
-  return { bytes: reply.output, mimeType: "image/png", width: reply.result.width!, height: reply.result.height! };
+  const [prepared] = await prepareBloodworkPages(bytes, mimeType, [page], admission, signal);
+  return {
+    bytes: prepared!.bytes,
+    mimeType: prepared!.mimeType,
+    width: prepared!.width,
+    height: prepared!.height,
+  };
 }

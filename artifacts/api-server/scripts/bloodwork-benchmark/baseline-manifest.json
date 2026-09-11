@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "gitCommit": "c2a1caa3b16191d1aba39430f26660566d598a98",
+  "capturedBeforeSiblingEdits": true,
+  "files": [
+    {
+      "path": "artifacts/api-server/src/bloodwork/documents.ts",
+      "sha256": "7493f7883fc1dfd08b29645f73234f7b019c16390f411900e1a3115a8337f9b2"
+    },
+    {
+      "path": "artifacts/api-server/src/bloodwork/document-worker-core.ts",
+      "sha256": "bed66d5c96913dfc08a2eb8a3fdf179028782b3ca60099f4491e125dc8050f58"
+    },
+    {
+      "path": "artifacts/api-server/src/bloodwork/document-worker.ts",
+      "sha256": "8743f68ec470c878eddb05d91499f2e510d3e469a9b1daf66a8f436d012b4b65"
+    }
+  ]
+}

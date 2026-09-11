@@ -1,0 +1,469 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-11T16:32:56.122Z",
+  "sourceCommit": "working-tree",
+  "transport": "openai-existing-connection",
+  "syntheticOnly": true,
+  "concurrency": 2,
+  "retries": "extraction-explicit-bounded",
+  "timeoutMs": 90000,
+  "models": [
+    {
+      "model": "gpt-5.6-terra",
+      "cases": [
+        {
+          "fixture": "clear-digital",
+          "renderMs": 617.469,
+          "transcriptionMs": 2893.706,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 7481,
+            "completionTokens": 242,
+            "totalTokens": 7723,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "clear-scanned",
+          "renderMs": 2427.836,
+          "transcriptionMs": 3781.319,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 7481,
+            "completionTokens": 344,
+            "totalTokens": 7825,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "poor-scanned",
+          "renderMs": 1253.047,
+          "transcriptionMs": 3477.118,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 7481,
+            "completionTokens": 242,
+            "totalTokens": 7723,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "overflow-201",
+          "renderMs": 504.557,
+          "transcriptionMs": 2106.973,
+          "expectedRows": 201,
+          "actualRows": 0,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "overflowExpected": true,
+          "errorCode": "TOO_MANY_RESULTS",
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 7481,
+            "completionTokens": 41,
+            "totalTokens": 7522,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        }
+      ],
+      "strictAcceptance": "pass"
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "cases": [
+        {
+          "fixture": "clear-digital",
+          "renderMs": 459.812,
+          "transcriptionMs": 3515.244,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 7481,
+            "completionTokens": 320,
+            "totalTokens": 7801,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "clear-scanned",
+          "renderMs": 1590.052,
+          "transcriptionMs": 3207.998,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 7481,
+            "completionTokens": 317,
+            "totalTokens": 7798,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "poor-scanned",
+          "renderMs": 1107.123,
+          "transcriptionMs": 3574.216,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 7481,
+            "completionTokens": 366,
+            "totalTokens": 7847,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "overflow-201",
+          "renderMs": 460.495,
+          "transcriptionMs": 2033.159,
+          "expectedRows": 201,
+          "actualRows": 0,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "overflowExpected": true,
+          "errorCode": "TOO_MANY_RESULTS",
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 7481,
+            "completionTokens": 43,
+            "totalTokens": 7524,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        }
+      ],
+      "strictAcceptance": "pass"
+    },
+    {
+      "model": "gpt-5.4-mini",
+      "cases": [
+        {
+          "fixture": "clear-digital",
+          "renderMs": 429.662,
+          "transcriptionMs": 1814.912,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 3190,
+            "completionTokens": 242,
+            "totalTokens": 3432,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "clear-scanned",
+          "renderMs": 1480.967,
+          "transcriptionMs": 1698.406,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 3190,
+            "completionTokens": 242,
+            "totalTokens": 3432,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "poor-scanned",
+          "renderMs": 991.966,
+          "transcriptionMs": 1851.889,
+          "expectedRows": 6,
+          "actualRows": 6,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "fieldChecks": {
+            "decimals": true,
+            "comparators": true,
+            "units": true,
+            "referenceRanges": true,
+            "flags": true,
+            "qualitative": true
+          },
+          "overflowExpected": false,
+          "errorCode": null,
+          "strictAcceptance": "pass",
+          "usage": {
+            "responseEvents": 1,
+            "requestEvents": 1,
+            "retryEvents": 0,
+            "failureEvents": 0,
+            "promptTokens": 3190,
+            "completionTokens": 242,
+            "totalTokens": 3432,
+            "costUsd": null,
+            "tokenAvailability": "available",
+            "costAvailability": "unavailable"
+          }
+        },
+        {
+          "fixture": "overflow-201",
+          "renderMs": 481.691,
+          "transcriptionMs": 104.803,
+          "expectedRows": 201,
+          "actualRows": 0,
+          "exactFieldErrors": 0,
+          "rowOrderErrors": 0,
+          "missedRows": 0,
+          "duplicateRows": 0,
+          "overflowExpected": true,
+          "errorCode": "AI_FAILED",
+          "fieldChecks": {
+            "decimals": false,
+            "comparators": false,
+            "units": false,
+            "referenceRanges": false,
+            "flags": false,
+            "qualitative": false
+          },
+          "strictAcceptance": "not-run",
+          "usage": {
+            "responseEvents": 0,
+            "requestEvents": 2,
+            "retryEvents": 1,
+            "failureEvents": 1,
+            "promptTokens": null,
+            "completionTokens": null,
+            "totalTokens": null,
+            "costUsd": null,
+            "tokenAvailability": "unavailable",
+            "costAvailability": "unavailable"
+          }
+        }
+      ],
+      "strictAcceptance": "not-run"
+    }
+  ],
+  "noRawModelReplies": true,
+  "fixtureValidation": {
+    "overflowFixture": "201 visible rows in three columns of one 612x792 PDF page",
+    "rows": 201,
+    "columns": 3,
+    "yRange": {
+      "min": 166,
+      "max": 760
+    },
+    "columnStarts": [
+      20,
+      220,
+      420
+    ],
+    "estimatedRowWidth": 120,
+    "renderedPreview": "/tmp/synthetic-overflow-render.png",
+    "coordinateSanityTest": "passed"
+  },
+  "qualificationPolicy": {
+    "productionModel": "gpt-5.6-terra",
+    "retainTerraProduction": true,
+    "benchmarkOnlyCandidateSelection": true,
+    "candidateQualifiedOnTheseCases": [
+      "gpt-5.6-luna"
+    ],
+    "candidateNotQualified": [
+      "gpt-5.4-mini"
+    ],
+    "candidateNotQualifiedReason": "No model response on corrected visible-201-row overflow case; strict promotion remains disabled.",
+    "promotionRule": "Any exact-field, row/order, duplicate, missed-row, or overflow failure blocks promotion; no-response remains inconclusive and retains terra."
+  }
+}

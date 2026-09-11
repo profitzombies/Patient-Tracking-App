@@ -17,7 +17,7 @@ export const Image = host('Image');
 export const TextInput = host('TextInput');
 export const Alert = { alert() {} };
 
-export const Platform = { OS: 'ios' as const };
+export const Platform = { OS: 'ios' as 'ios' | 'web' };
 export const StyleSheet = {
   create<T>(styles: T): T { return styles; },
   flatten(style: unknown): unknown { return style; },

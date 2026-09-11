@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Alert, View, StyleSheet, Text, Pressable, ActivityIndicator } from 'react-native';
+import { Alert, View, StyleSheet, Text, Pressable } from 'react-native';
 import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
@@ -11,10 +11,12 @@ import { ResultEditModal } from '@/components/bloodwork/ResultEditModal';
 import { BloodworkViewer } from '@/components/bloodwork/BloodworkViewer';
 import { BloodworkBackRow } from '@/components/bloodwork/BloodworkBackRow';
 import { BloodworkProcessingStatus } from '@/components/bloodwork/BloodworkProcessingStatus';
+import { BloodworkDetailSkeleton } from '@/components/bloodwork/BloodworkSkeletons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOfficeRoster } from '@/components/office/LiveOfficeRoster';
 import { useSupabaseSession } from '@/lib/supabase';
 import { formatBloodworkDate } from '@/lib/bloodwork-date';
+import { classifyBloodworkError } from '@/lib/bloodwork-recovery';
 import { 
   useGetBloodworkReport, 
   useCorrectBloodworkResult,
@@ -39,7 +41,7 @@ export default function ProviderBloodworkDetailScreen() {
   const params = officeId ? { office: officeId } : undefined;
   const detailQueryKey = [...getGetBloodworkReportQueryKey(pid, rid, params), session?.user.id ?? ''] as const;
 
-  const { data: detail, isLoading, isError, refetch } = useGetBloodworkReport(
+  const { data: detail, isLoading, isError, error, refetch } = useGetBloodworkReport(
     pid,
     rid,
     params,
@@ -54,6 +56,7 @@ export default function ProviderBloodworkDetailScreen() {
   };
   const correctResult = useCorrectBloodworkResult({ request: pinnedRequest });
   const retryExtraction = useRetryBloodworkExtraction({ request: pinnedRequest });
+  const detailRecovery = isError ? classifyBloodworkError(error) : null;
 
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
@@ -106,10 +109,14 @@ export default function ProviderBloodworkDetailScreen() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading && !isError) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center' }]}>
-        <ActivityIndicator color={colors.cobalt} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <PatientHeader title="Report Detail" />
+        <BloodworkBackRow label="Back to patient" onPress={() => router.back()} />
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+          <BloodworkDetailSkeleton />
+        </ScrollView>
       </View>
     );
   }
@@ -122,10 +129,17 @@ export default function ProviderBloodworkDetailScreen() {
         <BloodworkBackRow label="Back to patient" onPress={() => router.back()} />
         <View style={styles.emptyWrap}>
            <Text style={[styles.emptyText, { color: colors.destructive }]}>
-             {accessDenied ? 'This private report is unavailable for this account.' : 'Could not load report.'}
+              {accessDenied ? 'This private report is unavailable for this account.' : detailRecovery?.title ?? 'Could not load report.'}
            </Text>
+            {!accessDenied && detailRecovery ? (
+              <Text style={[styles.emptyText, { color: colors.subtleText, marginTop: 8 }]}>
+                {detailRecovery.message}
+              </Text>
+            ) : null}
            {!accessDenied ? (
-             <Pressable onPress={() => void refetch()}><Text style={{ color: colors.cobalt, padding: 12 }}>Retry</Text></Pressable>
+              <Pressable testID="provider-bloodwork-detail-retry" onPress={() => void refetch()}>
+                <Text style={{ color: colors.cobalt, padding: 12 }}>{detailRecovery?.actionLabel ?? 'Retry'}</Text>
+              </Pressable>
            ) : null}
         </View>
       </View>
@@ -137,6 +151,21 @@ export default function ProviderBloodworkDetailScreen() {
       <PatientHeader title="Report Detail" />
       <BloodworkBackRow label="Back to patient" onPress={() => router.back()} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+        {isError && detailRecovery ? (
+          <View
+            testID="provider-bloodwork-detail-refresh-error"
+            accessibilityRole="alert"
+            style={[styles.refreshError, { backgroundColor: colors.warnBg, borderColor: colors.warnBorder }]}
+          >
+            <Text style={[styles.recoveryTitle, { color: colors.navy }]}>{detailRecovery.title}</Text>
+            <Text style={[styles.recoveryMessage, { color: colors.bodyText }]}>{detailRecovery.message}</Text>
+            <Pressable testID="provider-bloodwork-detail-refresh-retry" onPress={() => void refetch()} style={styles.retry}>
+              <Text style={[styles.actionText, { color: colors.cobalt }]}>
+                {detailRecovery.actionLabel ?? 'Retry'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
         
         {/* Header section */}
         <View style={styles.headerBox}>
@@ -254,4 +283,8 @@ const styles = StyleSheet.create({
   divider: { height: 1, width: '100%' },
   emptyWrap: { padding: 32, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  refreshError: { borderWidth: 1, borderRadius: 8, padding: 14, marginBottom: 16 },
+  recoveryTitle: { fontSize: 15, fontFamily: 'Inter_700Bold' },
+  recoveryMessage: { fontSize: 13, lineHeight: 19, fontFamily: 'Inter_400Regular', marginTop: 6 },
+  retry: { alignSelf: 'flex-start', paddingVertical: 10, paddingHorizontal: 2 },
 });

@@ -7,6 +7,8 @@
  *     pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts verify --keep
  *   BLOODWORK_SMOKE_API_BASE_URL=http://127.0.0.1:3000/api \
  *     pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts verify-access --keep
+ *   BLOODWORK_SMOKE_API_BASE_URL=https://$REPLIT_DEV_DOMAIN/api \
+ *     pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts benchmark-live
  *   pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts helper
  *   pnpm --filter @workspace/api-server exec tsx scripts/bloodwork-live-smoke.ts cleanup
  *
@@ -17,11 +19,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
 import { CONSENT_POLICY_VERSION } from "../src/privacy/consent";
 import {
   syntheticEncryptedBloodworkPdf,
+  syntheticBenchmarkReport,
   syntheticTwoPageBloodworkPdf,
 } from "../src/bloodwork/fixtures/synthetic";
 
@@ -29,6 +33,10 @@ const FIXTURE_PATH = "/tmp/thinnr-bloodwork-fixture.json";
 const DEFAULT_API_BASE = "http://127.0.0.1:3000/api";
 const MAX_BYTES = 20_000_000;
 const MOBILE_PUBLIC_DIR = resolve(dirname(new URL(import.meta.url).pathname), "../../thinnr-mobile/public");
+const LIVE_BENCHMARK_EVIDENCE_PATH = resolve(
+  dirname(new URL(import.meta.url).pathname),
+  "bloodwork-benchmark/evidence/live-six-page-wallclock.json",
+);
 
 type IdentityLabel =
   | "patient"
@@ -807,6 +815,118 @@ async function pollDetail(
   }
 }
 
+async function benchmarkLive(): Promise<void> {
+  const state = await loadState();
+  credentials();
+  await refreshSessions(state);
+  const report = syntheticBenchmarkReport("mixed", 6);
+  const source = report.pages[0]!;
+  const expected = report.pages.flatMap((page) =>
+    page.expected.map((row) => ({ sourcePage: page.sourcePage, ...row })),
+  );
+  const base = reportsPath(state);
+  const startedAt = performance.now();
+  const createStartedAt = performance.now();
+  const created = await createReport(state, [{
+    clientFileId: randomUUID(),
+    mimeType: source.mimeType,
+    size: source.bytes.byteLength,
+  }]);
+  const createMs = Number((performance.now() - createStartedAt).toFixed(3));
+  const createdBody = created.body as {
+    reportId?: unknown;
+    uploads?: Array<{ uploadUrl?: unknown }>;
+  };
+  if (typeof createdBody.reportId !== "string" || typeof createdBody.uploads?.[0]?.uploadUrl !== "string") {
+    throw new Error("Live benchmark create response did not provide one report upload.");
+  }
+  const reportId = createdBody.reportId;
+  state.ids.reportIds.push(reportId);
+  await saveState(state);
+
+  const uploadStartedAt = performance.now();
+  await upload(createdBody.uploads[0].uploadUrl, source.bytes, source.mimeType);
+  const uploadTransferMs = Number((performance.now() - uploadStartedAt).toFixed(3));
+  const commitStartedAt = performance.now();
+  const committed = await api(state, "POST", `${base}/${reportId}/commit`, "patient");
+  const commitMs = Number((performance.now() - commitStartedAt).toFixed(3));
+  const queued = committed.body as { report?: { extractionStatus?: unknown; pageCount?: unknown } };
+  if (queued.report?.extractionStatus !== "queued" || queued.report.pageCount !== 6) {
+    throw new Error("Live benchmark commit did not queue the expected six-page report.");
+  }
+
+  const pollStartedAt = performance.now();
+  let pollRequestMs = 0;
+  let polls = 0;
+  let completed: Record<string, unknown> | undefined;
+  while (performance.now() - pollStartedAt < 240_000) {
+    const pollRequestStartedAt = performance.now();
+    const detail = await api(state, "GET", `${base}/${reportId}`, "patient");
+    pollRequestMs += performance.now() - pollRequestStartedAt;
+    polls++;
+    const body = detail.body as Record<string, unknown>;
+    const status = (body.report as { extractionStatus?: unknown } | undefined)?.extractionStatus;
+    if (status === "completed") {
+      completed = body;
+      break;
+    }
+    if (status === "failed") throw new Error("Live benchmark extraction failed.");
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+  }
+  if (!completed) throw new Error("Live benchmark did not complete within 240000ms.");
+
+  const completedReport = completed.report as { pageCount?: unknown; reviewStatus?: unknown };
+  const results = Array.isArray(completed.results) ? completed.results as Array<Record<string, unknown>> : [];
+  const resultFields = ["testName", "valueText", "units", "referenceRange", "labFlag", "uncertain"] as const;
+  const fieldChecks = Object.fromEntries(resultFields.map((field) => [
+    field,
+    results.length === expected.length && results.every((row, index) => row[field] === expected[index]![field]),
+  ]));
+  const sourcePageCount = results.length === expected.length &&
+    results.every((row, index) => row.sourcePage === expected[index]!.sourcePage);
+  const unreviewed = completedReport.reviewStatus === "unreviewed" &&
+    results.every((row) => row.reviewStatus === "unreviewed");
+  const endToEndMs = Number((performance.now() - startedAt).toFixed(3));
+  const evidence = {
+    transport: "live-development-http-object-storage-supabase",
+    syntheticOnly: true,
+    pages: 6,
+    expectedRows: 36,
+    actualRows: results.length,
+    status: "completed",
+    reviewStatus: unreviewed ? "unreviewed" : "unexpected",
+    pageCount: completedReport.pageCount,
+    sourcePageCount,
+    fieldChecks,
+    timings: {
+      clientCreateMs: createMs,
+      uploadTransferMs,
+      commitMs,
+      pollElapsedMs: Number((performance.now() - pollStartedAt).toFixed(3)),
+      pollRequestAggregateMs: Number(pollRequestMs.toFixed(3)),
+      pollCount: polls,
+      endToEndCreateToCompletedDetectionMs: endToEndMs,
+    },
+  };
+  if (
+    results.length !== 36 ||
+    completedReport.pageCount !== 6 ||
+    !sourcePageCount ||
+    !unreviewed ||
+    !Object.values(fieldChecks).every(Boolean)
+  ) {
+    throw new Error("Live benchmark result fidelity or review-state assertion failed.");
+  }
+  await mkdir(dirname(LIVE_BENCHMARK_EVIDENCE_PATH), { recursive: true, mode: 0o700 });
+  await writeFile(LIVE_BENCHMARK_EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+  await chmod(LIVE_BENCHMARK_EVIDENCE_PATH, 0o600);
+  console.log(
+    `Live benchmark passed: pages=${evidence.pages} rows=${evidence.actualRows} ` +
+    `createMs=${createMs} uploadMs=${uploadTransferMs} commitMs=${commitMs} ` +
+    `pollMs=${evidence.timings.pollElapsedMs} endToEndMs=${endToEndMs}`,
+  );
+}
+
 async function clearTrackedReports(state: FixtureState): Promise<void> {
   for (const reportId of state.ids.reportIds) {
     const existing = await api(
@@ -1397,15 +1517,24 @@ async function cleanup(): Promise<void> {
 async function main(): Promise<void> {
   const [command, ...flags] = process.argv.slice(2);
   if (command === "prepare") return prepare();
+  if (command === "prepare-ui") {
+    const state = await loadState();
+    await refreshSessions(state);
+    await recordConsent(state, "patient");
+    await completeSetup(state, "patient");
+    if (flags.includes("--no-helper")) return;
+    return writeBrowserHelper(state);
+  }
   if (command === "verify-access") return verifyAccess(flags.includes("--keep"));
   if (command === "verify") return verify(flags.includes("--keep"));
+  if (command === "benchmark-live") return benchmarkLive();
   if (command === "helper") {
     const state = await loadState();
     return writeBrowserHelper(state);
   }
   if (command === "cleanup") return cleanup();
   throw new Error(
-    "Usage: bloodwork-live-smoke.ts prepare | verify-access [--keep] | verify [--keep] | helper | cleanup",
+    "Usage: bloodwork-live-smoke.ts prepare | prepare-ui [--no-helper] | verify-access [--keep] | verify [--keep] | benchmark-live | helper | cleanup",
   );
 }
 

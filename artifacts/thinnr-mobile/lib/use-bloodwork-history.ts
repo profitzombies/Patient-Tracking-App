@@ -7,6 +7,22 @@ import {
   type ListBloodworkReportsParams,
 } from '@workspace/api-client-react';
 
+/** Shared prefix for every retained-page history query in one patient scope. */
+export function getBloodworkHistoryQueryKey(input: {
+  patientId: string;
+  userId: string;
+  officeId?: string;
+}) {
+  return [
+    ...getListBloodworkReportsQueryKey(
+      input.patientId,
+      input.officeId ? { office: input.officeId } : undefined,
+    ),
+    input.userId,
+    'retained-pages',
+  ] as const;
+}
+
 export async function loadBloodworkHistoryPages(input: {
   patientId: string;
   officeId?: string;
@@ -43,11 +59,21 @@ export function useBloodworkHistory(input: {
   const [pageCount, setPageCount] = useState(1);
   const scope = `${input.userId}:${input.patientId}:${input.officeId ?? ''}`;
   useEffect(() => setPageCount(1), [scope]);
-  const baseParams = input.officeId ? { office: input.officeId } : undefined;
-  const baseKey = getListBloodworkReportsQueryKey(input.patientId, baseParams);
-  const query = useQuery({
-    queryKey: [...baseKey, input.userId, 'retained-pages', pageCount],
+  const historyKey = getBloodworkHistoryQueryKey(input);
+  const query = useQuery<BloodworkReportList>({
+    queryKey: [...historyKey, pageCount],
     enabled: input.enabled && !!input.token,
+    // Keep the first page visible while a pull-to-refresh or a "load more"
+    // request is in flight. The current query still owns the eventual error,
+    // so callers can show an explicit retry without blanking known reports.
+    placeholderData: (previous, previousQuery) => {
+      const previousKey = previousQuery?.queryKey ?? [];
+      const samePatientScope = historyKey.every((part, index) => (
+        previousKey[index] === part
+        || JSON.stringify(previousKey[index]) === JSON.stringify(part)
+      ));
+      return samePatientScope ? previous : undefined;
+    },
     queryFn: ({ signal }) => loadBloodworkHistoryPages({
       patientId: input.patientId,
       officeId: input.officeId,

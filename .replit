@@ -1207,12 +1207,12 @@ isValidation = true
 name = "bloodwork"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server exec vitest run --testTimeout=30000 --maxWorkers=1 src/bloodwork src/privacy/bloodwork-lifecycle.test.ts src/routes/patient-privacy.test.ts src/jobs/definitions/reconcile-storage.test.ts src/privacy/purge.test.ts src/privacy/purge.sql.test.ts && pnpm --filter @workspace/thinnr-mobile run test:bloodwork && pnpm --filter @workspace/thinnr-operations run test:bloodwork"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/api-server exec tsx scripts/verify-bloodwork-emitted-worker.ts && pnpm --filter @workspace/api-server exec vitest run --testTimeout=30000 --maxWorkers=1 src/bloodwork src/jobs/scheduler.test.ts src/privacy/bloodwork-lifecycle.test.ts src/routes/patient-privacy.test.ts src/jobs/definitions/reconcile-storage.test.ts src/privacy/purge.test.ts src/privacy/purge.sql.test.ts && pnpm --filter @workspace/thinnr-mobile run test:bloodwork && pnpm --filter @workspace/thinnr-operations run test:bloodwork"
 
 [[workflows.workflow]]
 name = "care-team-api"

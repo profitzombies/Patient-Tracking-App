@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: vi.fn() }));
 
-import { isJobDue, registerJob, resetJobRegistry, runDueJobs, runJob, runUserJob } from "./scheduler";
+import { isJobDue, registerJob, resetJobRegistry, runDueJobs, runJob, runUserJob, signalJob } from "./scheduler";
 import { createMemoryJobStore } from "./store";
 import type { JobContext, JobDefinition } from "./types";
 
@@ -222,5 +222,40 @@ describe("job scheduler", () => {
     if (outcome.kind !== "ran") return;
     expect(outcome.run.status).toBe("failed");
     expect(outcome.run.error).toMatch(/lease for demo was lost/);
+  });
+
+  it("coalesces a prompt during a run and starts it only after the global lease releases", async () => {
+    let releaseFirst: (() => void) | undefined;
+    let starts = 0;
+    registerJob(job({
+      run: async () => {
+        starts += 1;
+        if (starts === 1) await new Promise<void>((resolve) => { releaseFirst = resolve; });
+      },
+    }));
+    const first = runJob("demo", { trigger: "schedule", store, now: clock, owner: "first" });
+    await vi.waitFor(() => expect(store.runs).toHaveLength(1));
+    expect(signalJob("demo")).toBe(true);
+    expect(store.runs).toHaveLength(1);
+    releaseFirst!();
+    await first;
+    await vi.waitFor(() => expect(store.runs).toHaveLength(2));
+    await vi.waitFor(() => expect(store.runs[1]).toMatchObject({ trigger: "internal", status: "succeeded" }));
+  });
+
+  it("leaves a prompted job durable but does not run it while disabled or backing off", async () => {
+    registerJob(job({ run: async () => { throw new Error("temporarily unavailable"); } }));
+    await runJob("demo", { trigger: "schedule", store, now: clock });
+    expect(signalJob("demo")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.runs).toHaveLength(1);
+    const prior = process.env.JOBS_DISABLED;
+    process.env.JOBS_DISABLED = "true";
+    try {
+      expect(signalJob("demo")).toBe(false);
+    } finally {
+      if (prior === undefined) delete process.env.JOBS_DISABLED;
+      else process.env.JOBS_DISABLED = prior;
+    }
   });
 });

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { useColors } from '@/hooks/useColors';
 import { PatientHeader } from '@/components/patient/PatientHeader';
@@ -28,6 +29,7 @@ import {
   type BloodworkRecovery,
 } from '@/lib/bloodwork-recovery';
 import { AppModal } from '@/components/ui/AppModal';
+import { getBloodworkHistoryQueryKey } from '@/lib/use-bloodwork-history';
 
 type DraftType = 'none' | 'pdf' | 'images';
 type CameraCaptureScope = {
@@ -42,12 +44,15 @@ type BusyOwner = {
   nonce: number;
 };
 
+type BloodworkUploadStage = 'checking' | 'uploading' | 'received';
+
 export default function NewBloodwork() {
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const accountCtx = usePatientAccount();
   const patient = usePatient();
   const { session } = useSupabaseSession();
+  const queryClient = useQueryClient();
 
   const realAccount = accountCtx.account.kind === 'real' ? accountCtx.account : null;
   const canonicalAccountKey = realAccount && session?.user.id
@@ -74,6 +79,7 @@ export default function NewBloodwork() {
   const [progress, setProgress] = useState(0); 
   const [cameraVisible, setCameraVisible] = useState(false);
   const [statusText, setStatusText] = useState('Saving...');
+  const [uploadStage, setUploadStage] = useState<BloodworkUploadStage>('checking');
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [retakeIndex, setRetakeIndex] = useState<number | null>(null);
   const [recovery, setRecovery] = useState<BloodworkRecovery | null>(null);
@@ -113,6 +119,7 @@ export default function NewBloodwork() {
     if (!ownsBusy(key, nonce)) return;
     busyOwnerRef.current = null;
     setBusy(false);
+    setUploadStage('checking');
     if (cancelled) setStatusText('Upload cancelled');
   }, [ownsBusy]);
 
@@ -402,8 +409,9 @@ export default function NewBloodwork() {
     let stagedReportId: string | null = null;
     let committed = false;
     let capturedToken: string | null = null;
-    const busyNonce = beginBusy(key, 'Starting upload...');
+    const busyNonce = beginBusy(key, 'Checking report...');
     setProgress(0);
+    setUploadStage('checking');
     setRecovery(null);
     saveInFlightRef.current = true;
 
@@ -451,10 +459,17 @@ export default function NewBloodwork() {
       );
       stagedReportId = reportId;
       if (!isCurrent(key, operation.generation, operation.signal)) return;
+      setUploadStage('uploading');
 
       if (isCommittedUploadReplay(uploads.length, selectedFiles.length)) {
         committed = true;
         setProgress(100);
+        void queryClient.invalidateQueries({
+          queryKey: getBloodworkHistoryQueryKey({
+            patientId: account.patientId,
+            userId: session?.user.id ?? '',
+          }),
+        });
         await clearRetainedBloodworkDraft(key);
         if (!isCurrent(key, operation.generation, operation.signal)) return;
         router.replace(`/bloodwork/${reportId}`);
@@ -485,6 +500,9 @@ export default function NewBloodwork() {
         if (!isCurrent(key, operation.generation, operation.signal)) return;
       }
 
+       // Only claim receipt after every source object has reached storage.
+       // Commit still has to succeed before the report can be queued.
+       setUploadStage('received');
        setStatusText('Saving report...');
       await commitBloodworkReport(
         account.patientId,
@@ -492,7 +510,13 @@ export default function NewBloodwork() {
         { headers, signal: operation.signal }
       );
       committed = true;
-      if (!isCurrent(key, operation.generation, operation.signal)) return;
+       void queryClient.invalidateQueries({
+         queryKey: getBloodworkHistoryQueryKey({
+           patientId: account.patientId,
+           userId: session?.user.id ?? '',
+         }),
+       });
+       if (!isCurrent(key, operation.generation, operation.signal)) return;
       
       setProgress(100);
       await clearRetainedBloodworkDraft(key);
@@ -766,6 +790,17 @@ export default function NewBloodwork() {
             ) : null}
             {busy && (
                <View style={styles.progressWrap}>
+                   <Text
+                     testID="bloodwork-upload-stage"
+                     accessibilityRole="text"
+                     style={{ fontSize: 13, color: colors.navy, marginBottom: 4, fontFamily: 'Inter_700Bold' }}
+                   >
+                     {uploadStage === 'received'
+                       ? 'Upload received'
+                       : uploadStage === 'uploading'
+                         ? 'Uploading source'
+                         : 'Checking report'}
+                   </Text>
                   <Text
                     accessibilityRole="text"
                     style={{ fontSize: 12, color: colors.navy, marginBottom: 7, fontFamily: 'Inter_600SemiBold' }}

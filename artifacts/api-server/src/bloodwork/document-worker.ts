@@ -1,5 +1,5 @@
 // @ts-ignore Node executes this .ts entry directly in tests; esbuild bundles it for production.
-import { inspectInWorker, renderInWorker, WorkerDocumentError } from "./document-worker-core.ts";
+import { inspectInWorker, prepareInWorker, WorkerDocumentError } from "./document-worker-core.ts";
 
 const chunks: Buffer[] = [];
 for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
@@ -19,16 +19,34 @@ try {
   const metadataLength = input.readUInt32BE(0);
   if (metadataLength > 16_384 || 4 + metadataLength > input.length) throw new Error("invalid input");
   const metadata = JSON.parse(input.subarray(4, 4 + metadataLength).toString()) as {
-    operation: "inspect" | "render";
+    operation: "inspect" | "prepare";
     mime: string;
-    page?: number;
+    pages?: number[];
+    admission?: { sha256: string | null; pageCount: number };
   };
   const bytes = input.subarray(4 + metadataLength);
   const result = metadata.operation === "inspect"
     ? await inspectInWorker(bytes, metadata.mime)
-    : await renderInWorker(bytes, metadata.mime, metadata.page ?? 0);
-  const { output, ...safe } = result as typeof result & { output?: Buffer };
-  send({ ok: true, result: safe }, output);
+    : await prepareInWorker(bytes, metadata.mime, metadata.pages ?? [], metadata.admission ?? { sha256: null, pageCount: 0 });
+  if (metadata.operation === "inspect") {
+    send({ ok: true, result });
+  } else {
+    const preparedResult = result as Awaited<ReturnType<typeof prepareInWorker>>;
+    send({
+      ok: true,
+      result: {
+        mimeType: preparedResult.mimeType,
+        pageCount: preparedResult.pageCount,
+        pages: preparedResult.pages.map(({ output: _output, ...prepared }) => ({
+          ...prepared,
+          outputBytes: _output.length,
+        })),
+      },
+    });
+    // Stream the already-bounded page outputs rather than allocating another
+    // combined buffer in the isolated process.
+    for (const prepared of preparedResult.pages) process.stdout.write(prepared.output);
+  }
 } catch (error) {
   if (error instanceof WorkerDocumentError) {
     send({ ok: false, code: error.code, message: error.message });

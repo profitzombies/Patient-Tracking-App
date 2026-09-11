@@ -175,13 +175,63 @@ export type Inspection = {
   height: number | null;
 };
 
-export async function inspectInWorker(bytes: Uint8Array, mimeValue: string): Promise<Inspection> {
+export type WorkerAdmission = {
+  sha256: string | null;
+  pageCount: number;
+};
+
+export type PreparedPage = {
+  page: number;
+  mimeType: "image/jpeg" | "image/png";
+  width: number;
+  height: number;
+  output: Buffer;
+};
+
+function inputMime(bytes: Uint8Array, mimeValue: string): DocumentMime {
   if (bytes.byteLength === 0) fail("EMPTY_FILE", "The selected report is empty. Choose it again.");
   if (bytes.byteLength > MAX_FILE_BYTES) fail("FILE_TOO_LARGE", "Bloodwork files must be 20 MB or smaller.");
   const declared = declaredMime(mimeValue);
   const detected = detect(bytes);
   if (!detected) fail("CORRUPT_FILE", "This file is not a readable PDF, JPEG, or PNG.");
   if (detected !== declared) fail("TYPE_MISMATCH", "The selected file type does not match its contents. Export it again.");
+  return detected;
+}
+
+async function inspectPdf(
+  pdf: Awaited<ReturnType<typeof getDocumentProxy>>,
+  validateEveryPage: boolean,
+  admittedPageCount?: number,
+): Promise<number> {
+  if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1) {
+    fail("CORRUPT_FILE", "This PDF contains no readable pages. Re-export it and retry.");
+  }
+  if (pdf.numPages > MAX_PDF_PAGES) {
+    fail("TOO_MANY_PAGES", `This PDF has more than ${MAX_PDF_PAGES} pages. Split it into smaller reports.`);
+  }
+  if (admittedPageCount !== undefined && pdf.numPages !== admittedPageCount) {
+    fail("CORRUPT_FILE", "This PDF no longer matches its admitted page count.");
+  }
+  if (!validateEveryPage) return pdf.numPages;
+
+  // getOperatorList resolves page dictionaries, content streams, fonts and
+  // image resources. Merely trusting numPages leaves dangling Kids entries
+  // undiscovered until a later render.
+  for (let page = 1; page <= pdf.numPages; page++) {
+    try {
+      const proxy = await pdf.getPage(page);
+      validViewport(proxy.getViewport({ scale: 1 }));
+      await (proxy as typeof proxy & { getOperatorList: () => Promise<unknown> }).getOperatorList();
+    } catch (error) {
+      if (error instanceof WorkerDocumentError) throw error;
+      fail("CORRUPT_FILE", "This PDF contains an unreadable page. Re-export it and retry.");
+    }
+  }
+  return pdf.numPages;
+}
+
+export async function inspectInWorker(bytes: Uint8Array, mimeValue: string): Promise<Inspection> {
+  const detected = inputMime(bytes, mimeValue);
   if (detected !== "application/pdf") {
     const dimensions = await inspectImage(bytes, detected);
     return { mimeType: detected, pageCount: 1, ...dimensions };
@@ -189,57 +239,96 @@ export async function inspectInWorker(bytes: Uint8Array, mimeValue: string): Pro
 
   const pdf = await openPdf(bytes);
   try {
-    if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1) {
-      fail("CORRUPT_FILE", "This PDF contains no readable pages. Re-export it and retry.");
+    const pageCount = await inspectPdf(pdf, true);
+    return { mimeType: detected, pageCount, width: null, height: null };
+  } finally {
+    await destroyPdf(pdf);
+  }
+}
+
+function validRequestedPages(pages: number[]): void {
+  if (
+    !Array.isArray(pages) ||
+    pages.length < 1 ||
+    pages.length > 2 ||
+    pages.some((page) => !Number.isSafeInteger(page) || page < 1) ||
+    new Set(pages).size !== pages.length
+  ) {
+    fail("PAGE_OUT_OF_RANGE", "Choose one or two valid document pages.");
+  }
+}
+
+export async function prepareInWorker(
+  bytes: Uint8Array,
+  mimeValue: string,
+  pages: number[],
+  admission: WorkerAdmission,
+): Promise<{ mimeType: DocumentMime; pageCount: number; pages: PreparedPage[] }> {
+  validRequestedPages(pages);
+  const detected = inputMime(bytes, mimeValue);
+  if (detected !== "application/pdf") {
+    if (admission.sha256 !== null && admission.pageCount !== 1) {
+      fail("CORRUPT_FILE", "This image no longer matches its admitted page count.");
     }
-    if (pdf.numPages > MAX_PDF_PAGES) {
-      fail("TOO_MANY_PAGES", `This PDF has more than ${MAX_PDF_PAGES} pages. Split it into smaller reports.`);
+    const dimensions = await inspectImage(bytes, detected);
+    if (pages.some((page) => page !== 1)) fail("PAGE_OUT_OF_RANGE", "Choose a page between 1 and 1.");
+    return {
+      mimeType: detected,
+      pageCount: 1,
+      pages: pages.map((page) => ({
+        page,
+        mimeType: detected,
+        ...dimensions,
+        output: Buffer.from(bytes),
+      })),
+    };
+  }
+
+  const pdf = await openPdf(bytes);
+  try {
+    const admitted = admission.sha256 !== null;
+    const pageCount = await inspectPdf(pdf, !admitted, admitted ? admission.pageCount : undefined);
+    if (pages.some((page) => page < 1 || page > pageCount)) {
+      fail("PAGE_OUT_OF_RANGE", `Choose a page between 1 and ${pageCount}.`);
     }
-    // getOperatorList resolves page dictionaries, content streams, fonts and
-    // image resources. Merely trusting numPages leaves dangling Kids entries
-    // undiscovered until a later render.
-    for (let page = 1; page <= pdf.numPages; page++) {
+    const prepared: PreparedPage[] = [];
+    // Keep the document proxy open and render one page at a time. This avoids
+    // both a second PDF open and concurrent native canvas allocations.
+    // Deliberately do not use PDF text extraction as a fast path: it cannot
+    // prove source fidelity for scans, layered content, or rendered graphics.
+    for (const page of pages) {
+      const proxy = await pdf.getPage(page);
+      const viewport = proxy.getViewport({ scale: 1 });
+      validViewport(viewport);
+      const scale = Math.min(RENDER_LONG_EDGE / Math.max(viewport.width, viewport.height), 4);
+      const width = Math.max(1, Math.ceil(viewport.width * scale));
+      let rendered: ArrayBuffer;
       try {
-        const proxy = await pdf.getPage(page);
-        validViewport(proxy.getViewport({ scale: 1 }));
-        await (proxy as typeof proxy & { getOperatorList: () => Promise<unknown> }).getOperatorList();
-      } catch (error) {
-        if (error instanceof WorkerDocumentError) throw error;
-        fail("CORRUPT_FILE", "This PDF contains an unreadable page. Re-export it and retry.");
+        rendered = await renderPageAsImage(pdf, page, {
+          canvasImport: () => import("@napi-rs/canvas"),
+          width,
+        });
+      } catch {
+        fail("RENDER_FAILED", "This PDF page could not be rendered. Re-export the PDF and retry.");
       }
+      const output = Buffer.from(rendered);
+      const dimensions = await inspectImage(output, "image/png");
+      prepared.push({ page, mimeType: "image/png", ...dimensions, output });
     }
-    return { mimeType: detected, pageCount: pdf.numPages, width: null, height: null };
+    return { mimeType: detected, pageCount, pages: prepared };
   } finally {
     await destroyPdf(pdf);
   }
 }
 
 export async function renderInWorker(bytes: Uint8Array, mime: string, page: number) {
-  const inspection = await inspectInWorker(bytes, mime);
-  if (!Number.isSafeInteger(page) || page < 1 || page > inspection.pageCount) {
-    fail("PAGE_OUT_OF_RANGE", `Choose a page between 1 and ${inspection.pageCount}.`);
-  }
-  if (inspection.mimeType !== "application/pdf") return { ...inspection, output: undefined };
-  const pdf = await openPdf(bytes);
-  try {
-    const proxy = await pdf.getPage(page);
-    const viewport = proxy.getViewport({ scale: 1 });
-    validViewport(viewport);
-    const scale = Math.min(RENDER_LONG_EDGE / Math.max(viewport.width, viewport.height), 4);
-    const width = Math.max(1, Math.ceil(viewport.width * scale));
-    let rendered: ArrayBuffer;
-    try {
-      rendered = await renderPageAsImage(pdf, page, {
-        canvasImport: () => import("@napi-rs/canvas"),
-        width,
-      });
-    } catch {
-      fail("RENDER_FAILED", "This PDF page could not be rendered. Re-export the PDF and retry.");
-    }
-    const output = Buffer.from(rendered);
-    const dimensions = await inspectImage(output, "image/png");
-    return { mimeType: "image/png" as const, pageCount: inspection.pageCount, ...dimensions, output };
-  } finally {
-    await destroyPdf(pdf);
-  }
+  const prepared = await prepareInWorker(bytes, mime, [page], { sha256: null, pageCount: 0 });
+  const result = prepared.pages[0]!;
+  return {
+    mimeType: result.mimeType,
+    pageCount: prepared.pageCount,
+    width: result.width,
+    height: result.height,
+    output: result.output,
+  };
 }

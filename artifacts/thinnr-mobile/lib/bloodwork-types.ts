@@ -45,6 +45,14 @@ export interface BloodworkProcessingSnapshot {
   elapsedSeconds: number | null;
 }
 
+export type BloodworkProcessingLabel =
+  | 'checking'
+  | 'queued'
+  | 'reading'
+  | 'organizing'
+  | 'completed'
+  | 'failed';
+
 function boundedPageCount(value: unknown, total: number | null): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
     return null;
@@ -54,20 +62,44 @@ function boundedPageCount(value: unknown, total: number | null): number | null {
 }
 
 export function getBloodworkProcessingSnapshot(report: unknown): BloodworkProcessingSnapshot {
-  const raw = (report as { processing?: BloodworkProcessingMetadata | null } | null)?.processing;
+  const source = report as {
+    pageCount?: unknown;
+    extractionStatus?: unknown;
+    processing?: BloodworkProcessingMetadata | null;
+  } | null;
+  const raw = source?.processing;
+  const reportPageCount = typeof source?.pageCount === 'number'
+    && Number.isFinite(source.pageCount)
+    && Number.isInteger(source.pageCount)
+    && source.pageCount > 0
+    ? source.pageCount
+    : null;
   const total = typeof raw?.totalPages === 'number'
     && Number.isFinite(raw.totalPages)
     && Number.isInteger(raw.totalPages)
     && raw.totalPages > 0
     ? raw.totalPages
-    : null;
-  const phase = raw?.phase === 'waiting'
+    : reportPageCount;
+  const rawPhase = raw?.phase === 'waiting'
     || raw?.phase === 'reading_pages'
     || raw?.phase === 'preparing_results'
     || raw?.phase === 'completed'
     || raw?.phase === 'failed'
     ? raw.phase
     : undefined;
+  const phase = rawPhase
+    ?? (source?.extractionStatus === 'queued'
+      ? 'waiting'
+      : source?.extractionStatus === 'processing'
+        ? 'reading_pages'
+        : source?.extractionStatus === 'completed'
+          ? 'completed'
+          : source?.extractionStatus === 'failed'
+            ? 'failed'
+            : undefined);
+  const rawCompletedPages = boundedPageCount(raw?.completedPages, total);
+  const completedPages = rawCompletedPages
+    ?? (source?.extractionStatus === 'completed' ? total : null);
   const activity = raw?.activity === 'active'
     || raw?.activity === 'waiting'
     || raw?.activity === 'delayed'
@@ -77,7 +109,7 @@ export function getBloodworkProcessingSnapshot(report: unknown): BloodworkProces
   return {
     phase,
     activity,
-    completedPages: boundedPageCount(raw?.completedPages, total),
+    completedPages,
     totalPages: total,
     startedAt: typeof raw?.startedAt === 'string' && !Number.isNaN(Date.parse(raw.startedAt))
       ? raw.startedAt
@@ -91,6 +123,30 @@ export function getBloodworkProcessingSnapshot(report: unknown): BloodworkProces
       ? Math.floor(raw.elapsedSeconds)
       : null,
   };
+}
+
+/**
+ * The API only reports page-reading and result-preparation phases. The
+ * client deliberately maps those server facts to copy instead of estimating a
+ * percentage or a completion time. "Checking" is reserved for a response
+ * that has not supplied a reliable phase yet.
+ */
+export function getBloodworkProcessingLabel(report: unknown): BloodworkProcessingLabel {
+  const source = report as {
+    extractionStatus?: unknown;
+    processing?: BloodworkProcessingMetadata | null;
+  } | null;
+  if (source?.extractionStatus === 'completed') return 'completed';
+  if (source?.extractionStatus === 'failed') return 'failed';
+  if (source?.processing?.phase === 'preparing_results') return 'organizing';
+  if (source?.processing?.phase === 'reading_pages') return 'reading';
+  if (source?.extractionStatus === 'queued' || source?.processing?.phase === 'waiting') {
+    return 'queued';
+  }
+  if (source?.extractionStatus === 'processing') {
+    return 'reading';
+  }
+  return 'checking';
 }
 
 export function formatBloodworkElapsed(startedAt: string | null, now = Date.now()): string | null {

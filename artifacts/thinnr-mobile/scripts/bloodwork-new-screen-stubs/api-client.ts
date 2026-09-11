@@ -22,6 +22,10 @@ export const state: {
   commitResolve: null,
 };
 
+export function getListBloodworkReportsQueryKey(patientId: string, params?: Record<string, unknown>) {
+  return [`/api/bloodwork/patients/${patientId}/reports`, ...(params ? [params] : [])] as const;
+}
+
 export function resetApi(): void {
   state.createBehaviors = [];
   state.createCalls = [];

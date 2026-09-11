@@ -1,0 +1,69 @@
+{
+  "transport": "live-development-http-object-storage-supabase",
+  "syntheticOnly": true,
+  "pages": 6,
+  "rows": 36,
+  "commitMetrics": [
+    {
+      "readMs": 716,
+      "inspectionMs": 509,
+      "immutableSaveMs": 212,
+      "commitSaveMs": 156,
+      "detailMs": 177,
+      "totalMs": 2242,
+      "files": 1,
+      "pages": 6,
+      "bytes": 292095
+    }
+  ],
+  "jobMetrics": [
+    {
+      "time": "16:26:03.762",
+      "counts": {
+        "reportsLeased": 1,
+        "firstQueueWaitMs": 507,
+        "renderMs": 2343,
+        "pagesPrepared": 4,
+        "aiPromptTokens": 29924,
+        "aiCompletionTokens": 1253,
+        "aiTotalTokens": 31177,
+        "transcriptionWallMs": 8055,
+        "transcriptionAggregateMs": 15650,
+        "saveMs": 336,
+        "pages": 4,
+        "reportsContinued": 1
+      }
+    },
+    {
+      "time": "16:26:10.510",
+      "counts": {
+        "reportsLeased": 1,
+        "firstQueueWaitMs": 507,
+        "renderMs": 1194,
+        "pagesPrepared": 2,
+        "aiPromptTokens": 14962,
+        "aiCompletionTokens": 551,
+        "aiTotalTokens": 15513,
+        "transcriptionWallMs": 4233,
+        "transcriptionAggregateMs": 7050,
+        "saveMs": 149,
+        "pages": 2,
+        "reportsCompleted": 1
+      }
+    }
+  ],
+  "apiTimings": [
+    {
+      "stage": "create",
+      "responseMs": 1016
+    },
+    {
+      "stage": "commit",
+      "responseMs": 2246
+    }
+  ],
+  "uploadBytesTransportMs": null,
+  "uiExtractionElapsedSeconds": 18,
+  "wallClockUploadToCompleteMs": null,
+  "costUsd": null
+}

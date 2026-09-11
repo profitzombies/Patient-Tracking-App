@@ -16,6 +16,8 @@ const migrationNames = [
   "20261008030000_coach_review_guards.sql",
   "20261008040000_coach_memory_sentence_policy.sql",
   "20261009000000_patient_bloodwork_progress.sql",
+  "20261010000000_bloodwork_extraction_scheduling.sql",
+  "20261010010000_bloodwork_extraction_privacy_guard.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
@@ -78,6 +80,11 @@ await query(`
        or to_regclass('public.coach_memory_source_suppressions') is null
        or to_regclass('public.coach_conversation_work') is null
        or to_regclass('public.patient_bloodwork_reports') is null
+       or to_regprocedure('private.bloodwork_extraction_patient_allowed(uuid)') is null
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema='public' and table_name='patient_bloodwork_files' and column_name='content_sha256'
+       )
        or (select count(*) from information_schema.columns
            where table_schema='public' and table_name='patient_bloodwork_reports'
              and column_name in (

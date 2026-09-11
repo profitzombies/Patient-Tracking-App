@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, StyleSheet, RefreshControl, Text, Pressable } from 'react-native';
 import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,6 +6,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { useColors } from '@/hooks/useColors';
 import { BloodworkHistoryList } from '@/components/bloodwork/BloodworkHistoryList';
+import { BloodworkHistorySkeleton } from '@/components/bloodwork/BloodworkSkeletons';
 import { Feather } from '@expo/vector-icons';
 import { BloodworkBackRow } from '@/components/bloodwork/BloodworkBackRow';
 import { usePatientAccount } from '@/context/PatientAccountContext';
@@ -28,6 +29,17 @@ export default function BloodworkIndex() {
   const patientId = accountCtx.account.kind === 'real' ? accountCtx.account.patientId : '';
   const userId = session?.user.id ?? '';
   const accountKey = isReal && userId ? `${userId}:${patientId}` : 'unavailable';
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshGenerationRef = useRef(0);
+  const mountedScopeRef = useRef(accountKey);
+  mountedScopeRef.current = accountKey;
+  useEffect(() => {
+    refreshGenerationRef.current += 1;
+    setRefreshing(false);
+  }, [accountKey]);
+  useEffect(() => () => {
+    refreshGenerationRef.current += 1;
+  }, []);
   const entryRecovery = bloodworkEntryRecovery({
     accountKind: accountCtx.account.kind,
     accountResolving: accountCtx.resolving,
@@ -42,8 +54,6 @@ export default function BloodworkIndex() {
     enabled: isReal && !!userId,
   });
   const historyRecovery = isError ? classifyBloodworkError(error) : null;
-
-  const [refreshing, setRefreshing] = useState(false);
 
   // Poll for status updates if any report is processing or queued
   const hasProcessing = data?.reports.some(r => r.extractionStatus === 'queued' || r.extractionStatus === 'processing');
@@ -63,13 +73,20 @@ export default function BloodworkIndex() {
 
   const onRefresh = useCallback(async () => {
     if (!isReal) return;
+    const capturedScope = accountKey;
+    const generation = ++refreshGenerationRef.current;
     setRefreshing(true);
     try {
       await refetch();
     } finally {
-      setRefreshing(false);
+      if (
+        generation === refreshGenerationRef.current
+        && mountedScopeRef.current === capturedScope
+      ) {
+        setRefreshing(false);
+      }
     }
-  }, [refetch, isReal]);
+  }, [accountKey, refetch, isReal]);
 
   const openNewReport = () => {
     if (accountCtx.account.kind === 'unresolved') {
@@ -168,28 +185,47 @@ export default function BloodworkIndex() {
           </View>
         ) : null}
         {isLoading && !refreshing ? (
-          <View style={styles.center}>
-             <Text style={[styles.msg, { color: colors.subtleText }]}>Loading history...</Text>
-          </View>
-        ) : isError ? (
+          <BloodworkHistorySkeleton />
+        ) : !data ? (
           <View style={styles.center}>
               <Text style={[styles.msg, { color: colors.destructive }]}>{historyRecovery?.title ?? 'Could not load bloodwork.'}</Text>
               <Text style={[styles.recoveryMessage, { color: colors.subtleText, textAlign: 'center' }]}>
                 {historyRecovery?.message ?? 'Try again in a moment.'}
               </Text>
-              <Pressable onPress={() => void recoverHistory()} style={styles.retry}>
+              <Pressable testID="bloodwork-history-retry" onPress={() => void recoverHistory()} style={styles.retry}>
                 <Text style={[styles.addText, { color: colors.cobalt }]}>{historyRecovery?.actionLabel ?? 'Retry'}</Text>
              </Pressable>
           </View>
         ) : (
-          <BloodworkHistoryList 
-            reports={data?.reports || []} 
-            onPressReport={(r) => router.push(`/bloodwork/${r.id}`)}
-            emptyMessage="You have no saved bloodwork reports."
-             nextCursor={data?.nextCursor}
-             loadingMore={isFetching && !isLoading}
-             onLoadMore={loadMore}
-          />
+          <>
+            {isError && historyRecovery ? (
+              <View
+                testID="bloodwork-history-refresh-error"
+                accessibilityRole="alert"
+                style={[styles.refreshError, { backgroundColor: colors.warnBg, borderColor: colors.warnBorder }]}
+              >
+                <Text style={[styles.recoveryTitle, { color: colors.navy }]}>
+                  {historyRecovery.title}
+                </Text>
+                <Text style={[styles.recoveryMessage, { color: colors.bodyText }]}>
+                  {historyRecovery.message}
+                </Text>
+                <Pressable testID="bloodwork-history-refresh-retry" onPress={() => void recoverHistory()} style={styles.retry}>
+                  <Text style={[styles.addText, { color: colors.cobalt }]}>
+                    {historyRecovery.actionLabel ?? 'Retry'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+            <BloodworkHistoryList
+              reports={data.reports}
+              onPressReport={(r) => router.push(`/bloodwork/${r.id}`)}
+              emptyMessage="You have no saved bloodwork reports."
+              nextCursor={data.nextCursor}
+              loadingMore={isFetching && !isLoading}
+              onLoadMore={loadMore}
+            />
+          </>
         )}
       </ScrollView>
     </View>
@@ -225,6 +261,7 @@ const styles = StyleSheet.create({
   },
   addText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   retry: { padding: 12 },
+  refreshError: { borderWidth: 1, borderRadius: 8, padding: 14, marginBottom: 16 },
   recoveryBox: { borderWidth: 1, borderRadius: 8, padding: 14, marginBottom: 16 },
   recoveryTitle: { fontSize: 15, fontFamily: 'Inter_700Bold' },
   recoveryMessage: { fontSize: 13, lineHeight: 19, fontFamily: 'Inter_400Regular', marginTop: 6 },

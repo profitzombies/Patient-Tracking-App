@@ -158,7 +158,8 @@ describe("bloodwork generated API contract", () => {
     expect(worker).toContain("bloodwork_save_extraction_page");
     expect(worker).toContain("bloodwork_renew_extraction");
     expect(worker).toContain("bloodwork_prepare_extraction");
-    expect(worker).toContain("deadline.signal");
+    expect(worker).toContain("AbortSignal.timeout(RUN_DEADLINE_MS)");
+    expect(worker).toContain("AbortSignal.any([heartbeat.signal, deadline])");
     expect(worker).toContain("ctx.checkpoint();");
   });
 });

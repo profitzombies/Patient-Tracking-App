@@ -9,6 +9,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const migration = path.resolve(here, "../../../../supabase/migrations/20261006000000_patient_bloodwork.sql");
 const hardening = path.resolve(here, "../../../../supabase/migrations/20261006020000_patient_bloodwork_hardening.sql");
 const progress = path.resolve(here, "../../../../supabase/migrations/20261009000000_patient_bloodwork_progress.sql");
+const scheduling = path.resolve(here, "../../../../supabase/migrations/20261010000000_bloodwork_extraction_scheduling.sql");
+const privacyGuard = path.resolve(here, "../../../../supabase/migrations/20261010010000_bloodwork_extraction_privacy_guard.sql");
 const available = ["initdb", "pg_ctl", "psql"].every((name) => spawn("which", [name]).status === 0);
 if (!available) console.warn("bloodwork.sql.test: PostgreSQL binaries unavailable — skipped");
 
@@ -35,6 +37,11 @@ const schema = `
 create role anon nologin; create role authenticated nologin; create role service_role nologin;
 create schema private;
 create table public.patients(id uuid primary key, archived_at timestamptz);
+create table public.patient_deletion_requests(
+  id uuid primary key default gen_random_uuid(), patient_id uuid not null, status text not null,
+  purge_after timestamptz not null default now()
+);
+create table public.patient_tombstones(id uuid primary key);
 create function private.guard_patient_dependency_write() returns trigger language plpgsql as $$
 begin
  if not exists(select 1 from public.patients where id=new.patient_id and archived_at is null)
@@ -86,8 +93,10 @@ describe.skipIf(!available)("patient bloodwork migration (real PostgreSQL)", () 
         'image/png',10,'/objects/patients/${patient}/bloodwork/staging/${legacyProcessingReport}/${legacyProcessingFile}',
         '/objects/patients/${patient}/bloodwork/reports/${legacyProcessingReport}/${legacyProcessingFile}',
         'image/png',10,1,1,1);`);
-    execFileSync("psql", ["-h", dir, "-p", String(port), "-U", "postgres", "-d", "postgres",
-      "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", progress], { stdio: "pipe" });
+    for (const target of [progress, scheduling, privacyGuard]) {
+      execFileSync("psql", ["-h", dir, "-p", String(port), "-U", "postgres", "-d", "postgres",
+        "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", target], { stdio: "pipe" });
+    }
   }, 60_000);
   afterAll(() => {
     if (data) spawn("pg_ctl", ["-D", data, "-m", "immediate", "stop"]);
@@ -119,12 +128,14 @@ describe.skipIf(!available)("patient bloodwork migration (real PostgreSQL)", () 
     expect(() => psql(`select public.bloodwork_create_report('${patient}','${request}','CBC',null,'${manifest}'::jsonb,repeat('b',64));`))
       .toThrow(/idempotency_conflict/);
     const committedPath = `/objects/patients/${patient}/bloodwork/reports/${first}/${file}`;
-    const files = `[{"id":"${file}","objectPath":"${committedPath}","mimeType":"image/png","size":10,"pageCount":1,"width":1,"height":1}]`;
+    const digest = "a".repeat(64);
+    const files = `[{"id":"${file}","objectPath":"${committedPath}","mimeType":"image/png","size":10,"pageCount":1,"width":1,"height":1,"sha256":"${digest}"}]`;
     expect(scalar(`public.bloodwork_commit_report('${patient}','${first}','${files}'::jsonb)`)).toBe("t");
     expect(scalar(`lifecycle_status from public.patient_bloodwork_reports where id='${first}'`)).toBe("committed");
     expect(scalar(`extraction_total_pages from public.patient_bloodwork_reports where id='${first}'`)).toBe("1");
     expect(scalar(`extraction_completed_pages from public.patient_bloodwork_reports where id='${first}'`)).toBe("0");
     expect(scalar(`count(*) from public.patient_bloodwork_files where report_id='${first}' and object_path='${committedPath}'`)).toBe("1");
+    expect(scalar(`content_sha256 from public.patient_bloodwork_files where id='${file}'`)).toBe(digest);
     psql("select * from public.bloodwork_lease_extraction(1,300);");
     const lease = scalar(`extraction_lease_token from public.patient_bloodwork_reports where id='${first}'`);
     const extracted = `[{"sourceFileId":"${file}","sourcePage":1,"position":0,"testName":"HCG","valueText":"<5","units":"mIU/mL","referenceRange":"Negative: <5","labFlag":null,"uncertain":false}]`;
@@ -234,4 +245,98 @@ describe.skipIf(!available)("patient bloodwork migration (real PostgreSQL)", () 
     expect(Date.now() - started).toBeLessThan(15_000);
     expect(scalar(`count(*) from public.patient_bloodwork_results where report_id='${maxReport}'`)).toBe("20000");
   }, 30_000);
+
+  it("moves a continued long report behind eligible work without changing its initial start", () => {
+    // Isolate this lease-order assertion from deliberately queued retry rows
+    // created by the checkpoint test above.
+    psql(`update public.patient_bloodwork_reports set extraction_status='completed',
+      extraction_lease_token=null,extraction_lease_until=null
+      where lifecycle_status='committed';`);
+    const long = "00000000-0000-4000-8000-000000000061";
+    const short = "00000000-0000-4000-8000-000000000062";
+    const longFile = "00000000-0000-4000-8000-000000000063";
+    const shortFile = "00000000-0000-4000-8000-000000000064";
+    psql(`insert into public.patient_bloodwork_reports(
+      id,patient_id,client_request_id,manifest_hash,title,kind,lifecycle_status,extraction_status,committed_at,extraction_queue_at)
+      values
+      ('${long}','${patient}','00000000-0000-4000-8000-000000000065',repeat('1',64),'Long','images','committed','queued',
+        now()-interval '20 minutes',now()-interval '10 minutes'),
+      ('${short}','${patient}','00000000-0000-4000-8000-000000000066',repeat('2',64),'Short','images','committed','queued',
+        now()-interval '15 minutes',now()-interval '5 minutes');
+      insert into public.patient_bloodwork_files(
+        id,patient_id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,
+        staging_object_path,object_path,mime_type,size_bytes,page_count,width,height)
+      values
+      ('${longFile}','${patient}','${long}','00000000-0000-4000-8000-000000000067',0,'image/png',10,
+        '/objects/patients/${patient}/bloodwork/staging/${long}/${longFile}',
+        '/objects/patients/${patient}/bloodwork/reports/${long}/${longFile}','image/png',10,1,1,1),
+      ('${shortFile}','${patient}','${short}','00000000-0000-4000-8000-000000000068',0,'image/png',10,
+        '/objects/patients/${patient}/bloodwork/staging/${short}/${shortFile}',
+        '/objects/patients/${patient}/bloodwork/reports/${short}/${shortFile}','image/png',10,1,1,1);`);
+    expect(scalar(`id from public.bloodwork_lease_extraction(1,300)`)).toBe(long);
+    const longToken = scalar(`extraction_lease_token from public.patient_bloodwork_reports where id='${long}'`);
+    const initialStartedAt = scalar(`extraction_started_at::text from public.patient_bloodwork_reports where id='${long}'`);
+    expect(scalar(`public.bloodwork_release_extraction('${long}','${longToken}')`)).toBe("t");
+    expect(scalar(`id from public.bloodwork_lease_extraction(1,300)`)).toBe(short);
+    expect(scalar(`extraction_started_at::text from public.patient_bloodwork_reports where id='${long}'`)).toBe(initialStartedAt);
+  });
+
+  it("skips an oldest queued report for a purging patient and leases healthy work", () => {
+    const purgingPatient = "00000000-0000-4000-8000-000000000081";
+    const healthyPatient = "00000000-0000-4000-8000-000000000082";
+    const blockedReport = "00000000-0000-4000-8000-000000000083";
+    const healthyReport = "00000000-0000-4000-8000-000000000084";
+    psql(`update public.patient_bloodwork_reports set extraction_status='completed',
+      extraction_lease_token=null, extraction_lease_until=null where patient_id='${patient}';
+      insert into public.patients values('${purgingPatient}',null),('${healthyPatient}',null);
+      insert into public.patient_bloodwork_reports(
+        id,patient_id,client_request_id,manifest_hash,title,kind,lifecycle_status,extraction_status,
+        committed_at,extraction_queue_at)
+      values
+        ('${blockedReport}','${purgingPatient}','00000000-0000-4000-8000-000000000085',repeat('3',64),
+          'Blocked oldest','images','committed','queued',now()-interval '2 days',now()-interval '1 day'),
+        ('${healthyReport}','${healthyPatient}','00000000-0000-4000-8000-000000000086',repeat('4',64),
+          'Healthy next','images','committed','queued',now()-interval '1 day',now()-interval '1 hour');
+      insert into public.patient_deletion_requests(
+        id,patient_id,status,purge_after
+      ) values('00000000-0000-4000-8000-000000000087','${purgingPatient}','purging',now()-interval '1 second');`);
+    expect(scalar(`id from public.bloodwork_lease_extraction(1,300)`)).toBe(healthyReport);
+    expect(scalar(`extraction_status from public.patient_bloodwork_reports where id='${blockedReport}'`)).toBe("queued");
+  });
+
+  it("cancels in-flight extraction at purge start and blocks every checkpoint transition", () => {
+    const report = "00000000-0000-4000-8000-000000000071";
+    const reportFile = "00000000-0000-4000-8000-000000000072";
+    const lease = "00000000-0000-4000-8000-000000000073";
+    const deletion = "00000000-0000-4000-8000-000000000074";
+    psql(`insert into public.patient_bloodwork_reports(
+      id,patient_id,client_request_id,manifest_hash,title,kind,lifecycle_status,extraction_status,
+      extraction_phase,committed_at,extraction_lease_token,extraction_lease_until)
+      values('${report}','${patient}','00000000-0000-4000-8000-000000000075',repeat('7',64),
+        'In flight','images','committed','processing','reading_pages',now(),'${lease}',now()+interval '5 minutes');
+      insert into public.patient_bloodwork_files(
+        id,patient_id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,
+        staging_object_path,object_path,mime_type,size_bytes,page_count,width,height)
+      values('${reportFile}','${patient}','${report}','00000000-0000-4000-8000-000000000076',0,'image/png',10,
+        '/objects/patients/${patient}/bloodwork/staging/${report}/${reportFile}',
+        '/objects/patients/${patient}/bloodwork/reports/${report}/${reportFile}','image/png',10,1,1,1);
+      insert into public.patient_deletion_requests(id,patient_id,status) values('${deletion}','${patient}','pending');`);
+
+    // Grace-period and cancelled requests do not interrupt legitimate work.
+    expect(scalar(`public.bloodwork_renew_extraction('${report}','${lease}',300)`)).toBe("t");
+    psql(`update public.patient_deletion_requests set status='cancelled' where id='${deletion}'`);
+    expect(scalar(`public.bloodwork_renew_extraction('${report}','${lease}',300)`)).toBe("t");
+
+    // Starting purge and lease invalidation commit together. A worker holding
+    // the prior token cannot write a page after storage deletion begins.
+    psql(`update public.patient_deletion_requests set status='purging' where id='${deletion}'`);
+    expect(scalar(`extraction_status from public.patient_bloodwork_reports where id='${report}'`)).toBe("failed");
+    expect(scalar(`extraction_lease_token from public.patient_bloodwork_reports where id='${report}'`)).toBe("");
+    expect(scalar(`public.bloodwork_renew_extraction('${report}','${lease}',300)`)).toBe("f");
+    expect(scalar(`public.bloodwork_save_extraction_page('${report}','${lease}','${reportFile}',1,'[]'::jsonb)`)).toBe("f");
+    expect(scalar(`public.bloodwork_prepare_extraction('${report}','${lease}')`)).toBe("f");
+    expect(scalar(`public.bloodwork_complete_extraction_from_pages('${report}','${lease}')`)).toBe("f");
+    expect(scalar(`public.bloodwork_complete_extraction('${report}','${lease}','[]'::jsonb)`)).toBe("f");
+    expect(scalar(`count(*) from public.patient_bloodwork_extraction_pages where report_id='${report}'`)).toBe("0");
+  });
 });

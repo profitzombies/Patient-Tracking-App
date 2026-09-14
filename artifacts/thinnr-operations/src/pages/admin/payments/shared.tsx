@@ -40,7 +40,7 @@ export function Gate({ children }: { children: (demo: boolean, canWrite: boolean
 export function SectionTabs() {
   const [location] = useLocation();
   return (
-    <nav aria-label="Payments sections" className="mb-5 -mt-2 flex gap-1 overflow-x-auto border-b border-border">
+    <nav aria-label="Payments sections" className="mb-5 -mt-2 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border">
       {PAYMENT_SECTIONS.map((section) => {
         const active = section.path === '/' ? location === '/' || location === '' : location === section.path || location.startsWith(`${section.path}/`);
         return (

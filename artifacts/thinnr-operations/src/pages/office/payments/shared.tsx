@@ -73,7 +73,7 @@ export function DemoNotice() {
 export function SectionTabs() {
   const [location] = useLocation();
   return (
-    <nav aria-label="Payments sections" className="flex gap-1 overflow-x-auto border-b border-border">
+    <nav aria-label="Payments sections" className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border">
       {SECTIONS.map((section) => {
         const active =
           section.path === '/'

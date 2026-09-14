@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260928000000_patient_privacy_lifecycle.sql");
+const BILLING_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261013010000_billing_privacy_retention.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -104,9 +105,33 @@ create table public.patient_chat_notes (
 create table public.patient_body_measurements (visit_id text primary key, patient_id uuid not null references public.patients(id) on delete cascade, provider_id text not null references public.providers(provider_id) on delete cascade);
 create table public.patient_medications (id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade, name text not null);
 create table public.patient_medication_dose_logs (id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade, medication_id uuid not null references public.patient_medications(id) on delete cascade, status text not null);
--- Legacy billing shape: a NO ACTION chain between two patient-owned tables.
-create table public.product_subscriptions (id uuid primary key default gen_random_uuid(), patient_id uuid references public.patients(id));
-create table public.transactions (id uuid primary key default gen_random_uuid(), patient_id uuid references public.patients(id), subscription_id uuid references public.product_subscriptions(id));
+-- Real billing ownership and NO ACTION financial FK shapes.
+create table public.billing_products (id uuid primary key, name text not null);
+create table public.billing_payment_links (
+  id uuid primary key, provider_id text not null references public.providers(provider_id),
+  patient_id uuid references public.patients(id) on delete set null, active boolean not null default true);
+create table public.billing_payers (
+  id uuid primary key, provider_id text not null references public.providers(provider_id),
+  patient_id uuid references public.patients(id) on delete set null, name text not null,
+  email text not null, phone text, stripe_customer_id text);
+create table public.billing_subscriptions (
+  id uuid primary key, provider_id text not null references public.providers(provider_id),
+  payer_id uuid not null references public.billing_payers(id), patient_id uuid references public.patients(id) on delete set null,
+  product_id uuid not null references public.billing_products(id), shipping_address jsonb not null);
+create table public.billing_orders (
+  id uuid primary key, provider_id text not null references public.providers(provider_id),
+  payer_id uuid not null references public.billing_payers(id), patient_id uuid references public.patients(id) on delete set null,
+  shipping_address jsonb not null, metadata jsonb not null default '{}'::jsonb);
+create table public.billing_order_items (
+  id uuid primary key, order_id uuid not null references public.billing_orders(id) on delete cascade,
+  product_id uuid not null references public.billing_products(id));
+create table public.billing_ledger (
+  id uuid primary key, provider_id text not null references public.providers(provider_id),
+  order_id uuid references public.billing_orders(id), subscription_id uuid references public.billing_subscriptions(id));
+create table public.billing_refunds (id uuid primary key, order_id uuid not null references public.billing_orders(id));
+create table public.billing_disputes (id uuid primary key, order_id uuid not null references public.billing_orders(id));
+create table public.billing_webhook_events (
+  stripe_event_id text primary key, payload jsonb not null, processed_at timestamptz);
 -- Bloodwork has composite, NO ACTION relationships across four patient-owned
 -- tables; the dynamic purge must still find a children-first order.
 create table public.patient_bloodwork_reports (
@@ -152,13 +177,16 @@ const AUTH_USER = uuid(901);
 function seedPatients() {
   psql(`
     truncate public.patient_bloodwork_corrections, public.patient_bloodwork_results, public.patient_bloodwork_files,
-      public.patient_bloodwork_reports, public.transactions, public.product_subscriptions, public.patient_medication_dose_logs, public.patient_medications,
+      public.patient_bloodwork_reports, public.billing_disputes, public.billing_refunds, public.billing_ledger,
+      public.billing_order_items, public.billing_orders, public.billing_subscriptions, public.billing_payers,
+      public.billing_payment_links, public.billing_products, public.patient_medication_dose_logs, public.patient_medications,
       public.patient_body_measurements, public.patient_chat_notes, public.patient_chat_patient_read_markers,
       public.patient_chat_read_markers, public.patient_chat_messages,
       public.patient_chat_conversations, public.patient_media, public.patient_diary_entries, public.patient_flags,
       public.patient_push_tokens, public.patient_notifications, public.patient_consents, public.patient_data_exports,
       public.patient_deletion_requests, public.patient_tombstones, public.analytics_events, public.patients cascade;
     insert into public.providers (provider_id) values ('office-1') on conflict do nothing;
+    insert into public.billing_products (id, name) values ('${uuid(800)}', 'Product');
     insert into public.patients (id, provider_id, auth_user_id, first_name, last_name, email, activation_status, program_id, program_start_date, created_at)
       values ('${PATIENT}', 'office-1', '${AUTH_USER}', 'Pat', 'Example', 'pat@example.com', 'activated', 'thinnr', '2026-06-01', '2026-05-20'),
              ('${OTHER}', 'office-1', null, 'Other', 'Person', 'other@example.com', 'invited', 'glp', null, now());
@@ -185,8 +213,21 @@ function seedEverything() {
       insert into public.patient_body_measurements (visit_id, patient_id, provider_id) values ('${tag}-v1', '${pid}', 'office-1');
       insert into public.patient_medications (id, patient_id, name) values ('${uuid(pid === PATIENT ? 701 : 702)}', '${pid}', 'Protocol drops');
       insert into public.patient_medication_dose_logs (id, patient_id, medication_id, status) values ('${uuid(pid === PATIENT ? 711 : 712)}', '${pid}', '${uuid(pid === PATIENT ? 701 : 702)}', 'taken');
-      insert into public.product_subscriptions (id, patient_id) values ('${uuid(pid === PATIENT ? 601 : 602)}', '${pid}');
-      insert into public.transactions (patient_id, subscription_id) values ('${pid}', '${uuid(pid === PATIENT ? 601 : 602)}');
+      insert into public.billing_payment_links (id, provider_id, patient_id) values ('${uuid(pid === PATIENT ? 601 : 602)}', 'office-1', '${pid}');
+      insert into public.billing_payers (id, provider_id, patient_id, name, email, phone, stripe_customer_id)
+        values ('${uuid(pid === PATIENT ? 611 : 612)}', 'office-1', '${pid}', '${tag} payer', '${tag}@example.com', '555', 'cus_${tag}');
+      insert into public.billing_subscriptions (id, provider_id, payer_id, patient_id, product_id, shipping_address)
+        values ('${uuid(pid === PATIENT ? 621 : 622)}', 'office-1', '${uuid(pid === PATIENT ? 611 : 612)}', '${pid}', '${uuid(800)}',
+          '{"line1":"secret","city":"Austin","state":"TX","postal_code":"78701","country":"US"}');
+      insert into public.billing_orders (id, provider_id, payer_id, patient_id, shipping_address, metadata)
+        values ('${uuid(pid === PATIENT ? 631 : 632)}', 'office-1', '${uuid(pid === PATIENT ? 611 : 612)}', '${pid}',
+          '{"line1":"secret","city":"Austin","state":"TX","postal_code":"78701","country":"US"}', '{"payer":{"email":"secret"},"safe":true}');
+      insert into public.billing_order_items (id, order_id, product_id)
+        values ('${uuid(pid === PATIENT ? 641 : 642)}', '${uuid(pid === PATIENT ? 631 : 632)}', '${uuid(800)}');
+      insert into public.billing_ledger (id, provider_id, order_id, subscription_id)
+        values ('${uuid(pid === PATIENT ? 651 : 652)}', 'office-1', '${uuid(pid === PATIENT ? 631 : 632)}', '${uuid(pid === PATIENT ? 621 : 622)}');
+      insert into public.billing_refunds (id, order_id) values ('${uuid(pid === PATIENT ? 661 : 662)}', '${uuid(pid === PATIENT ? 631 : 632)}');
+      insert into public.billing_disputes (id, order_id) values ('${uuid(pid === PATIENT ? 671 : 672)}', '${uuid(pid === PATIENT ? 631 : 632)}');
       insert into public.patient_bloodwork_reports (id, patient_id) values ('${uuid(pid === PATIENT ? 801 : 811)}', '${pid}');
       insert into public.patient_bloodwork_files (id, patient_id, report_id, staging_object_path, object_path)
         values ('${uuid(pid === PATIENT ? 802 : 812)}', '${pid}', '${uuid(pid === PATIENT ? 801 : 811)}',
@@ -238,7 +279,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, BILLING_PRIVACY_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
   }, 60_000);
@@ -249,7 +290,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
   });
 
   it("applies the canonical migration verbatim and keeps every new table and RPC service-role only", () => {
-    expect(readFileSync(MIGRATION, "utf8")).toContain("patient_purge_rows");
+    expect(readFileSync(BILLING_PRIVACY_MIGRATION, "utf8")).toContain("patient_purge_rows");
     const tables = ["patient_consents", "patient_data_exports", "patient_deletion_requests", "patient_tombstones"];
     const grants = rows<{ grantee: string }>(
       `select grantee from information_schema.role_table_grants where table_schema = 'public' and table_name in (${tables.map((t) => `'${t}'`).join(",")}) and grantee in ('anon','authenticated')`,
@@ -356,7 +397,8 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     // The mirror must include the shapes that matter, or the enumeration proves nothing.
     expect(tables).toEqual(expect.arrayContaining([
       "patient_consents", "patient_data_exports", "patient_deletion_requests", "patient_push_tokens", "patient_notifications",
-      "patient_chat_conversations", "patient_media", "patient_flags", "product_subscriptions", "transactions", "analytics_events",
+      "patient_chat_conversations", "patient_media", "patient_flags", "billing_orders", "billing_subscriptions",
+      "billing_payers", "billing_payment_links", "analytics_events",
       "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections",
     ]));
     for (const table of tables) expect(countFor(table, PATIENT), table).toBeGreaterThanOrEqual(table === "patient_deletion_requests" ? 0 : 1);
@@ -369,17 +411,31 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     expect(summary.analyticsDetached).toBe(2);
     expect(summary.authUserId).toBe(AUTH_USER);
     const purgedTables = summary.tables as Record<string, number>;
-    // Every patient_id table except the lifecycle row and analytics appears in the per-table counts.
-    expect(Object.keys(purgedTables).sort()).toEqual(tables.filter((t) => t !== "patient_deletion_requests" && t !== "analytics_events").sort());
+    const billingAllowlist = ["billing_orders", "billing_payment_links", "billing_payers", "billing_subscriptions"];
+    // Every billing patient_id table must be explicitly classified here.
+    expect(tables.filter((table) => table.startsWith("billing_")).sort()).toEqual(billingAllowlist.sort());
+    const deletedTables = tables.filter((t) => t !== "patient_deletion_requests" && t !== "analytics_events" && !billingAllowlist.includes(t));
+    expect(Object.keys(purgedTables).filter((key) => !key.endsWith("_anonymized")).sort()).toEqual(deletedTables.sort());
     expect(purgedTables.patient_diary_entries).toBe(2);
-    expect(purgedTables.transactions).toBe(1);
-    expect(purgedTables.product_subscriptions).toBe(1);
+    expect(purgedTables.billing_orders_anonymized).toBe(1);
+    expect(purgedTables.billing_payers_anonymized).toBe(1);
 
     // Nothing owned by the patient remains anywhere — including child tables reached by cascade.
     for (const table of tables) {
       if (table === "patient_deletion_requests") continue;
-      expect(countFor(table, PATIENT), table).toBe(0);
+      if (!billingAllowlist.includes(table)) expect(countFor(table, PATIENT), table).toBe(0);
     }
+    expect(rows(`select patient_id, shipping_address, metadata from public.billing_orders where id = '${uuid(631)}'`)[0]).toMatchObject({
+      patient_id: null,
+      shipping_address: { city: "Austin", state: "TX", postal_code: "78701", country: "US" },
+      metadata: { safe: true },
+    });
+    expect(rows(`select patient_id, name, email, phone from public.billing_payers where id = '${uuid(611)}'`)[0]).toMatchObject({
+      patient_id: null, name: "Deleted patient", email: `deleted+${uuid(611)}@invalid.thinnr`, phone: null,
+    });
+    expect(Number(scalar<string>(`select count(*) from public.billing_ledger where order_id = '${uuid(631)}'`))).toBe(1);
+    expect(Number(scalar<string>(`select count(*) from public.billing_refunds where order_id = '${uuid(631)}'`))).toBe(1);
+    expect(scalar<string>(`select name from public.billing_payers where id = '${uuid(612)}'`)).toBe("o payer");
     expect(Number(scalar<string>(`select count(*) from public.patient_chat_messages where conversation_id = '${uuid(501)}'`))).toBe(0);
     expect(Number(scalar<string>(`select count(*) from public.patient_chat_notes where conversation_id = '${uuid(501)}'`))).toBe(0);
     expect(Number(scalar<string>(`select count(*) from public.patient_chat_read_markers where conversation_id = '${uuid(501)}'`))).toBe(0);

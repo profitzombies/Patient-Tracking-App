@@ -122,5 +122,5 @@
 - [Untrusted PDF processing](untrusted-pdf-processing.md) — raster dimensions do not bound embedded decoding; isolate native parsing and verify the emitted production worker, not only source tests.
 - [FatSecret permission gates](fatsecret-evaluation-permissions.md) — Basic caching and advice rights cannot be inferred from keys or the 24-hour rule; verify actual standard-method access without extra scopes.
 - [Coach readiness caches](coach-readiness-caches.md) — paintable ≠ saved; stale reads must reject consumers, not merely skip cache writes; navigation must not renew freshness.
-- [Stripe Connect billing](stripe-connect-billing.md) — connector key vs Connect-enabled sandbox; first-invoice fee % + platform fee refund; webhook rows are claims; versioned price keys; nest areas need base-relative links; test-office seeding recipe.
+- [Stripe Connect billing](stripe-connect-billing.md) — connector key vs Connect-enabled sandbox; first-invoice fee % + refund; webhook rows are claims; CAS on every money transition; ledger only on success + reversal rows; test-office recipe.
 - [xmldom security overrides](xmldom-security-overrides.md) — pin patched xmldom releases by parent major; a global latest override breaks consumers that rely on the 0.8 parser contract.

@@ -1,5 +1,5 @@
 import { connectedOpts, getStripe } from "./stripe-client";
-import { insert, nowIso, selectMany, selectOne, upsert } from "./store";
+import { insertIgnore, nowIso, selectMany, selectOne, upsert } from "./store";
 import type { Balance, PayoutRow } from "./types";
 import { onStripeEvent } from "./webhooks";
 
@@ -30,24 +30,40 @@ export async function listPayouts(accountId: string, providerId?: string): Promi
     return { items: mirrored.map(toRow), stale: true };
   }
 }
+export async function mirrorPayout(providerId: string, payout: any): Promise<boolean> {
+  const existing = await selectOne("billing_payouts", `stripe_payout_id=eq.${encodeURIComponent(payout.id)}`);
+  await upsert("billing_payouts", {
+    provider_id: providerId, stripe_payout_id: payout.id, amount_cents: payout.amount,
+    status: payout.status,
+    arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString().slice(0, 10) : null,
+    method: payout.method ?? null,
+    created_at: payout.created ? new Date(payout.created * 1000).toISOString() : undefined,
+  }, "stripe_payout_id");
+  const debit = await selectOne("billing_ledger", `kind=eq.payout&stripe_ref=eq.${encodeURIComponent(payout.id)}`);
+  if (payout.status === "paid" && !debit) {
+    await insertIgnore("billing_ledger", {
+      provider_id: providerId, order_id: null, subscription_id: null, kind: "payout",
+      amount_cents: -payout.amount, application_fee_cents: 0, stripe_ref: payout.id,
+      detail: { status: payout.status }, occurred_at: nowIso(),
+    }, "billing_ledger_kind_stripe_ref_unique");
+  } else if ((payout.status === "failed" || payout.status === "canceled") && debit) {
+    await insertIgnore("billing_ledger", {
+      provider_id: providerId, order_id: null, subscription_id: null, kind: "payout",
+      amount_cents: payout.amount, application_fee_cents: 0, stripe_ref: `${payout.id}:reversal`,
+      detail: { status: payout.status }, occurred_at: nowIso(),
+    }, "billing_ledger_kind_stripe_ref_unique");
+  }
+  return !existing;
+}
 export function registerPayoutWebhookHandlers(): void {
   const handler = async (event: any, ctx: { account: string | null }) => {
     const payout = event.data.object;
     if (!ctx.account) return;
     const account = await selectOne("billing_connected_accounts", `stripe_account_id=eq.${encodeURIComponent(ctx.account)}`);
     if (!account) return;
-    const existing = await selectOne("billing_payouts", `stripe_payout_id=eq.${encodeURIComponent(payout.id)}`);
-    await upsert("billing_payouts", {
-      provider_id: account.provider_id, stripe_payout_id: payout.id, amount_cents: payout.amount,
-      status: payout.status, arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString().slice(0, 10) : null,
-      method: payout.method ?? null,
-    }, "stripe_payout_id");
-    if (!existing) await insert("billing_ledger", {
-      provider_id: account.provider_id, order_id: null, subscription_id: null, kind: "payout",
-      amount_cents: -payout.amount, application_fee_cents: 0, stripe_ref: payout.id,
-      detail: { status: payout.status }, occurred_at: nowIso(),
-    });
+    await mirrorPayout(account.provider_id, payout);
   };
   onStripeEvent("payout.paid", handler);
   onStripeEvent("payout.failed", handler);
+  onStripeEvent("payout.canceled", handler);
 }

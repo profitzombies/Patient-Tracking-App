@@ -18,6 +18,10 @@ vi.mock("../lib/staff-auth", async (original) => {
     },
   };
 });
+vi.mock("../lib/admin-audit", async (original) => {
+  const actual = await original<typeof import("../lib/admin-audit")>();
+  return { ...actual, recordAdminAuditEvent: vi.fn(async () => undefined) };
+});
 vi.hoisted(() => {
   process.env.SUPABASE_URL = "http://supabase.test";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service";
@@ -35,6 +39,7 @@ vi.mock("../lib/objectStorage", async (original) => {
 });
 import router from "./billing-hq";
 import { objectStorage as objectStorageMock } from "../lib/objectStorage";
+import { recordAdminAuditEvent } from "../lib/admin-audit";
 
 type Row = Record<string, unknown>;
 const originalFetch = global.fetch;
@@ -178,6 +183,15 @@ describe("billing HQ catalog routes", () => {
     });
     expect(created.status).toBe(201);
     expect(created.json).toMatchObject({ product: { slug: "night-blend", status: "draft", active: false, image_url: null, images: [] } });
+  });
+  it("records a floor-price change without staff-entered product text", async () => {
+    const result = await call("PUT", "/billing/hq/catalog/products/product-1", "manager", { floor_price_cents: 6499 });
+    expect(result.status).toBe(200);
+    expect(recordAdminAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: "billing_product_floor_updated",
+      targetId: "product-1",
+      metadata: { product_id: "product-1", floor_price_cents: 6499 },
+    }));
   });
   it("reorders products and records the new order", async () => {
     const result = await call("PUT", "/billing/hq/catalog/order", "manager", { ids: ["product-2", "product-1"] });

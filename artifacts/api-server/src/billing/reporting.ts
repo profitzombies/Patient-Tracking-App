@@ -5,6 +5,9 @@ import type { HourPoint, HqActivityRow, HqOverview, HqTodayOverview, OfficeDashb
 export class BillingReportingError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
 }
+export function needsAttentionSubscriptionCount(rows: Array<{ status: string }>): number {
+  return rows.filter((row) => row.status === "past_due" || row.status === "unpaid").length;
+}
 export function reportRange(input: { from?: unknown; to?: unknown }) {
   const to = typeof input.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.to) ? input.to : new Date().toISOString().slice(0, 10);
   const fallback = new Date(`${to}T00:00:00.000Z`); fallback.setUTCDate(fallback.getUTCDate() - 29);
@@ -53,9 +56,10 @@ function fillSeries(series: Map<string, SeriesPoint>, paid: BillingOrderRow[], r
 }
 export async function officeDashboard(providerId: string, input: { from?: unknown; to?: unknown }): Promise<OfficeDashboard> {
   const range = reportRange(input);
-  const [orders, subscriptions] = await Promise.all([
+  const [orders, subscriptions, attention] = await Promise.all([
     selectMany("billing_orders", `provider_id=eq.${encodeURIComponent(providerId)}&created_at=gte.${range.start}&created_at=lte.${range.end}&order=created_at.asc`),
     selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}&status=eq.active&select=id`),
+    selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}&status=in.(past_due,unpaid)&select=id`),
   ]);
   const paid = orders.filter((row) => row.status === "paid" || row.status === "refunded" || row.status === "partially_refunded" || row.status === "disputed");
   const refunds = await refundsFor(paid.map((row) => row.id), range);
@@ -69,6 +73,7 @@ export async function officeDashboard(providerId: string, input: { from?: unknow
     refunded_cents: refunds.reduce((sum, row) => sum + row.amount_cents, 0),
     net_cents: paid.reduce((sum, row) => sum + (row.office_net_cents ?? 0), 0),
     orders: paid.length, active_subscriptions: subscriptions.length,
+    needs_attention_subscriptions: attention.length,
     to_ship: paid.filter((row) => row.fulfillment_status === "to_ship").length,
     series: [...series.values()],
   };
@@ -115,11 +120,12 @@ async function toActivityRows(ledger: BillingLedgerRow[]): Promise<HqActivityRow
 }
 export async function hqOverview(input: { from?: unknown; to?: unknown }): Promise<HqOverview> {
   const range = reportRange(input);
-  const [orders, refunds, disputes, subscriptions, accounts, ledger] = await Promise.all([
+  const [orders, refunds, disputes, subscriptions, attention, accounts, ledger] = await Promise.all([
     selectMany("billing_orders", `created_at=gte.${range.start}&created_at=lte.${range.end}&order=created_at.asc`),
     selectMany("billing_refunds", `created_at=gte.${range.start}&created_at=lte.${range.end}`),
     selectMany("billing_disputes", `created_at=gte.${range.start}&created_at=lte.${range.end}`),
     selectMany("billing_subscriptions", "status=eq.active&select=id"),
+    selectMany("billing_subscriptions", "status=in.(past_due,unpaid)&select=id"),
     selectMany("billing_connected_accounts", "select=provider_id,charges_enabled,payouts_enabled"),
     selectMany("billing_ledger", `occurred_at=gte.${range.start}&occurred_at=lte.${range.end}&order=occurred_at.desc,id.desc&limit=8`),
   ]);
@@ -136,6 +142,7 @@ export async function hqOverview(input: { from?: unknown; to?: unknown }): Promi
     refunded_cents: refunds.reduce((sum, row) => sum + row.amount_cents, 0),
     disputed_cents: disputes.filter((row) => row.status !== "won").reduce((sum, row) => sum + row.amount_cents, 0),
     orders: paid.length, active_subscriptions: subscriptions.length,
+    needs_attention_subscriptions: attention.length,
     providers_onboarded: accounts.filter((row) => row.charges_enabled && row.payouts_enabled).length,
     providers_pending: accounts.filter((row) => !row.charges_enabled || !row.payouts_enabled).length,
     to_ship: paid.filter((row) => row.fulfillment_status === "to_ship").length,

@@ -987,6 +987,7 @@ function SubscriptionsView({
 }) {
   const { office } = useOfficeBillingScope();
   const invalidate = useInvalidateOfficeBilling();
+  const { toast } = useToast();
   const [canceling, setCanceling] = useState<string | null>(null);
   const cancel = useMutation({
     mutationFn: ({ id, later }: { id: string; later: boolean }) =>
@@ -995,6 +996,19 @@ function SubscriptionsView({
       setCanceling(null);
       void invalidate();
     },
+  });
+  const retry = useMutation({
+    mutationFn: (id: string) => officeBilling.retrySubscriptionPayment(id, office),
+    onSuccess: () => {
+      void invalidate();
+      toast({ variant: 'success', title: 'Payment retry started' });
+    },
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Payment retry failed', description: error.message }),
+  });
+  const resend = useMutation({
+    mutationFn: (id: string) => officeBilling.resendSubscriptionPaymentEmail(id, office),
+    onSuccess: () => toast({ variant: 'success', title: 'Payment link emailed' }),
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Email could not be sent', description: error.message }),
   });
   return (
     <div className={demo ? '' : PAGE}>
@@ -1021,6 +1035,11 @@ function SubscriptionsView({
                   <td>{row.product_name}</td>
                   <td>
                     <StatusPill tone={subscriptionTone(row.status)}>{SUBSCRIPTION_STATUS_LABEL[row.status]}</StatusPill>
+                    {(row.status === 'past_due' || row.status === 'unpaid') && (
+                      <p className="mt-1 max-w-52 text-[11px] text-red-700">
+                        Card declined {row.payment_failure_count} {row.payment_failure_count === 1 ? 'time' : 'times'}, last on {formatDate(row.last_payment_failed_at)}
+                      </p>
+                    )}
                   </td>
                   <td>
                     {row.cancel_at_period_end && row.status !== 'canceled'
@@ -1031,6 +1050,16 @@ function SubscriptionsView({
                     <MoneyCell cents={row.unit_price_cents + row.shipping_charge_cents} />
                   </td>
                   <td className="p-4 text-right">
+                    {(row.status === 'past_due' || row.status === 'unpaid') && (
+                      <span className="mb-1 flex flex-wrap justify-end gap-1">
+                        <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || retry.isPending} onClick={() => retry.mutate(row.id)}>
+                          Retry payment
+                        </button>
+                        <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || resend.isPending} onClick={() => resend.mutate(row.id)}>
+                          Email patient a payment link
+                        </button>
+                      </span>
+                    )}
                     {row.status !== 'canceled' && !row.cancel_at_period_end && (
                       <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo} onClick={() => setCanceling(row.id)}>
                         Cancel

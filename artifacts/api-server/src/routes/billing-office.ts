@@ -10,8 +10,16 @@ import { BillingLinkError, createLink, deactivateLink, listLinks, searchPatients
 import { BillingPriceError, listOfficePrices, setOfficePrice } from "../billing/prices";
 import { getConnectClientId, isSandbox, stripeRejection } from "../billing/stripe-client";
 import { selectMany, selectOne } from "../billing/store";
+import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
+import type { BillingOfficeScope } from "../billing/auth";
 
 const router: IRouter = Router();
+function audit(req: Request, scope: BillingOfficeScope, action: string, targetKind: string, targetId: string | null, metadata: AuditMetadata) {
+  return recordAdminAuditEvent({
+    action, actorUserId: scope.actorUserId, actorKind: scope.isHq ? "hq" : "team_member",
+    providerId: scope.providerId, targetKind, targetId, requestId: requestIdOf(req), metadata,
+  }).catch((error) => req.log?.error({ err: error }, `${action} audit failed`));
+}
 function answerError(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing office request failed");
   if (error instanceof BillingAccountError || error instanceof BillingPriceError || error instanceof BillingLinkError) {
@@ -49,12 +57,16 @@ router.get("/billing/office/status", async (req, res) => {
 });
 router.post("/billing/office/connect/create", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return;
-    res.status(201).json({ account: await createInAppAccount(scope.providerId, scope.actorUserId) });
+    const account = await createInAppAccount(scope.providerId, scope.actorUserId);
+    await audit(req, scope, "billing_connect_started", "billing_connected_account", account.stripe_account_id, { method: "express" });
+    res.status(201).json({ account });
   } catch (error) { answerError(req, res, error); }
 });
 router.get("/billing/office/connect/oauth/start", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return;
-    res.json({ url: await buildOauthStartUrl(scope.providerId, scope.actorUserId) });
+    const url = await buildOauthStartUrl(scope.providerId, scope.actorUserId);
+    await audit(req, scope, "billing_connect_started", "billing_connected_account", null, { method: "oauth" });
+    res.json({ url });
   } catch (error) { answerError(req, res, error); }
 });
 router.get("/billing/oauth/callback", async (req, res) => {
@@ -85,7 +97,9 @@ router.post("/billing/office/connect/account-session", async (req, res) => {
 });
 router.post("/billing/office/connect/sync", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return;
-    res.json({ account: await syncAccount(scope.providerId) });
+    const account = await syncAccount(scope.providerId);
+    await audit(req, scope, "billing_connect_completed", "billing_connected_account", account.stripe_account_id, {});
+    res.json({ account });
   } catch (error) { answerError(req, res, error); }
 });
 router.get("/billing/office/prices", async (req, res) => {
@@ -97,7 +111,11 @@ router.put("/billing/office/prices/:product_id", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return;
     const parsed = PriceSchema.safeParse(req.body);
     if (!parsed.success) { const issue = parsed.error.issues[0]; res.status(400).json({ error: issue.message, field: String(issue.path[0] ?? "") }); return; }
-    res.json(await setOfficePrice(scope.providerId, String(req.params.product_id), parsed.data, scope.actorUserId));
+    const prices = await setOfficePrice(scope.providerId, String(req.params.product_id), parsed.data, scope.actorUserId);
+    await audit(req, scope, "billing_prices_updated", "billing_product", String(req.params.product_id), {
+      product_id: String(req.params.product_id), products_changed: 1,
+    });
+    res.json(prices);
   } catch (error) { answerError(req, res, error); }
 });
 router.get("/billing/office/links", async (req, res) => {
@@ -108,12 +126,18 @@ const LinkSchema = z.object({ patient_id: z.string().uuid().nullish(), label: z.
 router.post("/billing/office/links", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return; const parsed = LinkSchema.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Check the link details." }); return; }
-    res.status(201).json({ link: await createLink(scope.providerId, scope.actorUserId, parsed.data) });
+    const link = await createLink(scope.providerId, scope.actorUserId, parsed.data);
+    await audit(req, scope, "billing_payment_link_created", "billing_payment_link", link.id, { link_id: link.id, active: true });
+    res.status(201).json({ link });
   } catch (error) { answerError(req, res, error); }
 });
 router.delete("/billing/office/links/:id", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return;
-    await deactivateLink(scope.providerId, String(req.params.id)); res.status(204).end();
+    await deactivateLink(scope.providerId, String(req.params.id));
+    await audit(req, scope, "billing_payment_link_updated", "billing_payment_link", String(req.params.id), {
+      link_id: String(req.params.id), active: false,
+    });
+    res.status(204).end();
   } catch (error) { answerError(req, res, error); }
 });
 router.get("/billing/office/patients/search", async (req, res) => {

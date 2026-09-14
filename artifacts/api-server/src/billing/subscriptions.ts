@@ -6,10 +6,10 @@ import { ensureCustomer } from "./customers";
 import { resolvePayer, touchLinkUse } from "./links";
 import { BillingOrderError, markOrderPaidFromInvoice, quoteOrder } from "./orders";
 import { ensureRecurringPrices } from "./prices";
-import { sendCancellationNotice } from "./receipts";
+import { sendCancellationNotice, sendPaymentFailed } from "./receipts";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
 import {
-  insert, nowIso, selectMany, selectOne, update, type BillingConnectedAccountRow,
+  insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingConnectedAccountRow,
   type BillingPaymentLinkRow, type BillingSubscriptionRow,
 } from "./store";
 import { getOrderBundle, getProvider, officeName } from "./store-orders";
@@ -26,6 +26,15 @@ function paymentIntent(invoice: any): any {
 function periodEnd(value: any): string | null {
   const seconds = value.current_period_end ?? value.items?.data?.[0]?.current_period_end;
   return seconds ? new Date(seconds * 1000).toISOString() : null;
+}
+function invoiceSubscriptionId(invoice: any): string | null {
+  const value = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
+  return typeof value === "string" ? value : typeof value?.id === "string" ? value.id : null;
+}
+function failureMessage(value: any): string | null {
+  const raw = value?.last_payment_error?.message ?? paymentIntent(value)?.last_payment_error?.message;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  return raw.replace(/\b(?:\d[ -]*?){12,19}\b/g, "[card number removed]").trim().slice(0, 200);
 }
 async function accountFor(providerId: string): Promise<BillingConnectedAccountRow> {
   const account = await selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}&disconnected_at=is.null`);
@@ -143,7 +152,7 @@ export async function createSubscriptionOrder(input: {
 }
 
 async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<string | null> {
-  const stripeSubscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.parent?.subscription_details?.subscription;
+  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   const subscription = stripeSubscriptionId
     ? await selectOne("billing_subscriptions", `stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}`) : null;
   if (!subscription) return null;
@@ -154,7 +163,7 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
   if (!product) return null;
   const id = crypto.randomUUID();
   const hard = product.hard_cost_cents;
-  await insert("billing_orders", {
+  const created = await insertIgnore("billing_orders", {
     id, order_number: orderNumber(), provider_id: subscription.provider_id, payer_id: subscription.payer_id,
     patient_id: subscription.patient_id, link_id: null, kind: "subscription_renewal", subscription_id: subscription.id,
     status: "pending", currency: "usd", subtotal_cents: subscription.unit_price_cents,
@@ -167,7 +176,10 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
     shipping_address: subscription.shipping_address, stripe_invoice_id: invoice.id,
     stripe_payment_intent_id: paymentIntent(invoice)?.id ?? null, livemode: subscription.livemode,
     fulfillment_status: "to_ship", metadata: {},
-  });
+  }, "billing_orders_stripe_invoice_unique");
+  if (!created) {
+    return (await selectOne("billing_orders", `stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`))?.id ?? null;
+  }
   await insert("billing_order_items", {
     order_id: id, product_id: product.id, product_name_snapshot: product.name, quantity: 1,
     unit_price_cents: subscription.unit_price_cents, floor_price_cents_snapshot: product.floor_price_cents,
@@ -177,7 +189,7 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
   return id;
 }
 async function prepareRenewal(invoice: any, ctx: StripeEventContext): Promise<void> {
-  const stripeSubscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.parent?.subscription_details?.subscription;
+  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   const subscription = stripeSubscriptionId
     ? await selectOne("billing_subscriptions", `stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}`) : null;
   if (!subscription) return;
@@ -185,11 +197,11 @@ async function prepareRenewal(invoice: any, ctx: StripeEventContext): Promise<vo
   try {
     await (await getStripe()).invoices.update(invoice.id, { application_fee_amount: subscription.application_fee_cents } as any, connectedOpts(ctx.account ?? (await accountFor(subscription.provider_id)).stripe_account_id));
   } catch (error) {
-    await insert("billing_ledger", {
+    await insertIgnore("billing_ledger", {
       provider_id: subscription.provider_id, order_id: null, subscription_id: subscription.id, kind: "fee_discrepancy",
       amount_cents: 0, application_fee_cents: subscription.application_fee_cents, stripe_ref: invoice.id,
       detail: { error: error instanceof Error ? error.message.slice(0, 500) : "Stripe error" }, occurred_at: nowIso(),
-    });
+    }, "billing_ledger_kind_stripe_ref_unique");
   }
   await renewalOrder(invoice, ctx);
 }
@@ -201,6 +213,14 @@ export async function markSubscriptionInvoicePaid(invoice: any, ctx: StripeEvent
   if (!order) return;
   if (!(await eventBelongsToProvider(order.provider_id, ctx))) return;
   await markOrderPaidFromInvoice({ ...invoice, metadata: { ...invoice.metadata, thinnr_order_id: order.id } }, ctx);
+  if (order.subscription_id) {
+    await update("billing_subscriptions",
+      `id=eq.${encodeURIComponent(order.subscription_id)}&or=(last_failed_invoice_id.eq.${encodeURIComponent(invoice.id)},last_failed_invoice_id.is.null)`, {
+      payment_failure_count: 0, last_payment_failed_at: null, last_failed_invoice_id: null,
+      last_hosted_invoice_url: null, last_failure_message: null, payment_failure_email_sent_invoice_id: null,
+      last_paid_invoice_id: invoice.id,
+    });
+  }
   if (invoice.billing_reason !== "subscription_create") return;
   const paid = await selectOne("billing_orders", `id=eq.${encodeURIComponent(order.id)}`);
   const collected = paid?.application_fee_collected_cents ?? paid?.application_fee_cents ?? 0;
@@ -223,10 +243,53 @@ export async function markSubscriptionInvoicePaid(invoice: any, ctx: StripeEvent
     });
   if (!corrected) return;
   if (await selectOne("billing_ledger", `kind=eq.application_fee_adjustment&order_id=eq.${encodeURIComponent(order.id)}`)) return;
-  await insert("billing_ledger", {
+  await insertIgnore("billing_ledger", {
     provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
     kind: "application_fee_adjustment", amount_cents: 0, application_fee_cents: -adjustment,
     stripe_ref: feeId, detail: { collected_cents: collected, exact_cents: order.application_fee_cents }, occurred_at: nowIso(),
+  }, "billing_ledger_kind_stripe_ref_unique");
+}
+export async function markSubscriptionInvoiceFailed(invoice: any, ctx: StripeEventContext): Promise<void> {
+  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
+  const subscription = stripeSubscriptionId
+    ? await selectOne("billing_subscriptions", `stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}`) : null;
+  if (!subscription || !(await eventBelongsToProvider(subscription.provider_id, ctx))) return;
+  if (subscription.last_paid_invoice_id === invoice.id) return;
+  const orderId = await renewalOrder(invoice, ctx);
+  const message = failureMessage(invoice);
+  let failedOrder = null;
+  if (orderId) {
+    failedOrder = await update("billing_orders", `id=eq.${encodeURIComponent(orderId)}&status=in.(pending,failed)`, {
+      status: "failed", paid_at: null, failure_message: message,
+    });
+  }
+  if (orderId && !failedOrder) return;
+  const invoiceFilter = encodeURIComponent(invoice.id);
+  const updated = await update("billing_subscriptions",
+    `id=eq.${encodeURIComponent(subscription.id)}&or=(last_failed_invoice_id.neq.${invoiceFilter},last_failed_invoice_id.is.null)&or=(last_paid_invoice_id.is.null,last_paid_invoice_id.neq.${invoiceFilter})`, {
+    ...(!["canceled", "unpaid"].includes(subscription.status) ? { status: "past_due" } : {}),
+    payment_failure_count: subscription.payment_failure_count + 1,
+    last_payment_failed_at: nowIso(),
+    last_failed_invoice_id: invoice.id,
+    last_hosted_invoice_url: invoice.hosted_invoice_url ?? subscription.last_hosted_invoice_url,
+    last_failure_message: message,
+  });
+  if (!updated || !invoice.hosted_invoice_url) return;
+  const claimed = await update("billing_subscriptions",
+    `id=eq.${encodeURIComponent(subscription.id)}&last_failed_invoice_id=eq.${invoiceFilter}&or=(payment_failure_email_sent_invoice_id.neq.${invoiceFilter},payment_failure_email_sent_invoice_id.is.null)`, {
+    payment_failure_email_sent_invoice_id: invoice.id,
+  });
+  if (!claimed) return;
+  const [payer, product, office] = await Promise.all([
+    selectOne("billing_payers", `id=eq.${encodeURIComponent(subscription.payer_id)}`),
+    selectOne("billing_products", `id=eq.${encodeURIComponent(subscription.product_id)}`),
+    getProvider(subscription.provider_id),
+  ]);
+  if (!payer || !product || !office) return;
+  await sendPaymentFailed({
+    subscription: claimed, payer, productName: product.name, office,
+    amountCents: Number(invoice.amount_due ?? invoice.total ?? subscription.unit_price_cents + subscription.shipping_charge_cents),
+    hostedInvoiceUrl: invoice.hosted_invoice_url,
   });
 }
 function mappedStatus(status: string): BillingSubscriptionRow["status"] {
@@ -236,7 +299,9 @@ function mappedStatus(status: string): BillingSubscriptionRow["status"] {
 async function syncSubscription(value: any, ctx: StripeEventContext): Promise<void> {
   const row = await selectOne("billing_subscriptions", `stripe_subscription_id=eq.${encodeURIComponent(value.id)}`);
   if (!row || !(await eventBelongsToProvider(row.provider_id, ctx))) return;
-  await update("billing_subscriptions", `id=eq.${encodeURIComponent(row.id)}`, {
+  const reconcileCas = ctx.expectedSubscriptionUpdatedAt
+    ? `&updated_at=eq.${encodeURIComponent(ctx.expectedSubscriptionUpdatedAt)}` : "";
+  await update("billing_subscriptions", `id=eq.${encodeURIComponent(row.id)}${reconcileCas}`, {
     status: mappedStatus(value.status), current_period_end: periodEnd(value),
     cancel_at_period_end: Boolean(value.cancel_at_period_end),
     canceled_at: value.canceled_at ? new Date(value.canceled_at * 1000).toISOString() : value.status === "canceled" ? nowIso() : null,
@@ -265,6 +330,45 @@ export async function cancelSubscription(id: string, input: { at_period_end: boo
   }
   return updated;
 }
+export async function retrySubscriptionPayment(id: string): Promise<BillingSubscriptionRow> {
+  const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
+  if (!row) throw new BillingSubscriptionError("Subscription not found.", 404);
+  if (!row.last_failed_invoice_id) throw new BillingSubscriptionError("There is no failed invoice to retry.", 409);
+  const account = await accountFor(row.provider_id);
+  try {
+    await (await getStripe()).invoices.pay(
+      row.last_failed_invoice_id, {},
+      connectedOpts(account.stripe_account_id, `retry:${row.id}:${row.last_failed_invoice_id}:${row.payment_failure_count}`),
+    );
+  } catch (error) {
+    const stripeError = error as { type?: string; message?: string };
+    if (stripeError?.type === "StripeCardError") {
+      throw new BillingSubscriptionError((stripeError.message || "The card was declined.").slice(0, 200), 402);
+    }
+    throw error;
+  }
+  return (await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`)) ?? row;
+}
+export async function resendSubscriptionPaymentEmail(id: string): Promise<BillingSubscriptionRow> {
+  const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
+  if (!row) throw new BillingSubscriptionError("Subscription not found.", 404);
+  if (!row.last_failed_invoice_id || !row.last_hosted_invoice_url) {
+    throw new BillingSubscriptionError("There is no failed invoice to email.", 409);
+  }
+  const [payer, product, office, order] = await Promise.all([
+    selectOne("billing_payers", `id=eq.${encodeURIComponent(row.payer_id)}`),
+    selectOne("billing_products", `id=eq.${encodeURIComponent(row.product_id)}`),
+    getProvider(row.provider_id),
+    selectOne("billing_orders", `stripe_invoice_id=eq.${encodeURIComponent(row.last_failed_invoice_id)}`),
+  ]);
+  if (!payer || !product || !office) throw new BillingSubscriptionError("Subscription details are incomplete.", 502);
+  await sendPaymentFailed({
+    subscription: row, payer, productName: product.name, office,
+    amountCents: order?.total_cents ?? row.unit_price_cents + row.shipping_charge_cents,
+    hostedInvoiceUrl: row.last_hosted_invoice_url,
+  });
+  return row;
+}
 export async function cancelByToken(token: string): Promise<PublicSubscription> {
   const row = await selectOne("billing_subscriptions", `cancel_token=eq.${encodeURIComponent(token)}`);
   if (!row) throw new BillingSubscriptionError("Subscription not found.", 404);
@@ -286,6 +390,8 @@ export async function toSubscriptionRow(row: BillingSubscriptionRow): Promise<Su
     unit_price_cents: row.unit_price_cents, shipping_charge_cents: row.shipping_charge_cents,
     application_fee_cents: row.application_fee_cents, current_period_end: row.current_period_end,
     cancel_at_period_end: row.cancel_at_period_end, canceled_at: row.canceled_at, renewals: renewals.length,
+    payment_failure_count: row.payment_failure_count, last_payment_failed_at: row.last_payment_failed_at,
+    last_failure_message: row.last_failure_message,
     livemode: row.livemode, created_at: row.created_at,
   };
 }

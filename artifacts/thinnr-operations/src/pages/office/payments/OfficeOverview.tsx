@@ -106,6 +106,11 @@ function OverviewView({
         <MetricTile label="Active subscriptions" value={data.active_subscriptions} detail="Renewing every 4 weeks" testId="tile-subscriptions" />
         <MetricTile label="Waiting to ship" value={data.to_ship} detail="Packed and shipped by THINNR" testId="tile-to-ship" />
       </div>
+      <Link href="/subscriptions?status=past_due" className="my-3 block">
+        <SectionCard title="Subscriptions needing attention" sub="Failed renewal payments">
+          <div className="p-5 font-serif text-2xl font-bold text-navy">{data.needs_attention_subscriptions}</div>
+        </SectionCard>
+      </Link>
 
       <TodayRevenue demo={demo} />
 

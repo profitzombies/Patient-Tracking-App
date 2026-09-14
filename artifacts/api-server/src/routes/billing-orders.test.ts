@@ -31,14 +31,20 @@ vi.mock("../billing/auth", async () => {
 vi.mock("../billing/receipts", () => ({
   sendReceipt: vi.fn(async () => undefined),
   sendCancellationNotice: vi.fn(async () => undefined),
+  sendPaymentFailed: vi.fn(async () => undefined),
   sendShippedNotice: vi.fn(async () => undefined),
 }));
+vi.mock("../lib/admin-audit", async (original) => {
+  const actual = await original<typeof import("../lib/admin-audit")>();
+  return { ...actual, recordAdminAuditEvent: vi.fn(async () => undefined) };
+});
 
 import hqRouter from "./billing-hq-orders";
 import officeRouter from "./billing-office-orders";
 import publicRouter from "./billing-public";
 import { sendShippedNotice } from "../billing/receipts";
-import { __setCredentialsForTests } from "../billing/stripe-client";
+import { __setCredentialsForTests, __setStripeForTests } from "../billing/stripe-client";
+import { recordAdminAuditEvent } from "../lib/admin-audit";
 
 type Row = Record<string, any>;
 const originalFetch = global.fetch;
@@ -85,6 +91,7 @@ beforeAll(async () => {
 afterAll(async () => {
   global.fetch = originalFetch;
   __setCredentialsForTests(null);
+  __setStripeForTests(null);
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 beforeEach(() => {
@@ -114,7 +121,7 @@ beforeEach(() => {
       { id: "link-other", token: "other-token", active: true },
     ],
     billing_connected_accounts: [{ provider_id: "office-1", stripe_account_id: "acct_1", disconnected_at: null, charges_enabled: true }],
-    billing_refunds: [], billing_disputes: [], billing_ledger: [],
+    billing_refunds: [], billing_disputes: [], billing_ledger: [], billing_subscriptions: [],
     providers: [{ provider_id: "office-1", office_name: "Harbor Health", provider_name: "Dr. Harbor", email: "office@example.com" }],
   };
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -131,6 +138,33 @@ beforeEach(() => {
     }
     return response([], 201);
   }) as typeof fetch;
+  __setStripeForTests({ invoices: { pay: vi.fn(async () => ({ id: "in_failed" })) } } as never);
+});
+
+describe("subscription payment recovery routes", () => {
+  it("returns 409 from all four actions when there is no failed invoice", async () => {
+    tables.billing_subscriptions.push({ id: "sub-1", provider_id: "office-1", last_failed_invoice_id: null, last_hosted_invoice_url: null });
+    for (const path of [
+      "/billing/hq/subscriptions/sub-1/retry-payment",
+      "/billing/hq/subscriptions/sub-1/resend-payment-email",
+      "/billing/office/subscriptions/sub-1/retry-payment",
+      "/billing/office/subscriptions/sub-1/resend-payment-email",
+    ]) {
+      expect((await call("POST", path)).status).toBe(409);
+    }
+  });
+
+  it("returns 402 when Stripe declines a manual retry", async () => {
+    tables.billing_subscriptions.push({
+      id: "sub-1", provider_id: "office-1", last_failed_invoice_id: "in_failed",
+      last_hosted_invoice_url: "https://invoice.stripe.test/pay", payment_failure_count: 2,
+    });
+    __setStripeForTests({ invoices: { pay: vi.fn(async () => {
+      throw { type: "StripeCardError", message: "The card was declined." };
+    }) } } as never);
+    expect((await call("POST", "/billing/hq/subscriptions/sub-1/retry-payment")).status).toBe(402);
+    expect((await call("POST", "/billing/office/subscriptions/sub-1/retry-payment")).status).toBe(402);
+  });
 });
 
 describe("HQ overview and activity feed", () => {
@@ -294,6 +328,11 @@ describe("billing order routes", () => {
     expect(shipped.status).toBe(200);
     expect(sendShippedNotice).toHaveBeenCalledOnce();
     expect(tables.billing_orders[0].fulfillment_status).toBe("shipped");
+    expect(recordAdminAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: "billing_order_fulfillment_updated",
+      providerId: "office-1",
+      metadata: { order_id: tables.billing_orders[0].id, fulfillment_status: "shipped", has_tracking: true },
+    }));
   });
 
   it("ships a partially refunded order but never an unpaid one", async () => {

@@ -13,7 +13,7 @@ vi.mock("../../lib/org-policy", () => ({ loadOrgPolicy: mocks.loadOrgPolicy }));
 vi.mock("../../exports/worker", () => ({ sweepExpiredExports: mocks.sweepExpiredExports }));
 vi.mock("../../privacy/exports", () => ({ sweepExpiredPatientExports: mocks.sweepExpiredPatientExports }));
 
-import { archiveAuditEvents, cutoffFor, sweepExportArchives, trimChatTranscripts, trimNotificationHistory } from "./retention";
+import { archiveAuditEvents, cutoffFor, pruneBillingWebhookPayloads, sweepExportArchives, trimChatTranscripts, trimNotificationHistory } from "./retention";
 import type { JobContext } from "../types";
 
 const NOW = new Date("2026-09-07T12:00:00Z");
@@ -138,5 +138,29 @@ describe("retention jobs", () => {
     await sweepExportArchives(dry.c);
     expect(mocks.sweepExpiredExports).not.toHaveBeenCalled();
     expect(dry.counts).toEqual({ officeExportsDue: 3, patientExportsDue: 1 });
+  });
+
+  it("prunes only old processed billing webhook payloads and supports dry run", async () => {
+    process.env.BILLING_WEBHOOK_PAYLOAD_RETENTION_DAYS = "30";
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: [{ stripe_event_id: "evt_1" }] });
+    const dry = ctx(true);
+    await pruneBillingWebhookPayloads(dry.c);
+    expect(dry.counts).toEqual({ payloadsDue: 1 });
+    expect(mocks.admin).toHaveBeenCalledTimes(1);
+    expect(mocks.admin.mock.calls[0][1]).toContain("processed_at=not.is.null");
+    expect(mocks.admin.mock.calls[0][1]).toContain("2026-08-08T12%3A00%3A00.000Z");
+
+    mocks.admin.mockReset()
+      .mockResolvedValueOnce({ status: 200, json: [{ stripe_event_id: "evt_1" }] })
+      .mockResolvedValueOnce({ status: 204, json: null });
+    const live = ctx();
+    await pruneBillingWebhookPayloads(live.c);
+    expect(live.counts).toEqual({ payloadsPruned: 1 });
+    expect(mocks.admin.mock.calls[1]).toEqual([
+      "PATCH",
+      expect.stringContaining("/rest/v1/billing_webhook_events?"),
+      { payload: null, payload_pruned_at: NOW.toISOString() },
+    ]);
+    delete process.env.BILLING_WEBHOOK_PAYLOAD_RETENTION_DAYS;
   });
 });

@@ -137,6 +137,24 @@ export async function sweepExportArchives(ctx: JobContext): Promise<void> {
   ctx.tally("patientPruned", patient.pruned);
 }
 
+/** Processed webhook bodies are useful briefly for diagnosis, but can contain payer PII. */
+export async function pruneBillingWebhookPayloads(ctx: JobContext): Promise<void> {
+  const raw = process.env.BILLING_WEBHOOK_PAYLOAD_RETENTION_DAYS;
+  const days = raw === undefined || raw.trim() === "" ? 90 : retentionDays(raw, "billing webhook payload");
+  const cutoff = cutoffFor(ctx.now, days);
+  const filter = `processed_at=not.is.null&processed_at=lt.${enc(cutoff)}&payload=not.is.null`;
+  const due = await supabaseAdmin("GET", `/rest/v1/billing_webhook_events?${filter}&select=stripe_event_id&limit=1000`);
+  if (due.status >= 300 || !Array.isArray(due.json)) throw new Error(`billing webhook retention scan failed (${due.status})`);
+  ctx.tally(ctx.dryRun ? "payloadsDue" : "payloadsPruned", due.json.length);
+  if (ctx.dryRun || due.json.length === 0) return;
+  const result = await supabaseAdmin(
+    "PATCH",
+    `/rest/v1/billing_webhook_events?${filter}`,
+    { payload: null, payload_pruned_at: ctx.now.toISOString() },
+  );
+  if (result.status >= 300) throw new Error(`billing webhook payload prune failed (${result.status})`);
+}
+
 export const retentionChatJob: JobDefinition = {
   name: "retention-chat",
   title: "Chat transcript retention",
@@ -171,4 +189,13 @@ export const retentionExportsJob: JobDefinition = {
   intervalMs: 15 * 60_000,
   leaseSeconds: 15 * 60,
   run: sweepExportArchives,
+};
+
+export const retentionBillingWebhooksJob: JobDefinition = {
+  name: "retention-billing-webhooks",
+  title: "Billing webhook payload retention",
+  description: "Prunes old processed Stripe webhook payloads while retaining event processing records.",
+  intervalMs: 24 * HOUR_MS,
+  leaseSeconds: 15 * 60,
+  run: pruneBillingWebhookPayloads,
 };

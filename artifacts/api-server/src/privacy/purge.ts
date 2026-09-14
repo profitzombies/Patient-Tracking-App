@@ -34,6 +34,8 @@ import { objectStorage } from "../lib/objectStorage";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { PATIENT_MEDIA_PREFIX } from "../routes/patient-media";
+import { selectMany, selectOne, update } from "../billing/store";
+import { connectedOpts, getStripe, isStripeMissing } from "../billing/stripe-client";
 
 const enc = encodeURIComponent;
 
@@ -92,6 +94,8 @@ export interface PurgeSummary {
 
 export interface PurgeDeps {
   prepareTombstone: (requestId: string) => Promise<boolean>;
+  cancelBillingSubscriptions: (patientId: string) => Promise<number>;
+  scrubBillingCustomers: (patientId: string) => Promise<number>;
   deleteStoragePrefix: (prefix: string) => Promise<number>;
   purgeRows: (requestId: string) => Promise<PurgeSummary>;
   deleteAuthUser: (userId: string) => Promise<"deleted" | "absent">;
@@ -113,6 +117,101 @@ export const defaultPurgeDeps: PurgeDeps = {
       throw new Error(`purge tombstone failed (${result.status})`);
     }
     return true;
+  },
+  async cancelBillingSubscriptions(patientId) {
+    const subscriptions = await selectMany(
+      "billing_subscriptions",
+      `patient_id=eq.${enc(patientId)}&status=neq.canceled&stripe_subscription_id=not.is.null&select=id,provider_id,stripe_subscription_id`,
+    );
+    if (subscriptions.length === 0) return 0;
+    let stripe: Awaited<ReturnType<typeof getStripe>> | null = null;
+    let canceled = 0;
+    for (const subscription of subscriptions) {
+      const officeCount = subscriptions.filter((row) => row.provider_id === subscription.provider_id).length;
+      const account = await selectOne(
+        "billing_connected_accounts",
+        `provider_id=eq.${enc(subscription.provider_id)}&select=stripe_account_id,disconnected_at,charges_enabled`,
+      );
+      if (!account) {
+        throw new Error(`Billing purge blocked for office ${subscription.provider_id}: missing Stripe account for ${officeCount} live subscription(s).`);
+      }
+      if (account.disconnected_at) {
+        throw new Error(`Billing purge blocked for office ${subscription.provider_id}: disconnected Stripe account for ${officeCount} live subscription(s).`);
+      }
+      try {
+        stripe ??= await getStripe();
+        const value: any = await stripe.subscriptions.cancel(
+          subscription.stripe_subscription_id!,
+          {},
+          connectedOpts(account.stripe_account_id),
+        );
+        await update("billing_subscriptions", `id=eq.${enc(subscription.id)}`, {
+          status: "canceled",
+          cancel_at_period_end: Boolean(value.cancel_at_period_end),
+          canceled_at: value.canceled_at ? new Date(value.canceled_at * 1000).toISOString() : new Date().toISOString(),
+        });
+        canceled += 1;
+      } catch (error) {
+        if (isStripeMissing(error)) {
+          await update("billing_subscriptions", `id=eq.${enc(subscription.id)}`, {
+            status: "canceled", cancel_at_period_end: false, canceled_at: new Date().toISOString(),
+          });
+          canceled += 1;
+          continue;
+        }
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Billing purge blocked for office ${subscription.provider_id}: Stripe failed to cancel ${officeCount} live subscription(s): ${detail}`);
+      }
+    }
+    return canceled;
+  },
+  async scrubBillingCustomers(patientId) {
+    const payers = await selectMany(
+      "billing_payers",
+      `patient_id=eq.${enc(patientId)}&stripe_customer_id=not.is.null&select=id,provider_id,stripe_customer_id`,
+    );
+    if (payers.length === 0) return 0;
+    let stripe: Awaited<ReturnType<typeof getStripe>> | null = null;
+    let scrubbed = 0;
+    for (const payer of payers) {
+      const officeCount = payers.filter((row) => row.provider_id === payer.provider_id).length;
+      if (!payer.stripe_customer_id) {
+        throw new Error(`Billing purge blocked for office ${payer.provider_id}: invalid Stripe customer reference.`);
+      }
+      const account = await selectOne(
+        "billing_connected_accounts",
+        `provider_id=eq.${enc(payer.provider_id)}&select=stripe_account_id,disconnected_at,charges_enabled`,
+      );
+      if (!account) {
+        throw new Error(`Billing purge blocked for office ${payer.provider_id}: missing Stripe account for ${officeCount} customer(s).`);
+      }
+      if (account.disconnected_at) {
+        throw new Error(`Billing purge blocked for office ${payer.provider_id}: disconnected Stripe account for ${officeCount} customer(s).`);
+      }
+      try {
+        stripe ??= await getStripe();
+        await stripe.customers.update(
+          payer.stripe_customer_id,
+          {
+            name: "Deleted patient",
+            email: `deleted+${payer.id}@invalid.thinnr`,
+            phone: "",
+            address: null,
+            shipping: null,
+          },
+          connectedOpts(account.stripe_account_id),
+        );
+        scrubbed += 1;
+      } catch (error) {
+        if (isStripeMissing(error)) {
+          scrubbed += 1;
+          continue;
+        }
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Billing purge blocked for office ${payer.provider_id}: Stripe failed to scrub ${officeCount} customer(s): ${detail}`);
+      }
+    }
+    return scrubbed;
   },
   deleteStoragePrefix: (prefix) => objectStorage.deletePrefixStrict(prefix),
   async purgeRows(requestId) {
@@ -174,6 +273,14 @@ export async function runPurge(request: DeletionRequestRow, deps: PurgeDeps = de
     const tombstone = await deps.prepareTombstone(request.id);
     if (!tombstone) throw new Error("tombstone missing before storage purge");
     steps.tombstone = { ok: true, at: now() };
+
+    step = "billingSubscriptions";
+    const subscriptionsCanceled = await deps.cancelBillingSubscriptions(request.patient_id);
+    steps.billingSubscriptions = { ok: true, canceled: subscriptionsCanceled, at: now() };
+
+    step = "billingCustomers";
+    const customersScrubbed = await deps.scrubBillingCustomers(request.patient_id);
+    steps.billingCustomers = { ok: true, scrubbed: customersScrubbed, at: now() };
 
     step = "storage";
     const mediaObjects = await deps.deleteStoragePrefix(patientStoragePrefix(request.patient_id));

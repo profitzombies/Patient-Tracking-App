@@ -8,13 +8,15 @@ import { __setSession } from './a11y-stubs/session';
 import { DateRangeProvider } from '../src/contexts/date-range';
 import {
   PaymentProviderDetail, PaymentTransactionDetail, PaymentsFulfillment, PaymentsOverview,
-  PaymentsProviders, PaymentsTransactions,
+  PaymentsProviders, PaymentsSubscriptions, PaymentsTransactions,
 } from '../src/pages/admin/payments/HqPaymentsPages';
 import { PaymentsActivity } from '../src/pages/admin/payments/PaymentsActivity';
 import { PaymentsCatalog, SettingsCard } from '../src/pages/admin/payments/catalog/CatalogPage';
 import { DEMO_CATALOG } from '../src/pages/admin/payments/demo-data';
 import { PaymentsCatalogHistory } from '../src/pages/admin/payments/catalog/CatalogHistory';
 import { ProductEditorPage } from '../src/pages/admin/payments/catalog/ProductEditor';
+import { PaymentsHealthBannerView } from '../src/components/billing/PaymentsHealthBanner';
+import type { PaymentsHealth } from '../src/lib/billing-types';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 (globalThis as any).window ??= {};
@@ -26,6 +28,32 @@ globalThis.fetch = async () => { fetches += 1; throw new Error('Demo pages must 
 __setSession({ authStatus: 'signed-out', authRole: null, authUser: null, hqRole: null });
 
 let failures = 0;
+const healthyPayments: PaymentsHealth = {
+  sandbox: true, livemode: false, credentials_ok: true, connect_client_id_configured: true,
+  public_origin: 'https://example.test',
+  webhooks: { registered: true, endpoints: [], last_error: null, last_checked_at: '2026-10-13T00:00:00Z' },
+  last_webhook_received_at: '2026-10-13T00:00:00Z', pending_orders_over_1h: 0,
+  unprocessed_webhook_events: 0, last_reconcile_run: { at: '2026-10-13T00:00:00Z', status: 'succeeded' },
+  failed_events_24h: 0,
+};
+{
+  let healthy: ReturnType<typeof create> | undefined;
+  let problem: ReturnType<typeof create> | undefined;
+  await act(async () => {
+    healthy = create(<PaymentsHealthBannerView health={healthyPayments} />);
+    problem = create(<PaymentsHealthBannerView health={{
+      ...healthyPayments, webhooks: { ...healthyPayments.webhooks, registered: false },
+      pending_orders_over_1h: 2, unprocessed_webhook_events: 3, last_reconcile_run: null,
+    }} />);
+  });
+  const text = JSON.stringify(problem!.toJSON());
+  if (healthy!.toJSON() !== null || !['not registered', '2 orders are stuck pending', '3 webhook events are unprocessed', 'never run']
+    .every((value) => text.includes(value))) {
+    failures += 1;
+    console.error('FAIL payments health banner states');
+  } else console.log('ok payments health banner states');
+  await act(async () => { healthy!.unmount(); problem!.unmount(); });
+}
 async function check(name: string, path: string, Page: React.ComponentType, expected: string[]) {
   const location = memoryLocation({ path });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -50,6 +78,10 @@ await check('overview demo', '/admin/payments', PaymentsOverview, [
   'Live payments appear here once HQ is signed in', 'Jenkins Wellness', 'Gross collected', 'Net collected', 'THINNR profit', 'Payments processed',
   'Daily revenue', 'Payments per day', 'Refunds per day', 'View all activity', 'Payment received', 'TH-D3MO01',
   "Today's revenue", 'Sep 24 so far, by the hour', 'THINNR fees', '4 PM',
+  'Subscriptions needing attention',
+]);
+await check('subscription dunning demo', '/admin/payments/subscriptions', PaymentsSubscriptions, [
+  'Payment failed', 'Card declined ', 'Retry payment', 'Email patient a payment link',
 ]);
 await check('activity demo rows', '/admin/payments/activity?kind=refund', PaymentsActivity, ['Refund issued', 'TH-D3MO03', 'Beacon Hill Aesthetics', 'All offices']);
 

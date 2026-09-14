@@ -51,6 +51,16 @@ export function useHqBillingScope() {
 type QueryOpts<T> = Omit<UseQueryOptions<T, Error>, 'queryKey' | 'queryFn' | 'enabled'>;
 
 // ---------------- office ----------------
+export function usePaymentsHealth() {
+  const { liveEnabled, base } = useHqBillingScope();
+  return useQuery({
+    queryKey: [...base, 'health'],
+    queryFn: () => hqBilling.health(),
+    enabled: liveEnabled,
+    staleTime: 60_000,
+  });
+}
+
 
 export function useOfficeBillingStatus(options?: QueryOpts<Awaited<ReturnType<typeof officeBilling.status>>>) {
   const { liveEnabled, office, base } = useOfficeBillingScope();

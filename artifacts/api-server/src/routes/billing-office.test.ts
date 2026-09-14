@@ -4,6 +4,10 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mirror = vi.hoisted(() => vi.fn());
+vi.mock("../lib/admin-audit", async (original) => {
+  const actual = await original<typeof import("../lib/admin-audit")>();
+  return { ...actual, recordAdminAuditEvent: vi.fn(async () => undefined) };
+});
 vi.mock("../billing/auth", () => ({
   viewerOfficeRole: (scope: { officeRole: string; canManage: boolean }) => ({ office_role: scope.officeRole, can_manage: scope.canManage }),
   requireOfficeBillingScope: vi.fn(async (req, res) => {
@@ -33,6 +37,7 @@ vi.hoisted(() => {
 });
 import router from "./billing-office";
 import { __setCredentialsForTests } from "../billing/stripe-client";
+import { recordAdminAuditEvent } from "../lib/admin-audit";
 
 const originalFetch = global.fetch;
 let server: http.Server;
@@ -98,6 +103,10 @@ describe("billing office routes", () => {
     expect(low.status).toBe(400); expect((low.json as { field: string }).field).toBe("sell_price_cents");
     const valid = await call("PUT", "/billing/office/prices/product-1", "owner", { sell_price_cents: 3767, subscription_enabled: true });
     expect(valid.status).toBe(200); expect(mirror).toHaveBeenCalledWith("product-1", 3767);
+    expect(recordAdminAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: "billing_prices_updated", providerId: "office-1",
+      metadata: { product_id: "product-1", products_changed: 1 },
+    }));
   });
   it("signs OAuth state and rejects a tampered callback state", async () => {
     const started = await call("GET", "/billing/office/connect/oauth/start", "owner");

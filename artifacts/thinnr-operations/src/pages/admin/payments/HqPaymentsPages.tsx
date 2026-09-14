@@ -22,6 +22,7 @@ import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useDateRange } from '@/contexts/date-range';
 import { ProviderActivityTiles, ProviderRecentOrders } from '@/components/billing/hq/ProviderPaymentsSummary';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { PaymentsHealthBanner } from '@/components/billing/PaymentsHealthBanner';
 import {
   Dialog,
   DialogContent,
@@ -93,6 +94,7 @@ function OverviewBody({ demo }: { demo: boolean }) {
         action={<DateRangeControl />}
       />
       {demo && <Preview />}
+      {!demo && <PaymentsHealthBanner />}
       {!demo && query.isPending ? (
         <Skeleton className="h-44 w-full" />
       ) : !demo && query.isError ? (
@@ -115,6 +117,11 @@ function OverviewBody({ demo }: { demo: boolean }) {
                 detail={`${data.providers_pending} pending`}
               />
             </div>
+            <Link href="/subscriptions?status=past_due" className="mt-3 block">
+              <SectionCard title="Subscriptions needing attention" sub="Failed renewal payments">
+                <div className="p-5 font-serif text-2xl font-bold text-navy">{data.needs_attention_subscriptions}</div>
+              </SectionCard>
+            </Link>
             <TodayRevenue demo={demo} />
             <SectionCard title="Daily revenue" sub="Gross collected, net after refunds, and THINNR fees by day" className="mt-5">
               <div className="p-5">
@@ -876,8 +883,24 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
       toast({ variant: 'success', title: 'Subscription cancellation saved' });
     },
   });
+  const retry = useMutation({
+    mutationFn: (id: string) => hqBilling.retrySubscriptionPayment(id),
+    onSuccess: () => {
+      void invalidate();
+      toast({ variant: 'success', title: 'Payment retry started' });
+    },
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Payment retry failed', description: error.message }),
+  });
+  const resend = useMutation({
+    mutationFn: (id: string) => hqBilling.resendSubscriptionPaymentEmail(id),
+    onSuccess: () => toast({ variant: 'success', title: 'Payment link emailed' }),
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Email could not be sent', description: error.message }),
+  });
   const [canceling, setCanceling] = useState<{ row: SubscriptionRow; atPeriodEnd: boolean } | null>(null);
-  const rows = demo ? DEMO_SUBSCRIPTIONS : query.data?.items;
+  const demoStatus = url.params.get('status');
+  const rows = demo
+    ? DEMO_SUBSCRIPTIONS.filter((row) => !demoStatus || row.status === demoStatus)
+    : query.data?.items;
   return (
     <AdminPage>
       <Header
@@ -937,6 +960,11 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
                       <StatusPill tone={subscriptionTone(row.status)}>
                         {SUBSCRIPTION_STATUS_LABEL[row.status]}
                       </StatusPill>
+                      {(row.status === 'past_due' || row.status === 'unpaid') && (
+                        <p className="mt-1 max-w-52 text-[11px] text-red-700">
+                          Card declined {row.payment_failure_count} {row.payment_failure_count === 1 ? 'time' : 'times'}, last on {formatDate(row.last_payment_failed_at)}
+                        </p>
+                      )}
                     </td>
                     <td>
                       {row.cancel_at_period_end
@@ -948,7 +976,17 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
                     </td>
                     <td>
                       {canWrite && row.status !== 'canceled' && (
-                        <span className="flex gap-1">
+                        <span className="flex flex-wrap justify-end gap-1">
+                          {(row.status === 'past_due' || row.status === 'unpaid') && (
+                            <>
+                              <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || retry.isPending} onClick={() => retry.mutate(row.id)}>
+                                Retry payment
+                              </button>
+                              <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || resend.isPending} onClick={() => resend.mutate(row.id)}>
+                                Email patient a payment link
+                              </button>
+                            </>
+                          )}
                           <button
                             className={`${BTN_SECONDARY} h-8 px-3`}
                             disabled={cancel.isPending}

@@ -8,12 +8,12 @@ import { resolvePayer, touchLinkUse } from "./links";
 import { sendReceipt } from "./receipts";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
 import {
-  insert, nowIso, selectMany, selectOne, update, type BillingConnectedAccountRow,
+  insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingConnectedAccountRow,
   type BillingOrderItemRow, type BillingOrderRow, type BillingPaymentLinkRow,
 } from "./store";
 import { getOrderBundle, officeName } from "./store-orders";
 import type { OrderDetail, PublicOrderResponse, ShippingAddress } from "./types";
-import { onStripeEvent, type StripeEventContext } from "./webhooks";
+import { dispatchStripeEvent, onStripeEvent, type StripeEventContext } from "./webhooks";
 
 export class BillingOrderError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
@@ -201,11 +201,11 @@ export async function markOrderPaidFromInvoice(invoice: any, ctx: StripeEventCon
     application_fee_collected_cents: collected, office_net_cents: total - collected - stripeFee,
   });
   if (!updated) return;
-  await insert("billing_ledger", {
+  await insertIgnore("billing_ledger", {
     provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
     kind: "sale", amount_cents: total - collected - stripeFee, application_fee_cents: collected,
     stripe_ref: charge?.id ?? invoice.id, detail: { total_cents: total, stripe_fee_cents: stripeFee }, occurred_at: paidAt,
-  });
+  }, "billing_ledger_kind_stripe_ref_unique");
   const bundle = await getOrderBundle(order.id);
   if (bundle) {
     const subscription = order.subscription_id ? await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(order.subscription_id)}`) : null;
@@ -229,12 +229,14 @@ export async function refundOrder(orderId: string, input: { amount_cents?: numbe
     order_id: order.id, stripe_refund_id: stripeRefund.id, amount_cents: amount,
     reason: input.reason.trim(), status: stripeRefund.status ?? "pending", requested_by: actor,
   });
-  await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, { status: amount === remainder ? "refunded" : "partially_refunded" });
-  await insert("billing_ledger", {
-    provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id, kind: "refund",
-    amount_cents: -amount, application_fee_cents: 0, stripe_ref: stripeRefund.id,
-    detail: { reason: input.reason }, occurred_at: nowIso(),
-  });
+  if (stripeRefund.status === "succeeded") {
+    await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, { status: amount === remainder ? "refunded" : "partially_refunded" });
+    await insertIgnore("billing_ledger", {
+      provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id, kind: "refund",
+      amount_cents: -amount, application_fee_cents: 0, stripe_ref: stripeRefund.id,
+      detail: { reason: input.reason }, occurred_at: nowIso(),
+    }, "billing_ledger_kind_stripe_ref_unique");
+  }
   return row;
 }
 
@@ -289,18 +291,26 @@ async function reconcileRefund(charge: any, ctx: StripeEventContext) {
   if (!order) return;
   if (!(await eventBelongsToProvider(order.provider_id, ctx))) return;
   for (const refund of charge.refunds?.data ?? []) {
-    if (await selectOne("billing_refunds", `stripe_refund_id=eq.${encodeURIComponent(refund.id)}`)) continue;
-    await insert("billing_refunds", { order_id: order.id, stripe_refund_id: refund.id, amount_cents: refund.amount,
-      reason: refund.metadata?.requested_reason ?? refund.reason ?? null, status: refund.status ?? "succeeded", requested_by: null });
-    await insert("billing_ledger", { provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
-      kind: "refund", amount_cents: -refund.amount, application_fee_cents: 0, stripe_ref: refund.id,
-      detail: {}, occurred_at: nowIso() });
+    const existing = await selectOne("billing_refunds", `stripe_refund_id=eq.${encodeURIComponent(refund.id)}`);
+    if (existing) {
+      await update("billing_refunds", `stripe_refund_id=eq.${encodeURIComponent(refund.id)}`, { status: refund.status ?? "succeeded" });
+    } else {
+      await insert("billing_refunds", { order_id: order.id, stripe_refund_id: refund.id, amount_cents: refund.amount,
+        reason: refund.metadata?.requested_reason ?? refund.reason ?? null, status: refund.status ?? "succeeded", requested_by: null });
+    }
+    if ((refund.status ?? "succeeded") === "succeeded") {
+      await insertIgnore("billing_ledger", { provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
+        kind: "refund", amount_cents: -refund.amount, application_fee_cents: 0, stripe_ref: refund.id,
+        detail: {}, occurred_at: nowIso() }, "billing_ledger_kind_stripe_ref_unique");
+    }
   }
   const refunds = await selectMany("billing_refunds", `order_id=eq.${encodeURIComponent(order.id)}`);
-  const total = refunds.reduce((sum, row) => sum + row.amount_cents, 0);
-  await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, { status: total >= order.total_cents ? "refunded" : "partially_refunded" });
+  const total = refunds.filter((row) => row.status === "succeeded").reduce((sum, row) => sum + row.amount_cents, 0);
+  await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, {
+    status: total >= order.total_cents ? "refunded" : total > 0 ? "partially_refunded" : "paid",
+  });
 }
-async function dispute(event: "created" | "closed", value: any, ctx: StripeEventContext) {
+async function dispute(event: "created" | "updated" | "closed" | "funds_withdrawn" | "funds_reinstated", value: any, ctx: StripeEventContext) {
   const order = await selectOne("billing_orders", `stripe_charge_id=eq.${encodeURIComponent(typeof value.charge === "string" ? value.charge : value.charge?.id)}`);
   if (!order) return;
   if (!(await eventBelongsToProvider(order.provider_id, ctx))) return;
@@ -308,14 +318,23 @@ async function dispute(event: "created" | "closed", value: any, ctx: StripeEvent
   await insert("billing_disputes", { order_id: order.id, stripe_dispute_id: value.id, amount_cents: value.amount,
     status: value.status, reason: value.reason ?? null, evidence_due_by: value.evidence_details?.due_by ? new Date(value.evidence_details.due_by * 1000).toISOString() : null,
     closed_at: event === "closed" ? nowIso() : null }).catch(async () => {
-      await update("billing_disputes", `stripe_dispute_id=eq.${encodeURIComponent(value.id)}`, { status: value.status, closed_at: event === "closed" ? nowIso() : null });
+      await update("billing_disputes", `stripe_dispute_id=eq.${encodeURIComponent(value.id)}`, {
+        status: value.status,
+        evidence_due_by: value.evidence_details?.due_by ? new Date(value.evidence_details.due_by * 1000).toISOString() : null,
+        ...(event === "closed" ? { closed_at: nowIso() } : {}),
+      });
     });
-  await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, { status: event === "created" || !won ? "disputed" : "paid" });
-  const kind = event === "created" ? "dispute_opened" : won ? "dispute_won" : "dispute_lost";
+  if (event !== "updated") {
+    await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, {
+      status: event === "created" || event === "funds_withdrawn" || !won ? "disputed" : "paid",
+    });
+  }
+  const kind = event === "created" || event === "funds_withdrawn" ? "dispute_opened" : won || event === "funds_reinstated" ? "dispute_won" : "dispute_lost";
+  if (event === "updated") return;
   if (!(await selectOne("billing_ledger", `kind=eq.${kind}&stripe_ref=eq.${encodeURIComponent(value.id)}`))) {
-    await insert("billing_ledger", { provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
-      kind, amount_cents: event === "created" ? -value.amount : won ? value.amount : 0, application_fee_cents: 0,
-      stripe_ref: value.id, detail: { status: value.status }, occurred_at: nowIso() });
+    await insertIgnore("billing_ledger", { provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
+      kind, amount_cents: event === "created" || event === "funds_withdrawn" ? -value.amount : won || event === "funds_reinstated" ? value.amount : 0, application_fee_cents: 0,
+      stripe_ref: value.id, detail: { status: value.status }, occurred_at: nowIso() }, "billing_ledger_kind_stripe_ref_unique");
   }
 }
 export function registerOrderWebhookHandlers(): void {
@@ -328,15 +347,69 @@ export function registerOrderWebhookHandlers(): void {
   });
   const failed = async (event: Stripe.Event, ctx: StripeEventContext) => {
     const object: any = event.data.object;
+    if (object.object === "invoice" && (object.billing_reason === "subscription_create" || object.billing_reason === "subscription_cycle")) {
+      await (await import("./subscriptions")).markSubscriptionInvoiceFailed(object, ctx);
+      return;
+    }
     const query = object.object === "invoice" ? `stripe_invoice_id=eq.${encodeURIComponent(object.id)}` : `stripe_payment_intent_id=eq.${encodeURIComponent(object.id)}`;
     const order = await selectOne("billing_orders", query);
     if (order && await eventBelongsToProvider(order.provider_id, ctx)) {
-      await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, { status: "failed" });
+      if (object.object === "payment_intent" && order.subscription_id && object.invoice && ctx.account) {
+        const invoiceId = typeof object.invoice === "string" ? object.invoice : object.invoice.id;
+        const invoice = await (await getStripe()).invoices.retrieve(
+          invoiceId, { expand: ["payments.data.payment.payment_intent"] } as any, connectedOpts(ctx.account),
+        );
+        await (await import("./subscriptions")).markSubscriptionInvoiceFailed(invoice, ctx);
+        return;
+      }
+      const rawMessage = object.last_payment_error?.message ?? paymentIntent(object)?.last_payment_error?.message;
+      const message = typeof rawMessage === "string"
+        ? rawMessage.replace(/\b(?:\d[ -]*?){12,19}\b/g, "[card number removed]").trim().slice(0, 200)
+        : null;
+      await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}&status=in.(pending,failed)`, { status: "failed", failure_message: message });
     }
   };
   onStripeEvent("invoice.payment_failed", failed);
   onStripeEvent("payment_intent.payment_failed", failed);
   onStripeEvent("charge.refunded", async (event, ctx) => reconcileRefund(event.data.object, ctx));
+  onStripeEvent("refund.updated", async (event, ctx) => {
+    const value: any = event.data.object;
+    if (value.status !== "failed" && value.status !== "canceled") return;
+    const existing = await selectOne("billing_refunds", `stripe_refund_id=eq.${encodeURIComponent(value.id)}`);
+    if (!existing) return;
+    const order = await selectOne("billing_orders", `id=eq.${encodeURIComponent(existing.order_id)}`);
+    if (!order || !(await eventBelongsToProvider(order.provider_id, ctx))) return;
+    await update("billing_refunds", `stripe_refund_id=eq.${encodeURIComponent(value.id)}`, { status: value.status });
+    const debit = await selectOne("billing_ledger", `kind=eq.refund&stripe_ref=eq.${encodeURIComponent(value.id)}`);
+    if (debit) {
+      await insertIgnore("billing_ledger", {
+        provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
+        kind: "refund", amount_cents: existing.amount_cents, application_fee_cents: 0,
+        stripe_ref: `${value.id}:reversal`, detail: { status: value.status }, occurred_at: nowIso(),
+      }, "billing_ledger_kind_stripe_ref_unique");
+    }
+    const refunds = await selectMany("billing_refunds", `order_id=eq.${encodeURIComponent(order.id)}`);
+    const succeeded = refunds.filter((row) => row.stripe_refund_id !== value.id && row.status === "succeeded")
+      .reduce((sum, row) => sum + row.amount_cents, 0);
+    await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, {
+      status: succeeded >= order.total_cents ? "refunded" : succeeded > 0 ? "partially_refunded" : "paid",
+    });
+  });
   onStripeEvent("charge.dispute.created", async (event, ctx) => dispute("created", event.data.object, ctx));
+  onStripeEvent("charge.dispute.updated", async (event, ctx) => dispute("updated", event.data.object, ctx));
   onStripeEvent("charge.dispute.closed", async (event, ctx) => dispute("closed", event.data.object, ctx));
+  onStripeEvent("charge.dispute.funds_withdrawn", async (event, ctx) => dispute("funds_withdrawn", event.data.object, ctx));
+  onStripeEvent("charge.dispute.funds_reinstated", async (event, ctx) => dispute("funds_reinstated", event.data.object, ctx));
+  onStripeEvent("invoice.finalized", async (event, ctx) => {
+    const invoice: any = event.data.object;
+    const paymentIntent = typeof invoice.payment_intent === "string" ? invoice.payment_intent : invoice.payment_intent?.id;
+    if (!paymentIntent) return;
+    const order = await selectOne("billing_orders", `stripe_payment_intent_id=eq.${encodeURIComponent(paymentIntent)}`);
+    if (order?.status === "pending" && !order.stripe_invoice_id && await eventBelongsToProvider(order.provider_id, ctx)) {
+      await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, { stripe_invoice_id: invoice.id });
+    }
+  });
+  onStripeEvent("customer.subscription.created", async (event, ctx) => {
+    await dispatchStripeEvent({ ...event, type: "customer.subscription.updated" } as Stripe.Event, ctx);
+  });
 }

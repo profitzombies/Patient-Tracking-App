@@ -34,6 +34,7 @@ import type {
   Paged,
   PatientSearchHit,
   PaymentLink,
+  PaymentsHealth,
   PublicLink,
   PublicOrderRequest,
   PublicOrderResponse,
@@ -117,6 +118,16 @@ export const officeBilling = {
       MESSAGES,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+  retrySubscriptionPayment: (subscriptionId: string, office?: string | null) =>
+    officeRequest<{ subscription: SubscriptionRow }>(
+      `${OFFICE}/subscriptions/${encodeURIComponent(subscriptionId)}/retry-payment${qs({}, office)}`,
+      MESSAGES, { method: 'POST', body: '{}' },
+    ),
+  resendSubscriptionPaymentEmail: (subscriptionId: string, office?: string | null) =>
+    officeRequest<{ subscription: SubscriptionRow }>(
+      `${OFFICE}/subscriptions/${encodeURIComponent(subscriptionId)}/resend-payment-email${qs({}, office)}`,
+      MESSAGES, { method: 'POST', body: '{}' },
+    ),
   payouts: (office?: string | null) => officeRequest<OfficePayoutsResponse>(`${OFFICE}/payouts${qs({}, office)}`, MESSAGES),
   today: (tz: string, office?: string | null) =>
     officeRequest<HqTodayOverview>(`${OFFICE}/overview/today${qs({ tz }, office)}`, MESSAGES),
@@ -133,6 +144,7 @@ export const officeBilling = {
 // ---------------- HQ ----------------
 
 export const hqBilling = {
+  health: () => officeRequest<PaymentsHealth>(`${HQ}/health`, MESSAGES),
   overview: (range: { from?: string; to?: string }) => officeRequest<HqOverview>(`${HQ}/overview${qs(range)}`, MESSAGES),
   today: (tz: string) => officeRequest<HqTodayOverview>(`${HQ}/overview/today${qs({ tz })}`, MESSAGES),
   activity: (filters: ListFilters) => officeRequest<Paged<HqActivityRow>>(`${HQ}/activity${qs(filters)}`, MESSAGES),
@@ -201,6 +213,14 @@ export const hqBilling = {
     officeRequest<{ subscription: SubscriptionRow }>(`${HQ}/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, MESSAGES, {
       method: 'POST',
       body: JSON.stringify(body),
+    }),
+  retrySubscriptionPayment: (subscriptionId: string) =>
+    officeRequest<{ subscription: SubscriptionRow }>(`${HQ}/subscriptions/${encodeURIComponent(subscriptionId)}/retry-payment`, MESSAGES, {
+      method: 'POST', body: '{}',
+    }),
+  resendSubscriptionPaymentEmail: (subscriptionId: string) =>
+    officeRequest<{ subscription: SubscriptionRow }>(`${HQ}/subscriptions/${encodeURIComponent(subscriptionId)}/resend-payment-email`, MESSAGES, {
+      method: 'POST', body: '{}',
     }),
 };
 

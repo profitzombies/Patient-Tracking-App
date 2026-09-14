@@ -65,6 +65,23 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   patient_sessions_viewed: 'Viewed a patient\'s sessions',
   patient_signed_out: 'Signed a patient out everywhere',
   access_denied: 'Was refused access',
+  billing_refund_issued: 'Issued a refund',
+  billing_subscription_cancelled: 'Cancelled a subscription',
+  billing_subscription_payment_retried: 'Retried a subscription payment',
+  billing_subscription_payment_email_sent: 'Emailed a payment link',
+  billing_order_fulfillment_updated: 'Updated order fulfilment',
+  billing_prices_updated: 'Updated prices',
+  billing_payment_link_created: 'Created a payment link',
+  billing_payment_link_updated: 'Updated a payment link',
+  billing_connect_started: 'Started Stripe connection',
+  billing_connect_completed: 'Completed Stripe connection',
+  billing_connect_disconnected: 'Disconnected Stripe',
+  billing_settings_updated: 'Updated billing settings',
+  billing_sandbox_reset: 'Reset billing sandbox',
+  billing_product_created: 'Created a billing product',
+  billing_product_updated: 'Updated a billing product',
+  billing_product_archived: 'Archived a billing product',
+  billing_product_floor_updated: 'Updated a product floor price',
 };
 
 export function auditActionLabel(action: string): string {
@@ -101,10 +118,22 @@ const METADATA_LABELS: Record<string, string> = {
   length: 'Characters',
   department: 'Department',
   hasNote: 'With note',
+  order_id: 'Order ID',
+  subscription_id: 'Subscription ID',
+  link_id: 'Link ID',
+  product_id: 'Product ID',
+  amount_cents: 'Amount in cents',
+  floor_price_cents: 'Floor price in cents',
+  at_period_end: 'At period end',
+  fulfillment_status: 'Fulfilment',
+  has_tracking: 'Has tracking',
+  keys_changed: 'Settings changed',
+  products_changed: 'Products changed',
+  active: 'Active',
 };
 
 /** Keys that are internal record ids: hidden from the office page, shown as fine print at HQ. */
-const ID_KEYS = new Set(['noteId', 'weightId', 'visitId', 'medicationId', 'attachmentId', 'assigneeUserId', 'previousAssigneeUserId', 'messageClientId', 'escalationId']);
+const ID_KEYS = new Set(['noteId', 'weightId', 'visitId', 'medicationId', 'attachmentId', 'assigneeUserId', 'previousAssigneeUserId', 'messageClientId', 'escalationId', 'order_id', 'subscription_id', 'link_id', 'product_id']);
 
 export interface AuditDetail {
   label: string;

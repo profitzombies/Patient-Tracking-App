@@ -7,6 +7,7 @@ export const EMAIL_TEMPLATE_IDS = [
   "new-sign-in-alert",
   "password-changed",
   "order-receipt",
+  "subscription-payment-failed",
   "order-shipped",
   "subscription-cancelled",
 ] as const;
@@ -197,6 +198,29 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       carrier: "Carrier",
       trackingNumber: "Tracking number",
       trackingLink: "Tracking link (optional)",
+    },
+  },
+  {
+    id: "subscription-payment-failed",
+    name: "Subscription payment failed",
+    purpose: "Gives a patient a secure Stripe link to pay a failed subscription renewal.",
+    trigger: "Stripe reports that a subscription invoice payment failed.",
+    audience: "The patient who owns the subscription.",
+    sampleVariables: {
+      name: "Riley",
+      officeName: "Example Wellness Studio",
+      productName: "Control",
+      amount: "$69.99",
+      paymentLink: "https://invoice.stripe.com/i/sample",
+      cancelLink: "https://example.test/pay/cancel/sample",
+    },
+    variableLabels: {
+      name: "Payer first name",
+      officeName: "Office name",
+      productName: "Product name",
+      amount: "Invoice amount",
+      paymentLink: "Stripe hosted invoice link",
+      cancelLink: "Cancellation link",
     },
   },
   {
@@ -545,6 +569,7 @@ export function renderEmailTemplate(
   }
 
   if (id === "order-receipt") return renderOrderReceipt(variables);
+  if (id === "subscription-payment-failed") return renderSubscriptionPaymentFailed(variables);
   if (id === "order-shipped") return renderOrderShipped(variables);
   if (id === "subscription-cancelled") return renderSubscriptionCancelled(variables);
 
@@ -714,6 +739,41 @@ function renderOrderShipped(variables: EmailVariables): RenderedEmail {
         ${trackingLink ? button(trackingLink, "Track your package") : ""}
         ${paragraph("Tracking details can take a day to appear after the carrier picks up the package.")}`,
       closing: `Questions about this shipment? Contact ${officeName}.`,
+    }),
+  };
+}
+
+function renderSubscriptionPaymentFailed(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const officeName = requireVariable(variables, "officeName");
+  const productName = requireVariable(variables, "productName");
+  const amount = requireVariable(variables, "amount");
+  const paymentLink = requireVariable(variables, "paymentLink");
+  const cancelLink = variables.cancelLink?.trim() || "";
+  const subject = "Your THINNR order payment did not go through";
+  const previewText = `Update your card to pay ${amount} for ${productName}.`;
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `${officeName} could not collect ${amount} for your ${productName} subscription.`,
+    `Update card and pay: ${paymentLink}`,
+    "",
+    "Stripe will retry the payment automatically.",
+    ...(cancelLink ? [`Manage or cancel future renewals: ${cancelLink}`] : []),
+  ].join("\n");
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: "Payment failed",
+      heading: "Please update your payment method",
+      greeting: name || undefined,
+      bodyHtml: `${paragraph(`<strong>${escapeHtml(officeName)}</strong> could not collect <strong>${escapeHtml(amount)}</strong> for your <strong>${escapeHtml(productName)}</strong> subscription.`)}
+        ${button(paymentLink, "Update card and pay", "#a33a2e")}
+        ${paragraph("Stripe will retry the payment automatically.")}
+        ${cancelLink ? button(cancelLink, "Manage or cancel renewals", "#203b64") : ""}`,
+      closing: `Questions about this payment? Contact ${officeName}.`,
     }),
   };
 }

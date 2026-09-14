@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { localDayWindow, resolveTimeZone } from "./reporting";
+import { localDayWindow, needsAttentionSubscriptionCount, resolveTimeZone } from "./reporting";
 
 describe("local day window", () => {
   it("spans local midnight to local midnight, including 23- and 25-hour DST days", () => {
@@ -21,5 +21,13 @@ describe("local day window", () => {
     expect(resolveTimeZone(undefined)).toBe("America/New_York");
     expect(resolveTimeZone("Europe/London")).toBe("Europe/London");
     expect(() => resolveTimeZone("Nowhere/Land")).toThrow(/time zone/);
+  });
+});
+
+describe("subscription attention reporting", () => {
+  it("counts past due and unpaid subscriptions only", () => {
+    expect(needsAttentionSubscriptionCount([
+      { status: "active" }, { status: "past_due" }, { status: "unpaid" }, { status: "canceled" },
+    ])).toBe(2);
   });
 });

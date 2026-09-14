@@ -104,6 +104,18 @@ console.log('office billing: gates and setup');
   );
   demo.renderer.unmount();
 
+  const subscriptions = await render('/subscriptions');
+  check(
+    'demo subscription shows failed payment recovery read-only',
+    requests.length === 0
+      && text(subscriptions.root).includes('Payment failed')
+      && text(subscriptions.root).includes('Card declined 2 times')
+      && text(subscriptions.root).includes('Retry payment')
+      && text(subscriptions.root).includes('Email patient a payment link')
+      && subscriptions.root.findAll((node) => node.type === 'button' && node.props.disabled === true).length >= 2,
+  );
+  subscriptions.renderer.unmount();
+
   const demoDetail = await render('/transactions/demo-order-1');
   const backLink = demoDetail.root.findAll(
     (node) => node.type === 'a' && node.props.href === '/payments/transactions' && text(node).includes('Back to transactions'),
@@ -214,7 +226,7 @@ console.log('\noffice billing: activity, refunds and fulfillment status');
 
   reset();
   const today = { date: '2026-10-11', time_zone: 'America/New_York', current_hour: 10, hours: Array.from({ length: 24 }, (_, hour) => ({ hour, collected_cents: hour === 9 ? 8999 : 0, refunded_cents: 0, net_cents: hour === 9 ? 8999 : 0, fee_cents: hour === 9 ? 4599 : 0, profit_cents: hour === 9 ? 4109 : 0, orders: hour === 9 ? 1 : 0 })), collected_cents: 8999, net_cents: 8999, fee_cents: 4599, profit_cents: 4109, refunded_cents: 0, orders: 1 };
-  const dashboard = { balance: { available_cents: 100, pending_cents: 0 }, next_payout: null, collected_cents: 8999, refunded_cents: 0, net_cents: 4109, thinnr_fee_cents: 4599, stripe_fee_cents: 291, orders: 1, active_subscriptions: 0, to_ship: 1, series: [] };
+  const dashboard = { balance: { available_cents: 100, pending_cents: 0 }, next_payout: null, collected_cents: 8999, refunded_cents: 0, net_cents: 4109, thinnr_fee_cents: 4599, stripe_fee_cents: 291, orders: 1, active_subscriptions: 0, needs_attention_subscriptions: 0, to_ship: 1, series: [] };
   // Status, then dashboard / today / activity in whatever order the hooks fire: every response is keyed by URL below.
   const byUrl: Record<string, () => Response> = {
     '/api/billing/office/status': json(200, status()),

@@ -6,10 +6,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATION = path.resolve(
-  here,
+const MIGRATIONS = [
   "../../../../supabase/migrations/20261011000000_billing_connect.sql",
-);
+  "../../../../supabase/migrations/20261013020000_billing_webhook_retry_count.sql",
+  "../../../../supabase/migrations/20261013030000_billing_subscription_dunning.sql",
+].map((migration) => path.resolve(here, migration));
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -124,11 +125,13 @@ describe.skipIf(!POSTGRES_AVAILABLE)(
         );
       `);
       for (let pass = 0; pass < 2; pass += 1) {
-        execFileSync(
-          "psql",
-          [...PSQL_ARGS().filter((argument) => argument !== "-At"), "-f", MIGRATION],
-          { stdio: "pipe", encoding: "utf8" },
-        );
+        for (const migration of MIGRATIONS) {
+          execFileSync(
+            "psql",
+            [...PSQL_ARGS().filter((argument) => argument !== "-At"), "-f", migration],
+            { stdio: "pipe", encoding: "utf8" },
+          );
+        }
       }
       psql(`insert into public.providers (provider_id) values ('provider-1')`);
     }, 60_000);
@@ -208,6 +211,12 @@ describe.skipIf(!POSTGRES_AVAILABLE)(
       expect(
         fails("insert into public.billing_settings (id) values (2)"),
       ).toContain("billing_settings_id_check");
+    });
+
+    it("adds constrained subscription dunning state and order failure detail", () => {
+      expect(scalar<string>("column_default from information_schema.columns where table_schema='public' and table_name='billing_subscriptions' and column_name='payment_failure_count'")).toContain("0");
+      expect(scalar<number>("count(*) from information_schema.columns where table_schema='public' and table_name='billing_orders' and column_name='failure_message'")).toBe(1);
+      expect(scalar<number>("count(*) from pg_constraint where conname='billing_subscriptions_payment_failure_count_check'")).toBe(1);
     });
 
     it("rejects an order with an invalid status", () => {

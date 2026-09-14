@@ -3,14 +3,24 @@ import { z } from "zod";
 import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders";
 import { sendShippedNotice } from "../billing/receipts";
 import { BillingReportingError, hqActivity, hqOverview, hqToday } from "../billing/reporting";
-import { BillingSubscriptionError, cancelSubscription, toSubscriptionRow } from "../billing/subscriptions";
+import {
+  BillingSubscriptionError, cancelSubscription, resendSubscriptionPaymentEmail,
+  retrySubscriptionPayment, toSubscriptionRow,
+} from "../billing/subscriptions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary, update } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
 import { stripeRejection } from "../billing/stripe-client";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
+import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 function actor(res: Response): string { return (res.locals.staff as StaffIdentity).userId; }
+function audit(req: Request, res: Response, action: string, targetKind: string, targetId: string, metadata: AuditMetadata, providerId: string | null = null) {
+  return recordAdminAuditEvent({
+    action, actorUserId: actor(res), actorKind: "hq", providerId, targetKind, targetId,
+    requestId: requestIdOf(req), metadata,
+  }).catch((error) => req.log?.error({ err: error }, `${action} audit failed`));
+}
 function fail(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing HQ orders request failed");
   if (error instanceof BillingReportingError) { res.status(error.status).json({ error: error.message }); return; }
@@ -70,7 +80,13 @@ const RefundSchema = z.object({ amount_cents: z.number().int().positive().option
 router.post("/billing/hq/transactions/:id/refund", requireHqPermission("provider_manage"), async (req, res) => {
   const parsed = RefundSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Check the refund.", field: String(parsed.error.issues[0]?.path[0] ?? "") }); return; }
-  try { res.json({ refund: await refundOrder(String(req.params.id), parsed.data, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const refund = await refundOrder(String(req.params.id), parsed.data, actor(res));
+    await audit(req, res, "billing_refund_issued", "billing_order", String(req.params.id), {
+      order_id: String(req.params.id), amount_cents: refund.amount_cents, reason: "requested_by_customer",
+    });
+    res.json({ refund });
+  } catch (error) { fail(req, res, error); }
 });
 router.get("/billing/hq/fulfillment", requireHqPermission("financial_read"), async (req, res) => {
   try { res.json(await listOrders(req, true)); } catch (error) { fail(req, res, error); }
@@ -103,6 +119,9 @@ router.put("/billing/hq/fulfillment/:order_id", requireHqPermission("provider_ma
     const row = await update("billing_orders", `id=eq.${encodeURIComponent(bundle.order.id)}`, patch);
     if (!row) throw new BillingOrderError("Order not found.", 404);
     if (parsed.data.status === "shipped") await sendShippedNotice({ order: row, payer: bundle.payer, office: bundle.office });
+    await audit(req, res, "billing_order_fulfillment_updated", "billing_order", row.id, {
+      order_id: row.id, fulfillment_status: parsed.data.status, has_tracking: Boolean(parsed.data.tracking_number),
+    }, bundle.order.provider_id);
     res.json({ order: await toOrderDetail(row.id, true) });
   } catch (error) { fail(req, res, error); }
 });
@@ -119,7 +138,31 @@ const CancelSchema = z.object({ at_period_end: z.boolean() });
 router.post("/billing/hq/subscriptions/:id/cancel", requireHqPermission("provider_manage"), async (req, res) => {
   const parsed = CancelSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Choose when to cancel.", field: "at_period_end" }); return; }
-  try { res.json({ subscription: await cancelSubscription(String(req.params.id), parsed.data) }); } catch (error) { fail(req, res, error); }
+  try {
+    const subscription = await cancelSubscription(String(req.params.id), parsed.data);
+    await audit(req, res, "billing_subscription_cancelled", "billing_subscription", String(req.params.id), {
+      subscription_id: String(req.params.id), at_period_end: parsed.data.at_period_end,
+    });
+    res.json({ subscription });
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/subscriptions/:id/retry-payment", requireHqPermission("provider_manage"), async (req, res) => {
+  try {
+    const row = await retrySubscriptionPayment(String(req.params.id));
+    await audit(req, res, "billing_subscription_payment_retried", "billing_subscription", String(req.params.id), {
+      subscription_id: String(req.params.id),
+    });
+    res.json({ subscription: await toSubscriptionRow(row) });
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/subscriptions/:id/resend-payment-email", requireHqPermission("provider_manage"), async (req, res) => {
+  try {
+    const row = await resendSubscriptionPaymentEmail(String(req.params.id));
+    await audit(req, res, "billing_subscription_payment_email_sent", "billing_subscription", String(req.params.id), {
+      subscription_id: String(req.params.id),
+    });
+    res.json({ subscription: await toSubscriptionRow(row) });
+  } catch (error) { fail(req, res, error); }
 });
 
 export default router;

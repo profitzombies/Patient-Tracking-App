@@ -54,9 +54,9 @@ export const FULFILLMENT_LABEL: Record<FulfillmentStatus, string> = {
 export const SUBSCRIPTION_STATUS_LABEL: Record<SubscriptionStatus, string> = {
   incomplete: 'Awaiting payment',
   active: 'Active',
-  past_due: 'Past due',
+  past_due: 'Payment failed',
   canceled: 'Canceled',
-  unpaid: 'Unpaid',
+  unpaid: 'Payment failed',
 };
 
 export type PillTone = 'neutral' | 'good' | 'warn' | 'bad' | 'info';

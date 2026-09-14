@@ -28,7 +28,7 @@ function demoSeries(): SeriesPoint[] {
 export const DEMO_OVERVIEW: HqOverview = {
   collected_cents: 1487250, thinnr_fee_cents: 641400, shipping_charge_cents: 42000,
   hard_cost_cents: 168900, shipping_cost_cents: 42000, profit_cents: 430500,
-  refunded_cents: 24998, disputed_cents: 12999, orders: 42, active_subscriptions: 18,
+  refunded_cents: 24998, disputed_cents: 12999, orders: 42, active_subscriptions: 18, needs_attention_subscriptions: 1,
   providers_onboarded: 6, providers_pending: 3, to_ship: 4,
   series: demoSeries(),
   recent: [
@@ -153,6 +153,9 @@ export const DEMO_SUBSCRIPTIONS: SubscriptionRow[] = Array.from({ length: 7 }, (
   application_fee_cents: Math.floor([5999, 5999, 5999, 2999, 8999, 8999, 11999][index] * .6) + 1000,
   current_period_end: `2026-10-${String(12 + index).padStart(2, '0')}T00:00:00Z`, cancel_at_period_end: index === 5,
   canceled_at: index === 6 ? '2026-09-20T00:00:00Z' : null, renewals: index + 1, livemode: false, created_at: `2026-07-${String(10 + index).padStart(2, '0')}T00:00:00Z`,
+  payment_failure_count: index === 4 ? 2 : 0,
+  last_payment_failed_at: index === 4 ? '2026-09-24T13:30:00Z' : null,
+  last_failure_message: index === 4 ? 'Your card was declined.' : null,
 }));
 
 const productSeeds = [

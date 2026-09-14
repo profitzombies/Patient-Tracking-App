@@ -27,6 +27,10 @@ function matches(row: Row, params: URLSearchParams): boolean {
     const value = String(row[key] ?? "");
     if (raw.startsWith("eq.")) {
       if (value !== raw.slice(3)) return false;
+    } else if (raw.startsWith("neq.")) {
+      if (value === raw.slice(4)) return false;
+    } else if (raw === "not.is.null") {
+      if (row[key] == null) return false;
     } else if (raw.startsWith("in.(")) {
       const set = raw.slice(4, -1).split(",");
       if (!set.includes(value)) return false;
@@ -77,6 +81,12 @@ export function createFakeSupabase(): FakeSupabase {
         patient_tombstones: [],
         admin_audit_events: [],
         patient_notifications: [],
+        billing_subscriptions: [],
+        billing_payers: [],
+        billing_products: [],
+        billing_connected_accounts: [],
+        billing_orders: [],
+        billing_order_items: [],
       };
       fake.calls = [];
       fake.authDeletes = [];

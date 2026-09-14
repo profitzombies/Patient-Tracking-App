@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { __setCredentialsForTests, __setStripeForTests } from "./stripe-client";
-import { ensureEndpoint, getEndpointSecret } from "./webhook-endpoints";
+import { ensureEndpoint, getBillingWebhookHealth, getEndpointSecret } from "./webhook-endpoints";
 
 vi.hoisted(() => {
   process.env.SUPABASE_URL = "http://supabase.test";
@@ -80,5 +80,20 @@ describe("billing webhook endpoint registration", () => {
     });
     await expect(ensureEndpoint("connect")).rejects.toThrow("bad key");
     expect(stripe.webhookEndpoints.create).not.toHaveBeenCalled();
+  });
+
+  it("reports enabled endpoints without exposing signing secrets", async () => {
+    rows.push({ kind: "platform", url: "https://ops.test/api/billing/webhooks/platform",
+      stripe_endpoint_id: "we_platform", secret: "whsec_platform", livemode: false });
+    stripe.webhookEndpoints.retrieve.mockImplementation(async (id: string) => ({
+      id, status: "enabled", enabled_events: id === "we_old" ? ["invoice.paid"] : ["account.updated"],
+    }));
+    const health = await getBillingWebhookHealth();
+    expect(health).toMatchObject({ registered: true, last_error: null });
+    expect(health.endpoints).toEqual([
+      expect.objectContaining({ kind: "platform", status: "enabled", enabled_events: 1 }),
+      expect.objectContaining({ kind: "connect", status: "enabled", enabled_events: 1 }),
+    ]);
+    expect(JSON.stringify(health)).not.toContain("whsec");
   });
 });

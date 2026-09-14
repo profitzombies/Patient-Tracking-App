@@ -64,7 +64,7 @@ export interface BillingOrderRow extends TimestampedRow {
   stripe_balance_transaction_id: string | null; livemode: boolean; paid_at: string | null;
   fulfillment_status: string; tracking_number: string | null; carrier: string | null;
   shipped_at: string | null; shipped_by: string | null; canceled_reason: string | null;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, unknown>; failure_message: string | null;
 }
 export interface BillingOrderItemRow extends TimestampedRow {
   id: string; order_id: string; product_id: string; product_name_snapshot: string; quantity: number;
@@ -76,7 +76,11 @@ export interface BillingSubscriptionRow extends TimestampedRow {
   stripe_subscription_id: string | null; stripe_customer_id: string | null; status: string; unit_price_cents: number;
   shipping_charge_cents: number; shipping_cost_cents: number; application_fee_cents: number; shipping_address: Record<string, unknown>;
   current_period_end: string | null; cancel_at_period_end: boolean; canceled_at: string | null;
-  cancel_token: string; livemode: boolean;
+  cancel_token: string; livemode: boolean; last_payment_failed_at: string | null;
+  payment_failure_count: number; last_failed_invoice_id: string | null;
+  last_hosted_invoice_url: string | null; last_failure_message: string | null;
+  payment_failure_email_sent_invoice_id: string | null;
+  last_paid_invoice_id: string | null;
 }
 export interface BillingLedgerRow extends TimestampedRow {
   id: string; provider_id: string; order_id: string | null; subscription_id: string | null;
@@ -146,6 +150,18 @@ export async function insert<T extends BillingTable>(
   const result = await supabaseAdmin("POST", `/rest/v1/${table}`, row, "return=representation");
   if (result.status >= 300) throw new BillingStoreError(messageOf(result.json), result.status);
   return (Array.isArray(result.json) ? result.json[0] : result.json) as BillingRows[T];
+}
+export async function insertIgnore<T extends BillingTable>(
+  table: T, row: Partial<BillingRows[T]>, expectedConstraint?: string,
+): Promise<BillingRows[T] | null> {
+  const result = await supabaseAdmin("POST", `/rest/v1/${table}`, row, "resolution=ignore-duplicates,return=representation");
+  const code = result.json && typeof result.json === "object" && "code" in result.json
+    ? String((result.json as { code?: unknown }).code) : "";
+  const constraintText = result.json && typeof result.json === "object"
+    ? `${String((result.json as { message?: unknown }).message ?? "")} ${String((result.json as { details?: unknown }).details ?? "")}` : "";
+  if (result.status === 409 && code === "23505" && (!expectedConstraint || constraintText.includes(expectedConstraint))) return null;
+  if (result.status >= 300) throw new BillingStoreError(messageOf(result.json), result.status);
+  return (Array.isArray(result.json) ? result.json[0] ?? null : result.json) as BillingRows[T] | null;
 }
 export async function upsert<T extends BillingTable>(
   table: T, row: Partial<BillingRows[T]>, onConflict?: string,

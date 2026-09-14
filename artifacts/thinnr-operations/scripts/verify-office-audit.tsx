@@ -42,6 +42,7 @@ import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import type { OfficeAuditEvent, OfficeAuditPage } from '../src/lib/office-audit';
 import OfficeAuditPageView from '../src/pages/OfficeAudit';
 import HqAudit from '../src/pages/admin/Audit';
+import { AUDIT_ACTION_LABELS } from '../src/lib/audit-labels';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -67,6 +68,14 @@ function check(name: string, condition: boolean, detail = '') {
 
 const RAW_IDS = ['office-1', 'auth-user-7', 'pt-91', 'tm-4'];
 const OFFICE_ACTIONS = ['patient_note_added', 'office_team_deactivated', 'data_export_downloaded', 'access_denied'];
+const BILLING_ACTIONS = [
+  'billing_refund_issued', 'billing_subscription_cancelled', 'billing_subscription_payment_retried',
+  'billing_subscription_payment_email_sent', 'billing_order_fulfillment_updated', 'billing_prices_updated',
+  'billing_payment_link_created', 'billing_payment_link_updated', 'billing_connect_started',
+  'billing_connect_completed', 'billing_connect_disconnected', 'billing_settings_updated', 'billing_sandbox_reset',
+  'billing_product_created', 'billing_product_updated', 'billing_product_archived', 'billing_product_floor_updated',
+];
+check('every billing audit action has a label', BILLING_ACTIONS.every((action) => Boolean(AUDIT_ACTION_LABELS[action])));
 
 function event(id: number, overrides: Partial<OfficeAuditEvent> = {}): OfficeAuditEvent {
   return {

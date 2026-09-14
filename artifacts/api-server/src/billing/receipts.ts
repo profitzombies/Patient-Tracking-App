@@ -122,3 +122,24 @@ export async function sendCancellationNotice(input: {
     officeName: input.office ? officeLabel(input.office) : "your provider office",
   });
 }
+
+export async function sendPaymentFailed(input: {
+  subscription: BillingSubscriptionRow; payer: BillingPayerRow; productName: string;
+  office: ProviderSummary; amountCents: number; hostedInvoiceUrl: string;
+}): Promise<void> {
+  try {
+    let cancel = "";
+    try { cancel = `${publicOrigin()}/pay/cancel/${input.subscription.cancel_token}`; }
+    catch (error) { logger.error({ err: error, subscription: input.subscription.id }, "billing dunning email could not build the cancel link"); }
+    await deliver(input.payer.email, "subscription-payment-failed", {
+      name: firstName(input.payer),
+      officeName: officeLabel(input.office),
+      productName: input.productName,
+      amount: money(input.amountCents),
+      paymentLink: input.hostedInvoiceUrl,
+      cancelLink: cancel,
+    });
+  } catch (error) {
+    logger.error({ err: error, subscription: input.subscription.id }, "billing dunning email preparation failed");
+  }
+}

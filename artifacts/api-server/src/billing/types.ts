@@ -1,8 +1,8 @@
 /**
- * Wire contract for the provider payments (Stripe Connect) API (server copy).
+ * Wire contract for the provider payments (Stripe Connect) API.
  * Mirrors docs/billing-connect/SPEC.md §6. Every money field is integer cents.
  * The API server is authoritative; keep these shapes in lockstep with
- * artifacts/thinnr-operations/src/lib/billing-types.ts (web copy).
+ * artifacts/api-server/src/billing/types.ts.
  */
 
 export type OrderStatus =
@@ -318,6 +318,9 @@ export interface SubscriptionRow {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   canceled_at: string | null;
+  payment_failure_count: number;
+  last_payment_failed_at: string | null;
+  last_failure_message: string | null;
   renewals: number;
   livemode: boolean;
   created_at: string;
@@ -399,6 +402,7 @@ export interface OfficeDashboard {
   net_cents: number;
   orders: number;
   active_subscriptions: number;
+  needs_attention_subscriptions: number;
   to_ship: number;
   series: SeriesPoint[];
 }
@@ -482,6 +486,7 @@ export interface HqOverview {
   disputed_cents: number;
   orders: number;
   active_subscriptions: number;
+  needs_attention_subscriptions: number;
   providers_onboarded: number;
   providers_pending: number;
   to_ship: number;
@@ -609,4 +614,23 @@ export interface PublicSubscription {
   status: SubscriptionStatus;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
+}
+
+export interface PaymentsHealth {
+  sandbox: boolean;
+  livemode: boolean;
+  credentials_ok: boolean;
+  connect_client_id_configured: boolean;
+  public_origin: string | null;
+  webhooks: {
+    registered: boolean;
+    endpoints: Array<{ kind: 'platform' | 'connect'; url: string; enabled_events: number; status: string }>;
+    last_error: string | null;
+    last_checked_at: string | null;
+  };
+  last_webhook_received_at: string | null;
+  pending_orders_over_1h: number;
+  unprocessed_webhook_events: number;
+  last_reconcile_run: { at: string; status: string } | null;
+  failed_events_24h: number;
 }

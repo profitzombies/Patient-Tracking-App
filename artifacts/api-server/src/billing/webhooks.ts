@@ -17,6 +17,8 @@ export interface StripeEventContext {
   /** Connected account id for Connect events; null for platform events. */
   account: string | null;
   livemode: boolean;
+  /** Set by reconciliation so a newer webhook-owned subscription state wins. */
+  expectedSubscriptionUpdatedAt?: string;
 }
 
 export type StripeEventHandler = (event: Stripe.Event, ctx: StripeEventContext) => Promise<void>;

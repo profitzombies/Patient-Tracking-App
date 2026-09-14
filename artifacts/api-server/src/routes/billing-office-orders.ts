@@ -4,12 +4,22 @@ import { requireOfficeBillingScope } from "../billing/auth";
 import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders";
 import { getBalance, listPayouts } from "../billing/payouts";
 import { BillingReportingError, officeActivity, officeDashboard, officeRefunds, officeToday } from "../billing/reporting";
-import { BillingSubscriptionError, cancelSubscription, toSubscriptionRow } from "../billing/subscriptions";
+import {
+  BillingSubscriptionError, cancelSubscription, resendSubscriptionPaymentEmail,
+  retrySubscriptionPayment, toSubscriptionRow,
+} from "../billing/subscriptions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
 import { stripeRejection } from "../billing/stripe-client";
+import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
 
 const router: IRouter = Router();
+function audit(req: Request, scope: { actorUserId: string; providerId: string; isHq: boolean }, action: string, targetKind: string, targetId: string, metadata: AuditMetadata) {
+  return recordAdminAuditEvent({
+    action, actorUserId: scope.actorUserId, actorKind: scope.isHq ? "hq" : "team_member",
+    providerId: scope.providerId, targetKind, targetId, requestId: requestIdOf(req), metadata,
+  }).catch((error) => req.log?.error({ err: error }, `${action} audit failed`));
+}
 function fail(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing office orders request failed");
   if (error instanceof BillingOrderError || error instanceof BillingSubscriptionError) {
@@ -118,7 +128,11 @@ router.post("/billing/office/orders/:id/refund", async (req, res) => {
     const scope = await requireOfficeBillingScope(req, res, { write: true }); if (!scope) return;
     const row = await selectOne("billing_orders", `id=eq.${encodeURIComponent(String(req.params.id))}&provider_id=eq.${encodeURIComponent(scope.providerId)}`);
     if (!row) { res.status(404).json({ error: "Order not found." }); return; }
-    res.json({ refund: await refundOrder(row.id, parsed.data, scope.actorUserId) });
+    const refund = await refundOrder(row.id, parsed.data, scope.actorUserId);
+    await audit(req, scope, "billing_refund_issued", "billing_order", row.id, {
+      order_id: row.id, amount_cents: refund.amount_cents, reason: "requested_by_customer",
+    });
+    res.json({ refund });
   } catch (error) { fail(req, res, error); }
 });
 router.get("/billing/office/subscriptions", async (req, res) => {
@@ -137,7 +151,31 @@ router.post("/billing/office/subscriptions/:id/cancel", async (req, res) => {
     const scope = await requireOfficeBillingScope(req, res, { write: true }); if (!scope) return;
     const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(String(req.params.id))}&provider_id=eq.${encodeURIComponent(scope.providerId)}`);
     if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
-    res.json({ subscription: await cancelSubscription(row.id, parsed.data) });
+    const subscription = await cancelSubscription(row.id, parsed.data);
+    await audit(req, scope, "billing_subscription_cancelled", "billing_subscription", row.id, {
+      subscription_id: row.id, at_period_end: parsed.data.at_period_end,
+    });
+    res.json({ subscription });
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/office/subscriptions/:id/retry-payment", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: true }); if (!scope) return;
+    const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(String(req.params.id))}&provider_id=eq.${encodeURIComponent(scope.providerId)}`);
+    if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
+    const subscription = await toSubscriptionRow(await retrySubscriptionPayment(row.id));
+    await audit(req, scope, "billing_subscription_payment_retried", "billing_subscription", row.id, { subscription_id: row.id });
+    res.json({ subscription });
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/office/subscriptions/:id/resend-payment-email", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: true }); if (!scope) return;
+    const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(String(req.params.id))}&provider_id=eq.${encodeURIComponent(scope.providerId)}`);
+    if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
+    const subscription = await toSubscriptionRow(await resendSubscriptionPaymentEmail(row.id));
+    await audit(req, scope, "billing_subscription_payment_email_sent", "billing_subscription", row.id, { subscription_id: row.id });
+    res.json({ subscription });
   } catch (error) { fail(req, res, error); }
 });
 router.get("/billing/office/payouts", async (req, res) => {

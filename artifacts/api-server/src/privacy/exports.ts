@@ -205,6 +205,10 @@ export interface PatientArchiveSections {
       results: unknown[];
     }>;
   };
+  billing: {
+    orders: Array<Record<string, unknown>>;
+    subscriptions: Array<Record<string, unknown>>;
+  };
 }
 
 const MAX_ROWS = 20_000;
@@ -338,6 +342,31 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       "bloodwork corrections",
     ),
   ]);
+  const [billingOrders, billingSubscriptions] = await Promise.all([
+    allRows(
+      `/rest/v1/billing_orders?${scope}&select=id,order_number,created_at,subtotal_cents,shipping_charge_cents,tax_cents,total_cents,status,fulfillment_status&order=created_at.asc,id.asc`,
+      "billing orders",
+    ),
+    allRows(
+      `/rest/v1/billing_subscriptions?${scope}&select=id,product_id,status,unit_price_cents,current_period_end&order=created_at.asc,id.asc`,
+      "billing subscriptions",
+    ),
+  ]);
+  const orderIds = billingOrders.map((order) => String(order.id));
+  const items = orderIds.length === 0
+    ? []
+    : await allRows(
+      `/rest/v1/billing_order_items?order_id=in.(${orderIds.map(enc).join(",")})&select=order_id,product_name_snapshot,quantity,unit_price_cents&order=created_at.asc,id.asc`,
+      "billing order items",
+    );
+  const productIds = [...new Set(billingSubscriptions.map((subscription) => String(subscription.product_id)))];
+  const products = productIds.length === 0
+    ? []
+    : await allRows(
+      `/rest/v1/billing_products?id=in.(${productIds.map(enc).join(",")})&select=id,name`,
+      "billing subscription products",
+    );
+  const productNames = new Map(products.map((product) => [String(product.id), product.name]));
   const incompleteReports = new Map<string, "queued" | "processing" | "failed">();
   for (const report of bloodworkReports) {
     const status = String(report.extraction_status);
@@ -398,6 +427,16 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       corrections: bloodworkCorrections,
       incompleteTranscriptionPages,
     },
+    billing: {
+      orders: billingOrders.map(({ id, ...order }) => ({
+        ...order,
+        items: items.filter((item) => item.order_id === id).map(({ order_id: _orderId, ...item }) => item),
+      })),
+      subscriptions: billingSubscriptions.map(({ id: _id, product_id: productId, ...subscription }) => ({
+        product: productNames.get(String(productId)) ?? null,
+        ...subscription,
+      })),
+    },
   };
 }
 
@@ -451,6 +490,7 @@ export async function buildPatientArchive(
   zip.file("photos.json", json(sections.photos));
   zip.file("chat.json", json(sections.chat));
   zip.file("coach-memory.json", json(sections.coachMemory));
+  zip.file("billing.json", json(sections.billing));
 
   const mediaPaths = mediaPathsOf({
     photos: sections.photos,
@@ -555,6 +595,7 @@ export async function buildPatientArchive(
       "                    Archiving keeps memory. Forgetting excludes reusable memory, not the original saved conversation.",
       "media.json          Stored photo files included in media/ and any skipped",
       "bloodwork.json      Reports, source omissions, published results, corrections, and distinctly labeled incomplete transcription checkpoints",
+      "billing.json        Orders, items, totals, fulfillment, and product subscription status. No Stripe identifiers.",
       "bloodwork/files/    Original committed bloodwork source files included within the archive size limit",
     ].join("\n"),
   );

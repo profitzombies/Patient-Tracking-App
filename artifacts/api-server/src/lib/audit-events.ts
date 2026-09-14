@@ -86,6 +86,23 @@ export const AUDIT_ACTIONS = [
   "patient_sessions_viewed",
   "patient_signed_out",
   "access_denied",
+  "billing_refund_issued",
+  "billing_subscription_cancelled",
+  "billing_subscription_payment_retried",
+  "billing_subscription_payment_email_sent",
+  "billing_order_fulfillment_updated",
+  "billing_prices_updated",
+  "billing_payment_link_created",
+  "billing_payment_link_updated",
+  "billing_connect_started",
+  "billing_connect_completed",
+  "billing_connect_disconnected",
+  "billing_settings_updated",
+  "billing_sandbox_reset",
+  "billing_product_created",
+  "billing_product_updated",
+  "billing_product_archived",
+  "billing_product_floor_updated",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -102,6 +119,8 @@ export const AUDIT_METADATA_KEYS = [
   "route", "method", "turn", "attachmentId", "mediaKind", "version", "section",
   "policyVersion", "photoAnalysis", "attempt", "step", "objects", "tables", "purgeAfter", "exportId", "requestId",
   "page", "assigneeUserId", "previousAssigneeUserId", "self", "messageClientId", "length", "department", "escalationId", "hasNote",
+  "order_id", "subscription_id", "link_id", "product_id", "amount_cents", "floor_price_cents",
+  "at_period_end", "fulfillment_status", "has_tracking", "keys_changed", "products_changed", "active",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 
@@ -158,6 +177,17 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "patient_sessions_viewed",
   "patient_signed_out",
   "access_denied",
+  "billing_refund_issued",
+  "billing_subscription_cancelled",
+  "billing_subscription_payment_retried",
+  "billing_subscription_payment_email_sent",
+  "billing_prices_updated",
+  "billing_payment_link_created",
+  "billing_payment_link_updated",
+  "billing_connect_started",
+  "billing_connect_completed",
+  "billing_connect_disconnected",
+  "billing_settings_updated",
 ] as const satisfies readonly AuditAction[];
 export const officeVisibleActions: ReadonlySet<string> = new Set(OFFICE_VISIBLE_ACTIONS);
 

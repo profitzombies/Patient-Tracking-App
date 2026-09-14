@@ -4,9 +4,12 @@ import {
   BillingOrderError, createOneTimeOrder, quoteOrder, refundOrder, registerOrderWebhookHandlers,
 } from "./orders";
 import {
-  createSubscriptionOrder, markSubscriptionInvoicePaid, registerSubscriptionWebhookHandlers,
+  createSubscriptionOrder, markSubscriptionInvoiceFailed, markSubscriptionInvoicePaid,
+  registerSubscriptionWebhookHandlers, retrySubscriptionPayment,
 } from "./subscriptions";
 import { dispatchStripeEvent, resetStripeEventHandlers } from "./webhooks";
+import { mirrorPayout } from "./payouts";
+import { BillingStoreError, insertIgnore } from "./store";
 
 vi.hoisted(() => {
   process.env.SUPABASE_URL = "http://supabase.test";
@@ -19,6 +22,7 @@ const originalFetch = global.fetch;
 let tables: Record<string, Row[]>;
 let sequence: string[];
 let stripe: any;
+let raceInvoiceId: string | null;
 
 function result(json: unknown, status = 200): Response {
   return new Response(JSON.stringify(json), { status, headers: { "Content-Type": "application/json" } });
@@ -26,8 +30,22 @@ function result(json: unknown, status = 200): Response {
 function matches(row: Row, params: URLSearchParams): boolean {
   for (const [key, raw] of params) {
     if (["select", "order", "limit", "on_conflict"].includes(key)) continue;
+    if (key === "or") {
+      const clauses = raw.slice(1, -1).split(",");
+      if (!clauses.some((clause) => {
+        const [field, operator, ...rest] = clause.split(".");
+        const value = rest.join(".");
+        if (operator === "is" && value === "null") return row[field] == null;
+        if (operator === "eq") return String(row[field]) === decodeURIComponent(value);
+        if (operator === "neq") return row[field] != null && String(row[field]) !== decodeURIComponent(value);
+        return false;
+      })) return false;
+      continue;
+    }
     if (raw === "is.null") { if (row[key] != null) return false; continue; }
     if (raw.startsWith("eq.") && String(row[key]) !== decodeURIComponent(raw.slice(3))) return false;
+    if (raw.startsWith("neq.") && (row[key] == null || String(row[key]) === decodeURIComponent(raw.slice(4)))) return false;
+    if (raw.startsWith("in.(") && !raw.slice(4, -1).split(",").includes(String(row[key]))) return false;
   }
   return true;
 }
@@ -41,6 +59,26 @@ function installFetch() {
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     if (method === "POST") {
       sequence.push(`db:${table}`);
+      const prefer = String(new Headers(init?.headers).get("Prefer") ?? "");
+      if (body.provider_id === "missing-fk") {
+        return result({
+          code: "23503", message: "insert or update violates foreign key constraint",
+          details: "Key (provider_id)=(missing-fk) is not present.",
+        }, 409);
+      }
+      if (table === "billing_orders" && body.stripe_invoice_id === raceInvoiceId) {
+        rows.push({ ...body, id: "order-race-winner" });
+        raceInvoiceId = null;
+        return result([], 201);
+      }
+      if (prefer.includes("resolution=ignore-duplicates")) {
+        const duplicate = table === "billing_orders"
+          ? rows.some((row) => body.stripe_invoice_id != null && row.stripe_invoice_id === body.stripe_invoice_id)
+          : table === "billing_ledger"
+            ? rows.some((row) => body.stripe_ref != null && row.kind === body.kind && row.stripe_ref === body.stripe_ref)
+            : false;
+        if (duplicate) return result([], 201);
+      }
       const existing = url.searchParams.get("on_conflict")
         ? rows.find((row) => url.searchParams.get("on_conflict")!.split(",").every((key) => row[key] === body[key]))
         : null;
@@ -75,10 +113,11 @@ function seed() {
       stripe_product_id: "prod_1", stripe_price_id: "price_1", stripe_shipping_price_id: "price_ship" }],
     billing_connected_accounts: [{ provider_id: "office-1", stripe_account_id: "acct_1", disconnected_at: null, charges_enabled: true, tax_enabled: false }],
     billing_payers: [], billing_orders: [], billing_order_items: [], billing_ledger: [],
-    billing_refunds: [], billing_disputes: [], billing_subscriptions: [], billing_payment_links: [link],
+    billing_refunds: [], billing_disputes: [], billing_subscriptions: [], billing_payouts: [], billing_payment_links: [link],
     providers: [{ provider_id: "office-1", office_name: "Harbor Health" }],
   };
   sequence = [];
+  raceInvoiceId = null;
   stripe = {
     customers: {
       create: vi.fn(async () => { sequence.push("stripe:customer"); return { id: "cus_1" }; }),
@@ -91,6 +130,7 @@ function seed() {
         ? { id, total: 7999, total_taxes: [], payments: { data: [{ payment: { payment_intent: { id: "pi_sub_new", client_secret: "secret_sub" } } }] } }
         : { id: "in_1", total: 7999, total_taxes: [], payments: { data: [{ payment: { payment_intent: { id: "pi_1", client_secret: "secret_1" } } }] } }),
       update: vi.fn(async () => ({})),
+      pay: vi.fn(async () => ({ id: "in_retry", status: "paid" })),
     },
     invoiceItems: { create: vi.fn(async () => ({})) },
     paymentIntents: { retrieve: vi.fn(async () => ({
@@ -246,7 +286,143 @@ describe("billing orders", () => {
     expect(tables.billing_orders[0]).toMatchObject({
       application_fee_collected_cents: 100, office_net_cents: 650, hq_profit_cents: 70,
     });
+    expect(tables.billing_subscriptions[0]).toMatchObject({
+      payment_failure_count: 0, last_failed_invoice_id: null, last_failure_message: null,
+    });
     expect(tables.billing_ledger.filter((row) => row.kind === "application_fee_adjustment")).toHaveLength(1);
+  });
+
+  it("records a failed renewal order and sends only one email per invoice", async () => {
+    process.env.RESEND_API_KEY = "test";
+    process.env.CLAIM_EMAIL_FROM = "billing@example.com";
+    tables.billing_payers.push({ id: "payer-1", provider_id: "office-1", name: "Pat Patient", email: "pat@example.com" });
+    tables.billing_subscriptions.push({
+      id: "sub-1", provider_id: "office-1", payer_id: "payer-1", patient_id: null,
+      product_id: tables.billing_products[0].id, stripe_subscription_id: "sub_stripe", status: "active",
+      unit_price_cents: 6999, shipping_charge_cents: 1000, shipping_cost_cents: 1000,
+      application_fee_cents: 4599, shipping_address: {}, livemode: false, cancel_token: "cancel",
+      payment_failure_count: 0, last_failed_invoice_id: null, last_payment_failed_at: null,
+      last_hosted_invoice_url: null, last_failure_message: null, payment_failure_email_sent_invoice_id: null,
+    });
+    const invoice = {
+      object: "invoice", id: "in_failed", billing_reason: "subscription_cycle", subscription: "sub_stripe",
+      total: 7999, hosted_invoice_url: "https://invoice.stripe.test/pay",
+      payments: { data: [{ payment: { payment_intent: { id: "pi_failed", last_payment_error: { message: "Card declined." } } } }] },
+    };
+    await markSubscriptionInvoiceFailed(invoice, { kind: "connect", account: "acct_1", livemode: false });
+    await markSubscriptionInvoiceFailed(invoice, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_subscriptions[0]).toMatchObject({
+      status: "past_due", payment_failure_count: 1, last_failed_invoice_id: "in_failed",
+      payment_failure_email_sent_invoice_id: "in_failed", last_failure_message: "Card declined.",
+    });
+    expect(tables.billing_orders).toHaveLength(1);
+    expect(tables.billing_orders[0]).toMatchObject({ kind: "subscription_renewal", status: "failed", paid_at: null });
+    expect(sequence.filter((entry) => entry === "db:emails")).toHaveLength(1);
+    delete process.env.RESEND_API_KEY;
+    delete process.env.CLAIM_EMAIL_FROM;
+  });
+
+  it("returns the competing renewal order without inserting its item", async () => {
+    tables.billing_subscriptions.push({
+      id: "sub-1", provider_id: "office-1", payer_id: "payer-1", patient_id: null,
+      product_id: tables.billing_products[0].id, stripe_subscription_id: "sub_stripe", status: "active",
+      unit_price_cents: 6999, shipping_charge_cents: 1000, shipping_cost_cents: 1000,
+      application_fee_cents: 4599, shipping_address: {}, livemode: false, payment_failure_count: 0,
+      last_failed_invoice_id: null, payment_failure_email_sent_invoice_id: null,
+    });
+    raceInvoiceId = "in_race";
+    await markSubscriptionInvoiceFailed({
+      id: "in_race", billing_reason: "subscription_cycle", subscription: "sub_stripe", total: 7999,
+    }, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_orders).toHaveLength(1);
+    expect(tables.billing_orders[0]).toMatchObject({ id: "order-race-winner", status: "failed" });
+    expect(tables.billing_order_items).toHaveLength(0);
+  });
+
+  it("does not regress a paid renewal after a failure event", async () => {
+    tables.billing_subscriptions.push({
+      id: "sub-1", provider_id: "office-1", stripe_subscription_id: "sub_stripe", status: "active",
+      payment_failure_count: 0, last_failed_invoice_id: null,
+    });
+    tables.billing_orders.push({
+      id: "order-paid", provider_id: "office-1", subscription_id: "sub-1",
+      stripe_invoice_id: "in_paid_then_failed", status: "paid",
+    });
+    await markSubscriptionInvoiceFailed({
+      id: "in_paid_then_failed", subscription: "sub_stripe",
+    }, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_orders[0].status).toBe("paid");
+    expect(tables.billing_subscriptions[0].status).toBe("active");
+  });
+
+  it("keeps paid dunning state when the same invoice fails late", async () => {
+    tables.billing_payers.push({ id: "payer-1", provider_id: "office-1", name: "Pat", email: "pat@example.com" });
+    tables.billing_subscriptions.push({
+      id: "sub-1", provider_id: "office-1", payer_id: "payer-1", product_id: tables.billing_products[0].id,
+      stripe_subscription_id: "sub_stripe", status: "active", payment_failure_count: 1,
+      last_failed_invoice_id: "in_interleave", last_paid_invoice_id: null,
+      payment_failure_email_sent_invoice_id: null,
+    });
+    tables.billing_orders.push({
+      id: "order-1", provider_id: "office-1", payer_id: "payer-1", subscription_id: "sub-1",
+      stripe_invoice_id: "in_interleave", status: "pending", total_cents: 1000,
+      application_fee_cents: 100, metadata: {}, shipping_address: {},
+    });
+    tables.billing_order_items.push({ id: "item-1", order_id: "order-1", product_name_snapshot: "Control", quantity: 1 });
+    const invoice = {
+      id: "in_interleave", subscription: "sub_stripe", billing_reason: "subscription_cycle",
+      amount_paid: 1000, hosted_invoice_url: "https://invoice.stripe.test/pay",
+      payments: { data: [{ payment: { payment_intent: "pi_interleave" } }] },
+    };
+    await markSubscriptionInvoicePaid(invoice, { kind: "connect", account: "acct_1", livemode: false });
+    await markSubscriptionInvoiceFailed(invoice, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_orders[0].status).toBe("paid");
+    expect(tables.billing_subscriptions[0]).toMatchObject({
+      status: "active", payment_failure_count: 0, last_failed_invoice_id: null,
+      last_paid_invoice_id: "in_interleave",
+    });
+    expect(sequence.filter((entry) => entry === "db:emails")).toHaveLength(0);
+  });
+
+  it("does not swallow non-unique PostgREST conflicts", async () => {
+    await expect(insertIgnore("billing_ledger", {
+      provider_id: "missing-fk", kind: "sale", stripe_ref: "ch_missing",
+    }, "billing_ledger_kind_stripe_ref_unique")).rejects.toMatchObject({
+      status: 409,
+    } satisfies Partial<BillingStoreError>);
+  });
+
+  it("keeps one-time failure handling on the order and stores the short message", async () => {
+    tables.billing_orders.push({ id: "order-1", provider_id: "office-1", status: "pending", stripe_payment_intent_id: "pi_failed" });
+    resetStripeEventHandlers();
+    registerOrderWebhookHandlers();
+    await dispatchStripeEvent({ type: "payment_intent.payment_failed", data: { object: {
+      object: "payment_intent", id: "pi_failed", last_payment_error: { message: "The card was declined." },
+    } } } as any, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_orders[0]).toMatchObject({ status: "failed", failure_message: "The card was declined." });
+    expect(tables.billing_subscriptions).toHaveLength(0);
+  });
+
+  it("retries the last failed invoice with a stable connected-account key", async () => {
+    tables.billing_subscriptions.push({
+      id: "sub-1", provider_id: "office-1", last_failed_invoice_id: "in_failed", payment_failure_count: 2,
+    });
+    await retrySubscriptionPayment("sub-1");
+    expect(stripe.invoices.pay).toHaveBeenCalledWith(
+      "in_failed", {}, { stripeAccount: "acct_1", idempotencyKey: "retry:sub-1:in_failed:2" },
+    );
+    tables.billing_subscriptions[0].last_failed_invoice_id = null;
+    await expect(retrySubscriptionPayment("sub-1")).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("surfaces a short card error from a manual retry", async () => {
+    tables.billing_subscriptions.push({
+      id: "sub-1", provider_id: "office-1", last_failed_invoice_id: "in_failed", payment_failure_count: 1,
+    });
+    stripe.invoices.pay.mockRejectedValueOnce({ type: "StripeCardError", message: "Your card was declined." });
+    await expect(retrySubscriptionPayment("sub-1")).rejects.toMatchObject({
+      status: 402, message: "Your card was declined.",
+    });
   });
 
   it("sets the exact renewal application fee on invoice.created", async () => {
@@ -270,5 +446,37 @@ describe("billing orders", () => {
     await expect(refundOrder("order-1", { amount_cents: 301, reason: "Requested" }, "actor"))
       .rejects.toMatchObject({ status: 400, field: "amount_cents" } satisfies Partial<BillingOrderError>);
     expect(stripe.refunds.create).not.toHaveBeenCalled();
+  });
+
+  it("does not book a pending refund", async () => {
+    tables.billing_orders.push({
+      id: "order-1", provider_id: "office-1", status: "paid", total_cents: 1000,
+      stripe_payment_intent_id: "pi_1", application_fee_cents: 100,
+    });
+    stripe.refunds.create.mockResolvedValueOnce({ id: "re_pending", amount: 100, status: "pending" });
+    await refundOrder("order-1", { amount_cents: 100, reason: "Requested" }, "actor");
+    expect(tables.billing_orders[0].status).toBe("paid");
+    expect(tables.billing_ledger).toHaveLength(0);
+  });
+
+  it("reverses a failed refund only when its succeeded debit exists", async () => {
+    tables.billing_orders.push({ id: "order-1", provider_id: "office-1", status: "partially_refunded", total_cents: 1000 });
+    tables.billing_refunds.push({ id: "refund-1", order_id: "order-1", stripe_refund_id: "re_failed", amount_cents: 100, status: "succeeded" });
+    resetStripeEventHandlers();
+    registerOrderWebhookHandlers();
+    const event = { type: "refund.updated", data: { object: { id: "re_failed", status: "failed" } } } as any;
+    await dispatchStripeEvent(event, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_ledger).toHaveLength(0);
+    tables.billing_refunds[0].status = "succeeded";
+    tables.billing_ledger.push({ kind: "refund", stripe_ref: "re_failed", amount_cents: -100 });
+    await dispatchStripeEvent(event, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_ledger).toContainEqual(expect.objectContaining({
+      kind: "refund", stripe_ref: "re_failed:reversal", amount_cents: 100,
+    }));
+  });
+
+  it("does not debit a failed payout", async () => {
+    await mirrorPayout("office-1", { id: "po_failed", amount: 500, status: "failed", created: 1_800_000_000 });
+    expect(tables.billing_ledger).toHaveLength(0);
   });
 });

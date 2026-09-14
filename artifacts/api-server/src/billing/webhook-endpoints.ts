@@ -9,12 +9,26 @@ const EVENTS = {
   platform: ["account.application.deauthorized"],
   connect: [
     "account.updated", "capability.updated", "invoice.created", "invoice.paid", "invoice.payment_failed",
-    "customer.subscription.updated", "customer.subscription.deleted", "charge.refunded",
-    "charge.dispute.created", "charge.dispute.closed", "payout.paid", "payout.failed",
+    "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted",
+    "invoice.finalized", "charge.refunded", "refund.updated",
+    "charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed",
+    "charge.dispute.funds_withdrawn", "charge.dispute.funds_reinstated", "payout.paid", "payout.failed",
     "payment_intent.payment_failed",
   ],
 } as const;
 const secretCache = new Map<WebhookEndpointKind, string>();
+const RETRY_MS = 5 * 60_000;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let registered = false;
+let lastError: string | null = null;
+let lastCheckedAt: string | null = null;
+let healthCache: { expires: number; value: BillingWebhookHealth } | null = null;
+export interface BillingWebhookHealth {
+  registered: boolean;
+  endpoints: Array<{ kind: WebhookEndpointKind; url: string; enabled_events: number; status: string }>;
+  last_error: string | null;
+  last_checked_at: string | null;
+}
 function endpointUrl(kind: WebhookEndpointKind): string {
   return `${publicOrigin()}/api/billing/webhooks/${kind}`;
 }
@@ -64,6 +78,60 @@ export async function ensureEndpoint(kind: WebhookEndpointKind): Promise<void> {
 }
 export async function ensureBillingWebhookEndpoints(): Promise<void> {
   if (process.env.BILLING_WEBHOOKS_DISABLED === "1" || process.env.NODE_ENV === "test") return;
-  try { await ensureEndpoint("platform"); await ensureEndpoint("connect"); }
-  catch (error) { logger.warn({ err: error }, "billing webhook endpoint setup skipped"); }
+  try {
+    await ensureEndpoint("platform"); await ensureEndpoint("connect");
+    registered = true; lastError = null; lastCheckedAt = new Date().toISOString();
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+  } catch (error) {
+    registered = false;
+    lastError = error instanceof Error ? error.message : "Unknown Stripe error";
+    lastCheckedAt = new Date().toISOString();
+    logger.error({ err: error }, "billing webhook endpoint setup failed; retrying in 5 minutes");
+    if (!retryTimer) {
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void ensureBillingWebhookEndpoints();
+      }, RETRY_MS);
+      retryTimer.unref?.();
+    }
+  }
+}
+
+export function stopBillingWebhookEndpointRetry(): void {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+}
+
+export async function getBillingWebhookHealth(): Promise<BillingWebhookHealth> {
+  if (healthCache && healthCache.expires > Date.now()) return healthCache.value;
+  const endpoints: BillingWebhookHealth["endpoints"] = [];
+  try {
+    const stripe = await getStripe();
+    for (const kind of ["platform", "connect"] as const) {
+      const url = endpointUrl(kind);
+      const saved = await selectOne("billing_webhook_endpoints", `url=eq.${encodeURIComponent(url)}`);
+      let status = "missing";
+      let enabledEvents = 0;
+      if (saved?.stripe_endpoint_id) {
+        try {
+          const endpoint = await stripe.webhookEndpoints.retrieve(saved.stripe_endpoint_id);
+          status = endpoint.status;
+          enabledEvents = endpoint.enabled_events.length;
+        } catch (error) {
+          if (!(error instanceof Stripe.errors.StripeError) || error.code !== "resource_missing") throw error;
+        }
+      }
+      endpoints.push({ kind, url, enabled_events: enabledEvents, status });
+    }
+    registered = endpoints.every((endpoint) => endpoint.status === "enabled");
+    lastError = null;
+  } catch (error) {
+    registered = false;
+    lastError = error instanceof Error ? error.message : "Unknown Stripe error";
+  }
+  lastCheckedAt = new Date().toISOString();
+  const value = { registered, endpoints, last_error: lastError, last_checked_at: lastCheckedAt };
+  healthCache = { expires: Date.now() + RETRY_MS, value };
+  return value;
 }

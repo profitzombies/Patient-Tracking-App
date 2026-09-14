@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { billingFromAddress, formatReceiptTimestamp, sendReceipt, sendShippedNotice } from "./receipts";
+import { billingFromAddress, formatReceiptTimestamp, sendPaymentFailed, sendReceipt, sendShippedNotice } from "./receipts";
 
 const originalFetch = global.fetch;
 const originalKey = process.env.RESEND_API_KEY;
@@ -98,6 +98,25 @@ describe("billing receipts", () => {
       if (origin !== undefined) process.env.BILLING_PUBLIC_ORIGIN = origin;
       if (domains !== undefined) process.env.REPLIT_DOMAINS = domains;
     }
+  });
+  it("sends a failed renewal link and automatic retry note", async () => {
+    process.env.RESEND_API_KEY = "test";
+    process.env.CLAIM_EMAIL_FROM = "bare@example.com";
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    await sendPaymentFailed({
+      subscription: { id: "sub-1", cancel_token: "cancel-1" } as never,
+      payer: { name: "Riley Example", email: "patient@example.com" } as never,
+      productName: "Control",
+      office: { office_name: "Harbor Health" } as never,
+      amountCents: 6999,
+      hostedInvoiceUrl: "https://invoice.stripe.com/i/test",
+    });
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]?.body));
+    expect(body.subject).toBe("Your THINNR order payment did not go through");
+    expect(body.html).toContain("Update card and pay");
+    expect(body.text).toContain("Stripe will retry the payment automatically.");
+    expect(body.text).toContain("https://invoice.stripe.com/i/test");
   });
   it("derives the from header and timestamp deterministically", () => {
     expect(billingFromAddress("THINNR Dashboard <hello@example.com>")).toBe("THINNR Weight Loss <hello@example.com>");

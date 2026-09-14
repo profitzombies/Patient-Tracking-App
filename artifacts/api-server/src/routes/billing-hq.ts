@@ -12,6 +12,10 @@ import { selectMany, selectOne, toOrderSummary } from "../billing/store";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { stripeRejection } from "../billing/stripe-client";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { getBillingWebhookHealth } from "../billing/webhook-endpoints";
+import { publicOrigin } from "../billing/app-origin";
+import { getConnectClientId, getStripeCredentials, isSandbox } from "../billing/stripe-client";
+import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 const ProductSchema = z.object({
@@ -30,6 +34,12 @@ const SettingsSchema = z.object({
   expected_version: z.number().int().nonnegative(),
 });
 function actor(res: Response): string { return (res.locals.staff as StaffIdentity).userId; }
+function audit(req: Request, res: Response, action: string, targetKind: string, targetId: string | null, metadata: AuditMetadata) {
+  return recordAdminAuditEvent({
+    action, actorUserId: actor(res), actorKind: "hq", providerId: null, targetKind, targetId,
+    requestId: requestIdOf(req), metadata,
+  }).catch((error) => req.log?.error({ err: error }, `${action} audit failed`));
+}
 function fail(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing HQ request failed");
   if (error instanceof BillingCatalogError) {
@@ -39,18 +49,65 @@ function fail(req: Request, res: Response, error: unknown): void {
   if (rejected) { res.status(rejected.status).json({ error: rejected.message }); return; }
   res.status(503).json({ error: "Payments are temporarily unavailable." });
 }
+router.get("/billing/hq/health", requireHqPermission("financial_read"), async (_req, res) => {
+  const hourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  let credentialsOk = true;
+  let sandbox = false;
+  try {
+    await getStripeCredentials();
+    sandbox = await isSandbox();
+  } catch {
+    credentialsOk = false;
+  }
+  let origin: string | null = null;
+  try { origin = publicOrigin(); } catch { /* reported as missing configuration */ }
+  try {
+    const [webhooks, lastEvents, pending, unprocessed, failed, runResult] = await Promise.all([
+      getBillingWebhookHealth(),
+      selectMany("billing_webhook_events", "order=received_at.desc&limit=1"),
+      selectMany("billing_orders", `status=eq.pending&created_at=lt.${encodeURIComponent(hourAgo)}&select=id`),
+      selectMany("billing_webhook_events", "processed_at=is.null&select=stripe_event_id"),
+      selectMany("billing_webhook_events", `error=not.is.null&received_at=gte.${encodeURIComponent(dayAgo)}&select=stripe_event_id`),
+      supabaseAdmin("GET", "/rest/v1/system_job_runs?job_name=eq.billing-reconcile&order=started_at.desc&limit=1&select=started_at,status"),
+    ]);
+    if (runResult.status >= 300) throw new Error(`reconcile health lookup failed (${runResult.status})`);
+    const run = Array.isArray(runResult.json) ? runResult.json[0] as any : null;
+    res.json({
+      sandbox, livemode: credentialsOk && !sandbox, credentials_ok: credentialsOk,
+      connect_client_id_configured: Boolean(getConnectClientId()), public_origin: origin, webhooks,
+      last_webhook_received_at: lastEvents[0]?.received_at ?? null,
+      pending_orders_over_1h: pending.length, unprocessed_webhook_events: unprocessed.length,
+      last_reconcile_run: run ? { at: run.started_at, status: run.status } : null,
+      failed_events_24h: failed.length,
+    });
+  } catch (error) {
+    _req.log?.error({ err: error }, "payments health lookup failed");
+    res.status(503).json({ error: "Payments health is temporarily unavailable." });
+  }
+});
 router.get("/billing/hq/catalog", requireHqPermission("financial_read"), async (req, res) => {
   try { res.json(await listCatalog()); } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/hq/catalog/products", requireHqPermission("settings_manage"), async (req, res) => {
   const parsed = ProductSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Check the product.", field: String(parsed.error.issues[0]?.path[0] ?? "") }); return; }
-  try { res.status(201).json({ product: await createProduct(parsed.data, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const product = await createProduct(parsed.data, actor(res));
+    await audit(req, res, "billing_product_created", "billing_product", product.id, { product_id: product.id });
+    res.status(201).json({ product });
+  } catch (error) { fail(req, res, error); }
 });
 router.put("/billing/hq/catalog/products/:id", requireHqPermission("settings_manage"), async (req, res) => {
   const parsed = ProductSchema.partial().safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Check the product details." }); return; }
-  try { res.json({ product: await editProduct(String(req.params.id), parsed.data, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const product = await editProduct(String(req.params.id), parsed.data, actor(res));
+    const floorChanged = parsed.data.floor_price_cents !== undefined;
+    await audit(req, res, floorChanged ? "billing_product_floor_updated" : "billing_product_updated", "billing_product", product.id,
+      floorChanged ? { product_id: product.id, floor_price_cents: product.floor_price_cents } : { product_id: product.id });
+    res.json({ product });
+  } catch (error) { fail(req, res, error); }
 });
 router.get("/billing/hq/catalog/products/:id", requireHqPermission("financial_read"), async (req, res) => {
   try { res.json({ product: await getProduct(String(req.params.id)) }); } catch (error) { fail(req, res, error); }
@@ -58,12 +115,21 @@ router.get("/billing/hq/catalog/products/:id", requireHqPermission("financial_re
 router.put("/billing/hq/catalog/order", requireHqPermission("settings_manage"), async (req, res) => {
   const parsed = OrderSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Check the product order." }); return; }
-  try { res.json({ products: await reorderProducts(parsed.data.ids, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const products = await reorderProducts(parsed.data.ids, actor(res));
+    await audit(req, res, "billing_prices_updated", "billing_catalog", null, { products_changed: products.length });
+    res.json({ products });
+  } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/hq/catalog/products/:id/status", requireHqPermission("settings_manage"), async (req, res) => {
   const parsed = StatusSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Choose a valid status.", field: "status" }); return; }
-  try { res.json({ product: await setProductStatus(String(req.params.id), parsed.data.status, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const product = await setProductStatus(String(req.params.id), parsed.data.status, actor(res));
+    const action = parsed.data.status === "retired" || parsed.data.status === "archived" ? "billing_product_archived" : "billing_product_updated";
+    await audit(req, res, action, "billing_product", product.id, { product_id: product.id });
+    res.json({ product });
+  } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/hq/catalog/products/:id/images/upload-url", requireHqPermission("settings_manage"), async (req, res) => {
   const parsed = ImageUploadSchema.safeParse(req.body);
@@ -73,24 +139,48 @@ router.post("/billing/hq/catalog/products/:id/images/upload-url", requireHqPermi
 router.post("/billing/hq/catalog/products/:id/images", requireHqPermission("settings_manage"), async (req, res) => {
   const parsed = ImageFinalizeSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Check the image file.", field: "image" }); return; }
-  try { res.status(201).json({ product: await finalizeProductImage(String(req.params.id), parsed.data, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const product = await finalizeProductImage(String(req.params.id), parsed.data, actor(res));
+    await audit(req, res, "billing_product_updated", "billing_product", product.id, { product_id: product.id });
+    res.status(201).json({ product });
+  } catch (error) { fail(req, res, error); }
 });
 router.delete("/billing/hq/catalog/products/:id/images/:imageId", requireHqPermission("settings_manage"), async (req, res) => {
-  try { res.json({ product: await removeProductImage(String(req.params.id), String(req.params.imageId), actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const product = await removeProductImage(String(req.params.id), String(req.params.imageId), actor(res));
+    await audit(req, res, "billing_product_updated", "billing_product", product.id, { product_id: product.id });
+    res.json({ product });
+  } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/hq/catalog/products/:id/images/:imageId/default", requireHqPermission("settings_manage"), async (req, res) => {
-  try { res.json({ product: await setDefaultProductImage(String(req.params.id), String(req.params.imageId), actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const product = await setDefaultProductImage(String(req.params.id), String(req.params.imageId), actor(res));
+    await audit(req, res, "billing_product_updated", "billing_product", product.id, { product_id: product.id });
+    res.json({ product });
+  } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/hq/catalog/products/:id/retire", requireHqPermission("settings_manage"), async (req, res) => {
-  try { res.json({ product: await setProductActive(String(req.params.id), false, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const product = await setProductActive(String(req.params.id), false, actor(res));
+    await audit(req, res, "billing_product_archived", "billing_product", product.id, { product_id: product.id });
+    res.json({ product });
+  } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/hq/catalog/products/:id/reactivate", requireHqPermission("settings_manage"), async (req, res) => {
-  try { res.json({ product: await setProductActive(String(req.params.id), true, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const product = await setProductActive(String(req.params.id), true, actor(res));
+    await audit(req, res, "billing_product_updated", "billing_product", product.id, { product_id: product.id });
+    res.json({ product });
+  } catch (error) { fail(req, res, error); }
 });
 router.put("/billing/hq/catalog/settings", requireHqPermission("settings_manage"), async (req, res) => {
   const parsed = SettingsSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Check the billing settings.", field: String(parsed.error.issues[0]?.path[0] ?? "") }); return; }
-  try { res.json({ settings: await updateSettings(parsed.data, actor(res)) }); } catch (error) { fail(req, res, error); }
+  try {
+    const settings = await updateSettings(parsed.data, actor(res));
+    await audit(req, res, "billing_settings_updated", "billing_settings", "1", { keys_changed: 4 });
+    res.json({ settings });
+  } catch (error) { fail(req, res, error); }
 });
 router.get("/billing/hq/catalog/changes", requireHqPermission("financial_read"), async (req, res) => {
   try { res.json({ items: await listCatalogChanges(), next_cursor: null }); } catch (error) { fail(req, res, error); }

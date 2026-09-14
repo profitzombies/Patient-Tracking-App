@@ -21,6 +21,10 @@ const PAGE_SIZE = 50;
 const ALL_ACTIONS = '__all__';
 
 const DEFAULT_ACTIONS = [
+  'billing_refund_issued', 'billing_subscription_cancelled', 'billing_subscription_payment_retried',
+  'billing_subscription_payment_email_sent', 'billing_prices_updated', 'billing_payment_link_created',
+  'billing_payment_link_updated', 'billing_connect_started', 'billing_connect_completed',
+  'billing_connect_disconnected', 'billing_settings_updated',
   'patient_invitation_created', 'patient_invitation_resent', 'patient_profile_updated', 'patient_status_changed',
   'patient_note_added', 'patient_note_deleted', 'patient_weight_recorded', 'patient_weight_updated', 'patient_weight_removed',
   'patient_follow_up_open', 'patient_follow_up_resolved', 'office_team_invited', 'office_team_role_changed',

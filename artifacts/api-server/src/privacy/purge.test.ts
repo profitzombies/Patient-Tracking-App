@@ -6,7 +6,9 @@
  * tombstone). Real row deletion is proven on PostgreSQL in purge.sql.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import Stripe from "stripe";
 import { createFakeSupabase, fakeUuid } from "./fake-supabase";
+import { __setStripeForTests } from "../billing/stripe-client";
 
 const mocks = vi.hoisted(() => ({
   supabase: null as unknown as ReturnType<typeof import("./fake-supabase").createFakeSupabase>,
@@ -71,6 +73,8 @@ function deps(overrides: Partial<PurgeDeps> = {}) {
   const audit = vi.fn<PurgeDeps["audit"]>(async () => { calls.push("audit"); });
   const d: PurgeDeps = {
     prepareTombstone: vi.fn(async () => { calls.push("tombstone"); return true; }),
+    cancelBillingSubscriptions: vi.fn(async () => { calls.push("billingSubscriptions"); return 2; }),
+    scrubBillingCustomers: vi.fn(async () => { calls.push("billingCustomers"); return 1; }),
     deleteStoragePrefix: vi.fn(async () => { calls.push("storage"); return 3; }),
     purgeRows: vi.fn(async () => { calls.push("rows"); return { patientRowDeleted: true, tombstone: true, analyticsDetached: 2, tables: { patient_diary_entries: 4, patient_media: 1 }, authUserId: "auth-1" }; }),
     deleteAuthUser: vi.fn(async () => { calls.push("auth"); return "deleted" as const; }),
@@ -86,7 +90,7 @@ describe("runPurge", () => {
   it("walks storage, rows, then the auth user, records each step, and audits the purge", async () => {
     const { d, calls, finish, audit } = deps();
     expect(await runPurge(request(), d)).toBe("purged");
-    expect(calls).toEqual(["tombstone", "storage", "storage", "rows", "auth", "finish", "audit"]);
+    expect(calls).toEqual(["tombstone", "billingSubscriptions", "billingCustomers", "storage", "storage", "rows", "auth", "finish", "audit"]);
     expect(d.deleteStoragePrefix).toHaveBeenCalledWith(patientStoragePrefix(P1));
     expect(d.deleteStoragePrefix).toHaveBeenCalledWith(patientBloodworkStoragePrefix(P1));
     expect(patientStoragePrefix(P1)).toBe(`/objects/patient-media/${P1}/`);
@@ -96,12 +100,43 @@ describe("runPurge", () => {
       status: "purged",
       steps: {
         tombstone: { ok: true, at: "2026-09-08T00:00:05.000Z" },
+        billingSubscriptions: { ok: true, canceled: 2, at: "2026-09-08T00:00:05.000Z" },
+        billingCustomers: { ok: true, scrubbed: 1, at: "2026-09-08T00:00:05.000Z" },
         storage: { ok: true, objects: 6, prefixes: 2, at: "2026-09-08T00:00:05.000Z" },
         rows: { ok: true, tables: 2, rows: 5, tombstone: true, patientRowDeleted: true, analyticsDetached: 2, at: "2026-09-08T00:00:05.000Z" },
         auth: { ok: true, outcome: "deleted", at: "2026-09-08T00:00:05.000Z" },
       },
     });
     expect(audit.mock.calls[0][0]).toMatchObject({ action: "patient_deletion_purged", actorKind: "system", actorUserId: null, providerId: "office-1", targetId: P1, metadata: { objects: 6, tables: 2, rows: 5 } });
+  });
+
+  it("cancels subscriptions and scrubs customers before destructive work", async () => {
+    const { d } = deps();
+    await runPurge(request(), d);
+    expect(d.cancelBillingSubscriptions).toHaveBeenCalledWith(P1);
+    expect(d.scrubBillingCustomers).toHaveBeenCalledWith(P1);
+  });
+
+  it("records a Stripe outage and does not run the row RPC", async () => {
+    const outage = deps({
+      scrubBillingCustomers: vi.fn(async () => {
+        throw new Error("Stripe unavailable");
+      }),
+    });
+    expect(await runPurge(request(), outage.d)).toBe("failed");
+    expect(outage.d.purgeRows).not.toHaveBeenCalled();
+    expect(outage.finish.mock.calls[0][0]).toMatchObject({
+      error: "billingCustomers: Stripe unavailable",
+    });
+  });
+
+  it("continues when Stripe reports a missing remote resource", async () => {
+    const missing = deps({
+      cancelBillingSubscriptions: vi.fn(async () => 0),
+      scrubBillingCustomers: vi.fn(async () => 0),
+    });
+    expect(await runPurge(request(), missing.d)).toBe("purged");
+    expect(missing.d.purgeRows).toHaveBeenCalled();
   });
 
   it("stops at the failing step, keeps earlier step results, and schedules an exponential retry", async () => {
@@ -148,6 +183,103 @@ describe("runPurge", () => {
       audit: vi.fn(async () => { throw new Error("audit down"); }),
     });
     await expect(runPurge(request(), d)).resolves.toBe("failed");
+  });
+});
+
+describe("default billing purge steps", () => {
+  beforeEach(() => {
+    mocks.supabase.reset();
+    __setStripeForTests(null);
+  });
+
+  it("cancels active subscriptions immediately on the connected account", async () => {
+    const cancel = vi.fn(async () => ({
+      id: "sub_1",
+      status: "canceled",
+      cancel_at_period_end: false,
+      canceled_at: 1_791_158_400,
+      current_period_end: 1_791_158_400,
+    }));
+    __setStripeForTests({ subscriptions: { cancel } } as any);
+    mocks.supabase.tables.billing_connected_accounts.push({
+      provider_id: "office-1", stripe_account_id: "acct_1", disconnected_at: null, charges_enabled: true,
+    });
+    mocks.supabase.tables.billing_subscriptions.push({
+      id: fakeUuid(30), patient_id: P1, provider_id: "office-1", payer_id: fakeUuid(31),
+      product_id: fakeUuid(32), stripe_subscription_id: "sub_1", status: "active",
+    });
+    await expect(defaultPurgeDeps.cancelBillingSubscriptions(P1)).resolves.toBe(1);
+    expect(cancel).toHaveBeenCalledWith("sub_1", {}, { stripeAccount: "acct_1" });
+    expect(mocks.supabase.tables.billing_subscriptions[0]).toMatchObject({ status: "canceled" });
+  });
+
+  it("fails loudly when a live subscription's office has no Stripe account", async () => {
+    mocks.supabase.tables.billing_subscriptions.push({
+      id: fakeUuid(30), patient_id: P1, provider_id: "office-1", payer_id: fakeUuid(31),
+      product_id: fakeUuid(32), stripe_subscription_id: "sub_1", status: "active",
+    });
+    const missing = deps({ cancelBillingSubscriptions: defaultPurgeDeps.cancelBillingSubscriptions });
+    expect(await runPurge(request(), missing.d)).toBe("failed");
+    expect(missing.d.purgeRows).not.toHaveBeenCalled();
+    expect(missing.finish.mock.calls[0][0]).toMatchObject({
+      error: "billingSubscriptions: Billing purge blocked for office office-1: missing Stripe account for 1 live subscription(s).",
+    });
+  });
+
+  it("cancels through a paused office account without a charges-enabled gate", async () => {
+    const cancel = vi.fn(async () => ({ id: "sub_1", status: "canceled", canceled_at: 1_791_158_400 }));
+    __setStripeForTests({ subscriptions: { cancel } } as any);
+    mocks.supabase.tables.billing_connected_accounts.push({
+      provider_id: "office-1", stripe_account_id: "acct_paused", disconnected_at: null, charges_enabled: false,
+    });
+    mocks.supabase.tables.billing_subscriptions.push({
+      id: fakeUuid(30), patient_id: P1, provider_id: "office-1", payer_id: fakeUuid(31),
+      product_id: fakeUuid(32), stripe_subscription_id: "sub_1", status: "active",
+    });
+    await expect(defaultPurgeDeps.cancelBillingSubscriptions(P1)).resolves.toBe(1);
+    expect(cancel).toHaveBeenCalledWith("sub_1", {}, { stripeAccount: "acct_paused" });
+  });
+
+  it("marks a Stripe resource_missing subscription done and permits row purge", async () => {
+    const cancel = vi.fn(async () => {
+      throw new Stripe.errors.StripeInvalidRequestError({
+        message: "No such subscription", code: "resource_missing", type: "invalid_request_error",
+      });
+    });
+    __setStripeForTests({ subscriptions: { cancel } } as any);
+    mocks.supabase.tables.billing_connected_accounts.push({
+      provider_id: "office-1", stripe_account_id: "acct_1", disconnected_at: null, charges_enabled: true,
+    });
+    mocks.supabase.tables.billing_subscriptions.push({
+      id: fakeUuid(30), patient_id: P1, provider_id: "office-1", payer_id: fakeUuid(31),
+      product_id: fakeUuid(32), stripe_subscription_id: "sub_missing", status: "active",
+    });
+    await expect(defaultPurgeDeps.cancelBillingSubscriptions(P1)).resolves.toBe(1);
+    expect(mocks.supabase.tables.billing_subscriptions[0]).toMatchObject({ status: "canceled" });
+  });
+
+  it("scrubs connected-account customer PII and tolerates resource_missing", async () => {
+    const update = vi.fn(async () => ({ id: "cus_1" }));
+    __setStripeForTests({ customers: { update } } as any);
+    mocks.supabase.tables.billing_connected_accounts.push({
+      provider_id: "office-1", stripe_account_id: "acct_1", disconnected_at: null,
+    });
+    mocks.supabase.tables.billing_payers.push({
+      id: fakeUuid(40), patient_id: P1, provider_id: "office-1", stripe_customer_id: "cus_1",
+    });
+    await expect(defaultPurgeDeps.scrubBillingCustomers(P1)).resolves.toBe(1);
+    expect(update).toHaveBeenCalledWith("cus_1", {
+      name: "Deleted patient",
+      email: `deleted+${fakeUuid(40)}@invalid.thinnr`,
+      phone: "",
+      address: null,
+      shipping: null,
+    }, { stripeAccount: "acct_1" });
+
+    update.mockRejectedValue(new Stripe.errors.StripeInvalidRequestError({
+      message: "No such customer", code: "resource_missing", type: "invalid_request_error",
+    }));
+    await expect(defaultPurgeDeps.scrubBillingCustomers(P1)).resolves.toBe(1);
   });
 });
 

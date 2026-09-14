@@ -17,6 +17,17 @@ vi.mock("../lib/staff-auth", async () => {
     },
   };
 });
+vi.mock("../billing/auth", async () => {
+  const actual = await vi.importActual<typeof import("../billing/auth")>("../billing/auth");
+  return {
+    ...actual,
+    // The office router sees whichever office the test names; "office-2" owns nothing here.
+    requireOfficeBillingScope: async (req: express.Request) => ({
+      providerId: typeof req.query.office === "string" ? req.query.office : "office-1", officeName: "Harbor Health",
+      actorUserId: "owner-1", isHq: false, officeRole: "owner", canManage: true,
+    }),
+  };
+});
 vi.mock("../billing/receipts", () => ({
   sendReceipt: vi.fn(async () => undefined),
   sendCancellationNotice: vi.fn(async () => undefined),
@@ -24,6 +35,7 @@ vi.mock("../billing/receipts", () => ({
 }));
 
 import hqRouter from "./billing-hq-orders";
+import officeRouter from "./billing-office-orders";
 import publicRouter from "./billing-public";
 import { sendShippedNotice } from "../billing/receipts";
 import { __setCredentialsForTests } from "../billing/stripe-client";
@@ -43,6 +55,13 @@ function matches(row: Row, params: URLSearchParams): boolean {
     if (raw === "is.null") { if (row[key] != null) return false; continue; }
     if (raw.startsWith("eq.") && String(row[key]) !== decodeURIComponent(raw.slice(3))) return false;
     if (raw.startsWith("in.(") && !raw.slice(4, -1).split(",").map((value) => value.replace(/^"|"$/g, "")).includes(String(row[key]))) return false;
+    const bound = /^(gte|gt|lte|lt)\.(.*)$/.exec(raw);
+    if (bound) {
+      const value = row[key];
+      if (value == null) return false;
+      const compare = String(value).localeCompare(decodeURIComponent(bound[2]));
+      if (bound[1] === "gte" ? compare < 0 : bound[1] === "gt" ? compare <= 0 : bound[1] === "lte" ? compare > 0 : compare >= 0) return false;
+    }
   }
   return true;
 }
@@ -57,6 +76,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use(hqRouter);
+  app.use(officeRouter);
   app.use(publicRouter);
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -169,6 +189,82 @@ describe("HQ overview and activity feed", () => {
     expect(sales.json.next_cursor).toBeNull();
     const bad = await call("GET", "/billing/hq/activity?from=2026-09-20&to=2026-09-01");
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("office overview, activity, refunds and fulfillment status", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  beforeEach(() => {
+    tables.billing_orders[0].paid_at = `${today}T10:00:00Z`;
+    tables.billing_orders[0].created_at = `${today}T09:59:00Z`;
+    tables.billing_orders[0].status = "partially_refunded";
+    tables.billing_refunds = [{ id: "refund-1", order_id: tables.billing_orders[0].id, amount_cents: 1500, status: "succeeded", reason: "requested_by_customer", created_at: `${today}T12:00:00Z` }];
+    tables.billing_disputes = [{ id: "dispute-1", order_id: tables.billing_orders[0].id, amount_cents: 7000, status: "needs_response", reason: "fraudulent", evidence_due_by: `${today}T23:00:00Z`, closed_at: null, created_at: `${today}T13:00:00Z` }];
+    tables.billing_ledger = [
+      { id: "ledger-2", provider_id: "office-1", order_id: tables.billing_orders[0].id, kind: "refund", amount_cents: -1500, application_fee_cents: 0,
+        detail: {}, occurred_at: `${today}T12:00:00Z`, created_at: `${today}T12:00:00Z` },
+      { id: "ledger-1", provider_id: "office-1", order_id: tables.billing_orders[0].id, kind: "sale", amount_cents: 2267, application_fee_cents: 4500,
+        detail: { total_cents: 7000 }, occurred_at: `${today}T10:00:00Z`, created_at: `${today}T10:00:00Z` },
+      { id: "ledger-9", provider_id: "office-2", order_id: null, kind: "payout", amount_cents: -9000, application_fee_cents: 0,
+        detail: {}, occurred_at: `${today}T14:00:00Z`, created_at: `${today}T14:00:00Z` },
+    ];
+  });
+  it("buckets today's office payments by hour with the office net as the profit line", async () => {
+    const result = await call("GET", "/billing/office/overview/today?tz=UTC");
+    expect(result.status).toBe(200);
+    const ten = result.json.hours.find((row: Row) => row.hour === 10);
+    expect(ten).toMatchObject({ collected_cents: 7000, fee_cents: 4500, profit_cents: 2267, orders: 1 });
+    expect(result.json.hours.find((row: Row) => row.hour === 12)).toMatchObject({ refunded_cents: 1500, net_cents: -1500 });
+    expect(result.json).toMatchObject({ collected_cents: 7000, refunded_cents: 1500, net_cents: 5500, profit_cents: 2267 });
+    const other = await call("GET", "/billing/office/overview/today?tz=UTC&office=office-2");
+    expect(other.json).toMatchObject({ collected_cents: 0, refunded_cents: 0, orders: 0 });
+    const bad = await call("GET", "/billing/office/overview/today?tz=Mars/Olympus");
+    expect(bad.status).toBe(400);
+  });
+  it("counts today's refunds of older own orders and ignores other offices' refunds", async () => {
+    tables.billing_orders.push(
+      { ...tables.billing_orders[0], id: "order-old", order_number: "TH-OLD0001", paid_at: "2026-01-05T10:00:00Z", created_at: "2026-01-05T09:59:00Z" },
+      { ...tables.billing_orders[0], id: "order-other", order_number: "TH-OTHER1", provider_id: "office-2" },
+    );
+    tables.billing_refunds.push(
+      { id: "refund-old", order_id: "order-old", amount_cents: 2000, status: "succeeded", reason: null, created_at: `${today}T15:00:00Z` },
+      { id: "refund-other", order_id: "order-other", amount_cents: 9999, status: "succeeded", reason: null, created_at: `${today}T15:30:00Z` },
+    );
+    const result = await call("GET", "/billing/office/overview/today?tz=UTC");
+    expect(result.json.hours.find((row: Row) => row.hour === 15)).toMatchObject({ refunded_cents: 2000 });
+    expect(result.json).toMatchObject({ collected_cents: 7000, refunded_cents: 3500, orders: 1 });
+    const refunds = await call("GET", "/billing/office/refunds?kind=refund");
+    expect(refunds.json.items.map((row: Row) => row.id)).toEqual(["refund-old", "refund-1"]);
+    expect(refunds.json.items[0]).toMatchObject({ order_number: "TH-OLD0001", payer_name: "Pat" });
+  });
+  it("pins the activity feed to the office even when a provider filter is passed", async () => {
+    const result = await call("GET", "/billing/office/activity?provider_id=office-2");
+    expect(result.status).toBe(200);
+    expect(result.json.items.map((row: Row) => row.id)).toEqual(["ledger-2", "ledger-1"]);
+    const refunds = await call("GET", "/billing/office/activity?kind=refund");
+    expect(refunds.json.items.map((row: Row) => row.id)).toEqual(["ledger-2"]);
+  });
+  it("lists refunds and disputes newest first with the order and payer, and filters by kind", async () => {
+    const result = await call("GET", "/billing/office/refunds");
+    expect(result.status).toBe(200);
+    expect(result.json.items).toEqual([
+      expect.objectContaining({ id: "dispute-1", kind: "dispute", order_number: "TH-ABC123", payer_name: "Pat", amount_cents: 7000, status: "needs_response", evidence_due_by: `${today}T23:00:00Z` }),
+      expect.objectContaining({ id: "refund-1", kind: "refund", order_number: "TH-ABC123", payer_name: "Pat", amount_cents: 1500, reason: "requested_by_customer" }),
+    ]);
+    const onlyRefunds = await call("GET", "/billing/office/refunds?kind=refund");
+    expect(onlyRefunds.json.items.map((row: Row) => row.id)).toEqual(["refund-1"]);
+    const other = await call("GET", "/billing/office/refunds?office=office-2");
+    expect(other.json.items).toEqual([]);
+  });
+  it("shows the office its own shipping status as detail rows without HQ profit", async () => {
+    tables.billing_orders.push({ ...tables.billing_orders[0], id: "order-other", order_number: "TH-OTHER1", provider_id: "office-2" });
+    const result = await call("GET", "/billing/office/fulfillment");
+    expect(result.status).toBe(200);
+    expect(result.json.items.map((row: Row) => row.id)).toEqual(["0a1b2c3d-0000-4000-8000-000000000001"]);
+    expect(result.json.items[0].profit).toBeUndefined();
+    expect(result.json.items[0].shipping_address).toMatchObject({ city: "Austin" });
+    const shipped = await call("GET", "/billing/office/fulfillment?status=shipped");
+    expect(shipped.json.items).toEqual([]);
   });
 });
 

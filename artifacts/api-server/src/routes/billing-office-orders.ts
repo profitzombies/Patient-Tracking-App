@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireOfficeBillingScope } from "../billing/auth";
 import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders";
 import { getBalance, listPayouts } from "../billing/payouts";
-import { officeDashboard } from "../billing/reporting";
+import { BillingReportingError, officeActivity, officeDashboard, officeRefunds, officeToday } from "../billing/reporting";
 import { BillingSubscriptionError, cancelSubscription, toSubscriptionRow } from "../billing/subscriptions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
@@ -15,6 +15,7 @@ function fail(req: Request, res: Response, error: unknown): void {
   if (error instanceof BillingOrderError || error instanceof BillingSubscriptionError) {
     res.status(error.status).json({ error: error.message, ...(error.field ? { field: error.field } : {}) }); return;
   }
+  if (error instanceof BillingReportingError) { res.status(error.status).json({ error: error.message }); return; }
   const rejected = stripeRejection(error);
   if (rejected) { res.status(rejected.status).json({ error: rejected.message }); return; }
   res.status(503).json({ error: "Payments are temporarily unavailable." });
@@ -32,6 +33,48 @@ router.get("/billing/office/dashboard", async (req, res) => {
       dashboard.next_payout = next ? { amount_cents: next.amount_cents, arrival_date: next.arrival_date } : null;
     }
     res.json(dashboard);
+  } catch (error) { fail(req, res, error); }
+});
+router.get("/billing/office/overview/today", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: false }); if (!scope) return;
+    res.json(await officeToday(scope.providerId, req.query));
+  } catch (error) { fail(req, res, error); }
+});
+router.get("/billing/office/activity", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: false }); if (!scope) return;
+    res.json(await officeActivity(scope.providerId, req.query));
+  } catch (error) { fail(req, res, error); }
+});
+router.get("/billing/office/refunds", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: false }); if (!scope) return;
+    res.json(await officeRefunds(scope.providerId, req.query));
+  } catch (error) { fail(req, res, error); }
+});
+/**
+ * Read-only shipping status for the office: paid orders in one fulfillment
+ * state (default: waiting to ship) as full detail rows. HQ ships from its own
+ * queue; the office only watches.
+ */
+router.get("/billing/office/fulfillment", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: false }); if (!scope) return;
+    const page = pagination(req.query);
+    const status = typeof req.query.status === "string" && req.query.status ? req.query.status : "to_ship";
+    const filters = [
+      `provider_id=eq.${encodeURIComponent(scope.providerId)}`,
+      `fulfillment_status=eq.${encodeURIComponent(status)}`,
+      "status=in.(paid,partially_refunded)",
+    ];
+    if (typeof req.query.from === "string") filters.push(`created_at=gte.${encodeURIComponent(`${req.query.from}T00:00:00Z`)}`);
+    if (typeof req.query.to === "string") filters.push(`created_at=lte.${encodeURIComponent(`${req.query.to}T23:59:59Z`)}`);
+    if (page.cursor) filters.push(`created_at=lt.${encodeURIComponent(page.cursor.created_at)}`);
+    const rows = await selectMany("billing_orders", `${filters.join("&")}&order=created_at.desc,id.desc&limit=${page.limit + 1}`);
+    const visible = rows.slice(0, page.limit);
+    const items = await Promise.all(visible.map((row) => toOrderDetail(row.id, false)));
+    res.json({ items, next_cursor: rows.length > page.limit ? encodeCursor(visible.at(-1) ?? null) : null });
   } catch (error) { fail(req, res, error); }
 });
 router.get("/billing/office/orders", async (req, res) => {

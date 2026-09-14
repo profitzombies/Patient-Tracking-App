@@ -47,3 +47,11 @@ description: Durable lessons from building direct-charge Connect billing — san
 - Product images live outside the storage reconcile prefixes; the status/active lockstep CHECK must follow the backfill in the same migration.
 - Settings optimistic concurrency: a dirty form keeps the version it was filled from (server moves on → notice + discard, save gets 409); only an untouched form or the editor's own save advances the baseline. Reorder requests serialize client-side and read archived ids from a current ref.
 - Billing emails ride the shared `@workspace/email-templates` shell (ids in the `/email` studio; `?template=<id>` deep-links a proof). Items are one multi-line variable (`label · amount`); timestamps in America/New_York; from name "THINNR Weight Loss" derived from the `CLAIM_EMAIL_FROM` address only for billing mail. Everything that prepares a receipt (including building links from the public origin) must sit inside the never-throw boundary.
+
+## Office (provider) payments area mirrors HQ
+- Office pages reuse the HQ reporting code with the provider pinned server-side; query `provider_id` can never override it, HQ drill-in rides `?office=` through the office scope middleware. The office "today" endpoint reuses the HQ today shape and its `profit_cents` line means the **office net** — UI labels it "Office net", never "Profit".
+- Refund and dispute rows have no provider column. Scope them by resolving their `order_id`s against provider-filtered orders (chunked id lists, bounded by the date window), not by starting from the office's whole order history — otherwise a same-day refund of an older order is dropped and mature offices overflow the URL.
+- Fulfillment queues (HQ and office) show only `paid`/`partially_refunded` orders; a disputed to-ship order is intentionally absent. Do not treat that as a bug in tests.
+- Office demo billing is pinned to Oct 10 2026 (HQ billing demo: Sep 24 2026); both never derive from the clock.
+- The route-test PostgREST mock must honour `gte/gt/lte/lt` operators, or date-window bugs pass silently.
+- Shared payments tables (ActivityTable etc.) need `relative` on any `th` holding an `sr-only` label, or the phone page widens past 390px (see table-overflow-phone.md).

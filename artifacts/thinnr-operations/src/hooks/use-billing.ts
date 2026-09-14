@@ -151,6 +151,47 @@ export function useOfficePayouts() {
   });
 }
 
+export function useOfficeToday() {
+  const { liveEnabled, office, base } = useOfficeBillingScope();
+  const tz = viewerTimeZone();
+  return useQuery({
+    queryKey: [...base, 'overview-today', tz],
+    queryFn: () => officeBilling.today(tz, office),
+    enabled: liveEnabled,
+    // Today's chart keeps itself current while the page is open.
+    refetchInterval: 60_000,
+  });
+}
+
+export function useOfficeActivity(filters: ListFilters) {
+  const { liveEnabled, office, base } = useOfficeBillingScope();
+  return useInfiniteQuery({
+    queryKey: [...base, 'activity', filters],
+    queryFn: ({ pageParam }) => officeBilling.activity({ ...filters, ...(pageParam ? { cursor: pageParam } : {}) }, office),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    enabled: liveEnabled,
+  });
+}
+
+export function useOfficeRefunds(filters: ListFilters) {
+  const { liveEnabled, office, base } = useOfficeBillingScope();
+  return useQuery({
+    queryKey: [...base, 'refunds', filters],
+    queryFn: () => officeBilling.refunds(filters, office),
+    enabled: liveEnabled,
+  });
+}
+
+export function useOfficeFulfillment(filters: ListFilters) {
+  const { liveEnabled, office, base } = useOfficeBillingScope();
+  return useQuery({
+    queryKey: [...base, 'fulfillment', filters],
+    queryFn: () => officeBilling.fulfillment(filters, office),
+    enabled: liveEnabled,
+  });
+}
+
 /** Invalidate everything under the office payments cache after a mutation. */
 export function useInvalidateOfficeBilling() {
   const { base } = useOfficeBillingScope();

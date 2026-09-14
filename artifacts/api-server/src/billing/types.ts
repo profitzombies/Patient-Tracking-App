@@ -403,6 +403,24 @@ export interface OfficeDashboard {
   series: SeriesPoint[];
 }
 
+/**
+ * A refund or dispute on one of the office's orders. Refunds are issued from
+ * the transaction; this list is the office's read-only ledger of them.
+ */
+export interface OfficeRefundRow {
+  id: string;
+  kind: 'refund' | 'dispute';
+  order_id: string;
+  order_number: string;
+  payer_name: string | null;
+  amount_cents: number;
+  status: string;
+  reason: string | null;
+  evidence_due_by: string | null;
+  closed_at: string | null;
+  created_at: string;
+}
+
 export interface OfficePricesResponse {
   products: OfficePrice[];
   settings: { shipping_charge_cents: number; card_fee_bps: number; card_fee_fixed_cents: number };

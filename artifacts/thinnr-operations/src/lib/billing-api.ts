@@ -28,6 +28,7 @@ import type {
   OfficePayoutsResponse,
   OfficePrice,
   OfficePricesResponse,
+  OfficeRefundRow,
   OrderDetail,
   OrderSummary,
   Paged,
@@ -117,6 +118,14 @@ export const officeBilling = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
   payouts: (office?: string | null) => officeRequest<OfficePayoutsResponse>(`${OFFICE}/payouts${qs({}, office)}`, MESSAGES),
+  today: (tz: string, office?: string | null) =>
+    officeRequest<HqTodayOverview>(`${OFFICE}/overview/today${qs({ tz }, office)}`, MESSAGES),
+  activity: (filters: ListFilters, office?: string | null) =>
+    officeRequest<Paged<HqActivityRow>>(`${OFFICE}/activity${qs(filters, office)}`, MESSAGES),
+  refunds: (filters: ListFilters, office?: string | null) =>
+    officeRequest<Paged<OfficeRefundRow>>(`${OFFICE}/refunds${qs(filters, office)}`, MESSAGES),
+  fulfillment: (filters: ListFilters, office?: string | null) =>
+    officeRequest<Paged<OrderDetail>>(`${OFFICE}/fulfillment${qs(filters, office)}`, MESSAGES),
   searchPatients: (q: string, office?: string | null) =>
     officeRequest<{ items: PatientSearchHit[] }>(`${OFFICE}/patients/search${qs({ q }, office)}`, MESSAGES),
 };

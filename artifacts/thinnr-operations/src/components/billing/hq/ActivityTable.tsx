@@ -65,7 +65,8 @@ export function ActivityTable({
             {showOffice && <th className={`${PANEL_LABEL} px-5 py-2.5`}>Office</th>}
             <th className={`${PANEL_LABEL} px-5 py-2.5`}>Order</th>
             <th className={`${PANEL_LABEL} px-5 py-2.5 text-right`}>Amount</th>
-            <th className="px-5 py-2.5">
+            {/* relative: the sr-only span must stay inside the scroll wrapper, or it widens the page at phone widths. */}
+            <th className="relative px-5 py-2.5">
               <span className="sr-only">Open</span>
             </th>
           </tr>

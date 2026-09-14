@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Link, Redirect, Route, Switch, useLocation, useSearch } from 'wouter';
-import { ArrowRight, Copy, ExternalLink, Package, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { Link, Route, Switch, useLocation, useSearch } from 'wouter';
+import { ArrowRight, Copy, ExternalLink, Package } from 'lucide-react';
 import { MoneyInput } from '@/components/billing/MoneyInput';
-import { PageHeader, MetricTile } from '@/components/admin/primitives';
+import { MetricTile } from '@/components/admin/primitives';
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
@@ -16,7 +16,6 @@ import {
   DetailList,
   FeeBreakdown,
   MoneyCell,
-  SandboxBadge,
   StatusPill,
   formatAddress,
 } from '@/components/billing/primitives';
@@ -34,8 +33,6 @@ import { RefundDialog } from '@/components/billing/RefundDialog';
 import {
   useInvalidateOfficeBilling,
   useOfficeBillingScope,
-  useOfficeBillingStatus,
-  useOfficeDashboard,
   useOfficeLinks,
   useOfficeOrder,
   useOfficeOrders,
@@ -45,7 +42,7 @@ import {
   useUpdateOfficePrice,
 } from '@/hooks/use-billing';
 import { useToast } from '@/hooks/use-toast';
-import { BillingApiError, officeBilling } from '@/lib/billing-api';
+import { officeBilling } from '@/lib/billing-api';
 import {
   accountStatusLabel,
   centsToDollarsInput,
@@ -66,127 +63,9 @@ import type { OfficeBillingStatus, OfficePrice, OrderDetail, OrderSummary, Payme
 import { DEMO_DASHBOARD, DEMO_LINKS, DEMO_ORDER_DETAILS, DEMO_ORDERS, DEMO_PRICES, DEMO_SUBSCRIPTIONS } from './demo-data';
 import NotFound from '@/pages/not-found';
 
-const PAGE = 'mx-auto max-w-[1320px] space-y-6 px-4 py-6 sm:px-5 sm:py-7 md:px-8';
-const permissionText = 'Only office owners and admins can manage payments.';
-
-function ErrorBox({ error, retry }: { error: unknown; retry: () => void }) {
-  return (
-    <div role="alert" className="rounded-lg border border-destructive/30 bg-card p-5">
-      <p className="text-xs text-destructive">
-        {error instanceof Error ? error.message : 'Payments could not be loaded.'}
-      </p>
-      <button type="button" className={`${BTN_SECONDARY} mt-3 h-8 px-3`} onClick={retry}>
-        Try again
-      </button>
-    </div>
-  );
-}
-
-function PermissionState() {
-  return (
-    <div className={PAGE}>
-      <div
-        role="alert"
-        data-testid="status-billing-unauthorized"
-        className="rounded-lg border border-card-border bg-card p-7 shadow-soft"
-      >
-        <ShieldCheck size={18} className="text-muted-foreground" aria-hidden="true" />
-        <h1 className="mt-3 font-serif text-xl font-bold text-navy">Payments access is restricted</h1>
-        <p className="mt-2 text-xs text-muted-foreground">{permissionText}</p>
-      </div>
-    </div>
-  );
-}
-
-function DemoNotice() {
-  return (
-    <div
-      role="note"
-      data-testid="billing-demo-notice"
-      className="rounded-md border border-accent-border bg-accent px-4 py-3 text-xs text-foreground"
-    >
-      Live payments appear here once your office is signed in.
-    </div>
-  );
-}
-
-function Header({
-  title,
-  sub,
-  sandbox,
-  action,
-}: {
-  title: string;
-  sub: string;
-  sandbox?: boolean;
-  action?: ReactNode;
-}) {
-  return (
-    <PageHeader
-      kicker="Payments"
-      title={
-        <span className="flex flex-wrap items-center gap-3">
-          {title}
-          <SandboxBadge sandbox={sandbox} />
-        </span>
-      }
-      sub={sub}
-      action={action}
-    />
-  );
-}
-
-function Boundary({
-  children,
-  allowNoAccount = false,
-  demo,
-}: {
-  children: (status: OfficeBillingStatus) => ReactNode;
-  allowNoAccount?: boolean;
-  demo: ReactNode;
-}) {
-  const scope = useOfficeBillingScope();
-  const status = useOfficeBillingStatus({
-    retry: (count, error) => !(error instanceof BillingApiError && error.status === 403) && count < 2,
-  });
-  if (scope.isResolving)
-    return (
-      <div className={PAGE}>
-        <p className="text-xs text-muted-foreground">Checking your sign-in…</p>
-      </div>
-    );
-  if (scope.isDemo) return <>{demo}</>;
-  if (!scope.liveEnabled) return <PermissionState />;
-  if (status.isPending)
-    return (
-      <div className={PAGE}>
-        <div className="h-28 animate-pulse rounded-lg bg-card" />
-      </div>
-    );
-  if (
-    (status.error instanceof BillingApiError && status.error.status === 403) ||
-    status.data?.viewer.can_manage === false
-  )
-    return <PermissionState />;
-  if (status.isError || !status.data)
-    return (
-      <div className={PAGE}>
-        <ErrorBox error={status.error} retry={() => void status.refetch()} />
-      </div>
-    );
-  if (!allowNoAccount && status.data.account === null) return <Redirect to="/get-paid" />;
-  return <>{children(status.data)}</>;
-}
-
-function demoPage(title: string, body: ReactNode) {
-  return (
-    <div className={PAGE}>
-      <Header title={title} sub="A guided example of your office payment workspace." sandbox />
-      <DemoNotice />
-      {body}
-    </div>
-  );
-}
+import { Boundary, DemoNotice, demoPage, ErrorBox, Header, PAGE } from './shared';
+import { OfficeOverview } from './OfficeOverview';
+import { OfficeActivity, OfficeFulfillment, OfficeRefunds } from './OfficeStatusPages';
 
 function GetPaid() {
   return (
@@ -302,6 +181,7 @@ function GetPaidLive({ status }: { status: OfficeBillingStatus }) {
         title="Get paid"
         sub="Your office is the merchant of record, pays Stripe’s card processing fees, and has THINNR’s program fee deducted automatically."
         sandbox={status.sandbox}
+        tabs={Boolean(account)}
         action={
           account ? (
             <button className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => sync.mutate()} disabled={sync.isPending}>
@@ -360,137 +240,6 @@ function Flag({ label, on }: { label: string; on: boolean }) {
     <div>
       <p className={PANEL_LABEL}>{label}</p>
       <StatusPill tone={on ? 'good' : 'warn'}>{on ? 'Enabled' : 'Not ready'}</StatusPill>
-    </div>
-  );
-}
-
-function Dashboard() {
-  return (
-    <Boundary demo={<DashboardView status={null} data={DEMO_DASHBOARD} demo />}>
-      {(status) => <DashboardQuery status={status} />}
-    </Boundary>
-  );
-}
-function DashboardQuery({ status }: { status: OfficeBillingStatus }) {
-  const params = new URLSearchParams(useSearch());
-  const query = useOfficeDashboard({ from: params.get('from') ?? undefined, to: params.get('to') ?? undefined });
-  if (query.isPending)
-    return (
-      <div className={PAGE}>
-        <p className="text-xs text-muted-foreground">Loading dashboard…</p>
-      </div>
-    );
-  if (query.isError || !query.data)
-    return (
-      <div className={PAGE}>
-        <ErrorBox error={query.error} retry={() => void query.refetch()} />
-      </div>
-    );
-  return <DashboardView status={status} data={query.data} />;
-}
-function DashboardView({
-  status,
-  data,
-  demo = false,
-}: {
-  status: OfficeBillingStatus | null;
-  data: typeof DEMO_DASHBOARD;
-  demo?: boolean;
-}) {
-  const [, navigate] = useLocation();
-  const params = new URLSearchParams(useSearch());
-  const changeRange = (key: 'from' | 'to', value: string) => {
-    value ? params.set(key, value) : params.delete(key);
-    navigate(`/?${params}`);
-  };
-  const max = Math.max(...data.series.map((point) => point.collected_cents), 1);
-  return (
-    <div className={PAGE}>
-      <Header
-        title="Payments"
-        sub="Balances, sales, fees, and payouts for your office."
-        sandbox={status?.sandbox ?? demo}
-      />
-      {demo && <DemoNotice />}
-      {!demo && (
-        <div className="flex gap-3">
-          <label>
-            <span className={PANEL_LABEL}>From</span>
-            <input
-              type="date"
-              className={`${INPUT_CLASS} ml-2 h-9`}
-              value={params.get('from') ?? ''}
-              onChange={(e) => changeRange('from', e.target.value)}
-            />
-          </label>
-          <label>
-            <span className={PANEL_LABEL}>To</span>
-            <input
-              type="date"
-              className={`${INPUT_CLASS} ml-2 h-9`}
-              value={params.get('to') ?? ''}
-              onChange={(e) => changeRange('to', e.target.value)}
-            />
-          </label>
-        </div>
-      )}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricTile
-          label="Available"
-          value={formatCents(data.balance.available_cents)}
-          detail={`${formatCents(data.balance.pending_cents)} pending`}
-        />
-        <MetricTile label="Collected" value={formatCents(data.collected_cents)} detail={`${data.orders} orders`} />
-        <MetricTile label="THINNR fees" value={formatCents(data.thinnr_fee_cents)} />
-        <MetricTile
-          label="Office net"
-          value={formatCents(data.net_cents)}
-          detail={`${formatCents(data.stripe_fee_cents)} Stripe fees`}
-        />
-        <MetricTile label="Active subscriptions" value={data.active_subscriptions} />
-        <MetricTile label="To ship" value={data.to_ship} />
-        <MetricTile label="Refunded" value={formatCents(data.refunded_cents)} />
-        <MetricTile
-          label="Next payout"
-          value={data.next_payout ? formatCents(data.next_payout.amount_cents) : '—'}
-          detail={data.next_payout ? formatDate(data.next_payout.arrival_date) : 'Not scheduled'}
-        />
-      </div>
-      <SectionCard title="Collected and net" sub="Daily totals in the selected period.">
-        <div className="flex h-48 items-end gap-3 p-5" role="img" aria-label="Collected and net payment trend">
-          {data.series.map((point) => (
-            <div
-              key={point.date}
-              className="flex h-full flex-1 items-end gap-1"
-              title={`${formatDate(point.date)}: ${formatCents(point.collected_cents)} collected`}
-            >
-              <span
-                className="w-1/2 rounded-t-sm bg-accent"
-                style={{ height: `${(point.collected_cents / max) * 100}%` }}
-              />
-              <span className="w-1/2 rounded-t-sm bg-primary" style={{ height: `${(point.net_cents / max) * 100}%` }} />
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Quick href="/transactions" label="View transactions" />
-        <Quick href="/links" label="Payment links" />
-        <Quick href="/payouts" label="Payouts" />
-      </div>
-    </div>
-  );
-}
-function Quick({ href, label }: { href: string; label: string }) {
-  return (
-    <div className="relative rounded-lg border border-card-border bg-card p-4 shadow-soft has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring">
-      <Link
-        href={href}
-        className="font-serif font-bold text-navy after:absolute after:inset-0 focus-visible:outline-none"
-      >
-        {label}
-      </Link>
-      <ArrowRight className="mt-3 text-primary" size={16} aria-hidden="true" />
     </div>
   );
 }
@@ -981,8 +730,13 @@ function DemoTransactionDetail({ orderId }: { orderId: string }) {
   if (!order) {
     return (
       <div className={PAGE}>
-        <Link className="text-xs font-semibold text-primary hover:underline" href="/transactions">Back to transactions</Link>
-        <Header title="Transaction not found" sub="This transaction is not part of the guided demo." sandbox />
+        <Header
+          title="Transaction not found"
+          sub="This transaction is not part of the guided demo."
+          sandbox
+          tabs={false}
+          back={{ href: '/transactions', label: 'Back to transactions' }}
+        />
         <DemoNotice />
       </div>
     );
@@ -1059,13 +813,12 @@ function DetailView({
 }) {
   return (
     <div className={PAGE}>
-      <Link className="inline-flex text-xs font-semibold text-primary hover:underline" href="/transactions">
-        Back to transactions
-      </Link>
       <Header
         title={order.order_number}
         sub={`${order.payer.name} · ${formatDateTime(order.created_at)}`}
         sandbox={sandbox}
+        tabs={false}
+        back={{ href: '/transactions', label: 'Back to transactions' }}
         action={
           <button className={`${BTN_SECONDARY} h-9 px-3 text-destructive`} onClick={() => setRefundOpen(true)}>
             Refund
@@ -1477,7 +1230,10 @@ export default function OfficePaymentsArea() {
   return (
     <Switch>
       <Route path="/get-paid" component={GetPaid} />
-      <Route path="/" component={Dashboard} />
+      <Route path="/" component={OfficeOverview} />
+      <Route path="/activity" component={OfficeActivity} />
+      <Route path="/refunds" component={OfficeRefunds} />
+      <Route path="/fulfillment" component={OfficeFulfillment} />
       <Route path="/transactions/:orderId">{(params) => <TransactionDetail orderId={params.orderId} />}</Route>
       <Route path="/transactions" component={Transactions} />
       <Route path="/prices" component={Prices} />

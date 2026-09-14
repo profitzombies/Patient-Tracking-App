@@ -1,6 +1,6 @@
 import { encodeCursor, pagination, selectMany, type BillingLedgerRow, type BillingOrderRow, type BillingRefundRow } from "./store";
 import { supabaseAdmin } from "../lib/supabase-admin";
-import type { HourPoint, HqActivityRow, HqOverview, HqTodayOverview, OfficeDashboard, SeriesPoint } from "./types";
+import type { HourPoint, HqActivityRow, HqOverview, HqTodayOverview, OfficeDashboard, OfficeRefundRow, SeriesPoint } from "./types";
 
 export class BillingReportingError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -184,15 +184,28 @@ export function localDayWindow(timeZone: string, now: Date = new Date()) {
 }
 /** Revenue for the current local day, one point per clock hour. */
 export async function hqToday(input: { tz?: unknown }, now: Date = new Date()): Promise<HqTodayOverview> {
+  return todayOverview(input, null, now);
+}
+/**
+ * The office's own hourly view: the same buckets scoped to one provider, where
+ * the "profit" line is the office's net (after THINNR and card fees).
+ */
+export async function officeToday(providerId: string, input: { tz?: unknown }, now: Date = new Date()): Promise<HqTodayOverview> {
+  return todayOverview(input, providerId, now);
+}
+async function todayOverview(input: { tz?: unknown }, providerId: string | null, now: Date): Promise<HqTodayOverview> {
   const timeZone = resolveTimeZone(input.tz);
   const window = localDayWindow(timeZone, now);
   const startIso = window.start.toISOString();
   const endIso = window.end.toISOString();
-  const [orders, refunds] = await Promise.all([
-    selectMany("billing_orders", `paid_at=gte.${startIso}&paid_at=lt.${endIso}&order=paid_at.asc`),
-    selectMany("billing_refunds", `created_at=gte.${startIso}&created_at=lt.${endIso}`),
-  ]);
+  const scope = providerId ? `provider_id=eq.${encodeURIComponent(providerId)}&` : "";
+  const orders = await selectMany("billing_orders", `${scope}paid_at=gte.${startIso}&paid_at=lt.${endIso}&order=paid_at.asc`);
   const paid = orders.filter((row) => row.status !== "pending" && row.status !== "failed" && row.status !== "canceled");
+  // Refund rows carry no provider column: an office view keeps today's
+  // refunds whose order belongs to it, including refunds of older orders.
+  const refundsToday = await selectMany("billing_refunds", `created_at=gte.${startIso}&created_at=lt.${endIso}`);
+  const refunds = providerId ? await ownedBy(providerId, refundsToday, paid) : refundsToday;
+  const profitOf = (row: BillingOrderRow) => providerId ? (row.office_net_cents ?? 0) : row.hq_profit_cents;
   const hours: HourPoint[] = Array.from({ length: 24 }, (_, hour) => ({
     hour, collected_cents: 0, net_cents: 0, fee_cents: 0, profit_cents: 0, refunded_cents: 0, orders: 0,
   }));
@@ -201,7 +214,7 @@ export async function hqToday(input: { tz?: unknown }, now: Date = new Date()): 
     const point = hours[hourOf(row.paid_at ?? row.created_at)];
     point.collected_cents += row.total_cents;
     point.fee_cents += row.application_fee_cents;
-    point.profit_cents += row.hq_profit_cents;
+    point.profit_cents += profitOf(row);
     point.orders += 1;
   }
   for (const row of refunds) hours[hourOf(row.created_at)].refunded_cents += row.amount_cents;
@@ -212,6 +225,80 @@ export async function hqToday(input: { tz?: unknown }, now: Date = new Date()): 
     collected_cents: sum("collected_cents"), net_cents: sum("net_cents"), fee_cents: sum("fee_cents"),
     profit_cents: sum("profit_cents"), refunded_cents: sum("refunded_cents"), orders: sum("orders"),
   };
+}
+/** One office's slice of the ledger feed; the provider filter is pinned server-side. */
+export async function officeActivity(providerId: string, query: Record<string, unknown>) {
+  return hqActivity({ ...query, provider_id: providerId });
+}
+/** PostgREST id lists stay short enough for one URL. */
+const ID_CHUNK = 150;
+function chunks<T>(values: T[], size = ID_CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let index = 0; index < values.length; index += size) out.push(values.slice(index, index + size));
+  return out;
+}
+/** The provider's orders among `ids` (chunked so the id list never outgrows a URL). */
+async function ordersOwnedBy(providerId: string, ids: string[]): Promise<BillingOrderRow[]> {
+  const rows = await Promise.all(
+    chunks([...new Set(ids)]).map((chunk) =>
+      selectMany("billing_orders", `provider_id=eq.${encodeURIComponent(providerId)}&id=${inList(chunk)}`),
+    ),
+  );
+  return rows.flat();
+}
+/**
+ * Keep the order-linked rows (refunds, disputes) whose order belongs to the
+ * provider. Orders already in hand skip the lookup; the rest are resolved
+ * against the provider-filtered orders table, so a row on another office's
+ * order is never kept and a row on an older own order is never dropped.
+ */
+async function ownedBy<T extends { order_id: string }>(providerId: string, rows: T[], known: BillingOrderRow[] = []): Promise<T[]> {
+  const owned = new Set(known.map((row) => row.id));
+  const unknown = rows.map((row) => row.order_id).filter((id) => !owned.has(id));
+  if (unknown.length) for (const row of await ordersOwnedBy(providerId, unknown)) owned.add(row.id);
+  return rows.filter((row) => owned.has(row.order_id));
+}
+/**
+ * Refunds and disputes for one office, newest first. Both tables hang off
+ * orders (no provider column), so the rows in the date window are resolved
+ * back to the office's orders (chunked lookups, bounded by the window rather
+ * than the office's whole history) and the payer name rides along so staff
+ * can recognize the patient.
+ */
+export async function officeRefunds(providerId: string, query: Record<string, unknown>): Promise<{ items: OfficeRefundRow[]; next_cursor: null }> {
+  const range = reportRange(query);
+  const window = `created_at=gte.${range.start}&created_at=lte.${range.end}`;
+  const [refundRows, disputeRows] = await Promise.all([
+    selectMany("billing_refunds", `${window}&order=created_at.desc`),
+    selectMany("billing_disputes", `${window}&order=created_at.desc`),
+  ]);
+  const orders = await ordersOwnedBy(providerId, [...refundRows, ...disputeRows].map((row) => row.order_id));
+  if (orders.length === 0) return { items: [], next_cursor: null };
+  const byOrder = new Map(orders.map((row) => [row.id, row]));
+  const refunds = refundRows.filter((row) => byOrder.has(row.order_id));
+  const disputes = disputeRows.filter((row) => byOrder.has(row.order_id));
+  const payers = (
+    await Promise.all(chunks([...new Set(orders.map((row) => row.payer_id))]).map((chunk) => selectMany("billing_payers", `select=id,name&id=${inList(chunk)}`)))
+  ).flat();
+  const payerName = new Map(payers.map((row) => [row.id, row.name]));
+  const describe = (orderId: string) => {
+    const order = byOrder.get(orderId);
+    return { order_number: order?.order_number ?? "", payer_name: order ? payerName.get(order.payer_id) ?? null : null };
+  };
+  const items: OfficeRefundRow[] = [
+    ...refunds.map((row) => ({
+      id: row.id, kind: "refund" as const, order_id: row.order_id, ...describe(row.order_id),
+      amount_cents: row.amount_cents, status: row.status, reason: row.reason,
+      evidence_due_by: null, closed_at: null, created_at: row.created_at,
+    })),
+    ...disputes.map((row) => ({
+      id: row.id, kind: "dispute" as const, order_id: row.order_id, ...describe(row.order_id),
+      amount_cents: row.amount_cents, status: row.status, reason: row.reason,
+      evidence_due_by: row.evidence_due_by, closed_at: row.closed_at, created_at: row.created_at,
+    })),
+  ].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  const kind = typeof query.kind === "string" ? query.kind : "";
+  return { items: kind === "refund" || kind === "dispute" ? items.filter((row) => row.kind === kind) : items, next_cursor: null };
 }
 /**
  * The full activity feed behind the overview's "recent activity": every

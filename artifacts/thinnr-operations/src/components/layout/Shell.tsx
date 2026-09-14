@@ -14,6 +14,7 @@ import { useSession } from '@/contexts/session';
 import { useScopedPatients } from '@/data/scoped-data';
 import {
   findActiveOfficeNavItem,
+  isOfficeMenuPathActive,
   OFFICE_NAV_ITEMS,
   OFFICE_NAV_SECTION_DEFS,
   useOfficeIdentity,
@@ -106,6 +107,11 @@ export function Shell({ children }: { children: ReactNode }) {
       label: item.label,
       icon: item.icon,
       count: item.path === '/patients' ? patients.length : undefined,
+      children: item.children?.map((child) => ({
+        path: child.path,
+        label: child.label,
+        testId: `link-office-nav-${child.path.split('/').filter(Boolean).join('-')}`,
+      })),
     })),
   }));
 
@@ -136,7 +142,7 @@ export function Shell({ children }: { children: ReactNode }) {
         mode={menuMode}
         onModeChange={setMenuMode}
         sections={menuSections}
-        isItemActive={(path) => activeItem.path === path}
+        isItemActive={(path) => isOfficeMenuPathActive(path, location)}
         brandSubtitle={workspaceLabel}
         cta={{ label: 'Add patient', icon: Plus, href: '/patients' }}
         accountName={accountName}

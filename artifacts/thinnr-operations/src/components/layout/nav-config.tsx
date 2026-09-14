@@ -32,7 +32,27 @@ export interface OfficeNavItem {
   /** Short label for the phone tab bar (Revenue & Outcomes → Outcomes). */
   mobileLabel: string;
   icon: LucideIcon;
+  /** Dropdown sub-destinations under the row (desktop menu only; phones use the in-area tabs). */
+  children?: Array<{ path: string; label: string }>;
 }
+
+/**
+ * The office Payments area, section by section. Owners and admins see the
+ * same sub-pages HQ does, scoped to their office: mostly status views, plus
+ * the two things an office actually does here (refund a payment, set prices).
+ */
+export const OFFICE_PAYMENTS_SECTIONS = [
+  { path: '/payments', label: 'Overview' },
+  { path: '/payments/activity', label: 'Activity' },
+  { path: '/payments/transactions', label: 'Transactions' },
+  { path: '/payments/refunds', label: 'Refunds' },
+  { path: '/payments/fulfillment', label: 'Fulfillment' },
+  { path: '/payments/subscriptions', label: 'Subscriptions' },
+  { path: '/payments/payouts', label: 'Payouts' },
+  { path: '/payments/links', label: 'Payment links' },
+  { path: '/payments/prices', label: 'Prices' },
+  { path: '/payments/settings', label: 'Settings' },
+] as const;
 
 export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/', label: 'Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
@@ -41,7 +61,7 @@ export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/analytics', label: 'Revenue & Outcomes', mobileLabel: 'Outcomes', icon: WalletCards },
   { path: '/leaderboard', label: 'Leaderboard', mobileLabel: 'Leaderboard', icon: Trophy },
   { path: '/subscriptions', label: 'Subscriptions', mobileLabel: 'Plans', icon: Box },
-  { path: '/payments', label: 'Payments', mobileLabel: 'Payments', icon: CreditCard },
+  { path: '/payments', label: 'Payments', mobileLabel: 'Payments', icon: CreditCard, children: [...OFFICE_PAYMENTS_SECTIONS] },
   { path: '/training', label: 'Training', mobileLabel: 'Training', icon: GraduationCap },
   { path: '/ai-support', label: 'AI Support', mobileLabel: 'Support', icon: Sparkles },
   { path: '/team', label: 'Team', mobileLabel: 'Team', icon: UserCog },
@@ -70,6 +90,17 @@ export const OFFICE_NAV_SECTION_DEFS = [
 export function isOfficeNavItemActive(itemPath: string, location: string): boolean {
   if (itemPath === '/') return location === '/';
   return location.startsWith(itemPath);
+}
+
+/**
+ * Side-menu matcher that understands dropdown children: the parent row is
+ * active anywhere in its subtree, a child only on its own page (Overview
+ * children that equal the parent path light only on the exact page).
+ */
+export function isOfficeMenuPathActive(path: string, location: string): boolean {
+  const parent = OFFICE_NAV_ITEMS.find((item) => item.children?.some((child) => child.path === path && child.path !== item.path));
+  if (parent) return location === path || location.startsWith(`${path}/`);
+  return isOfficeNavItemActive(path, location);
 }
 
 export function findActiveOfficeNavItem(location: string): OfficeNavItem {

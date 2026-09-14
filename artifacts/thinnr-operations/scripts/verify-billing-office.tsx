@@ -7,7 +7,9 @@ import { memoryLocation } from 'wouter/memory-location';
 import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
+import { DateRangeProvider } from '../src/contexts/date-range';
 import OfficePaymentsArea from '../src/pages/office/payments/OfficePaymentsArea';
+import { OFFICE_NAV_ITEMS, OFFICE_PAYMENTS_SECTIONS, isOfficeMenuPathActive } from '../src/components/layout/nav-config';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 const g = globalThis as any;
@@ -72,7 +74,7 @@ async function render(path: string) {
   const location = memoryLocation({ path: `/payments${path === '/' ? '' : path}`, record: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   let renderer!: ReactTestRenderer;
-  await act(async () => { renderer = create(<QueryClientProvider client={client}><Router hook={location.hook}><Route path="/payments" nest><OfficePaymentsArea /></Route></Router></QueryClientProvider>); });
+  await act(async () => { renderer = create(<QueryClientProvider client={client}><DateRangeProvider><Router hook={location.hook}><Route path="/payments" nest><OfficePaymentsArea /></Route></Router></DateRangeProvider></QueryClientProvider>); });
   await settle();
   return { renderer, root: renderer.root, location };
 }
@@ -89,6 +91,17 @@ console.log('office billing: gates and setup');
   reset('demo');
   const demo = await render('/');
   check('demo renders seeded payments without fetch', requests.length === 0 && all(demo.root, 'billing-demo-notice').length === 1 && text(demo.root).includes('$6,428.50'));
+  const tabs = demo.root.findAll((node) => node.type === 'a' && typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('tab-payments-'));
+  check(
+    'overview shows every payments section as a base-relative tab',
+    tabs.length === OFFICE_PAYMENTS_SECTIONS.length && tabs.every((tab) => String(tab.props.href).startsWith('/payments/') || tab.props.href === '/payments') && tabs.find((tab) => tab.props['data-testid'] === 'tab-payments-overview')?.props['aria-current'] === 'page',
+    tabs.map((tab) => `${tab.props['data-testid']}→${tab.props.href}`).join(','),
+  );
+  check(
+    "demo overview carries today's revenue, the daily chart and recent activity",
+    Boolean(one(demo.root, 'section-today-revenue')) && text(one(demo.root, 'today-office-net')).length > 1 && Boolean(one(demo.root, 'chart-daily-revenue')) && Boolean(one(demo.root, 'tile-office-net')) && text(demo.root).includes('Payout to office') && one(demo.root, 'link-view-activity')?.props.href === '/payments/activity',
+    text(demo.root).slice(0, 300),
+  );
   demo.renderer.unmount();
 
   const demoDetail = await render('/transactions/demo-order-1');
@@ -170,6 +183,70 @@ console.log('\noffice billing: patient links and HQ scope');
   const hq = await render('/get-paid');
   check('HQ drill-in appends office to live calls', requests[0]?.url === '/api/billing/office/status?office=office-1', JSON.stringify(requests));
   hq.renderer.unmount();
+}
+
+console.log('\noffice billing: activity, refunds and fulfillment status');
+{
+  reset('demo');
+  const activity = await render('/activity');
+  check('demo activity lists seeded ledger lines without fetch', requests.length === 0 && text(activity.root).includes('TH-D3MO02') && text(activity.root).includes('Dispute opened'));
+  await act(async () => one(activity.root, 'select-activity-kind').props.onChange({ target: { value: 'payout' } }));
+  await settle();
+  check('activity type filter rides the query string base-relatively', activity.location.history.at(-1) === '/payments/activity?kind=payout' && text(activity.root).includes('Payout to office') && !text(activity.root).includes('Dispute opened'), JSON.stringify(activity.location.history));
+  activity.renderer.unmount();
+
+  const refunds = await render('/refunds');
+  const refundRows = all(refunds.root, 'row-refund-demo-refund-1').concat(all(refunds.root, 'row-refund-demo-dispute-1'));
+  check('demo refunds show the refund and the open dispute with a notice', requests.length === 0 && refundRows.length === 2 && Boolean(one(refunds.root, 'notice-open-disputes')) && text(refunds.root).includes('Response due'));
+  const openLink = refunds.root.findAll((node) => node.type === 'a' && node.props['aria-label'] === 'Open order TH-D3MO03 (dispute)')[0];
+  check('refund rows link to the transaction where the refund action lives', openLink?.props.href === '/payments/transactions/demo-order-3', String(openLink?.props.href));
+  await act(async () => one(refunds.root, 'filter-refunds-refund').props.onClick());
+  await settle();
+  check('refund kind filter narrows the list', all(refunds.root, 'row-refund-demo-dispute-1').length === 0 && all(refunds.root, 'row-refund-demo-refund-1').length === 1 && refunds.location.history.at(-1) === '/payments/refunds?kind=refund');
+  refunds.renderer.unmount();
+
+  const fulfillment = await render('/fulfillment');
+  check('demo fulfillment starts on the to-ship queue', requests.length === 0 && text(fulfillment.root).includes('TH-D3MO01') && !text(fulfillment.root).includes('TH-D3MO02'));
+  await act(async () => one(fulfillment.root, 'filter-fulfillment-shipped').props.onClick());
+  await settle();
+  check('shipped queue shows carrier and tracking, read-only', text(fulfillment.root).includes('TH-D3MO02') && text(fulfillment.root).includes('USPS') && fulfillment.root.findAll((node) => node.type === 'button' && text(node).includes('Mark shipped')).length === 0);
+  fulfillment.renderer.unmount();
+
+  reset();
+  const today = { date: '2026-10-11', time_zone: 'America/New_York', current_hour: 10, hours: Array.from({ length: 24 }, (_, hour) => ({ hour, collected_cents: hour === 9 ? 8999 : 0, refunded_cents: 0, net_cents: hour === 9 ? 8999 : 0, fee_cents: hour === 9 ? 4599 : 0, profit_cents: hour === 9 ? 4109 : 0, orders: hour === 9 ? 1 : 0 })), collected_cents: 8999, net_cents: 8999, fee_cents: 4599, profit_cents: 4109, refunded_cents: 0, orders: 1 };
+  const dashboard = { balance: { available_cents: 100, pending_cents: 0 }, next_payout: null, collected_cents: 8999, refunded_cents: 0, net_cents: 4109, thinnr_fee_cents: 4599, stripe_fee_cents: 291, orders: 1, active_subscriptions: 0, to_ship: 1, series: [] };
+  // Status, then dashboard / today / activity in whatever order the hooks fire: every response is keyed by URL below.
+  const byUrl: Record<string, () => Response> = {
+    '/api/billing/office/status': json(200, status()),
+    '/api/billing/office/overview/today': json(200, today),
+    '/api/billing/office/dashboard': json(200, dashboard),
+    '/api/billing/office/activity': json(200, { items: [], next_cursor: null }),
+  };
+  const previousFetch = g.fetch;
+  g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    requests.push({ url, method: (init?.method ?? 'GET').toUpperCase(), body: null });
+    const handler = byUrl[url.split('?')[0]];
+    if (!handler) throw new Error(`unexpected fetch ${url}`);
+    return handler();
+  };
+  const live = await render('/');
+  const todayCall = requests.find((request) => request.url.startsWith('/api/billing/office/overview/today'));
+  const dashboardCall = requests.find((request) => request.url.startsWith('/api/billing/office/dashboard'));
+  check("live overview asks for today's revenue with the viewer time zone and the shared date range", Boolean(todayCall?.url.includes('tz=')) && Boolean(dashboardCall?.url.includes('from=')) && Boolean(dashboardCall?.url.includes('to=')), JSON.stringify(requests.map((r) => r.url)));
+  check('live today section labels the profit line as office net', text(one(live.root, 'today-office-net')) === '$41.09' && text(live.root).includes('Office net'), text(one(live.root, 'today-office-net') ?? live.root).slice(0, 80));
+  live.renderer.unmount();
+  g.fetch = previousFetch;
+}
+
+console.log('\noffice billing: side menu sections');
+{
+  const payments = OFFICE_NAV_ITEMS.find((item) => item.path === '/payments');
+  check('Payments menu item lists every section as a child', JSON.stringify(payments?.children) === JSON.stringify(OFFICE_PAYMENTS_SECTIONS));
+  check(
+    'menu matcher lights the parent anywhere in the area, children only on their own page',
+    isOfficeMenuPathActive('/payments', '/payments/refunds') && isOfficeMenuPathActive('/payments/refunds', '/payments/refunds') && !isOfficeMenuPathActive('/payments/refunds', '/payments/activity') && isOfficeMenuPathActive('/payments/transactions', '/payments/transactions/abc') && !isOfficeMenuPathActive('/payments/activity', '/payments'),
+  );
 }
 
 console.log(failures ? `\n${failures} office billing check(s) failed.` : '\nAll office billing checks passed.');

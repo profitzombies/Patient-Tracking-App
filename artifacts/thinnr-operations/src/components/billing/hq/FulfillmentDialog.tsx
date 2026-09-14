@@ -61,7 +61,7 @@ export function FulfillmentDialog({
               <span className={PANEL_LABEL}>Carrier</span>
               <select
                 data-testid="select-fulfillment-carrier"
-                className={`${INPUT_CLASS} mt-1 w-full`}
+                className={`${INPUT_CLASS} mt-1 h-9 w-full`}
                 value={carrier}
                 onChange={(e) => setCarrier(e.target.value)}
               >
@@ -74,7 +74,7 @@ export function FulfillmentDialog({
               <span className={PANEL_LABEL}>Tracking number</span>
               <input
                 data-testid="input-fulfillment-tracking"
-                className={`${INPUT_CLASS} mt-1 w-full`}
+                className={`${INPUT_CLASS} mt-1 h-9 w-full`}
                 value={tracking}
                 onChange={(e) => setTracking(e.target.value)}
               />
@@ -85,7 +85,7 @@ export function FulfillmentDialog({
             <span className={PANEL_LABEL}>Reason</span>
             <textarea
               data-testid="input-fulfillment-reason"
-              className={`${INPUT_CLASS} mt-1 min-h-20 w-full`}
+              className={`${INPUT_CLASS} mt-1 min-h-20 w-full py-2`}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
@@ -97,10 +97,10 @@ export function FulfillmentDialog({
           </p>
         )}
         <DialogFooter>
-          <button className={BTN_SECONDARY} onClick={() => onOpenChange(false)}>
+          <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => onOpenChange(false)}>
             Back
           </button>
-          <button data-testid="button-fulfillment-confirm" disabled={pending} className={BTN_PRIMARY} onClick={submit}>
+          <button data-testid="button-fulfillment-confirm" disabled={pending} className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={submit}>
             {pending ? 'Saving…' : mode === 'ship' ? 'Mark shipped' : 'Cancel order'}
           </button>
         </DialogFooter>

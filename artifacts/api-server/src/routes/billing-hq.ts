@@ -2,8 +2,9 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { toConnectedAccount } from "../billing/accounts";
 import {
-  BillingCatalogError, createProduct, editProduct, listCatalog, listCatalogChanges,
-  setProductActive, updateSettings,
+  BillingCatalogError, createProduct, editProduct, finalizeProductImage, getProduct, listCatalog, listCatalogChanges,
+  productImageUploadUrl, removeProductImage, reorderProducts, setDefaultProductImage, setProductActive, setProductStatus,
+  updateSettings,
 } from "../billing/catalog";
 import { listOfficePrices } from "../billing/prices";
 import { officeDashboard } from "../billing/reporting";
@@ -15,9 +16,14 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 const router: IRouter = Router();
 const ProductSchema = z.object({
   name: z.string().trim().min(1).max(120), slug: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().max(2000).optional(),
   floor_price_cents: z.number().int().nonnegative(), hard_cost_cents: z.number().int().nonnegative(),
-  sort_order: z.number().int().optional(),
+  sort_order: z.number().int().optional(), status: z.enum(["draft", "active"]).optional(),
 });
+const StatusSchema = z.object({ status: z.enum(["draft", "active", "retired", "archived"]) });
+const OrderSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(500) });
+const ImageUploadSchema = z.object({ content_type: z.string().min(1), size: z.number().int().positive() });
+const ImageFinalizeSchema = ImageUploadSchema.extend({ image_id: z.string().uuid(), object_path: z.string().min(1) });
 const SettingsSchema = z.object({
   shipping_charge_cents: z.number().int().nonnegative(), shipping_cost_cents: z.number().int().nonnegative(),
   card_fee_bps: z.number().int().min(0).max(10_000), card_fee_fixed_cents: z.number().int().nonnegative(),
@@ -45,6 +51,35 @@ router.put("/billing/hq/catalog/products/:id", requireHqPermission("settings_man
   const parsed = ProductSchema.partial().safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Check the product details." }); return; }
   try { res.json({ product: await editProduct(String(req.params.id), parsed.data, actor(res)) }); } catch (error) { fail(req, res, error); }
+});
+router.get("/billing/hq/catalog/products/:id", requireHqPermission("financial_read"), async (req, res) => {
+  try { res.json({ product: await getProduct(String(req.params.id)) }); } catch (error) { fail(req, res, error); }
+});
+router.put("/billing/hq/catalog/order", requireHqPermission("settings_manage"), async (req, res) => {
+  const parsed = OrderSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Check the product order." }); return; }
+  try { res.json({ products: await reorderProducts(parsed.data.ids, actor(res)) }); } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/catalog/products/:id/status", requireHqPermission("settings_manage"), async (req, res) => {
+  const parsed = StatusSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Choose a valid status.", field: "status" }); return; }
+  try { res.json({ product: await setProductStatus(String(req.params.id), parsed.data.status, actor(res)) }); } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/catalog/products/:id/images/upload-url", requireHqPermission("settings_manage"), async (req, res) => {
+  const parsed = ImageUploadSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Check the image file.", field: "image" }); return; }
+  try { res.json(await productImageUploadUrl(String(req.params.id), parsed.data, actor(res))); } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/catalog/products/:id/images", requireHqPermission("settings_manage"), async (req, res) => {
+  const parsed = ImageFinalizeSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Check the image file.", field: "image" }); return; }
+  try { res.status(201).json({ product: await finalizeProductImage(String(req.params.id), parsed.data, actor(res)) }); } catch (error) { fail(req, res, error); }
+});
+router.delete("/billing/hq/catalog/products/:id/images/:imageId", requireHqPermission("settings_manage"), async (req, res) => {
+  try { res.json({ product: await removeProductImage(String(req.params.id), String(req.params.imageId), actor(res)) }); } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/catalog/products/:id/images/:imageId/default", requireHqPermission("settings_manage"), async (req, res) => {
+  try { res.json({ product: await setDefaultProductImage(String(req.params.id), String(req.params.imageId), actor(res)) }); } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/hq/catalog/products/:id/retire", requireHqPermission("settings_manage"), async (req, res) => {
   try { res.json({ product: await setProductActive(String(req.params.id), false, actor(res)) }); } catch (error) { fail(req, res, error); }

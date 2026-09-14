@@ -389,9 +389,22 @@ function CheckoutPage() {
                     key={product.product_id}
                     className={`flex items-center justify-between gap-3 p-4 ${unavailable ? 'opacity-45' : ''}`}
                   >
-                    <div>
-                      <p className="text-sm font-semibold">{product.name}</p>
-                      <p className="text-xs text-muted-foreground">{formatCents(product.unit_price_cents)}</p>
+                    <div className="flex min-w-0 items-center gap-3">
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt=""
+                          className="h-12 w-12 shrink-0 rounded-md border border-border object-cover"
+                          loading="lazy"
+                        />
+                      ) : null}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">{product.name}</p>
+                        {product.description ? (
+                          <p className="text-xs leading-relaxed text-muted-foreground">{product.description}</p>
+                        ) : null}
+                        <p className="mt-0.5 text-xs font-semibold text-navy">{formatCents(product.unit_price_cents)}</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2" aria-label={`${product.name} quantity`}>
                       <button

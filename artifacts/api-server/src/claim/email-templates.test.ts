@@ -7,7 +7,7 @@ import {
 } from "@workspace/email-templates";
 
 describe("transactional email catalog", () => {
-  it("contains exactly the four real email messages with complete sample output", () => {
+  it("contains exactly the real email messages with complete sample output", () => {
     expect(EMAIL_TEMPLATE_CATALOG.map((item) => item.id)).toEqual(EMAIL_TEMPLATE_IDS);
     for (const definition of EMAIL_TEMPLATE_CATALOG) {
       const rendered = renderSampleEmail(definition.id);
@@ -17,7 +17,12 @@ describe("transactional email catalog", () => {
       expect(rendered.html).toContain("<!doctype html>");
       expect(rendered.html).toContain("@media only screen and (max-width: 620px)");
       expect(rendered.text).not.toContain("<");
-      expect(Object.values(definition.sampleVariables).every((value) =>
+      // Multi-line values (receipt line items) render as one table row per
+      // line, so each label and amount must appear rather than the joined string.
+      const fragments = Object.values(definition.sampleVariables).flatMap((value) =>
+        value.split("\n").flatMap((line) => line.split(" · ")),
+      );
+      expect(fragments.every((value) =>
         rendered.html.includes(value.replaceAll("&", "&amp;")) && rendered.text.includes(value),
       )).toBe(true);
     }
@@ -39,5 +44,28 @@ describe("transactional email catalog", () => {
     expect(rendered.html).toContain("email-code");
     expect(rendered.text).toContain("expires in 10 minutes");
     expect(rendered.text).toContain("never share this code");
+  });
+
+  it("styles order receipts in the shared shell with the RECEIPT subject line", () => {
+    const rendered = renderEmailTemplate("order-receipt", {
+      name: "Riley", orderNumber: "TH-7K2Q9M", placedAt: "Sep 14, 2026, 3:24 PM EDT", officeName: "Harbor & Co",
+      items: "Control × 2 · $119.98\nBalance · $59.99", subtotal: "$179.97", shipping: "$9.00", tax: "$0.00", total: "$188.97",
+      shipTo: "Riley Example, 12 Harbor Lane, Austin, TX 78701, US",
+    });
+    expect(rendered.subject).toBe("RECEIPT THINNR Order (TH-7K2Q9M) - Sep 14, 2026, 3:24 PM EDT");
+    expect(rendered.html).toContain("background:#203b64;"); // shared navy masthead
+    expect(rendered.html).toContain("Harbor &amp; Co");
+    expect(rendered.html).toContain("Control × 2");
+    expect(rendered.html).toContain("$188.97");
+    expect(rendered.html).not.toContain("Manage or cancel renewals");
+    expect(rendered.text).not.toMatch(/^\n/);
+    const renewing = renderEmailTemplate("order-receipt", {
+      orderNumber: "TH-1", placedAt: "now", officeName: "Harbor", items: "Control · $1.00", subtotal: "$1.00", shipping: "$0.00",
+      tax: "$0.00", total: "$1.00", shipTo: "x", renewalNote: "This order renews every 4 weeks.", cancelLink: "https://example.test/pay/cancel/t",
+    });
+    expect(renewing.html).toContain("Manage or cancel renewals");
+    expect(renewing.html).toContain("https://example.test/pay/cancel/t");
+    expect(renewing.html).not.toContain("Hello ");
+    expect(renewing.text).toContain("Manage or cancel future renewals: https://example.test/pay/cancel/t");
   });
 });

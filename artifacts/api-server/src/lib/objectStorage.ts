@@ -334,6 +334,25 @@ export class ObjectStorageService {
     return { uploadUrl, objectPath };
   }
 
+  /**
+   * Product catalog image, bound to its product and a server-generated image
+   * id. Lives under its own prefix (outside the reconciliation sweep) because
+   * the catalog owns the object's lifecycle: rows and objects are deleted
+   * together by the catalog API.
+   */
+  async productImageUploadURL(productId: string, imageId: string): Promise<{ uploadUrl: string; objectPath: string }> {
+    const objectPath = `/objects/product-images/${productId}/${imageId}`;
+    const fullPath = `${getTrainingObjectDir()}/product-images/${productId}/${imageId}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const uploadUrl = await signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: UPLOAD_URL_TTL_SEC,
+    });
+    return { uploadUrl, objectPath };
+  }
+
   /** Resolve `/objects/...` to the underlying file; throws when absent. */
   async entityFile(objectPath: string): Promise<File> {
     const file = this.fileFor(objectPath);

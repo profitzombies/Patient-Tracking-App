@@ -14,6 +14,7 @@
 import { useCallback, useState } from 'react';
 import { Link } from 'wouter';
 import {
+  ChevronDown,
   LogOut,
   MousePointer2,
   Pin,
@@ -49,6 +50,12 @@ export function useMenuMode(): [RailMode, (mode: RailMode) => void] {
   return [mode, update];
 }
 
+export interface SideMenuChild {
+  path: string;
+  label: string;
+  testId?: string;
+}
+
 export interface SideMenuItem {
   path: string;
   label: string;
@@ -58,6 +65,12 @@ export interface SideMenuItem {
   /** Small uppercase tag chip (e.g. "Preview"). */
   tag?: string;
   testId?: string;
+  /**
+   * Sub-destinations shown as an indented dropdown under the row. The list
+   * opens automatically while the parent is active and can be toggled with
+   * the chevron without leaving the current page.
+   */
+  children?: SideMenuChild[];
 }
 
 export interface SideMenuSection {
@@ -121,11 +134,21 @@ function MenuRow({
   item,
   active,
   onSelect,
+  expanded = true,
+  isItemActive,
 }: {
   item: SideMenuItem;
   active: boolean;
   onSelect?: (path: string) => void;
+  /** Whether the menu column is wide enough to show labels (children hide in the rail). */
+  expanded?: boolean;
+  isItemActive?: (path: string) => boolean;
 }) {
+  const hasChildren = Boolean(item.children?.length);
+  // Open while the parent is active; the chevron remembers an explicit choice.
+  const [forcedOpen, setForcedOpen] = useState<boolean | null>(null);
+  const open = hasChildren && (forcedOpen ?? active);
+  const submenuId = `${item.path.replace(/[^a-z0-9]+/gi, '-')}-submenu`;
   const className = `${ROW_BASE} ${
     active
       ? 'bg-primary font-semibold text-white shadow-xs'
@@ -153,20 +176,17 @@ function MenuRow({
       )}
     </>
   );
-  if (onSelect) {
-    return (
-      <button
-        type="button"
-        data-testid={item.testId}
-        aria-current={active ? 'page' : undefined}
-        onClick={() => onSelect(item.path)}
-        className={className}
-      >
-        {inner}
-      </button>
-    );
-  }
-  return (
+  const row = onSelect ? (
+    <button
+      type="button"
+      data-testid={item.testId}
+      aria-current={active ? 'page' : undefined}
+      onClick={() => onSelect(item.path)}
+      className={className}
+    >
+      {inner}
+    </button>
+  ) : (
     <Link
       href={item.path}
       data-testid={item.testId}
@@ -175,6 +195,52 @@ function MenuRow({
     >
       {inner}
     </Link>
+  );
+  if (!hasChildren) return row;
+  const childActive = (path: string) => {
+    if (!isItemActive) return false;
+    // The parent's own path is the overview child: exact only, so it does not light up for siblings.
+    if (path === item.path) return isItemActive(path) && !item.children!.some((child) => child.path !== item.path && isItemActive(child.path));
+    return isItemActive(path);
+  };
+  return (
+    <div>
+      <div className="relative">
+        {row}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={submenuId}
+          aria-label={`${open ? 'Hide' : 'Show'} ${item.label} sections`}
+          onClick={() => setForcedOpen(!open)}
+          className={`absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+            active ? 'text-white/80 hover:bg-white/15 hover:text-white' : 'text-[#7d8ca3] hover:bg-[#e6ebf3] hover:text-navy'
+          } ${expanded ? '' : 'invisible'}`}
+        >
+          <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+      <div id={submenuId} hidden={!open || !expanded} className="mb-1 mt-0.5 space-y-0.5">
+        {item.children!.map((child) => {
+          const isActive = childActive(child.path);
+          const childClass = `flex w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-md py-1.5 pl-[44px] pr-2 text-left text-[13px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+            isActive ? 'bg-[#e8eef7] font-semibold text-primary' : 'text-[#5c6b81] hover:bg-[#f0f3f8] hover:text-navy'
+          }`;
+          const dot = <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-primary' : 'bg-[#c3cddd]'}`} />;
+          return onSelect ? (
+            <button key={child.path} type="button" data-testid={child.testId} aria-current={isActive ? 'page' : undefined} onClick={() => onSelect(child.path)} className={childClass}>
+              {dot}
+              <span className="truncate">{child.label}</span>
+            </button>
+          ) : (
+            <Link key={child.path} href={child.path} data-testid={child.testId} aria-current={isActive ? 'page' : undefined} className={childClass}>
+              {dot}
+              <span className="truncate">{child.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -266,6 +332,8 @@ function MenuColumn({
                   item={item}
                   active={isItemActive(item.path)}
                   onSelect={onSelect}
+                  expanded={expanded}
+                  isItemActive={isItemActive}
                 />
               ))}
             </div>

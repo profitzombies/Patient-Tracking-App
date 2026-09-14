@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, Redirect, Route, Switch, useLocation, useSearch } from 'wouter';
-import { ArrowRight, Copy, ExternalLink, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Copy, ExternalLink, Package, ShieldCheck } from 'lucide-react';
+import { MoneyInput } from '@/components/billing/MoneyInput';
 import { PageHeader, MetricTile } from '@/components/admin/primitives';
 import {
   BTN_PRIMARY,
@@ -571,21 +572,33 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
       className={`grid gap-3 p-5 lg:grid-cols-[1.5fr_1fr_1fr_1.2fr_auto_auto_auto] lg:items-end ${product.below_minimum ? 'bg-warn-bg' : ''}`}
       data-testid={`price-row-${product.product_id}`}
     >
-      <div>
-        <b className="text-sm text-navy">{product.name}</b>
-        {product.below_minimum && <span className={`${CHIP_WARM} ml-2`}>Below minimum</span>}
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-md border border-border bg-secondary">
+          {product.image_url ? (
+            <img src={product.image_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+          ) : (
+            <Package size={16} aria-hidden="true" className="text-muted-foreground" />
+          )}
+        </span>
+        <div className="min-w-0">
+          <b className="block text-sm text-navy">
+            {product.name}
+            {product.below_minimum && <span className={`${CHIP_WARM} ml-2 align-middle`}>Below minimum</span>}
+          </b>
+          {product.description && <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{product.description}</p>}
+        </div>
       </div>
       <LabelValue label="Floor" value={formatCents(product.floor_price_cents)} />
       <LabelValue label="Minimum" value={formatCents(product.break_even_minimum_cents)} />
       <label>
         <span className={PANEL_LABEL}>Sell price</span>
-        <input
+        <MoneyInput
           data-testid={`input-price-${product.product_id}`}
-          className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+          className="mt-1"
           value={price}
           disabled={!offered || demo}
           onChange={(e) => setPrice(e.target.value)}
-          aria-invalid={Boolean(error)}
+          invalid={Boolean(error)}
         />
       </label>
       <Check label="Offered" checked={offered} disabled={demo} onChange={setOffered} />
@@ -796,7 +809,7 @@ function LinksView({
                   <td className="p-4 text-right">
                     {link.active && (
                       <button
-                        className={BTN_SECONDARY}
+                        className={`${BTN_SECONDARY} h-8 px-3`}
                         disabled={demo}
                         onClick={() => {
                           if (window.confirm('Deactivate this payment link?')) deactivate.mutate(link.id);
@@ -1266,7 +1279,7 @@ function SubscriptionsView({
                   </td>
                   <td className="p-4 text-right">
                     {row.status !== 'canceled' && !row.cancel_at_period_end && (
-                      <button className={BTN_SECONDARY} disabled={demo} onClick={() => setCanceling(row.id)}>
+                      <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo} onClick={() => setCanceling(row.id)}>
                         Cancel
                       </button>
                     )}
@@ -1286,13 +1299,13 @@ function SubscriptionsView({
               Choose whether access ends now or after the current 4-week period.
             </p>
             <div className="mt-5 flex gap-2">
-              <button className={BTN_SECONDARY} onClick={() => setCanceling(null)}>
+              <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => setCanceling(null)}>
                 Keep active
               </button>
-              <button className={BTN_SECONDARY} onClick={() => cancel.mutate({ id: canceling, later: true })}>
+              <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => cancel.mutate({ id: canceling, later: true })}>
                 At period end
               </button>
-              <button className={BTN_PRIMARY} onClick={() => cancel.mutate({ id: canceling, later: false })}>
+              <button className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={() => cancel.mutate({ id: canceling, later: false })}>
                 Cancel now
               </button>
             </div>

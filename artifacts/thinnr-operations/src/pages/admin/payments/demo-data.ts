@@ -1,25 +1,70 @@
 import type {
   CatalogChange, ConnectedAccount, HqCatalogResponse, HqOverview, HqProviderDetail, HqProviderRow,
-  OrderDetail, OrderKind, OrderStatus, SubscriptionRow,
+  HqActivityRow, HqTodayOverview, OrderDetail, OrderKind, OrderStatus, SeriesPoint, SubscriptionRow,
 } from '@/lib/billing-types';
+
+/**
+ * Thirty fixed daily points ending on the demo anchor (Sept 24, 2026). Sums
+ * reproduce the headline tiles; never derived from the viewer clock.
+ */
+function demoSeries(): SeriesPoint[] {
+  const grossPattern = [31200, 44850, 52400, 0, 61000, 38950, 47800, 55600, 0, 42300, 68900, 39100, 51750, 0, 58400, 46200, 71900, 33800, 0, 62450, 49900, 54300, 60100, 0, 57800, 43600, 66200, 48900, 0, 71700];
+  const refundPattern: Record<number, number> = { 9: 12999, 21: 11999 };
+  return grossPattern.map((collected_cents, index) => {
+    const day = new Date(Date.UTC(2026, 7, 26 + index));
+    const orders = collected_cents === 0 ? 0 : 1 + (index % 3);
+    const fee_cents = Math.round(collected_cents * 0.431);
+    return {
+      date: day.toISOString().slice(0, 10),
+      collected_cents,
+      fee_cents,
+      net_cents: collected_cents - fee_cents,
+      refunded_cents: refundPattern[index] ?? 0,
+      orders,
+    };
+  });
+}
 
 export const DEMO_OVERVIEW: HqOverview = {
   collected_cents: 1487250, thinnr_fee_cents: 641400, shipping_charge_cents: 42000,
   hard_cost_cents: 168900, shipping_cost_cents: 42000, profit_cents: 430500,
   refunded_cents: 24998, disputed_cents: 12999, orders: 42, active_subscriptions: 18,
   providers_onboarded: 6, providers_pending: 3, to_ship: 4,
-  series: [
-    { date: '2026-09-01', collected_cents: 312400, net_cents: 177200, fee_cents: 135200 },
-    { date: '2026-09-08', collected_cents: 365850, net_cents: 205100, fee_cents: 160750 },
-    { date: '2026-09-15', collected_cents: 390000, net_cents: 218600, fee_cents: 171400 },
-    { date: '2026-09-22', collected_cents: 419000, net_cents: 234900, fee_cents: 184100 },
-  ],
+  series: demoSeries(),
   recent: [
-    { id: 'activity-1', kind: 'order_paid', label: 'Order TH-D3MO01 paid', office_name: 'Jenkins Wellness', amount_cents: 8999, occurred_at: '2026-09-24T15:30:00Z', order_id: 'demo-order-1' },
-    { id: 'activity-2', kind: 'shipped', label: 'Order TH-D3MO03 shipped', office_name: 'Beacon Hill Aesthetics', amount_cents: null, occurred_at: '2026-09-23T18:10:00Z', order_id: 'demo-order-3' },
-    { id: 'activity-3', kind: 'account_onboarded', label: 'Payments activated', office_name: 'Northstar Health Studio', amount_cents: null, occurred_at: '2026-09-22T13:00:00Z', order_id: null },
+    { id: 'activity-1', kind: 'sale', label: 'Payment received', provider_id: 'demo-provider-1', office_name: 'Jenkins Wellness', amount_cents: 8999, occurred_at: '2026-09-24T15:30:00Z', order_id: 'demo-order-1', order_number: 'TH-D3MO01' },
+    { id: 'activity-2', kind: 'refund', label: 'Refund issued', provider_id: 'demo-provider-2', office_name: 'Beacon Hill Aesthetics', amount_cents: -12999, occurred_at: '2026-09-23T18:10:00Z', order_id: 'demo-order-3', order_number: 'TH-D3MO03' },
+    { id: 'activity-3', kind: 'payout', label: 'Payout to office', provider_id: 'demo-provider-3', office_name: 'Northstar Health Studio', amount_cents: -84250, occurred_at: '2026-09-22T13:00:00Z', order_id: null, order_number: null },
+    { id: 'activity-4', kind: 'sale', label: 'Payment received', provider_id: 'demo-provider-2', office_name: 'Beacon Hill Aesthetics', amount_cents: 15999, occurred_at: '2026-09-21T16:45:00Z', order_id: 'demo-order-2', order_number: 'TH-D3MO02' },
   ],
 };
+
+export const DEMO_ACTIVITY: HqActivityRow[] = DEMO_OVERVIEW.recent;
+
+/**
+ * Fixed hourly points for the demo anchor day (Sept 24, 2026), shown through
+ * 4 PM so the chart reads as "today so far". Never derived from the clock.
+ */
+function demoToday(): HqTodayOverview {
+  const grossByHour: Record<number, number> = { 8: 8999, 9: 15999, 10: 12999, 11: 31998, 12: 8999, 13: 0, 14: 24998, 15: 15999, 16: 8999 };
+  const refundByHour: Record<number, number> = { 13: 12999 };
+  const hours = Array.from({ length: 24 }, (_, hour) => {
+    const collected_cents = grossByHour[hour] ?? 0;
+    const refunded_cents = refundByHour[hour] ?? 0;
+    const fee_cents = Math.round(collected_cents * 0.431);
+    return {
+      hour, collected_cents, refunded_cents, net_cents: collected_cents - refunded_cents, fee_cents,
+      profit_cents: Math.round(fee_cents * 0.62), orders: collected_cents === 0 ? 0 : Math.max(1, Math.round(collected_cents / 12999)),
+    };
+  });
+  const sum = (key: 'collected_cents' | 'net_cents' | 'fee_cents' | 'profit_cents' | 'refunded_cents' | 'orders') => hours.reduce((total, point) => total + point[key], 0);
+  return {
+    date: '2026-09-24', time_zone: 'America/New_York', current_hour: 16, hours,
+    collected_cents: sum('collected_cents'), net_cents: sum('net_cents'), fee_cents: sum('fee_cents'),
+    profit_cents: sum('profit_cents'), refunded_cents: sum('refunded_cents'), orders: sum('orders'),
+  };
+}
+export const DEMO_TODAY: HqTodayOverview = demoToday();
 
 const requirements = (due: string[] = [], disabled_reason: string | null = null) => ({
   currently_due: due, past_due: [], eventually_due: [], disabled_reason, current_deadline: due.length ? '2026-10-15T00:00:00Z' : null,
@@ -118,10 +163,18 @@ const productSeeds = [
   ['maintenance-stack-2', 'Maintenance Stack – 2 Products', 9999, 1249, 6239],
   ['maintenance-detox-stack', 'Maintenance + Detox Stack', 14999, 1928, 9329],
 ] as const;
+const productBlurbs: Record<string, string> = {
+  control: 'Daily appetite and craving support.', regulate: 'Blood sugar balance between meals.',
+  detox: 'A gentle reset for digestion and bloat.', fiber: 'Gentle daily fiber for fullness and regularity.',
+  'creatine-plus': 'Strength and lean muscle support during weight loss.', 'b-active': 'B-vitamin energy without the crash.',
+  boost: 'Metabolic support for stalled progress.', 'maintenance-stack': 'The core maintenance routine after goal weight.',
+  'maintenance-stack-2': 'A two-product maintenance routine.', 'maintenance-detox-stack': 'Maintenance plus a periodic detox reset.',
+};
 export const DEMO_CATALOG: HqCatalogResponse = {
   products: productSeeds.map(([slug, name, floor, hard, minimum], index) => ({
-    id: `catalog-${index + 1}`, slug, name, floor_price_cents: floor, hard_cost_cents: hard,
-    active: index !== 8, retired_at: index === 8 ? '2026-09-18T12:00:00Z' : null, sort_order: index,
+    id: `catalog-${index + 1}`, slug, name, description: productBlurbs[slug] ?? '', floor_price_cents: floor, hard_cost_cents: hard,
+    active: index !== 8, status: index === 8 ? 'retired' : 'active', retired_at: index === 8 ? '2026-09-18T12:00:00Z' : null,
+    archived_at: null, image_url: null, image_count: 0, updated_at: '2026-09-21T14:00:00Z', sort_order: index + 1,
     thinnr_share_cents: Math.floor(floor * .6), break_even_minimum_cents: minimum,
     hq_profit_per_unit_cents: Math.floor(floor * .6) - hard, offices_offering: 3 + index % 4,
     offices_below_minimum: index === 6 ? 2 : 0,
@@ -131,9 +184,10 @@ export const DEMO_CATALOG: HqCatalogResponse = {
 };
 
 export const DEMO_CATALOG_CHANGES: CatalogChange[] = [
-  { id: 'change-1', product_id: 'catalog-7', product_name: 'Boost', kind: 'product_updated', before: { floor_price_cents: 10999 }, after: { floor_price_cents: 11999 }, actor_user_id: 'hq-1', actor_name: 'Alex Morgan', created_at: '2026-09-21T14:00:00Z' },
-  { id: 'change-2', product_id: null, product_name: null, kind: 'settings_updated', before: { shipping_cost_cents: 900 }, after: { shipping_cost_cents: 1000 }, actor_user_id: 'hq-1', actor_name: 'Alex Morgan', created_at: '2026-09-19T16:30:00Z' },
-  { id: 'change-3', product_id: 'catalog-9', product_name: 'Maintenance Stack – 2 Products', kind: 'product_retired', before: { active: true }, after: { active: false }, actor_user_id: 'hq-2', actor_name: 'Morgan Lee', created_at: '2026-09-18T12:00:00Z' },
+  { id: 'change-1', product_id: 'catalog-7', product_name: 'Boost', kind: 'product_updated', before: { floor_price_cents: 10999 }, after: { floor_price_cents: 11999 }, actor_user_id: 'hq-1', actor_name: 'Alex Morgan', actor_member_id: 'hq-1', provider_id: null, office_name: null, created_at: '2026-09-21T14:03:27Z' },
+  { id: 'change-2', product_id: 'catalog-1', product_name: 'Control', kind: 'office_price_updated', before: { sell_price_cents: 7999, subscription_enabled: true }, after: { sell_price_cents: 8499, subscription_enabled: true }, actor_user_id: 'hq-1', actor_name: 'Alex Morgan', actor_member_id: 'hq-1', provider_id: 'demo-1', office_name: 'Jenkins Wellness', created_at: '2026-09-20T09:41:08Z' },
+  { id: 'change-3', product_id: null, product_name: null, kind: 'settings_updated', before: { shipping_cost_cents: 900 }, after: { shipping_cost_cents: 1000 }, actor_user_id: 'hq-1', actor_name: 'Alex Morgan', actor_member_id: 'hq-1', provider_id: null, office_name: null, created_at: '2026-09-19T16:30:52Z' },
+  { id: 'change-4', product_id: 'catalog-9', product_name: 'Maintenance Stack – 2 Products', kind: 'product_retired', before: { status: 'active' }, after: { status: 'retired' }, actor_user_id: 'hq-2', actor_name: 'Morgan Lee', actor_member_id: 'hq-2', provider_id: null, office_name: null, created_at: '2026-09-18T12:00:14Z' },
 ];
 
 export const DEMO_PROVIDER_DETAILS: Record<string, HqProviderDetail> = Object.fromEntries(DEMO_PROVIDERS.map((provider, index) => [
@@ -146,7 +200,7 @@ export const DEMO_PROVIDER_DETAILS: Record<string, HqProviderDetail> = Object.fr
       { id: `event-${index}-2`, provider_id: provider.provider_id, kind: provider.account.charges_enabled ? 'charges_enabled' : 'requirements_updated', detail: {}, created_at: '2026-08-02T15:00:00Z' },
     ] : [],
     prices: DEMO_CATALOG.products.slice(0, 5).map((product, productIndex) => ({
-      product_id: product.id, slug: product.slug, name: product.name, active: product.active,
+      product_id: product.id, slug: product.slug, name: product.name, description: product.description, image_url: null, active: product.active,
       floor_price_cents: product.floor_price_cents, break_even_minimum_cents: product.break_even_minimum_cents,
       sell_price_cents: index === 5 && productIndex < 2 ? product.break_even_minimum_cents - 100 : product.floor_price_cents + 2000,
       subscription_enabled: productIndex < 2, offered: true, below_minimum: index === 5 && productIndex < 2,

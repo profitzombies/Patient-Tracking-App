@@ -42,6 +42,8 @@ interface NavItem {
   mobileLabel?: string;
   icon: LucideIcon;
   preview?: boolean;
+  /** Dropdown sub-destinations (see SideMenuItem.children). */
+  children?: Array<{ path: string; label: string }>;
 }
 
 /** Ordered to match the menu's section grouping, top to bottom. */
@@ -57,7 +59,18 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/audit', label: 'Audit Log', mobileLabel: 'Audit', icon: ActivitySquare },
   { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
   { path: '/admin/exports', label: 'Exports', icon: FileDown },
-  { path: '/admin/payments', label: 'Payments', icon: CreditCard },
+  {
+    path: '/admin/payments', label: 'Payments', icon: CreditCard,
+    children: [
+      { path: '/admin/payments', label: 'Overview' },
+      { path: '/admin/payments/activity', label: 'Activity' },
+      { path: '/admin/payments/transactions', label: 'Transactions' },
+      { path: '/admin/payments/fulfillment', label: 'Fulfillment' },
+      { path: '/admin/payments/subscriptions', label: 'Subscriptions' },
+      { path: '/admin/payments/providers', label: 'Providers' },
+      { path: '/admin/payments/catalog', label: 'Product catalog' },
+    ],
+  },
   { path: '/admin/settings', label: 'Settings', icon: Settings2 },
   { path: '/admin/system-health', label: 'System health', mobileLabel: 'Health', icon: HeartPulse },
   { path: '/security', label: 'Security', icon: ShieldCheck },
@@ -125,6 +138,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
       count: item.path === '/admin/accounts' ? accounts.length : undefined,
       tag: item.preview ? 'Preview' : undefined,
       testId: `link-admin-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`,
+      children: item.children?.map((child) => ({
+        ...child,
+        testId: `link-admin-nav-${child.label.toLowerCase().replace(/\s+/g, '-')}`,
+      })),
     })),
   }));
 
@@ -136,7 +153,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
         mode={menuMode}
         onModeChange={setMenuMode}
         sections={menuSections}
-        isItemActive={(path) => activeItem.path === path}
+        isItemActive={(path) =>
+          activeItem.path === path || (path !== activeItem.path && path.startsWith(`${activeItem.path}/`) && (location === path || location.startsWith(`${path}/`)))
+        }
         brandSubtitle="HQ admin"
          accountName={authStatus === 'signed-in' ? (authUser?.displayName ?? 'Profile unavailable') : 'Demo HQ workspace'}
          accountRole={authStatus === 'signed-in' ? ([hqRole, profileTitle].filter(Boolean).join(' · ') || 'Profile unavailable') : 'Demo access'}

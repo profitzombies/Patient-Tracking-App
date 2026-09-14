@@ -1,13 +1,10 @@
-import { useMemo, useState } from 'react';
-import { Link, useLocation, useSearch } from 'wouter';
+import { useState } from 'react';
+import { Link, useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
-import { ExternalLink, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import {
   AdminPage,
   MetricTile,
-  PageHeader,
-  PreviewBanner,
-  UnauthorizedState,
   copyText,
 } from '@/components/admin/primitives';
 import { BTN_PRIMARY, BTN_SECONDARY, INPUT_CLASS, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
@@ -15,11 +12,14 @@ import {
   DetailList,
   FeeBreakdown,
   MoneyCell,
-  SandboxBadge,
   StatusPill,
   formatAddress,
 } from '@/components/billing/primitives';
 import { FulfillmentDialog } from '@/components/billing/hq/FulfillmentDialog';
+import { AreaChart, CHART_COLORS, ChartCard, cumulative, hourLabel, hourlySeriesFrom, seriesFrom, shortDay } from '@/components/billing/hq/RevenueCharts';
+import { ActivityTable } from '@/components/billing/hq/ActivityTable';
+import { DateRangeControl } from '@/components/layout/DateRangeControl';
+import { useDateRange } from '@/contexts/date-range';
 import { ProviderActivityTiles, ProviderRecentOrders } from '@/components/billing/hq/ProviderPaymentsSummary';
 import { RefundDialog } from '@/components/billing/RefundDialog';
 import {
@@ -31,27 +31,22 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useSession } from '@/contexts/session';
 import { useToast } from '@/hooks/use-toast';
 import {
-  useHqBillingScope,
-  useHqCatalog,
-  useHqCatalogChanges,
-  useHqCatalogMutations,
   useHqFulfillment,
   useHqOverview,
   useHqProvider,
   useHqProviders,
   useHqSubscriptions,
+  useHqToday,
   useHqTransaction,
   useHqTransactions,
   useInvalidateHqBilling,
   useUpdateFulfillment,
 } from '@/hooks/use-billing';
-import { hqBilling, BillingApiError } from '@/lib/billing-api';
+import { hqBilling } from '@/lib/billing-api';
 import {
   accountStatusLabel,
-  centsToDollarsInput,
   formatCents,
   formatDate,
   formatDateTime,
@@ -61,15 +56,11 @@ import {
   ORDER_KIND_LABEL,
   ORDER_STATUS_LABEL,
   orderStatusTone,
-  parseDollarsToCents,
   SUBSCRIPTION_STATUS_LABEL,
   subscriptionTone,
 } from '@/lib/billing-format';
-import type { CatalogProduct, OrderDetail, SubscriptionRow } from '@/lib/billing-types';
-import { canHq } from '@/data/hq/team';
+import type { HqTodayOverview, OrderDetail, SubscriptionRow } from '@/lib/billing-types';
 import {
-  DEMO_CATALOG,
-  DEMO_CATALOG_CHANGES,
   DEMO_FULFILLMENT,
   DEMO_ORDER_DETAILS,
   DEMO_ORDERS,
@@ -77,98 +68,29 @@ import {
   DEMO_PROVIDER_DETAILS,
   DEMO_PROVIDERS,
   DEMO_SUBSCRIPTIONS,
+  DEMO_TODAY,
 } from './demo-data';
 import { useBillingSandbox } from './use-billing-sandbox';
-
-function Gate({ children }: { children: (demo: boolean, canWrite: boolean) => React.ReactNode }) {
-  const scope = useHqBillingScope();
-  const { hqRole } = useSession();
-  if (scope.isResolving)
-    return (
-      <AdminPage>
-        <Skeleton className="h-40 w-full" />
-      </AdminPage>
-    );
-  const effectiveRole = scope.isDemo ? 'Super Admin' : hqRole;
-  if (!canHq(effectiveRole, 'payments')) return <UnauthorizedState role={effectiveRole} />;
-  return <>{children(scope.isDemo, effectiveRole === 'Super Admin' || effectiveRole === 'Admin')}</>;
-}
-
-function Header({
-  title,
-  sub,
-  sandbox,
-  action,
-}: {
-  title: string;
-  sub: string;
-  sandbox?: boolean;
-  action?: React.ReactNode;
-}) {
-  return (
-    <PageHeader
-      kicker="Provider payments"
-      title={title}
-      sub={sub}
-      action={
-        <div className="flex items-center gap-2">
-          <SandboxBadge sandbox={sandbox} />
-          {action}
-        </div>
-      }
-    />
-  );
-}
-
-function ErrorBox({ error, retry }: { error: unknown; retry(): void }) {
-  return (
-    <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-xs text-destructive">
-      {error instanceof Error ? error.message : 'Payments could not be loaded.'}{' '}
-      <button className="ml-1 underline" onClick={retry}>
-        Try again
-      </button>
-    </div>
-  );
-}
-
-function RowLink({ href, label }: { href: string; label: string }) {
-  return (
-    <Link
-      href={href}
-      aria-label={label}
-      className="font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      Open
-    </Link>
-  );
-}
-
-function clickable(navigate: (to: string) => void, href: string) {
-  return (event: React.MouseEvent<HTMLTableRowElement>) => {
-    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    if ((event.target as Element).closest('a, button, input, select, textarea') || window.getSelection()?.toString())
-      return;
-    navigate(href);
-  };
-}
-
-function Preview() {
-  return <PreviewBanner>Live payments appear here once HQ is signed in</PreviewBanner>;
-}
+import { ErrorBox, Gate, Header, Preview, RowLink, clickable, useUrlFilters } from './shared';
 
 export function PaymentsOverview() {
   return <Gate>{(demo) => <OverviewBody demo={demo} />}</Gate>;
 }
 function OverviewBody({ demo }: { demo: boolean }) {
-  const query = useHqOverview({});
+  const { range } = useDateRange();
+  const query = useHqOverview(demo ? {} : { from: range.start, to: range.end });
   const sandbox = useBillingSandbox();
+  const [, navigate] = useLocation();
   const data = demo ? DEMO_OVERVIEW : query.data;
+  const series = data ? seriesFrom(data.series) : null;
+  const netCollected = data ? data.collected_cents - data.refunded_cents : 0;
   return (
     <AdminPage>
       <Header
         title="Payments overview"
         sub="Program collections, fees, profit and provider payment activity."
         sandbox={sandbox.data?.sandbox}
+        action={<DateRangeControl />}
       />
       {demo && <Preview />}
       {!demo && query.isPending ? (
@@ -176,57 +98,127 @@ function OverviewBody({ demo }: { demo: boolean }) {
       ) : !demo && query.isError ? (
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       ) : (
-        data && (
+        data &&
+        series && (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricTile label="Collected" value={formatCents(data.collected_cents)} />
-              <MetricTile label="THINNR fees" value={formatCents(data.thinnr_fee_cents)} />
-              <MetricTile label="THINNR profit" value={formatCents(data.profit_cents)} />
-              <MetricTile label="Refunds" value={formatCents(data.refunded_cents)} />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="overview-tiles">
+              <MetricTile label="Gross collected" value={formatCents(data.collected_cents)} detail={`${data.orders} payment${data.orders === 1 ? '' : 's'} processed`} />
+              <MetricTile label="Refunds" value={formatCents(data.refunded_cents)} detail={data.disputed_cents ? `${formatCents(data.disputed_cents)} in open disputes` : 'No open disputes'} />
+              <MetricTile label="Net collected" value={formatCents(netCollected)} detail="Gross minus refunds" />
+              <MetricTile label="THINNR fees" value={formatCents(data.thinnr_fee_cents)} detail="Program share of every sale" />
+              <MetricTile label="THINNR profit" value={formatCents(data.profit_cents)} detail="After product and shipping costs" />
+              <MetricTile label="Payments processed" value={data.orders} detail={`${data.to_ship} to ship`} />
               <MetricTile label="Active subscriptions" value={data.active_subscriptions} />
               <MetricTile
                 label="Providers active"
                 value={data.providers_onboarded}
                 detail={`${data.providers_pending} pending`}
               />
-              <MetricTile label="Orders to ship" value={data.to_ship} />
             </div>
-            <div className="mt-5 grid gap-5 lg:grid-cols-2">
-              <SectionCard title="Collections trend" sub="Collected and THINNR fees by period">
-                <div className="space-y-3 p-5">
-                  {data.series.map((p) => (
-                    <div key={p.date}>
-                      <div className="flex justify-between text-xs">
-                        <span>{formatDate(p.date)}</span>
-                        <MoneyCell cents={p.collected_cents} />
-                      </div>
-                      <div className="mt-1 h-2 rounded bg-secondary">
-                        <div className={`h-2 rounded bg-primary ${['w-3/4', 'w-[85%]', 'w-[92%]', 'w-full'][data.series.indexOf(p) % 4]}`} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </SectionCard>
-              <SectionCard title="Recent activity">
-                <div className="divide-y divide-border">
-                  {data.recent.map((row) => (
-                    <div key={row.id} className="flex justify-between gap-4 p-4 text-xs">
-                      <span>
-                        <b className="text-navy">{row.label}</b>
-                        <small className="block text-muted-foreground">
-                          {row.office_name} · {formatDateTime(row.occurred_at)}
-                        </small>
-                      </span>
-                      <MoneyCell cents={row.amount_cents} />
-                    </div>
-                  ))}
-                </div>
-              </SectionCard>
+            <TodayRevenue demo={demo} />
+            <SectionCard title="Daily revenue" sub="Gross collected, net after refunds, and THINNR fees by day" className="mt-5">
+              <div className="p-5">
+                <AreaChart
+                  title="Daily revenue"
+                  dates={series.dates}
+                  unit="money"
+                  testId="chart-daily-revenue"
+                  formatLabelLong={(key) => `${shortDay(key)}, ${key.slice(0, 4)}`}
+                  series={[
+                    { key: 'gross', label: 'Gross collected', color: CHART_COLORS.gross, values: series.gross },
+                    { key: 'net', label: 'Net after refunds', color: CHART_COLORS.net, values: series.net },
+                    { key: 'fees', label: 'THINNR fees', color: CHART_COLORS.fees, values: series.fees },
+                  ]}
+                />
+              </div>
+            </SectionCard>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <ChartCard label="Payments per day" value={String(data.orders)} detail="Total processed in range" dates={series.dates} values={series.orders} unit="count" color={CHART_COLORS.count} testId="chart-payments" />
+              <ChartCard label="Refunds per day" value={formatCents(data.refunded_cents)} detail="Total refunded in range" dates={series.dates} values={series.refunds} unit="money" color={CHART_COLORS.refunds} testId="chart-refunds" />
+              <ChartCard label="Gross collections" value={formatCents(data.collected_cents)} detail="Running total" dates={series.dates} values={cumulative(series.gross)} unit="money" color={CHART_COLORS.gross} testId="chart-gross" />
+              <ChartCard label="Net collections" value={formatCents(netCollected)} detail="Running total after refunds" dates={series.dates} values={cumulative(series.net)} unit="money" color={CHART_COLORS.net} testId="chart-net" />
             </div>
+            <SectionCard
+              title="Recent activity"
+              sub="Latest payments, refunds, disputes and payouts across every office"
+              className="mt-5"
+              action={
+                <Link href="/activity" className={`${BTN_SECONDARY} h-8 px-3`} data-testid="link-view-activity">
+                  View all activity
+                </Link>
+              }
+            >
+              <ActivityTable rows={data.recent} navigate={navigate} empty="No payment activity in this range yet." />
+            </SectionCard>
           </>
         )
       )}
     </AdminPage>
+  );
+}
+
+/** Today's revenue by clock hour: gross, net after refunds, THINNR fees and THINNR profit, refreshed every minute. */
+function TodayRevenue({ demo }: { demo: boolean }) {
+  const query = useHqToday();
+  const data: HqTodayOverview | undefined = demo ? DEMO_TODAY : query.data;
+  const zone = data
+    ? new Intl.DateTimeFormat('en-US', { timeZone: data.time_zone, timeZoneName: 'short' }).formatToParts(new Date()).find((part) => part.type === 'timeZoneName')?.value ?? data.time_zone
+    : null;
+  const sub = data ? `${shortDay(data.date)} so far, by the hour (${zone}). Refreshes every minute.` : 'By the hour. Refreshes every minute.';
+  return (
+    <SectionCard title="Today's revenue" sub={sub} className="mt-5">
+      <div className="p-5" data-testid="section-today-revenue">
+        {!demo && query.isPending ? (
+          <Skeleton className="h-52 w-full" />
+        ) : !demo && query.isError ? (
+          <ErrorBox error={query.error} retry={() => void query.refetch()} />
+        ) : data ? (
+          <>
+            <dl className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="today-totals">
+              {[
+                { label: 'Gross collected', value: data.collected_cents, color: CHART_COLORS.gross, testId: 'today-gross' },
+                { label: 'Net after refunds', value: data.net_cents, color: CHART_COLORS.net, testId: 'today-net' },
+                { label: 'THINNR fees', value: data.fee_cents, color: CHART_COLORS.fees, testId: 'today-fees' },
+                { label: 'THINNR profit', value: data.profit_cents, color: CHART_COLORS.profit, testId: 'today-profit' },
+              ].map((tile) => (
+                <div key={tile.label} className="rounded-md border border-border bg-background/60 px-3 py-2.5">
+                  <dt className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+                    <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: tile.color }} />
+                    {tile.label}
+                  </dt>
+                  <dd className="mt-1 font-serif text-[20px] font-bold leading-none tracking-[-.01em] text-navy" data-testid={tile.testId}>
+                    {formatCents(tile.value)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <HourlyChart data={data} />
+          </>
+        ) : null}
+      </div>
+    </SectionCard>
+  );
+}
+function HourlyChart({ data }: { data: HqTodayOverview }) {
+  const hourly = hourlySeriesFrom(data.hours, data.current_hour);
+  return (
+    <AreaChart
+      title="Today's revenue"
+      dates={hourly.hours}
+      unit="money"
+      height={200}
+      testId="chart-today-revenue"
+      formatLabel={hourLabel}
+      formatLabelLong={(key) => `${hourLabel(key)} to ${hourLabel(String((Number(key) + 1) % 24))}`}
+      labelCount={hourly.hours.length <= 8 ? hourly.hours.length : 8}
+      emptyLabel="No payments yet today"
+      series={[
+        { key: 'gross', label: 'Gross collected', color: CHART_COLORS.gross, values: hourly.gross },
+        { key: 'net', label: 'Net after refunds', color: CHART_COLORS.net, values: hourly.net },
+        { key: 'fees', label: 'THINNR fees', color: CHART_COLORS.fees, values: hourly.fees },
+        { key: 'profit', label: 'THINNR profit', color: CHART_COLORS.profit, values: hourly.profit },
+      ]}
+    />
   );
 }
 
@@ -329,13 +321,12 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
   const data = demo ? DEMO_PROVIDER_DETAILS[id] : query.data;
   return (
     <AdminPage>
-      <Link href="/providers" className="mb-3 inline-flex text-xs font-semibold text-primary hover:underline">
-        Back to providers
-      </Link>
       <Header
         title={data?.office.office_name ?? 'Provider payment profile'}
         sub="Connected account, requirements, pricing and payment activity."
         sandbox={sandbox.data?.sandbox}
+        tabs={false}
+        back={{ href: '/providers', label: 'Back to providers' }}
       />
       {demo && <Preview />}
       {!demo && query.isPending ? (
@@ -454,18 +445,6 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
   );
 }
 
-function useUrlFilters(base: string) {
-  const search = useSearch();
-  const [, navigate] = useLocation();
-  const params = new URLSearchParams(search);
-  const set = (key: string, value: string) => {
-    const next = new URLSearchParams(search);
-    value ? next.set(key, value) : next.delete(key);
-    navigate(`${base}${next.toString() ? `?${next}` : ''}`, { replace: true });
-  };
-  return { params, set };
-}
-
 export function PaymentsTransactions() {
   return <Gate>{(demo) => <TransactionsBody demo={demo} />}</Gate>;
 }
@@ -485,7 +464,7 @@ function TransactionsBody({ demo }: { demo: boolean }) {
           <Search className="absolute left-3 top-2.5" size={14} />
           <input
             aria-label="Search transactions"
-            className={`${INPUT_CLASS} w-full pl-9`}
+            className={`${INPUT_CLASS} h-9 w-full pl-9`}
             value={url.params.get('q') ?? ''}
             onChange={(e) => url.set('q', e.target.value)}
             placeholder="Order, office or payer"
@@ -497,7 +476,7 @@ function TransactionsBody({ demo }: { demo: boolean }) {
               key={key}
               aria-label={key}
               type="date"
-              className={INPUT_CLASS}
+              className={`${INPUT_CLASS} h-9`}
               value={url.params.get(key) ?? ''}
               onChange={(e) => url.set(key, e.target.value)}
             />
@@ -505,7 +484,7 @@ function TransactionsBody({ demo }: { demo: boolean }) {
             <select
               key={key}
               aria-label={key}
-              className={INPUT_CLASS}
+              className={`${INPUT_CLASS} h-9`}
               value={url.params.get(key) ?? ''}
               onChange={(e) => url.set(key, e.target.value)}
             >
@@ -606,16 +585,15 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
   const order = demo ? DEMO_ORDER_DETAILS.find((row) => row.id === id) : query.data;
   return (
     <AdminPage>
-      <Link href="/transactions" className="mb-3 inline-flex text-xs font-semibold text-primary hover:underline">
-        Back to transactions
-      </Link>
       <Header
         title={order ? `Order ${order.order_number}` : 'Transaction detail'}
         sub="Complete payment, fulfillment and Stripe record."
         sandbox={sandbox.data?.sandbox}
+        tabs={false}
+        back={{ href: '/transactions', label: 'Back to transactions' }}
         action={
           order && canWrite ? (
-            <button className={BTN_PRIMARY} onClick={() => setRefundOpen(true)}>
+            <button className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={() => setRefundOpen(true)}>
               Refund
             </button>
           ) : undefined
@@ -628,74 +606,110 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       ) : order ? (
         <div className="grid gap-5 lg:grid-cols-2">
-          <SectionCard title="Order">
-            <DetailList
-              items={[
-                { label: 'Office', value: order.office_name },
-                { label: 'Payer', value: `${order.payer.name} · ${order.payer.email ?? 'No email'}` },
-                {
-                  label: 'Status',
-                  value: (
-                    <StatusPill tone={orderStatusTone(order.status)}>{ORDER_STATUS_LABEL[order.status]}</StatusPill>
-                  ),
-                },
-                { label: 'Paid', value: formatDateTime(order.paid_at) },
-              ]}
-            />
-            <div className="mt-4">
-              {order.items.map((i) => (
-                <div key={i.id} className="flex justify-between border-t py-2 text-xs">
-                  <span>
-                    {i.product_name} × {i.quantity}
-                  </span>
-                  <MoneyCell cents={i.unit_price_cents * i.quantity} />
-                </div>
-              ))}
+          <SectionCard title="Order" sub={`${order.items.reduce((sum, i) => sum + i.quantity, 0)} item(s) · ${ORDER_KIND_LABEL[order.kind]}`}>
+            <div className="p-5">
+              <DetailList
+                items={[
+                  { label: 'Office', value: order.office_name },
+                  { label: 'Payer', value: `${order.payer.name} · ${order.payer.email ?? 'No email'}` },
+                  {
+                    label: 'Status',
+                    value: (
+                      <StatusPill tone={orderStatusTone(order.status)}>{ORDER_STATUS_LABEL[order.status]}</StatusPill>
+                    ),
+                  },
+                  { label: 'Paid', value: formatDateTime(order.paid_at) },
+                ]}
+              />
             </div>
+            <table className="w-full border-t border-border text-xs">
+              <thead>
+                <tr className="text-left">
+                  <th className={`${PANEL_LABEL} px-5 py-2.5`}>Item</th>
+                  <th className={`${PANEL_LABEL} px-5 py-2.5 text-right`}>Qty</th>
+                  <th className={`${PANEL_LABEL} px-5 py-2.5 text-right`}>Unit price</th>
+                  <th className={`${PANEL_LABEL} px-5 py-2.5 text-right`}>Line total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border border-t border-border">
+                {order.items.map((i) => (
+                  <tr key={i.id}>
+                    <td className="px-5 py-2.5 font-semibold text-navy">{i.product_name}</td>
+                    <td className="px-5 py-2.5 text-right tabular-nums">{i.quantity}</td>
+                    <td className="px-5 py-2.5 text-right"><MoneyCell cents={i.unit_price_cents} /></td>
+                    <td className="px-5 py-2.5 text-right"><MoneyCell cents={i.unit_price_cents * i.quantity} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </SectionCard>
           <SectionCard title="Fees and profit">
-            <FeeBreakdown fees={order.fees} profit={order.profit} perspective="hq" />
+            <div className="p-5">
+              <FeeBreakdown fees={order.fees} profit={order.profit} perspective="hq" />
+            </div>
           </SectionCard>
           <SectionCard title="Shipping and fulfillment">
-            <address className="not-italic text-xs">
-              {formatAddress(order.shipping_address).map((x) => (
-                <span className="block" key={x}>
-                  {x}
-                </span>
-              ))}
-            </address>
-            <DetailList
-              items={[
-                { label: 'Status', value: FULFILLMENT_LABEL[order.fulfillment_status] },
-                { label: 'Carrier', value: order.carrier ?? '—' },
-                { label: 'Tracking', value: order.tracking_number ?? '—' },
-                { label: 'Canceled reason', value: order.canceled_reason ?? '—' },
-              ]}
-            />
+            <div className="space-y-4 p-5">
+              <div>
+                <p className={PANEL_LABEL}>Ship to</p>
+                <address className="mt-1 text-xs not-italic leading-relaxed">
+                  {formatAddress(order.shipping_address).map((x) => (
+                    <span className="block" key={x}>
+                      {x}
+                    </span>
+                  ))}
+                </address>
+              </div>
+              <DetailList
+                items={[
+                  { label: 'Status', value: <StatusPill tone={fulfillmentTone(order.fulfillment_status)}>{FULFILLMENT_LABEL[order.fulfillment_status]}</StatusPill> },
+                  { label: 'Carrier', value: order.carrier ?? '—' },
+                  { label: 'Tracking', value: order.tracking_number ?? '—' },
+                  { label: 'Shipped', value: order.shipped_at ? formatDateTime(order.shipped_at) : '—' },
+                  ...(order.canceled_reason ? [{ label: 'Canceled reason', value: order.canceled_reason }] : []),
+                ]}
+              />
+            </div>
           </SectionCard>
           <SectionCard title="Refunds and disputes">
-            <div className="text-xs">
-              {order.refunds.map((r) => (
-                <p key={r.id}>
-                  {formatDateTime(r.created_at)} · {formatCents(r.amount_cents)} · {r.status} · {r.reason}
-                </p>
-              ))}
-              {order.disputes.map((d) => (
-                <p key={d.id}>
-                  {formatDateTime(d.created_at)} · Dispute {d.status} · {formatCents(d.amount_cents)}
-                </p>
-              ))}
-              {!order.refunds.length && !order.disputes.length && (
+            <div className="p-5 text-xs">
+              {order.refunds.length > 0 || order.disputes.length > 0 ? (
+                <ul className="divide-y divide-border">
+                  {order.refunds.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+                      <span>
+                        <b className="font-semibold text-navy">Refund</b>
+                        <small className="block text-muted-foreground">
+                          {formatDateTime(r.created_at)} · {r.status}{r.reason ? ` · ${r.reason}` : ''}
+                        </small>
+                      </span>
+                      <MoneyCell cents={-r.amount_cents} />
+                    </li>
+                  ))}
+                  {order.disputes.map((d) => (
+                    <li key={d.id} className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+                      <span>
+                        <b className="font-semibold text-navy">Dispute {d.status}</b>
+                        <small className="block text-muted-foreground">{formatDateTime(d.created_at)}</small>
+                      </span>
+                      <MoneyCell cents={d.amount_cents} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
                 <p className="text-muted-foreground">No refunds or disputes.</p>
               )}
             </div>
           </SectionCard>
-          <SectionCard title="Stripe references" className="lg:col-span-2">
-            <p className="break-all font-mono text-[10px] text-muted-foreground">
-              {Object.entries(order.stripe)
-                .map(([k, v]) => `${k}: ${v ?? '—'}`)
-                .join(' · ')}
-            </p>
+          <SectionCard title="Stripe references" sub="Identifiers for reconciling this order inside Stripe." className="lg:col-span-2">
+            <div className="p-5">
+              <DetailList
+                items={Object.entries(order.stripe).map(([k, v]) => ({
+                  label: k.replace(/_/g, ' '),
+                  value: <span className="break-all font-mono text-[11px]">{v ?? '—'}</span>,
+                }))}
+              />
+            </div>
           </SectionCard>
           <RefundDialog
             order={order}
@@ -761,7 +775,7 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
           <button
             key={x}
             onClick={() => url.set('status', x)}
-            className={`${x === status ? BTN_PRIMARY : BTN_SECONDARY} h-9`}
+            className={`${x === status ? BTN_PRIMARY : BTN_SECONDARY} h-9 px-3`}
           >
             {FULFILLMENT_LABEL[x]}
           </button>
@@ -810,12 +824,12 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
                 </address>
                 {canWrite && order.fulfillment_status === 'to_ship' && (
                   <div className="flex items-start justify-end gap-2">
-                    <button className={BTN_SECONDARY} onClick={() => setDialog({ order, mode: 'cancel' })}>
+                    <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => setDialog({ order, mode: 'cancel' })}>
                       Cancel order
                     </button>
                     <button
                       data-testid={`button-ship-${order.id}`}
-                      className={BTN_PRIMARY}
+                      className={`${BTN_PRIMARY} h-9 px-3.5`}
                       onClick={() => setDialog({ order, mode: 'ship' })}
                     >
                       Mark shipped
@@ -840,373 +854,6 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
           pending={mutation.isPending}
           error={mutation.error instanceof Error ? mutation.error.message : null}
         />
-      )}
-    </AdminPage>
-  );
-}
-
-function productMath(
-  floor: number,
-  hard: number | null,
-  shippingCharge: number,
-  shippingCost: number,
-  bps: number,
-  fixed: number,
-) {
-  const share = Math.floor((floor * 60) / 100);
-  const stripe = (sell: number) => Math.round(((sell + shippingCharge) * bps) / 10000) + fixed;
-  let minimum = Math.max(0, Math.floor((share + fixed) / (1 - bps / 10000)));
-  while (minimum - share - stripe(minimum) < 0) minimum += 1;
-  while (minimum > 0 && minimum - 1 - share - stripe(minimum - 1) >= 0) minimum -= 1;
-  return { share, minimum, profit: hard === null ? null : share - hard };
-}
-
-export function PaymentsCatalog() {
-  return <Gate>{(demo, canWrite) => <CatalogBody demo={demo} canWrite={canWrite} />}</Gate>;
-}
-function CatalogBody({ demo, canWrite }: { demo: boolean; canWrite: boolean }) {
-  const query = useHqCatalog();
-  const sandbox = useBillingSandbox();
-  const mutations = useHqCatalogMutations();
-  const { toast } = useToast();
-  const [editing, setEditing] = useState<CatalogProduct | 'new' | null>(null);
-  const data = demo ? DEMO_CATALOG : query.data;
-  return (
-    <AdminPage>
-      <Header
-        title="Product catalog"
-        sub="Pricing floors, costs, fee assumptions and change controls."
-        sandbox={sandbox.data?.sandbox}
-        action={
-          canWrite ? (
-            <button data-testid="button-catalog-add" className={BTN_PRIMARY} onClick={() => setEditing('new')}>
-              Add product
-            </button>
-          ) : undefined
-        }
-      />
-      {demo && <Preview />}
-      {!demo && query.isPending ? (
-        <Skeleton className="h-72" />
-      ) : !demo && query.isError ? (
-        <ErrorBox error={query.error} retry={() => void query.refetch()} />
-      ) : data ? (
-        <>
-          <SectionCard
-            title="Products"
-            sub={`${data.offices_below_minimum} offices have pricing below the current minimum`}
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[780px] text-xs">
-                <thead>
-                  <tr>
-                    <th className="p-3 text-left">Product</th>
-                    <th>Floor</th>
-                    <th>Hard cost</th>
-                    <th>THINNR share</th>
-                    <th>Minimum</th>
-                    <th>Profit per unit</th>
-                    <th>Status</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.products.map((p) => (
-                    <tr key={p.id} className="border-t">
-                      <td className="p-3 font-semibold">{p.name}</td>
-                      <td>
-                        <MoneyCell cents={p.floor_price_cents} />
-                      </td>
-                      <td>
-                        <MoneyCell cents={p.hard_cost_cents} />
-                      </td>
-                      <td>
-                        <MoneyCell cents={p.thinnr_share_cents} />
-                      </td>
-                      <td>
-                        <MoneyCell cents={p.break_even_minimum_cents} />
-                      </td>
-                      <td>
-                        <MoneyCell cents={p.hq_profit_per_unit_cents} />
-                      </td>
-                      <td>
-                        <StatusPill tone={p.active ? 'good' : 'neutral'}>{p.active ? 'Active' : 'Retired'}</StatusPill>
-                      </td>
-                      <td className="p-2">
-                        {canWrite && (
-                          <div className="flex gap-1">
-                            <button className={BTN_SECONDARY} onClick={() => setEditing(p)}>
-                              Edit
-                            </button>
-                            <button
-                              className={BTN_SECONDARY}
-                              onClick={() => {
-                                if (demo) {
-                                  toast({ title: 'Preview only', description: 'Sign in to change the live catalog.' });
-                                  return;
-                                }
-                                (p.active ? mutations.retire : mutations.reactivate).mutate(p.id, {
-                                  onSuccess: () =>
-                                    toast({
-                                      variant: 'success',
-                                      title: p.active ? 'Product retired' : 'Product reactivated',
-                                    }),
-                                });
-                              }}
-                            >
-                              {p.active ? 'Retire' : 'Reactivate'}
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </SectionCard>
-          <SettingsCard data={data} canWrite={canWrite} demo={demo} />
-          <Link
-            className="mt-4 inline-block text-xs font-semibold text-primary underline"
-            href="/catalog/history"
-          >
-            View catalog change history
-          </Link>
-          {editing && (
-            <ProductDialog
-              product={editing === 'new' ? null : editing}
-              settings={data.settings}
-              open
-              onOpenChange={(open) => !open && setEditing(null)}
-        onSave={(body) => {
-          if (demo) {
-            toast({ title: 'Preview only', description: 'Sign in to change the live catalog.' });
-            setEditing(null);
-            return;
-          }
-                const success = () => {
-                  setEditing(null);
-                  toast({ variant: 'success', title: editing === 'new' ? 'Product added' : 'Product updated' });
-                };
-                if (editing === 'new') mutations.create.mutate(body, { onSuccess: success });
-                else mutations.update.mutate({ productId: editing.id, ...body }, { onSuccess: success });
-              }}
-              pending={mutations.create.isPending || mutations.update.isPending}
-            />
-          )}
-        </>
-      ) : null}
-    </AdminPage>
-  );
-}
-
-function ProductDialog({
-  product,
-  settings,
-  open,
-  onOpenChange,
-  onSave,
-  pending,
-}: {
-  product: CatalogProduct | null;
-  settings: {
-    shipping_charge_cents: number;
-    shipping_cost_cents: number;
-    card_fee_bps: number;
-    card_fee_fixed_cents: number;
-  };
-  open: boolean;
-  onOpenChange(open: boolean): void;
-  onSave(body: { name: string; floor_price_cents: number; hard_cost_cents: number }): void;
-  pending: boolean;
-}) {
-  const [name, setName] = useState(product?.name ?? '');
-  const [floor, setFloor] = useState(centsToDollarsInput(product?.floor_price_cents));
-  const [hard, setHard] = useState(centsToDollarsInput(product?.hard_cost_cents));
-  const [error, setError] = useState<string | null>(null);
-  const parsedFloor = parseDollarsToCents(floor);
-  const parsedHard = parseDollarsToCents(hard);
-  const math =
-    parsedFloor.ok
-      ? productMath(
-          parsedFloor.cents,
-          parsedHard.ok ? parsedHard.cents : null,
-          settings.shipping_charge_cents,
-          settings.shipping_cost_cents,
-          settings.card_fee_bps,
-          settings.card_fee_fixed_cents,
-        )
-      : null;
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="font-serif text-navy">{product ? 'Edit product' : 'Add product'}</DialogTitle>
-          <DialogDescription>Amounts accept no more than two decimal places.</DialogDescription>
-        </DialogHeader>
-        <label>
-          <span className={PANEL_LABEL}>Name</span>
-          <input
-            data-testid="input-catalog-name"
-            className={`${INPUT_CLASS} w-full`}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <label>
-          <span className={PANEL_LABEL}>Floor price</span>
-          <input
-            data-testid="input-catalog-floor"
-            className={`${INPUT_CLASS} w-full`}
-            value={floor}
-            onChange={(e) => setFloor(e.target.value)}
-          />
-        </label>
-        <label>
-          <span className={PANEL_LABEL}>Hard cost</span>
-          <input
-            data-testid="input-catalog-hard-cost"
-            className={`${INPUT_CLASS} w-full`}
-            value={hard}
-            onChange={(e) => setHard(e.target.value)}
-          />
-        </label>
-        {math && (
-          <div data-testid="catalog-live-math" className="rounded bg-secondary p-3 text-xs">
-            THINNR share {formatCents(math.share)} · office minimum {formatCents(math.minimum)} · HQ profit per unit{' '}
-            {formatCents(math.profit)}
-          </div>
-        )}
-        {error && (
-          <p role="alert" className="text-xs text-destructive">
-            {error}
-          </p>
-        )}
-        <DialogFooter>
-          <button className={BTN_SECONDARY} onClick={() => onOpenChange(false)}>
-            Cancel
-          </button>
-          <button
-            data-testid="button-catalog-save"
-            disabled={pending}
-            className={BTN_PRIMARY}
-            onClick={() => {
-              if (!name.trim()) return setError('Enter a product name.');
-              if (!parsedFloor.ok) return setError(parsedFloor.error);
-              if (!parsedHard.ok) return setError(parsedHard.error);
-              onSave({ name: name.trim(), floor_price_cents: parsedFloor.cents, hard_cost_cents: parsedHard.cents });
-            }}
-          >
-            {pending ? 'Saving…' : 'Save product'}
-          </button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function SettingsCard({
-  data,
-  canWrite,
-  demo,
-}: {
-  data: NonNullable<ReturnType<typeof useHqCatalog>['data']>;
-  canWrite: boolean;
-  demo: boolean;
-}) {
-  const mutation = useHqCatalogMutations().settings;
-  const { toast } = useToast();
-  const s = data.settings;
-  const [form, setForm] = useState({
-    shipping_charge_cents: s.shipping_charge_cents,
-    shipping_cost_cents: s.shipping_cost_cents,
-    card_fee_bps: s.card_fee_bps,
-    card_fee_fixed_cents: s.card_fee_fixed_cents,
-  });
-  return (
-    <SectionCard
-      className="mt-5"
-      title="Program settings"
-      sub="Shipping and card fee assumptions drive every break-even minimum."
-    >
-      <div className="grid gap-3 p-4 sm:grid-cols-4">
-        {Object.entries(form).map(([key, value]) => (
-          <label key={key}>
-            <span className={PANEL_LABEL}>{humanizeRequirement(key)}</span>
-            <input
-              type="number"
-              className={`${INPUT_CLASS} w-full`}
-              value={value}
-              disabled={!canWrite}
-              onChange={(e) => setForm((x) => ({ ...x, [key]: Number(e.target.value) }))}
-            />
-          </label>
-        ))}
-      </div>
-      {canWrite && (
-        <button
-          className={`${BTN_PRIMARY} m-4 mt-0`}
-          onClick={() => {
-            if (demo) {
-              toast({ title: 'Preview only', description: 'Sign in to change live payment settings.' });
-              return;
-            }
-            mutation.mutate(
-              { ...form, expected_version: s.version },
-              { onSuccess: () => toast({ variant: 'success', title: 'Settings saved' }) },
-            );
-          }}
-        >
-          Save settings
-        </button>
-      )}
-      {mutation.error && (
-        <p role="alert" className="m-4 text-xs text-destructive">
-          {mutation.error instanceof BillingApiError && mutation.error.status === 409
-            ? 'Someone else changed these settings. Reload to see the latest.'
-            : mutation.error.message}
-        </p>
-      )}
-    </SectionCard>
-  );
-}
-
-export function PaymentsCatalogHistory() {
-  return <Gate>{(demo) => <CatalogHistoryBody demo={demo} />}</Gate>;
-}
-function CatalogHistoryBody({ demo }: { demo: boolean }) {
-  const query = useHqCatalogChanges({});
-  const sandbox = useBillingSandbox();
-  const rows = demo ? DEMO_CATALOG_CHANGES : query.data?.items;
-  return (
-    <AdminPage>
-      <Header
-        title="Catalog history"
-        sub="An audit trail of product and program setting changes."
-        sandbox={sandbox.data?.sandbox}
-      />
-      {demo && <Preview />}
-      {!demo && query.isPending ? (
-        <Skeleton className="h-52" />
-      ) : !demo && query.isError ? (
-        <ErrorBox error={query.error} retry={() => void query.refetch()} />
-      ) : (
-        <SectionCard title="Changes">
-          <div className="divide-y">
-            {rows?.map((c) => (
-              <div key={c.id} className="grid gap-1 p-4 text-xs sm:grid-cols-3">
-                <b>{humanizeRequirement(c.kind)}</b>
-                <span>{c.product_name ?? 'Program settings'}</span>
-                <span className="text-muted-foreground">
-                  {c.actor_name ?? 'System'} · {formatDateTime(c.created_at)}
-                </span>
-              </div>
-            ))}
-            {!rows?.length && (
-              <p className="p-8 text-center text-xs text-muted-foreground">No catalog changes recorded.</p>
-            )}
-          </div>
-        </SectionCard>
       )}
     </AdminPage>
   );
@@ -1241,7 +888,7 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
       {demo && <Preview />}
       <div className="mb-4 flex gap-2">
         <select
-          className={INPUT_CLASS}
+          className={`${INPUT_CLASS} h-9`}
           aria-label="Subscription status"
           value={url.params.get('status') ?? ''}
           onChange={(e) => url.set('status', e.target.value)}
@@ -1254,7 +901,7 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
           ))}
         </select>
         <input
-          className={INPUT_CLASS}
+          className={`${INPUT_CLASS} h-9`}
           aria-label="Office filter"
           placeholder="Office id"
           value={url.params.get('provider_id') ?? ''}
@@ -1303,14 +950,14 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
                       {canWrite && row.status !== 'canceled' && (
                         <span className="flex gap-1">
                           <button
-                            className={BTN_SECONDARY}
+                            className={`${BTN_SECONDARY} h-8 px-3`}
                             disabled={cancel.isPending}
                             onClick={() => setCanceling({ row, atPeriodEnd: true })}
                           >
                             Cancel at renewal
                           </button>
                           <button
-                            className={BTN_SECONDARY}
+                            className={`${BTN_SECONDARY} h-8 px-3`}
                             disabled={cancel.isPending}
                             onClick={() => setCanceling({ row, atPeriodEnd: false })}
                           >
@@ -1344,9 +991,9 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <button className={BTN_SECONDARY} onClick={() => setCanceling(null)}>Back</button>
+            <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => setCanceling(null)}>Back</button>
             <button
-              className={BTN_PRIMARY}
+              className={`${BTN_PRIMARY} h-9 px-3.5`}
               disabled={cancel.isPending}
               onClick={() => {
                 if (!canceling) return;

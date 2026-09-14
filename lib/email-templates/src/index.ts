@@ -6,6 +6,9 @@ export const EMAIL_TEMPLATE_IDS = [
   "patient-invitation",
   "new-sign-in-alert",
   "password-changed",
+  "order-receipt",
+  "order-shipped",
+  "subscription-cancelled",
 ] as const;
 
 export type EmailTemplateId = (typeof EMAIL_TEMPLATE_IDS)[number];
@@ -134,6 +137,83 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       name: "Recipient first name",
       when: "Change time",
       reportLink: "\u201cThis wasn\u2019t me\u201d link",
+    },
+  },
+  {
+    id: "order-receipt",
+    name: "Order receipt",
+    purpose: "Confirms a paid order with an itemized breakdown, the shipping address, and, for subscriptions, how to stop future renewals.",
+    trigger: "Stripe confirms payment for a one-time order or a subscription charge.",
+    audience: "The patient who paid.",
+    sampleVariables: {
+      name: "Riley",
+      orderNumber: "TH-7K2Q9M",
+      placedAt: "Sep 14, 2026, 3:24 PM ET",
+      officeName: "Example Wellness Studio",
+      items: "Control × 2 · $119.98\nBalance · $59.99",
+      subtotal: "$179.97",
+      shipping: "$9.00",
+      tax: "$0.00",
+      total: "$188.97",
+      shipTo: "Riley Example, 12 Harbor Lane, Austin, TX 78701, US",
+      renewalNote: "This order renews every 4 weeks.",
+      cancelLink: "https://example.test/pay/cancel/sample",
+      contactEmail: "care@example.test",
+    },
+    variableLabels: {
+      name: "Payer first name",
+      orderNumber: "Order number",
+      placedAt: "Payment date and time",
+      officeName: "Office name",
+      items: "Line items (one per line: name · amount)",
+      subtotal: "Subtotal",
+      shipping: "Shipping",
+      tax: "Tax",
+      total: "Total charged",
+      shipTo: "Shipping address",
+      renewalNote: "Renewal note (subscriptions only)",
+      cancelLink: "Cancellation link (subscriptions only)",
+      contactEmail: "Office contact email (optional)",
+    },
+  },
+  {
+    id: "order-shipped",
+    name: "Order shipped",
+    purpose: "Tells the patient their order is on the way and gives them the carrier and tracking number.",
+    trigger: "Office staff or HQ mark an order as shipped.",
+    audience: "The patient who paid.",
+    sampleVariables: {
+      name: "Riley",
+      orderNumber: "TH-7K2Q9M",
+      officeName: "Example Wellness Studio",
+      carrier: "USPS",
+      trackingNumber: "9400 1000 0000 0000 0000 00",
+      trackingLink: "https://example.test/track/sample",
+    },
+    variableLabels: {
+      name: "Payer first name",
+      orderNumber: "Order number",
+      officeName: "Office name",
+      carrier: "Carrier",
+      trackingNumber: "Tracking number",
+      trackingLink: "Tracking link (optional)",
+    },
+  },
+  {
+    id: "subscription-cancelled",
+    name: "Subscription cancellation confirmed",
+    purpose: "Confirms that a recurring order will stop after the current period.",
+    trigger: "A patient uses the cancellation link from their receipt, or staff cancel on their behalf.",
+    audience: "The patient who owns the subscription.",
+    sampleVariables: {
+      name: "Riley",
+      productName: "Control",
+      officeName: "Example Wellness Studio",
+    },
+    variableLabels: {
+      name: "Payer first name",
+      productName: "Product name",
+      officeName: "Office name",
     },
   },
 ] as const;
@@ -464,6 +544,10 @@ export function renderEmailTemplate(
     };
   }
 
+  if (id === "order-receipt") return renderOrderReceipt(variables);
+  if (id === "order-shipped") return renderOrderShipped(variables);
+  if (id === "subscription-cancelled") return renderSubscriptionCancelled(variables);
+
   const name = requireVariable(variables, "name");
   const officeName = requireVariable(variables, "officeName");
   const subject = `Your ${officeName} THINNR sign-in is ready`;
@@ -489,6 +573,175 @@ export function renderEmailTemplate(
         ${infoPanel("Office", officeName)}
         ${paragraph("Open THINNR operations and enter this email address to sign in. We’ll send a one-time code, so there’s no password to create.")}`,
       closing: "If you did not expect this invitation, contact THINNR support.",
+    }),
+  };
+}
+
+const button = (href: string, label: string, background = "#315eae") =>
+  `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+    <tr><td style="background:${background};border-radius:9px;">
+      <a href="${escapeHtml(href)}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;">${escapeHtml(label)}</a>
+    </td></tr>
+  </table>`;
+
+/** Line items arrive one per line as "label · amount"; a line without the separator is shown as a label only. */
+function parseLineItems(value: string): Array<{ label: string; amount: string }> {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const at = line.lastIndexOf(" · ");
+      return at < 0 ? { label: line, amount: "" } : { label: line.slice(0, at), amount: line.slice(at + 3) };
+    });
+}
+
+function renderOrderReceipt(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const orderNumber = requireVariable(variables, "orderNumber");
+  const placedAt = requireVariable(variables, "placedAt");
+  const officeName = requireVariable(variables, "officeName");
+  const items = parseLineItems(requireVariable(variables, "items"));
+  const subtotal = requireVariable(variables, "subtotal");
+  const shipping = requireVariable(variables, "shipping");
+  const tax = requireVariable(variables, "tax");
+  const total = requireVariable(variables, "total");
+  const shipTo = requireVariable(variables, "shipTo");
+  const renewalNote = variables.renewalNote?.trim() || "";
+  const cancelLink = variables.cancelLink?.trim() || "";
+  const contactEmail = variables.contactEmail?.trim() || "";
+  const subject = `RECEIPT THINNR Order (${orderNumber}) - ${placedAt}`;
+  const previewText = `Your ${officeName} order ${orderNumber} is confirmed. Total ${total}.`;
+  const contactLine = contactEmail
+    ? `Questions about this order? Contact ${officeName} at ${contactEmail}.`
+    : `Questions about this order? Contact ${officeName}.`;
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `Thank you for your order from ${officeName}.`,
+    `Order number: ${orderNumber}`,
+    `Paid: ${placedAt}`,
+    "",
+    ...items.map((item) => (item.amount ? `${item.label} · ${item.amount}` : item.label)),
+    "",
+    `Subtotal: ${subtotal}`,
+    `Shipping: ${shipping}`,
+    `Tax: ${tax}`,
+    `Total charged: ${total}`,
+    "",
+    `Ship to: ${shipTo}`,
+    ...(renewalNote ? ["", renewalNote] : []),
+    ...(cancelLink ? [`Manage or cancel future renewals: ${cancelLink}`] : []),
+    "",
+    contactLine,
+    "Keep this email for your records.",
+  ].join("\n");
+  const cell = (inner: string, extra = "") =>
+    `<td style="padding:10px 0;font-size:15px;line-height:1.45;color:#26364b;border-bottom:1px solid #e3e8ee;${extra}">${inner}</td>`;
+  const totalRow = (label: string, value: string, strong = false) =>
+    `<tr>
+      <td style="padding:${strong ? "14px" : "6px"} 0 0;font-size:${strong ? "16px" : "14px"};color:${strong ? "#203b64" : "#687684"};${strong ? "font-weight:bold;" : ""}">${escapeHtml(label)}</td>
+      <td align="right" style="padding:${strong ? "14px" : "6px"} 0 0;font-size:${strong ? "18px" : "14px"};color:#203b64;${strong ? "font-family:Georgia,'Times New Roman',serif;font-weight:bold;" : ""}">${escapeHtml(value)}</td>
+    </tr>`;
+  const bodyHtml = `${paragraph(`Thank you for your order from <strong>${escapeHtml(officeName)}</strong>. Here is your receipt.`)}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;width:100%;background:#e3ecf7;border:1px solid #b7cbe8;border-radius:9px;">
+      <tr>
+        <td style="padding:20px 22px;">
+          <p style="margin:0 0 7px;font-size:10px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:#315eae;">Order number</p>
+          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:25px;font-weight:bold;line-height:1.2;color:#203b64;">${escapeHtml(orderNumber)}</p>
+        </td>
+        <td align="right" style="padding:20px 22px;vertical-align:top;">
+          <p style="margin:0 0 7px;font-size:10px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:#315eae;">Paid</p>
+          <p style="margin:0;font-size:14px;line-height:1.4;color:#203b64;">${escapeHtml(placedAt)}</p>
+        </td>
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-top:2px solid #203b64;">
+      ${items.map((item) => `<tr>${cell(escapeHtml(item.label))}${cell(escapeHtml(item.amount), "text-align:right;white-space:nowrap;")}</tr>`).join("")}
+      ${totalRow("Subtotal", subtotal)}
+      ${totalRow("Shipping", shipping)}
+      ${totalRow("Tax", tax)}
+      ${totalRow("Total charged", total, true)}
+    </table>
+    <p style="margin:26px 0 6px;font-size:10px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:#315eae;">Ship to</p>
+    ${paragraph(escapeHtml(shipTo))}
+    ${renewalNote ? paragraph(`<strong>${escapeHtml(renewalNote)}</strong>${cancelLink ? " You can stop future renewals at any time." : ""}`) : ""}
+    ${cancelLink ? button(cancelLink, "Manage or cancel renewals", "#203b64") : ""}
+    ${paragraph(escapeHtml(contactLine))}`;
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: "Receipt",
+      heading: "Thank you for your order",
+      greeting: name || undefined,
+      bodyHtml,
+      closing: "Keep this email for your records. THINNR Weight Loss processes payments on behalf of your provider office.",
+    }),
+  };
+}
+
+function renderOrderShipped(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const orderNumber = requireVariable(variables, "orderNumber");
+  const officeName = requireVariable(variables, "officeName");
+  const carrier = requireVariable(variables, "carrier");
+  const trackingNumber = requireVariable(variables, "trackingNumber");
+  const trackingLink = variables.trackingLink?.trim() || "";
+  const subject = `THINNR Order (${orderNumber}) has shipped`;
+  const previewText = `${officeName} shipped order ${orderNumber} via ${carrier}.`;
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `Good news: ${officeName} has shipped order ${orderNumber}.`,
+    `Carrier: ${carrier}`,
+    `Tracking number: ${trackingNumber}`,
+    ...(trackingLink ? [`Track your package: ${trackingLink}`] : []),
+    "",
+    "Tracking details can take a day to appear after the carrier picks up the package.",
+  ].join("\n");
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: "Order update",
+      heading: "Your order is on its way",
+      greeting: name || undefined,
+      bodyHtml: `${paragraph(`Good news: <strong>${escapeHtml(officeName)}</strong> has shipped order <strong>${escapeHtml(orderNumber)}</strong>.`)}
+        ${infoPanel(`${carrier} tracking number`, trackingNumber)}
+        ${trackingLink ? button(trackingLink, "Track your package") : ""}
+        ${paragraph("Tracking details can take a day to appear after the carrier picks up the package.")}`,
+      closing: `Questions about this shipment? Contact ${officeName}.`,
+    }),
+  };
+}
+
+function renderSubscriptionCancelled(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const productName = requireVariable(variables, "productName");
+  const officeName = requireVariable(variables, "officeName");
+  const subject = `THINNR subscription cancellation confirmed (${productName})`;
+  const previewText = `${productName} will not renew after the current period.`;
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `Your ${productName} subscription from ${officeName} has been cancelled. It will not renew after the current billing period, and you will not be charged again.`,
+    "",
+    `Anything already paid for will still ship as planned. If you change your mind, ${officeName} can set up a new order for you.`,
+  ].join("\n");
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: "Subscription",
+      heading: "Cancellation confirmed",
+      greeting: name || undefined,
+      bodyHtml: `${paragraph(`Your <strong>${escapeHtml(productName)}</strong> subscription from <strong>${escapeHtml(officeName)}</strong> has been cancelled. It will not renew after the current billing period, and you will not be charged again.`)}
+        ${paragraph(`Anything already paid for will still ship as planned. If you change your mind, ${escapeHtml(officeName)} can set up a new order for you.`)}`,
+      closing: "If you did not request this cancellation, contact your provider office right away.",
     }),
   };
 }

@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
+import { loadDefaultImages, productImageSignedUrl, productImageUrl } from "../billing/catalog";
 import { BillingLinkError, resolveActiveLink } from "../billing/links";
 import { BillingOrderError, createOneTimeOrder } from "../billing/orders";
 import { BillingSubscriptionError, cancelByToken, createSubscriptionOrder, toPublicSubscription } from "../billing/subscriptions";
@@ -43,16 +44,31 @@ function maskedEmail(email: string | null): string | null {
 router.get("/billing/public/config", (req, res) => void limited(req, res, readLimit, async () => {
   try { res.json({ sandbox: await isSandbox() }); } catch (error) { fail(req, res, error); }
 }));
+// Product images are open reads: the id is an unguessable uuid and the object
+// itself only ever holds catalog artwork. The redirect target is a
+// short-lived signed URL, so nothing durable leaks through the redirect.
+router.get("/billing/public/product-images/:imageId", async (req, res) => {
+  try {
+    const url = await productImageSignedUrl(String(req.params.imageId));
+    if (!url) { res.status(404).json({ error: "Image not found." }); return; }
+    res.setHeader("Cache-Control", "private, max-age=600");
+    res.redirect(302, url);
+  } catch (error) {
+    req.log?.error({ err: error }, "product image redirect failed");
+    res.status(503).json({ error: "Image unavailable." });
+  }
+});
 router.get("/billing/public/links/:token", (req, res) => void limited(req, res, readLimit, async () => {
   try {
     const link = await resolveActiveLink(String(req.params.token));
-    const [prices, products, account, settings, provider, patientResult] = await Promise.all([
+    const [prices, products, account, settings, provider, patientResult, images] = await Promise.all([
       selectMany("billing_office_prices", `provider_id=eq.${encodeURIComponent(link.provider_id)}`),
       selectMany("billing_products", "active=eq.true"),
       selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(link.provider_id)}&disconnected_at=is.null`),
       selectOne("billing_settings", "id=eq.1"),
       getProvider(link.provider_id),
       link.patient_id ? supabaseAdmin("GET", `/rest/v1/patients?id=eq.${encodeURIComponent(link.patient_id)}&provider_id=eq.${encodeURIComponent(link.provider_id)}&select=first_name,last_name,name,email,phone&limit=1`) : null,
+      loadDefaultImages(),
     ]);
     if (!account?.charges_enabled || !provider || !settings) throw new BillingLinkError("This office is not ready to accept payments.", 409);
     const productMap = new Map(products.map((product) => [product.id, product]));
@@ -64,7 +80,9 @@ router.get("/billing/public/links/:token", (req, res) => void limited(req, res, 
       token: link.token, office: { name: officeName(provider), city: provider.city, state: provider.state },
       products: prices.flatMap((price) => {
         const product = productMap.get(price.product_id);
-        return product ? [{ product_id: product.id, name: product.name, unit_price_cents: price.sell_price_cents,
+        const image = images.get(price.product_id);
+        return product ? [{ product_id: product.id, name: product.name, description: product.description ?? "",
+          image_url: image ? productImageUrl(image.id) : null, unit_price_cents: price.sell_price_cents,
           subscription_available: price.subscription_enabled }] : [];
       }),
       shipping_charge_cents: settings.shipping_charge_cents, tax_enabled: account.tax_enabled,

@@ -58,7 +58,7 @@ export function RefundDialog({
           <span className={PANEL_LABEL}>Amount</span>
           <input
             data-testid="input-refund-amount"
-            className={`${INPUT_CLASS} mt-1 w-full`}
+            className={`${INPUT_CLASS} mt-1 h-9 w-full`}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
@@ -67,7 +67,7 @@ export function RefundDialog({
           <span className={PANEL_LABEL}>Reason</span>
           <textarea
             data-testid="input-refund-reason"
-            className={`${INPUT_CLASS} mt-1 min-h-20 w-full`}
+            className={`${INPUT_CLASS} mt-1 min-h-20 w-full py-2`}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
@@ -78,10 +78,10 @@ export function RefundDialog({
           </p>
         )}
         <DialogFooter>
-          <button className={BTN_SECONDARY} onClick={() => onOpenChange(false)}>
+          <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => onOpenChange(false)}>
             Cancel
           </button>
-          <button data-testid="button-refund-confirm" disabled={pending} className={BTN_PRIMARY} onClick={submit}>
+          <button data-testid="button-refund-confirm" disabled={pending} className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={submit}>
             {pending ? 'Refunding…' : 'Issue refund'}
           </button>
         </DialogFooter>

@@ -27,7 +27,11 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
 }
 
 export default function EmailStudio() {
-  const [selectedId, setSelectedId] = useState<EmailTemplateId>(EMAIL_TEMPLATE_CATALOG[0].id);
+  // ?template=<id> opens a specific proof so links to one email can be shared.
+  const [selectedId, setSelectedId] = useState<EmailTemplateId>(() => {
+    const requested = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('template');
+    return EMAIL_TEMPLATE_CATALOG.find(t => t.id === requested)?.id ?? EMAIL_TEMPLATE_CATALOG[0].id;
+  });
 
   // Set Document Title
   useEffect(() => {

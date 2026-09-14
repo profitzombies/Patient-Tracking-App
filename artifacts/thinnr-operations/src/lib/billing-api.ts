@@ -12,11 +12,15 @@ import type {
   BillingSettings,
   CatalogChange,
   CatalogProduct,
+  CatalogProductDetail,
   CatalogProductInput,
+  ProductStatus,
   ConnectedAccount,
   FulfillmentUpdate,
   HqCatalogResponse,
+  HqActivityRow,
   HqOverview,
+  HqTodayOverview,
   HqProviderDetail,
   HqProviderRow,
   OfficeBillingStatus,
@@ -121,6 +125,8 @@ export const officeBilling = {
 
 export const hqBilling = {
   overview: (range: { from?: string; to?: string }) => officeRequest<HqOverview>(`${HQ}/overview${qs(range)}`, MESSAGES),
+  today: (tz: string) => officeRequest<HqTodayOverview>(`${HQ}/overview/today${qs({ tz })}`, MESSAGES),
+  activity: (filters: ListFilters) => officeRequest<Paged<HqActivityRow>>(`${HQ}/activity${qs(filters)}`, MESSAGES),
   providers: () => officeRequest<{ items: HqProviderRow[] }>(`${HQ}/providers`, MESSAGES),
   provider: (providerId: string) => officeRequest<HqProviderDetail>(`${HQ}/providers/${encodeURIComponent(providerId)}`, MESSAGES),
   transactions: (filters: ListFilters) => officeRequest<Paged<OrderSummary>>(`${HQ}/transactions${qs(filters)}`, MESSAGES),
@@ -137,23 +143,47 @@ export const hqBilling = {
       body: JSON.stringify(body),
     }),
   catalog: () => officeRequest<HqCatalogResponse>(`${HQ}/catalog`, MESSAGES),
+  product: (productId: string) =>
+    officeRequest<{ product: CatalogProductDetail }>(`${HQ}/catalog/products/${encodeURIComponent(productId)}`, MESSAGES),
   createProduct: (body: CatalogProductInput) =>
-    officeRequest<{ product: CatalogProduct }>(`${HQ}/catalog/products`, MESSAGES, { method: 'POST', body: JSON.stringify(body) }),
+    officeRequest<{ product: CatalogProductDetail }>(`${HQ}/catalog/products`, MESSAGES, { method: 'POST', body: JSON.stringify(body) }),
   updateProduct: (productId: string, body: Partial<CatalogProductInput>) =>
-    officeRequest<{ product: CatalogProduct }>(`${HQ}/catalog/products/${encodeURIComponent(productId)}`, MESSAGES, {
+    officeRequest<{ product: CatalogProductDetail }>(`${HQ}/catalog/products/${encodeURIComponent(productId)}`, MESSAGES, {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
-  retireProduct: (productId: string) =>
-    officeRequest<{ product: CatalogProduct }>(`${HQ}/catalog/products/${encodeURIComponent(productId)}/retire`, MESSAGES, {
+  setProductStatus: (productId: string, status: ProductStatus) =>
+    officeRequest<{ product: CatalogProductDetail }>(`${HQ}/catalog/products/${encodeURIComponent(productId)}/status`, MESSAGES, {
       method: 'POST',
-      body: '{}',
+      body: JSON.stringify({ status }),
     }),
-  reactivateProduct: (productId: string) =>
-    officeRequest<{ product: CatalogProduct }>(`${HQ}/catalog/products/${encodeURIComponent(productId)}/reactivate`, MESSAGES, {
+  retireProduct: (productId: string) => hqBilling.setProductStatus(productId, 'retired'),
+  reactivateProduct: (productId: string) => hqBilling.setProductStatus(productId, 'active'),
+  reorderProducts: (ids: string[]) =>
+    officeRequest<{ products: CatalogProduct[] }>(`${HQ}/catalog/order`, MESSAGES, { method: 'PUT', body: JSON.stringify({ ids }) }),
+  productImageUploadUrl: (productId: string, body: { content_type: string; size: number }) =>
+    officeRequest<{ image_id: string; upload_url: string; object_path: string; expires_in: number }>(
+      `${HQ}/catalog/products/${encodeURIComponent(productId)}/images/upload-url`,
+      MESSAGES,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  finalizeProductImage: (productId: string, body: { image_id: string; object_path: string; content_type: string; size: number }) =>
+    officeRequest<{ product: CatalogProductDetail }>(`${HQ}/catalog/products/${encodeURIComponent(productId)}/images`, MESSAGES, {
       method: 'POST',
-      body: '{}',
+      body: JSON.stringify(body),
     }),
+  removeProductImage: (productId: string, imageId: string) =>
+    officeRequest<{ product: CatalogProductDetail }>(
+      `${HQ}/catalog/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}`,
+      MESSAGES,
+      { method: 'DELETE' },
+    ),
+  setDefaultProductImage: (productId: string, imageId: string) =>
+    officeRequest<{ product: CatalogProductDetail }>(
+      `${HQ}/catalog/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}/default`,
+      MESSAGES,
+      { method: 'POST' },
+    ),
   updateSettings: (body: Omit<BillingSettings, 'updated_at' | 'version'> & { expected_version: number }) =>
     officeRequest<{ settings: BillingSettings }>(`${HQ}/catalog/settings`, MESSAGES, { method: 'PUT', body: JSON.stringify(body) }),
   changes: (filters: ListFilters) => officeRequest<Paged<CatalogChange>>(`${HQ}/catalog/changes${qs(filters)}`, MESSAGES),

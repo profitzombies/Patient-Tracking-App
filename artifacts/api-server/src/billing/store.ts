@@ -2,7 +2,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import type { OrderSummary, Payer } from "./types";
 
 export type BillingTable =
-  | "billing_settings" | "billing_products" | "billing_catalog_changes"
+  | "billing_settings" | "billing_products" | "billing_product_images" | "billing_catalog_changes"
   | "billing_connected_accounts" | "billing_account_events" | "billing_office_prices"
   | "billing_payment_links" | "billing_payers" | "billing_orders" | "billing_order_items"
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
@@ -13,13 +13,20 @@ export interface BillingSettingsRow extends TimestampedRow {
   id: number; shipping_charge_cents: number; shipping_cost_cents: number;
   card_fee_bps: number; card_fee_fixed_cents: number; version: number; updated_by: string | null;
 }
+export type BillingProductStatus = "draft" | "active" | "retired" | "archived";
 export interface BillingProductRow extends TimestampedRow {
-  id: string; slug: string; name: string; floor_price_cents: number; hard_cost_cents: number;
-  active: boolean; retired_at: string | null; sort_order: number; stripe_tax_code: string | null;
+  id: string; slug: string; name: string; description: string; floor_price_cents: number; hard_cost_cents: number;
+  /** Mirrors `status === "active"` (enforced by a DB check); checkout and pricing read this boolean. */
+  active: boolean; status: BillingProductStatus; retired_at: string | null; archived_at: string | null;
+  sort_order: number; stripe_tax_code: string | null;
+}
+export interface BillingProductImageRow extends TimestampedRow {
+  id: string; product_id: string; object_path: string; content_type: string; size_bytes: number;
+  sort_order: number; is_default: boolean; created_by: string | null;
 }
 export interface BillingCatalogChangeRow extends TimestampedRow {
   id: string; product_id: string | null; kind: string; before: Record<string, unknown> | null;
-  after: Record<string, unknown> | null; actor_user_id: string | null;
+  after: Record<string, unknown> | null; actor_user_id: string | null; provider_id: string | null;
 }
 export interface BillingConnectedAccountRow extends TimestampedRow {
   provider_id: string; stripe_account_id: string; origin: "created" | "oauth";
@@ -100,7 +107,7 @@ export interface BillingWebhookEventRow {
 
 export type BillingRows = {
   billing_settings: BillingSettingsRow; billing_products: BillingProductRow;
-  billing_catalog_changes: BillingCatalogChangeRow; billing_connected_accounts: BillingConnectedAccountRow;
+  billing_product_images: BillingProductImageRow; billing_catalog_changes: BillingCatalogChangeRow; billing_connected_accounts: BillingConnectedAccountRow;
   billing_account_events: BillingAccountEventRow; billing_office_prices: BillingOfficePriceRow;
   billing_payment_links: BillingPaymentLinkRow; billing_payers: BillingPayerRow;
   billing_orders: BillingOrderRow; billing_order_items: BillingOrderItemRow;

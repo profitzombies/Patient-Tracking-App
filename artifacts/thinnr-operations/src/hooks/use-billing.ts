@@ -7,15 +7,18 @@
  * are gated on a signed-in HQ session. Add new hooks here rather than calling
  * the client from pages so the gating stays in one place.
  */
-import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import { useSession } from '@/contexts/session';
 import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
 import { hqBilling, officeBilling, type ListFilters } from '@/lib/billing-api';
 import type {
   BillingSettings,
+  CatalogProductDetail,
   CatalogProductInput,
   FulfillmentUpdate,
+  HqCatalogResponse,
   OfficePrice,
+  ProductStatus,
 } from '@/lib/billing-types';
 
 export const billingKeys = {
@@ -166,6 +169,37 @@ export function useHqOverview(range: { from?: string; to?: string }) {
   });
 }
 
+/** Browser time zone, so "today" on the overview matches the viewer's clock. */
+export function viewerTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York';
+  } catch {
+    return 'America/New_York';
+  }
+}
+export function useHqToday() {
+  const { liveEnabled, base } = useHqBillingScope();
+  const tz = viewerTimeZone();
+  return useQuery({
+    queryKey: [...base, 'overview-today', tz],
+    queryFn: () => hqBilling.today(tz),
+    enabled: liveEnabled,
+    // Today's chart keeps itself current while the page is open.
+    refetchInterval: 60_000,
+  });
+}
+
+export function useHqActivity(filters: ListFilters) {
+  const { liveEnabled, base } = useHqBillingScope();
+  return useInfiniteQuery({
+    queryKey: [...base, 'activity', filters],
+    queryFn: ({ pageParam }) => hqBilling.activity({ ...filters, ...(pageParam ? { cursor: pageParam } : {}) }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    enabled: liveEnabled,
+  });
+}
+
 export function useHqProviders() {
   const { liveEnabled, base } = useHqBillingScope();
   return useQuery({ queryKey: [...base, 'providers'], queryFn: () => hqBilling.providers(), enabled: liveEnabled });
@@ -220,6 +254,7 @@ export function useUpdateFulfillment() {
       void client.invalidateQueries({ queryKey: [...base, 'transaction'] });
       void client.invalidateQueries({ queryKey: [...base, 'transactions'] });
       void client.invalidateQueries({ queryKey: [...base, 'overview'] });
+      void client.invalidateQueries({ queryKey: [...base, 'overview-today'] });
     },
   });
 }
@@ -229,6 +264,47 @@ export function useHqCatalog() {
   return useQuery({ queryKey: [...base, 'catalog'], queryFn: () => hqBilling.catalog(), enabled: liveEnabled });
 }
 
+export function useHqProduct(productId: string | null) {
+  const { liveEnabled, base } = useHqBillingScope();
+  return useQuery({
+    queryKey: [...base, 'catalog', 'product', productId],
+    queryFn: () => hqBilling.product(productId as string),
+    enabled: liveEnabled && Boolean(productId),
+  });
+}
+
+/**
+ * Upload one product image: ask for a signed PUT, send the bytes, then let the
+ * server verify and record it. Progress is per file; the caller sequences files.
+ */
+export async function uploadProductImage(
+  productId: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<CatalogProductDetail> {
+  const ticket = await hqBilling.productImageUploadUrl(productId, { content_type: file.type, size: file.size });
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', ticket.upload_url);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+    };
+    xhr.onerror = () => reject(new Error('The image upload was interrupted. Check your connection and try again.'));
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error('The image could not be stored. Try again.'));
+    xhr.send(file);
+  });
+  const result = await hqBilling.finalizeProductImage(productId, {
+    image_id: ticket.image_id,
+    object_path: ticket.object_path,
+    content_type: file.type,
+    size: file.size,
+  });
+  return result.product;
+}
+
 export function useHqCatalogMutations() {
   const { base } = useHqBillingScope();
   const client = useQueryClient();
@@ -236,17 +312,60 @@ export function useHqCatalogMutations() {
     void client.invalidateQueries({ queryKey: [...base, 'catalog'] });
     void client.invalidateQueries({ queryKey: [...base, 'changes'] });
   };
+  const settleProduct = (result: { product: CatalogProductDetail }) => {
+    client.setQueryData([...base, 'catalog', 'product', result.product.id], result);
+    invalidate();
+  };
   return {
-    create: useMutation({ mutationFn: (body: CatalogProductInput) => hqBilling.createProduct(body), onSuccess: invalidate }),
+    create: useMutation({ mutationFn: (body: CatalogProductInput) => hqBilling.createProduct(body), onSuccess: settleProduct }),
     update: useMutation({
       mutationFn: (input: { productId: string } & Partial<CatalogProductInput>) => {
         const { productId, ...body } = input;
         return hqBilling.updateProduct(productId, body);
       },
-      onSuccess: invalidate,
+      onSuccess: settleProduct,
     }),
-    retire: useMutation({ mutationFn: (productId: string) => hqBilling.retireProduct(productId), onSuccess: invalidate }),
-    reactivate: useMutation({ mutationFn: (productId: string) => hqBilling.reactivateProduct(productId), onSuccess: invalidate }),
+    setStatus: useMutation({
+      mutationFn: (input: { productId: string; status: ProductStatus }) => hqBilling.setProductStatus(input.productId, input.status),
+      onSuccess: settleProduct,
+    }),
+    retire: useMutation({ mutationFn: (productId: string) => hqBilling.retireProduct(productId), onSuccess: settleProduct }),
+    reactivate: useMutation({ mutationFn: (productId: string) => hqBilling.reactivateProduct(productId), onSuccess: settleProduct }),
+    reorder: useMutation({
+      mutationFn: (ids: string[]) => hqBilling.reorderProducts(ids),
+      onMutate: async (ids) => {
+        // Optimistic: the list re-sorts immediately; the server order wins on settle.
+        await client.cancelQueries({ queryKey: [...base, 'catalog'], exact: true });
+        const previous = client.getQueryData<HqCatalogResponse>([...base, 'catalog']);
+        if (previous) {
+          const position = new Map(ids.map((id, index) => [id, index]));
+          client.setQueryData<HqCatalogResponse>([...base, 'catalog'], {
+            ...previous,
+            products: [...previous.products].sort(
+              (a, b) => (position.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+            ),
+          });
+        }
+        return { previous };
+      },
+      onError: (_error, _ids, context) => {
+        if (context?.previous) client.setQueryData([...base, 'catalog'], context.previous);
+      },
+      onSettled: invalidate,
+    }),
+    uploadImage: useMutation({
+      mutationFn: (input: { productId: string; file: File; onProgress?: (fraction: number) => void }) =>
+        uploadProductImage(input.productId, input.file, input.onProgress).then((product) => ({ product })),
+      onSuccess: settleProduct,
+    }),
+    removeImage: useMutation({
+      mutationFn: (input: { productId: string; imageId: string }) => hqBilling.removeProductImage(input.productId, input.imageId),
+      onSuccess: settleProduct,
+    }),
+    setDefaultImage: useMutation({
+      mutationFn: (input: { productId: string; imageId: string }) => hqBilling.setDefaultProductImage(input.productId, input.imageId),
+      onSuccess: settleProduct,
+    }),
     settings: useMutation({
       mutationFn: (body: Omit<BillingSettings, 'updated_at' | 'version'> & { expected_version: number }) => hqBilling.updateSettings(body),
       onSuccess: invalidate,

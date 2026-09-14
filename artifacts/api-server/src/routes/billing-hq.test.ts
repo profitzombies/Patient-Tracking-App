@@ -22,7 +22,19 @@ vi.hoisted(() => {
   process.env.SUPABASE_URL = "http://supabase.test";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service";
 });
+vi.mock("../lib/objectStorage", async (original) => {
+  const actual = await original<typeof import("../lib/objectStorage")>();
+  return {
+    ...actual,
+    objectStorage: {
+      deleteObject: vi.fn(async () => undefined), deleteObjectStrict: vi.fn(async () => undefined),
+      productImageUploadURL: vi.fn(async (productId: string, imageId: string) => ({ uploadUrl: "https://upload.test/put", objectPath: `/objects/product-images/${productId}/${imageId}` })),
+      signedDownloadURL: vi.fn(async () => "https://signed.test/image"),
+    },
+  };
+});
 import router from "./billing-hq";
+import { objectStorage as objectStorageMock } from "../lib/objectStorage";
 
 type Row = Record<string, unknown>;
 const originalFetch = global.fetch;
@@ -30,6 +42,10 @@ let server: http.Server;
 let base = "";
 let settings: Row;
 let product: Row;
+let second: Row;
+let images: Row[];
+let extra: Row[];
+let changes: Row[];
 const order: Row = {
   id: "0a1b2c3d-0000-4000-8000-000000000001", order_number: "TH-TEST01", provider_id: "live-office", payer_id: "payer-1",
   kind: "one_time", status: "paid", fulfillment_status: "to_ship", total_cents: 12998, application_fee_cents: 7198,
@@ -58,8 +74,12 @@ afterAll(async () => {
 beforeEach(() => {
   settings = { id: 1, shipping_charge_cents: 1000, shipping_cost_cents: 1000, card_fee_bps: 290,
     card_fee_fixed_cents: 30, version: 2, updated_by: null, updated_at: null, created_at: "2026-01-01T00:00:00Z" };
-  product = { id: "product-1", slug: "control", name: "Control", floor_price_cents: 5999, hard_cost_cents: 433,
-    active: true, retired_at: null, sort_order: 1, stripe_tax_code: null, created_at: "2026-01-01T00:00:00Z" };
+  product = { id: "product-1", slug: "control", name: "Control", description: "", floor_price_cents: 5999, hard_cost_cents: 433,
+    active: true, status: "active", retired_at: null, archived_at: null, sort_order: 1, stripe_tax_code: null, created_at: "2026-01-01T00:00:00Z" };
+  second = { ...product, id: "product-2", slug: "regulate", name: "Regulate", sort_order: 2 };
+  images = [];
+  extra = [];
+  changes = [];
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     const method = init?.method ?? "GET";
@@ -72,18 +92,45 @@ beforeEach(() => {
       }
     }
     if (url.pathname === "/rest/v1/billing_products") {
-      if (method === "GET") return response([product]);
-      if (method === "PATCH") { product = { ...product, ...body }; return response([product]); }
+      const raw = url.searchParams.get("id") ?? "";
+      const wanted = raw.startsWith("in.(") ? raw.slice(4, -1).split(",") : raw ? [raw.replace("eq.", "")] : null;
+      const idFilter = wanted?.length === 1 ? wanted[0] : undefined;
+      if (method === "GET") {
+        const rows = [product, second, ...extra].filter((row) => !wanted || wanted.includes(String(row.id))).sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
+        return response(rows);
+      }
+      if (method === "PATCH") {
+        if (idFilter === second.id) { second = { ...second, ...body }; return response([second]); }
+        product = { ...product, ...body }; return response([product]);
+      }
+      if (method === "POST") { const created = { ...product, id: "product-3", ...body }; extra.push(created); return response([created], 201); }
+    }
+    if (url.pathname === "/rest/v1/billing_product_images") {
+      const productFilter = url.searchParams.get("product_id")?.replace("eq.", "");
+      const idFilter = url.searchParams.get("id")?.replace("eq.", "");
+      if (method === "GET") return response(images.filter((row) => (!productFilter || row.product_id === productFilter) && (!idFilter || row.id === idFilter)));
+      if (method === "PATCH") { images = images.map((row) => row.id === idFilter ? { ...row, ...body } : row); return response(images.filter((row) => row.id === idFilter)); }
+      if (method === "DELETE") { images = images.filter((row) => row.id !== idFilter); return response([]); }
     }
     if (url.pathname === "/rest/v1/billing_office_prices") return response([]);
-    if (url.pathname === "/rest/v1/billing_catalog_changes" && method === "POST") return response([{ id: "change-1", ...body }], 201);
+    if (url.pathname === "/rest/v1/billing_catalog_changes") {
+      if (method === "POST") { changes.push(body); return response([{ id: `change-${changes.length}`, ...body }], 201); }
+      return response(changes.map((row, index) => ({ id: `change-${index + 1}`, created_at: "2026-09-14T15:04:05Z", provider_id: null, ...row })));
+    }
+    if (url.pathname === "/rest/v1/hq_memberships") {
+      // Only hand back the columns the route selected, so a dropped column shows up as a missing field.
+      const selected = (url.searchParams.get("select") ?? "").split(",");
+      const row: Record<string, string> = { id: "member-1", auth_user_id: "hq-user", display_name: "Andrew Admin" };
+      return response([Object.fromEntries(Object.entries(row).filter(([key]) => selected.includes(key)))]);
+    }
+    if (url.pathname === "/rest/v1/profiles") return response([]);
     if (url.pathname === "/rest/v1/providers") {
       return response([{ provider_id: "live-office", office_name: "Cassandra's Med Spa", provider_name: "Cassandra MacMillan", email: null, phone: null }]);
     }
     if (url.pathname === "/rest/v1/billing_orders") return response([order]);
     if (url.pathname === "/rest/v1/billing_order_items") return response([{ id: "item-1", order_id: order.id, product_name_snapshot: "Control", quantity: 2 }]);
     if (url.pathname === "/rest/v1/billing_payers") return response([{ id: "payer-1", patient_id: null, name: "Pat Example", email: "pat@example.com", phone: null }]);
-    if (url.pathname === "/rest/v1/billing_refunds") return response([{ id: "refund-1", order_id: order.id, amount_cents: 500 }]);
+    if (url.pathname === "/rest/v1/billing_refunds") return response([{ id: "refund-1", order_id: order.id, amount_cents: 500, created_at: new Date().toISOString() }]);
     if (url.pathname.startsWith("/rest/v1/billing_") && method === "GET") return response([]);
     throw new Error(`unexpected ${method} ${url.pathname}`);
   }) as typeof fetch;
@@ -92,7 +139,7 @@ describe("billing HQ catalog routes", () => {
   it("allows financial readers to read the catalog", async () => {
     const result = await call("GET", "/billing/hq/catalog", "reader");
     expect(result.status).toBe(200);
-    expect(result.json).toMatchObject({ settings: { version: 2 }, products: [{ name: "Control", break_even_minimum_cents: 3767 }] });
+    expect(result.json).toMatchObject({ settings: { version: 2 }, products: [{ name: "Control", break_even_minimum_cents: 3767, status: "active", image_url: null }, { name: "Regulate" }] });
   });
   it("requires settings_manage for catalog writes", async () => {
     const result = await call("POST", "/billing/hq/catalog/products/product-1/retire", "reader");
@@ -111,6 +158,71 @@ describe("billing HQ catalog routes", () => {
     expect(retired.status).toBe(200); expect((retired.json as { product: { active: boolean } }).product.active).toBe(false);
     const active = await call("POST", "/billing/hq/catalog/products/product-1/reactivate", "manager");
     expect(active.status).toBe(200); expect((active.json as { product: { active: boolean } }).product.active).toBe(true);
+  });
+  it("moves products through draft, active, retired, and archived", async () => {
+    const draft = await call("POST", "/billing/hq/catalog/products/product-1/status", "manager", { status: "draft" });
+    expect(draft.status).toBe(200);
+    expect(draft.json).toMatchObject({ product: { status: "draft", active: false, retired_at: null } });
+    const published = await call("POST", "/billing/hq/catalog/products/product-1/status", "manager", { status: "active" });
+    expect(published.json).toMatchObject({ product: { status: "active", active: true } });
+    const archived = await call("POST", "/billing/hq/catalog/products/product-1/status", "manager", { status: "archived" });
+    expect(archived.json).toMatchObject({ product: { status: "archived", active: false } });
+    expect((archived.json as { product: { archived_at: string | null } }).product.archived_at).toBeTruthy();
+    expect(changes.map((row) => row.kind)).toEqual(["product_updated", "product_published", "product_archived"]);
+    const bad = await call("POST", "/billing/hq/catalog/products/product-1/status", "manager", { status: "deleted" });
+    expect(bad.status).toBe(400);
+  });
+  it("creates products with a description and a chosen starting status", async () => {
+    const created = await call("POST", "/billing/hq/catalog/products", "manager", {
+      name: "Night Blend", description: "Evening support", floor_price_cents: 4999, hard_cost_cents: 800, status: "draft",
+    });
+    expect(created.status).toBe(201);
+    expect(created.json).toMatchObject({ product: { slug: "night-blend", status: "draft", active: false, image_url: null, images: [] } });
+  });
+  it("reorders products and records the new order", async () => {
+    const result = await call("PUT", "/billing/hq/catalog/order", "manager", { ids: ["product-2", "product-1"] });
+    expect(result.status).toBe(200);
+    expect((result.json as { products: { id: string }[] }).products.map((row) => row.id)).toEqual(["product-2", "product-1"]);
+    expect(changes).toEqual([expect.objectContaining({ kind: "products_reordered", before: { order: ["control", "regulate"] }, after: { order: ["regulate", "control"] } })]);
+    const stale = await call("PUT", "/billing/hq/catalog/order", "manager", { ids: ["product-9"] });
+    expect(stale.status).toBe(409);
+  });
+  it("manages product images: default follows removal, and the cap is enforced", async () => {
+    images = [1, 2, 3, 4, 5].map((n) => ({
+      id: `image-${n}`, product_id: "product-1", object_path: `/objects/product-images/product-1/image-${n}`, content_type: "image/png",
+      size_bytes: 100, sort_order: n, is_default: n === 1, created_by: "hq-user", created_at: "2026-01-01T00:00:00Z",
+    }));
+    const full = await call("POST", "/billing/hq/catalog/products/product-1/images/upload-url", "manager", { content_type: "image/png", size: 100 });
+    expect(full.status).toBe(409);
+    const badType = await call("POST", "/billing/hq/catalog/products/product-2/images/upload-url", "manager", { content_type: "image/gif", size: 100 });
+    expect(badType.status).toBe(415);
+    const detail = await call("GET", "/billing/hq/catalog/products/product-1", "reader");
+    expect(detail.json).toMatchObject({ product: { image_count: 5, image_url: "/api/billing/public/product-images/image-1" } });
+    const promoted = await call("POST", "/billing/hq/catalog/products/product-1/images/image-3/default", "manager");
+    expect((promoted.json as { product: { image_url: string } }).product.image_url).toBe("/api/billing/public/product-images/image-3");
+    const removed = await call("DELETE", "/billing/hq/catalog/products/product-1/images/image-3", "manager");
+    expect(removed.status).toBe(200);
+    expect(removed.json).toMatchObject({ product: { image_count: 4, image_url: "/api/billing/public/product-images/image-1" } });
+    expect(changes.map((row) => row.kind)).toEqual(["product_default_image", "product_image_removed"]);
+  });
+  it("answers a retried finalize with the saved product instead of discarding the live object", async () => {
+    images = [{
+      id: "11111111-1111-4111-8111-111111111111", product_id: "product-1", object_path: "/objects/product-images/product-1/11111111-1111-4111-8111-111111111111",
+      content_type: "image/png", size_bytes: 100, sort_order: 1, is_default: true, created_by: "hq-user", created_at: "2026-01-01T00:00:00Z",
+    }];
+    const retry = await call("POST", "/billing/hq/catalog/products/product-1/images", "manager", {
+      image_id: "11111111-1111-4111-8111-111111111111", object_path: images[0].object_path, content_type: "image/png", size: 100,
+    });
+    expect(retry.status).toBe(201);
+    expect(retry.json).toMatchObject({ product: { image_count: 1 } });
+    expect(vi.mocked(objectStorageMock.deleteObjectStrict)).not.toHaveBeenCalled();
+    expect(changes).toEqual([]);
+  });
+  it("names the HQ teammate behind each catalog change", async () => {
+    await call("POST", "/billing/hq/catalog/products/product-1/retire", "manager");
+    const history = await call("GET", "/billing/hq/catalog/changes", "reader");
+    expect(history.status).toBe(200);
+    expect(history.json).toMatchObject({ items: [{ kind: "product_retired", actor_name: "Andrew Admin", actor_member_id: "member-1", product_name: "Control" }] });
   });
 });
 describe("billing HQ provider detail", () => {

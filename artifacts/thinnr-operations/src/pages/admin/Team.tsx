@@ -3,7 +3,8 @@
  *
  * The roster and every mutation are backed by the authenticated HQ API.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useSearch } from 'wouter';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { UserPlus } from 'lucide-react';
 import { ManagedSessionsState } from '@/components/team/ManagedSessions';
@@ -56,6 +57,23 @@ export default function Team() {
 
   const [removing, setRemoving] = useState<HqTeamMember | null>(null);
   const [sessionMember, setSessionMember] = useState<HqTeamMember | null>(null);
+  const [profileMember, setProfileMember] = useState<HqTeamMember | null>(null);
+
+  // Deep link from audit trails (?member=<roster id>): open that teammate's
+  // profile once the live roster is in, then drop the param so a refresh or
+  // back-navigation does not reopen it.
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const handledMember = useRef<string | null>(null);
+  const requestedMember = new URLSearchParams(search).get('member');
+  useEffect(() => {
+    if (!requestedMember || teamStatus !== 'ready' || handledMember.current === requestedMember) return;
+    handledMember.current = requestedMember;
+    const member = team.find((candidate) => candidate.id === requestedMember);
+    if (member) setProfileMember(member);
+    else toast({ variant: 'destructive', title: 'Teammate not found', description: 'They may have been removed from the HQ team.' });
+    navigate('/admin/team', { replace: true });
+  }, [requestedMember, teamStatus, team, navigate, toast]);
   const [signOutReason, setSignOutReason] = useState<Exclude<SecurityReason, 'patient_request'>>('staff_request');
   const sessionsQuery = useQuery({
     queryKey: ['hq-team-sessions', sessionMember?.id],
@@ -185,6 +203,14 @@ export default function Team() {
                       <button
                         type="button"
                         className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
+                        data-testid={`button-profile-${member.id}`}
+                        onClick={() => setProfileMember(member)}
+                      >
+                        Profile
+                      </button>
+                      <button
+                        type="button"
+                        className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
                         data-testid={`button-edit-${member.id}`}
                         onClick={() => openEdit(member)}
                       >
@@ -221,6 +247,65 @@ export default function Team() {
         </div>
         )}
       </SectionCard>
+
+      {/* Profile dialog (also the ?member= deep-link target) */}
+      <Dialog open={profileMember !== null} onOpenChange={(open) => !open && setProfileMember(null)}>
+        <DialogContent className="max-w-md" data-testid="dialog-team-profile">
+          {profileMember && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-navy text-xs font-bold text-brand-foreground shadow-xs">
+                    {profileMember.initials}
+                  </span>
+                  <div className="min-w-0">
+                    <DialogTitle className="truncate">{profileMember.name}</DialogTitle>
+                    <DialogDescription className="truncate">{profileMember.email}</DialogDescription>
+                  </div>
+                </div>
+              </DialogHeader>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+                <div>
+                  <dt className={PANEL_LABEL}>Role</dt>
+                  <dd className="mt-1"><RoleChip role={profileMember.role} /></dd>
+                </div>
+                <div>
+                  <dt className={PANEL_LABEL}>Status</dt>
+                  <dd className="mt-1"><TeamStatusChip status={profileMember.status} /></dd>
+                </div>
+                <div>
+                  <dt className={PANEL_LABEL}>Title</dt>
+                  <dd className="mt-1 text-foreground">{profileMember.title || '—'}</dd>
+                </div>
+                <div>
+                  <dt className={PANEL_LABEL}>Joined</dt>
+                  <dd className="mt-1 text-foreground">{profileMember.joinedLabel}</dd>
+                </div>
+              </dl>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">{HQ_ROLE_NOTES[profileMember.role]}</p>
+              <DialogFooter className="gap-2">
+                <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setProfileMember(null)}>Close</button>
+                <button
+                  type="button"
+                  className={`${BTN_SECONDARY} h-9 px-3.5`}
+                  data-testid="button-profile-sessions"
+                  onClick={() => { const member = profileMember; setProfileMember(null); setSignOutReason('staff_request'); setSessionMember(member); }}
+                >
+                  Sessions
+                </button>
+                <button
+                  type="button"
+                  className={`${BTN_PRIMARY} h-9 px-3.5`}
+                  data-testid="button-profile-edit"
+                  onClick={() => { const member = profileMember; setProfileMember(null); openEdit(member); }}
+                >
+                  Edit access
+                </button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Invite dialog */}
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>

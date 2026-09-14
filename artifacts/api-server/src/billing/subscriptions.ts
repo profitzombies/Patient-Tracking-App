@@ -259,7 +259,10 @@ export async function cancelSubscription(id: string, input: { at_period_end: boo
   if (!updated) throw new BillingSubscriptionError("Subscription could not be updated.", 502);
   const payer = await selectOne("billing_payers", `id=eq.${encodeURIComponent(row.payer_id)}`);
   const product = await selectOne("billing_products", `id=eq.${encodeURIComponent(row.product_id)}`);
-  if (payer && product) await sendCancellationNotice({ subscription: updated, payer, productName: product.name });
+  if (payer && product) {
+    const office = await getProvider(row.provider_id).catch(() => null);
+    await sendCancellationNotice({ subscription: updated, payer, productName: product.name, office });
+  }
   return updated;
 }
 export async function cancelByToken(token: string): Promise<PublicSubscription> {

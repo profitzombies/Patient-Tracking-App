@@ -125,6 +125,22 @@ const dateTimeFormatter = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
 });
 
+const preciseFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
+/** Audit-grade timestamp, to the second: "Sep 14, 2026, 3:04:09 PM". */
+export function formatPreciseDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : preciseFormatter.format(date);
+}
+
 export function formatDate(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);

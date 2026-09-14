@@ -1,20 +1,42 @@
+import { renderEmailTemplate, type EmailTemplateId, type EmailVariables } from "@workspace/email-templates";
 import { logger } from "../lib/logger";
 import { publicOrigin } from "./app-origin";
 import type { BillingOrderItemRow, BillingOrderRow, BillingPayerRow, BillingSubscriptionRow } from "./store";
 import type { ProviderSummary } from "./store-orders";
 
+/** Display name patients see on every billing email. */
+export const BILLING_EMAIL_FROM_NAME = "THINNR Weight Loss";
+/** Receipt timestamps are rendered in this zone (THINNR's home office). */
+export const BILLING_EMAIL_TIME_ZONE = "America/New_York";
+
 function money(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
-function esc(value: unknown): string {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+/** "Sep 14, 2026, 3:24 PM EDT" in the billing time zone. */
+export function formatReceiptTimestamp(iso: string | null | undefined, now: Date = new Date()): string {
+  const date = iso ? new Date(iso) : now;
+  const safe = Number.isNaN(date.getTime()) ? now : date;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: BILLING_EMAIL_TIME_ZONE, month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit", timeZoneName: "short",
+  }).format(safe);
+}
+/**
+ * Billing mail goes out as "THINNR Weight Loss <address>", reusing the
+ * verified sending address configured for sign-in emails. A bare address
+ * or an address that already carries a display name both work.
+ */
+export function billingFromAddress(configured: string): string {
+  const bracketed = configured.match(/<([^>]+)>/);
+  const address = (bracketed ? bracketed[1] : configured).trim();
+  return `${BILLING_EMAIL_FROM_NAME} <${address}>`;
 }
 function resend(): { key: string; from: string } | null {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.CLAIM_EMAIL_FROM;
-  return key && from ? { key, from } : null;
+  return key && from ? { key, from: billingFromAddress(from) } : null;
 }
-async function deliver(to: string | null, subject: string, html: string, text: string): Promise<void> {
+async function deliver(to: string | null, templateId: EmailTemplateId, variables: EmailVariables): Promise<void> {
   if (!to) return;
   const credentials = resend();
   if (!credentials) {
@@ -22,16 +44,23 @@ async function deliver(to: string | null, subject: string, html: string, text: s
     return;
   }
   try {
+    const rendered = renderEmailTemplate(templateId, variables);
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${credentials.key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: credentials.from, to: [to], subject, html, text }),
+      body: JSON.stringify({ from: credentials.from, to: [to], subject: rendered.subject, html: rendered.html, text: rendered.text }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error(`Resend send failed (${response.status})`);
   } catch (error) {
-    logger.error({ err: error }, "billing email delivery failed");
+    logger.error({ err: error, templateId }, "billing email delivery failed");
   }
+}
+function firstName(payer: BillingPayerRow): string {
+  return (payer.name ?? "").trim().split(/\s+/)[0] ?? "";
+}
+function officeLabel(office: ProviderSummary): string {
+  return office.office_name || office.provider_name || "Your provider";
 }
 
 export async function sendReceipt(input: {
@@ -39,19 +68,31 @@ export async function sendReceipt(input: {
   office: ProviderSummary; subscription?: BillingSubscriptionRow | null;
 }): Promise<void> {
   const { order, items, payer, office, subscription } = input;
-  const officeLabel = office.office_name || office.provider_name || "Your provider";
-  const lines = items.map((item) => `${item.product_name_snapshot} × ${item.quantity}: ${money(item.unit_price_cents * item.quantity)}`);
+  let cancel = "";
+  if (subscription) {
+    // Building the link needs the public origin; a misconfigured origin must
+    // not turn a paid order into a failed webhook, so it degrades to no link.
+    try { cancel = `${publicOrigin()}/pay/cancel/${subscription.cancel_token}`; }
+    catch (error) { logger.error({ err: error, order: order.id }, "billing receipt could not build the cancel link"); }
+  }
   const address = order.shipping_address as Record<string, string | null>;
-  const addressText = [address.name, address.line1, address.line2, address.city, address.state, address.postal_code, address.country].filter(Boolean).join(", ");
-  const cancel = subscription ? `${publicOrigin()}/pay/cancel/${subscription.cancel_token}` : null;
-  const text = [
-    `Receipt ${order.order_number}`, officeLabel, ...lines,
-    `Subtotal: ${money(order.subtotal_cents)}`, `Shipping: ${money(order.shipping_charge_cents)}`,
-    `Tax: ${money(order.tax_cents)}`, `Total: ${money(order.total_cents)}`, `Ship to: ${addressText}`,
-    ...(cancel ? ["This order renews every 4 weeks.", `Manage cancellation: ${cancel}`] : []),
-    office.email ? `Contact: ${office.email}` : "",
-  ].filter(Boolean).join("\n");
-  await deliver(payer.email, `Receipt ${order.order_number}`, `<div><h1>Receipt ${esc(order.order_number)}</h1>${text.split("\n").map((line) => `<p>${esc(line)}</p>`).join("")}</div>`, text);
+  const cityLine = [address.city, [address.state, address.postal_code].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const shipTo = [address.name, address.line1, address.line2, cityLine, address.country].filter(Boolean).join(", ");
+  await deliver(payer.email, "order-receipt", {
+    name: firstName(payer),
+    orderNumber: order.order_number,
+    placedAt: formatReceiptTimestamp(order.paid_at ?? order.created_at),
+    officeName: officeLabel(office),
+    items: items.map((item) => `${item.product_name_snapshot}${item.quantity > 1 ? ` × ${item.quantity}` : ""} · ${money(item.unit_price_cents * item.quantity)}`).join("\n"),
+    subtotal: money(order.subtotal_cents),
+    shipping: money(order.shipping_charge_cents),
+    tax: money(order.tax_cents),
+    total: money(order.total_cents),
+    shipTo: shipTo || "No shipping address on file",
+    renewalNote: subscription ? "This order renews every 4 weeks." : "",
+    cancelLink: cancel,
+    contactEmail: office.email ?? "",
+  });
 }
 
 function trackingUrl(carrier: string | null, tracking: string): string | null {
@@ -63,11 +104,21 @@ function trackingUrl(carrier: string | null, tracking: string): string | null {
 }
 export async function sendShippedNotice(input: { order: BillingOrderRow; payer: BillingPayerRow; office: ProviderSummary }): Promise<void> {
   const tracking = input.order.tracking_number ?? "";
-  const url = trackingUrl(input.order.carrier, tracking);
-  const text = `Order ${input.order.order_number} has shipped.\nCarrier: ${input.order.carrier ?? "Carrier"}\nTracking: ${tracking}${url ? `\nTrack: ${url}` : ""}`;
-  await deliver(input.payer.email, `Order ${input.order.order_number} has shipped`, `<div>${text.split("\n").map((line) => `<p>${esc(line)}</p>`).join("")}</div>`, text);
+  await deliver(input.payer.email, "order-shipped", {
+    name: firstName(input.payer),
+    orderNumber: input.order.order_number,
+    officeName: officeLabel(input.office),
+    carrier: input.order.carrier ?? "Carrier",
+    trackingNumber: tracking || "Not provided",
+    trackingLink: tracking ? trackingUrl(input.order.carrier, tracking) ?? "" : "",
+  });
 }
-export async function sendCancellationNotice(input: { subscription: BillingSubscriptionRow; payer: BillingPayerRow; productName: string }): Promise<void> {
-  const text = `${input.productName} will not renew after the current billing period.`;
-  await deliver(input.payer.email, "Subscription cancellation confirmed", `<p>${esc(text)}</p>`, text);
+export async function sendCancellationNotice(input: {
+  subscription: BillingSubscriptionRow; payer: BillingPayerRow; productName: string; office?: ProviderSummary | null;
+}): Promise<void> {
+  await deliver(input.payer.email, "subscription-cancelled", {
+    name: firstName(input.payer),
+    productName: input.productName,
+    officeName: input.office ? officeLabel(input.office) : "your provider office",
+  });
 }

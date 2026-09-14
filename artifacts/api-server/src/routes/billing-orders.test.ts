@@ -42,7 +42,7 @@ function matches(row: Row, params: URLSearchParams): boolean {
     if (["select", "order", "limit"].includes(key)) continue;
     if (raw === "is.null") { if (row[key] != null) return false; continue; }
     if (raw.startsWith("eq.") && String(row[key]) !== decodeURIComponent(raw.slice(3))) return false;
-    if (raw.startsWith("in.(") && !raw.slice(4, -1).split(",").includes(String(row[key]))) return false;
+    if (raw.startsWith("in.(") && !raw.slice(4, -1).split(",").map((value) => value.replace(/^"|"$/g, "")).includes(String(row[key]))) return false;
   }
   return true;
 }
@@ -111,6 +111,65 @@ beforeEach(() => {
     }
     return response([], 201);
   }) as typeof fetch;
+});
+
+describe("HQ overview and activity feed", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  beforeEach(() => {
+    tables.billing_orders[0].paid_at = `${today}T10:00:00Z`;
+    tables.billing_orders[0].created_at = `${today}T09:59:00Z`;
+    tables.billing_refunds = [{ id: "refund-1", order_id: tables.billing_orders[0].id, amount_cents: 1500, created_at: `${today}T12:00:00Z` }];
+    tables.billing_ledger = [
+      { id: "ledger-2", provider_id: "office-1", order_id: tables.billing_orders[0].id, kind: "refund", amount_cents: -1500, application_fee_cents: 0,
+        detail: {}, occurred_at: `${today}T12:00:00Z`, created_at: `${today}T12:00:00Z` },
+      { id: "ledger-1", provider_id: "office-1", order_id: tables.billing_orders[0].id, kind: "sale", amount_cents: 2267, application_fee_cents: 4500,
+        detail: { total_cents: 7000 }, occurred_at: `${today}T10:00:00Z`, created_at: `${today}T10:00:00Z` },
+    ];
+  });
+  it("buckets payments and refunds into the daily series", async () => {
+    const result = await call("GET", "/billing/hq/overview");
+    expect(result.status).toBe(200);
+    expect(result.json.series).toHaveLength(30);
+    const point = result.json.series.find((row: Row) => row.date === today);
+    expect(point).toMatchObject({ collected_cents: 7000, fee_cents: 4500, refunded_cents: 1500, orders: 1 });
+    expect(result.json.series.filter((row: Row) => row.date !== today).every((row: Row) => row.collected_cents === 0 && row.orders === 0)).toBe(true);
+  });
+  it("buckets today's payments and refunds by local clock hour", async () => {
+    const result = await call("GET", "/billing/hq/overview/today?tz=UTC");
+    expect(result.status).toBe(200);
+    expect(result.json.time_zone).toBe("UTC");
+    expect(result.json.date).toBe(today);
+    expect(result.json.hours).toHaveLength(24);
+    expect(result.json.hours[10]).toMatchObject({ hour: 10, collected_cents: 7000, fee_cents: 4500, net_cents: 7000, orders: 1 });
+    expect(result.json.hours[12]).toMatchObject({ hour: 12, collected_cents: 0, refunded_cents: 1500, net_cents: -1500 });
+    expect(result.json).toMatchObject({ collected_cents: 7000, refunded_cents: 1500, net_cents: 5500, fee_cents: 4500, orders: 1 });
+    expect(result.json.hours.filter((row: Row) => ![10, 12].includes(row.hour as number)).every((row: Row) => row.collected_cents === 0 && row.refunded_cents === 0)).toBe(true);
+  });
+  it("rejects an unknown time zone and defaults to New York when none is given", async () => {
+    const bad = await call("GET", "/billing/hq/overview/today?tz=Mars%2FOlympus");
+    expect(bad.status).toBe(400);
+    const dflt = await call("GET", "/billing/hq/overview/today");
+    expect(dflt.status).toBe(200);
+    expect(dflt.json.time_zone).toBe("America/New_York");
+  });
+  it("labels recent activity with the office name, order number and gross sale amount", async () => {
+    const result = await call("GET", "/billing/hq/overview");
+    expect(result.json.recent).toEqual([
+      expect.objectContaining({ kind: "refund", label: "Refund issued", office_name: "Harbor Health", order_number: "TH-ABC123", amount_cents: -1500 }),
+      expect.objectContaining({ kind: "sale", label: "Payment received", office_name: "Harbor Health", order_number: "TH-ABC123", amount_cents: 7000 }),
+    ]);
+  });
+  it("pages the activity feed newest first and filters by kind", async () => {
+    const page = await call("GET", "/billing/hq/activity?limit=1");
+    expect(page.status).toBe(200);
+    expect(page.json.items.map((row: Row) => row.id)).toEqual(["ledger-2"]);
+    expect(page.json.next_cursor).toEqual(expect.any(String));
+    const sales = await call("GET", "/billing/hq/activity?kind=sale");
+    expect(sales.json.items.map((row: Row) => row.id)).toEqual(["ledger-1"]);
+    expect(sales.json.next_cursor).toBeNull();
+    const bad = await call("GET", "/billing/hq/activity?from=2026-09-20&to=2026-09-01");
+    expect(bad.status).toBe(400);
+  });
 });
 
 describe("billing order routes", () => {

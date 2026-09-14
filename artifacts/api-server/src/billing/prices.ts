@@ -1,6 +1,6 @@
 import { logger } from "../lib/logger";
 import { breakEvenMinimum, belowMinimum } from "./fees";
-import { getSettings } from "./catalog";
+import { getSettings, loadDefaultImages, productImageUrl, recordCatalogChange } from "./catalog";
 import { connectedOpts, getStripe, isStripeMissing } from "./stripe-client";
 import { remove, selectMany, selectOne, update, upsert } from "./store";
 import type { OfficePrice, OfficePricesResponse } from "./types";
@@ -9,18 +9,22 @@ export class BillingPriceError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
 }
 export async function listOfficePrices(providerId: string): Promise<OfficePricesResponse> {
-  const [products, rows, settings] = await Promise.all([
+  const [products, rows, settings, images] = await Promise.all([
     selectMany("billing_products", "order=sort_order.asc,name.asc"),
     selectMany("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}`),
-    getSettings(),
+    getSettings(), loadDefaultImages(),
   ]);
   const prices = new Map(rows.map((row) => [row.product_id, row]));
-  const visible = products.filter((product) => product.active || prices.has(product.id));
+  // Offices see active products plus anything they already price, except
+  // archived products, which leave every office surface.
+  const visible = products.filter((product) => product.status !== "archived" && (product.active || prices.has(product.id)));
   return {
     products: visible.map((product): OfficePrice => {
       const price = prices.get(product.id);
+      const image = images.get(product.id);
       return {
-        product_id: product.id, slug: product.slug, name: product.name, active: product.active,
+        product_id: product.id, slug: product.slug, name: product.name, description: product.description ?? "",
+        image_url: image ? productImageUrl(image.id) : null, active: product.active,
         floor_price_cents: product.floor_price_cents,
         break_even_minimum_cents: breakEvenMinimum(product.floor_price_cents, settings),
         sell_price_cents: price?.sell_price_cents ?? null,
@@ -127,6 +131,9 @@ export async function setOfficePrice(
     selectOne("billing_products", `id=eq.${encodeURIComponent(productId)}`), getSettings(),
   ]);
   if (!product) throw new BillingPriceError("Product not found.", 404);
+  const previous = await selectOne("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}&product_id=eq.${encodeURIComponent(productId)}`);
+  const priceSnapshot = (row: { sell_price_cents: number; subscription_enabled: boolean } | null) =>
+    row ? { sell_price_cents: row.sell_price_cents, subscription_enabled: row.subscription_enabled } : null;
   if (input.sell_price_cents === null) {
     await remove("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}&product_id=eq.${encodeURIComponent(productId)}`);
   } else {
@@ -138,6 +145,12 @@ export async function setOfficePrice(
       provider_id: providerId, product_id: productId, sell_price_cents: input.sell_price_cents,
       subscription_enabled: input.subscription_enabled, updated_by: actor,
     }, "provider_id,product_id");
+  }
+  const next = input.sell_price_cents === null ? null : { sell_price_cents: input.sell_price_cents, subscription_enabled: input.subscription_enabled };
+  if (JSON.stringify(priceSnapshot(previous)) !== JSON.stringify(next)) {
+    await recordCatalogChange({
+      productId, kind: "office_price_updated", before: priceSnapshot(previous), after: next, actor, providerId,
+    });
   }
   let stripe_mirror: "failed" | undefined;
   if (input.sell_price_cents !== null && input.subscription_enabled) {

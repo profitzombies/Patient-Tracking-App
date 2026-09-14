@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders";
 import { sendShippedNotice } from "../billing/receipts";
-import { hqOverview } from "../billing/reporting";
+import { BillingReportingError, hqActivity, hqOverview, hqToday } from "../billing/reporting";
 import { BillingSubscriptionError, cancelSubscription, toSubscriptionRow } from "../billing/subscriptions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary, update } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
@@ -13,6 +13,7 @@ const router: IRouter = Router();
 function actor(res: Response): string { return (res.locals.staff as StaffIdentity).userId; }
 function fail(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing HQ orders request failed");
+  if (error instanceof BillingReportingError) { res.status(error.status).json({ error: error.message }); return; }
   if (error instanceof BillingOrderError || error instanceof BillingSubscriptionError) {
     res.status(error.status).json({ error: error.message, ...(error.field ? { field: error.field } : {}) }); return;
   }
@@ -22,6 +23,12 @@ function fail(req: Request, res: Response, error: unknown): void {
 }
 router.get("/billing/hq/overview", requireHqPermission("financial_read"), async (req, res) => {
   try { res.json(await hqOverview(req.query)); } catch (error) { fail(req, res, error); }
+});
+router.get("/billing/hq/overview/today", requireHqPermission("financial_read"), async (req, res) => {
+  try { res.json(await hqToday({ tz: req.query.tz })); } catch (error) { fail(req, res, error); }
+});
+router.get("/billing/hq/activity", requireHqPermission("financial_read"), async (req, res) => {
+  try { res.json(await hqActivity(req.query)); } catch (error) { fail(req, res, error); }
 });
 async function listOrders(req: Request, fulfillmentOnly = false) {
   const page = pagination(req.query);

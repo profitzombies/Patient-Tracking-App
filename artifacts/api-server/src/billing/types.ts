@@ -86,14 +86,34 @@ export interface BillingSettings {
   updated_at: string | null;
 }
 
+export type ProductStatus = 'draft' | 'active' | 'retired' | 'archived';
+
+/** One product image. `url` is an open, cache-friendly redirect to a short-lived signed URL. */
+export interface ProductImage {
+  id: string;
+  url: string;
+  content_type: string;
+  size_bytes: number;
+  sort_order: number;
+  is_default: boolean;
+  created_at: string;
+}
+
 export interface CatalogProduct {
   id: string;
   slug: string;
   name: string;
+  description: string;
   floor_price_cents: number;
   hard_cost_cents: number;
   active: boolean;
+  status: ProductStatus;
   retired_at: string | null;
+  archived_at: string | null;
+  /** Default image, when one is set. */
+  image_url: string | null;
+  image_count: number;
+  updated_at: string;
   sort_order: number;
   thinnr_share_cents: number;
   break_even_minimum_cents: number;
@@ -102,15 +122,36 @@ export interface CatalogProduct {
   offices_below_minimum: number;
 }
 
+export type CatalogChangeKind =
+  | 'product_created'
+  | 'product_updated'
+  | 'product_retired'
+  | 'product_reactivated'
+  | 'product_published'
+  | 'product_archived'
+  | 'product_unarchived'
+  | 'product_image_added'
+  | 'product_image_removed'
+  | 'product_default_image'
+  | 'products_reordered'
+  | 'office_price_updated'
+  | 'settings_updated';
+
 export interface CatalogChange {
   id: string;
   product_id: string | null;
   product_name: string | null;
-  kind: 'product_created' | 'product_updated' | 'product_retired' | 'product_reactivated' | 'settings_updated';
+  kind: CatalogChangeKind;
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
   actor_user_id: string | null;
+  /** Resolved from the HQ team roster (display name), then the profile. */
   actor_name: string | null;
+  /** HQ roster id of the actor, when they are (still) an HQ teammate; links to their Team profile. */
+  actor_member_id: string | null;
+  /** Office whose price changed (office_price_updated only). */
+  provider_id: string | null;
+  office_name: string | null;
   created_at: string;
 }
 
@@ -118,6 +159,8 @@ export interface OfficePrice {
   product_id: string;
   slug: string;
   name: string;
+  description: string;
+  image_url: string | null;
   active: boolean;
   floor_price_cents: number;
   break_even_minimum_cents: number;
@@ -297,9 +340,30 @@ export interface Balance {
 
 export interface SeriesPoint {
   date: string;
+  /** Gross collected (order totals) for payments that landed this day. */
   collected_cents: number;
+  /** Office net for those payments (total − THINNR fee − Stripe fee). */
   net_cents: number;
+  /** THINNR application fees for those payments. */
   fee_cents: number;
+  /** Refunds issued this day (positive amount). */
+  refunded_cents: number;
+  /** Number of payments that landed this day. */
+  orders: number;
+}
+
+/** One ledger line on the HQ activity feed, with its office and order resolved. */
+export interface HqActivityRow {
+  id: string;
+  kind: LedgerLine['kind'];
+  label: string;
+  provider_id: string;
+  office_name: string;
+  /** Signed: sales carry the gross order total, refunds/payouts are negative. */
+  amount_cents: number | null;
+  occurred_at: string;
+  order_id: string | null;
+  order_number: string | null;
 }
 
 export interface Paged<T> {
@@ -358,6 +422,37 @@ export interface OfficePayoutsResponse {
 
 // ---------- HQ ----------
 
+/** One clock hour of the HQ "today" chart, in the requested time zone. */
+export interface HourPoint {
+  /** 0-23 local hour. */
+  hour: number;
+  /** Gross collected for payments that landed this hour. */
+  collected_cents: number;
+  /** Gross minus refunds issued this hour. */
+  net_cents: number;
+  /** THINNR application fees for those payments. */
+  fee_cents: number;
+  /** HQ profit after product and shipping costs for those payments. */
+  profit_cents: number;
+  refunded_cents: number;
+  orders: number;
+}
+export interface HqTodayOverview {
+  /** Local calendar date (YYYY-MM-DD) in `time_zone`. */
+  date: string;
+  time_zone: string;
+  /** Local hour that is in progress right now (0-23). */
+  current_hour: number;
+  /** Always 24 points, hour 0 through 23; hours after `current_hour` are zero. */
+  hours: HourPoint[];
+  collected_cents: number;
+  net_cents: number;
+  fee_cents: number;
+  profit_cents: number;
+  refunded_cents: number;
+  orders: number;
+}
+
 export interface HqOverview {
   collected_cents: number;
   thinnr_fee_cents: number;
@@ -373,15 +468,7 @@ export interface HqOverview {
   providers_pending: number;
   to_ship: number;
   series: SeriesPoint[];
-  recent: Array<{
-    id: string;
-    kind: LedgerLine['kind'] | 'order_paid' | 'account_onboarded' | 'shipped';
-    label: string;
-    office_name: string;
-    amount_cents: number | null;
-    occurred_at: string;
-    order_id: string | null;
-  }>;
+  recent: HqActivityRow[];
 }
 
 export interface HqProviderRow {
@@ -421,9 +508,16 @@ export interface HqCatalogResponse {
 export interface CatalogProductInput {
   name: string;
   slug?: string;
+  description?: string;
   floor_price_cents: number;
   hard_cost_cents: number;
   sort_order?: number;
+  /** New products start active unless saved as a draft. */
+  status?: 'draft' | 'active';
+}
+
+export interface CatalogProductDetail extends CatalogProduct {
+  images: ProductImage[];
 }
 
 export interface FulfillmentUpdate {
@@ -438,6 +532,8 @@ export interface FulfillmentUpdate {
 export interface PublicLinkProduct {
   product_id: string;
   name: string;
+  description: string;
+  image_url: string | null;
   unit_price_cents: number;
   subscription_available: boolean;
 }

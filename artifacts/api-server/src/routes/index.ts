@@ -41,6 +41,11 @@ import bloodworkRouter from "./bloodwork";
 import patientCareTeamRouter from "./patient-care-team";
 import coachMemoryRouter from "./coach-memory";
 import coachConversationsRouter from "./coach-conversations";
+import billingOfficeRouter from "./billing-office";
+import billingOfficeOrdersRouter from "./billing-office-orders";
+import billingHqRouter from "./billing-hq";
+import billingHqOrdersRouter from "./billing-hq-orders";
+import billingPublicRouter from "./billing-public";
 
 const router: IRouter = Router();
 
@@ -86,5 +91,12 @@ router.use(staffConversationsRouter);
 router.use(hqSettingsFilesRouter);
 router.use(systemJobsRouter);
 router.use(exportsRouter);
+// Provider payments (Stripe Connect). Webhooks mount separately in app.ts
+// (raw body, before the JSON parser).
+router.use(billingOfficeRouter);
+router.use(billingOfficeOrdersRouter);
+router.use(billingHqRouter);
+router.use(billingHqOrdersRouter);
+router.use(billingPublicRouter);
 
 export default router;

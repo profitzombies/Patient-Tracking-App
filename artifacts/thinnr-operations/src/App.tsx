@@ -70,6 +70,8 @@ import Escalations from '@/pages/admin/Escalations';
 import SystemHealth from '@/pages/admin/SystemHealth';
 import Security from '@/pages/Security';
 import SecurityReport from '@/pages/SecurityReport';
+import PublicPayArea from '@/pages/public/pay/PublicPayArea';
+import HqPaymentsArea from '@/pages/admin/payments/HqPaymentsArea';
 
 const queryClient = new QueryClient();
 
@@ -134,6 +136,8 @@ function AdminArea() {
               <Route path="/admin/system-health">
                 {canViewAudit ? <SystemHealth /> : <Redirect to="/admin" replace />}
               </Route>
+              {/* Provider payments program (Stripe Connect); owns its sub-routes. */}
+              <Route path="/admin/payments" nest component={HqPaymentsArea} />
               {/* Admin persona anywhere else (including office URLs) → HQ. */}
               <Route>
                 <Redirect to={landingPath} replace />
@@ -248,6 +252,8 @@ function App() {
           <Switch>
             <Route path="/email" component={EmailStudio} />
             <Route path="/security/report" component={SecurityReport} />
+            {/* Patient-facing payment pages: public, no persona, no session. */}
+            <Route path="/pay" nest component={PublicPayArea} />
             <Route>
               <SessionProvider>
                 <PatientSessionProvider>

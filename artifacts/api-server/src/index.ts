@@ -5,6 +5,7 @@ import { startNotificationWorker } from "./notifications/worker";
 import { startPrivacyWorker } from "./privacy/worker";
 import { registerAllJobs } from "./jobs";
 import { startJobScheduler } from "./jobs/scheduler";
+import { ensureBillingWebhookEndpoints } from "./billing/webhook-endpoints";
 
 const rawPort = process.env["PORT"];
 
@@ -38,4 +39,5 @@ app.listen(port, (err) => {
   // JOBS_DISABLED=1 leaves it to the internal trigger (POST /internal/jobs/tick).
   registerAllJobs();
   startJobScheduler();
+  void ensureBillingWebhookEndpoints();
 });

@@ -27,6 +27,7 @@ import {
   type LucideIcon,
   FileDown,
   ShieldCheck,
+  CreditCard,
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
@@ -56,6 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/audit', label: 'Audit Log', mobileLabel: 'Audit', icon: ActivitySquare },
   { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
   { path: '/admin/exports', label: 'Exports', icon: FileDown },
+  { path: '/admin/payments', label: 'Payments', icon: CreditCard },
   { path: '/admin/settings', label: 'Settings', icon: Settings2 },
   { path: '/admin/system-health', label: 'System health', mobileLabel: 'Health', icon: HeartPulse },
   { path: '/security', label: 'Security', icon: ShieldCheck },
@@ -65,7 +67,7 @@ const ADMIN_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/admin'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/escalations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
-  { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/files', '/admin/settings', '/admin/system-health', '/security'] },
+  { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/payments', '/admin/files', '/admin/settings', '/admin/system-health', '/security'] },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {

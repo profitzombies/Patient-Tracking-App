@@ -22,6 +22,7 @@ import OfficeConversations from '@/pages/OfficeConversations';
 import Analytics from '@/pages/Analytics';
 import Leaderboard from '@/pages/Leaderboard';
 import Subscriptions from '@/pages/Subscriptions';
+import OfficePaymentsArea from '@/pages/office/payments/OfficePaymentsArea';
 import OfficeTraining from '@/pages/OfficeTraining';
 import OfficeTrainingCourse from '@/pages/OfficeTrainingCourse';
 import OfficeTrainingLesson from '@/pages/OfficeTrainingLesson';
@@ -51,6 +52,8 @@ export function OfficeApp() {
               <Route path="/analytics" component={Analytics} />
               <Route path="/leaderboard" component={Leaderboard} />
               <Route path="/subscriptions" component={Subscriptions} />
+              {/* Payments (Stripe Connect) owns its sub-routes. */}
+              <Route path="/payments" nest component={OfficePaymentsArea} />
               <Route path="/training" component={OfficeTraining} />
               {/* Literal /training/team must outrank the :courseId catch-all. */}
               <Route path="/training/team/:viewerId" component={OfficeTeammate} />

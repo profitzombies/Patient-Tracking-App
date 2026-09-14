@@ -44,7 +44,10 @@
     "test:staff-inbox": "tsx scripts/verify-staff-inbox.ts",
     "test:care-team-conversations": "tsx --tsconfig tsconfig.conversations.json scripts/verify-conversations-office.tsx",
     "test:account-security": "TZ=UTC tsx --tsconfig tsconfig.account-security.json scripts/verify-account-security.tsx",
-    "test:leaderboard": "TZ=UTC tsx --tsconfig tsconfig.leaderboard.json scripts/verify-leaderboard.tsx"
+    "test:leaderboard": "TZ=UTC tsx --tsconfig tsconfig.leaderboard.json scripts/verify-leaderboard.tsx",
+    "test:billing-public": "TZ=UTC tsx --tsconfig tsconfig.billing-public.json scripts/verify-billing-public.tsx",
+    "test:billing-hq": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-billing-hq.tsx",
+    "test:billing-office": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-billing-office.tsx"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -115,6 +118,10 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@stripe/connect-js": "^3.4.6",
+    "@stripe/react-connect-js": "^3.4.4",
+    "@stripe/react-stripe-js": "^6.10.0",
+    "@stripe/stripe-js": "^9.16.0",
     "@supabase/supabase-js": "^2.112.3",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"

@@ -30,12 +30,13 @@ export type HqPermission =
   | 'files'
   | 'settings'
   | 'audit'
-  | 'exports';
+  | 'exports'
+  | 'payments';
 
 /** The UI mirrors the server authorization model; the API remains authoritative. */
 export const HQ_ROLE_PERMISSIONS: Record<HqRole, ReadonlySet<HqPermission>> = {
-  'Super Admin': new Set(['overview', 'accounts', 'conversations', 'escalations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit', 'exports']),
-  Admin: new Set(['overview', 'accounts', 'conversations', 'escalations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit', 'exports']),
+  'Super Admin': new Set(['overview', 'accounts', 'conversations', 'escalations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit', 'exports', 'payments']),
+  Admin: new Set(['overview', 'accounts', 'conversations', 'escalations', 'team', 'training', 'knowledge', 'files', 'settings', 'audit', 'exports', 'payments']),
   // Every department has at least one export kind (the API narrows the list per role).
   Clinical: new Set(['accounts', 'conversations', 'escalations', 'exports']),
   Support: new Set(['accounts', 'conversations', 'escalations', 'exports']),
@@ -49,6 +50,7 @@ export function canHq(role: HqRole | null, permission: HqPermission): boolean {
 }
 
 export function permissionForAdminPath(path: string): HqPermission {
+  if (path.startsWith('/admin/payments')) return 'payments';
   if (path.startsWith('/admin/accounts')) return 'accounts';
   if (path.startsWith('/admin/conversations')) return 'conversations';
   if (path.startsWith('/admin/escalations')) return 'escalations';

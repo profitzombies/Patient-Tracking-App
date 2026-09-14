@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@stripe/stripe-js": ["./scripts/billing-public-stubs/stripe-js.ts"],
+      "@stripe/react-stripe-js": ["./scripts/billing-public-stubs/react-stripe-js.tsx"],
+      "@/lib/supabase": ["./scripts/billing-public-stubs/supabase.ts"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

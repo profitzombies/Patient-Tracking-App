@@ -56,6 +56,14 @@ args = "coach-provider-review"
 task = "workflow.run"
 args = "food-amounts"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "billing-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "billing-api"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1345,3 +1353,25 @@ args = "pnpm --filter @workspace/thinnr-mobile exec tsx --tsconfig tsconfig.coac
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "billing-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run test:billing-public && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "billing-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing src/routes/billing- && pnpm --filter @workspace/api-server run typecheck"

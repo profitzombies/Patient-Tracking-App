@@ -6,7 +6,8 @@ import {
   setProductActive, updateSettings,
 } from "../billing/catalog";
 import { listOfficePrices } from "../billing/prices";
-import { selectMany, selectOne } from "../billing/store";
+import { officeDashboard } from "../billing/reporting";
+import { selectMany, selectOne, toOrderSummary } from "../billing/store";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { stripeRejection } from "../billing/stripe-client";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -95,14 +96,29 @@ router.get("/billing/hq/providers/:provider_id", requireHqPermission("financial_
     const providerId = String(req.params.provider_id);
     const office = (await providers()).find((row) => row.provider_id === providerId);
     if (!office) { res.status(404).json({ error: "Office not found." }); return; }
-    const [account, events, prices, subscriptions, payouts, links] = await Promise.all([
+    const [account, events, prices, subscriptions, payouts, links, activity, recentRows] = await Promise.all([
       selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}`),
       selectMany("billing_account_events", `provider_id=eq.${encodeURIComponent(providerId)}&order=created_at.desc`),
       listOfficePrices(providerId),
       selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}`),
       selectMany("billing_payouts", `provider_id=eq.${encodeURIComponent(providerId)}&order=created_at.desc&limit=20`),
       selectMany("billing_payment_links", `provider_id=eq.${encodeURIComponent(providerId)}&active=eq.true&select=id`),
+      officeDashboard(providerId, {}),
+      selectMany("billing_orders", `provider_id=eq.${encodeURIComponent(providerId)}&order=created_at.desc,id.desc&limit=10`),
     ]);
+    // Two bulk reads for the whole page rather than a bundle per order; the
+    // office row is already in hand.
+    const inList = (values: string[]) => `in.(${[...new Set(values)].map((value) => `"${value.replace(/"/g, "")}"`).join(",")})`;
+    const [items, payers] = recentRows.length === 0 ? [[], []] : await Promise.all([
+      selectMany("billing_order_items", `order_id=${inList(recentRows.map((row) => row.id))}&order=created_at.asc`),
+      selectMany("billing_payers", `id=${inList(recentRows.map((row) => row.payer_id))}`),
+    ]);
+    const payerById = new Map(payers.map((row) => [row.id, row]));
+    const recentOrders = recentRows.map((row) => {
+      const payer = payerById.get(row.payer_id);
+      if (!payer) throw new Error("Order details are incomplete.");
+      return toOrderSummary(row, items.filter((item) => item.order_id === row.id), payer, office.office_name?.trim() || office.provider_name?.trim() || "Office");
+    });
     res.json({
       office: { provider_id: providerId, office_name: office.office_name ?? office.provider_name ?? "Office",
         provider_name: office.provider_name ?? office.office_name ?? "Provider", email: office.email ?? null, phone: office.phone ?? null },
@@ -112,7 +128,12 @@ router.get("/billing/hq/providers/:provider_id", requireHqPermission("financial_
         past_due: subscriptions.filter((row) => row.status === "past_due").length,
         canceled: subscriptions.filter((row) => row.status === "canceled").length,
       },
-      recent_orders: [], payouts: payouts.map((row) => ({
+      activity_30d: {
+        collected_cents: activity.collected_cents, thinnr_fee_cents: activity.thinnr_fee_cents,
+        refunded_cents: activity.refunded_cents, net_cents: activity.net_cents,
+        orders: activity.orders, to_ship: activity.to_ship,
+      },
+      recent_orders: recentOrders, payouts: payouts.map((row) => ({
         id: row.id, stripe_payout_id: row.stripe_payout_id, amount_cents: row.amount_cents,
         status: row.status, arrival_date: row.arrival_date, method: row.method, created_at: row.created_at,
       })), links: links.length,

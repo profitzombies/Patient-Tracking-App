@@ -20,6 +20,7 @@ import {
   formatAddress,
 } from '@/components/billing/primitives';
 import { FulfillmentDialog } from '@/components/billing/hq/FulfillmentDialog';
+import { ProviderActivityTiles, ProviderRecentOrders } from '@/components/billing/hq/ProviderPaymentsSummary';
 import { RefundDialog } from '@/components/billing/RefundDialog';
 import {
   Dialog,
@@ -343,6 +344,9 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       ) : data ? (
         <div className="grid gap-5 lg:grid-cols-2">
+          <div className="lg:col-span-2">
+            <ProviderActivityTiles activity={data.activity_30d} subscriptions={data.subscriptions} />
+          </div>
           <SectionCard title="Connected account">
             {data.account ? (
               <>
@@ -418,6 +422,13 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
                 </tbody>
               </table>
             </div>
+          </SectionCard>
+          <SectionCard title="Recent orders" sub="Newest first" className="lg:col-span-2">
+            <ProviderRecentOrders
+              orders={data.recent_orders}
+              orderHref={(orderId) => `/transactions/${orderId}`}
+              emptyMessage="This office has not taken an order yet."
+            />
           </SectionCard>
           <SectionCard title="Subscriptions">
             <p className="p-4 text-xs">

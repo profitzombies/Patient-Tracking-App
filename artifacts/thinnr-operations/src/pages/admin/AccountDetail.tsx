@@ -25,6 +25,7 @@ import {
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
+import { AccountPaymentsCard, useAccountPayments } from '@/components/admin/AccountPaymentsCard';
 import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
 import { Sparkline } from '@/components/admin/Sparkline';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
@@ -126,6 +127,7 @@ export default function AccountDetail() {
     retry: 1,
   });
   const account = detailQuery.data?.account ?? findAccount(id);
+  const { tiles: payments } = useAccountPayments(account?.id);
 
   if (accountsStatus === 'unauthorized') {
     return (
@@ -357,9 +359,9 @@ export default function AccountDetail() {
             <div className="grid grid-cols-2 gap-2.5 px-4 py-4 sm:grid-cols-3">
                <Stat label="Active patients" value={account.activePatientCount == null ? '—' : fmt(account.activePatientCount)} testId="text-account-patients" />
                <Stat label="New enrollments" value="—" />
-               <Stat label="Monthly revenue" value="—" testId="text-account-revenue" />
-               <Stat label="Subscriptions" value="—" />
-               <Stat label="Deliveries · 30d" value="—" />
+               <Stat label="Collected · 30d" value={payments?.collected ?? '—'} testId="text-account-revenue" />
+               <Stat label="Subscriptions" value={payments?.subscriptions ?? '—'} testId="text-account-subscriptions" />
+               <Stat label="Orders · 30d" value={payments?.orders ?? '—'} testId="text-account-orders" />
                <Stat label="Engagement" value="—" />
                <Stat label="Avg pounds lost" value="—" />
                <Stat label="Goal completion" value="—" />
@@ -406,6 +408,11 @@ export default function AccountDetail() {
             </p>
           )}
         </SectionCard>
+      </div>
+
+      {/* Payments: what this office has collected through Stripe and what THINNR earned. */}
+      <div className="mt-5">
+        <AccountPaymentsCard providerId={account.id} />
       </div>
 
       {/* Office profile spans the full measure beneath the two columns. */}

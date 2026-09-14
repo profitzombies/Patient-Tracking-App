@@ -152,6 +152,12 @@ export const DEMO_PROVIDER_DETAILS: Record<string, HqProviderDetail> = Object.fr
       subscription_enabled: productIndex < 2, offered: true, below_minimum: index === 5 && productIndex < 2,
     })),
     subscriptions: { active: index + 1, past_due: index === 3 ? 1 : 0, canceled: index % 2 },
+    activity_30d: {
+      collected_cents: provider.collected_30d_cents, thinnr_fee_cents: provider.fees_30d_cents,
+      refunded_cents: provider.account?.charges_enabled ? 8999 : 0,
+      net_cents: Math.max(0, provider.collected_30d_cents - provider.fees_30d_cents - Math.round(provider.collected_30d_cents * 0.029)),
+      orders: provider.orders_30d, to_ship: provider.account?.charges_enabled ? 2 : 0,
+    },
     recent_orders: DEMO_ORDERS.filter(order => order.provider_id === provider.provider_id).slice(0, 4),
     payouts: provider.account?.payouts_enabled ? [{ id: `payout-${index}`, stripe_payout_id: `po_demo_${index}`, amount_cents: 84250 + index * 10000, status: 'paid', arrival_date: '2026-09-25', method: 'standard', created_at: '2026-09-23T12:00:00Z' }] : [],
     links: index + 1,

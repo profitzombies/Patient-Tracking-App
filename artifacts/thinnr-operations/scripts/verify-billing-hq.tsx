@@ -46,7 +46,7 @@ await check(
   'provider detail back link',
   '/admin/payments/providers/jenkins',
   () => <PaymentProviderDetail params={{ providerId: 'jenkins' }} />,
-  ['Jenkins Wellness', 'Back to providers'],
+  ['Jenkins Wellness', 'Back to providers', 'Collected · 30d', 'Active subscriptions', 'Recent orders', 'TH-D3MO01'],
 );
 await check(
   'transaction detail back link',

@@ -54,7 +54,7 @@ describe("ensureCustomer", () => {
   });
 
   it("does not replace the customer on transient Stripe failures", async () => {
-    const outage = new Stripe.errors.StripeConnectionError({ message: "socket hang up", type: "api_connection_error" });
+    const outage = new Stripe.errors.StripeConnectionError({ message: "socket hang up", type: "api_error" });
     stripe.customers.update.mockRejectedValue(outage);
     await expect(ensureCustomer(payer, address, account)).rejects.toBe(outage);
     expect(stripe.customers.create).not.toHaveBeenCalled();

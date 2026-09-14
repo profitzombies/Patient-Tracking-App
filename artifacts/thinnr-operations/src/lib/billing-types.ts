@@ -402,6 +402,15 @@ export interface HqProviderDetail {
   events: AccountEvent[];
   prices: OfficePrice[];
   subscriptions: { active: number; past_due: number; canceled: number };
+  /** Last 30 days, the same figures the office sees on its own dashboard. */
+  activity_30d: {
+    collected_cents: number;
+    thinnr_fee_cents: number;
+    refunded_cents: number;
+    net_cents: number;
+    orders: number;
+    to_ship: number;
+  };
   recent_orders: OrderSummary[];
   payouts: PayoutRow[];
   links: number;

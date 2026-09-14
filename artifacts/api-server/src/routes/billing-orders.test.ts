@@ -42,6 +42,7 @@ function matches(row: Row, params: URLSearchParams): boolean {
     if (["select", "order", "limit"].includes(key)) continue;
     if (raw === "is.null") { if (row[key] != null) return false; continue; }
     if (raw.startsWith("eq.") && String(row[key]) !== decodeURIComponent(raw.slice(3))) return false;
+    if (raw.startsWith("in.(") && !raw.slice(4, -1).split(",").includes(String(row[key]))) return false;
   }
   return true;
 }
@@ -71,7 +72,7 @@ beforeEach(() => {
   __setCredentialsForTests({ secret: "sk_test_x", publishable: "pk_test_x", account_id: "acct_platform" });
   tables = {
     billing_orders: [{
-      id: "order-1", order_number: "TH-ABC123", provider_id: "office-1", payer_id: "payer-1",
+      id: "0a1b2c3d-0000-4000-8000-000000000001", order_number: "TH-ABC123", provider_id: "office-1", payer_id: "payer-1",
       patient_id: null, link_id: "link-good", kind: "one_time", subscription_id: null,
       status: "paid", currency: "usd", subtotal_cents: 6000, shipping_charge_cents: 1000,
       tax_cents: 0, total_cents: 7000, application_fee_cents: 4500,
@@ -83,7 +84,7 @@ beforeEach(() => {
       created_at: "2026-01-01T00:00:00Z", paid_at: "2026-01-01T00:01:00Z",
     }],
     billing_order_items: [{
-      id: "item-1", order_id: "order-1", product_id: "product-1", product_name_snapshot: "Control",
+      id: "item-1", order_id: "0a1b2c3d-0000-4000-8000-000000000001", product_id: "product-1", product_name_snapshot: "Control",
       quantity: 1, unit_price_cents: 6000, floor_price_cents_snapshot: 5999,
       thinnr_share_cents: 3599, hard_cost_cents_snapshot: 433, created_at: "2026-01-01T00:00:00Z",
     }],
@@ -113,13 +114,26 @@ beforeEach(() => {
 });
 
 describe("billing order routes", () => {
+  it("lists the shipping queue as paid detail rows with items and address", async () => {
+    tables.billing_orders.push({
+      ...tables.billing_orders[0], id: "order-failed", order_number: "TH-FAIL01", status: "failed", paid_at: null,
+      stripe_payment_intent_id: null, created_at: "2026-01-02T00:00:00Z",
+    });
+    const result = await call("GET", "/billing/hq/fulfillment?status=to_ship");
+    expect(result.status).toBe(200);
+    expect(result.json.items.map((row: any) => row.id)).toEqual(["0a1b2c3d-0000-4000-8000-000000000001"]);
+    expect(result.json.items[0].items).toEqual([expect.objectContaining({ product_name: "Control", quantity: 1 })]);
+    expect(result.json.items[0].shipping_address).toMatchObject({ line1: "1 Main", city: "Austin" });
+    expect(result.json.items[0].office_name).toBe("Harbor Health");
+  });
+
   it("requires tracking details before shipping", async () => {
-    const missing = await call("PUT", "/billing/hq/fulfillment/order-1", { status: "shipped" });
+    const missing = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", { status: "shipped" });
     expect(missing.status).toBe(400);
     expect(missing.json.field).toBe("tracking_number");
     expect(sendShippedNotice).not.toHaveBeenCalled();
 
-    const shipped = await call("PUT", "/billing/hq/fulfillment/order-1", {
+    const shipped = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", {
       status: "shipped", carrier: "UPS", tracking_number: "1Z999",
     });
     expect(shipped.status).toBe(200);
@@ -127,11 +141,31 @@ describe("billing order routes", () => {
     expect(tables.billing_orders[0].fulfillment_status).toBe("shipped");
   });
 
-  it("does not reveal an order to a mismatched payment-link token", async () => {
-    const result = await call("GET", "/billing/public/orders/order-1/status?token=other-token");
+  it("ships a partially refunded order but never an unpaid one", async () => {
+    tables.billing_orders[0].status = "partially_refunded";
+    const shipped = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", {
+      status: "shipped", carrier: "UPS", tracking_number: "1Z999",
+    });
+    expect(shipped.status).toBe(200);
+    tables.billing_orders[0].status = "failed";
+    tables.billing_orders[0].fulfillment_status = "to_ship";
+    const blocked = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", {
+      status: "shipped", carrier: "UPS", tracking_number: "1Z999",
+    });
+    expect(blocked.status).toBe(409);
+  });
+
+  it("treats a non-UUID order id as not found instead of a server error", async () => {
+    const result = await call("GET", "/billing/public/orders/TH-ABC123/status?token=good-token");
     expect(result.status).toBe(404);
     expect(result.json.error).toBe("Order not found.");
-    const matching = await call("GET", "/billing/public/orders/order-1/status?token=good-token");
+  });
+
+  it("does not reveal an order to a mismatched payment-link token", async () => {
+    const result = await call("GET", "/billing/public/orders/0a1b2c3d-0000-4000-8000-000000000001/status?token=other-token");
+    expect(result.status).toBe(404);
+    expect(result.json.error).toBe("Order not found.");
+    const matching = await call("GET", "/billing/public/orders/0a1b2c3d-0000-4000-8000-000000000001/status?token=good-token");
     expect(matching.status).toBe(200);
     expect(matching.json.payer_email).toBe("p***@example.com");
     expect(JSON.stringify(matching.json)).not.toContain("pat@example.com");

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type Stripe from "stripe";
 import { logger } from "../lib/logger";
 import { applicationFeeOverCollection, applicationFeePercentFor, hqProfit } from "./fees";
+import { ensureCustomer } from "./customers";
 import { resolvePayer, touchLinkUse } from "./links";
 import { BillingOrderError, markOrderPaidFromInvoice, quoteOrder } from "./orders";
 import { ensureRecurringPrices } from "./prices";
@@ -40,18 +41,6 @@ async function eventBelongsToProvider(providerId: string, ctx: StripeEventContex
   const valid = account?.stripe_account_id === ctx.account;
   if (!valid) logger.warn({ providerId, account: ctx.account }, "ignored cross-account subscription event");
   return valid;
-}
-async function customerFor(payer: Awaited<ReturnType<typeof resolvePayer>>, address: ShippingAddress, account: BillingConnectedAccountRow) {
-  if (payer.stripe_customer_id) return payer.stripe_customer_id;
-  const customer = await (await getStripe()).customers.create({
-    name: payer.name, email: payer.email ?? undefined, phone: payer.phone ?? undefined,
-    shipping: { name: address.name, phone: address.phone ?? undefined, address: {
-      line1: address.line1, line2: address.line2 ?? undefined, city: address.city, state: address.state,
-      postal_code: address.postal_code, country: address.country,
-    } }, metadata: { thinnr_payer_id: payer.id },
-  }, connectedOpts(account.stripe_account_id, `customer:${payer.id}`));
-  await update("billing_payers", `id=eq.${encodeURIComponent(payer.id)}`, { stripe_customer_id: customer.id });
-  return customer.id;
 }
 function orderNumber(): string {
   return `TH-${crypto.randomBytes(6).toString("base64url").replace(/[-_]/g, "A").slice(0, 6).toUpperCase()}`;
@@ -107,7 +96,7 @@ export async function createSubscriptionOrder(input: {
     if (!mirrored?.stripe_price_id || !mirrored.stripe_shipping_price_id) {
       throw new Error("Subscription pricing is unavailable.");
     }
-    customerId = await customerFor(payer, input.shipping_address, account);
+    customerId = await ensureCustomer(payer, input.shipping_address, account);
     const stripe = await getStripe();
     stripeSubscription = await stripe.subscriptions.create({
       customer: customerId,
@@ -117,15 +106,20 @@ export async function createSubscriptionOrder(input: {
       application_fee_percent: applicationFeePercentFor(quote.application_fee_cents, quote.total_cents),
       automatic_tax: { enabled: account.tax_enabled },
       metadata: { thinnr_subscription_id: subscriptionId, thinnr_order_id: orderId },
-      expand: ["latest_invoice.payments.data.payment.payment_intent"],
     } as any, connectedOpts(account.stripe_account_id, `subscription:${subscriptionId}`));
-    invoice = typeof stripeSubscription.latest_invoice === "string"
-      ? await stripe.invoices.retrieve(stripeSubscription.latest_invoice, { expand: ["payments.data.payment.payment_intent"] } as any, connectedOpts(account.stripe_account_id))
-      : stripeSubscription.latest_invoice;
+    // Stripe caps expansion at 4 levels, so the PaymentIntent cannot be
+    // expanded through subscription.latest_invoice; fetch the invoice itself.
+    const latestInvoiceId = typeof stripeSubscription.latest_invoice === "string"
+      ? stripeSubscription.latest_invoice : stripeSubscription.latest_invoice?.id;
+    if (!latestInvoiceId) throw new Error("Subscription has no first invoice.");
+    invoice = await stripe.invoices.retrieve(latestInvoiceId, { expand: ["payments.data.payment.payment_intent"] } as any, connectedOpts(account.stripe_account_id));
     intent = paymentIntent(invoice);
     if (!invoice?.id || !intent?.id || !intent.client_secret) throw new Error("Subscription payment could not be initialized.");
-  } catch {
-    await update("billing_orders", `id=eq.${encodeURIComponent(orderId)}`, { status: "failed" });
+  } catch (error) {
+    logger.error({ err: error, orderId, subscriptionId }, "billing subscription initialization failed");
+    await update("billing_orders", `id=eq.${encodeURIComponent(orderId)}`, {
+      status: "failed", metadata: { settings: quote.settings, error: error instanceof Error ? error.message.slice(0, 500) : "Stripe error" },
+    });
     throw new BillingSubscriptionError("Subscription could not be initialized. Please try again.", 502);
   }
   const renews = periodEnd(stripeSubscription) ?? new Date(Date.now() + 28 * 86400_000).toISOString();

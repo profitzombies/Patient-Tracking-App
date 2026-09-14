@@ -1,3 +1,4 @@
+import Stripe from "stripe";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureRecurringPrices } from "./prices";
 import { __setStripeForTests } from "./stripe-client";
@@ -44,7 +45,10 @@ beforeEach(() => {
       }),
       update: vi.fn(async (id: string) => { events.push(`archive:${id}`); return {}; }),
     },
-    products: { create: vi.fn(async () => ({ id: "shipping_product" })) },
+    products: {
+      retrieve: vi.fn(async (id: string) => ({ id })),
+      create: vi.fn(async (params: any) => ({ id: params.name === "Shipping" ? "shipping_product" : "prod_new" })),
+    },
   };
   __setStripeForTests(stripe);
 });
@@ -69,8 +73,30 @@ describe("recurring Stripe price mirrors", () => {
     expect(officePrice).toMatchObject({ stripe_price_id: "price_new", stripe_shipping_price_id: "ship_new" });
     const keys = stripe.prices.create.mock.calls.map((call: any[]) => call[1].idempotencyKey);
     expect(keys).toEqual([
-      "price:office-1:product-1:6999:price_old",
-      "shipping-price:office-1:1000:ship_old",
+      "price:office-1:product-1:6999:price_old:acct_1",
+      "shipping-price:office-1:1000:ship_old:acct_1",
     ]);
+  });
+
+  it("rebuilds product and prices on a newly connected account without touching the old account's objects", async () => {
+    const missing = new Stripe.errors.StripeInvalidRequestError({ message: "No such product", code: "resource_missing", type: "invalid_request_error" });
+    stripe.products.retrieve.mockRejectedValue(missing);
+    stripe.prices.retrieve.mockRejectedValue(missing);
+    await ensureRecurringPrices("office-1", "product-1");
+    expect(events).toEqual(["create:6999", "create:1000"]);
+    expect(stripe.prices.update).not.toHaveBeenCalled();
+    expect(stripe.products.create.mock.calls[0][0]).toMatchObject({ name: "Control" });
+    expect(stripe.prices.create.mock.calls[0][0]).toMatchObject({ product: "prod_new" });
+    expect(officePrice).toMatchObject({ stripe_product_id: "prod_new", stripe_price_id: "price_new", stripe_shipping_price_id: "ship_new" });
+    const keys = stripe.prices.create.mock.calls.map((call: any[]) => call[1].idempotencyKey);
+    expect(keys).toEqual(["price:office-1:product-1:6999:initial:acct_1", "shipping-price:office-1:1000:initial:acct_1"]);
+  });
+
+  it("surfaces transient Stripe failures instead of rebuilding duplicate objects", async () => {
+    const outage = new Stripe.errors.StripeAPIError({ message: "Stripe is down", type: "api_error" });
+    stripe.products.retrieve.mockRejectedValue(outage);
+    await expect(ensureRecurringPrices("office-1", "product-1")).rejects.toBe(outage);
+    expect(stripe.products.create).not.toHaveBeenCalled();
+    expect(stripe.prices.create).not.toHaveBeenCalled();
   });
 });

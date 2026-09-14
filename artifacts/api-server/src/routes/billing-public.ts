@@ -100,6 +100,9 @@ router.post("/billing/public/links/:token/orders", (req, res) => void limited(re
 router.get("/billing/public/orders/:id/status", (req, res) => void limited(req, res, readLimit, async () => {
   try {
     const token = typeof req.query.token === "string" ? req.query.token : "";
+    // A non-UUID id (e.g. an order number pasted into the URL) is "not found",
+    // not a database error.
+    if (!z.string().uuid().safeParse(req.params.id).success) { res.status(404).json({ error: "Order not found." }); return; }
     const link = token ? await selectOne("billing_payment_links", `token=eq.${encodeURIComponent(token)}`) : null;
     const bundle = await getOrderBundle(String(req.params.id));
     if (!link || !bundle || bundle.order.link_id !== link.id) { res.status(404).json({ error: "Order not found." }); return; }

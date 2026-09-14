@@ -20,6 +20,16 @@ export function stripeRejection(error: unknown): { status: number; message: stri
   return { status: 502, message: `Stripe rejected the request: ${error.message}` };
 }
 
+/**
+ * True only when Stripe says the object does not exist on the account the
+ * request was made against (`resource_missing`). Transient failures (timeouts,
+ * 429, 5xx, auth problems) are NOT "missing" and must be re-thrown by callers
+ * that would otherwise rebuild the object.
+ */
+export function isStripeMissing(error: unknown): boolean {
+  return error instanceof Stripe.errors.StripeError && error.code === "resource_missing";
+}
+
 export interface StripeCredentials {
   secret: string;
   publishable: string;

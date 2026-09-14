@@ -30,7 +30,11 @@ async function listOrders(req: Request, fulfillmentOnly = false) {
     if (fulfillmentOnly && key === "status") continue;
     if (typeof req.query[key] === "string") filters.push(`${key}=eq.${encodeURIComponent(req.query[key] as string)}`);
   }
-  if (fulfillmentOnly) filters.push(`fulfillment_status=eq.${encodeURIComponent(typeof req.query.status === "string" ? req.query.status : "to_ship")}`);
+  if (fulfillmentOnly) {
+    // The shipping queue only deals with orders that were actually paid.
+    filters.push(`fulfillment_status=eq.${encodeURIComponent(typeof req.query.status === "string" ? req.query.status : "to_ship")}`);
+    filters.push("status=in.(paid,partially_refunded)");
+  }
   if (typeof req.query.from === "string") filters.push(`created_at=gte.${encodeURIComponent(`${req.query.from}T00:00:00Z`)}`);
   if (typeof req.query.to === "string") filters.push(`created_at=lte.${encodeURIComponent(`${req.query.to}T23:59:59Z`)}`);
   if (typeof req.query.q === "string" && req.query.q.trim()) {
@@ -39,7 +43,10 @@ async function listOrders(req: Request, fulfillmentOnly = false) {
   if (page.cursor) filters.push(`created_at=lt.${encodeURIComponent(page.cursor.created_at)}`);
   const rows = await selectMany("billing_orders", `${filters.join("&")}${filters.length ? "&" : ""}order=created_at.desc,id.desc&limit=${page.limit + 1}`);
   const visible = rows.slice(0, page.limit);
+  // The fulfillment queue renders items and the shipping address, so it
+  // needs full detail rows; the transactions list keeps the lighter summary.
   const items = await Promise.all(visible.map(async (row) => {
+    if (fulfillmentOnly) return toOrderDetail(row.id, true);
     const bundle = await getOrderBundle(row.id);
     if (!bundle) throw new Error("Order details are incomplete.");
     return toOrderSummary(row, bundle.items, bundle.payer, officeName(bundle.office));
@@ -77,7 +84,7 @@ router.put("/billing/hq/fulfillment/:order_id", requireHqPermission("provider_ma
   try {
     const bundle = await getOrderBundle(String(req.params.order_id));
     if (!bundle) { res.status(404).json({ error: "Order not found." }); return; }
-    if (parsed.data.status === "shipped" && bundle.order.status !== "paid") {
+    if (parsed.data.status === "shipped" && !["paid", "partially_refunded"].includes(bundle.order.status)) {
       res.status(409).json({ error: "Only paid orders can be shipped." }); return;
     }
     const patch = parsed.data.status === "shipped" ? {

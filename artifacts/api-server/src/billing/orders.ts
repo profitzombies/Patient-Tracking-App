@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { logger } from "../lib/logger";
 import { getSettings } from "./catalog";
 import { breakEvenMinimum, computeOrderFees, estimateStripeFee, hqProfit } from "./fees";
+import { ensureCustomer } from "./customers";
 import { resolvePayer, touchLinkUse } from "./links";
 import { sendReceipt } from "./receipts";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
@@ -89,25 +90,6 @@ async function eventBelongsToProvider(providerId: string, ctx: StripeEventContex
   if (!valid) logger.warn({ providerId, account: ctx.account }, "ignored cross-account billing event");
   return valid;
 }
-async function ensureCustomer(
-  payer: Awaited<ReturnType<typeof resolvePayer>>, address: ShippingAddress, account: BillingConnectedAccountRow,
-) {
-  const stripe = await getStripe();
-  const shipping = { name: address.name, phone: address.phone ?? undefined, address: {
-    line1: address.line1, line2: address.line2 ?? undefined, city: address.city, state: address.state,
-    postal_code: address.postal_code, country: address.country,
-  } };
-  if (payer.stripe_customer_id) {
-    await stripe.customers.update(payer.stripe_customer_id, { name: payer.name, email: payer.email ?? undefined, phone: payer.phone ?? undefined, shipping }, connectedOpts(account.stripe_account_id));
-    return payer.stripe_customer_id;
-  }
-  const customer = await stripe.customers.create(
-    { name: payer.name, email: payer.email ?? undefined, phone: payer.phone ?? undefined, shipping, metadata: { thinnr_payer_id: payer.id } },
-    connectedOpts(account.stripe_account_id, `customer:${payer.id}`),
-  );
-  await update("billing_payers", `id=eq.${encodeURIComponent(payer.id)}`, { stripe_customer_id: customer.id });
-  return customer.id;
-}
 function paymentIntent(invoice: any): any {
   const direct = invoice.payment_intent;
   if (direct) return typeof direct === "string" ? { id: direct } : direct;
@@ -151,13 +133,16 @@ export async function createOneTimeOrder(input: {
     } as any, connectedOpts(account.stripe_account_id, `order:${id}:invoice`));
     for (const line of quote.lines) {
       await stripe.invoiceItems.create({
-        customer: customerId, invoice: invoice.id, quantity: line.quantity,
-        price_data: { currency: "usd", unit_amount: line.unit_price_cents, product_data: { name: line.name, ...(line.stripe_tax_code ? { tax_code: line.stripe_tax_code } : {}) } },
+        // Invoice items take an inline unit amount + description; price_data
+        // would require a pre-created Stripe product on the office's account.
+        customer: customerId, invoice: invoice.id, quantity: line.quantity, currency: "usd",
+        unit_amount_decimal: String(line.unit_price_cents), description: line.name,
+        ...(line.stripe_tax_code ? { tax_code: line.stripe_tax_code } : {}),
       } as any, connectedOpts(account.stripe_account_id, `order:${id}:item:${line.product_id}`));
     }
     await stripe.invoiceItems.create({
-      customer: customerId, invoice: invoice.id,
-      price_data: { currency: "usd", unit_amount: quote.shipping_charge_cents, product_data: { name: "Shipping" } },
+      customer: customerId, invoice: invoice.id, quantity: 1, currency: "usd",
+      unit_amount_decimal: String(quote.shipping_charge_cents), description: "Shipping",
     } as any, connectedOpts(account.stripe_account_id, `order:${id}:shipping`));
     let finalized: any = await stripe.invoices.finalizeInvoice(invoice.id, { expand: ["payments.data.payment.payment_intent"] } as any, connectedOpts(account.stripe_account_id, `order:${id}:finalize`));
     let intent = paymentIntent(finalized);
@@ -261,7 +246,9 @@ export async function toOrderDetail(orderId: string, hq: boolean): Promise<Order
     selectMany("billing_refunds", `order_id=eq.${encodeURIComponent(order.id)}&order=created_at.desc`),
     selectMany("billing_disputes", `order_id=eq.${encodeURIComponent(order.id)}&order=created_at.desc`),
     selectMany("billing_ledger", `order_id=eq.${encodeURIComponent(order.id)}&order=occurred_at.desc`),
-    accountFor(order.provider_id),
+    // Reading an order must not depend on the office still being able to
+    // charge: paid goods ship even after a disconnect or a capability pause.
+    selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(order.provider_id)}`),
   ]);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const settings = (order.metadata?.settings ?? { card_fee_bps: 290, card_fee_fixed_cents: 30 }) as any;
@@ -291,7 +278,7 @@ export async function toOrderDetail(orderId: string, hq: boolean): Promise<Order
     refunds: refunds.map((row) => ({ id: row.id, stripe_refund_id: row.stripe_refund_id, amount_cents: row.amount_cents,
       reason: row.reason, status: row.status, requested_by_name: null, created_at: row.created_at })),
     disputes: disputes as any, ledger: ledger as any,
-    stripe: { account_id: account.stripe_account_id, invoice_id: order.stripe_invoice_id,
+    stripe: { account_id: account?.stripe_account_id ?? "", invoice_id: order.stripe_invoice_id,
       payment_intent_id: order.stripe_payment_intent_id, charge_id: order.stripe_charge_id,
       balance_transaction_id: order.stripe_balance_transaction_id },
   };

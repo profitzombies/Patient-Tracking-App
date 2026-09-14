@@ -20,3 +20,15 @@ description: Durable lessons from building direct-charge Connect billing — san
 
 **Re-keying the Stripe connection strands webhook registration.** Saved `billing_webhook_endpoints` rows only prove an endpoint existed on the account connected when they were written; a new account has zero endpoints while startup short-circuits on the saved row and the stored secret is one the new account never issued. Startup must `retrieve` the saved endpoint id and re-register on `resource_missing`. Verify by listing `/v1/webhook_endpoints` with the current key — endpoint ids carry the account suffix.
 **Probing a fresh sandbox:** `accounts.create` with the controller combo answers "You can only create new accounts if you've signed up for Connect" until Connect is enabled; the OAuth authorize URL returns 200 for registered redirect URIs and 400 for unregistered ones (a cheap client-id + redirect check that needs no user click).
+
+**Invoice items take inline amounts, not `price_data.product_data`.** `invoiceItems.create` rejects the Checkout-style `price_data.product_data` shape ("Received unknown parameter"); use `currency` + `unit_amount_decimal` + `quantity` + `description` (+ top-level `tax_code`). Probe unfamiliar param shapes against the sandbox before wiring them.
+
+**Stripe expansion depth is capped at 4.** `subscriptions.create({ expand: ["latest_invoice.payments.data.payment.payment_intent"] })` is 5 levels and fails; create without expanding, then `invoices.retrieve(latest_invoice, { expand: ["payments.data.payment.payment_intent"] })`.
+
+**Only `resource_missing` means "rebuild the mirrored object".** Product/price/customer ids live on the account that created them; on reconnect they answer `resource_missing` and must be recreated there (idempotency keys include the account id). Any other error (timeout, 429, 5xx, auth, or a test mock missing the method) must be re-thrown — a bare `catch {}` around `retrieve` created duplicates and hid a broken mock for weeks.
+
+**Reading a paid order must not require charge capability.** Detail/fulfillment serializers read the connected-account row directly; only checkout/refund paths go through the charges-enabled gate, otherwise one paused office blanks the whole HQ shipping queue.
+
+**Public order-status ids must be UUID-checked before hitting PostgREST**, or a pasted order number becomes a 503 ("temporarily unavailable") instead of a 404.
+
+**E2E recipes.** In-app embedded onboarding is blocked by hCaptcha (needs a human); a blank Standard OAuth test account cannot charge. For automation, create a platform-controlled account with `controller.fees.payer=application`, complete it with test identity data, and PATCH the office's `billing_connected_accounts` row to it. Renewals: create the customer under a `test_clock`, subscribe, advance 28d+2h, wait for `invoice.paid`. stripe-node `retrieve`/`del` are `(id, params, options)` — pass `{}` before `{ stripeAccount }`. Fixture teardown must delete refunds/disputes/ledger by order id and `billing_account_events` by provider before providers.

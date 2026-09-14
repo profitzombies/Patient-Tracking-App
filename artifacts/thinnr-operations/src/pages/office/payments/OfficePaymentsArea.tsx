@@ -1256,12 +1256,16 @@ function SubscriptionsView({
                   <td>
                     <StatusPill tone={subscriptionTone(row.status)}>{SUBSCRIPTION_STATUS_LABEL[row.status]}</StatusPill>
                   </td>
-                  <td>{formatDate(row.current_period_end)}</td>
+                  <td>
+                    {row.cancel_at_period_end && row.status !== 'canceled'
+                      ? `Ends ${formatDate(row.current_period_end)}`
+                      : formatDate(row.current_period_end)}
+                  </td>
                   <td>
                     <MoneyCell cents={row.unit_price_cents + row.shipping_charge_cents} />
                   </td>
                   <td className="p-4 text-right">
-                    {row.status !== 'canceled' && (
+                    {row.status !== 'canceled' && !row.cancel_at_period_end && (
                       <button className={BTN_SECONDARY} disabled={demo} onClick={() => setCanceling(row.id)}>
                         Cancel
                       </button>

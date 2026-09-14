@@ -1,7 +1,7 @@
 import { logger } from "../lib/logger";
 import { breakEvenMinimum, belowMinimum } from "./fees";
 import { getSettings } from "./catalog";
-import { connectedOpts, getStripe } from "./stripe-client";
+import { connectedOpts, getStripe, isStripeMissing } from "./stripe-client";
 import { remove, selectMany, selectOne, update, upsert } from "./store";
 import type { OfficePrice, OfficePricesResponse } from "./types";
 
@@ -44,60 +44,74 @@ export async function ensureRecurringPrices(providerId: string, productId: strin
   ]);
   if (!price || !product || !account) throw new BillingPriceError("The recurring price cannot be created.", 409);
   const stripe = await getStripe();
+  const acct = account.stripe_account_id;
+  // Mirrored ids are only meaningful on the account they were created on. An
+  // office that disconnects and reconnects a different Stripe account must
+  // get fresh objects, and the stale ones must not be touched.
   let stripeProductId = price.stripe_product_id;
+  let productFresh = false;
+  if (stripeProductId) {
+    try { await stripe.products.retrieve(stripeProductId, {}, connectedOpts(acct)); }
+    catch (error) { if (!isStripeMissing(error)) throw error; stripeProductId = null; }
+  }
   if (!stripeProductId) {
     const stripeProduct = await stripe.products.create(
       { name: product.name, metadata: { thinnr_product_id: product.id } },
-      connectedOpts(account.stripe_account_id, `product:${providerId}:${productId}`),
+      connectedOpts(acct, `product:${providerId}:${productId}:${acct}`),
     );
     stripeProductId = stripeProduct.id;
+    productFresh = true;
   }
   let recurringId = price.stripe_price_id;
+  let recurringOnAccount = false;
   let replaceRecurring = true;
-  if (recurringId) {
+  if (recurringId && !productFresh) {
     try {
-      const current = await stripe.prices.retrieve(recurringId, {}, connectedOpts(account.stripe_account_id));
+      const current = await stripe.prices.retrieve(recurringId, {}, connectedOpts(acct));
+      recurringOnAccount = true;
       replaceRecurring = !current.active || current.unit_amount !== price.sell_price_cents;
-    } catch {
+    } catch (error) {
+      if (!isStripeMissing(error)) throw error;
       replaceRecurring = true;
     }
   }
   if (replaceRecurring) {
-    const oldId = recurringId;
+    const oldId = recurringOnAccount ? recurringId : null;
     const recurring = await stripe.prices.create({
       product: stripeProductId, currency: "usd", unit_amount: price.sell_price_cents,
       recurring: { interval: "week", interval_count: 4 },
-    }, connectedOpts(account.stripe_account_id,
-      `price:${providerId}:${productId}:${price.sell_price_cents}:${oldId ?? "initial"}`));
+    }, connectedOpts(acct, `price:${providerId}:${productId}:${price.sell_price_cents}:${oldId ?? "initial"}:${acct}`));
     recurringId = recurring.id;
     if (oldId && oldId !== recurring.id) {
-      await stripe.prices.update(oldId, { active: false }, connectedOpts(account.stripe_account_id));
+      await stripe.prices.update(oldId, { active: false }, connectedOpts(acct));
     }
   }
   let shippingId = price.stripe_shipping_price_id;
+  let shippingOnAccount = false;
   let replaceShipping = true;
   if (shippingId) {
     try {
-      const current = await stripe.prices.retrieve(shippingId, {}, connectedOpts(account.stripe_account_id));
+      const current = await stripe.prices.retrieve(shippingId, {}, connectedOpts(acct));
+      shippingOnAccount = true;
       replaceShipping = !current.active || current.unit_amount !== settings.shipping_charge_cents;
-    } catch {
+    } catch (error) {
+      if (!isStripeMissing(error)) throw error;
       replaceShipping = true;
     }
   }
   if (replaceShipping) {
-    const oldShippingId = shippingId;
+    const oldShippingId = shippingOnAccount ? shippingId : null;
     const shippingProduct = await stripe.products.create(
       { name: "Shipping", metadata: { thinnr_shipping: "true" } },
-      connectedOpts(account.stripe_account_id, `shipping-product:${providerId}:${oldShippingId ?? "initial"}`),
+      connectedOpts(acct, `shipping-product:${providerId}:${oldShippingId ?? "initial"}:${acct}`),
     );
     const shipping = await stripe.prices.create({
       product: shippingProduct.id, currency: "usd", unit_amount: settings.shipping_charge_cents,
       recurring: { interval: "week", interval_count: 4 },
-    }, connectedOpts(account.stripe_account_id,
-      `shipping-price:${providerId}:${settings.shipping_charge_cents}:${oldShippingId ?? "initial"}`));
+    }, connectedOpts(acct, `shipping-price:${providerId}:${settings.shipping_charge_cents}:${oldShippingId ?? "initial"}:${acct}`));
     shippingId = shipping.id;
     if (oldShippingId && oldShippingId !== shipping.id) {
-      await stripe.prices.update(oldShippingId, { active: false }, connectedOpts(account.stripe_account_id));
+      await stripe.prices.update(oldShippingId, { active: false }, connectedOpts(acct));
     }
   }
   return update("billing_office_prices",

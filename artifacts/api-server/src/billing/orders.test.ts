@@ -87,7 +87,9 @@ function seed() {
     invoices: {
       create: vi.fn(async () => ({ id: "in_1" })),
       finalizeInvoice: vi.fn(async () => ({ id: "in_1", total: 7999, total_taxes: [], payments: { data: [] } })),
-      retrieve: vi.fn(async () => ({ id: "in_1", total: 7999, total_taxes: [], payments: { data: [{ payment: { payment_intent: { id: "pi_1", client_secret: "secret_1" } } }] } })),
+      retrieve: vi.fn(async (id: string) => id === "in_sub_new"
+        ? { id, total: 7999, total_taxes: [], payments: { data: [{ payment: { payment_intent: { id: "pi_sub_new", client_secret: "secret_sub" } } }] } }
+        : { id: "in_1", total: 7999, total_taxes: [], payments: { data: [{ payment: { payment_intent: { id: "pi_1", client_secret: "secret_1" } } }] } }),
       update: vi.fn(async () => ({})),
     },
     invoiceItems: { create: vi.fn(async () => ({})) },
@@ -97,7 +99,10 @@ function seed() {
     charges: { retrieve: vi.fn(async () => ({ id: "ch_1", application_fee: { id: "fee_1" } })) },
     refunds: { create: vi.fn(async () => ({ id: "re_1", amount: 100, status: "succeeded" })) },
     applicationFees: { createRefund: vi.fn(async () => ({ id: "fr_1" })) },
-    products: { create: vi.fn(async () => { sequence.push("stripe:product"); return { id: "prod_new" }; }) },
+    products: {
+      retrieve: vi.fn(async (id: string) => { sequence.push("stripe:product-retrieve"); return { id }; }),
+      create: vi.fn(async () => { sequence.push("stripe:product"); return { id: "prod_new" }; }),
+    },
     prices: {
       retrieve: vi.fn(async (id: string) => { sequence.push("stripe:price-retrieve"); return { id, active: true, unit_amount: id === "price_ship" ? 1000 : 6999 }; }),
       create: vi.fn(async () => { sequence.push("stripe:price-create"); return { id: "price_new" }; }),
@@ -106,10 +111,8 @@ function seed() {
     subscriptions: {
       create: vi.fn(async () => {
         sequence.push("stripe:subscription");
-        return { id: "sub_stripe", current_period_end: 1_800_000_000, latest_invoice: {
-          id: "in_sub_new", total: 7999,
-          payments: { data: [{ payment: { payment_intent: { id: "pi_sub_new", client_secret: "secret_sub" } } }] },
-        } };
+        // Stripe refuses >4 expansion levels, so latest_invoice comes back unexpanded.
+        return { id: "sub_stripe", current_period_end: 1_800_000_000, latest_invoice: "in_sub_new" };
       }),
     },
   };
@@ -134,6 +137,15 @@ describe("billing orders", () => {
     expect(stripe.invoices.retrieve).toHaveBeenCalledOnce();
     expect(response.client_secret).toBe("secret_1");
     expect(response.order_id).toBe(tables.billing_orders[0].id);
+    // Invoice items carry inline amounts; price_data.product_data is not a
+    // valid invoice-item parameter and needs a pre-created Stripe product.
+    const items = stripe.invoiceItems.create.mock.calls.map((call: any[]) => call[0]);
+    expect(items).toHaveLength(2);
+    for (const item of items) {
+      expect(item).not.toHaveProperty("price_data");
+      expect(item).toMatchObject({ currency: "usd", quantity: expect.any(Number), unit_amount_decimal: expect.stringMatching(/^\d+$/), description: expect.any(String) });
+    }
+    expect(items.at(-1)).toMatchObject({ description: "Shipping", unit_amount_decimal: "1000" });
   });
 
   it("marks an invoice paid once and computes net from the balance transaction", async () => {

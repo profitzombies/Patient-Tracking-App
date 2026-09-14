@@ -1,3 +1,4 @@
+import Stripe from "stripe";
 import { logger } from "../lib/logger";
 import { publicOrigin } from "./app-origin";
 import { getStripe, isSandbox } from "./stripe-client";
@@ -25,11 +26,28 @@ export async function getEndpointSecret(kind: WebhookEndpointKind): Promise<stri
   secretCache.set(kind, row.secret);
   return row.secret;
 }
-async function ensure(kind: WebhookEndpointKind): Promise<void> {
+async function savedEndpointIsLive(stripe: Stripe, endpointId: string | null | undefined): Promise<boolean> {
+  if (!endpointId) return false;
+  try {
+    const endpoint = await stripe.webhookEndpoints.retrieve(endpointId);
+    return endpoint.status === "enabled";
+  } catch (error) {
+    if (error instanceof Stripe.errors.StripeError && error.code === "resource_missing") return false;
+    throw error;
+  }
+}
+export async function ensureEndpoint(kind: WebhookEndpointKind): Promise<void> {
   const url = endpointUrl(kind);
   const saved = await selectOne("billing_webhook_endpoints", `url=eq.${encodeURIComponent(url)}`);
-  if (saved?.secret) { secretCache.set(kind, saved.secret); return; }
   const stripe = await getStripe();
+  // A saved row only proves an endpoint existed on the account that was connected when it was written.
+  // Re-keying the Stripe connection leaves the row behind with a secret the new account never issued.
+  if (saved?.secret && (await savedEndpointIsLive(stripe, saved.stripe_endpoint_id))) {
+    secretCache.set(kind, saved.secret);
+    return;
+  }
+  if (saved?.secret) logger.warn({ kind, url }, "saved billing webhook endpoint is missing in Stripe; re-registering");
+  secretCache.delete(kind);
   const listed = await stripe.webhookEndpoints.list({ limit: 100 });
   for (const endpoint of listed.data.filter((candidate) => candidate.url === url)) {
     await stripe.webhookEndpoints.del(endpoint.id);
@@ -46,6 +64,6 @@ async function ensure(kind: WebhookEndpointKind): Promise<void> {
 }
 export async function ensureBillingWebhookEndpoints(): Promise<void> {
   if (process.env.BILLING_WEBHOOKS_DISABLED === "1" || process.env.NODE_ENV === "test") return;
-  try { await ensure("platform"); await ensure("connect"); }
+  try { await ensureEndpoint("platform"); await ensureEndpoint("connect"); }
   catch (error) { logger.warn({ err: error }, "billing webhook endpoint setup skipped"); }
 }

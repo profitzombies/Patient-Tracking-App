@@ -8,7 +8,7 @@ import { publicOrigin } from "../billing/app-origin";
 import { requireOfficeBillingScope, viewerOfficeRole } from "../billing/auth";
 import { BillingLinkError, createLink, deactivateLink, listLinks, searchPatients } from "../billing/links";
 import { BillingPriceError, listOfficePrices, setOfficePrice } from "../billing/prices";
-import { getConnectClientId, isSandbox } from "../billing/stripe-client";
+import { getConnectClientId, isSandbox, stripeRejection } from "../billing/stripe-client";
 import { selectMany, selectOne } from "../billing/store";
 
 const router: IRouter = Router();
@@ -20,6 +20,8 @@ function answerError(req: Request, res: Response, error: unknown): void {
       ...(error instanceof BillingAccountError && error.unsupported ? { unsupported: error.unsupported } : {}) });
     return;
   }
+  const rejected = stripeRejection(error);
+  if (rejected) { res.status(rejected.status).json({ error: rejected.message }); return; }
   res.status(503).json({ error: "Payments are temporarily unavailable." });
 }
 async function scoped(req: Request, res: Response, write: boolean) {

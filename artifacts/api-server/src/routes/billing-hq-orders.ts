@@ -6,6 +6,7 @@ import { hqOverview } from "../billing/reporting";
 import { BillingSubscriptionError, cancelSubscription, toSubscriptionRow } from "../billing/subscriptions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary, update } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
+import { stripeRejection } from "../billing/stripe-client";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 
 const router: IRouter = Router();
@@ -15,6 +16,8 @@ function fail(req: Request, res: Response, error: unknown): void {
   if (error instanceof BillingOrderError || error instanceof BillingSubscriptionError) {
     res.status(error.status).json({ error: error.message, ...(error.field ? { field: error.field } : {}) }); return;
   }
+  const rejected = stripeRejection(error);
+  if (rejected) { res.status(rejected.status).json({ error: rejected.message }); return; }
   res.status(503).json({ error: "Payments are temporarily unavailable." });
 }
 router.get("/billing/hq/overview", requireHqPermission("financial_read"), async (req, res) => {

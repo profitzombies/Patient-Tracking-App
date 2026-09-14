@@ -8,6 +8,7 @@ import {
 import { listOfficePrices } from "../billing/prices";
 import { selectMany, selectOne } from "../billing/store";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
+import { stripeRejection } from "../billing/stripe-client";
 import { supabaseAdmin } from "../lib/supabase-admin";
 
 const router: IRouter = Router();
@@ -27,6 +28,8 @@ function fail(req: Request, res: Response, error: unknown): void {
   if (error instanceof BillingCatalogError) {
     res.status(error.status).json({ error: error.message, ...(error.field ? { field: error.field } : {}) }); return;
   }
+  const rejected = stripeRejection(error);
+  if (rejected) { res.status(rejected.status).json({ error: rejected.message }); return; }
   res.status(503).json({ error: "Payments are temporarily unavailable." });
 }
 router.get("/billing/hq/catalog", requireHqPermission("financial_read"), async (req, res) => {

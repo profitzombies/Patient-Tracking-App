@@ -6,6 +6,20 @@ export class BillingConfigError extends Error {
   readonly status = 503;
 }
 
+/**
+ * A deterministic Stripe rejection (invalid_request_error, 4xx other than
+ * rate limits). Retrying will not help, so staff surfaces should say what
+ * Stripe said instead of "temporarily unavailable". Never used for public
+ * (payer-facing) routes.
+ */
+export function stripeRejection(error: unknown): { status: number; message: string } | null {
+  if (!(error instanceof Stripe.errors.StripeError)) return null;
+  if (error.type !== "StripeInvalidRequestError") return null;
+  const code = error.statusCode ?? 400;
+  if (code < 400 || code >= 500 || code === 429) return null;
+  return { status: 502, message: `Stripe rejected the request: ${error.message}` };
+}
+
 export interface StripeCredentials {
   secret: string;
   publishable: string;

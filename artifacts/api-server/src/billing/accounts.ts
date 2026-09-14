@@ -81,21 +81,20 @@ export async function createInAppAccount(providerId: string, actorUserId: string
   if (existing && !existing.disconnected_at) throw new BillingAccountError("This office already has a Stripe account.", 409);
   const office = await provider(providerId);
   const stripe = await getStripe();
+  // Only business_profile is prefilled. A `company`/`individual` block would
+  // force `business_type`, which the office chooses in Stripe's onboarding
+  // (sole proprietors are individuals, most med spas are companies).
+  const supportAddress = office.address_line_1 && office.city && office.state && office.postal_code
+    ? { line1: office.address_line_1, line2: office.address_line_2 ?? undefined, city: office.city,
+        state: office.state, postal_code: office.postal_code, country: "US" }
+    : undefined;
   const account = await stripe.accounts.create({
     country: "US",
     email: office.email ?? undefined,
     business_profile: {
       name: office.office_name ?? office.provider_name ?? undefined,
       support_phone: office.phone ?? undefined,
-    },
-    company: {
-      name: office.office_name ?? office.provider_name ?? undefined,
-      phone: office.phone ?? undefined,
-      address: {
-        line1: office.address_line_1 ?? undefined, line2: office.address_line_2 ?? undefined,
-        city: office.city ?? undefined, state: office.state ?? undefined,
-        postal_code: office.postal_code ?? undefined, country: "US",
-      },
+      support_address: supportAddress,
     },
     controller: {
       stripe_dashboard: { type: "none" },
@@ -105,7 +104,7 @@ export async function createInAppAccount(providerId: string, actorUserId: string
     },
     capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
     metadata: { thinnr_provider_id: providerId },
-  }, { idempotencyKey: `account:${providerId}` });
+  }, { idempotencyKey: `account:v2:${providerId}` });
   const row = await upsert("billing_connected_accounts", {
     provider_id: providerId, origin: "created", oauth_refresh_token: null, disconnected_at: null,
     tax_enabled: false, tax_last_checked_at: null, last_synced_at: nowIso(), livemode: !(await isSandbox()),

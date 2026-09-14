@@ -74,9 +74,10 @@ export function DateRangeControl() {
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-auto max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg p-0 shadow-lifted"
+        className="w-auto max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg bg-white p-0 shadow-lifted"
       >
         <Calendar
+          className="bg-white"
           mode="range"
           numberOfMonths={isMobile ? 1 : 2}
           defaultMonth={draft?.from}
@@ -86,7 +87,7 @@ export function DateRangeControl() {
           startMonth={keyToDate(minKey)}
           endMonth={keyToDate(maxKey)}
         />
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border bg-secondary px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border bg-white px-3 py-2.5">
           <p aria-live="polite" className="text-xs font-medium text-muted-foreground" data-testid="text-date-range-draft">
             {draftSummary}
           </p>

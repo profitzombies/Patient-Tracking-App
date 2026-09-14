@@ -34,6 +34,7 @@
 - [Coach client-held flows](coach-client-flows.md) — sub-conversations that bind a reply to held data (label naming) resolve client-side; finished bubbles ride the bounded request history window.
 - [Coach no-dash voice](coach-no-dash.md) — dashes stripped structurally: whole strings + a chunk-bridging stream smoother that must flush on every writable end, error paths included; catalog names de-dash at display only.
 - [Range picker restart](range-picker-restart.md) — a pre-filled complete range must restart on the next day-click; react-day-picker's default stretches the old range instead.
+- [Tailwind v4 var syntax](tailwind-v4-var-syntax.md) — `h-[--x]` (v3 form) is silently dropped by v4; use `h-(--x)`; grep the ui/ folder when a shadcn part renders unsized.
 - [Tailwind v4 color-token mapping](tailwind-theme-color-mapping.md) — a css var only becomes a utility class once mapped --color-* in @theme inline; unmapped bg-chart-*/text-warn silently render nothing.
 - [Range-calibrated analytics](range-calibrated-analytics.md) — seeded series calibrated so the default range reproduces approved headline figures; comparisons predating the dataset go honestly null.
 - [Ingredient decomposition](ingredient-decomposition.md) — exact curated sums, ORIGINAL-baseline scaling, delta totals, server normalization; oz/fl-oz via name-keyed measure bridge (head-noun matcher); adjustments persist recipe-linked only.

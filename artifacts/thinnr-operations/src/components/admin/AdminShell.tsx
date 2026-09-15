@@ -31,7 +31,6 @@ import {
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
-import { DataDisclaimerFooter } from '@/components/layout/DataDisclaimerFooter';
 import { canHq, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
 import { UnauthorizedState } from '@/components/admin/primitives';
@@ -227,8 +226,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-
-        <DataDisclaimerFooter />
       </section>
     </div>
   );

@@ -8,7 +8,6 @@ import { memoryLocation } from 'wouter/memory-location';
 import OfficeConversations from '../src/pages/OfficeConversations';
 import { HqConversations } from '../src/components/conversations/HqConversations';
 import { planThreadFollow } from '../src/components/conversations/shared';
-import { DataDisclaimerFooter } from '../src/components/layout/DataDisclaimerFooter';
 import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setHqData } from './a11y-stubs/hq-data';
@@ -391,15 +390,5 @@ assert.match(textOf(renderer!.root), /Called the office about refills/, 'HQ note
 assert.doesNotMatch(textOf(renderer!.root), /No internal notes yet/, 'HQ empty state must disappear once notes exist');
 await act(async () => { renderer!.unmount(); });
 hqNotes = [];
-
-__setSession({ authStatus: 'signed-in' });
-await act(async () => { renderer = create(<DataDisclaimerFooter />); });
-assert.doesNotMatch(textOf(renderer!.root), /Synthetic Demo Data/, 'authenticated shells must not claim live data is synthetic');
-assert.match(textOf(renderer!.root), /Not Medical Advice/);
-await act(async () => { renderer!.unmount(); });
-__setSession({ authStatus: 'signed-out' });
-await act(async () => { renderer = create(<DataDisclaimerFooter />); });
-assert.match(textOf(renderer!.root), /Synthetic Demo Data/, 'guided demo retains its synthetic-data disclosure');
-await act(async () => { renderer!.unmount(); });
 
 console.log('office conversations rendered verification passed');

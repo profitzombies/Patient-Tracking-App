@@ -29,3 +29,6 @@ description: Principle for getting the browser tester past code-login screens wi
 
 ## Care-team smoke harness helper is not auto-served
 The api-server care-team live-smoke harness writes helper HTML under `tmp/` but only *removes* the `artifacts/*/public/<helper-dir>` symlinks at cleanup — it never creates them. After `prepare`/`helper`, symlink the helper dir into the web artifact's `public/` yourself (and add the path to `.git/info/exclude`), or the helper URL SPA-falls-back to index.html and the tester lands on the sign-in card with an empty localStorage. Cleanup removes both.
+
+## Care-team smoke harness drift (Sept 2026)
+`verify --keep` now fails at conversation creation (`patient_chat_conversations_coach_identity_check`) — the harness predates that constraint. `prepare` + `helper` still work; have the tester create threads/replies/notes through the real UI instead. `cleanup` can fail its "audit rows removed" assertion when the tester's browser is still polling as a fixture user (a late `access_denied` audit row lands after the delete); audit rows are append-only outside the harness's replica-role transaction, so just re-run `cleanup` after the tester is idle.

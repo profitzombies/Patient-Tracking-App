@@ -129,3 +129,4 @@
 - [HQ file drive](hq-file-drive.md) — replace = CAS swap; one-row responses enrich like listings; archived rows stay real; providers read-only via shared read module; downloads open a new tab.
 - [Fixed-layout table width budget](fixed-table-width-budget.md) — truncate needs table-fixed; reserve widths for all but one column and keep the sum under the card width or the free column starves.
 - [HQ drill-in office scope](hq-drillin-office-scope.md) — office screens under /admin/accounts/:id/office must send ?office= on every live request and hide HQ-forbidden care-team writes; hold the frame while accounts load.
+- [Inbox notes side panel](inbox-notes-side-panel.md) — white thread + separate docked/overlay notes panel; HQ never composes notes on any thread; back-button breakpoint must equal list-pane breakpoint.

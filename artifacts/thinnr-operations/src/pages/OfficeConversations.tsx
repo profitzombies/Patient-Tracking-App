@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useSearch } from 'wouter';
-import { ArrowLeft, MessagesSquare, Search, AlertTriangle, StickyNote, Send } from 'lucide-react';
+import { ArrowLeft, MessagesSquare, Search, AlertTriangle, Send } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_SECONDARY, CHIP_WARM } from '@/components/patient/heritage';
 import { useSession } from '@/contexts/session';
 import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
 import { useToast } from '@/hooks/use-toast';
-import { InitialsAvatar, formatRelativeTime, LiveMessageRow, ThreadNotesEmpty, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
+import { InitialsAvatar, formatRelativeTime, LiveMessageRow, ThreadNotesPanel, ThreadNotesToggle, useThreadNotesPanel, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
 import {
   useGetOfficeConversations,
   useGetOfficeConversationEvents,
@@ -62,6 +62,7 @@ export default function OfficeConversations() {
   // The server refuses every HQ write on a care-team thread (and HQ can never
   // start one), so the drill-in shows those surfaces as read-only.
   const hqDrillIn = Boolean(liveOffice);
+  const notesPanel = useThreadNotesPanel();
   const live = authStatus === 'signed-in';
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -652,15 +653,16 @@ export default function OfficeConversations() {
   );
 
   const viewerPane = (
-    <section className={`${explicit ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col bg-background`}>
+    <section className={`${explicit ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col bg-card`}>
       {openId ? (
         <>
-          <header className="shrink-0 border-b border-border bg-card px-4 py-3 md:px-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-3 md:px-6">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               {explicit && (
                 <button
                   type="button"
-                  className="rounded-sm text-xs font-semibold text-primary hover:underline md:hidden mr-2"
+                  className="mr-2 rounded-sm text-xs font-semibold text-primary hover:underline lg:hidden"
+                  aria-label="Back to all conversations"
                   onClick={closeThread}
                 >
                   <ArrowLeft size={16} aria-hidden="true" />
@@ -680,21 +682,22 @@ export default function OfficeConversations() {
                 </div>
               </div>
             </div>
-            <div>
-              <Link href={`/patients/${selectedSummary?.patientId}`} className={`${BTN_SECONDARY} text-xs px-3 py-1.5 h-8`}>
+            <div className="flex shrink-0 items-center gap-2">
+              <ThreadNotesToggle ref={notesPanel.toggleRef} open={notesPanel.open} count={notes.data?.notes.length ?? selectedSummary?.noteCount} onClick={notesPanel.toggle} />
+              <Link href={`/patients/${selectedSummary?.patientId}`} className={`${BTN_SECONDARY} h-8 px-3 py-1.5 text-xs max-sm:hidden`}>
                 View Profile
               </Link>
             </div>
           </header>
            {selectedSummary && hqDrillIn && selectedSummary.thread === 'care_team' && (
-             <div className="flex flex-wrap items-center gap-3 border-b border-border bg-paper-alt px-4 py-2 text-xs text-muted-foreground md:px-6" data-testid="text-hq-care-team-status">
+             <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-2 text-xs text-muted-foreground md:px-6" data-testid="text-hq-care-team-status">
                <span>{selectedSummary.assignee?.label ?? 'Unassigned'}</span>
                <span aria-hidden="true">·</span>
                <span>{selectedSummary.status === 'closed' ? (selectedSummary.autoClosed ? `Closed after ${autoCloseDays ?? '—'}d quiet` : 'Closed') : selectedSummary.status === 'waiting_patient' ? 'Waiting on patient' : 'Open'}</span>
              </div>
            )}
            {selectedSummary && !(hqDrillIn && selectedSummary.thread === 'care_team') && (
-             <div className="flex flex-wrap items-center gap-2 border-b border-border bg-paper-alt px-4 py-2 md:px-6">
+             <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2 md:px-6">
                <button className={`${BTN_SECONDARY} h-8 px-3 text-xs`} disabled={assign.isPending} onClick={() => changeAssignment('me')}>Claim</button>
                <Select value={selectedSummary.assignee?.userId ?? 'unassigned'} onValueChange={value => changeAssignment(value === 'unassigned' ? null : value)}>
                  <SelectTrigger aria-label="Assign conversation" className="h-8 w-[170px] text-xs"><SelectValue /></SelectTrigger>
@@ -718,9 +721,10 @@ export default function OfficeConversations() {
              </div>
            )}
 
+           <div className="relative flex min-h-0 flex-1">
+           <div className="flex min-w-0 flex-1 flex-col">
            <div ref={threadPaneRef} data-testid="conversation-thread-pane" className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
-             <div className="mx-auto grid w-full max-w-[1050px] items-start gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
-             <div className="min-w-0 space-y-4" data-testid="conversation-thread">
+             <div className="mx-auto w-full max-w-[820px] space-y-4" data-testid="conversation-thread">
                {nextBefore && (
                 <div className="text-center pb-4">
                   <button
@@ -750,37 +754,22 @@ export default function OfficeConversations() {
                 </>
               )}
             </div>
-             <aside className="rounded-lg border border-card-border bg-card p-4 shadow-soft h-fit sticky top-0">
-               <div className="flex items-center gap-2"><StickyNote size={14} className="text-primary" /><h3 className="font-serif text-sm font-bold text-navy">Internal notes</h3></div>
-               <p className="mt-1 text-[10px] font-semibold text-warn">Internal — patients never see notes</p>
-               {notes.isError ? <p role="alert" className="mt-3 text-xs text-destructive">Notes could not be loaded.</p>
-                : !notes.data ? <p className="mt-3 text-xs text-muted-foreground">Loading notes…</p>
-                : notes.data.notes.length === 0 ? <ThreadNotesEmpty />
-                : <ul className="mt-3 max-h-[350px] space-y-2 overflow-y-auto">{notes.data.notes.map(note => <li key={note.id} className="rounded-md bg-paper-alt p-2 text-xs"><p>{note.body}</p><p className="mt-1 text-[9px] text-muted-foreground">{note.authorLabel} · {formatRelativeTime(note.createdAt)}</p></li>)}</ul>}
-               {!(hqDrillIn && selectedSummary?.thread === 'care_team') && (
-                 <>
-                   <textarea aria-label="New internal note" value={noteText} onChange={e => setNoteText(e.target.value)} maxLength={4000} rows={3} className="mt-3 w-full rounded-md border border-input bg-background p-2 text-xs focus:ring-2 focus:ring-ring outline-none" />
-                   <button className={`${BTN_SECONDARY} mt-2 h-8 px-3 text-xs w-full`} disabled={addNote.isPending || !noteText.trim()} onClick={saveNote}>{addNote.isPending ? 'Adding…' : 'Add note'}</button>
-                 </>
-               )}
-             </aside>
-             </div>
           </div>
 
            <footer className="shrink-0 border-t border-border bg-card px-4 py-3 md:px-6">
              {hqDrillIn ? (
-               <p className="mx-auto max-w-[1050px] text-xs text-muted-foreground" data-testid="text-hq-read-only">
+               <p className="mx-auto max-w-[820px] text-xs text-muted-foreground" data-testid="text-hq-read-only">
                  HQ view is read-only. Care-team replies are sent by the office’s own staff.
                </p>
              ) : selectedSummary?.channel === 'ai' ? (
-               <div className="mx-auto max-w-[1050px]">
+               <div className="mx-auto max-w-[820px]">
                  <p className="mb-2 text-xs text-muted-foreground">Human replies belong in the patient’s separate Care Team conversation.</p>
                  <button className="rounded-md bg-primary px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50" disabled={start.isPending} onClick={() => startConversation(selectedSummary.patientId)}>
                    {start.isPending ? 'Opening…' : 'Open Care Team conversation'}
                  </button>
                </div>
              ) : (
-               <div className="mx-auto max-w-[1050px]">
+               <div className="mx-auto max-w-[820px]">
                  {pendingReply?.conversationId === openId && pendingReply.error && (
                    <div role="alert" className="mb-2 flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
                      <span>Reply not sent: {pendingReply.error} Your exact message is preserved.</span>
@@ -797,6 +786,23 @@ export default function OfficeConversations() {
                </div>
              )}
            </footer>
+           </div>
+           <ThreadNotesPanel
+             open={notesPanel.open}
+             onClose={notesPanel.close}
+             caption="Internal — patients never see notes"
+             notes={notes.data?.notes}
+             isError={notes.isError}
+             composer={!hqDrillIn ? (
+               <>
+                 <textarea aria-label="New internal note" value={noteText} onChange={e => setNoteText(e.target.value)} maxLength={4000} rows={3} placeholder="Add an internal note…" className="w-full rounded-md border border-input bg-background p-2 text-xs outline-none focus:ring-2 focus:ring-ring" />
+                 <div className="mt-2 flex justify-end">
+                   <button className={`${BTN_SECONDARY} h-8 px-3 text-xs`} disabled={addNote.isPending || !noteText.trim()} onClick={saveNote}>{addNote.isPending ? 'Adding…' : 'Add note'}</button>
+                 </div>
+               </>
+             ) : undefined}
+           />
+           </div>
         </>
       ) : (
         <div className="grid flex-1 place-items-center px-6 py-10">

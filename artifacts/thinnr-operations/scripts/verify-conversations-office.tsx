@@ -422,6 +422,14 @@ assert.equal(renderer!.root.findAll(node => node.props['data-testid'] === 'text-
 assert.ok(requestUrls.filter(request => request.startsWith('POST ')).every(request => request.includes('/read')), 'HQ drill-in must issue no workflow mutations');
 await act(async () => { renderer!.unmount(); });
 
+// HQ drill-in never writes notes, on AI threads either: the notes panel is
+// read-only for every thread kind, not just care-team ones.
+await act(async () => { renderer = create(<Page path="/conversations?channel=ai&conversation=conv-ai" />); });
+await settle();
+assert.equal(renderer!.root.findAll(node => node.props['data-testid'] === 'thread-notes-panel').length, 1, 'HQ drill-in AI thread must still show the notes panel');
+assert.equal(renderer!.root.findAll(node => node.type === 'textarea' && node.props['aria-label'] === 'New internal note').length, 0, 'HQ drill-in AI thread must not offer note writing');
+await act(async () => { renderer!.unmount(); });
+
 // The roster's "Message Care Team" deep link must not auto-start a thread for HQ.
 startBodies.length = 0;
 requestUrls = [];

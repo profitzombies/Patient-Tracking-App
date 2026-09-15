@@ -1,4 +1,6 @@
+import { forwardRef, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { format, isToday, isYesterday } from 'date-fns';
+import { StickyNote, X } from 'lucide-react';
 import { type ConversationEvent } from '@workspace/api-client-react';
 
 export function InitialsAvatar({ name }: { name: string | undefined }) {
@@ -85,7 +87,134 @@ export function planThreadFollow(
 }
 
 export function ThreadNotesEmpty() {
-  return <p className="mt-3 text-xs italic text-muted-foreground">No internal notes yet.</p>;
+  return <p className="text-xs italic text-muted-foreground">No internal notes yet.</p>;
+}
+
+/** Breakpoint at which the notes panel docks beside the thread instead of overlaying it. */
+const NOTES_DOCK_QUERY = '(min-width: 1024px)';
+
+/**
+ * Open/closed state for the internal-notes side panel. Docked (wide) layouts
+ * start open; narrow layouts start closed so the overlay never hides the
+ * thread until staff ask for it. Environments without matchMedia (tests,
+ * SSR) keep the panel open. Closing returns focus to the toggle so keyboard
+ * users are not dropped behind the (now removed) overlay.
+ */
+export function useThreadNotesPanel() {
+  const [open, setOpen] = useState(true);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    if (!window.matchMedia(NOTES_DOCK_QUERY).matches) setOpen(false);
+  }, []);
+  const close = useCallback(() => {
+    setOpen(false);
+    toggleRef.current?.focus();
+  }, []);
+  return { open, setOpen, close, toggle: () => setOpen(current => !current), toggleRef };
+}
+
+/** True when the panel currently overlays the thread rather than docking beside it. */
+function isNotesOverlay() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && !window.matchMedia(NOTES_DOCK_QUERY).matches;
+}
+
+const NOTES_PANEL_ID = 'thread-notes-panel';
+
+export interface ThreadNote { id: string; body: string; authorLabel: string; createdAt: string }
+
+export const ThreadNotesToggle = forwardRef<HTMLButtonElement, { open: boolean; count: number | undefined; onClick: () => void }>(
+  function ThreadNotesToggle({ open, count, onClick }, ref) {
+    return (
+      <button
+        ref={ref}
+        type="button"
+        aria-expanded={open}
+        aria-controls={NOTES_PANEL_ID}
+        aria-label={open ? 'Hide internal notes' : 'Show internal notes'}
+        data-testid="button-toggle-notes"
+        onClick={onClick}
+        className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+          open ? 'border-primary/30 bg-accent text-primary' : 'border-border bg-card text-navy hover:bg-paper-alt'
+        }`}
+      >
+        <StickyNote size={13} aria-hidden="true" />
+        Notes
+        {typeof count === 'number' && count > 0 && (
+          <span className={`rounded-full px-1.5 text-[10px] tabular-nums ${open ? 'bg-primary/15' : 'bg-muted'}`}>{count}</span>
+        )}
+      </button>
+    );
+  },
+);
+
+/**
+ * Internal-notes side panel: a full-height white column with its own header,
+ * scrolling note list and an optional pinned composer. Docks beside the
+ * thread on wide layouts and overlays the thread (with a shadow edge) on
+ * narrow ones. The parent body row must be `relative`.
+ */
+export function ThreadNotesPanel({
+  open, onClose, caption, notes, isError, composer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  caption: string;
+  notes: ThreadNote[] | undefined;
+  isError: boolean;
+  composer?: ReactNode;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // When the panel covers the thread, move focus into it so keyboard users
+  // land on the panel instead of tabbing through the obscured composer.
+  useEffect(() => {
+    if (open && isNotesOverlay()) closeRef.current?.focus();
+  }, [open]);
+  if (!open) return null;
+  return (
+    <aside
+      id={NOTES_PANEL_ID}
+      aria-label="Internal notes"
+      data-testid="thread-notes-panel"
+      onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}
+      className="absolute inset-y-0 right-0 z-10 flex w-full max-w-[320px] flex-col border-l border-border bg-card shadow-[-12px_0_28px_-16px_rgba(20,33,61,0.35)] lg:static lg:w-[300px] lg:shrink-0 lg:shadow-none"
+    >
+      <header className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-1.5 font-serif text-sm font-bold text-navy">
+            <StickyNote size={13} className="text-primary" aria-hidden="true" />
+            Internal notes
+          </h3>
+          <p className="mt-0.5 text-[10px] font-semibold text-warn">{caption}</p>
+        </div>
+        <button
+          ref={closeRef}
+          type="button"
+          aria-label="Hide internal notes"
+          onClick={onClose}
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-paper-alt hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X size={14} aria-hidden="true" />
+        </button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        {isError ? <p role="alert" className="text-xs text-destructive">Notes could not be loaded.</p>
+          : !notes ? <p className="text-xs text-muted-foreground">Loading notes…</p>
+          : notes.length === 0 ? <ThreadNotesEmpty />
+          : (
+            <ul className="space-y-2">
+              {notes.map(note => (
+                <li key={note.id} className="rounded-md border border-card-border bg-paper-alt px-2.5 py-2 text-xs">
+                  <p className="whitespace-pre-wrap leading-relaxed">{note.body}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">{note.authorLabel} · {formatRelativeTime(note.createdAt)}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+      </div>
+      {composer && <div className="shrink-0 border-t border-border px-4 py-3">{composer}</div>}
+    </aside>
+  );
 }
 
 export function formatRelativeTime(dateString: string) {
@@ -111,7 +240,7 @@ export function LiveMessageRow({ message }: { message: ConversationEvent }) {
               ? 'rounded-lg rounded-br-sm bg-primary px-3.5 py-2.5 text-primary-foreground shadow-xs'
               : isStaff
                 ? 'rounded-lg rounded-bl-sm border border-primary/25 bg-accent px-3.5 py-2.5 shadow-soft'
-                : 'rounded-lg rounded-bl-sm border border-card-border bg-card px-3.5 py-2.5 shadow-soft'
+                : 'rounded-lg rounded-bl-sm border border-card-border bg-paper-alt px-3.5 py-2.5 shadow-soft'
           }
         >
           {message.text.split('\n\n').map((block, index) => (

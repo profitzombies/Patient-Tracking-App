@@ -76,6 +76,7 @@ let hqNotes: Array<{ id: string; body: string; authorLabel: string; createdAt: s
 globalThis.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   requestUrls.push(`${init?.method ?? 'GET'} ${url}`);
+  const pathname = new URL(url, 'http://test').pathname;
   if (url.includes('/api/hq/conversations')) {
     if (url.includes('/notes')) return json({ notes: hqNotes });
     if (url.includes('/read')) return json({ lastReadSeq: 2, changed: true });
@@ -87,12 +88,12 @@ globalThis.fetch = async (input, init) => {
     return json({ conversations: [{ ...conversation, updatedAt: conversation.lastMessageAt }], total: 1, autoCloseDays: 14 });
   }
   if (url.includes('/api/office/roster')) return json({ office: {}, patients: [{ id: 'pat-1', name: 'Ada Patient', email: 'ada@example.com', phone: null, phoneDisplay: null }] });
-  if (url.endsWith('/api/office/conversations/start')) {
+  if (pathname.endsWith('/api/office/conversations/start')) {
     startBodies.push(JSON.parse(String(init?.body)));
     return json({ conversation: { ...conversation, id: 'conv-started', patientId: startBodies.at(-1)!.patientId }, created: true });
   }
-  if (url.endsWith('/api/office/conversations/summary')) return json({ scope: { providerId: 'office-1', officeName: 'Beacon Clinic' }, asOf: new Date().toISOString(), metrics: { openThreads: 1, waitingOnPatient: 0, unanswered: 1, avgResponseMinutes: null, openEscalations: 0 } });
-  if (url.endsWith('/api/office/conversations/staff')) return json({ staff: [] });
+  if (pathname.endsWith('/api/office/conversations/summary')) return json({ scope: { providerId: 'office-1', officeName: 'Beacon Clinic' }, asOf: new Date().toISOString(), metrics: { openThreads: 1, waitingOnPatient: 0, unanswered: 1, avgResponseMinutes: null, openEscalations: 0 } });
+  if (pathname.endsWith('/api/office/conversations/staff')) return json({ staff: [] });
   if (url.includes('/notes') && (init?.method ?? 'GET') === 'POST') return new Promise<Response>(resolve => { delayedNoteResolve = resolve; });
   if (url.includes('/notes')) return json({ notes: [] });
   if (url.includes('/read')) {
@@ -390,5 +391,44 @@ assert.match(textOf(renderer!.root), /Called the office about refills/, 'HQ note
 assert.doesNotMatch(textOf(renderer!.root), /No internal notes yet/, 'HQ empty state must disappear once notes exist');
 await act(async () => { renderer!.unmount(); });
 hqNotes = [];
+
+// HQ drill-in: the office inbox is scoped to the drilled-in account. Every
+// inbox request must name that office (the server otherwise answers 400 for
+// HQ callers), and the human-reply surfaces stay hidden because HQ care-team
+// access is read-only server-side.
+__setSession({ authStatus: 'signed-in', authRole: 'hq_admin', authUser: { id: 'hq-1' }, providerAccountCode: null, claimedWorkspace: null });
+__setScope({ providerId: 'live-abc123', officeName: 'Beacon Clinic' });
+requestUrls = [];
+readRequests.length = 0;
+await act(async () => { renderer = create(<Page path="/conversations?channel=care_team&conversation=conv-1" />); });
+await settle();
+assert.match(textOf(renderer!.root), /Newest message/, 'HQ drill-in must render the office inbox');
+const drillInRequests = requestUrls.filter(request => request.includes('/api/office/conversations'));
+assert.ok(drillInRequests.length >= 5, `expected list, summary, staff, events and notes requests, saw ${drillInRequests.length}`);
+for (const request of drillInRequests) {
+  assert.ok(request.includes('office=live-abc123'), `HQ drill-in request missing office scope: ${request}`);
+}
+assert.ok(readRequests.some(request => request.url.includes('office=live-abc123')), 'HQ drill-in read marker must carry the office scope');
+assert.equal(renderer!.root.findAll(node => node.type === 'textarea' && node.props['aria-label'] === 'Reply to patient').length, 0, 'HQ drill-in must not offer the care-team composer');
+assert.equal(renderer!.root.findAll(node => node.type === 'button' && textOf(node).trim() === 'Start conversation').length, 0, 'HQ drill-in must not offer Start conversation');
+assert.equal(renderer!.root.findAll(node => node.props['data-testid'] === 'text-hq-read-only').length, 1);
+for (const label of ['Claim', 'Add note']) {
+  assert.equal(renderer!.root.findAll(node => node.type === 'button' && textOf(node).trim() === label).length, 0, `HQ drill-in care-team thread must not offer ${label}`);
+}
+assert.equal(renderer!.root.findAll(node => node.props['aria-label'] === 'Assign conversation').length, 0, 'HQ drill-in care-team thread must not offer assignment');
+assert.equal(renderer!.root.findAll(node => node.props['aria-label'] === 'Conversation status').length, 0, 'HQ drill-in care-team thread must not offer status changes');
+assert.equal(renderer!.root.findAll(node => node.type === 'textarea' && node.props['aria-label'] === 'New internal note').length, 0, 'HQ drill-in care-team thread must not offer note writing');
+assert.equal(renderer!.root.findAll(node => node.props['data-testid'] === 'text-hq-care-team-status').length, 1, 'HQ drill-in must still show assignee and status as text');
+assert.ok(requestUrls.filter(request => request.startsWith('POST ')).every(request => request.includes('/read')), 'HQ drill-in must issue no workflow mutations');
+await act(async () => { renderer!.unmount(); });
+
+// The roster's "Message Care Team" deep link must not auto-start a thread for HQ.
+startBodies.length = 0;
+requestUrls = [];
+await act(async () => { renderer = create(<Page path="/conversations?startPatient=pat-nohistory" />); });
+await settle();
+assert.equal(startBodies.length, 0, 'HQ drill-in must not auto-start care-team conversations');
+await act(async () => { renderer!.unmount(); });
+__setScope(null);
 
 console.log('office conversations rendered verification passed');

@@ -3665,6 +3665,13 @@ after?: number;
 limit?: number;
 };
 
+export type ReadOfficeConversationParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
 export type AssignOfficeConversationParams = {
 /**
  * Required for HQ; ignored for provider staff, who are always own-office scoped

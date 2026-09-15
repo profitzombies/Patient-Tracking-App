@@ -18,10 +18,15 @@ import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 
 export default function OfficeDrillIn() {
   const { id } = useParams<{ id: string }>();
-  const { findAccount } = useHqData();
+  const { findAccount, accountsStatus } = useHqData();
   const { isLocked } = useAccountLocks();
   const account = findAccount(id);
 
+  // A direct load or refresh of a drill-in URL arrives before the account
+  // list has resolved; hold the frame instead of bouncing to the list.
+  if (!account && accountsStatus === 'loading') {
+    return <div className="h-[100dvh] bg-background" aria-busy="true" data-testid="drillin-loading" />;
+  }
   // Stale or hand-typed URL: land back on the accounts list, not a dead end.
   if (!account) return <Redirect to="~/admin/accounts" replace />;
 

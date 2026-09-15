@@ -2134,6 +2134,10 @@ export const ReadOfficeConversationParams = zod.object({
   "conversationId": zod.coerce.string()
 })
 
+export const ReadOfficeConversationQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
 
 
 

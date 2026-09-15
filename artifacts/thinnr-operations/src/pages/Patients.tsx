@@ -562,7 +562,7 @@ export default function Patients() {
                     </button>
                   </div>
                 )}
-                {patient.isLive && (
+                {patient.isLive && !liveOffice && (
                   <div className="mt-3 flex justify-end">
                     <button
                       type="button"

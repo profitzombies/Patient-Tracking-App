@@ -1504,6 +1504,7 @@ paths:
       summary: Advance the caller's private read high-water mark
       parameters:
         - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/OfficeId"
       requestBody:
         required: true
         content:

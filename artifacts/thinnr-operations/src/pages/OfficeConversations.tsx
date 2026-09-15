@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_SECONDARY, CHIP_WARM } from '@/components/patient/heritage';
 import { useSession } from '@/contexts/session';
+import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
 import { useToast } from '@/hooks/use-toast';
 import { InitialsAvatar, formatRelativeTime, LiveMessageRow, ThreadNotesEmpty, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
 import {
@@ -54,6 +55,13 @@ export default function OfficeConversations() {
   const [, navigate] = useLocation();
   const search = useSearch();
   const { authStatus, authUser, providerAccountCode, claimedWorkspace } = useSession();
+  // HQ drill-ins must name the office on every inbox request; office staff
+  // are scoped server-side and send nothing.
+  const { liveOffice } = useLiveOfficeScope();
+  const officeParams = useMemo(() => (liveOffice ? { office: liveOffice } : undefined), [liveOffice]);
+  // The server refuses every HQ write on a care-team thread (and HQ can never
+  // start one), so the drill-in shows those surfaces as read-only.
+  const hqDrillIn = Boolean(liveOffice);
   const live = authStatus === 'signed-in';
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -81,7 +89,7 @@ export default function OfficeConversations() {
     const value = typeof next === 'function' ? next(offset) : next;
     updateUrl({ offset: value > 0 ? String(value) : null, conversation: null });
   };
-  const accountKey = `${authUser?.id ?? 'anonymous'}:${providerAccountCode ?? claimedWorkspace?.providerId ?? 'office'}`;
+  const accountKey = `${authUser?.id ?? 'anonymous'}:${liveOffice ?? providerAccountCode ?? claimedWorkspace?.providerId ?? 'office'}`;
   const epochRef = useRef(0);
   const accountKeyRef = useRef(accountKey);
   const openIdRef = useRef(openId);
@@ -129,6 +137,7 @@ export default function OfficeConversations() {
   }, [searchText, queryFilter]);
 
   const listParams = useMemo<GetOfficeConversationsParams>(() => ({
+    ...officeParams,
     channel: channelFilter,
     thread: threadFilter ?? undefined,
     status: statusFilter ?? undefined,
@@ -136,7 +145,7 @@ export default function OfficeConversations() {
     unread: unreadOnly || undefined, 
     q: queryFilter || undefined,
     sort: sortFilter, limit, offset,
-  }), [channelFilter, threadFilter, statusFilter, assigneeFilter, unreadOnly, queryFilter, sortFilter, offset]);
+  }), [officeParams, channelFilter, threadFilter, statusFilter, assigneeFilter, unreadOnly, queryFilter, sortFilter, offset]);
 
   const { data: convData, isFetching: isConvFetching, error: convError, refetch: refetchConversations } = useGetOfficeConversations(
     listParams,
@@ -150,11 +159,11 @@ export default function OfficeConversations() {
     }
   );
   
-  const summary = useGetOfficeConversationSummary(undefined, {
-    query: { enabled: live, queryKey: [accountKey, ...getGetOfficeConversationSummaryQueryKey()], refetchInterval: 5_000, refetchOnWindowFocus: true },
+  const summary = useGetOfficeConversationSummary(officeParams, {
+    query: { enabled: live, queryKey: [accountKey, ...getGetOfficeConversationSummaryQueryKey(officeParams)], refetchInterval: 5_000, refetchOnWindowFocus: true },
   });
-  const staff = useGetOfficeConversationStaff(undefined, {
-    query: { enabled: live, queryKey: [accountKey, ...getGetOfficeConversationStaffQueryKey()] },
+  const staff = useGetOfficeConversationStaff(officeParams, {
+    query: { enabled: live, queryKey: [accountKey, ...getGetOfficeConversationStaffQueryKey(officeParams)] },
   });
 
   const conversations = convData?.conversations ?? [];
@@ -178,8 +187,8 @@ export default function OfficeConversations() {
   }, [openId, channelFilter, threadFilter, statusFilter]);
 
   const newestParams = useMemo<GetOfficeConversationEventsParams>(
-    () => fetchedThrough ? { after: fetchedThrough, limit: 30 } : { limit: 30 },
-    [fetchedThrough],
+    () => fetchedThrough ? { ...officeParams, after: fetchedThrough, limit: 30 } : { ...officeParams, limit: 30 },
+    [officeParams, fetchedThrough],
   );
   const { data: eventsData, isFetching: isEventsFetching, error: eventsError } = useGetOfficeConversationEvents(
     openId ?? '',
@@ -194,8 +203,8 @@ export default function OfficeConversations() {
     }
   );
   const olderParams = useMemo<GetOfficeConversationEventsParams>(
-    () => ({ before: beforeCursor, limit: 30 }),
-    [beforeCursor],
+    () => ({ ...officeParams, before: beforeCursor, limit: 30 }),
+    [officeParams, beforeCursor],
   );
   const older = useGetOfficeConversationEvents(openId ?? '', olderParams, {
     query: {
@@ -256,7 +265,7 @@ export default function OfficeConversations() {
 
   const explicit = openId;
   const selectedSummary = eventsData?.conversation ?? conversations.find(c => c.id === openId);
-  const notes = useGetOfficeConversationNotes(openId ?? '', undefined, { query: { enabled: live && !!openId, queryKey: [accountKey, ...getGetOfficeConversationNotesQueryKey(openId ?? '')] } });
+  const notes = useGetOfficeConversationNotes(openId ?? '', officeParams, { query: { enabled: live && !!openId, queryKey: [accountKey, ...getGetOfficeConversationNotesQueryKey(openId ?? '', officeParams)] } });
   const assign = useAssignOfficeConversation();
   const setStatus = useSetOfficeConversationStatus();
   const reply = useReplyOfficeConversation();
@@ -304,7 +313,7 @@ export default function OfficeConversations() {
     const conversationId = openId;
     readThroughByThreadRef.current.set(readKey, highestSeq);
     read.mutate(
-      { conversationId, data: { throughSeq: highestSeq } },
+      { conversationId, data: { throughSeq: highestSeq }, params: officeParams },
       {
         onSuccess: () => {
           if (epochRef.current === epoch && openIdRef.current === conversationId) void refresh();
@@ -325,7 +334,7 @@ export default function OfficeConversations() {
     if (!openId) return;
     const operationScope = `${accountKey}:${openId}`;
     try {
-      await assign.mutateAsync({ conversationId: openId, data: { assigneeUserId } });
+      await assign.mutateAsync({ conversationId: openId, data: { assigneeUserId }, params: officeParams });
       if (`${accountKeyRef.current}:${openIdRef.current}` !== operationScope) return;
       await refresh();
       if (`${accountKeyRef.current}:${openIdRef.current}` === operationScope) toast({ variant: 'success', title: assigneeUserId === 'me' ? 'Conversation claimed' : 'Assignment updated' });
@@ -338,7 +347,7 @@ export default function OfficeConversations() {
     if (!openId) return;
     const operationScope = `${accountKey}:${openId}`;
     try {
-      await setStatus.mutateAsync({ conversationId: openId, data: { status } });
+      await setStatus.mutateAsync({ conversationId: openId, data: { status }, params: officeParams });
       if (`${accountKeyRef.current}:${openIdRef.current}` !== operationScope) return;
       await refresh();
       if (`${accountKeyRef.current}:${openIdRef.current}` === operationScope) toast({ variant: 'success', title: status === 'open' ? 'Conversation reopened' : 'Status updated' });
@@ -360,6 +369,7 @@ export default function OfficeConversations() {
       const result = await reply.mutateAsync({
         conversationId: attempted.conversationId,
         data: { text: attempted.text, clientId: attempted.clientId },
+        params: officeParams,
       });
       if (
         epochRef.current !== attempted.epoch ||
@@ -407,7 +417,7 @@ export default function OfficeConversations() {
     const body = noteText.trim();
     const operationScope = `${accountKey}:${conversationId}`;
     try {
-      await addNote.mutateAsync({ conversationId, data: { body } });
+      await addNote.mutateAsync({ conversationId, data: { body }, params: officeParams });
       if (`${accountKeyRef.current}:${openIdRef.current}` !== operationScope) return;
       setNoteText(current => current.trim() === body ? '' : current);
       await queryClient.invalidateQueries({ queryKey: [accountKey, ...getGetOfficeConversationNotesQueryKey(conversationId)] });
@@ -423,7 +433,7 @@ export default function OfficeConversations() {
     const operationScope = `${accountKey}:${openId}`;
     setEscalationError(null);
     try {
-      await escalate.mutateAsync({ conversationId: openId, data: { department, reason: reason.trim() } });
+      await escalate.mutateAsync({ conversationId: openId, data: { department, reason: reason.trim() }, params: officeParams });
       if (`${accountKeyRef.current}:${openIdRef.current}` !== operationScope) return;
       setEscalationOpen(false);
       setReason('');
@@ -439,10 +449,10 @@ export default function OfficeConversations() {
   const avgLabel = (minutes: number | null | undefined) => minutes == null ? '—' : minutes < 60 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
   const startedPatientRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!live || !startPatientId || startedPatientRef.current === startPatientId) return;
+    if (!live || hqDrillIn || !startPatientId || startedPatientRef.current === startPatientId) return;
     startedPatientRef.current = startPatientId;
     void startConversation(startPatientId);
-  }, [live, startPatientId, accountKey]);
+  }, [live, hqDrillIn, startPatientId, accountKey]);
 
   if (!live) {
     return (
@@ -471,9 +481,11 @@ export default function OfficeConversations() {
               {offset + 1}-{Math.min(offset + limit, total)} of {total}
             </span>
           )}
-          <button type="button" className={`${BTN_SECONDARY} h-8 px-3 text-[10px]`} onClick={() => setStartOpen(true)}>
-            Start conversation
-          </button>
+          {!hqDrillIn && (
+            <button type="button" className={`${BTN_SECONDARY} h-8 px-3 text-[10px]`} onClick={() => setStartOpen(true)}>
+              Start conversation
+            </button>
+          )}
         </div>
 
         <div className="flex rounded-md bg-muted p-1">
@@ -674,7 +686,14 @@ export default function OfficeConversations() {
               </Link>
             </div>
           </header>
-           {selectedSummary && (
+           {selectedSummary && hqDrillIn && selectedSummary.thread === 'care_team' && (
+             <div className="flex flex-wrap items-center gap-3 border-b border-border bg-paper-alt px-4 py-2 text-xs text-muted-foreground md:px-6" data-testid="text-hq-care-team-status">
+               <span>{selectedSummary.assignee?.label ?? 'Unassigned'}</span>
+               <span aria-hidden="true">·</span>
+               <span>{selectedSummary.status === 'closed' ? (selectedSummary.autoClosed ? `Closed after ${autoCloseDays ?? '—'}d quiet` : 'Closed') : selectedSummary.status === 'waiting_patient' ? 'Waiting on patient' : 'Open'}</span>
+             </div>
+           )}
+           {selectedSummary && !(hqDrillIn && selectedSummary.thread === 'care_team') && (
              <div className="flex flex-wrap items-center gap-2 border-b border-border bg-paper-alt px-4 py-2 md:px-6">
                <button className={`${BTN_SECONDARY} h-8 px-3 text-xs`} disabled={assign.isPending} onClick={() => changeAssignment('me')}>Claim</button>
                <Select value={selectedSummary.assignee?.userId ?? 'unassigned'} onValueChange={value => changeAssignment(value === 'unassigned' ? null : value)}>
@@ -738,14 +757,22 @@ export default function OfficeConversations() {
                 : !notes.data ? <p className="mt-3 text-xs text-muted-foreground">Loading notes…</p>
                 : notes.data.notes.length === 0 ? <ThreadNotesEmpty />
                 : <ul className="mt-3 max-h-[350px] space-y-2 overflow-y-auto">{notes.data.notes.map(note => <li key={note.id} className="rounded-md bg-paper-alt p-2 text-xs"><p>{note.body}</p><p className="mt-1 text-[9px] text-muted-foreground">{note.authorLabel} · {formatRelativeTime(note.createdAt)}</p></li>)}</ul>}
-               <textarea aria-label="New internal note" value={noteText} onChange={e => setNoteText(e.target.value)} maxLength={4000} rows={3} className="mt-3 w-full rounded-md border border-input bg-background p-2 text-xs focus:ring-2 focus:ring-ring outline-none" />
-               <button className={`${BTN_SECONDARY} mt-2 h-8 px-3 text-xs w-full`} disabled={addNote.isPending || !noteText.trim()} onClick={saveNote}>{addNote.isPending ? 'Adding…' : 'Add note'}</button>
+               {!(hqDrillIn && selectedSummary?.thread === 'care_team') && (
+                 <>
+                   <textarea aria-label="New internal note" value={noteText} onChange={e => setNoteText(e.target.value)} maxLength={4000} rows={3} className="mt-3 w-full rounded-md border border-input bg-background p-2 text-xs focus:ring-2 focus:ring-ring outline-none" />
+                   <button className={`${BTN_SECONDARY} mt-2 h-8 px-3 text-xs w-full`} disabled={addNote.isPending || !noteText.trim()} onClick={saveNote}>{addNote.isPending ? 'Adding…' : 'Add note'}</button>
+                 </>
+               )}
              </aside>
              </div>
           </div>
 
            <footer className="shrink-0 border-t border-border bg-card px-4 py-3 md:px-6">
-             {selectedSummary?.channel === 'ai' ? (
+             {hqDrillIn ? (
+               <p className="mx-auto max-w-[1050px] text-xs text-muted-foreground" data-testid="text-hq-read-only">
+                 HQ view is read-only. Care-team replies are sent by the office’s own staff.
+               </p>
+             ) : selectedSummary?.channel === 'ai' ? (
                <div className="mx-auto max-w-[1050px]">
                  <p className="mb-2 text-xs text-muted-foreground">Human replies belong in the patient’s separate Care Team conversation.</p>
                  <button className="rounded-md bg-primary px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50" disabled={start.isPending} onClick={() => startConversation(selectedSummary.patientId)}>

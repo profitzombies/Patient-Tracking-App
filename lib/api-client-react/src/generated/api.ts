@@ -170,6 +170,7 @@ import type {
   PatientCareTeamStartInput,
   PatientCareTeamStartResult,
   ProgressPhotoFileParams,
+  ReadOfficeConversationParams,
   ReplyOfficeConversationParams,
   RetryBloodworkExtractionParams,
   RunSystemJobBody,
@@ -4655,21 +4656,30 @@ export function useGetOfficeConversationEvents<TData = Awaited<ReturnType<typeof
 
 
 
-export const getReadOfficeConversationUrl = (conversationId: string,) => {
+export const getReadOfficeConversationUrl = (conversationId: string,
+    params?: ReadOfficeConversationParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/office/conversations/${conversationId}/read`
+  return stringifiedParams.length > 0 ? `/api/office/conversations/${conversationId}/read?${stringifiedParams}` : `/api/office/conversations/${conversationId}/read`
 }
 
 /**
  * @summary Advance the caller's private read high-water mark
  */
 export const readOfficeConversation = async (conversationId: string,
-    conversationReadInput: ConversationReadInput, options?: Parameters<typeof customFetch>[1]): Promise<ConversationReadResult> => {
+    conversationReadInput: ConversationReadInput,
+    params?: ReadOfficeConversationParams, options?: Parameters<typeof customFetch>[1]): Promise<ConversationReadResult> => {
 
-  return customFetch<ConversationReadResult>(getReadOfficeConversationUrl(conversationId),
+  return customFetch<ConversationReadResult>(getReadOfficeConversationUrl(conversationId,params),
   {
     ...options,
     method: 'POST',
@@ -4683,8 +4693,8 @@ export const readOfficeConversation = async (conversationId: string,
 
 
 export const getReadOfficeConversationMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>;params?: ReadOfficeConversationParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>;params?: ReadOfficeConversationParams}, TContext> => {
 
 const mutationKey = ['readOfficeConversation'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -4696,10 +4706,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof readOfficeConversation>>, {conversationId: string;data: BodyType<ConversationReadInput>}> = (props) => {
-          const {conversationId,data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof readOfficeConversation>>, {conversationId: string;data: BodyType<ConversationReadInput>;params?: ReadOfficeConversationParams}> = (props) => {
+          const {conversationId,data,params} = props ?? {};
 
-          return  readOfficeConversation(conversationId,data,requestOptions)
+          return  readOfficeConversation(conversationId,data,params,requestOptions)
         }
 
 
@@ -4717,11 +4727,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Advance the caller's private read high-water mark
  */
 export const useReadOfficeConversation = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof readOfficeConversation>>, TError,{conversationId: string;data: BodyType<ConversationReadInput>;params?: ReadOfficeConversationParams}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof readOfficeConversation>>,
         TError,
-        {conversationId: string;data: BodyType<ConversationReadInput>},
+        {conversationId: string;data: BodyType<ConversationReadInput>;params?: ReadOfficeConversationParams},
         TContext
       > => {
       return useMutation(getReadOfficeConversationMutationOptions(options));

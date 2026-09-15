@@ -349,6 +349,7 @@ export * from './policySectionChange';
 export * from './policySectionChanges';
 export * from './progressPhotoFileParams';
 export * from './quietHoursWindow';
+export * from './readOfficeConversationParams';
 export * from './replyOfficeConversationParams';
 export * from './retentionPolicy';
 export * from './retryBloodworkExtractionParams';

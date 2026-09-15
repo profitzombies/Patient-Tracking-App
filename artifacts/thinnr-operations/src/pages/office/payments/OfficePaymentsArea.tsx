@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation, useSearch } from 'wouter';
-import { ArrowRight, Copy, ExternalLink, Package } from 'lucide-react';
-import { MoneyInput } from '@/components/billing/MoneyInput';
+import { ArrowRight, Copy, ExternalLink, MoreHorizontal, Package } from 'lucide-react';
+import { MoneyInput, normalizeDollarsInput } from '@/components/billing/MoneyInput';
 import { MetricTile } from '@/components/admin/primitives';
 import {
   BTN_PRIMARY,
@@ -30,6 +30,8 @@ import {
   ConnectTaxSettings,
 } from '@/components/billing/ConnectEmbed';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   useInvalidateOfficeBilling,
@@ -272,9 +274,24 @@ function PricesQuery({ status }: { status: OfficeBillingStatus }) {
     </div>
   );
 }
+// Fixed widths for the chip columns: `auto` would size each grid (header vs
+// each row) to its own content and drift the header labels off the values.
+const PRICE_GRID = 'lg:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_9.5rem_6.25rem_11.25rem_5rem]';
 function PricesTable({ products, demo = false }: { products: OfficePrice[]; demo?: boolean }) {
   return (
-    <SectionCard title="Catalog" sub="Subscriptions renew every 4 weeks.">
+    <SectionCard
+      title="Catalog"
+      sub="Subscriptions renew every 4 weeks. A product is only for sale while it is marked Offered with a price at or above its minimum."
+    >
+      <div className={`hidden gap-4 border-b border-border bg-secondary/50 px-5 py-2.5 lg:grid lg:items-center ${PRICE_GRID}`} aria-hidden="true">
+        <span className={PANEL_LABEL}>Product</span>
+        <span className={PANEL_LABEL}>Floor</span>
+        <span className={PANEL_LABEL}>Minimum</span>
+        <span className={PANEL_LABEL}>Sell price</span>
+        <span className={PANEL_LABEL}>Offered</span>
+        <span className={PANEL_LABEL}>Subscription</span>
+        <span />
+      </div>
       <div className="divide-y divide-border">
         {products.map((product) => (
           <PriceRow key={product.product_id} product={product} demo={demo} />
@@ -295,11 +312,23 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
     setSubscription(product.subscription_enabled);
     setPrice(centsToDollarsInput(product.sell_price_cents));
   }, [product]);
+  const toggleOffered = (next: boolean) => {
+    setOffered(next);
+    setError('');
+    // Turning a product on with no price yet starts from the floor so the
+    // field is never silently blank; staff can still type their own number.
+    if (next && !price.trim()) setPrice(centsToDollarsInput(product.floor_price_cents));
+  };
   const save = () => {
     let cents: number | null = null;
     if (offered) {
       const parsed = parseDollarsToCents(price);
-      if (!parsed.ok) return setError(parsed.error);
+      if (!parsed.ok)
+        return setError(
+          price.trim()
+            ? parsed.error
+            : `Enter a sell price of at least ${formatCents(product.break_even_minimum_cents)}, or uncheck Offered to stop selling ${product.name}.`,
+        );
       if (parsed.cents < product.break_even_minimum_cents)
         return setError(`Price must be at least ${formatCents(product.break_even_minimum_cents)}.`);
       cents = parsed.cents;
@@ -317,9 +346,13 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
       },
     );
   };
+  const dirty =
+    offered !== product.offered
+    || (offered && subscription !== product.subscription_enabled)
+    || (offered && price !== centsToDollarsInput(product.sell_price_cents));
   return (
     <div
-      className={`grid gap-3 p-5 lg:grid-cols-[1.5fr_1fr_1fr_1.2fr_auto_auto_auto] lg:items-end ${product.below_minimum ? 'bg-warn-bg' : ''}`}
+      className={`grid gap-x-4 gap-y-3 px-5 py-4 lg:items-center ${PRICE_GRID} ${product.below_minimum ? 'bg-warn-bg' : ''}`}
       data-testid={`price-row-${product.product_id}`}
     >
       <div className="flex min-w-0 items-center gap-3">
@@ -340,18 +373,24 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
       </div>
       <LabelValue label="Floor" value={formatCents(product.floor_price_cents)} />
       <LabelValue label="Minimum" value={formatCents(product.break_even_minimum_cents)} />
-      <label>
-        <span className={PANEL_LABEL}>Sell price</span>
+      <label className="block">
+        <span className={`${PANEL_LABEL} lg:sr-only`}>Sell price</span>
         <MoneyInput
           data-testid={`input-price-${product.product_id}`}
-          className="mt-1"
+          className="mt-1 lg:mt-0"
           value={price}
           disabled={!offered || demo}
-          onChange={(e) => setPrice(e.target.value)}
+          aria-label={`${product.name} sell price`}
+          onChange={(e) => {
+            setPrice(e.target.value);
+            setError('');
+          }}
+          onBlur={() => setPrice((current) => normalizeDollarsInput(current))}
           invalid={Boolean(error)}
         />
+        {!offered && <span className="mt-1 block text-[11px] text-muted-foreground lg:hidden">Not for sale</span>}
       </label>
-      <Check label="Offered" checked={offered} disabled={demo} onChange={setOffered} />
+      <Check label="Offered" checked={offered} disabled={demo} onChange={toggleOffered} />
       <Check
         label="4-week subscription"
         checked={subscription}
@@ -361,14 +400,14 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
       <button
         data-testid={`button-save-price-${product.product_id}`}
         type="button"
-        className={`${BTN_PRIMARY} h-9 px-3`}
+        className={`${dirty ? BTN_PRIMARY : BTN_SECONDARY} h-9 w-full px-3 lg:w-auto`}
         disabled={demo || mutation.isPending}
         onClick={save}
       >
-        Save
+        {mutation.isPending ? 'Saving…' : 'Save'}
       </button>
       {error && (
-        <p role="alert" className="text-xs text-destructive lg:col-span-full">
+        <p role="alert" className="text-xs font-semibold text-destructive lg:col-span-full">
           {error}
         </p>
       )}
@@ -378,11 +417,12 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
 function LabelValue({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className={PANEL_LABEL}>{label}</p>
-      <p className="mt-1 text-xs">{value}</p>
+      <p className={`${PANEL_LABEL} lg:sr-only`}>{label}</p>
+      <p className="mt-1 text-sm tabular-nums text-foreground lg:mt-0">{value}</p>
     </div>
   );
 }
+/** Bordered checkbox chip: reads as a control on the row instead of a bare tick box. */
 function Check({
   label,
   checked,
@@ -395,8 +435,18 @@ function Check({
   onChange: (value: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-2 text-xs">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+    <label
+      className={`inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-md border px-3 text-xs font-semibold transition ${
+        checked && !disabled ? 'border-accent-border bg-accent text-primary' : 'border-border bg-card text-foreground'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-accent/60'}`}
+    >
+      <input
+        type="checkbox"
+        className="h-4 w-4 shrink-0 accent-primary"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
       {label}
     </label>
   );
@@ -851,7 +901,7 @@ function DetailQuery({ status, orderId }: { status: OfficeBillingStatus; orderId
   const invalidate = useInvalidateOfficeBilling();
   const [refundOpen, setRefundOpen] = useState(false);
   const refund = useMutation({
-    mutationFn: ({ amount, reason }: { amount: number | undefined; reason: string }) =>
+    mutationFn: ({ amount, reason }: { amount: number; reason: string }) =>
       officeBilling.refund(orderId, { amount_cents: amount, reason }, office),
     onSuccess: () => {
       setRefundOpen(false);
@@ -871,7 +921,10 @@ function DetailQuery({ status, orderId }: { status: OfficeBillingStatus; orderId
       order={order}
       sandbox={status.sandbox}
       refundOpen={refundOpen}
-      setRefundOpen={setRefundOpen}
+      setRefundOpen={(open) => {
+        if (open) refund.reset();
+        setRefundOpen(open);
+      }}
       onRefund={(amount, reason) => refund.mutate({ amount, reason })}
       refundPending={refund.isPending}
       refundError={refund.error instanceof Error ? refund.error.message : null}
@@ -894,7 +947,7 @@ function DetailView({
   demo?: boolean;
   refundOpen: boolean;
   setRefundOpen: (open: boolean) => void;
-  onRefund: (amount: number | undefined, reason: string) => void;
+  onRefund: (amount: number, reason: string) => void;
   refundPending: boolean;
   refundError: string | null;
 }) {
@@ -999,7 +1052,7 @@ function DetailView({
           order={order}
           open={refundOpen}
           onOpenChange={setRefundOpen}
-          onConfirm={() => onRefund(undefined, 'Guided demo refund')}
+          onConfirm={() => onRefund(0, 'Guided demo refund')}
           error={refundError}
         />
       ) : (
@@ -1081,7 +1134,7 @@ function SubscriptionsView({
   const { office } = useOfficeBillingScope();
   const invalidate = useInvalidateOfficeBilling();
   const { toast } = useToast();
-  const [canceling, setCanceling] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState<SubscriptionRow | null>(null);
   const [changing, setChanging] = useState<SubscriptionRow | null>(null);
   const [nextProduct, setNextProduct] = useState('');
   const [quote, setQuote] = useState<SubscriptionChangeQuote | null>(null);
@@ -1089,9 +1142,10 @@ function SubscriptionsView({
   const cancel = useMutation({
     mutationFn: ({ id, later }: { id: string; later: boolean }) =>
       officeBilling.cancelSubscription(id, { at_period_end: later }, office),
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       setCanceling(null);
       void invalidate();
+      toast({ variant: 'success', title: variables.later ? 'Subscription ends at period end' : 'Subscription canceled' });
     },
   });
   const retry = useMutation({
@@ -1154,120 +1208,142 @@ function SubscriptionsView({
       )}
       <SectionCard title="Subscriptions">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full min-w-[880px] text-left text-xs">
             <thead>
-              <tr className="border-b">
-                <th className="p-4">Patient</th>
-                <th>Product</th>
-                <th>Status</th>
-                <th>Next renewal</th>
-                <th>Price</th>
-                <th className="p-4 text-right">Action</th>
+              <tr className="border-b border-border bg-secondary/50">
+                <th className={`${PANEL_LABEL} px-5 py-2.5`}>Patient</th>
+                <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Product</th>
+                <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Status</th>
+                <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Started</th>
+                <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Next renewal</th>
+                <th className={`${PANEL_LABEL} py-2.5 pr-4 text-right`}>Renewals</th>
+                <th className={`${PANEL_LABEL} py-2.5 pr-4 text-right`}>Price</th>
+                <th className="px-5 py-2.5">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {items.map((row) => (
-                <tr className="border-b last:border-0" key={row.id}>
-                  <td className="p-4">{row.payer.name}</td>
-                  <td>
-                    {row.product_name}
-                    {row.pending_change && (
-                      <p className="mt-1 max-w-64 text-[11px] text-muted-foreground">
-                        Changes to {row.pending_change.product_name} ({formatCents(row.pending_change.unit_price_cents)}) on {formatDate(row.pending_change.effective_at)}
-                      </p>
-                    )}
-                  </td>
-                  <td>
-                    <StatusPill tone={subscriptionTone(row.status)}>{SUBSCRIPTION_STATUS_LABEL[row.status]}</StatusPill>
-                    {row.paused_at && (
-                      <p className="mt-1">
-                        <StatusPill tone="warn">Paused</StatusPill>
-                        <span className="ml-1 text-[11px] text-muted-foreground">since {formatDate(row.paused_at)}</span>
-                      </p>
-                    )}
-                    {(row.status === 'past_due' || row.status === 'unpaid') && (
-                      <p className="mt-1 max-w-52 text-[11px] text-red-700">
-                        Card declined {row.payment_failure_count} {row.payment_failure_count === 1 ? 'time' : 'times'}, last on {formatDate(row.last_payment_failed_at)}
-                      </p>
-                    )}
-                  </td>
-                  <td>
-                    {row.cancel_at_period_end && row.status !== 'canceled'
-                      ? `Ends ${formatDate(row.current_period_end)}`
-                      : formatDate(row.current_period_end)}
-                  </td>
-                  <td>
-                    <MoneyCell cents={row.unit_price_cents + row.shipping_charge_cents} />
-                  </td>
-                  <td className="p-4 text-right">
-                    {row.status !== 'canceled' && (
-                      <span className="mb-1 flex flex-wrap justify-end gap-1">
-                        <button
-                          className={`${BTN_SECONDARY} h-8 px-3`}
-                          disabled={demo || pause.isPending || resume.isPending}
-                          onClick={() => (row.paused_at ? resume.mutate(row.id) : pause.mutate(row.id))}
-                        >
-                          {row.paused_at ? 'Resume' : 'Pause'}
-                        </button>
-                        <button
-                          data-testid={`button-change-product-${row.id}`}
-                          className={`${BTN_SECONDARY} h-8 px-3`}
-                          disabled={demo}
-                          onClick={() => {
-                            setChanging(row);
-                            setNextProduct('');
-                            setQuote(null);
-                            setQuoteError('');
-                          }}
-                        >
-                          Change product
-                        </button>
-                      </span>
-                    )}
-                    {(row.status === 'past_due' || row.status === 'unpaid') && (
-                      <span className="mb-1 flex flex-wrap justify-end gap-1">
-                        <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || retry.isPending} onClick={() => retry.mutate(row.id)}>
-                          Retry payment
-                        </button>
-                        <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || resend.isPending} onClick={() => resend.mutate(row.id)}>
-                          Email patient a payment link
-                        </button>
-                      </span>
-                    )}
-                    {row.status !== 'canceled' && !row.cancel_at_period_end && (
-                      <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo} onClick={() => setCanceling(row.id)}>
-                        Cancel
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {items.map((row) => {
+                const failed = row.status === 'past_due' || row.status === 'unpaid';
+                const live = row.status !== 'canceled';
+                return (
+                  <tr className="border-b border-border last:border-0" key={row.id} data-testid={`subscription-row-${row.id}`}>
+                    <td className="px-5 py-3.5 align-top">
+                      <b className="block text-navy">{row.payer.name}</b>
+                      {row.payer.email && <span className="block text-[11px] text-muted-foreground">{row.payer.email}</span>}
+                    </td>
+                    <td className="py-3.5 pr-4 align-top">
+                      {row.product_name}
+                      {row.pending_change && (
+                        <p className="mt-1 max-w-56 text-[11px] text-muted-foreground">
+                          Changes to {row.pending_change.product_name} ({formatCents(row.pending_change.unit_price_cents)}) on {formatDate(row.pending_change.effective_at)}
+                        </p>
+                      )}
+                    </td>
+                    <td className="py-3.5 pr-4 align-top">
+                      <StatusPill tone={subscriptionTone(row.status)}>{SUBSCRIPTION_STATUS_LABEL[row.status]}</StatusPill>
+                      {row.paused_at && (
+                        <p className="mt-1">
+                          <StatusPill tone="warn">Paused</StatusPill>
+                          <span className="ml-1 text-[11px] text-muted-foreground">since {formatDate(row.paused_at)}</span>
+                        </p>
+                      )}
+                      {failed && (
+                        <p className="mt-1 max-w-52 text-[11px] text-red-700">
+                          Card declined {row.payment_failure_count} {row.payment_failure_count === 1 ? 'time' : 'times'}, last on {formatDate(row.last_payment_failed_at)}
+                        </p>
+                      )}
+                    </td>
+                    <td className="py-3.5 pr-4 align-top tabular-nums text-muted-foreground">{formatDate(row.created_at)}</td>
+                    <td className="py-3.5 pr-4 align-top tabular-nums">
+                      {row.cancel_at_period_end && live
+                        ? <span className="text-red-700">Ends {formatDate(row.current_period_end)}</span>
+                        : formatDate(row.current_period_end)}
+                    </td>
+                    <td className="py-3.5 pr-4 text-right align-top tabular-nums">{row.renewals}</td>
+                    <td className="py-3.5 pr-4 text-right align-top">
+                      <MoneyCell cents={row.unit_price_cents + row.shipping_charge_cents} />
+                      {row.shipping_charge_cents > 0 && (
+                        <span className="block text-[11px] text-muted-foreground">incl. {formatCents(row.shipping_charge_cents)} shipping</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 text-right align-top">
+                      {live && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              data-testid={`button-subscription-actions-${row.id}`}
+                              className="inline-grid h-8 w-8 place-items-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-accent hover:text-primary"
+                              aria-label={`Actions for ${row.payer.name}'s ${row.product_name} subscription`}
+                            >
+                              <MoreHorizontal size={16} aria-hidden="true" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="min-w-52">
+                            {failed && (
+                              <>
+                                <DropdownMenuItem disabled={demo || retry.isPending} onSelect={() => retry.mutate(row.id)}>
+                                  Retry payment
+                                </DropdownMenuItem>
+                                <DropdownMenuItem disabled={demo || resend.isPending} onSelect={() => resend.mutate(row.id)}>
+                                  Email patient a payment link
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            <DropdownMenuItem
+                              disabled={demo || pause.isPending || resume.isPending}
+                              onSelect={() => (row.paused_at ? resume.mutate(row.id) : pause.mutate(row.id))}
+                            >
+                              {row.paused_at ? 'Resume' : 'Pause'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              data-testid={`button-change-product-${row.id}`}
+                              disabled={demo}
+                              onSelect={() => {
+                                setChanging(row);
+                                setNextProduct('');
+                                setQuote(null);
+                                setQuoteError('');
+                              }}
+                            >
+                              Change product
+                            </DropdownMenuItem>
+                            {!row.cancel_at_period_end && (
+                              <DropdownMenuItem
+                                data-testid={`button-cancel-subscription-${row.id}`}
+                                className="text-destructive focus:text-destructive"
+                                disabled={demo}
+                                onSelect={() => {
+                                  cancel.reset();
+                                  setCanceling(row);
+                                }}
+                              >
+                                Cancel subscription…
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {!items.length && <p className="p-5 text-xs text-muted-foreground">No subscriptions match this status.</p>}
         </div>
       </SectionCard>
-      {canceling && (
-        <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/30">
-          <div className="w-full max-w-sm rounded-lg bg-card p-5 shadow-lifted">
-            <h2 className="font-serif text-lg font-bold text-navy">Cancel subscription</h2>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Choose whether access ends now or after the current 4-week period.
-            </p>
-            <div className="mt-5 flex gap-2">
-              <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => setCanceling(null)}>
-                Keep active
-              </button>
-              <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => cancel.mutate({ id: canceling, later: true })}>
-                At period end
-              </button>
-              <button className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={() => cancel.mutate({ id: canceling, later: false })}>
-                Cancel now
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CancelSubscriptionDialog
+        row={canceling}
+        open={Boolean(canceling)}
+        onOpenChange={(open) => !open && setCanceling(null)}
+        onConfirm={(atPeriodEnd) => canceling && cancel.mutate({ id: canceling.id, later: atPeriodEnd })}
+        pending={cancel.isPending}
+        error={cancel.error instanceof Error ? cancel.error.message : null}
+        demo={demo}
+      />
       <Dialog open={Boolean(changing)} onOpenChange={(open) => !open && setChanging(null)}>
         <DialogContent aria-describedby="change-product-description">
           <DialogHeader>

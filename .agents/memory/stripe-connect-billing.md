@@ -77,3 +77,7 @@ description: Durable lessons from building direct-charge Connect billing — san
 - **Pending subscription change promotion** must be tied to invoice identity (billing_reason `subscription_cycle` + the pending Stripe price id on a line), not "any paid invoice" — a retried old invoice would otherwise promote the new price before an old-priced invoice is snapshotted.
 - Builders that move an existing side effect earlier (link claim before Stripe) break sibling test fakes they never ran (orders.test.ts had no RPC stub); after parallel builders finish, run the whole billing suite set, not just each builder's list.
 - Review flagged the public pay page not consuming a new link field — when a feature spans server + staff UI + a public page, assign the public page explicitly; nobody owns it by default.
+
+**Refund dialog amounts:** the client remainder must mirror the server's status filter (failed/canceled refunds never left the order) and the confirm always sends the exact acknowledged `amount_cents` — never omit it to mean "everything". **Why:** an omitted amount lets the server refund its own remainder, which can exceed the figure staff just acknowledged when the two sides count refunds differently. **How to apply:** any new refund entry point reuses `RefundDialog`; a parent that shares a mutation across opens must `reset()` it on open or stale errors greet the next attempt.
+
+**Grid tables with `auto` columns:** header and rows are separate grids, so `auto`-sized columns drift the header labels off the values; use fixed rem widths (Prices table).

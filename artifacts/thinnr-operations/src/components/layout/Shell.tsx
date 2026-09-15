@@ -20,7 +20,6 @@ import {
   useOfficeIdentity,
 } from '@/components/layout/nav-config';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
-import { DataDisclaimerFooter } from '@/components/layout/DataDisclaimerFooter';
 
 function ActionButton({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -246,7 +245,6 @@ export function Shell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        <DataDisclaimerFooter />
       </section>
     </div>
   );

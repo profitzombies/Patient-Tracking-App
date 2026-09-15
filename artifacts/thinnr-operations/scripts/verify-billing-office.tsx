@@ -9,6 +9,7 @@ import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import { DateRangeProvider } from '../src/contexts/date-range';
 import OfficePaymentsArea from '../src/pages/office/payments/OfficePaymentsArea';
+import { RefundDialog } from '../src/components/billing/RefundDialog';
 import { OFFICE_NAV_ITEMS, OFFICE_PAYMENTS_SECTIONS, isOfficeMenuPathActive } from '../src/components/layout/nav-config';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -314,6 +315,88 @@ console.log('\noffice billing: activity, refunds and fulfillment status');
   check('live today section labels the profit line as office net', text(one(live.root, 'today-office-net')) === '$41.09' && text(live.root).includes('Office net'), text(one(live.root, 'today-office-net') ?? live.root).slice(0, 80));
   live.renderer.unmount();
   g.fetch = previousFetch;
+}
+
+console.log('\noffice billing: cancel safeguard');
+{
+  reset();
+  const subscription = {
+    id: 'sub-9', provider_id: 'office-1', office_name: 'Beacon Hill',
+    payer: { id: 'payer-1', patient_id: 'patient-1', name: 'Maya Thompson', email: 'maya@example.com', phone: null },
+    product_id: 'control', product_name: 'Control', status: 'active', unit_price_cents: 7999,
+    shipping_charge_cents: 1000, application_fee_cents: 4599, current_period_end: '2026-11-07T00:00:00Z',
+    cancel_at_period_end: false, canceled_at: null, payment_failure_count: 0, last_payment_failed_at: null,
+    last_failure_message: null, renewals: 3, livemode: false, created_at: '2026-08-15T00:00:00Z',
+    paused_at: null, pending_change: null,
+  };
+  responses = [
+    json(200, status()),
+    json(200, { items: [subscription], next_cursor: null }),
+    json(200, { products: [price], settings: { shipping_charge_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30 } }),
+  ];
+  const page = await render('/subscriptions');
+  check('subscription row shows started date, renewal count and a single actions menu', text(one(page.root, 'subscription-row-sub-9')).includes('Aug 15, 2026') && Boolean(one(page.root, 'button-subscription-actions-sub-9')) && page.root.findAll((node) => node.type === 'button' && text(node) === 'Cancel').length === 0);
+  await act(async () => one(page.root, 'button-cancel-subscription-sub-9').props.onClick());
+  const confirm = () => one(page.root, 'button-cancel-subscription-confirm');
+  check('cancel dialog opens disarmed with period-end selected', confirm()?.props.disabled === true && one(page.root, 'radio-cancel-period-end').props.checked === true && text(page.root).includes('Type CANCEL'));
+  await act(async () => one(page.root, 'input-cancel-confirm').props.onChange({ target: { value: 'cancel me' } }));
+  check('wrong word keeps the button disarmed', confirm().props.disabled === true);
+  await act(async () => one(page.root, 'radio-cancel-now').props.onChange());
+  await act(async () => one(page.root, 'input-cancel-confirm').props.onChange({ target: { value: 'cancel' } }));
+  check('typing CANCEL (any case) arms the button with the chosen timing', confirm().props.disabled === false && text(confirm()) === 'Cancel now');
+  responses = [json(200, { subscription: { ...subscription, status: 'canceled', canceled_at: '2026-10-11T00:00:00Z' } }), json(200, status()), json(200, { items: [] }), json(200, { products: [price], settings: {} })];
+  await act(async () => confirm().props.onClick());
+  await settle();
+  const post = requests.find((request) => request.method === 'POST' && request.url.includes('/subscriptions/sub-9/cancel'));
+  check('armed confirm POSTs the immediate cancel and closes the dialog', JSON.stringify(post?.body) === JSON.stringify({ at_period_end: false }) && !one(page.root, 'button-cancel-subscription-confirm'), JSON.stringify(post));
+  page.renderer.unmount();
+}
+
+console.log('\noffice billing: refund dialog');
+{
+  const order = {
+    id: 'order-1', order_number: 'TH-0001', provider_id: 'office-1', office_name: 'Beacon Hill',
+    payer: { id: 'payer-1', patient_id: 'patient-1', name: 'Maya Thompson', email: 'maya@example.com', phone: null },
+    kind: 'one_time', status: 'paid', fulfillment_status: 'shipped', total_cents: 8999, application_fee_cents: 4599,
+    item_count: 1, items_label: 'Control', livemode: false, created_at: '2026-10-01T00:00:00Z', paid_at: '2026-10-01T00:00:00Z',
+    items: [{ id: 'item-1', product_id: 'control', product_name: 'Control', quantity: 1, unit_price_cents: 7999, floor_price_cents: 5999, thinnr_share_cents: 3000, hard_cost_cents: 1000 }],
+    shipping_address: null, subscription_id: null, tracking_number: null, carrier: null, shipped_at: null, shipped_by_name: null, canceled_reason: null,
+    fees: { subtotal_cents: 7999, shipping_charge_cents: 1000, tax_cents: 0, total_cents: 8999, thinnr_share_cents: 3000, application_fee_cents: 4599, application_fee_collected_cents: 4599, stripe_fee_cents: 291, stripe_fee_estimate_cents: 291, office_net_cents: 4109, office_net_estimate_cents: 4109 },
+    refunds: [
+      { id: 'refund-1', stripe_refund_id: 're_1', amount_cents: 500, reason: 'goodwill', status: 'succeeded', requested_by_name: 'Staff', created_at: '2026-10-02T00:00:00Z' },
+      { id: 'refund-2', stripe_refund_id: 're_2', amount_cents: 4000, reason: 'oops', status: 'failed', requested_by_name: 'Staff', created_at: '2026-10-03T00:00:00Z' },
+    ],
+    disputes: [], ledger: [], stripe: { account_id: 'acct_1', invoice_id: null, payment_intent_id: 'pi_1', charge_id: 'ch_1', balance_transaction_id: null },
+  } as any;
+  const confirmed: Array<[number | undefined, string]> = [];
+  let renderer!: ReactTestRenderer;
+  await act(async () => { renderer = create(<RefundDialog order={order} open onOpenChange={() => {}} onConfirm={(cents, reason) => confirmed.push([cents, reason])} pending={false} />); });
+  const root = renderer.root;
+  const options = one(root, 'select-refund-preset').findAllByType('option').map((node) => text(node));
+  check('presets preview everything remaining, product and product plus shipping', JSON.stringify(options) === JSON.stringify(['Everything remaining · $84.99', 'Product only · $79.99', 'Custom amount']) || JSON.stringify(options) === JSON.stringify(['Everything remaining · $84.99', 'Product only · $79.99', 'Product + shipping · $84.99', 'Custom amount']), JSON.stringify(options));
+  check('failed refunds do not reduce the remainder (matches the server)', text(root).includes('Up to $84.99'));
+  check('amount opens at the remainder with a dollar prefix', one(root, 'input-refund-amount').props.value === '84.99' && text(root).includes('$'));
+  await act(async () => one(root, 'select-refund-preset').props.onChange({ target: { value: 'product' } }));
+  check('choosing a preset fills the amount', one(root, 'input-refund-amount').props.value === '79.99');
+  await act(async () => one(root, 'input-refund-amount').props.onChange({ target: { value: '9' } }));
+  await act(async () => one(root, 'input-refund-amount').props.onBlur());
+  check('blur formats 9 as 9.00 and flips the preset to custom', one(root, 'input-refund-amount').props.value === '9.00' && one(root, 'select-refund-preset').props.value === 'custom');
+  await act(async () => one(root, 'input-refund-amount').props.onChange({ target: { value: '90' } }));
+  check('over the remainder shows the red box and marks the field invalid', Boolean(one(root, 'refund-over-max')) && one(root, 'input-refund-amount').props['aria-invalid'] === true && text(one(root, 'refund-over-max')).includes('$84.99'));
+  check('issue refund stays disabled until the acknowledgement is checked', one(root, 'button-refund-confirm').props.disabled === true);
+  await act(async () => one(root, 'checkbox-refund-acknowledge').props.onChange({ target: { checked: true } }));
+  await act(async () => one(root, 'button-refund-confirm').props.onClick());
+  check('acknowledged but over-max click explains instead of submitting', confirmed.length === 0 && text(root).includes('Enter no more than $84.99'));
+  await act(async () => one(root, 'input-refund-amount').props.onChange({ target: { value: '9' } }));
+  await act(async () => one(root, 'input-refund-reason').props.onChange({ target: { value: 'Broken seal' } }));
+  await act(async () => one(root, 'button-refund-confirm').props.onClick());
+  check('valid partial refund submits cents and reason', JSON.stringify(confirmed) === JSON.stringify([[900, 'Broken seal']]), JSON.stringify(confirmed));
+  await act(async () => one(root, 'select-refund-preset').props.onChange({ target: { value: 'remaining' } }));
+  await act(async () => one(root, 'button-refund-confirm').props.onClick());
+  check('everything-remaining still sends the exact acknowledged cents', JSON.stringify(confirmed[1]) === JSON.stringify([8499, 'Broken seal']), JSON.stringify(confirmed));
+  const footer = root.findAll((node) => node.type === 'button' && (text(node) === 'Cancel' || text(node) === 'Issue refund'));
+  check('footer buttons share one size', footer.length === 2 && footer.every((node) => String(node.props.className).includes('h-9 px-3.5')));
+  await act(async () => { renderer.unmount(); });
 }
 
 console.log('\noffice billing: side menu sections');

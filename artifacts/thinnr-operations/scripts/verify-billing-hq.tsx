@@ -98,9 +98,9 @@ await check('activity demo rows', '/admin/payments/activity?kind=refund', Paymen
     renderer = create(<QueryClientProvider client={client}><DateRangeProvider><Router hook={location.hook}><Route path="/admin/payments" nest><PaymentsSubscriptions /></Route></Router></DateRangeProvider></QueryClientProvider>);
   });
   const writes = renderer!.root.findAll(node =>
-    node.type === 'button' && ['Pause', 'Resume', 'Change product', 'Cancel at renewal', 'Cancel now', 'Retry payment', 'Email patient a payment link'].includes(String(node.children.join(''))));
+    node.type === 'button' && ['Pause', 'Resume', 'Change product', 'Cancel subscription…', 'Retry payment', 'Email patient a payment link'].includes(String(node.children.join(''))));
   const problems = [
-    writes.length < 20 ? `expected demo write controls on every eligible row, found ${writes.length}` : '',
+    writes.length < 12 ? `expected demo write controls on every eligible row, found ${writes.length}` : '',
     writes.some(button => !button.props.disabled) ? 'a demo subscription write control is enabled' : '',
   ].filter(Boolean);
   if (problems.length) { failures += 1; console.error(`FAIL subscription demo mutation guard: ${problems.join('; ')}`); }

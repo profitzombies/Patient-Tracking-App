@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
-import { Search } from 'lucide-react';
+import { MoreHorizontal, Search } from 'lucide-react';
 import {
   AdminPage,
   MetricTile,
@@ -22,6 +22,8 @@ import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useDateRange } from '@/contexts/date-range';
 import { ProviderActivityTiles, ProviderRecentOrders } from '@/components/billing/hq/ProviderPaymentsSummary';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PaymentsHealthBanner } from '@/components/billing/PaymentsHealthBanner';
 import {
   Dialog,
@@ -585,7 +587,7 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
   const { toast } = useToast();
   const [refundOpen, setRefundOpen] = useState(false);
   const refund = useMutation({
-    mutationFn: (body: { amount_cents?: number; reason: string }) => hqBilling.refund(id, body),
+    mutationFn: (body: { amount_cents: number; reason: string }) => hqBilling.refund(id, body),
     onSuccess: () => {
       setRefundOpen(false);
       void invalidate();
@@ -603,7 +605,7 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
         back={{ href: '/transactions', label: 'Back to transactions' }}
         action={
           order && canWrite ? (
-            <button className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={() => setRefundOpen(true)}>
+            <button className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={() => { refund.reset(); setRefundOpen(true); }}>
               Refund
             </button>
           ) : undefined
@@ -927,7 +929,7 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
     },
     onError: (error: Error) => toast({ variant: 'destructive', title: 'Product could not be changed', description: error.message }),
   });
-  const [canceling, setCanceling] = useState<{ row: SubscriptionRow; atPeriodEnd: boolean } | null>(null);
+  const [canceling, setCanceling] = useState<SubscriptionRow | null>(null);
   const [changing, setChanging] = useState<{ row: SubscriptionRow; productId: string } | null>(null);
   const allRows = demo ? DEMO_SUBSCRIPTIONS : query.data?.items;
   const rows = requestedStatus === 'paused'
@@ -979,102 +981,123 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
       ) : (
         <SectionCard title="Program subscriptions">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-xs">
+            <table className="w-full min-w-[960px] text-left text-xs">
               <thead>
-                <tr>
-                  <th className="p-3 text-left">Patient</th>
-                  <th>Office</th>
-                  <th>Product</th>
-                  <th>Status</th>
-                  <th>Renewal</th>
-                  <th>Price</th>
-                  <th />
+                <tr className="border-b border-border bg-secondary/50">
+                  <th className={`${PANEL_LABEL} px-4 py-2.5`}>Patient</th>
+                  <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Office</th>
+                  <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Product</th>
+                  <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Status</th>
+                  <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Started</th>
+                  <th className={`${PANEL_LABEL} py-2.5 pr-4`}>Renewal</th>
+                  <th className={`${PANEL_LABEL} py-2.5 pr-4 text-right`}>Renewals</th>
+                  <th className={`${PANEL_LABEL} py-2.5 pr-4 text-right`}>Price</th>
+                  <th className="px-4 py-2.5">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {rows?.map((row) => (
-                  <tr key={row.id} className="border-t">
-                    <td className="p-3">{row.payer.name}</td>
-                    <td>{row.office_name}</td>
-                    <td>
-                      {row.product_name}
-                      {row.pending_change && (
-                        <p className="mt-1 max-w-52 text-[11px] text-muted-foreground" data-testid={`pending-change-${row.id}`}>
-                          {`Changes to ${row.pending_change.product_name} (${formatCents(row.pending_change.unit_price_cents)}) on ${formatDate(row.pending_change.effective_at)}`}
-                        </p>
-                      )}
-                    </td>
-                    <td>
-                      {row.paused_at ? (
-                        <StatusPill tone="warn">Paused</StatusPill>
-                      ) : (
-                        <StatusPill tone={subscriptionTone(row.status)}>
-                          {SUBSCRIPTION_STATUS_LABEL[row.status]}
-                        </StatusPill>
-                      )}
-                      {(row.status === 'past_due' || row.status === 'unpaid') && (
-                        <p className="mt-1 max-w-52 text-[11px] text-red-700">
-                          Card declined {row.payment_failure_count} {row.payment_failure_count === 1 ? 'time' : 'times'}, last on {formatDate(row.last_payment_failed_at)}
-                        </p>
-                      )}
-                    </td>
-                    <td>
-                      {row.cancel_at_period_end
-                        ? `Ends ${formatDate(row.current_period_end)}`
-                        : formatDate(row.current_period_end)}
-                    </td>
-                    <td>
-                      <MoneyCell cents={row.unit_price_cents + row.shipping_charge_cents} />
-                    </td>
-                    <td>
-                      {canWrite && row.status !== 'canceled' && (
-                        <span className="flex flex-wrap justify-end gap-1">
-                          {(row.status === 'past_due' || row.status === 'unpaid') && (
-                            <>
-                              <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || retry.isPending} onClick={() => retry.mutate(row.id)}>
-                                Retry payment
+                {rows?.map((row) => {
+                  const failed = row.status === 'past_due' || row.status === 'unpaid';
+                  return (
+                    <tr key={row.id} className="border-t border-border" data-testid={`subscription-row-${row.id}`}>
+                      <td className="px-4 py-3.5 align-top">
+                        <b className="block text-navy">{row.payer.name}</b>
+                        {row.payer.email && <span className="block text-[11px] text-muted-foreground">{row.payer.email}</span>}
+                      </td>
+                      <td className="py-3.5 pr-4 align-top">{row.office_name}</td>
+                      <td className="py-3.5 pr-4 align-top">
+                        {row.product_name}
+                        {row.pending_change && (
+                          <p className="mt-1 max-w-52 text-[11px] text-muted-foreground" data-testid={`pending-change-${row.id}`}>
+                            {`Changes to ${row.pending_change.product_name} (${formatCents(row.pending_change.unit_price_cents)}) on ${formatDate(row.pending_change.effective_at)}`}
+                          </p>
+                        )}
+                      </td>
+                      <td className="py-3.5 pr-4 align-top">
+                        {row.paused_at ? (
+                          <StatusPill tone="warn">Paused</StatusPill>
+                        ) : (
+                          <StatusPill tone={subscriptionTone(row.status)}>
+                            {SUBSCRIPTION_STATUS_LABEL[row.status]}
+                          </StatusPill>
+                        )}
+                        {failed && (
+                          <p className="mt-1 max-w-52 text-[11px] text-red-700">
+                            Card declined {row.payment_failure_count} {row.payment_failure_count === 1 ? 'time' : 'times'}, last on {formatDate(row.last_payment_failed_at)}
+                          </p>
+                        )}
+                      </td>
+                      <td className="py-3.5 pr-4 align-top tabular-nums text-muted-foreground">{formatDate(row.created_at)}</td>
+                      <td className="py-3.5 pr-4 align-top tabular-nums">
+                        {row.cancel_at_period_end
+                          ? <span className="text-red-700">Ends {formatDate(row.current_period_end)}</span>
+                          : formatDate(row.current_period_end)}
+                      </td>
+                      <td className="py-3.5 pr-4 text-right align-top tabular-nums">{row.renewals}</td>
+                      <td className="py-3.5 pr-4 text-right align-top">
+                        <MoneyCell cents={row.unit_price_cents + row.shipping_charge_cents} />
+                        {row.shipping_charge_cents > 0 && (
+                          <span className="block text-[11px] text-muted-foreground">incl. {formatCents(row.shipping_charge_cents)} shipping</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-right align-top">
+                        {canWrite && row.status !== 'canceled' && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                data-testid={`button-subscription-actions-${row.id}`}
+                                className="inline-grid h-8 w-8 place-items-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-accent hover:text-primary"
+                                aria-label={`Actions for ${row.payer.name}'s ${row.product_name} subscription`}
+                              >
+                                <MoreHorizontal size={16} aria-hidden="true" />
                               </button>
-                              <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || resend.isPending} onClick={() => resend.mutate(row.id)}>
-                                Email patient a payment link
-                              </button>
-                            </>
-                          )}
-                          <button
-                            className={`${BTN_SECONDARY} h-8 px-3`}
-                            disabled={demo || pause.isPending}
-                            onClick={() => pause.mutate(row)}
-                          >
-                            {row.paused_at ? 'Resume' : 'Pause'}
-                          </button>
-                          <button
-                            className={`${BTN_SECONDARY} h-8 px-3`}
-                            disabled={demo || change.isPending || products.length < 2}
-                            onClick={() => openProductChange(row)}
-                          >
-                            Change product
-                          </button>
-                          <button
-                            className={`${BTN_SECONDARY} h-8 px-3`}
-                            disabled={demo || cancel.isPending}
-                            onClick={() => setCanceling({ row, atPeriodEnd: true })}
-                          >
-                            Cancel at renewal
-                          </button>
-                          <button
-                            className={`${BTN_SECONDARY} h-8 px-3`}
-                            disabled={demo || cancel.isPending}
-                            onClick={() => setCanceling({ row, atPeriodEnd: false })}
-                          >
-                            Cancel now
-                          </button>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-52">
+                              {failed && (
+                                <>
+                                  <DropdownMenuItem disabled={demo || retry.isPending} onSelect={() => retry.mutate(row.id)}>
+                                    Retry payment
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem disabled={demo || resend.isPending} onSelect={() => resend.mutate(row.id)}>
+                                    Email patient a payment link
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                              <DropdownMenuItem disabled={demo || pause.isPending} onSelect={() => pause.mutate(row)}>
+                                {row.paused_at ? 'Resume' : 'Pause'}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={demo || change.isPending || products.length < 2}
+                                onSelect={() => openProductChange(row)}
+                              >
+                                Change product
+                              </DropdownMenuItem>
+                              {!row.cancel_at_period_end && (
+                                <DropdownMenuItem
+                                  data-testid={`button-cancel-subscription-${row.id}`}
+                                  className="text-destructive focus:text-destructive"
+                                  disabled={demo || cancel.isPending}
+                                  onSelect={() => {
+                                    cancel.reset();
+                                    setCanceling(row);
+                                  }}
+                                >
+                                  Cancel subscription…
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {!rows?.length && (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                    <td colSpan={9} className="p-8 text-center text-muted-foreground">
                       No subscriptions match these filters.
                     </td>
                   </tr>
@@ -1084,39 +1107,18 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
           </div>
         </SectionCard>
       )}
-      <Dialog open={Boolean(canceling)} onOpenChange={(open) => !open && setCanceling(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="font-serif text-navy">Cancel subscription</DialogTitle>
-            <DialogDescription>
-              {canceling?.atPeriodEnd
-                ? `${canceling.row.payer.name}'s subscription will remain active through ${formatDate(canceling.row.current_period_end)}.`
-                : `${canceling?.row.payer.name}'s subscription will end immediately.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => setCanceling(null)}>Back</button>
-            <button
-              className={`${BTN_PRIMARY} h-9 px-3.5`}
-              disabled={cancel.isPending}
-              onClick={() => {
-                if (!canceling) return;
-                if (demo) {
-                  toast({ title: 'Preview only', description: 'Sign in to cancel a live subscription.' });
-                  setCanceling(null);
-                  return;
-                }
-                cancel.mutate(
-                  { id: canceling.row.id, at_period_end: canceling.atPeriodEnd },
-                  { onSuccess: () => setCanceling(null) },
-                );
-              }}
-            >
-              Confirm cancellation
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CancelSubscriptionDialog
+        row={canceling}
+        open={Boolean(canceling)}
+        onOpenChange={(open) => !open && setCanceling(null)}
+        onConfirm={(atPeriodEnd) => {
+          if (!canceling) return;
+          cancel.mutate({ id: canceling.id, at_period_end: atPeriodEnd }, { onSuccess: () => setCanceling(null) });
+        }}
+        pending={cancel.isPending}
+        error={cancel.error instanceof Error ? cancel.error.message : null}
+        demo={demo}
+      />
       <ChangeProductDialog
         open={Boolean(changing)}
         row={changing?.row ?? null}

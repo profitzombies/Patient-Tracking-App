@@ -5,16 +5,24 @@
  */
 import { forwardRef, type InputHTMLAttributes } from 'react';
 import { INPUT_CLASS } from '@/components/patient/heritage';
+import { parseDollarsToCents } from '@/lib/billing-format';
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'prefix'> & { invalid?: boolean };
 
 const BASE = `${INPUT_CLASS} h-9 w-full tabular-nums`;
 
-/** `$` sits inside the field; the value is plain dollars text the caller owns. */
+/**
+ * `$` sits inside the field; the value is plain dollars text the caller owns.
+ * `className` lands on the wrapper so spacing utilities (mt-1 and friends)
+ * move the prefix together with the field instead of leaving it behind.
+ */
 export const MoneyInput = forwardRef<HTMLInputElement, Props>(function MoneyInput({ className, invalid, ...props }, ref) {
   return (
-    <span className="relative block">
-      <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs font-semibold text-muted-foreground">
+    <span className={`relative block ${className ?? ''}`}>
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs font-semibold ${invalid ? 'text-destructive' : 'text-muted-foreground'}`}
+      >
         $
       </span>
       <input
@@ -23,7 +31,7 @@ export const MoneyInput = forwardRef<HTMLInputElement, Props>(function MoneyInpu
         inputMode="decimal"
         placeholder="0.00"
         aria-invalid={invalid || undefined}
-        className={`${BASE} pl-7 ${invalid ? 'border-destructive focus-visible:ring-destructive/40' : ''} ${className ?? ''}`}
+        className={`${BASE} pl-7 ${invalid ? 'border-destructive focus:ring-destructive/40' : ''}`}
         {...props}
       />
     </span>
@@ -33,14 +41,14 @@ export const MoneyInput = forwardRef<HTMLInputElement, Props>(function MoneyInpu
 /** `%` suffix; value is percent text like "2.90". */
 export const PercentInput = forwardRef<HTMLInputElement, Props>(function PercentInput({ className, invalid, ...props }, ref) {
   return (
-    <span className="relative block">
+    <span className={`relative block ${className ?? ''}`}>
       <input
         ref={ref}
         type="text"
         inputMode="decimal"
         placeholder="0.00"
         aria-invalid={invalid || undefined}
-        className={`${BASE} pr-8 ${invalid ? 'border-destructive focus-visible:ring-destructive/40' : ''} ${className ?? ''}`}
+        className={`${BASE} pr-8 ${invalid ? 'border-destructive focus:ring-destructive/40' : ''}`}
         {...props}
       />
       <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-muted-foreground">
@@ -49,6 +57,15 @@ export const PercentInput = forwardRef<HTMLInputElement, Props>(function Percent
     </span>
   );
 });
+
+/**
+ * Blur formatter: "9" → "9.00", "$1,250.5" → "1250.50". Anything that does
+ * not parse is returned untouched so the validation message can point at it.
+ */
+export function normalizeDollarsInput(value: string): string {
+  const parsed = parseDollarsToCents(value);
+  return parsed.ok ? (parsed.cents / 100).toFixed(2) : value;
+}
 
 /** "2.9" → 290 basis points; up to two decimals of a percent. */
 export function parsePercentToBps(input: string): { ok: true; bps: number } | { ok: false; error: string } {

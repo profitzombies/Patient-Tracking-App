@@ -27,16 +27,29 @@ const token = process.env.SUPABASE_ACCESS_TOKEN;
 if (!url || !token) throw new Error("Supabase migration configuration is missing.");
 const ref = new URL(url).hostname.split(".")[0];
 
+// Only statuses the management API returns BEFORE running the statement are
+// retried (maintenance / rate limit). Anything else could have executed
+// server-side, and replaying DDL blindly is worse than failing the merge.
+const RETRY_STATUSES = new Set([429, 503]);
+const RETRY_DELAYS_MS = [5_000, 20_000];
+
 async function query(sql) {
-  const response = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ query: sql }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  // PostgreSQL error detail can contain private row values. Never print it.
-  if (!response.ok) throw new Error(`Supabase migration request failed (HTTP ${response.status}).`);
-  return response.json();
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: sql }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (response.ok) return response.json();
+    if (RETRY_STATUSES.has(response.status) && attempt < RETRY_DELAYS_MS.length) {
+      console.log(`Supabase management API unavailable (HTTP ${response.status}); retrying in ${RETRY_DELAYS_MS[attempt] / 1000}s.`);
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+      continue;
+    }
+    // PostgreSQL error detail can contain private row values. Never print it.
+    throw new Error(`Supabase migration request failed (HTTP ${response.status}).`);
+  }
 }
 
 await query(`

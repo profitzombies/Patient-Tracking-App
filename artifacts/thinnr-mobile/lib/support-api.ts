@@ -18,6 +18,7 @@
 import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 import { apiBase } from '@/lib/coach-api';
+import { supabase } from '@/lib/supabase';
 
 export interface SupportRequestMessage {
   role: 'user' | 'assistant' | 'staff';
@@ -117,13 +118,18 @@ export async function streamSupportChat(
   const { signal } = options;
   const state = { finished: false };
   try {
+    const token = (await supabase?.auth.getSession())?.data.session?.access_token ?? null;
+    if (signal?.aborted) return;
     const doFetch =
       Platform.OS === 'web'
         ? globalThis.fetch.bind(globalThis)
         : (expoFetch as unknown as typeof globalThis.fetch);
     const response = await doFetch(`${apiBase()}/support/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ messages }),
       signal,
     });

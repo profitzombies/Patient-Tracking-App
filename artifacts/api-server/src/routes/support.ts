@@ -19,14 +19,10 @@
  * real work, never a timer. Unknown-field events are ignored by older
  * clients, so the addition is wire-compatible.
  *
- * Demo posture: reaching the page is enough — there is NO staff-session
- * gate. The staff identity was only ever a gate here (answers come from one
- * global library read with the service role; no office scoping, no
- * attribution), so demo personas chat exactly like signed-in staff, whose
- * bearer, when attached, is simply ignored. Spend stays bounded by the
- * endpoint's OWN limiter knobs — per-IP burst, concurrency, and daily
- * budget — plus the app-level CORS allowlist. Re-tightening later is one
- * middleware away.
+ * Every request must carry a live Supabase session. The library is global,
+ * so no office scope is needed, but anonymous callers must never be able to
+ * spend model credits or read HQ-uploaded knowledge. The endpoint's own
+ * per-IP, concurrency, and daily limits remain defense in depth.
  *
  * Voice: comprehensive markdown, strictly emoji-free — the prompt bans
  * emojis and the EmojiSmoother strips any that slip through, chunk-split
@@ -56,6 +52,7 @@ import { acquireSupportSlot } from "../support/limits";
 import { BrandSpellingSmoother } from "../lib/brand-spelling";
 import { EmojiSmoother } from "../support/text-guards";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
+import { resolveSecurityActor } from "../security/actor";
 
 const router: IRouter = Router();
 
@@ -173,8 +170,22 @@ async function streamSupportTurn(options: {
 
 router.post("/support/chat", async (req, res) => {
   const startedAt = Date.now();
+  let auth;
+  try {
+    auth = await resolveSecurityActor(req);
+  } catch (error) {
+    req.log.error({ err: error }, "support chat session verification unavailable");
+    res.status(503).json({ error: "Could not verify your session — try again in a moment." });
+    return;
+  }
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error });
+    return;
+  }
+  const actor = auth.actor;
+
   // Limit first: this endpoint spends paid model credits, so even invalid
-  // spam should burn the caller's budget, not the server's CPU.
+  // authenticated spam should burn the caller's budget, not the server's CPU.
   const slot = acquireSupportSlot(req.ip ?? "unknown");
   if (!slot.ok) {
     res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
@@ -228,14 +239,14 @@ router.post("/support/chat", async (req, res) => {
       "support chat documents selected",
     );
 
-    // Usage is audited as a count only — which turn of an anonymous chat
+    // Usage is audited as a count only — which turn of an authenticated chat
     // this is and how many documents were consulted. No transcript text,
     // no message bodies, ever.
     void recordAdminAuditEvent({
       action: "ai_support_used",
-      actorUserId: null,
-      actorKind: "anonymous",
-      providerId: null,
+      actorUserId: actor.userId,
+      actorKind: actor.realm === "patient" ? "patient" : actor.staffKind,
+      providerId: actor.providerId,
       targetKind: "support_chat",
       targetId: null,
       requestId: requestIdOf(req),

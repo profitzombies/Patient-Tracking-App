@@ -2,8 +2,7 @@
  * Route tests for POST /api/support/chat (the provider AI Support chat).
  *
  * The OpenAI client and the knowledge-library loader are mocked (no credits,
- * no database). Covers: open access (the demo posture has no staff gate, so
- * tokenless and bearer-carrying calls behave identically), invalid bodies,
+ * no database). Covers: session authentication, invalid bodies,
  * the grounded happy path, two-stage broadening mechanics, stage narration
  * (searching/thinking/formulating events in real work order), the
  * deterministic output guards (brand spelling, dashes, emojis — including
@@ -80,6 +79,31 @@ const docsState = vi.hoisted(() => {
   return { library, docs: [...library], error: null as Error | null };
 });
 
+const authState = vi.hoisted(() => ({ error: null as Error | null }));
+
+vi.mock("../security/actor", () => ({
+  resolveSecurityActor: vi.fn(async (req: { headers: Record<string, unknown> }) => {
+    if (authState.error) throw authState.error;
+    if (req.headers.authorization !== "Bearer valid-session-token") {
+      return { ok: false, status: 401, error: "Sign in to continue." };
+    }
+    return {
+      ok: true,
+      token: "valid-session-token",
+      sessionId: null,
+      actor: {
+        realm: "staff",
+        userId: "auth-user-1",
+        staffKind: "provider",
+        ref: "provider-1",
+        providerId: "provider-1",
+        name: "Provider",
+        email: "provider@example.test",
+      },
+    };
+  }),
+}));
+
 vi.mock("../support/docs", () => ({
   loadSupportDocuments: vi.fn(async () => {
     if (docsState.error) throw docsState.error;
@@ -120,6 +144,7 @@ beforeEach(() => {
   streamState.audits = [];
   docsState.docs = [...docsState.library];
   docsState.error = null;
+  authState.error = null;
 });
 
 afterEach(() => {
@@ -133,8 +158,8 @@ function nextIp(): string {
   return `10.7.${Math.floor(ipCounter / 200)}.${(ipCounter % 200) + 1}`;
 }
 
-/** Calls are anonymous by default — the demo posture sends no bearer. */
-function postChat(body: unknown, ip = nextIp(), token: string | null = null) {
+/** Calls carry a valid session by default. */
+function postChat(body: unknown, ip = nextIp(), token: string | null = "valid-session-token") {
   return fetch(`${baseUrl}/api/support/chat`, {
     method: "POST",
     headers: {
@@ -184,16 +209,28 @@ function joinedContent(text: string): string {
 }
 
 describe("POST /api/support/chat", () => {
-  it("streams for tokenless callers — the demo posture has no staff gate", async () => {
+  it("rejects tokenless callers before spending model credits or reading documents", async () => {
     const res = await postChat(userTurn("Hello"), nextIp(), null);
-    expect(res.status).toBe(200);
-    const text = await res.text();
-    expect(text).toContain('data: {"content":"Grounded"}');
-    expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Sign in to continue." });
+    expect(createMock).not.toHaveBeenCalled();
   });
 
-  it("treats a bearer-carrying call (signed-in staff) exactly the same", async () => {
-    const res = await postChat(userTurn("Hello"), nextIp(), "real-staff-session-token");
+  it("rejects an invalid bearer before spending model credits", async () => {
+    const res = await postChat(userTurn("Hello"), nextIp(), "invalid-session-token");
+    expect(res.status).toBe(401);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when session verification is unavailable", async () => {
+    authState.error = new Error("auth unavailable");
+    const res = await postChat(userTurn("Hello"));
+    expect(res.status).toBe(503);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("streams for a caller with a valid session", async () => {
+    const res = await postChat(userTurn("Hello"));
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text.trimEnd().endsWith('data: {"done":true}')).toBe(true);
@@ -244,7 +281,13 @@ describe("POST /api/support/chat", () => {
 
     // Usage is audited as counts only — no transcript text ever reaches the log.
     expect(streamState.audits).toHaveLength(1);
-    expect(streamState.audits[0]).toMatchObject({ action: "ai_support_used", actorKind: "anonymous", actorUserId: null, targetKind: "support_chat" });
+    expect(streamState.audits[0]).toMatchObject({
+      action: "ai_support_used",
+      actorKind: "provider",
+      actorUserId: "auth-user-1",
+      providerId: "provider-1",
+      targetKind: "support_chat",
+    });
     expect(streamState.audits[0].metadata).toEqual({ turn: 1, rows: 1, kind: "primary" });
     expect(JSON.stringify(streamState.audits[0])).not.toContain("grapefruit");
   });

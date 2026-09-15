@@ -10,15 +10,13 @@
  * the caller's abort signal fires, no further callbacks are invoked; the
  * caller owns the UI transition for a user-initiated stop.
  *
- * The route has no sign-in gate (demo posture): anyone who can open the
- * page can chat, demo personas included. When the app holds a real Supabase
- * session its bearer is still attached — signed-in staff send exactly what
- * they always sent — but a missing session simply means an anonymous call,
- * never a refusal. No credential ever ships in this bundle.
+ * The route requires a live Supabase session. The client forwards the
+ * current access token when present; missing or expired sessions are refused
+ * by the API before any knowledge documents or model credits are used.
  */
 import { supabase } from './supabase';
 
-/** The real app session's bearer when one exists; null means anonymous. */
+/** The real app session's bearer when one exists. */
 async function getSupportAccessToken(): Promise<string | null> {
   if (!supabase) return null;
   try {

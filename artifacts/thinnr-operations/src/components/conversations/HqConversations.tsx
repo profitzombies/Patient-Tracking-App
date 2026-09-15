@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CHIP_WARM, BTN_SECONDARY } from '@/components/patient/heritage';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
-import { InitialsAvatar, formatRelativeTime, LiveMessageRow } from '@/components/conversations/shared';
+import { InitialsAvatar, formatRelativeTime, LiveMessageRow, ThreadNotesEmpty, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
 import {
   useGetHqConversations,
   useGetHqConversationEvents,
@@ -181,6 +181,31 @@ export function HqConversations({ role }: { role: HqRole }) {
     });
     setNextBefore(older.data.nextBefore);
   }, [older.data, scopeKey, openId]);
+
+  // Bring the newest message into view when a thread opens and when its
+  // newest end grows. Keyed on the newest seq (not list length) so paging
+  // older messages in at the top never moves the reader.
+  const threadPaneRef = useRef<HTMLDivElement>(null);
+  const newestAnchorRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef<ThreadFollowState | null>(null);
+  const newestSeq = allEvents.length > 0 ? allEvents[allEvents.length - 1].seq : undefined;
+  useEffect(() => {
+    const threadKey = `${scopeKey}:${openId}`;
+    // Only act once THIS thread's transcript has landed: right after switching
+    // threads, allEvents still holds the previous thread for a render, and a
+    // decision taken then would be recorded against the new thread.
+    if (newestSeq === undefined || transcriptLoadedFor !== threadKey) return;
+    const plan = planThreadFollow(followRef.current, threadKey, threadPaneRef.current);
+    followRef.current = plan.next;
+    if (plan.follow) scrollThreadToNewest(threadPaneRef.current, newestAnchorRef.current);
+  }, [scopeKey, openId, newestSeq, transcriptLoadedFor]);
+  // Older history prepended at the top changes the oldest seq, not the newest:
+  // refresh the height baseline so that growth is never mistaken for new
+  // messages by the next follow decision.
+  const oldestSeq = allEvents.length > 0 ? allEvents[0].seq : undefined;
+  useEffect(() => {
+    followRef.current = refreshThreadFollowBaseline(followRef.current, threadPaneRef.current);
+  }, [oldestSeq]);
 
   const explicit = openId;
   const selectedSummary = conversations.find(c => c.id === openId);
@@ -406,9 +431,9 @@ export function HqConversations({ role }: { role: HqRole }) {
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Lock size={12} /> HQ read-only view</span>
           </div>
 
-           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
-              <div className="mx-auto grid w-full max-w-[1050px] gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
-             <div className="space-y-4 flex flex-col justify-end min-h-[400px]">
+           <div ref={threadPaneRef} data-testid="conversation-thread-pane" className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
+              <div className="mx-auto grid w-full max-w-[1050px] items-start gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
+             <div className="min-w-0 space-y-4" data-testid="conversation-thread">
                {nextBefore && (
                 <div className="text-center pb-4">
                  <button onClick={() => setBeforeCursor(nextBefore)} disabled={older.isFetching} className={`${BTN_SECONDARY} h-8 px-4 text-xs`}>
@@ -430,14 +455,18 @@ export function HqConversations({ role }: { role: HqRole }) {
                   {allEvents.map((message) => (
                     <LiveMessageRow key={message.seq} message={message} />
                   ))}
+                  <div ref={newestAnchorRef} aria-hidden="true" className="h-px" />
                 </>
               )}
             </div>
              <aside className="h-fit rounded-lg border border-card-border bg-card p-4 shadow-soft">
                <h3 className="font-serif text-sm font-bold text-navy">Internal notes</h3>
                <p className="mt-1 text-[10px] text-muted-foreground">Read-only · never shown to patients</p>
-               {notes.isError ? <p role="alert" className="mt-3 text-xs text-destructive">Notes could not be loaded.</p> : (
-                 <ul className="mt-3 space-y-2">{notes.data?.notes.map(note => <li key={note.id} className="rounded-md bg-paper-alt p-2 text-xs"><p>{note.body}</p><p className="mt-1 text-[9px] text-muted-foreground">{note.authorLabel} · {formatRelativeTime(note.createdAt)}</p></li>)}</ul>
+               {notes.isError ? <p role="alert" className="mt-3 text-xs text-destructive">Notes could not be loaded.</p>
+                : !notes.data ? <p className="mt-3 text-xs text-muted-foreground">Loading notes…</p>
+                : notes.data.notes.length === 0 ? <ThreadNotesEmpty />
+                : (
+                 <ul className="mt-3 space-y-2">{notes.data.notes.map(note => <li key={note.id} className="rounded-md bg-paper-alt p-2 text-xs"><p>{note.body}</p><p className="mt-1 text-[9px] text-muted-foreground">{note.authorLabel} · {formatRelativeTime(note.createdAt)}</p></li>)}</ul>
                )}
              </aside>
              </div>
@@ -455,7 +484,7 @@ export function HqConversations({ role }: { role: HqRole }) {
   );
 
   return (
-    <div className="flex h-full w-full min-h-[100dvh] bg-background">
+    <div className="flex h-full w-full bg-background">
       {listPane}
       {viewerPane}
     </div>

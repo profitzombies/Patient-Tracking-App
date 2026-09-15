@@ -48,7 +48,7 @@
 - [Training video hosting](training-video-hosting.md) — presigned PUT + finalize probe; paths in DB, signed GETs; derived artifacts clear in lockstep; SSE explicit done; media routes OPEN (demo posture), writes per-IP limited.
 - [Playwright codec gap](playwright-codec-gap.md) — the tester's Chromium can't decode H.264/AAC: use VP9/Opus WebM fixtures for playback e2e, and players must catch play() rejections with an inline error.
 - [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.
-- [Indefinite-height flex chains](indefinite-height-flex.md) — h-full collapses in min-h-full columns; RN-web alignSelf on absolute boxes kills inset stretch; screenshots catch it, DOM checks don't.
+- [Indefinite-height flex chains](indefinite-height-flex.md) — h-full collapses in min-h-full columns; shell-hosted roots must not add min-h-[100dvh]; RN-web alignSelf kills inset stretch; measure rects.
 - [Root artifact paths](root-artifact-paths.md) — operations web is the ROOT artifact: URLs are root-relative (/menu); wrong prefixes SPA-fallback into the in-app 404 and module probes return index.html.
 - [Fluid menu rail](menu-rail-fluid.md) — collapsed rails size blocks fluidly (w-full in gutters + overflow-hidden → 44px boxes); fixed-width clipping slices box edges and was rejected.
 - [Phone-width table overflow](table-overflow-phone.md) — sr-only spans escape overflow-x wrappers (ICB) and widen the page; truncate max-w caps drive table min-content; measure page AND wrapper at 390px.

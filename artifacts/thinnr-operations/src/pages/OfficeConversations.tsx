@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { BTN_SECONDARY, CHIP_WARM } from '@/components/patient/heritage';
 import { useSession } from '@/contexts/session';
 import { useToast } from '@/hooks/use-toast';
-import { InitialsAvatar, formatRelativeTime, LiveMessageRow } from '@/components/conversations/shared';
+import { InitialsAvatar, formatRelativeTime, LiveMessageRow, ThreadNotesEmpty, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
 import {
   useGetOfficeConversations,
   useGetOfficeConversationEvents,
@@ -228,6 +228,31 @@ export default function OfficeConversations() {
     });
     setNextBefore(older.data.nextBefore);
   }, [older.data, accountKey, openId]);
+
+  // Bring the newest message into view when a thread opens and when its
+  // newest end grows (poll or sent reply). Keyed on the newest seq so paging
+  // older messages in at the top never moves the reader.
+  const threadPaneRef = useRef<HTMLDivElement>(null);
+  const newestAnchorRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef<ThreadFollowState | null>(null);
+  const newestSeq = allEvents.length > 0 ? allEvents[allEvents.length - 1].seq : undefined;
+  useEffect(() => {
+    const threadKey = `${accountKey}:${openId}`;
+    // Only act once THIS thread's transcript has landed: right after switching
+    // threads, allEvents still holds the previous thread for a render, and a
+    // decision taken then would be recorded against the new thread.
+    if (newestSeq === undefined || transcriptLoadedFor !== threadKey) return;
+    const plan = planThreadFollow(followRef.current, threadKey, threadPaneRef.current);
+    followRef.current = plan.next;
+    if (plan.follow) scrollThreadToNewest(threadPaneRef.current, newestAnchorRef.current);
+  }, [accountKey, openId, newestSeq, transcriptLoadedFor]);
+  // Older history prepended at the top changes the oldest seq, not the newest:
+  // refresh the height baseline so that growth is never mistaken for new
+  // messages by the next follow decision.
+  const oldestSeq = allEvents.length > 0 ? allEvents[0].seq : undefined;
+  useEffect(() => {
+    followRef.current = refreshThreadFollowBaseline(followRef.current, threadPaneRef.current);
+  }, [oldestSeq]);
 
   const explicit = openId;
   const selectedSummary = eventsData?.conversation ?? conversations.find(c => c.id === openId);
@@ -674,9 +699,9 @@ export default function OfficeConversations() {
              </div>
            )}
 
-           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
-             <div className="mx-auto grid w-full max-w-[1050px] gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
-             <div className="space-y-4 flex flex-col justify-end min-h-[400px]">
+           <div ref={threadPaneRef} data-testid="conversation-thread-pane" className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
+             <div className="mx-auto grid w-full max-w-[1050px] items-start gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
+             <div className="min-w-0 space-y-4" data-testid="conversation-thread">
                {nextBefore && (
                 <div className="text-center pb-4">
                   <button
@@ -702,14 +727,17 @@ export default function OfficeConversations() {
                   {allEvents.map((message) => (
                     <LiveMessageRow key={message.seq} message={message} />
                   ))}
+                  <div ref={newestAnchorRef} aria-hidden="true" className="h-px" />
                 </>
               )}
             </div>
              <aside className="rounded-lg border border-card-border bg-card p-4 shadow-soft h-fit sticky top-0">
                <div className="flex items-center gap-2"><StickyNote size={14} className="text-primary" /><h3 className="font-serif text-sm font-bold text-navy">Internal notes</h3></div>
                <p className="mt-1 text-[10px] font-semibold text-warn">Internal — patients never see notes</p>
-               {notes.isError ? <p role="alert" className="mt-3 text-xs text-destructive">Notes could not be loaded.</p> :
-                <ul className="mt-3 max-h-[350px] space-y-2 overflow-y-auto">{notes.data?.notes.map(note => <li key={note.id} className="rounded-md bg-paper-alt p-2 text-xs"><p>{note.body}</p><p className="mt-1 text-[9px] text-muted-foreground">{note.authorLabel} · {formatRelativeTime(note.createdAt)}</p></li>)}</ul>}
+               {notes.isError ? <p role="alert" className="mt-3 text-xs text-destructive">Notes could not be loaded.</p>
+                : !notes.data ? <p className="mt-3 text-xs text-muted-foreground">Loading notes…</p>
+                : notes.data.notes.length === 0 ? <ThreadNotesEmpty />
+                : <ul className="mt-3 max-h-[350px] space-y-2 overflow-y-auto">{notes.data.notes.map(note => <li key={note.id} className="rounded-md bg-paper-alt p-2 text-xs"><p>{note.body}</p><p className="mt-1 text-[9px] text-muted-foreground">{note.authorLabel} · {formatRelativeTime(note.createdAt)}</p></li>)}</ul>}
                <textarea aria-label="New internal note" value={noteText} onChange={e => setNoteText(e.target.value)} maxLength={4000} rows={3} className="mt-3 w-full rounded-md border border-input bg-background p-2 text-xs focus:ring-2 focus:ring-ring outline-none" />
                <button className={`${BTN_SECONDARY} mt-2 h-8 px-3 text-xs w-full`} disabled={addNote.isPending || !noteText.trim()} onClick={saveNote}>{addNote.isPending ? 'Adding…' : 'Add note'}</button>
              </aside>
@@ -757,7 +785,7 @@ export default function OfficeConversations() {
   );
 
   return (
-    <div className="flex h-full w-full min-h-[100dvh] bg-background">
+    <div className="flex h-full w-full bg-background">
       {listPane}
       {viewerPane}
        <Dialog open={escalationOpen} onOpenChange={setEscalationOpen}>

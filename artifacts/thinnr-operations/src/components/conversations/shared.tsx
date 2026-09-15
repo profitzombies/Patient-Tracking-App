@@ -19,6 +19,75 @@ export function InitialsAvatar({ name }: { name: string | undefined }) {
   );
 }
 
+/**
+ * Distance (px) from the pane's scrolled position to its bottom edge, or
+ * `Infinity` when the pane cannot be measured.
+ */
+export function distanceFromThreadBottom(pane: HTMLElement | null): number {
+  if (!pane) return Infinity;
+  return pane.scrollHeight - pane.clientHeight - pane.scrollTop;
+}
+
+/**
+ * Scroll the thread pane so the newest-message anchor sits at its bottom
+ * edge. Scrolls only the pane itself (never the window or the outer shell)
+ * so the notes card and the header stay put. No-op when the anchor is
+ * already in view or the nodes are not real DOM elements.
+ */
+export function scrollThreadToNewest(pane: HTMLElement | null, anchor: HTMLElement | null) {
+  if (!pane || !anchor || typeof pane.getBoundingClientRect !== 'function' || typeof anchor.getBoundingClientRect !== 'function') return;
+  const paneRect = pane.getBoundingClientRect();
+  const anchorRect = anchor.getBoundingClientRect();
+  const delta = anchorRect.bottom - paneRect.bottom;
+  if (delta <= 0) return;
+  pane.scrollTop += delta;
+}
+
+/**
+ * What the newest-message auto-scroll remembered from its last run: which
+ * thread it followed, in which pane element, and how tall the transcript was.
+ */
+export interface ThreadFollowState {
+  threadKey: string;
+  pane: HTMLElement | null;
+  scrollHeight: number;
+}
+
+/**
+ * Decide whether an auto-scroll to the newest message should run, and return
+ * the state to remember for the next decision.
+ *
+ * - The first transcript for a thread always scrolls. "First" is keyed to
+ *   the thread AND the pane element: closing a thread unmounts the pane, so
+ *   reopening the same thread mounts a fresh pane at scrollTop 0 and must
+ *   scroll again.
+ * - Afterwards (a poll or a sent reply grew the list) it only scrolls if the
+ *   reader was at the newest end BEFORE the growth landed. This runs after
+ *   commit, so the new content is already in the pane; subtracting the
+ *   height growth since the last run recovers the pre-growth distance, and
+ *   a tall incoming message cannot make an at-the-bottom reader look far
+ *   away. Paging older messages in at the top never reaches this decision
+ *   (the newest seq does not change), and a reader who scrolled up to read
+ *   stays put.
+ */
+export function planThreadFollow(
+  previous: ThreadFollowState | null,
+  threadKey: string,
+  pane: HTMLElement | null,
+  nearBottomPx = 120,
+): { follow: boolean; next: ThreadFollowState } {
+  const next: ThreadFollowState = { threadKey, pane, scrollHeight: pane?.scrollHeight ?? 0 };
+  const firstForThread = !previous || previous.threadKey !== threadKey || previous.pane !== pane;
+  if (firstForThread) return { follow: true, next };
+  const growth = Math.max(0, next.scrollHeight - previous.scrollHeight);
+  const distanceBeforeGrowth = distanceFromThreadBottom(pane) - growth;
+  return { follow: distanceBeforeGrowth <= nearBottomPx, next };
+}
+
+export function ThreadNotesEmpty() {
+  return <p className="mt-3 text-xs italic text-muted-foreground">No internal notes yet.</p>;
+}
+
 export function formatRelativeTime(dateString: string) {
   const d = new Date(dateString);
   if (isNaN(d.getTime())) return '';
@@ -63,4 +132,16 @@ export function LiveMessageRow({ message }: { message: ConversationEvent }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Re-baseline the remembered transcript height without taking a follow
+ * decision. Older history paged in at the top grows the pane while the
+ * browser's scroll anchoring keeps the reader in place; if that growth were
+ * left in the baseline, the next appended message would count the whole
+ * older batch as "new" and could yank a reader who is browsing history.
+ */
+export function refreshThreadFollowBaseline(state: ThreadFollowState | null, pane: HTMLElement | null): ThreadFollowState | null {
+  if (!state || state.pane !== pane) return state;
+  return { ...state, scrollHeight: pane?.scrollHeight ?? 0 };
 }

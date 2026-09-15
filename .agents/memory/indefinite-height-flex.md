@@ -36,3 +36,5 @@ box collapses to content height on web while native Yoga renders fine, so RTR
 suites stay green. Center absolute boxes with insets (`left: '50%'` + negative
 margin), never `alignSelf`; a gBCR dump comparing inset-implied height against
 the actual rect height pinpoints it fast.
+
+**Shell-hosted page roots size to the shell's content area, never to the viewport.** The staff shells already subtract a header and a footer from the viewport; a page root that also demands full viewport height overflows the content area, the outer shell becomes the scroller, and anything pinned to the page's bottom edge (a composer, a scroll-to-newest target) lands off-screen while DOM-presence checks still pass. **How to apply:** verify pinned-bottom UI by measuring its rect against the viewport, not by asserting it exists.

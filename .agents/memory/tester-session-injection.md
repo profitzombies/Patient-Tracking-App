@@ -24,3 +24,5 @@ description: Principle for getting the browser tester past code-login screens wi
 **Why:** GoTrue silently discarded an incomplete synthetic session, so the Expo app redirected to its public welcome screen even though the helper ran successfully.
 
 **How to apply:** mirror the real SDK session envelope without exposing it in tool output. On the direct Expo domain, helper paths and redirects are root-relative, not prefixed by the artifact preview path.
+
+**Prefer a self-cleaning fixture harness over ad-hoc identities.** When a feature already has a live smoke harness that mints throwaway identities and session-seeding helper pages, reuse it for browser verification instead of hand-creating accounts: it tears rows, auth users, helper files and git excludes down in one command, so nothing leaks past the session. **Why:** hand-seeded testers left symlinks, exclude lines and fixture rows behind more than once.

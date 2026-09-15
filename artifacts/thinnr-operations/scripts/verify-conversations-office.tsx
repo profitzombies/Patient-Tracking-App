@@ -7,6 +7,7 @@ import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import OfficeConversations from '../src/pages/OfficeConversations';
 import { HqConversations } from '../src/components/conversations/HqConversations';
+import { planThreadFollow } from '../src/components/conversations/shared';
 import { DataDisclaimerFooter } from '../src/components/layout/DataDisclaimerFooter';
 import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
@@ -43,12 +44,27 @@ const textOf = (node: ReactTestInstance): string => {
   walk(node);
   return out.join('');
 };
+const threadColumnOf = (root: ReactTestInstance) => root.find(node => node.props['data-testid'] === 'conversation-thread');
+const assertTopAnchoredThread = (root: ReactTestInstance, label: string) => {
+  const column = threadColumnOf(root);
+  const className: string = column.props.className ?? '';
+  assert.doesNotMatch(className, /justify-end|min-h-\[/, `${label} thread column must read top-down, not bottom-justified in a fixed-height box`);
+  const pane = root.find(node => node.props['data-testid'] === 'conversation-thread-pane');
+  assert.match(pane.props.className, /overflow-y-auto/, `${label} thread pane must scroll independently`);
+  assert.match(pane.props.className, /flex-1/, `${label} thread pane must fill the viewer`);
+  // The viewer root must size to the shell's content area. A 100dvh minimum
+  // pushed the pane bottom (and the office composer) below the viewport, so
+  // "scroll to newest" landed off-screen and the outer shell scrolled instead.
+  const roots = root.findAll(node => typeof node.type === 'string' && /min-h-\[100dvh\]|h-\[100dvh\]/.test(node.props.className ?? ''));
+  assert.equal(roots.length, 0, `${label} viewer must not force a viewport-height minimum inside the shell`);
+};
 const settle = async () => {
   for (let index = 0; index < 12; index += 1) await act(async () => { await new Promise(resolve => setTimeout(resolve, 2)); });
 };
 
 let replyBodies: Array<{ clientId: string; text: string }> = [];
 let failFirstReply = true;
+let nextReplySeq = 3;
 let requestUrls: string[] = [];
 let listOwner = 'Ada Patient';
 let delayedListResolve: ((response: Response) => void) | null = null;
@@ -57,11 +73,12 @@ let listEmpty = false;
 const startBodies: Array<{ patientId: string }> = [];
 const readRequests: Array<{ url: string; throughSeq: number }> = [];
 let delayedNoteResolve: ((response: Response) => void) | null = null;
+let hqNotes: Array<{ id: string; body: string; authorLabel: string; createdAt: string }> = [];
 globalThis.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   requestUrls.push(`${init?.method ?? 'GET'} ${url}`);
   if (url.includes('/api/hq/conversations')) {
-    if (url.includes('/notes')) return json({ notes: [] });
+    if (url.includes('/notes')) return json({ notes: hqNotes });
     if (url.includes('/read')) return json({ lastReadSeq: 2, changed: true });
     if (url.includes('/events')) {
       const parsed = new URL(url, 'http://test');
@@ -87,7 +104,7 @@ globalThis.fetch = async (input, init) => {
   if (url.includes('/reply')) {
     replyBodies.push(JSON.parse(String(init?.body)));
     if (failFirstReply) { failFirstReply = false; return json({ error: 'response lost' }, 503); }
-    return json({ conversation, event: { ...event(3, replyBodies.at(-1)!.text), role: 'staff', clientId: replyBodies.at(-1)!.clientId, senderLabel: 'Nurse Lee', senderUserId: 'staff-1' } });
+    return json({ conversation, event: { ...event(nextReplySeq++, replyBodies.at(-1)!.text), role: 'staff', clientId: replyBodies.at(-1)!.clientId, senderLabel: 'Nurse Lee', senderUserId: 'staff-1' } });
   }
   if (url.includes('/events')) {
     const parsed = new URL(url, 'http://test');
@@ -107,8 +124,10 @@ globalThis.fetch = async (input, init) => {
   throw new Error(`Unexpected request ${url}`);
 };
 
-function Page({ path = '/conversations?channel=care_team&conversation=conv-1' }: { path?: string }) {
-  const location = React.useMemo(() => memoryLocation({ path, record: true }), [path]);
+type MemoryLocation = ReturnType<typeof memoryLocation>;
+function Page({ path = '/conversations?channel=care_team&conversation=conv-1', location: providedLocation }: { path?: string; location?: MemoryLocation }) {
+  const ownLocation = React.useMemo(() => memoryLocation({ path, record: true }), [path]);
+  const location = providedLocation ?? ownLocation;
   const client = React.useMemo(() => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }), []);
   return <QueryClientProvider client={client}><Router hook={location.hook}><OfficeConversations /></Router></QueryClientProvider>;
 }
@@ -155,6 +174,8 @@ __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { 
 await act(async () => { renderer = create(<Page />); });
 await settle();
 assert.match(textOf(renderer!.root), /Newest message/);
+assertTopAnchoredThread(renderer!.root, 'office');
+assert.match(textOf(renderer!.root), /No internal notes yet/, 'office notes card must show an empty state when there are no notes');
 assert.equal(renderer!.root.findAll(node => node.type === 'button' && textOf(node).trim() === 'Escalate').length, 0, 'care-team conversations must not offer AI escalation');
 const composer = renderer!.root.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Reply to patient');
 await act(async () => { composer.props.onChange({ target: { value: 'Exact retry text' } }); });
@@ -173,7 +194,146 @@ await settle();
 const transcript = textOf(renderer!.root);
 assert.match(transcript, /Old history/);
 assert.match(transcript, /Newest message/);
+const olderIndex = transcript.indexOf('Old history');
+const newestIndex = transcript.indexOf('Newest message');
+assert.ok(olderIndex >= 0 && olderIndex < newestIndex, 'older messages must be inserted above the newest, keeping the thread top-down');
+assert.ok(transcript.indexOf('Started') < olderIndex, 'the "Started" label must lead the thread');
 await act(async () => { renderer!.unmount(); });
+
+// Newest-message auto-scroll across the open → close → reopen lifecycle and
+// transcript growth, with fake pane geometry standing in for the browser.
+// The pane is 700px tall with its bottom edge at y=800; the newest anchor
+// sits 20px (pane padding) above the end of the transcript.
+const PANE_CLIENT = 700;
+const PANE_BOTTOM = 800;
+const PANE_PADDING = 20;
+// Transcript height follows what is actually rendered (thread B is much
+// taller than thread A) plus any growth the test adds, so a decision taken
+// against a stale, not-yet-swapped transcript measures the wrong thread.
+let extraHeight = 0;
+const transcriptHeightOf = (text: string) => (text.includes('AI history') ? 5000 : 3000) + (text.includes('Old history') ? 4000 : 0) + extraHeight;
+const transcriptHeight = () => transcriptHeightOf(textOf(renderer!.root));
+type FakePane = { scrollTop: number; readonly clientHeight: number; readonly scrollHeight: number; getBoundingClientRect: () => { bottom: number } };
+let currentPane: FakePane | null = null;
+const panesMounted: FakePane[] = [];
+const fakeAnchor = {
+  getBoundingClientRect: () => {
+    const pane = currentPane!;
+    return { bottom: PANE_BOTTOM + (pane.scrollHeight - pane.clientHeight - pane.scrollTop) - PANE_PADDING };
+  },
+};
+const createNodeMock = (element: React.ReactElement<Record<string, unknown>>) => {
+  if (element.props['data-testid'] === 'conversation-thread-pane') {
+    let rawScrollTop = 0;
+    const pane: FakePane = {
+      // Browsers clamp scrollTop to the scrollable range, so a transcript
+      // swap that shrinks the pane pulls the offset back with it.
+      get scrollTop() { return Math.min(rawScrollTop, Math.max(0, this.scrollHeight - this.clientHeight)); },
+      set scrollTop(value: number) { rawScrollTop = Math.max(0, value); },
+      clientHeight: PANE_CLIENT,
+      get scrollHeight() { return transcriptHeight(); },
+      getBoundingClientRect: () => ({ bottom: PANE_BOTTOM }),
+    };
+    panesMounted.push(pane);
+    currentPane = pane;
+    return pane;
+  }
+  if (element.props['aria-hidden'] === 'true' && element.props.className === 'h-px') return fakeAnchor;
+  return null;
+};
+const expectedBottom = () => transcriptHeight() - PANE_CLIENT - PANE_PADDING;
+
+// The follow decision itself: a fresh pane for the same thread is a first
+// load; a settled reader far from the end is left alone; growth is netted
+// out before measuring how close to the end the reader was.
+const paneAt = (scrollTop: number, scrollHeight: number) => ({ scrollTop, clientHeight: PANE_CLIENT, scrollHeight, getBoundingClientRect: () => ({ bottom: PANE_BOTTOM }) }) as unknown as HTMLElement;
+const firstPane = paneAt(0, 3000);
+const opened = planThreadFollow(null, 'acct:conv-1', firstPane);
+assert.equal(opened.follow, true, 'first transcript for a thread must scroll');
+const reopenedPane = paneAt(0, 3000);
+assert.equal(planThreadFollow(opened.next, 'acct:conv-1', reopenedPane).follow, true, 'reopening the same thread in a fresh pane must scroll again');
+assert.equal(planThreadFollow(opened.next, 'acct:conv-1', firstPane).follow, false, 'a reader far from the newest end is not moved by growth');
+const livePane = paneAt(2280, 3000) as unknown as { scrollTop: number; scrollHeight: number };
+const atBottom = planThreadFollow(null, 'acct:conv-1', livePane as unknown as HTMLElement);
+livePane.scrollHeight = 3300;
+assert.equal(planThreadFollow(atBottom.next, 'acct:conv-1', livePane as unknown as HTMLElement).follow, true, 'growth taller than the tolerance must still follow a reader who was at the end');
+livePane.scrollTop = 1000;
+assert.equal(planThreadFollow(atBottom.next, 'acct:conv-1', livePane as unknown as HTMLElement).follow, false, 'a reader who scrolled up before growth landed is not moved');
+failFirstReply = false;
+// Navigate through one shared location (as the browser does) so the page
+// instance and its refs survive closing and reopening the thread.
+const lifecycleLocation = memoryLocation({ path: '/conversations?channel=care_team&conversation=conv-1', record: true });
+await act(async () => { renderer = create(<Page location={lifecycleLocation} />, { createNodeMock }); });
+await settle();
+assert.equal(panesMounted.length, 1, 'opening a thread mounts one scroll pane');
+assert.equal(panesMounted[0].scrollTop, expectedBottom(), 'opening a long thread must scroll its pane to the newest message');
+await act(async () => { lifecycleLocation.navigate('/conversations?channel=care_team'); });
+await settle();
+assert.equal(renderer!.root.findAll(node => node.props['data-testid'] === 'conversation-thread-pane').length, 0, 'closing the thread unmounts the pane');
+await act(async () => { lifecycleLocation.navigate('/conversations?channel=care_team&conversation=conv-1'); });
+await settle();
+assert.equal(panesMounted.length, 2, 'reopening mounts a fresh pane');
+assert.notEqual(panesMounted[1], panesMounted[0]);
+assert.equal(panesMounted[1].scrollTop, expectedBottom(), 'reopening the same thread must scroll the fresh pane to the newest message again');
+
+// A reader at the newest end keeps following even when the incoming message
+// is taller than the near-bottom tolerance (300px > 120px).
+extraHeight += 300;
+const followComposer = renderer!.root.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Reply to patient');
+await act(async () => { followComposer.props.onChange({ target: { value: 'Tall reply' } }); });
+await act(async () => { await renderer!.root.find(node => node.type === 'button' && textOf(node).includes('Send')).props.onClick(); });
+await settle();
+assert.match(textOf(renderer!.root), /Tall reply/);
+assert.equal(panesMounted[1].scrollTop, expectedBottom(), 'a reader at the newest end must follow a tall incoming message');
+
+// A reader who scrolled up to read is never yanked back down by growth.
+panesMounted[1].scrollTop = 0;
+extraHeight += 80;
+await act(async () => { followComposer.props.onChange({ target: { value: 'Quiet reply' } }); });
+await act(async () => { await renderer!.root.find(node => node.type === 'button' && textOf(node).includes('Send')).props.onClick(); });
+await settle();
+assert.match(textOf(renderer!.root), /Quiet reply/);
+assert.equal(panesMounted[1].scrollTop, 0, 'transcript growth must not move a reader who scrolled up');
+
+// Cached thread-to-thread navigation in the SAME pane: A → B → A where both
+// threads end at seq 2 but B is far taller. The decision must wait for B's
+// transcript to land, not fire against A's still-rendered events.
+panesMounted[1].scrollTop = expectedBottom();
+await act(async () => { lifecycleLocation.navigate('/conversations?channel=ai&conversation=conv-ai'); });
+await settle();
+assert.equal(panesMounted.length, 2, 'switching threads keeps the same pane mounted');
+assert.match(textOf(renderer!.root), /AI history/);
+assert.equal(panesMounted[1].scrollTop, expectedBottom(), 'switching to a cached, taller thread must land on its newest message');
+await act(async () => { lifecycleLocation.navigate('/conversations?channel=care_team&conversation=conv-1'); });
+await settle();
+assert.match(textOf(renderer!.root), /Newest message/);
+// Shrinking back to A clamps the offset to within the pane padding of the
+// anchor, so the newest message is already in view; a follow is a no-op.
+assert.ok(panesMounted[1].scrollTop >= expectedBottom(), 'switching back to the first cached thread must leave its newest message in view');
+await act(async () => { lifecycleLocation.navigate('/conversations?channel=ai&conversation=conv-ai'); });
+await settle();
+assert.equal(panesMounted[1].scrollTop, expectedBottom(), 'returning to the taller thread must scroll to its newest message again');
+
+// Browsing history: open → scroll to the top → load older (a 4000px batch
+// prepended; scroll anchoring keeps the reader on the same message) → a new
+// message appends. The reader must stay exactly where they were.
+await act(async () => { lifecycleLocation.navigate('/conversations?channel=care_team&conversation=conv-1'); });
+await settle();
+panesMounted[1].scrollTop = 0;
+await act(async () => { renderer!.root.find(node => node.type === 'button' && textOf(node).includes('Load older')).props.onClick(); });
+await settle();
+assert.match(textOf(renderer!.root), /Old history/);
+panesMounted[1].scrollTop = 4000; // what the browser's scroll anchoring does on prepend
+const historyOffset = panesMounted[1].scrollTop;
+extraHeight += 80;
+await act(async () => { renderer!.root.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Reply to patient').props.onChange({ target: { value: 'Late reply' } }); });
+await act(async () => { await renderer!.root.find(node => node.type === 'button' && textOf(node).includes('Send')).props.onClick(); });
+await settle();
+assert.match(textOf(renderer!.root), /Late reply/);
+assert.equal(panesMounted[1].scrollTop, historyOffset, 'a reader browsing loaded history must not be yanked to the newest message');
+await act(async () => { renderer!.unmount(); });
+currentPane = null;
+failFirstReply = true;
 
 await act(async () => { renderer = create(<Page path="/conversations?channel=ai&conversation=conv-ai" />); });
 await settle();
@@ -213,6 +373,9 @@ await act(async () => {
 });
 await settle();
 assert.match(textOf(renderer!.root), /HQ transcript/);
+assertTopAnchoredThread(renderer!.root, 'HQ');
+assert.match(textOf(renderer!.root), /No internal notes yet/, 'HQ notes card must show an empty state when there are no notes');
+assert.doesNotMatch(textOf(renderer!.root), /Loading notes/, 'HQ notes must settle out of the loading state');
 const hqListRequest = requestUrls.find(request => request.startsWith('GET ') && request.includes('/api/hq/conversations?'));
 assert.ok(hqListRequest);
 for (const fragment of ['office=office-1', 'patientId=pat-1', 'channel=care_team', 'thread=care_team', 'status=open', 'assignee=unassigned', 'unread=true', 'q=Ada', 'sort=oldest', 'offset=20']) {
@@ -220,6 +383,14 @@ for (const fragment of ['office=office-1', 'patientId=pat-1', 'channel=care_team
 }
 assert.ok(requestUrls.filter(request => request.startsWith('POST ')).every(request => request.includes('/read')), 'HQ rendered view must not expose workflow/message mutations');
 await act(async () => { renderer!.unmount(); });
+
+hqNotes = [{ id: 'note-1', body: 'Called the office about refills', authorLabel: 'Nurse Lee', createdAt: '2026-09-10T12:30:00Z' }];
+await act(async () => { renderer = create(<HqPage path="/admin/conversations?conversation=conv-1" />); });
+await settle();
+assert.match(textOf(renderer!.root), /Called the office about refills/, 'HQ notes card must list notes when present');
+assert.doesNotMatch(textOf(renderer!.root), /No internal notes yet/, 'HQ empty state must disappear once notes exist');
+await act(async () => { renderer!.unmount(); });
+hqNotes = [];
 
 __setSession({ authStatus: 'signed-in' });
 await act(async () => { renderer = create(<DataDisclaimerFooter />); });

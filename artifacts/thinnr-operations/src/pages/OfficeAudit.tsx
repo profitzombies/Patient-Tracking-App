@@ -22,7 +22,8 @@ const ALL_ACTIONS = '__all__';
 
 const DEFAULT_ACTIONS = [
   'billing_refund_issued', 'billing_subscription_cancelled', 'billing_subscription_payment_retried',
-  'billing_subscription_payment_email_sent', 'billing_prices_updated', 'billing_payment_link_created',
+  'billing_subscription_payment_email_sent', 'billing_subscription_paused', 'billing_subscription_resumed',
+  'billing_subscription_changed', 'billing_prices_updated', 'billing_payment_link_created',
   'billing_payment_link_updated', 'billing_connect_started', 'billing_connect_completed',
   'billing_connect_disconnected', 'billing_settings_updated',
   'patient_invitation_created', 'patient_invitation_resent', 'patient_profile_updated', 'patient_status_changed',

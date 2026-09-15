@@ -55,6 +55,7 @@ const ROUTES: Record<string, Access> = {
   "GET /billing/office/orders": "office-read",
   "GET /billing/office/orders/:id": "office-read",
   "GET /billing/office/subscriptions": "office-read",
+  "GET /billing/office/subscriptions/:id/change-quote": "office-read",
   "GET /billing/office/payouts": "office-read",
   "GET /billing/office/connect/oauth/start": "office-write",
   "POST /billing/office/connect/create": "office-write",
@@ -62,9 +63,13 @@ const ROUTES: Record<string, Access> = {
   "POST /billing/office/connect/sync": "office-write",
   "PUT /billing/office/prices/:product_id": "office-write",
   "POST /billing/office/links": "office-write",
+  "PATCH /billing/office/links/:id": "office-write",
   "DELETE /billing/office/links/:id": "office-write",
   "POST /billing/office/orders/:id/refund": "office-write",
   "POST /billing/office/subscriptions/:id/cancel": "office-write",
+  "POST /billing/office/subscriptions/:id/pause": "office-write",
+  "POST /billing/office/subscriptions/:id/resume": "office-write",
+  "POST /billing/office/subscriptions/:id/change": "office-write",
   "POST /billing/office/subscriptions/:id/retry-payment": "office-write",
   "POST /billing/office/subscriptions/:id/resend-payment-email": "office-write",
   "GET /billing/hq/health": "hq-read",
@@ -80,9 +85,13 @@ const ROUTES: Record<string, Access> = {
   "GET /billing/hq/transactions/:id": "hq-read",
   "GET /billing/hq/fulfillment": "hq-read",
   "GET /billing/hq/subscriptions": "hq-read",
+  "GET /billing/hq/subscriptions/:id/change-quote": "hq-read",
   "POST /billing/hq/transactions/:id/refund": "hq-provider-write",
   "PUT /billing/hq/fulfillment/:order_id": "hq-provider-write",
   "POST /billing/hq/subscriptions/:id/cancel": "hq-provider-write",
+  "POST /billing/hq/subscriptions/:id/pause": "hq-provider-write",
+  "POST /billing/hq/subscriptions/:id/resume": "hq-provider-write",
+  "POST /billing/hq/subscriptions/:id/change": "hq-provider-write",
   "POST /billing/hq/subscriptions/:id/retry-payment": "hq-provider-write",
   "POST /billing/hq/subscriptions/:id/resend-payment-email": "hq-provider-write",
   "POST /billing/hq/catalog/products": "hq-settings-write",
@@ -112,9 +121,13 @@ const EXPECTED_HQ_PERMISSIONS: Record<string, "financial_read" | "provider_manag
   "GET /billing/hq/transactions/:id": "financial_read",
   "GET /billing/hq/fulfillment": "financial_read",
   "GET /billing/hq/subscriptions": "financial_read",
+  "GET /billing/hq/subscriptions/:id/change-quote": "financial_read",
   "POST /billing/hq/transactions/:id/refund": "provider_manage",
   "PUT /billing/hq/fulfillment/:order_id": "provider_manage",
   "POST /billing/hq/subscriptions/:id/cancel": "provider_manage",
+  "POST /billing/hq/subscriptions/:id/pause": "provider_manage",
+  "POST /billing/hq/subscriptions/:id/resume": "provider_manage",
+  "POST /billing/hq/subscriptions/:id/change": "provider_manage",
   "POST /billing/hq/subscriptions/:id/retry-payment": "provider_manage",
   "POST /billing/hq/subscriptions/:id/resend-payment-email": "provider_manage",
   "POST /billing/hq/catalog/products": "settings_manage",
@@ -201,6 +214,7 @@ function bodyFor(route: string): unknown {
   };
   if (route.endsWith("/refund")) return { amount_cents: 100, reason: "Patient request" };
   if (route.endsWith("/cancel")) return { at_period_end: true };
+  if (route.endsWith("/change")) return { product_id: ROW_ID };
   if (route.includes("/fulfillment/:order_id")) return { status: "to_ship" };
   if (route.endsWith("/connect/account-session")) return { components: ["payments"] };
   if (route.includes("/prices/:product_id")) return { sell_price_cents: 5000, subscription_enabled: false };
@@ -218,6 +232,7 @@ function concretePath(pattern: string, access: Access): string {
   let path = pattern.replace(/:cancel_token|:token/g, "test-token").replace(/:provider_id/g, OFFICE_A)
     .replace(/:product_id|:order_id|:imageId|:id/g, ROW_ID);
   if ((access === "office-read" || access === "office-write") && !path.includes("?")) path += `?office=${OFFICE_A}`;
+  if (pattern.endsWith("/change-quote")) path += `${path.includes("?") ? "&" : "?"}product_id=${ROW_ID}`;
   return path;
 }
 

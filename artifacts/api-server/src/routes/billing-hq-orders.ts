@@ -4,8 +4,8 @@ import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders
 import { sendShippedNotice } from "../billing/receipts";
 import { BillingReportingError, hqActivity, hqOverview, hqToday } from "../billing/reporting";
 import {
-  BillingSubscriptionError, cancelSubscription, resendSubscriptionPaymentEmail,
-  retrySubscriptionPayment, toSubscriptionRow,
+  BillingSubscriptionError, cancelSubscription, changeSubscription, pauseSubscription, quoteSubscriptionChange,
+  resendSubscriptionPaymentEmail, resumeSubscription, retrySubscriptionPayment, toSubscriptionRow,
 } from "../billing/subscriptions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary, update } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
@@ -132,6 +132,40 @@ router.get("/billing/hq/subscriptions", requireHqPermission("financial_read"), a
     if (typeof req.query.status === "string") filters.push(`status=eq.${encodeURIComponent(req.query.status)}`);
     const rows = await selectMany("billing_subscriptions", `${filters.join("&")}${filters.length ? "&" : ""}order=created_at.desc`);
     res.json({ items: await Promise.all(rows.map(toSubscriptionRow)), next_cursor: null });
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/subscriptions/:id/pause", requireHqPermission("provider_manage"), async (req, res) => {
+  try {
+    const row = await pauseSubscription(String(req.params.id));
+    await audit(req, res, "billing_subscription_paused", "billing_subscription", row.id,
+      { subscription_id: row.id }, row.provider_id);
+    res.json({ subscription: await toSubscriptionRow(row) });
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/subscriptions/:id/resume", requireHqPermission("provider_manage"), async (req, res) => {
+  try {
+    const row = await resumeSubscription(String(req.params.id));
+    await audit(req, res, "billing_subscription_resumed", "billing_subscription", row.id,
+      { subscription_id: row.id }, row.provider_id);
+    res.json({ subscription: await toSubscriptionRow(row) });
+  } catch (error) { fail(req, res, error); }
+});
+const ChangeSchema = z.object({ product_id: z.string().uuid() });
+router.get("/billing/hq/subscriptions/:id/change-quote", requireHqPermission("financial_read"), async (req, res) => {
+  const parsed = ChangeSchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: "Choose a product.", field: "product_id" }); return; }
+  try { res.json(await quoteSubscriptionChange(String(req.params.id), parsed.data.product_id)); }
+  catch (error) { fail(req, res, error); }
+});
+router.post("/billing/hq/subscriptions/:id/change", requireHqPermission("provider_manage"), async (req, res) => {
+  const parsed = ChangeSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Choose a product.", field: "product_id" }); return; }
+  try {
+    const row = await changeSubscription(String(req.params.id), parsed.data.product_id);
+    await audit(req, res, "billing_subscription_changed", "billing_subscription", row.id, {
+      subscription_id: row.id, product_id: parsed.data.product_id,
+    }, row.provider_id);
+    res.json({ subscription: await toSubscriptionRow(row) });
   } catch (error) { fail(req, res, error); }
 });
 const CancelSchema = z.object({ at_period_end: z.boolean() });

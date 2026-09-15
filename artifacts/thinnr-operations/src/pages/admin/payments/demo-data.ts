@@ -153,6 +153,10 @@ export const DEMO_SUBSCRIPTIONS: SubscriptionRow[] = Array.from({ length: 7 }, (
   application_fee_cents: Math.floor([5999, 5999, 5999, 2999, 8999, 8999, 11999][index] * .6) + 1000,
   current_period_end: `2026-10-${String(12 + index).padStart(2, '0')}T00:00:00Z`, cancel_at_period_end: index === 5,
   canceled_at: index === 6 ? '2026-09-20T00:00:00Z' : null, renewals: index + 1, livemode: false, created_at: `2026-07-${String(10 + index).padStart(2, '0')}T00:00:00Z`,
+  paused_at: index === 0 ? '2026-09-24T14:00:00Z' : null,
+  pending_change: index === 1
+    ? { product_id: 'catalog-3', product_name: 'Detox', unit_price_cents: 8999, effective_at: '2026-10-13T00:00:00Z' }
+    : null,
   payment_failure_count: index === 4 ? 2 : 0,
   last_payment_failed_at: index === 4 ? '2026-09-24T13:30:00Z' : null,
   last_failure_message: index === 4 ? 'Your card was declined.' : null,

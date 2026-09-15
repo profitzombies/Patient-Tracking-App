@@ -5,8 +5,8 @@ import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders
 import { getBalance, listPayouts } from "../billing/payouts";
 import { BillingReportingError, officeActivity, officeDashboard, officeRefunds, officeToday } from "../billing/reporting";
 import {
-  BillingSubscriptionError, cancelSubscription, resendSubscriptionPaymentEmail,
-  retrySubscriptionPayment, toSubscriptionRow,
+  BillingSubscriptionError, cancelSubscription, changeSubscription, pauseSubscription, quoteSubscriptionChange,
+  resendSubscriptionPaymentEmail, resumeSubscription, retrySubscriptionPayment, toSubscriptionRow,
 } from "../billing/subscriptions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
@@ -141,6 +141,55 @@ router.get("/billing/office/subscriptions", async (req, res) => {
     const status = typeof req.query.status === "string" ? `&status=eq.${encodeURIComponent(req.query.status)}` : "";
     const rows = await selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(scope.providerId)}${status}&order=created_at.desc`);
     res.json({ items: await Promise.all(rows.map(toSubscriptionRow)), next_cursor: null });
+  } catch (error) { fail(req, res, error); }
+});
+async function officeSubscription(req: Request, providerId: string) {
+  return selectOne("billing_subscriptions",
+    `id=eq.${encodeURIComponent(String(req.params.id))}&provider_id=eq.${encodeURIComponent(providerId)}`);
+}
+router.post("/billing/office/subscriptions/:id/pause", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: true }); if (!scope) return;
+    const row = await officeSubscription(req, scope.providerId);
+    if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
+    const subscription = await toSubscriptionRow(await pauseSubscription(row.id));
+    await audit(req, scope, "billing_subscription_paused", "billing_subscription", row.id, { subscription_id: row.id });
+    res.json({ subscription });
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/office/subscriptions/:id/resume", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: true }); if (!scope) return;
+    const row = await officeSubscription(req, scope.providerId);
+    if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
+    const subscription = await toSubscriptionRow(await resumeSubscription(row.id));
+    await audit(req, scope, "billing_subscription_resumed", "billing_subscription", row.id, { subscription_id: row.id });
+    res.json({ subscription });
+  } catch (error) { fail(req, res, error); }
+});
+const ChangeSchema = z.object({ product_id: z.string().uuid() });
+router.get("/billing/office/subscriptions/:id/change-quote", async (req, res) => {
+  const parsed = ChangeSchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: "Choose a product.", field: "product_id" }); return; }
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: false }); if (!scope) return;
+    const row = await officeSubscription(req, scope.providerId);
+    if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
+    res.json(await quoteSubscriptionChange(row.id, parsed.data.product_id));
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/office/subscriptions/:id/change", async (req, res) => {
+  const parsed = ChangeSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Choose a product.", field: "product_id" }); return; }
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: true }); if (!scope) return;
+    const row = await officeSubscription(req, scope.providerId);
+    if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
+    const subscription = await toSubscriptionRow(await changeSubscription(row.id, parsed.data.product_id));
+    await audit(req, scope, "billing_subscription_changed", "billing_subscription", row.id, {
+      subscription_id: row.id, product_id: parsed.data.product_id,
+    });
+    res.json({ subscription });
   } catch (error) { fail(req, res, error); }
 });
 const CancelSchema = z.object({ at_period_end: z.boolean() });

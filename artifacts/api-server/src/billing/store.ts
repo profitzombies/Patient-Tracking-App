@@ -47,6 +47,7 @@ export interface BillingOfficePriceRow extends TimestampedRow {
 export interface BillingPaymentLinkRow extends TimestampedRow {
   id: string; token: string; provider_id: string; patient_id: string | null; created_by: string;
   label: string | null; active: boolean; expires_at: string | null; uses: number; last_used_at: string | null;
+  product_id?: string | null; max_uses?: number | null;
 }
 export interface BillingPayerRow extends TimestampedRow {
   id: string; provider_id: string; patient_id: string | null; name: string; email: string | null;
@@ -81,6 +82,10 @@ export interface BillingSubscriptionRow extends TimestampedRow {
   last_hosted_invoice_url: string | null; last_failure_message: string | null;
   payment_failure_email_sent_invoice_id: string | null;
   last_paid_invoice_id: string | null;
+  paused_at: string | null;
+  pending_product_id: string | null; pending_unit_price_cents: number | null;
+  pending_application_fee_cents: number | null; pending_effective_at: string | null;
+  pending_shipping_charge_cents: number | null; pending_stripe_price_id: string | null;
 }
 export interface BillingLedgerRow extends TimestampedRow {
   id: string; provider_id: string; order_id: string | null; subscription_id: string | null;

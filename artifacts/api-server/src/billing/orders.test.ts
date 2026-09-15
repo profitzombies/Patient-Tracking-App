@@ -57,6 +57,21 @@ function installFetch() {
     const method = init?.method ?? "GET";
     if (method === "GET") return result(rows.filter((row) => matches(row, url.searchParams)));
     const body = init?.body ? JSON.parse(String(init.body)) : {};
+    if (method === "POST" && url.pathname.includes("/rpc/")) {
+      sequence.push(`rpc:${table}`);
+      if (table === "billing_claim_payment_link_use") {
+        const link = (tables.billing_payment_links ?? []).find((row) => row.id === body.p_link_id);
+        const claimable = !link || (link.active !== false && (link.max_uses == null || (link.uses ?? 0) < link.max_uses));
+        if (link && claimable) link.uses = (link.uses ?? 0) + 1;
+        return result(claimable, 200);
+      }
+      if (table === "billing_release_payment_link_use") {
+        const link = (tables.billing_payment_links ?? []).find((row) => row.id === body.p_link_id);
+        if (link && link.uses > 0) link.uses -= 1;
+        return result(true, 200);
+      }
+      return result(null, 404);
+    }
     if (method === "POST") {
       sequence.push(`db:${table}`);
       const prefer = String(new Headers(init?.headers).get("Prefer") ?? "");

@@ -28,6 +28,9 @@ export const EXPORT_KINDS = [
   "audit_events",
   "training_completion",
   "provider_directory",
+  "billing_transactions",
+  "billing_subscriptions",
+  "billing_payouts",
 ] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
@@ -41,6 +44,9 @@ export const EXPORT_KIND_LABELS: Record<ExportKind, string> = {
   audit_events: "Audit events",
   training_completion: "Training completion",
   provider_directory: "Provider account directory",
+  billing_transactions: "Billing transactions",
+  billing_subscriptions: "Billing subscriptions",
+  billing_payouts: "Billing payouts",
 };
 
 /** Kinds whose rows are bounded by a date range (others ignore start/end). */
@@ -49,6 +55,9 @@ export const RANGED_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>([
   "patient_activity",
   "audit_events",
   "training_completion",
+  "billing_transactions",
+  "billing_subscriptions",
+  "billing_payouts",
 ]);
 
 export type ExportRequester =
@@ -59,6 +68,7 @@ export type ExportRequester =
       actorKind: "provider" | "team_member";
       providerId: string;
       officeName: string;
+      officeRole: "owner" | "admin" | "staff";
     };
 
 export type RequesterResult =
@@ -95,6 +105,7 @@ export async function resolveExportRequester(authorization: string | undefined):
       actorKind: office.scope.actorKind,
       providerId: office.scope.providerId,
       officeName: office.scope.officeName,
+      officeRole: office.scope.officeRole,
     },
   };
 }
@@ -118,6 +129,9 @@ const HQ_PERMISSION_FOR_KIND: Record<ExportKind, HqPermission> = {
   audit_events: "audit_read",
   training_completion: "analytics_read",
   provider_directory: "provider_contact_read",
+  billing_transactions: "financial_read",
+  billing_subscriptions: "financial_read",
+  billing_payouts: "financial_read",
 };
 
 /** HQ kinds that may run network-wide (no office named). */
@@ -126,6 +140,9 @@ const NETWORK_WIDE: ReadonlySet<ExportKind> = new Set<ExportKind>([
   "audit_events",
   "training_completion",
   "provider_directory",
+  "billing_transactions",
+  "billing_subscriptions",
+  "billing_payouts",
 ]);
 
 const NO_ACCESS = "You don't have access to that export.";
@@ -145,6 +162,9 @@ export async function authorizeExport(input: {
 
   if (requester.kind === "office") {
     if (kind === "provider_directory") return { kind: "denied", status: 403, message: NO_ACCESS };
+    if (kind.startsWith("billing_") && requester.officeRole === "staff") {
+      return { kind: "denied", status: 403, message: NO_ACCESS };
+    }
     return {
       kind: "ok",
       scope: {

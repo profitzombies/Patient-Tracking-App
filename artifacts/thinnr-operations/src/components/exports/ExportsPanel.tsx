@@ -42,6 +42,8 @@ interface ExportsPanelProps {
   /** Override the section heading. */
   title?: string;
   className?: string;
+  /** Optionally limit the server-provided choices and job list to these kinds. */
+  kinds?: readonly string[];
 }
 
 const PENDING: ReadonlySet<ExportJob['status']> = new Set(['queued', 'running']);
@@ -85,7 +87,7 @@ function formatBytes(bytes: number | null): string | null {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 'Exports', className }: ExportsPanelProps) {
+export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 'Exports', className, kinds }: ExportsPanelProps) {
   const { range, mode } = useDateRange();
   const { authUser, authStatus } = useSession();
   const { toast } = useToast();
@@ -104,8 +106,8 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
   });
   const requestMutation = useRequestExport();
 
-  const available: ExportKindOption[] = listQuery.data?.available ?? [];
-  const jobs: ExportJob[] = listQuery.data?.jobs ?? [];
+  const available: ExportKindOption[] = (listQuery.data?.available ?? []).filter((option) => !kinds || kinds.includes(option.kind));
+  const jobs: ExportJob[] = (listQuery.data?.jobs ?? []).filter((job) => !kinds || kinds.includes(job.kind));
   const ttlHours = listQuery.data?.ttlHours ?? 24;
 
   const [kind, setKind] = useState<ExportKind | ''>('');

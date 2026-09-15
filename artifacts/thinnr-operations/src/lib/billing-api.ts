@@ -39,7 +39,11 @@ import type {
   PublicOrderRequest,
   PublicOrderResponse,
   PublicOrderStatus,
+  PaymentLinkInput,
+  PaymentLinkUpdate,
   PublicSubscription,
+  SubscriptionChangeInput,
+  SubscriptionChangeQuote,
   SubscriptionRow,
 } from '@/lib/billing-types';
 
@@ -97,8 +101,13 @@ export const officeBilling = {
       body: JSON.stringify(body),
     }),
   links: (office?: string | null) => officeRequest<{ items: PaymentLink[] }>(`${OFFICE}/links${qs({}, office)}`, MESSAGES),
-  createLink: (body: { patient_id?: string | null; label?: string | null }, office?: string | null) =>
+  createLink: (body: PaymentLinkInput, office?: string | null) =>
     officeRequest<{ link: PaymentLink }>(`${OFFICE}/links${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify(body) }),
+  updateLink: (linkId: string, body: PaymentLinkUpdate, office?: string | null) =>
+    officeRequest<{ link: PaymentLink }>(`${OFFICE}/links/${encodeURIComponent(linkId)}${qs({}, office)}`, MESSAGES, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
   deactivateLink: (linkId: string, office?: string | null) =>
     officeRequest<{ link: PaymentLink }>(`${OFFICE}/links/${encodeURIComponent(linkId)}${qs({}, office)}`, MESSAGES, { method: 'DELETE' }),
   orders: (filters: ListFilters, office?: string | null) =>
@@ -127,6 +136,26 @@ export const officeBilling = {
     officeRequest<{ subscription: SubscriptionRow }>(
       `${OFFICE}/subscriptions/${encodeURIComponent(subscriptionId)}/resend-payment-email${qs({}, office)}`,
       MESSAGES, { method: 'POST', body: '{}' },
+    ),
+  pauseSubscription: (subscriptionId: string, office?: string | null) =>
+    officeRequest<{ subscription: SubscriptionRow }>(
+      `${OFFICE}/subscriptions/${encodeURIComponent(subscriptionId)}/pause${qs({}, office)}`,
+      MESSAGES, { method: 'POST', body: '{}' },
+    ),
+  resumeSubscription: (subscriptionId: string, office?: string | null) =>
+    officeRequest<{ subscription: SubscriptionRow }>(
+      `${OFFICE}/subscriptions/${encodeURIComponent(subscriptionId)}/resume${qs({}, office)}`,
+      MESSAGES, { method: 'POST', body: '{}' },
+    ),
+  subscriptionChangeQuote: (subscriptionId: string, productId: string, office?: string | null) =>
+    officeRequest<SubscriptionChangeQuote>(
+      `${OFFICE}/subscriptions/${encodeURIComponent(subscriptionId)}/change-quote${qs({ product_id: productId }, office)}`,
+      MESSAGES,
+    ),
+  changeSubscription: (subscriptionId: string, body: SubscriptionChangeInput, office?: string | null) =>
+    officeRequest<{ subscription: SubscriptionRow }>(
+      `${OFFICE}/subscriptions/${encodeURIComponent(subscriptionId)}/change${qs({}, office)}`,
+      MESSAGES, { method: 'POST', body: JSON.stringify(body) },
     ),
   payouts: (office?: string | null) => officeRequest<OfficePayoutsResponse>(`${OFFICE}/payouts${qs({}, office)}`, MESSAGES),
   today: (tz: string, office?: string | null) =>
@@ -221,6 +250,20 @@ export const hqBilling = {
   resendSubscriptionPaymentEmail: (subscriptionId: string) =>
     officeRequest<{ subscription: SubscriptionRow }>(`${HQ}/subscriptions/${encodeURIComponent(subscriptionId)}/resend-payment-email`, MESSAGES, {
       method: 'POST', body: '{}',
+    }),
+  pauseSubscription: (subscriptionId: string) =>
+    officeRequest<{ subscription: SubscriptionRow }>(`${HQ}/subscriptions/${encodeURIComponent(subscriptionId)}/pause`, MESSAGES, {
+      method: 'POST', body: '{}',
+    }),
+  resumeSubscription: (subscriptionId: string) =>
+    officeRequest<{ subscription: SubscriptionRow }>(`${HQ}/subscriptions/${encodeURIComponent(subscriptionId)}/resume`, MESSAGES, {
+      method: 'POST', body: '{}',
+    }),
+  subscriptionChangeQuote: (subscriptionId: string, productId: string) =>
+    officeRequest<SubscriptionChangeQuote>(`${HQ}/subscriptions/${encodeURIComponent(subscriptionId)}/change-quote${qs({ product_id: productId })}`, MESSAGES),
+  changeSubscription: (subscriptionId: string, body: SubscriptionChangeInput) =>
+    officeRequest<{ subscription: SubscriptionRow }>(`${HQ}/subscriptions/${encodeURIComponent(subscriptionId)}/change`, MESSAGES, {
+      method: 'POST', body: JSON.stringify(body),
     }),
 };
 

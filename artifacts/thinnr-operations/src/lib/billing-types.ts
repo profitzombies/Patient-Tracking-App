@@ -182,6 +182,31 @@ export interface PaymentLink {
   uses: number;
   last_used_at: string | null;
   created_at: string;
+  /** Preselected product on the public pay page; null lets the payer choose. */
+  product_id: string | null;
+  product_name: string | null;
+  expires_at: string | null;
+  /** Null = unlimited. 1 = single-use. A link is exhausted once uses >= max_uses. */
+  max_uses: number | null;
+  /** Server-derived: false once inactive, expired, or exhausted. */
+  usable: boolean;
+}
+
+export interface PaymentLinkInput {
+  patient_id?: string | null;
+  label?: string | null;
+  product_id?: string | null;
+  /** Hours from creation; null = never expires. */
+  expires_in_hours?: number | null;
+  max_uses?: number | null;
+}
+
+export interface PaymentLinkUpdate {
+  label?: string | null;
+  active?: boolean;
+  /** Absolute timestamp; null clears the expiry. */
+  expires_at?: string | null;
+  max_uses?: number | null;
 }
 
 export interface Payer {
@@ -324,6 +349,20 @@ export interface SubscriptionRow {
   renewals: number;
   livemode: boolean;
   created_at: string;
+  /** Set while Stripe pause_collection is active; renewals are skipped until resumed. */
+  paused_at: string | null;
+  /** A product/price change already applied in Stripe that takes effect at the next renewal. */
+  pending_change: { product_id: string; product_name: string; unit_price_cents: number; effective_at: string | null } | null;
+}
+
+export interface SubscriptionChangeInput {
+  product_id: string;
+}
+
+export interface SubscriptionChangeQuote {
+  current: { product_id: string; product_name: string; unit_price_cents: number };
+  next: { product_id: string; product_name: string; unit_price_cents: number; shipping_charge_cents: number; application_fee_cents: number };
+  effective_at: string | null;
 }
 
 export interface PayoutRow {
@@ -572,6 +611,8 @@ export interface PublicLink {
   publishable_key: string;
   stripe_account_id: string;
   active: boolean;
+  /** Preselected product id from the link, or null when the payer chooses. */
+  preselected_product_id: string | null;
 }
 
 export interface PublicOrderRequest {

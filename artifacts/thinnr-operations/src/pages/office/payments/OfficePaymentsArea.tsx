@@ -30,6 +30,7 @@ import {
   ConnectTaxSettings,
 } from '@/components/billing/ConnectEmbed';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   useInvalidateOfficeBilling,
   useOfficeBillingScope,
@@ -59,7 +60,7 @@ import {
   SUBSCRIPTION_STATUS_LABEL,
   subscriptionTone,
 } from '@/lib/billing-format';
-import type { OfficeBillingStatus, OfficePrice, OrderDetail, OrderSummary, PaymentLink } from '@/lib/billing-types';
+import type { OfficeBillingStatus, OfficePrice, OrderDetail, OrderSummary, PaymentLink, PaymentLinkInput, PaymentLinkUpdate, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
 import { DEMO_DASHBOARD, DEMO_LINKS, DEMO_ORDER_DETAILS, DEMO_ORDERS, DEMO_PRICES, DEMO_SUBSCRIPTIONS } from './demo-data';
 import NotFound from '@/pages/not-found';
 
@@ -410,22 +411,25 @@ function LinksPage() {
 }
 function LinksQuery({ status }: { status: OfficeBillingStatus }) {
   const query = useOfficeLinks();
-  if (query.isPending) return <div className={PAGE}>Loading links…</div>;
-  if (query.isError || !query.data)
+  const prices = useOfficePrices();
+  if (query.isPending || prices.isPending) return <div className={PAGE}>Loading links…</div>;
+  if (query.isError || !query.data || prices.isError || !prices.data)
     return (
       <div className={PAGE}>
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       </div>
     );
-  return <LinksView status={status} links={query.data.items} />;
+  return <LinksView status={status} links={query.data.items} products={prices.data.products} />;
 }
 function LinksView({
   status,
   links,
+  products = DEMO_PRICES,
   demo = false,
 }: {
   status: OfficeBillingStatus | null;
   links: PaymentLink[];
+  products?: OfficePrice[];
   demo?: boolean;
 }) {
   const { office } = useOfficeBillingScope();
@@ -434,6 +438,14 @@ function LinksView({
   const [q, setQ] = useState('');
   const [patients, setPatients] = useState<Array<{ id: string; name: string; email: string | null }>>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [expiresHours, setExpiresHours] = useState('');
+  const [useLimit, setUseLimit] = useState('');
+  const [productId, setProductId] = useState('');
+  const [editing, setEditing] = useState<PaymentLink | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editExpiry, setEditExpiry] = useState('');
+  const [editMaxUses, setEditMaxUses] = useState('');
+  const [editActive, setEditActive] = useState(true);
   useEffect(() => {
     if (demo || q.trim().length < 2) {
       setPatients([]);
@@ -448,7 +460,7 @@ function LinksView({
     return () => clearTimeout(timer);
   }, [q, office, demo]);
   const create = useMutation({
-    mutationFn: (patient_id: string | null) => officeBilling.createLink({ patient_id }, office),
+    mutationFn: (input: PaymentLinkInput) => officeBilling.createLink(input, office),
     onSuccess: (r) => {
       void invalidate();
       void copy(r.link.url);
@@ -464,6 +476,28 @@ function LinksView({
     mutationFn: (id: string) => officeBilling.deactivateLink(id, office),
     onSuccess: () => void invalidate(),
   });
+  const update = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: PaymentLinkUpdate }) => officeBilling.updateLink(id, body, office),
+    onSuccess: () => {
+      setEditing(null);
+      void invalidate();
+      toast({ variant: 'success', title: 'Link updated' });
+    },
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Link not updated', description: error.message }),
+  });
+  const linkInput = (patient_id: string | null): PaymentLinkInput => ({
+    patient_id,
+    expires_in_hours: expiresHours ? Number(expiresHours) : null,
+    max_uses: useLimit ? Number(useLimit) : null,
+    product_id: productId || null,
+  });
+  const openEdit = (link: PaymentLink) => {
+    setEditing(link);
+    setEditLabel(link.label ?? '');
+    setEditExpiry(link.expires_at ? link.expires_at.slice(0, 16) : '');
+    setEditMaxUses(link.max_uses == null ? '' : String(link.max_uses));
+    setEditActive(link.active);
+  };
   const copy = async (text: string) => {
     let ok = false;
     try {
@@ -500,7 +534,7 @@ function LinksView({
                 </button>
               </>
             ) : (
-              <button className={`${BTN_PRIMARY} h-9 px-3`} disabled={demo} onClick={() => create.mutate(null)}>
+               <button className={`${BTN_PRIMARY} h-9 px-3`} disabled={demo} onClick={() => create.mutate(linkInput(null))}>
                 Create office link
               </button>
             )}
@@ -531,11 +565,39 @@ function LinksView({
               data-testid="button-create-patient-link"
               className={`${BTN_PRIMARY} mt-3 h-9 px-3`}
               disabled={!selected || create.isPending || demo}
-              onClick={() => selected && create.mutate(selected)}
+              onClick={() => selected && create.mutate(linkInput(selected))}
             >
               Create and copy
             </button>
           </div>
+       <SectionCard title="New link options" sub="These options apply to the next office or patient link you create.">
+         <div className="grid gap-4 p-5 sm:grid-cols-3">
+           <label className="text-xs">
+             <span className={PANEL_LABEL}>Expires</span>
+             <select data-testid="select-link-expiry" className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={expiresHours} disabled={demo} onChange={(e) => setExpiresHours(e.target.value)}>
+               <option value="">Never</option><option value="24">24 hours</option><option value="168">7 days</option><option value="720">30 days</option>
+             </select>
+           </label>
+           <div className="text-xs">
+             <span className={PANEL_LABEL}>Use limit</span>
+             <label className="mt-2 flex items-center gap-2">
+               <input data-testid="toggle-link-single-use" type="checkbox" checked={useLimit === '1'} disabled={demo} onChange={(e) => setUseLimit(e.target.checked ? '1' : '')} />
+               Single-use
+             </label>
+             <label className="mt-2 block">
+               Up to N uses
+               <input data-testid="input-link-max-uses" type="number" min="2" className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={useLimit === '1' ? '' : useLimit} disabled={demo || useLimit === '1'} onChange={(e) => setUseLimit(e.target.value)} placeholder="Unlimited" />
+             </label>
+           </div>
+           <label className="text-xs">
+             <span className={PANEL_LABEL}>Preselect a product</span>
+             <select data-testid="select-link-product" className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={productId} disabled={demo} onChange={(e) => setProductId(e.target.value)}>
+               <option value="">Payer chooses</option>
+               {products.filter((product) => product.active && product.offered && product.sell_price_cents != null).map((product) => <option key={product.product_id} value={product.product_id}>{product.name}</option>)}
+             </select>
+           </label>
+         </div>
+       </SectionCard>
         </SectionCard>
       </div>
       <SectionCard title="Links">
@@ -545,17 +607,26 @@ function LinksView({
               <tr className="border-b">
                 <th className="p-4">Link</th>
                 <th>Uses</th>
+                 <th>Expires</th>
+                 <th>Product</th>
+                 <th>Status</th>
                 <th>Last used</th>
                 <th className="p-4 text-right">Action</th>
               </tr>
             </thead>
             <tbody>
               {links.map((link) => (
-                <tr key={link.id} className="border-b last:border-0">
+                <tr key={link.id} data-testid={`link-row-${link.id}`} className={`border-b last:border-0 ${!link.usable ? 'bg-secondary/40 text-muted-foreground opacity-70' : ''}`}>
                   <td className="p-4">{link.patient_name ?? link.label ?? 'Office link'}</td>
-                  <td>{link.uses}</td>
+                  <td>{link.max_uses ? `${link.uses} of ${link.max_uses} used` : `${link.uses} ${link.uses === 1 ? 'use' : 'uses'}`}</td>
+                  <td>{link.expires_at ? (!link.usable && !(link.max_uses != null && link.uses >= link.max_uses) ? 'Expired' : `Expires ${formatDate(link.expires_at)}`) : 'Never'}</td>
+                  <td>{link.product_name ?? 'Payer chooses'}</td>
+                  <td><StatusPill tone={link.usable ? 'good' : link.active ? 'warn' : 'neutral'}>{link.usable ? 'Usable' : link.active ? 'Unavailable' : 'Inactive'}</StatusPill></td>
                   <td>{formatDateTime(link.last_used_at)}</td>
                   <td className="p-4 text-right">
+                    <span className="flex flex-wrap justify-end gap-1">
+                      <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => void copy(link.url)}><Copy size={12} aria-hidden="true" /> Copy link</button>
+                      <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo} onClick={() => openEdit(link)}>Edit</button>
                     {link.active && (
                       <button
                         className={`${BTN_SECONDARY} h-8 px-3`}
@@ -567,6 +638,7 @@ function LinksView({
                         Deactivate
                       </button>
                     )}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -574,6 +646,21 @@ function LinksView({
           </table>
         </div>
       </SectionCard>
+      <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle className="font-serif text-navy">Edit payment link</DialogTitle><DialogDescription>Change availability and use limits for this link.</DialogDescription></DialogHeader>
+          <div className="grid gap-3">
+            <label className="text-xs"><span className={PANEL_LABEL}>Label</span><input data-testid="input-edit-link-label" className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={editLabel} onChange={(e) => setEditLabel(e.target.value)} /></label>
+            <label className="text-xs"><span className={PANEL_LABEL}>Expiry</span><input data-testid="input-edit-link-expiry" type="datetime-local" className={`${INPUT_CLASS} mt-1 h-9 w-full bg-white`} value={editExpiry} onChange={(e) => setEditExpiry(e.target.value)} /></label>
+            <label className="text-xs"><span className={PANEL_LABEL}>Maximum uses</span><input data-testid="input-edit-link-max-uses" type="number" min="1" className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={editMaxUses} onChange={(e) => setEditMaxUses(e.target.value)} placeholder="Unlimited" /></label>
+            <Check label="Active" checked={editActive} onChange={setEditActive} />
+          </div>
+          <DialogFooter>
+            <button className={`${BTN_SECONDARY} h-9 px-3`} onClick={() => setEditing(null)}>Close</button>
+            <button data-testid="button-save-link" className={`${BTN_PRIMARY} h-9 px-3`} disabled={update.isPending} onClick={() => editing && update.mutate({ id: editing.id, body: { label: editLabel || null, expires_at: editExpiry ? new Date(editExpiry).toISOString() : null, max_uses: editMaxUses ? Number(editMaxUses) : null, active: editActive } })}>Save</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -967,28 +1054,35 @@ function SubscriptionsPage() {
 function SubscriptionsQuery({ status }: { status: OfficeBillingStatus }) {
   const params = new URLSearchParams(useSearch());
   const query = useOfficeSubscriptions({ status: params.get('status') });
-  if (query.isPending) return <div className={PAGE}>Loading subscriptions…</div>;
-  if (query.isError)
+  const prices = useOfficePrices();
+  if (query.isPending || prices.isPending) return <div className={PAGE}>Loading subscriptions…</div>;
+  if (query.isError || prices.isError)
     return (
       <div className={PAGE}>
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       </div>
     );
-  return <SubscriptionsView status={status} items={query.data?.items ?? []} />;
+  return <SubscriptionsView status={status} items={query.data?.items ?? []} products={prices.data?.products ?? []} />;
 }
 function SubscriptionsView({
   status,
   items,
+  products = DEMO_PRICES,
   demo = false,
 }: {
   status: OfficeBillingStatus | null;
-  items: typeof DEMO_SUBSCRIPTIONS;
+  items: SubscriptionRow[];
+  products?: OfficePrice[];
   demo?: boolean;
 }) {
   const { office } = useOfficeBillingScope();
   const invalidate = useInvalidateOfficeBilling();
   const { toast } = useToast();
   const [canceling, setCanceling] = useState<string | null>(null);
+  const [changing, setChanging] = useState<SubscriptionRow | null>(null);
+  const [nextProduct, setNextProduct] = useState('');
+  const [quote, setQuote] = useState<SubscriptionChangeQuote | null>(null);
+  const [quoteError, setQuoteError] = useState('');
   const cancel = useMutation({
     mutationFn: ({ id, later }: { id: string; later: boolean }) =>
       officeBilling.cancelSubscription(id, { at_period_end: later }, office),
@@ -1010,6 +1104,46 @@ function SubscriptionsView({
     onSuccess: () => toast({ variant: 'success', title: 'Payment link emailed' }),
     onError: (error: Error) => toast({ variant: 'destructive', title: 'Email could not be sent', description: error.message }),
   });
+  const pause = useMutation({
+    mutationFn: (id: string) => officeBilling.pauseSubscription(id, office),
+    onSuccess: () => {
+      void invalidate();
+      toast({ variant: 'success', title: 'Subscription paused' });
+    },
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Subscription not paused', description: error.message }),
+  });
+  const resume = useMutation({
+    mutationFn: (id: string) => officeBilling.resumeSubscription(id, office),
+    onSuccess: () => {
+      void invalidate();
+      toast({ variant: 'success', title: 'Subscription resumed' });
+    },
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Subscription not resumed', description: error.message }),
+  });
+  const change = useMutation({
+    mutationFn: ({ id, productId }: { id: string; productId: string }) =>
+      officeBilling.changeSubscription(id, { product_id: productId }, office),
+    onSuccess: () => {
+      setChanging(null);
+      void invalidate();
+      toast({ variant: 'success', title: 'Product change scheduled' });
+    },
+    onError: (error: Error) => setQuoteError(error.message),
+  });
+  const chooseProduct = async (productId: string) => {
+    setNextProduct(productId);
+    setQuote(null);
+    setQuoteError('');
+    if (!changing || !productId) return;
+    try {
+      setQuote(await officeBilling.subscriptionChangeQuote(changing.id, productId, office));
+    } catch (error) {
+      setQuoteError(error instanceof Error ? error.message : 'Quote could not be loaded.');
+    }
+  };
+  const eligibleProducts = products.filter(
+    (product) => product.active && product.offered && product.subscription_enabled && product.sell_price_cents != null,
+  );
   return (
     <div className={demo ? '' : PAGE}>
       {!demo && (
@@ -1032,9 +1166,22 @@ function SubscriptionsView({
               {items.map((row) => (
                 <tr className="border-b last:border-0" key={row.id}>
                   <td className="p-4">{row.payer.name}</td>
-                  <td>{row.product_name}</td>
+                  <td>
+                    {row.product_name}
+                    {row.pending_change && (
+                      <p className="mt-1 max-w-64 text-[11px] text-muted-foreground">
+                        Changes to {row.pending_change.product_name} ({formatCents(row.pending_change.unit_price_cents)}) on {formatDate(row.pending_change.effective_at)}
+                      </p>
+                    )}
+                  </td>
                   <td>
                     <StatusPill tone={subscriptionTone(row.status)}>{SUBSCRIPTION_STATUS_LABEL[row.status]}</StatusPill>
+                    {row.paused_at && (
+                      <p className="mt-1">
+                        <StatusPill tone="warn">Paused</StatusPill>
+                        <span className="ml-1 text-[11px] text-muted-foreground">since {formatDate(row.paused_at)}</span>
+                      </p>
+                    )}
                     {(row.status === 'past_due' || row.status === 'unpaid') && (
                       <p className="mt-1 max-w-52 text-[11px] text-red-700">
                         Card declined {row.payment_failure_count} {row.payment_failure_count === 1 ? 'time' : 'times'}, last on {formatDate(row.last_payment_failed_at)}
@@ -1050,6 +1197,30 @@ function SubscriptionsView({
                     <MoneyCell cents={row.unit_price_cents + row.shipping_charge_cents} />
                   </td>
                   <td className="p-4 text-right">
+                    {row.status !== 'canceled' && (
+                      <span className="mb-1 flex flex-wrap justify-end gap-1">
+                        <button
+                          className={`${BTN_SECONDARY} h-8 px-3`}
+                          disabled={demo || pause.isPending || resume.isPending}
+                          onClick={() => (row.paused_at ? resume.mutate(row.id) : pause.mutate(row.id))}
+                        >
+                          {row.paused_at ? 'Resume' : 'Pause'}
+                        </button>
+                        <button
+                          data-testid={`button-change-product-${row.id}`}
+                          className={`${BTN_SECONDARY} h-8 px-3`}
+                          disabled={demo}
+                          onClick={() => {
+                            setChanging(row);
+                            setNextProduct('');
+                            setQuote(null);
+                            setQuoteError('');
+                          }}
+                        >
+                          Change product
+                        </button>
+                      </span>
+                    )}
                     {(row.status === 'past_due' || row.status === 'unpaid') && (
                       <span className="mb-1 flex flex-wrap justify-end gap-1">
                         <button className={`${BTN_SECONDARY} h-8 px-3`} disabled={demo || retry.isPending} onClick={() => retry.mutate(row.id)}>
@@ -1094,6 +1265,53 @@ function SubscriptionsView({
           </div>
         </div>
       )}
+      <Dialog open={Boolean(changing)} onOpenChange={(open) => !open && setChanging(null)}>
+        <DialogContent aria-describedby="change-product-description">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Change product</DialogTitle>
+            <DialogDescription id="change-product-description">
+              Choose the product this subscription should use at its next renewal.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="block text-xs">
+            <span className={PANEL_LABEL}>New product</span>
+            <select
+              data-testid="select-change-product"
+              className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+              value={nextProduct}
+              onChange={(event) => void chooseProduct(event.target.value)}
+            >
+              <option value="">Choose a product…</option>
+              {eligibleProducts.filter((product) => product.product_id !== changing?.product_id).map((product) => (
+                <option key={product.product_id} value={product.product_id}>
+                  {product.name} · {formatCents(product.sell_price_cents)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {nextProduct && !quote && !quoteError && <p className="text-xs text-muted-foreground">Loading quote…</p>}
+          {quote && (
+            <div data-testid="subscription-change-quote" className="rounded-md border border-border bg-secondary p-4 text-xs">
+              <p>Current: <b>{quote.current.product_name} · {formatCents(quote.current.unit_price_cents)}</b></p>
+              <p className="mt-2">Next: <b>{quote.next.product_name} · {formatCents(quote.next.unit_price_cents)}</b></p>
+              <p className="mt-1">Shipping: {formatCents(quote.next.shipping_charge_cents)}</p>
+              <p className="mt-2 text-muted-foreground">Takes effect at next renewal on {formatDate(quote.effective_at)}</p>
+            </div>
+          )}
+          {quoteError && <p role="alert" className="text-xs text-destructive">{quoteError}</p>}
+          <DialogFooter>
+            <button type="button" className={`${BTN_SECONDARY} h-9 px-3`} onClick={() => setChanging(null)}>Close</button>
+            <button
+              type="button"
+              className={`${BTN_PRIMARY} h-9 px-3`}
+              disabled={!quote || change.isPending}
+              onClick={() => changing && nextProduct && change.mutate({ id: changing.id, productId: nextProduct })}
+            >
+              Confirm change
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

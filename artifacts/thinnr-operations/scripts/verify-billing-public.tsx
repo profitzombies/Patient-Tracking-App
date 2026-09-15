@@ -56,11 +56,12 @@ async function render(path: string) {
 const fixture: PublicLink = {
   token: 'good', office: { name: 'Beacon Hill Aesthetics', city: 'Boston', state: 'MA' },
   products: [
-    { product_id: 'control', name: 'Control', unit_price_cents: 6999, subscription_available: true },
-    { product_id: 'fiber', name: 'Fiber', unit_price_cents: 3499, subscription_available: false },
+    { product_id: 'control', name: 'Control', description: '', image_url: null, unit_price_cents: 6999, subscription_available: true },
+    { product_id: 'fiber', name: 'Fiber', description: '', image_url: null, unit_price_cents: 3499, subscription_available: false },
   ],
   shipping_charge_cents: 1000, tax_enabled: true, locked_payer: null, sandbox: true,
   publishable_key: 'pk_test_link', stripe_account_id: 'acct_link', active: true,
+  preselected_product_id: null,
 };
 const one = (root: ReactTestInstance, testId: string) => root.find((node) => node.props['data-testid'] === testId);
 const change = async (node: ReactTestInstance, value: string) => act(async () => node.props.onChange({ target: { value } }));
@@ -112,6 +113,34 @@ queue.push(json(400, { error: 'That email cannot be used.', field: 'payer.email'
 await act(async () => { root.findAllByType('form')[0].props.onSubmit({ preventDefault() {} }); });
 await settle();
 check('server field errors land on their field', one(root, 'input-email').props['aria-invalid'] === true && text(root).includes('That email cannot be used.'));
+view.unmount();
+
+console.log('\nbilling public: product preselection');
+const preselected = { ...fixture, preselected_product_id: 'control' };
+queue = [json(200, preselected)];
+view = await render('/preselected');
+check(
+  'preselected link starts with its product in the one-time cart',
+  text(one(view.root, 'quantity-control')) === '1'
+    && text(one(view.root, 'quantity-fiber')) === '0'
+    && view.root.find((node) => node.type === 'button' && text(node).includes('One-time order')).props['aria-pressed'] === true
+    && text(one(view.root, 'order-summary')).includes('$69.99'),
+);
+await click(view.root.find((node) => node.props['aria-label'] === 'Remove one Control'));
+check(
+  'preselected product remains editable without mutating the resolved link',
+  text(one(view.root, 'quantity-control')) === '0'
+    && preselected.preselected_product_id === 'control'
+    && preselected.products[0].product_id === 'control',
+);
+view.unmount();
+
+queue = [json(200, fixture)];
+view = await render('/not-preselected');
+check(
+  'null preselection leaves every cart quantity empty',
+  text(one(view.root, 'quantity-control')) === '0' && text(one(view.root, 'quantity-fiber')) === '0',
+);
 view.unmount();
 
 console.log('\nbilling public: subscription and locked payer');

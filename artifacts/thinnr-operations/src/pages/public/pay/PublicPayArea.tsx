@@ -191,6 +191,13 @@ function CheckoutPage() {
           });
         else {
           setLink(result);
+          const preselected = result.products.find(
+            (product) => product.product_id === result.preselected_product_id,
+          );
+          setQuantities(preselected ? { [preselected.product_id]: 1 } : {});
+          // Checkout has always defaulted to a one-time order. Preselection
+          // chooses an item, not a commitment to recurring billing.
+          setPurchase('one_time');
           if (result.locked_payer) {
             setPayer({
               name: result.locked_payer.name,

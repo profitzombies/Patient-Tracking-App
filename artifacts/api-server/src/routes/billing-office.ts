@@ -6,7 +6,7 @@ import {
 } from "../billing/accounts";
 import { publicOrigin } from "../billing/app-origin";
 import { requireOfficeBillingScope, viewerOfficeRole } from "../billing/auth";
-import { BillingLinkError, createLink, deactivateLink, listLinks, searchPatients } from "../billing/links";
+import { BillingLinkError, createLink, deactivateLink, listLinks, searchPatients, updateLink } from "../billing/links";
 import { BillingPriceError, listOfficePrices, setOfficePrice } from "../billing/prices";
 import { getConnectClientId, isSandbox, stripeRejection } from "../billing/stripe-client";
 import { selectMany, selectOne } from "../billing/store";
@@ -122,13 +122,41 @@ router.get("/billing/office/links", async (req, res) => {
   try { const scope = await scoped(req, res, false); if (!scope) return; res.json({ items: await listLinks(scope.providerId), next_cursor: null }); }
   catch (error) { answerError(req, res, error); }
 });
-const LinkSchema = z.object({ patient_id: z.string().uuid().nullish(), label: z.string().trim().max(120).nullish() });
+const LinkSchema = z.object({
+  patient_id: z.string().uuid().nullish(), label: z.string().trim().max(120).nullish(),
+  product_id: z.string().uuid().nullish(), expires_in_hours: z.number().int().min(1).max(8760).nullish(),
+  max_uses: z.number().int().min(1).nullish(),
+});
 router.post("/billing/office/links", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return; const parsed = LinkSchema.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Check the link details." }); return; }
     const link = await createLink(scope.providerId, scope.actorUserId, parsed.data);
-    await audit(req, scope, "billing_payment_link_created", "billing_payment_link", link.id, { link_id: link.id, active: true });
+    await audit(req, scope, "billing_payment_link_created", "billing_payment_link", link.id, {
+      link_id: link.id, active: true, ...(link.product_id ? { product_id: link.product_id } : {}),
+      ...(link.max_uses !== null ? { max_uses: link.max_uses } : {}),
+    });
     res.status(201).json({ link });
+  } catch (error) { answerError(req, res, error); }
+});
+const LinkUpdateSchema = z.object({
+  label: z.string().trim().max(120).nullable().optional(),
+  active: z.boolean().optional(),
+  expires_at: z.string().datetime({ offset: true }).nullable().optional(),
+  max_uses: z.number().int().min(1).nullable().optional(),
+}).strict().refine((input) => Object.keys(input).length > 0, "Choose at least one field to update.");
+router.patch("/billing/office/links/:id", async (req, res) => {
+  try { const scope = await scoped(req, res, true); if (!scope) return;
+    const parsed = LinkUpdateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      res.status(400).json({ error: issue?.message ?? "Check the link details.", field: String(issue?.path[0] ?? "") });
+      return;
+    }
+    const link = await updateLink(scope.providerId, String(req.params.id), parsed.data);
+    await audit(req, scope, "billing_payment_link_updated", "billing_payment_link", link.id, {
+      link_id: link.id, active: link.active, ...(link.max_uses !== null ? { max_uses: link.max_uses } : {}),
+    });
+    res.json({ link });
   } catch (error) { answerError(req, res, error); }
 });
 router.delete("/billing/office/links/:id", async (req, res) => {

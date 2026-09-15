@@ -79,6 +79,20 @@ function requireRange(scope: ExportScope): DateRangeKeys {
   return scope.range;
 }
 
+function dollars(value: unknown): string {
+  const cents = numberOrNull(value);
+  return cents === null ? "" : (cents / 100).toFixed(2);
+}
+
+function rangeFilters(scope: ExportScope): string[] {
+  const range = requireRange(scope);
+  const endExclusive = new Date(Date.parse(`${range.end}T00:00:00Z`) + 86_400_000).toISOString();
+  return [
+    `created_at=gte.${enc(`${range.start}T00:00:00Z`)}`,
+    `created_at=lt.${enc(endExclusive)}`,
+  ];
+}
+
 /* ------------------------------------------------- office comparison */
 
 async function officeComparison(scope: ExportScope): Promise<ExportSheet> {
@@ -272,10 +286,111 @@ async function providerDirectory(scope: ExportScope): Promise<ExportSheet> {
   return { header, rows };
 }
 
+/* ------------------------------------------------ billing transactions */
+
+async function billingTransactions(scope: ExportScope): Promise<ExportSheet> {
+  const filters = [
+    "select=id,order_number,created_at,provider_id,patient_id,kind,status,subtotal_cents,shipping_charge_cents,tax_cents,total_cents,application_fee_collected_cents,stripe_fee_cents,office_net_cents,stripe_invoice_id,stripe_payment_intent_id,stripe_charge_id,stripe_balance_transaction_id," +
+      "billing_payers(name),billing_order_items(product_name_snapshot,quantity),billing_refunds(amount_cents),providers(office_name,provider_name)",
+    ...rangeFilters(scope), "order=created_at.asc,id.asc",
+  ];
+  if (scope.providerId) filters.push(`provider_id=eq.${enc(scope.providerId)}`);
+  const orders = await pageAll(`/rest/v1/billing_orders?${filters.join("&")}`);
+  const providerIds = [...new Set(orders.map((order) => String(order.provider_id ?? "")).filter(Boolean))];
+  const accounts = providerIds.length ? await pageAll(
+    `/rest/v1/billing_connected_accounts?select=provider_id,stripe_account_id&disconnected_at=is.null&provider_id=in.(${providerIds.map(enc).join(",")})`,
+  ) : [];
+  const accountByProvider = new Map(accounts.map((account) => [String(account.provider_id), account]));
+  const header = [
+    "Order number", "Date", "Office", "Patient / payer", "Items", "Kind", "Status",
+    "Subtotal (USD)", "Shipping (USD)", "Tax (USD)", "Total (USD)", "Application fee collected (USD)",
+    "Stripe fee (USD)", "Office net (USD)", "Refunded amount (USD)", "Stripe account ID",
+    "Stripe invoice ID", "Stripe payment intent ID", "Stripe charge ID", "Stripe balance transaction ID",
+  ];
+  const rows = orders.map((order): CsvCell[] => {
+    const payer = (order.billing_payers ?? {}) as Record<string, unknown>;
+    const provider = (order.providers ?? {}) as Record<string, unknown>;
+    const account = accountByProvider.get(String(order.provider_id ?? "")) ?? {};
+    const items = Array.isArray(order.billing_order_items) ? order.billing_order_items as Record<string, unknown>[] : [];
+    const refunds = Array.isArray(order.billing_refunds) ? order.billing_refunds as Record<string, unknown>[] : [];
+    return [
+      String(order.order_number ?? ""), String(order.created_at ?? ""),
+      String(provider.office_name ?? provider.provider_name ?? order.provider_id ?? ""),
+      String(payer.name ?? order.patient_id ?? ""), items.map((item) =>
+        `${String(item.product_name_snapshot ?? "")} × ${numberOrNull(item.quantity) ?? 0}`).join("; "),
+      String(order.kind ?? ""), String(order.status ?? ""), dollars(order.subtotal_cents),
+      dollars(order.shipping_charge_cents), dollars(order.tax_cents), dollars(order.total_cents),
+      dollars(order.application_fee_collected_cents), dollars(order.stripe_fee_cents), dollars(order.office_net_cents),
+      dollars(refunds.reduce((sum, refund) => sum + (numberOrNull(refund.amount_cents) ?? 0), 0)),
+      String(account.stripe_account_id ?? ""), String(order.stripe_invoice_id ?? ""),
+      String(order.stripe_payment_intent_id ?? ""), String(order.stripe_charge_id ?? ""),
+      String(order.stripe_balance_transaction_id ?? ""),
+    ];
+  });
+  return { header, rows };
+}
+
+/* ----------------------------------------------- billing subscriptions */
+
+async function billingSubscriptions(scope: ExportScope): Promise<ExportSheet> {
+  const filters = [
+    "select=id,created_at,provider_id,status,unit_price_cents,current_period_end,payment_failure_count,paused_at,pending_product_id,pending_unit_price_cents,pending_effective_at," +
+      "billing_payers(name),billing_products!billing_subscriptions_product_id_fkey(name),pending_product:billing_products!billing_subscriptions_pending_product_id_fkey(name),providers(office_name,provider_name)",
+    ...rangeFilters(scope), "order=created_at.asc,id.asc",
+  ];
+  if (scope.providerId) filters.push(`provider_id=eq.${enc(scope.providerId)}`);
+  const subscriptions = await pageAll(`/rest/v1/billing_subscriptions?${filters.join("&")}`);
+  const header = [
+    "Patient / payer", "Office", "Product", "Status", "Price (USD)", "Renewal date",
+    "Payment failures", "Paused at", "Pending change", "Created at",
+  ];
+  const rows = subscriptions.map((subscription): CsvCell[] => {
+    const payer = (subscription.billing_payers ?? {}) as Record<string, unknown>;
+    const product = (subscription.billing_products ?? {}) as Record<string, unknown>;
+    const provider = (subscription.providers ?? {}) as Record<string, unknown>;
+    const pendingProduct = (subscription.pending_product ?? {}) as Record<string, unknown>;
+    const pending = subscription.pending_product_id
+      ? `${String(pendingProduct.name ?? subscription.pending_product_id)} ($${dollars(subscription.pending_unit_price_cents)}) from ${dateOnly(subscription.pending_effective_at) ?? String(subscription.pending_effective_at ?? "")}`
+      : "";
+    return [
+      String(payer.name ?? ""), String(provider.office_name ?? provider.provider_name ?? subscription.provider_id ?? ""),
+      String(product.name ?? ""), String(subscription.status ?? ""), dollars(subscription.unit_price_cents),
+      String(subscription.current_period_end ?? ""), numberOrNull(subscription.payment_failure_count) ?? 0,
+      String(subscription.paused_at ?? ""), pending,
+      String(subscription.created_at ?? ""),
+    ];
+  });
+  return { header, rows };
+}
+
+/* ------------------------------------------------------ billing payouts */
+
+async function billingPayouts(scope: ExportScope): Promise<ExportSheet> {
+  const filters = [
+    "select=id,provider_id,stripe_payout_id,amount_cents,status,arrival_date,method,created_at,providers(office_name,provider_name)",
+    ...rangeFilters(scope), "order=created_at.asc,id.asc",
+  ];
+  if (scope.providerId) filters.push(`provider_id=eq.${enc(scope.providerId)}`);
+  const payouts = await pageAll(`/rest/v1/billing_payouts?${filters.join("&")}`);
+  const header = ["Payout ID", "Office", "Stripe payout ID", "Amount (USD)", "Status", "Arrival date", "Method", "Created at"];
+  const rows = payouts.map((payout): CsvCell[] => {
+    const provider = (payout.providers ?? {}) as Record<string, unknown>;
+    return [
+      String(payout.id ?? ""), String(provider.office_name ?? provider.provider_name ?? payout.provider_id ?? ""),
+      String(payout.stripe_payout_id ?? ""), dollars(payout.amount_cents), String(payout.status ?? ""),
+      String(payout.arrival_date ?? ""), String(payout.method ?? ""), String(payout.created_at ?? ""),
+    ];
+  });
+  return { header, rows };
+}
+
 export const GENERATORS: Record<ExportKind, (scope: ExportScope) => Promise<ExportSheet>> = {
   office_comparison: officeComparison,
   patient_activity: patientActivity,
   audit_events: auditEvents,
   training_completion: trainingCompletion,
   provider_directory: providerDirectory,
+  billing_transactions: billingTransactions,
+  billing_subscriptions: billingSubscriptions,
+  billing_payouts: billingPayouts,
 };

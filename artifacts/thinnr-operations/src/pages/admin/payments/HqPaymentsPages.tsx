@@ -35,6 +35,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import {
   useHqFulfillment,
+  useHqCatalog,
   useHqOverview,
   useHqProvider,
   useHqProviders,
@@ -60,9 +61,10 @@ import {
   SUBSCRIPTION_STATUS_LABEL,
   subscriptionTone,
 } from '@/lib/billing-format';
-import type { HqTodayOverview, OrderDetail, SubscriptionRow } from '@/lib/billing-types';
+import type { HqTodayOverview, OrderDetail, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
 import {
   DEMO_FULFILLMENT,
+  DEMO_CATALOG,
   DEMO_ORDER_DETAILS,
   DEMO_ORDERS,
   DEMO_OVERVIEW,
@@ -871,7 +873,11 @@ export function PaymentsSubscriptions() {
 }
 function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolean }) {
   const url = useUrlFilters('/subscriptions');
-  const query = useHqSubscriptions(Object.fromEntries(url.params.entries()));
+  const requestedStatus = url.params.get('status');
+  const serverFilters = Object.fromEntries(url.params.entries());
+  if (requestedStatus === 'paused') delete serverFilters.status;
+  const query = useHqSubscriptions(serverFilters);
+  const catalog = useHqCatalog();
   const sandbox = useBillingSandbox();
   const invalidate = useInvalidateHqBilling();
   const { toast } = useToast();
@@ -896,11 +902,45 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
     onSuccess: () => toast({ variant: 'success', title: 'Payment link emailed' }),
     onError: (error: Error) => toast({ variant: 'destructive', title: 'Email could not be sent', description: error.message }),
   });
+  const pause = useMutation({
+    mutationFn: (row: SubscriptionRow) => row.paused_at
+      ? hqBilling.resumeSubscription(row.id)
+      : hqBilling.pauseSubscription(row.id),
+    onSuccess: (_result, row) => {
+      void invalidate();
+      toast({ variant: 'success', title: row.paused_at ? 'Subscription resumed' : 'Subscription paused' });
+    },
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Subscription could not be updated', description: error.message }),
+  });
+  const quote = useMutation({
+    mutationFn: ({ id, productId }: { id: string; productId: string }) =>
+      hqBilling.subscriptionChangeQuote(id, productId),
+  });
+  const change = useMutation({
+    mutationFn: ({ id, productId }: { id: string; productId: string }) =>
+      hqBilling.changeSubscription(id, { product_id: productId }),
+    onSuccess: () => {
+      setChanging(null);
+      void invalidate();
+      toast({ variant: 'success', title: 'Subscription product changed' });
+    },
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Product could not be changed', description: error.message }),
+  });
   const [canceling, setCanceling] = useState<{ row: SubscriptionRow; atPeriodEnd: boolean } | null>(null);
-  const demoStatus = url.params.get('status');
-  const rows = demo
-    ? DEMO_SUBSCRIPTIONS.filter((row) => !demoStatus || row.status === demoStatus)
-    : query.data?.items;
+  const [changing, setChanging] = useState<{ row: SubscriptionRow; productId: string } | null>(null);
+  const allRows = demo ? DEMO_SUBSCRIPTIONS : query.data?.items;
+  const rows = requestedStatus === 'paused'
+    ? allRows?.filter((row) => Boolean(row.paused_at))
+    : demo && requestedStatus
+      ? allRows?.filter((row) => row.status === requestedStatus)
+      : allRows;
+  const products = (demo ? DEMO_CATALOG.products : catalog.data?.products ?? []).filter((product) => product.active);
+  const openProductChange = (row: SubscriptionRow) => {
+    const productId = products.find((product) => product.id !== row.product_id)?.id ?? '';
+    setChanging({ row, productId });
+    quote.reset();
+    if (productId) quote.mutate({ id: row.id, productId });
+  };
   return (
     <AdminPage>
       <Header
@@ -917,7 +957,7 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
           onChange={(e) => url.set('status', e.target.value)}
         >
           <option value="">All statuses</option>
-          {['incomplete', 'active', 'past_due', 'canceled', 'unpaid'].map((x) => (
+          {['incomplete', 'active', 'paused', 'past_due', 'canceled', 'unpaid'].map((x) => (
             <option value={x} key={x}>
               {humanizeRequirement(x)}
             </option>
@@ -955,11 +995,22 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
                   <tr key={row.id} className="border-t">
                     <td className="p-3">{row.payer.name}</td>
                     <td>{row.office_name}</td>
-                    <td>{row.product_name}</td>
                     <td>
-                      <StatusPill tone={subscriptionTone(row.status)}>
-                        {SUBSCRIPTION_STATUS_LABEL[row.status]}
-                      </StatusPill>
+                      {row.product_name}
+                      {row.pending_change && (
+                        <p className="mt-1 max-w-52 text-[11px] text-muted-foreground" data-testid={`pending-change-${row.id}`}>
+                          {`Changes to ${row.pending_change.product_name} (${formatCents(row.pending_change.unit_price_cents)}) on ${formatDate(row.pending_change.effective_at)}`}
+                        </p>
+                      )}
+                    </td>
+                    <td>
+                      {row.paused_at ? (
+                        <StatusPill tone="warn">Paused</StatusPill>
+                      ) : (
+                        <StatusPill tone={subscriptionTone(row.status)}>
+                          {SUBSCRIPTION_STATUS_LABEL[row.status]}
+                        </StatusPill>
+                      )}
                       {(row.status === 'past_due' || row.status === 'unpaid') && (
                         <p className="mt-1 max-w-52 text-[11px] text-red-700">
                           Card declined {row.payment_failure_count} {row.payment_failure_count === 1 ? 'time' : 'times'}, last on {formatDate(row.last_payment_failed_at)}
@@ -989,14 +1040,28 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
                           )}
                           <button
                             className={`${BTN_SECONDARY} h-8 px-3`}
-                            disabled={cancel.isPending}
+                            disabled={demo || pause.isPending}
+                            onClick={() => pause.mutate(row)}
+                          >
+                            {row.paused_at ? 'Resume' : 'Pause'}
+                          </button>
+                          <button
+                            className={`${BTN_SECONDARY} h-8 px-3`}
+                            disabled={demo || change.isPending || products.length < 2}
+                            onClick={() => openProductChange(row)}
+                          >
+                            Change product
+                          </button>
+                          <button
+                            className={`${BTN_SECONDARY} h-8 px-3`}
+                            disabled={demo || cancel.isPending}
                             onClick={() => setCanceling({ row, atPeriodEnd: true })}
                           >
                             Cancel at renewal
                           </button>
                           <button
                             className={`${BTN_SECONDARY} h-8 px-3`}
-                            disabled={cancel.isPending}
+                            disabled={demo || cancel.isPending}
                             onClick={() => setCanceling({ row, atPeriodEnd: false })}
                           >
                             Cancel now
@@ -1051,6 +1116,93 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ChangeProductDialog
+        open={Boolean(changing)}
+        row={changing?.row ?? null}
+        productId={changing?.productId ?? ''}
+        products={products}
+        quote={quote.data ?? null}
+        pendingQuote={quote.isPending}
+        quoteError={quote.error instanceof Error ? quote.error.message : null}
+        pendingChange={change.isPending}
+        onOpenChange={(open) => !open && setChanging(null)}
+        onProductChange={(productId) => {
+          if (!changing) return;
+          setChanging({ ...changing, productId });
+          quote.reset();
+          quote.mutate({ id: changing.row.id, productId });
+        }}
+        onConfirm={() => {
+          if (changing && quote.data) change.mutate({ id: changing.row.id, productId: changing.productId });
+        }}
+      />
     </AdminPage>
+  );
+}
+
+export function ChangeProductDialog({
+  open, row, productId, products, quote, pendingQuote, quoteError, pendingChange,
+  onOpenChange, onProductChange, onConfirm,
+}: {
+  open: boolean;
+  row: SubscriptionRow | null;
+  productId: string;
+  products: Array<{ id: string; name: string }>;
+  quote: SubscriptionChangeQuote | null;
+  pendingQuote: boolean;
+  quoteError: string | null;
+  pendingChange: boolean;
+  onOpenChange: (open: boolean) => void;
+  onProductChange: (productId: string) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="font-serif text-navy">Change product</DialogTitle>
+          <DialogDescription>
+            The new product and price take effect at the next four-week renewal for {row?.payer.name ?? 'this patient'}.
+          </DialogDescription>
+        </DialogHeader>
+        <label className="block text-xs font-semibold text-navy">
+          Product
+          <select
+            className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+            value={productId}
+            onChange={(event) => onProductChange(event.target.value)}
+          >
+            {products.filter((product) => product.id !== row?.product_id).map((product) => (
+              <option key={product.id} value={product.id}>{product.name}</option>
+            ))}
+          </select>
+        </label>
+        {pendingQuote ? (
+          <Skeleton className="h-32 w-full" />
+        ) : quoteError ? (
+          <p role="alert" className="text-xs text-destructive">{quoteError}</p>
+        ) : quote ? (
+          <div className="rounded-md border border-border bg-secondary/50 p-4" data-testid="subscription-change-quote">
+            <DetailList items={[
+              { label: 'Current product', value: quote.current.product_name },
+              { label: 'Current product price', value: formatCents(quote.current.unit_price_cents) },
+              { label: 'Current shipping', value: formatCents(row?.shipping_charge_cents ?? 0) },
+              { label: 'Current THINNR fee', value: formatCents(row?.application_fee_cents ?? 0) },
+              { label: 'Next product', value: quote.next.product_name },
+              { label: 'Next product price', value: formatCents(quote.next.unit_price_cents) },
+              { label: 'Next shipping', value: formatCents(quote.next.shipping_charge_cents) },
+              { label: 'Next THINNR fee', value: formatCents(quote.next.application_fee_cents) },
+              { label: 'Effective date', value: formatDate(quote.effective_at) },
+            ]} />
+          </div>
+        ) : null}
+        <DialogFooter>
+          <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => onOpenChange(false)}>Back</button>
+          <button className={`${BTN_PRIMARY} h-9 px-3.5`} disabled={!quote || pendingQuote || pendingChange} onClick={onConfirm}>
+            {pendingChange ? 'Changing…' : 'Confirm product change'}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

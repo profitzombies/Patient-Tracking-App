@@ -8,6 +8,7 @@ import { AdminPage } from '@/components/admin/primitives';
 import { ActivityTable } from '@/components/billing/hq/ActivityTable';
 import { BTN_SECONDARY, INPUT_CLASS, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ExportsPanel } from '@/components/exports/ExportsPanel';
 import { useHqActivity, useHqProviders } from '@/hooks/use-billing';
 import { DEMO_ACTIVITY, DEMO_PROVIDERS } from './demo-data';
 import { ErrorBox, Gate, Header, Preview, useUrlFilters } from './shared';
@@ -72,11 +73,11 @@ function ActivityBody({ demo }: { demo: boolean }) {
         </label>
         <label className="block">
           <span className={PANEL_LABEL}>From</span>
-          <input data-testid="input-activity-from" type="date" className={`${field} mt-1 w-full`} value={filters.from ?? ''} onChange={(e) => url.set('from', e.target.value)} />
+          <input data-testid="input-activity-from" type="date" className={`${field} mt-1 w-full bg-white`} value={filters.from ?? ''} onChange={(e) => url.set('from', e.target.value)} />
         </label>
         <label className="block">
           <span className={PANEL_LABEL}>To</span>
-          <input data-testid="input-activity-to" type="date" className={`${field} mt-1 w-full`} value={filters.to ?? ''} onChange={(e) => url.set('to', e.target.value)} />
+          <input data-testid="input-activity-to" type="date" className={`${field} mt-1 w-full bg-white`} value={filters.to ?? ''} onChange={(e) => url.set('to', e.target.value)} />
         </label>
       </form>
       <SectionCard
@@ -110,6 +111,12 @@ function ActivityBody({ demo }: { demo: boolean }) {
           </>
         )}
       </SectionCard>
+      <ExportsPanel
+        className="mt-5"
+        officeOptions={providerRows.map((provider) => ({ id: provider.provider_id, name: provider.office_name }))}
+        title="Payment reports"
+        kinds={['billing_transactions', 'billing_subscriptions', 'billing_payouts']}
+      />
     </AdminPage>
   );
 }

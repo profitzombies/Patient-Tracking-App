@@ -6,6 +6,7 @@ import {
   ConnectBalances as StripeBalances,
   ConnectComponentsProvider,
   ConnectDocuments as StripeDocuments,
+  ConnectDisputesList as StripeDisputesList,
   ConnectNotificationBanner as StripeNotificationBanner,
   ConnectPayouts as StripePayouts,
   ConnectTaxRegistrations as StripeTaxRegistrations,
@@ -24,7 +25,8 @@ export type ConnectComponent =
   | 'notification_banner'
   | 'tax_settings'
   | 'tax_registrations'
-  | 'documents';
+  | 'documents'
+  | 'disputes_list';
 
 export function ConnectEmbed({
   components,
@@ -159,4 +161,7 @@ export function ConnectTaxRegistrations() {
 }
 export function ConnectDocuments() {
   return <StripeDocuments />;
+}
+export function ConnectDisputesList() {
+  return <StripeDisputesList />;
 }

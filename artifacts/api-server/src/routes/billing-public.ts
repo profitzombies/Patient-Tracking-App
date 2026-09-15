@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { loadDefaultImages, productImageSignedUrl, productImageUrl } from "../billing/catalog";
-import { BillingLinkError, resolveActiveLink } from "../billing/links";
+import { BillingLinkError, resolveActiveLink, withClaimedLinkUse } from "../billing/links";
 import { BillingOrderError, createOneTimeOrder } from "../billing/orders";
 import { BillingSubscriptionError, cancelByToken, createSubscriptionOrder, toPublicSubscription } from "../billing/subscriptions";
 import { getPublishableKey, isSandbox } from "../billing/stripe-client";
@@ -88,6 +88,7 @@ router.get("/billing/public/links/:token", (req, res) => void limited(req, res, 
       shipping_charge_cents: settings.shipping_charge_cents, tax_enabled: account.tax_enabled,
       locked_payer: link.patient_id ? { name: patientName, email: patient?.email ?? null, phone: patient?.phone ?? null } : null,
       sandbox: await isSandbox(), publishable_key: await getPublishableKey(), stripe_account_id: account.stripe_account_id, active: true,
+      preselected_product_id: link.product_id,
     });
   } catch (error) { fail(req, res, error); }
 }));
@@ -109,9 +110,9 @@ router.post("/billing/public/links/:token/orders", (req, res) => void limited(re
     if (parsed.data.purchase === "subscription" && (parsed.data.items.length !== 1 || parsed.data.items[0].quantity !== 1)) {
       res.status(400).json({ error: "Choose one product for a subscription.", field: "items" }); return;
     }
-    const result = parsed.data.purchase === "one_time"
-      ? await createOneTimeOrder({ link, payerInput: parsed.data.payer, shipping_address: parsed.data.shipping_address, items: parsed.data.items })
-      : await createSubscriptionOrder({ link, payerInput: parsed.data.payer, shipping_address: parsed.data.shipping_address, product_id: parsed.data.items[0].product_id });
+    const result = await withClaimedLinkUse(link.id, () => parsed.data.purchase === "one_time"
+      ? createOneTimeOrder({ link, payerInput: parsed.data.payer, shipping_address: parsed.data.shipping_address, items: parsed.data.items })
+      : createSubscriptionOrder({ link, payerInput: parsed.data.payer, shipping_address: parsed.data.shipping_address, product_id: parsed.data.items[0].product_id }));
     res.status(201).json(result);
   } catch (error) { fail(req, res, error); }
 }));

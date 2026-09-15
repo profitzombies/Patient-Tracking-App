@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import type Stripe from "stripe";
 import { logger } from "../lib/logger";
-import { applicationFeeOverCollection, applicationFeePercentFor, hqProfit } from "./fees";
+import { applicationFeeOverCollection, applicationFeePercentFor, computeOrderFees, hqProfit } from "./fees";
+import { getSettings } from "./catalog";
 import { ensureCustomer } from "./customers";
 import { resolvePayer, touchLinkUse } from "./links";
 import { BillingOrderError, markOrderPaidFromInvoice, quoteOrder } from "./orders";
@@ -13,7 +14,9 @@ import {
   type BillingPaymentLinkRow, type BillingSubscriptionRow,
 } from "./store";
 import { getOrderBundle, getProvider, officeName } from "./store-orders";
-import type { PublicOrderResponse, PublicSubscription, ShippingAddress, SubscriptionRow } from "./types";
+import type {
+  PublicOrderResponse, PublicSubscription, ShippingAddress, SubscriptionChangeQuote, SubscriptionRow,
+} from "./types";
 import { onStripeEvent, type StripeEventContext } from "./webhooks";
 
 export class BillingSubscriptionError extends Error {
@@ -30,6 +33,13 @@ function periodEnd(value: any): string | null {
 function invoiceSubscriptionId(invoice: any): string | null {
   const value = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
   return typeof value === "string" ? value : typeof value?.id === "string" ? value.id : null;
+}
+function invoiceHasPrice(invoice: any, priceId: string | null): boolean {
+  if (!priceId) return false;
+  return Boolean(invoice.lines?.data?.some((line: any) => {
+    const value = line.price ?? line.pricing?.price_details?.price;
+    return (typeof value === "string" ? value : value?.id) === priceId;
+  }));
 }
 function failureMessage(value: any): string | null {
   const raw = value?.last_payment_error?.message ?? paymentIntent(value)?.last_payment_error?.message;
@@ -195,7 +205,11 @@ async function prepareRenewal(invoice: any, ctx: StripeEventContext): Promise<vo
   if (!subscription) return;
   if (!(await eventBelongsToProvider(subscription.provider_id, ctx))) return;
   try {
-    await (await getStripe()).invoices.update(invoice.id, { application_fee_amount: subscription.application_fee_cents } as any, connectedOpts(ctx.account ?? (await accountFor(subscription.provider_id)).stripe_account_id));
+    await (await getStripe()).invoices.update(invoice.id, {
+      application_fee_amount: invoiceHasPrice(invoice, subscription.pending_stripe_price_id)
+        ? subscription.pending_application_fee_cents ?? subscription.application_fee_cents
+        : subscription.application_fee_cents,
+    } as any, connectedOpts(ctx.account ?? (await accountFor(subscription.provider_id)).stripe_account_id));
   } catch (error) {
     await insertIgnore("billing_ledger", {
       provider_id: subscription.provider_id, order_id: null, subscription_id: subscription.id, kind: "fee_discrepancy",
@@ -203,9 +217,27 @@ async function prepareRenewal(invoice: any, ctx: StripeEventContext): Promise<vo
       detail: { error: error instanceof Error ? error.message.slice(0, 500) : "Stripe error" }, occurred_at: nowIso(),
     }, "billing_ledger_kind_stripe_ref_unique");
   }
-  await renewalOrder(invoice, ctx);
 }
 export async function markSubscriptionInvoicePaid(invoice: any, ctx: StripeEventContext): Promise<void> {
+  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
+  const pending = stripeSubscriptionId
+    ? await selectOne("billing_subscriptions", `stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}`) : null;
+  if (invoice.billing_reason === "subscription_cycle" && pending?.pending_product_id
+      && invoiceHasPrice(invoice, pending.pending_stripe_price_id)
+      && await eventBelongsToProvider(pending.provider_id, ctx)) {
+    const promoted = await update("billing_subscriptions",
+      `id=eq.${encodeURIComponent(pending.id)}&pending_product_id=eq.${encodeURIComponent(pending.pending_product_id)}`, {
+        product_id: pending.pending_product_id,
+        unit_price_cents: pending.pending_unit_price_cents ?? pending.unit_price_cents,
+        application_fee_cents: pending.pending_application_fee_cents ?? pending.application_fee_cents,
+        shipping_charge_cents: pending.pending_shipping_charge_cents ?? pending.shipping_charge_cents,
+        pending_product_id: null, pending_unit_price_cents: null, pending_application_fee_cents: null,
+        pending_effective_at: null, pending_shipping_charge_cents: null, pending_stripe_price_id: null,
+      });
+    if (!promoted) {
+      await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(pending.id)}`);
+    }
+  }
   const orderId = await renewalOrder(invoice, ctx);
   const order = orderId
     ? await selectOne("billing_orders", `id=eq.${encodeURIComponent(orderId)}`)
@@ -305,7 +337,123 @@ async function syncSubscription(value: any, ctx: StripeEventContext): Promise<vo
     status: mappedStatus(value.status), current_period_end: periodEnd(value),
     cancel_at_period_end: Boolean(value.cancel_at_period_end),
     canceled_at: value.canceled_at ? new Date(value.canceled_at * 1000).toISOString() : value.status === "canceled" ? nowIso() : null,
+    paused_at: value.pause_collection ? row.paused_at ?? nowIso() : null,
   });
+}
+export async function pauseSubscription(id: string): Promise<BillingSubscriptionRow> {
+  const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
+  if (!row) throw new BillingSubscriptionError("Subscription not found.", 404);
+  if (row.paused_at) throw new BillingSubscriptionError("Subscription is already paused.", 409);
+  if (row.status === "past_due") {
+    throw new BillingSubscriptionError("Bring the subscription current or cancel it; past-due subscriptions can't be paused.", 409);
+  }
+  if (row.status !== "active") throw new BillingSubscriptionError("Only active subscriptions can be paused.", 409);
+  if (!row.stripe_subscription_id) throw new BillingSubscriptionError("Subscription setup is not complete.", 409);
+  const account = await accountFor(row.provider_id);
+  await (await getStripe()).subscriptions.update(row.stripe_subscription_id, {
+    pause_collection: { behavior: "void" },
+  }, connectedOpts(account.stripe_account_id));
+  const pausedAt = nowIso();
+  const updated = await update("billing_subscriptions",
+    `id=eq.${encodeURIComponent(id)}&status=eq.${encodeURIComponent(row.status)}&paused_at=is.null`, { paused_at: pausedAt });
+  if (!updated) {
+    const mirrored = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
+    if (mirrored?.paused_at) return mirrored;
+    throw new BillingSubscriptionError("Subscription was updated elsewhere. Refresh and try again.", 409);
+  }
+  return updated;
+}
+export async function resumeSubscription(id: string): Promise<BillingSubscriptionRow> {
+  const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
+  if (!row) throw new BillingSubscriptionError("Subscription not found.", 404);
+  if (!row.paused_at) throw new BillingSubscriptionError("Subscription is not paused.", 409);
+  if (!row.stripe_subscription_id) throw new BillingSubscriptionError("Subscription setup is not complete.", 409);
+  const account = await accountFor(row.provider_id);
+  await (await getStripe()).subscriptions.update(row.stripe_subscription_id, {
+    pause_collection: "",
+  } as any, connectedOpts(account.stripe_account_id));
+  const updated = await update("billing_subscriptions",
+    `id=eq.${encodeURIComponent(id)}&paused_at=eq.${encodeURIComponent(row.paused_at)}`, { paused_at: null });
+  if (!updated) {
+    const mirrored = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
+    if (mirrored && !mirrored.paused_at) return mirrored;
+    throw new BillingSubscriptionError("Subscription was updated elsewhere. Refresh and try again.", 409);
+  }
+  return updated;
+}
+async function changeQuoteData(row: BillingSubscriptionRow, productId: string) {
+  if (row.product_id === productId) throw new BillingSubscriptionError("Subscription already uses this product.", 409, "product_id");
+  const [current, next, price, settings] = await Promise.all([
+    selectOne("billing_products", `id=eq.${encodeURIComponent(row.product_id)}`),
+    selectOne("billing_products", `id=eq.${encodeURIComponent(productId)}`),
+    selectOne("billing_office_prices", `provider_id=eq.${encodeURIComponent(row.provider_id)}&product_id=eq.${encodeURIComponent(productId)}`),
+    getSettings(),
+  ]);
+  if (!current) throw new BillingSubscriptionError("Current product not found.", 409);
+  if (!next || !next.active || next.status !== "active") throw new BillingSubscriptionError("Product not found.", 404, "product_id");
+  if (!price || !price.subscription_enabled || price.sell_price_cents < next.floor_price_cents) {
+    throw new BillingSubscriptionError("This product is not available for subscriptions at this office.", 409, "product_id");
+  }
+  const fees = computeOrderFees([{ floor_price_cents: next.floor_price_cents, quantity: 1 }], settings);
+  return { current, next, price, settings, fees };
+}
+export async function quoteSubscriptionChange(id: string, productId: string): Promise<SubscriptionChangeQuote> {
+  const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
+  if (!row) throw new BillingSubscriptionError("Subscription not found.", 404);
+  const data = await changeQuoteData(row, productId);
+  return {
+    current: { product_id: data.current.id, product_name: data.current.name, unit_price_cents: row.unit_price_cents },
+    next: {
+      product_id: data.next.id, product_name: data.next.name, unit_price_cents: data.price.sell_price_cents,
+      shipping_charge_cents: data.settings.shipping_charge_cents, application_fee_cents: data.fees.application_fee_cents,
+    },
+    effective_at: row.current_period_end,
+  };
+}
+export async function changeSubscription(id: string, productId: string): Promise<BillingSubscriptionRow> {
+  const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
+  if (!row) throw new BillingSubscriptionError("Subscription not found.", 404);
+  if (!row.stripe_subscription_id) throw new BillingSubscriptionError("Subscription setup is not complete.", 409);
+  const data = await changeQuoteData(row, productId);
+  const mirrored = await ensureRecurringPrices(row.provider_id, productId);
+  if (!mirrored?.stripe_price_id || !mirrored.stripe_shipping_price_id) {
+    throw new BillingSubscriptionError("Subscription pricing is unavailable.", 409);
+  }
+  const account = await accountFor(row.provider_id);
+  const stripe = await getStripe();
+  const stripeSubscription: any = await stripe.subscriptions.retrieve(
+    row.stripe_subscription_id, {}, connectedOpts(account.stripe_account_id),
+  );
+  const currentPrice = await selectOne("billing_office_prices",
+    `provider_id=eq.${encodeURIComponent(row.provider_id)}&product_id=eq.${encodeURIComponent(row.product_id)}`);
+  const item = stripeSubscription.items?.data?.find((candidate: any) =>
+    candidate.price?.id === currentPrice?.stripe_price_id) ?? stripeSubscription.items?.data?.find((candidate: any) =>
+    candidate.price?.id !== currentPrice?.stripe_shipping_price_id);
+  const shippingItem = stripeSubscription.items?.data?.find((candidate: any) =>
+    candidate.price?.id === currentPrice?.stripe_shipping_price_id) ?? stripeSubscription.items?.data?.find((candidate: any) =>
+    candidate.id !== item?.id);
+  if (!item?.id || !shippingItem?.id) {
+    throw new BillingSubscriptionError("Subscription product or shipping item could not be found.", 409);
+  }
+  await stripe.subscriptions.update(row.stripe_subscription_id, {
+    items: [
+      { id: item.id, price: mirrored.stripe_price_id, quantity: 1 },
+      { id: shippingItem.id, price: mirrored.stripe_shipping_price_id, quantity: 1 },
+    ],
+    proration_behavior: "none", billing_cycle_anchor: "unchanged",
+    application_fee_percent: applicationFeePercentFor(
+      data.fees.application_fee_cents, data.price.sell_price_cents + data.settings.shipping_charge_cents,
+    ),
+  } as any, connectedOpts(account.stripe_account_id));
+  const updated = await update("billing_subscriptions", `id=eq.${encodeURIComponent(id)}&product_id=eq.${encodeURIComponent(row.product_id)}`, {
+    pending_product_id: productId, pending_unit_price_cents: data.price.sell_price_cents,
+    pending_application_fee_cents: data.fees.application_fee_cents,
+    pending_effective_at: row.current_period_end,
+    pending_shipping_charge_cents: data.settings.shipping_charge_cents,
+    pending_stripe_price_id: mirrored.stripe_price_id,
+  });
+  if (!updated) throw new BillingSubscriptionError("Subscription was updated elsewhere. Refresh and try again.", 409);
+  return updated;
 }
 export async function cancelSubscription(id: string, input: { at_period_end: boolean }): Promise<BillingSubscriptionRow> {
   const row = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(id)}`);
@@ -376,9 +524,10 @@ export async function cancelByToken(token: string): Promise<PublicSubscription> 
   return toPublicSubscription((await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(row.id)}`))!);
 }
 export async function toSubscriptionRow(row: BillingSubscriptionRow): Promise<SubscriptionRow> {
-  const [payer, product, provider, renewals] = await Promise.all([
+  const [payer, product, pendingProduct, provider, renewals] = await Promise.all([
     selectOne("billing_payers", `id=eq.${encodeURIComponent(row.payer_id)}`),
     selectOne("billing_products", `id=eq.${encodeURIComponent(row.product_id)}`),
+    row.pending_product_id ? selectOne("billing_products", `id=eq.${encodeURIComponent(row.pending_product_id)}`) : null,
     getProvider(row.provider_id),
     selectMany("billing_orders", `subscription_id=eq.${encodeURIComponent(row.id)}&kind=eq.subscription_renewal&status=eq.paid&select=id`),
   ]);
@@ -392,6 +541,12 @@ export async function toSubscriptionRow(row: BillingSubscriptionRow): Promise<Su
     cancel_at_period_end: row.cancel_at_period_end, canceled_at: row.canceled_at, renewals: renewals.length,
     payment_failure_count: row.payment_failure_count, last_payment_failed_at: row.last_payment_failed_at,
     last_failure_message: row.last_failure_message,
+    paused_at: row.paused_at,
+    pending_change: row.pending_product_id && pendingProduct ? {
+      product_id: row.pending_product_id, product_name: pendingProduct.name,
+      unit_price_cents: row.pending_unit_price_cents ?? row.unit_price_cents,
+      effective_at: row.pending_effective_at,
+    } : null,
     livemode: row.livemode, created_at: row.created_at,
   };
 }

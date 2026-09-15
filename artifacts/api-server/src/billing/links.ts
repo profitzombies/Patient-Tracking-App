@@ -1,12 +1,14 @@
 import crypto from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { publicOrigin } from "./app-origin";
 import { insert, selectMany, selectOne, update, type BillingPaymentLinkRow, type BillingPayerRow } from "./store";
-import type { PatientSearchHit, PaymentLink } from "./types";
+import type { PatientSearchHit, PaymentLink, PaymentLinkInput, PaymentLinkUpdate } from "./types";
 
 export class BillingLinkError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
 }
+const claimedLink = new AsyncLocalStorage<string>();
 type Patient = {
   id: string; first_name?: string | null; last_name?: string | null; name?: string | null;
   email?: string | null; phone?: string | null;
@@ -22,20 +24,56 @@ async function patient(providerId: string, patientId: string): Promise<Patient |
 }
 export function linkUrl(token: string): string { return `${publicOrigin()}/pay/${token}`; }
 async function toLink(row: BillingPaymentLinkRow): Promise<PaymentLink> {
-  const person = row.patient_id ? await patient(row.provider_id, row.patient_id) : null;
+  const [person, product] = await Promise.all([
+    row.patient_id ? patient(row.provider_id, row.patient_id) : null,
+    row.product_id ? selectOne("billing_products", `id=eq.${encodeURIComponent(row.product_id)}`) : null,
+  ]);
+  const maxUses = row.max_uses ?? null;
+  const usable = row.active && (!row.expires_at || Date.parse(row.expires_at) > Date.now()) &&
+    (maxUses === null || row.uses < maxUses);
   return {
     id: row.id, token: row.token, url: linkUrl(row.token), provider_id: row.provider_id,
     patient_id: row.patient_id, patient_name: person ? patientName(person) : null, label: row.label,
     active: row.active, uses: row.uses, last_used_at: row.last_used_at, created_at: row.created_at,
+    product_id: row.product_id ?? null, product_name: product?.name ?? null, expires_at: row.expires_at,
+    max_uses: maxUses, usable,
   };
 }
-export async function createLink(providerId: string, actor: string, input: { patient_id?: string | null; label?: string | null }): Promise<PaymentLink> {
+async function validateProduct(providerId: string, productId: string): Promise<void> {
+  const [product, price] = await Promise.all([
+    selectOne("billing_products", `id=eq.${encodeURIComponent(productId)}&active=eq.true`),
+    selectOne("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}&product_id=eq.${encodeURIComponent(productId)}`),
+  ]);
+  if (!product || !price) throw new BillingLinkError("Choose an active product offered by this office.", 400, "product_id");
+}
+export async function createLink(providerId: string, actor: string, input: PaymentLinkInput): Promise<PaymentLink> {
   if (input.patient_id && !(await patient(providerId, input.patient_id))) throw new BillingLinkError("Patient not found.", 404, "patient_id");
+  if (input.product_id) await validateProduct(providerId, input.product_id);
+  const expiresAt = input.expires_in_hours == null
+    ? null : new Date(Date.now() + input.expires_in_hours * 3_600_000).toISOString();
   const row = await insert("billing_payment_links", {
     token: crypto.randomBytes(24).toString("base64url"), provider_id: providerId,
     patient_id: input.patient_id ?? null, created_by: actor, label: input.label?.trim() || null,
-    active: true, expires_at: null, uses: 0, last_used_at: null,
+    active: true, expires_at: expiresAt, uses: 0, last_used_at: null,
+    product_id: input.product_id ?? null, max_uses: input.max_uses ?? null,
   });
+  return toLink(row);
+}
+export async function updateLink(providerId: string, id: string, input: PaymentLinkUpdate): Promise<PaymentLink> {
+  const before = await selectOne("billing_payment_links",
+    `id=eq.${encodeURIComponent(id)}&provider_id=eq.${encodeURIComponent(providerId)}`);
+  if (!before) throw new BillingLinkError("Payment link not found.", 404);
+  if (input.max_uses !== undefined && input.max_uses !== null && input.max_uses < before.uses) {
+    throw new BillingLinkError(`Maximum uses cannot be below the current use count (${before.uses}).`, 400, "max_uses");
+  }
+  const patch: Partial<BillingPaymentLinkRow> = {};
+  if (input.label !== undefined) patch.label = input.label?.trim() || null;
+  if (input.active !== undefined) patch.active = input.active;
+  if (input.expires_at !== undefined) patch.expires_at = input.expires_at;
+  if (input.max_uses !== undefined) patch.max_uses = input.max_uses;
+  const row = await update("billing_payment_links",
+    `id=eq.${encodeURIComponent(id)}&provider_id=eq.${encodeURIComponent(providerId)}`, patch);
+  if (!row) throw new BillingLinkError("Payment link not found.", 404);
   return toLink(row);
 }
 export async function listLinks(providerId: string): Promise<PaymentLink[]> {
@@ -49,16 +87,30 @@ export async function deactivateLink(providerId: string, id: string): Promise<vo
 }
 export async function resolveActiveLink(token: string): Promise<BillingPaymentLinkRow> {
   const row = await selectOne("billing_payment_links", `token=eq.${encodeURIComponent(token)}`);
-  if (!row || !row.active || (row.expires_at && Date.parse(row.expires_at) <= Date.now())) {
+  if (!row || !row.active || (row.expires_at && Date.parse(row.expires_at) <= Date.now()) ||
+      (row.max_uses != null && row.uses >= row.max_uses)) {
     throw new BillingLinkError("This payment link is no longer active.", 404);
   }
   return row;
 }
 export async function touchLinkUse(id: string): Promise<void> {
-  const row = await selectOne("billing_payment_links", `id=eq.${encodeURIComponent(id)}`);
-  if (row) await update("billing_payment_links", `id=eq.${encodeURIComponent(id)}`, {
-    uses: row.uses + 1, last_used_at: new Date().toISOString(),
-  });
+  if (claimedLink.getStore() === id) return;
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/billing_claim_payment_link_use", { p_link_id: id });
+  if (result.status >= 300) throw new BillingLinkError("Could not claim this payment link.", 502);
+  if (result.json !== true) throw new BillingLinkError("This payment link has already been used.", 409);
+}
+export async function releaseLinkUse(id: string): Promise<void> {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/billing_release_payment_link_use", { p_link_id: id });
+  if (result.status >= 300) throw new BillingLinkError("Could not release this payment link.", 502);
+}
+export async function withClaimedLinkUse<T>(id: string, work: () => Promise<T>): Promise<T> {
+  await touchLinkUse(id);
+  try {
+    return await claimedLink.run(id, work);
+  } catch (error) {
+    await releaseLinkUse(id);
+    throw error;
+  }
 }
 function normalizePhone(value: string | null | undefined): string {
   return String(value ?? "").replace(/\D/g, "");

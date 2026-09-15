@@ -65,3 +65,30 @@ requests here and records final calls. Keep entries short: what, why.
 - Ledger rows post only on succeeded/paid Stripe outcomes; later failed/canceled outcomes add a `:reversal` row; the unique index makes replays idempotent. Order + item inserts for renewals are still two requests (accepted; the invoice-unique index prevents the duplicate, an itemless order is the residual risk).
 - Patient purge fails loudly (retryable) when a live Stripe subscription cannot be cancelled because its office is disconnected; local anonymization never runs first.
 - Demo persona keeps every payments write control disabled (established convention); HQ demo subscription list now honours the status filter so the attention card link lands on the failed rows.
+
+## 06-subscription-controls
+- Product item updates use `proration_behavior: none` with an unchanged billing anchor; Stripe changes the future renewal price without charging during the current period.
+- Pending price snapshots are promoted with a product-id compare-and-set before the paid renewal order is built.
+- Invoice preparation uses the pending application fee so the next cycle and its promoted local snapshot agree.
+- Pending changes promote only on cycle invoices carrying the recorded Stripe price; retried older invoices retain their original snapshot.
+- Pausing is limited to current active subscriptions; webhook-first pause/resume races are treated as successful convergence.
+
+## Group 2: Link options, disputes, and billing exports
+- Link use claims and compensating releases are security-definer CAS functions, available only to the service role.
+- Link usability is derived from active, expiry, and use-limit state; exhausted and expired links retain the existing unavailable response.
+- Billing CSV money headers explicitly identify dollar values and omit duplicate cents columns.
+- Office subscription controls schedule product changes at renewal and keep pause state distinct from Stripe status.
+- Office dispute responses use Stripe's embedded disputes list; demo mode substitutes a read-only card.
+- Payment exports are filtered to the three billing report kinds and pinned to the viewer's office.
+
+## Group 2: HQ subscription tools
+- The HQ subscriptions route only accepts Stripe subscription statuses, so the URL-persisted Paused filter is applied client-side using `paused_at`.
+- Payment activity embeds the shared exports panel, restricted to transaction, subscription, and payout report kinds.
+
+## Integrator: Group 2 staff subscription tools (Sept 15, 2026)
+- Four migrations applied live: 20261013060000 (paused_at + pending_* change columns), 070000 (link product_id/max_uses + service-role claim/release RPCs), 080000 (pending_stripe_price_id), 090000 (data_exports.kind check widened to the billing kinds — the original constraint silently 502'd every billing export request until this landed).
+- Disputes: offices respond themselves inside their Payments area through Stripe's embedded disputes list (owner decision); the old "THINNR responds" notice is gone.
+- Product change policy: no proration, takes effect at the next renewal; both the product and shipping Stripe items move together with a recomputed application fee percent; promotion is gated on a `subscription_cycle` invoice that carries the pending Stripe price id.
+- Pause policy: only current `active` subscriptions can be paused (past due must be brought current or cancelled); pause does not change fulfillment — shipments follow paid orders only, and a paused subscription produces no orders.
+- Shared demo convention holds for the exports panel: demo persona shows "Sign in with a staff account to request exports"; unlimited links display "N uses", limited links "x of y used".
+- Adding a new FK to a table that PostgREST callers embed (billing_subscriptions → billing_products twice) makes the bare embed ambiguous; every embed now names its constraint.

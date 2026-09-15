@@ -48,7 +48,7 @@ const status = (overrides: Record<string, unknown> = {}) => ({
   viewer: { office_role: 'owner', can_manage: true }, office: { provider_id: 'office-1', office_name: 'Beacon Hill' }, ...overrides,
 });
 const price = {
-  product_id: 'control', slug: 'control', name: 'Control', active: true, floor_price_cents: 5999,
+  product_id: 'control', slug: 'control', name: 'Control', description: '', image_url: null, active: true, floor_price_cents: 5999,
   break_even_minimum_cents: 3767, sell_price_cents: 7999, subscription_enabled: true, offered: true, below_minimum: false,
 };
 
@@ -114,7 +114,24 @@ console.log('office billing: gates and setup');
       && text(subscriptions.root).includes('Email patient a payment link')
       && subscriptions.root.findAll((node) => node.type === 'button' && node.props.disabled === true).length >= 2,
   );
+  check(
+    'demo subscriptions show paused and pending states with write controls disabled',
+    text(subscriptions.root).includes('Paused')
+      && text(subscriptions.root).includes('Changes to Fiber ($44.99) on Nov 7, 2026')
+      && subscriptions.root.findAll((node) => node.type === 'button' && text(node).includes('Change product') && node.props.disabled === true).length === 2,
+  );
   subscriptions.renderer.unmount();
+
+  const demoLinks = await render('/links');
+  check(
+    'demo links render expiry, use totals, product and disabled write controls',
+    text(demoLinks.root).includes('1 of 1 used')
+      && text(demoLinks.root).includes('Control')
+      && text(demoLinks.root).includes('Expired')
+      && Boolean(one(demoLinks.root, 'select-link-expiry')?.props.disabled)
+      && demoLinks.root.findAll((node) => node.type === 'button' && text(node) === 'Edit' && node.props.disabled === true).length > 0,
+  );
+  demoLinks.renderer.unmount();
 
   const demoDetail = await render('/transactions/demo-order-1');
   const backLink = demoDetail.root.findAll(
@@ -170,24 +187,71 @@ console.log('\noffice billing: prices');
   page.renderer.unmount();
 }
 
+console.log('\noffice billing: subscription controls');
+{
+  reset();
+  const subscription = {
+    id: 'sub-1', provider_id: 'office-1', office_name: 'Beacon Hill',
+    payer: { id: 'payer-1', patient_id: 'patient-1', name: 'Maya Thompson', email: 'maya@example.com', phone: null },
+    product_id: 'control', product_name: 'Control', status: 'active', unit_price_cents: 7999,
+    shipping_charge_cents: 1000, application_fee_cents: 4599, current_period_end: '2026-11-07T00:00:00Z',
+    cancel_at_period_end: false, canceled_at: null, payment_failure_count: 0, last_payment_failed_at: null,
+    last_failure_message: null, renewals: 3, livemode: false, created_at: '2026-08-15T00:00:00Z',
+    paused_at: null, pending_change: null,
+  };
+  const fiber = { ...price, product_id: 'fiber', slug: 'fiber', name: 'Fiber', sell_price_cents: 4499 };
+  responses = [
+    json(200, status()),
+    json(200, { items: [subscription], next_cursor: null }),
+    json(200, { products: [price, fiber], settings: { shipping_charge_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30 } }),
+  ];
+  const page = await render('/subscriptions');
+  await act(async () => one(page.root, 'button-change-product-sub-1').props.onClick());
+  responses = [json(200, {
+    current: { product_id: 'control', product_name: 'Control', unit_price_cents: 7999 },
+    next: { product_id: 'fiber', product_name: 'Fiber', unit_price_cents: 4499, shipping_charge_cents: 1000, application_fee_cents: 2499 },
+    effective_at: '2026-11-07T00:00:00Z',
+  })];
+  await act(async () => one(page.root, 'select-change-product').props.onChange({ target: { value: 'fiber' } }));
+  await settle();
+  check(
+    'change-product dialog fetches and renders the renewal quote',
+    requests.some((request) => request.url === '/api/billing/office/subscriptions/sub-1/change-quote?product_id=fiber')
+      && text(one(page.root, 'subscription-change-quote')).includes('Next: Fiber · $44.99')
+      && text(page.root).includes('Takes effect at next renewal on Nov 7, 2026'),
+  );
+  responses = [json(200, { subscription: { ...subscription, pending_change: { product_id: 'fiber', product_name: 'Fiber', unit_price_cents: 4499, effective_at: '2026-11-07T00:00:00Z' } } })];
+  const confirm = page.root.findAll((node) => node.type === 'button' && text(node) === 'Confirm change')[0];
+  await act(async () => confirm.props.onClick());
+  await settle();
+  const changePost = requests.find((request) => request.method === 'POST' && request.url === '/api/billing/office/subscriptions/sub-1/change');
+  check('confirming product change POSTs the frozen product_id body', JSON.stringify(changePost?.body) === JSON.stringify({ product_id: 'fiber' }), JSON.stringify(changePost));
+  page.renderer.unmount();
+}
+
 console.log('\noffice billing: patient links and HQ scope');
 {
   reset();
-  responses = [json(200, status()), json(200, { items: [] })];
+  responses = [
+    json(200, status()),
+    json(200, { items: [] }),
+    json(200, { products: [price], settings: { shipping_charge_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30 } }),
+  ];
   const links = await render('/links');
+  check('link create form offers expiry, single/custom use limits, and product preselection', Boolean(one(links.root, 'select-link-expiry')) && Boolean(one(links.root, 'toggle-link-single-use')) && Boolean(one(links.root, 'input-link-max-uses')) && Boolean(one(links.root, 'select-link-product')));
   await act(async () => one(links.root, 'input-patient-search').props.onChange({ target: { value: 'Maya' } }));
   responses = [json(200, { items: [{ id: 'patient-1', name: 'Maya Thompson', email: 'maya@example.com', phone: null }] })];
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
   await settle();
   await act(async () => one(links.root, 'patient-result-patient-1').props.onClick());
   responses = [
-    json(200, { link: { id: 'link-1', token: 'token', url: 'https://example.com/pay/token', provider_id: 'office-1', patient_id: 'patient-1', patient_name: 'Maya Thompson', label: null, active: true, uses: 0, last_used_at: null, created_at: '2026-10-11T00:00:00Z' } }),
+    json(200, { link: { id: 'link-1', token: 'token', url: 'https://example.com/pay/token', provider_id: 'office-1', patient_id: 'patient-1', patient_name: 'Maya Thompson', label: null, active: true, uses: 0, last_used_at: null, created_at: '2026-10-11T00:00:00Z', product_id: null, product_name: null, expires_at: null, max_uses: null, usable: true } }),
     json(200, status()), json(200, { items: [] }),
   ];
   await act(async () => one(links.root, 'button-create-patient-link').props.onClick());
   await settle();
   const post = requests.find((request) => request.method === 'POST');
-  check('patient link POSTs chosen patient id', JSON.stringify(post?.body) === JSON.stringify({ patient_id: 'patient-1' }), JSON.stringify(post));
+  check('patient link POSTs chosen patient id and explicit default options', JSON.stringify(post?.body) === JSON.stringify({ patient_id: 'patient-1', expires_in_hours: null, max_uses: null, product_id: null }), JSON.stringify(post));
   links.renderer.unmount();
 
   reset('hq');
@@ -210,6 +274,7 @@ console.log('\noffice billing: activity, refunds and fulfillment status');
   const refunds = await render('/refunds');
   const refundRows = all(refunds.root, 'row-refund-demo-refund-1').concat(all(refunds.root, 'row-refund-demo-dispute-1'));
   check('demo refunds show the refund and the open dispute with a notice', requests.length === 0 && refundRows.length === 2 && Boolean(one(refunds.root, 'notice-open-disputes')) && text(refunds.root).includes('Response due'));
+  check('disputes notice makes the office responsible and demo embeds no Stripe element', text(refunds.root).includes('Respond to disputes below before the due date') && Boolean(one(refunds.root, 'demo-disputes-placeholder')) && !one(refunds.root, 'stripe-disputes-list'));
   const openLink = refunds.root.findAll((node) => node.type === 'a' && node.props['aria-label'] === 'Open order TH-D3MO03 (dispute)')[0];
   check('refund rows link to the transaction where the refund action lives', openLink?.props.href === '/payments/transactions/demo-order-3', String(openLink?.props.href));
   await act(async () => one(refunds.root, 'filter-refunds-refund').props.onClick());

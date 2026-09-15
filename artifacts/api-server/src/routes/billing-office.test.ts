@@ -123,4 +123,9 @@ describe("billing office routes", () => {
     const result = await call("POST", "/billing/office/connect/account-session", "owner", { components: ["secrets"] });
     expect(result.status).toBe(409); expect((result.json as { unsupported: string[] }).unsupported).toEqual(["secrets"]);
   });
+  it("validates payment link PATCH options", async () => {
+    expect((await call("PATCH", "/billing/office/links/link-1", "owner", { max_uses: 0 })).status).toBe(400);
+    expect((await call("PATCH", "/billing/office/links/link-1", "owner", { expires_at: "tomorrow" })).status).toBe(400);
+    expect((await call("PATCH", "/billing/office/links/link-1", "owner", {})).status).toBe(400);
+  });
 });

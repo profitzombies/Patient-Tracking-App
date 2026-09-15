@@ -12,6 +12,9 @@ import { ActivityTable } from '@/components/billing/hq/ActivityTable';
 import { MoneyCell, StatusPill, formatAddress } from '@/components/billing/primitives';
 import { BTN_PRIMARY, BTN_SECONDARY, INPUT_CLASS, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ConnectDisputesList, ConnectEmbed } from '@/components/billing/ConnectEmbed';
+import { ExportsPanel } from '@/components/exports/ExportsPanel';
+import { useOfficeBillingScope } from '@/hooks/use-billing';
 import { useDateRange } from '@/contexts/date-range';
 import { useOfficeActivity, useOfficeFulfillment, useOfficeRefunds } from '@/hooks/use-billing';
 import { FULFILLMENT_LABEL, formatDate, formatDateTime, fulfillmentTone, type PillTone } from '@/lib/billing-format';
@@ -38,6 +41,7 @@ export function OfficeActivity() {
 }
 
 function ActivityView({ status, demo = false }: { status: OfficeBillingStatus | null; demo?: boolean }) {
+  const { office } = useOfficeBillingScope();
   const url = useUrlFilters('/activity');
   const [, navigate] = useLocation();
   const { range } = useDateRange();
@@ -102,6 +106,11 @@ function ActivityView({ status, demo = false }: { status: OfficeBillingStatus | 
           </>
         )}
       </SectionCard>
+      <ExportsPanel
+        pinnedOffice={{ id: office ?? '', name: status?.office.office_name ?? 'Your office' }}
+        title="Payment reports"
+        kinds={['billing_transactions', 'billing_subscriptions', 'billing_payouts']}
+      />
     </div>
   );
 }
@@ -144,6 +153,7 @@ export function OfficeRefunds() {
 }
 
 function RefundsView({ status, demo = false }: { status: OfficeBillingStatus | null; demo?: boolean }) {
+  const { office } = useOfficeBillingScope();
   const url = useUrlFilters('/refunds');
   const [, navigate] = useLocation();
   const { range } = useDateRange();
@@ -161,10 +171,22 @@ function RefundsView({ status, demo = false }: { status: OfficeBillingStatus | n
       {demo && <DemoNotice />}
       {openDisputes.length > 0 && (
         <div role="status" data-testid="notice-open-disputes" className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-foreground">
-          {openDisputes.length === 1 ? 'One dispute needs attention' : `${openDisputes.length} disputes need attention`}. THINNR responds to card
-          disputes with the order records; nothing is required from your office unless HQ reaches out.
+          {openDisputes.length === 1 ? 'One dispute needs attention' : `${openDisputes.length} disputes need attention`}. Respond to disputes below before the due date. Stripe collects the evidence and submits it to the card network.
         </div>
       )}
+      <SectionCard title="Open disputes">
+        <div className="p-5">
+          {demo ? (
+            <div data-testid="demo-disputes-placeholder" className="rounded-md border border-border bg-secondary p-5 text-xs text-muted-foreground">
+              Sign in to review evidence and respond securely through Stripe.
+            </div>
+          ) : (
+            <ConnectEmbed components={['disputes_list']} office={office}>
+              <ConnectDisputesList />
+            </ConnectEmbed>
+          )}
+        </div>
+      </SectionCard>
       <div className="flex gap-2" role="group" aria-label="Show">
         {[
           { value: '', label: 'All' },

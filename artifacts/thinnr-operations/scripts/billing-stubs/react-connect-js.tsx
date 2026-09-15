@@ -4,6 +4,7 @@ export function ConnectAccountOnboarding() { return <div data-testid="stripe-acc
 export function ConnectAccountManagement() { return <div />; }
 export function ConnectBalances() { return <div />; }
 export function ConnectDocuments() { return <div />; }
+export function ConnectDisputesList() { return <div data-testid="stripe-disputes-list" />; }
 export function ConnectNotificationBanner() { return <div />; }
 export function ConnectPayouts() { return <div />; }
 export function ConnectTaxRegistrations() { return <div />; }

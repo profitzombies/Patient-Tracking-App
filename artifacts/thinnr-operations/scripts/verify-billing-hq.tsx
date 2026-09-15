@@ -7,12 +7,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { __setSession } from './a11y-stubs/session';
 import { DateRangeProvider } from '../src/contexts/date-range';
 import {
-  PaymentProviderDetail, PaymentTransactionDetail, PaymentsFulfillment, PaymentsOverview,
+  ChangeProductDialog, PaymentProviderDetail, PaymentTransactionDetail, PaymentsFulfillment, PaymentsOverview,
   PaymentsProviders, PaymentsSubscriptions, PaymentsTransactions,
 } from '../src/pages/admin/payments/HqPaymentsPages';
 import { PaymentsActivity } from '../src/pages/admin/payments/PaymentsActivity';
 import { PaymentsCatalog, SettingsCard } from '../src/pages/admin/payments/catalog/CatalogPage';
-import { DEMO_CATALOG } from '../src/pages/admin/payments/demo-data';
+import { DEMO_CATALOG, DEMO_SUBSCRIPTIONS } from '../src/pages/admin/payments/demo-data';
 import { PaymentsCatalogHistory } from '../src/pages/admin/payments/catalog/CatalogHistory';
 import { ProductEditorPage } from '../src/pages/admin/payments/catalog/ProductEditor';
 import { PaymentsHealthBannerView } from '../src/components/billing/PaymentsHealthBanner';
@@ -82,8 +82,67 @@ await check('overview demo', '/admin/payments', PaymentsOverview, [
 ]);
 await check('subscription dunning demo', '/admin/payments/subscriptions', PaymentsSubscriptions, [
   'Payment failed', 'Card declined ', 'Retry payment', 'Email patient a payment link',
+  'Paused', 'Resume', 'Pause', 'Change product', 'Changes to Detox', 'Oct 13, 2026',
 ]);
-await check('activity demo rows', '/admin/payments/activity?kind=refund', PaymentsActivity, ['Refund issued', 'TH-D3MO03', 'Beacon Hill Aesthetics', 'All offices']);
+await check('activity demo rows', '/admin/payments/activity?kind=refund', PaymentsActivity, [
+  'Refund issued', 'TH-D3MO03', 'Beacon Hill Aesthetics', 'All offices', 'Payment reports',
+]);
+
+{
+  // Demo exposes every subscription write affordance, but none can invoke a mutation.
+  const location = memoryLocation({ path: '/admin/payments/subscriptions' });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let renderer: ReturnType<typeof create> | undefined;
+  await act(async () => {
+    renderer = create(<QueryClientProvider client={client}><DateRangeProvider><Router hook={location.hook}><Route path="/admin/payments" nest><PaymentsSubscriptions /></Route></Router></DateRangeProvider></QueryClientProvider>);
+  });
+  const writes = renderer!.root.findAll(node =>
+    node.type === 'button' && ['Pause', 'Resume', 'Change product', 'Cancel at renewal', 'Cancel now', 'Retry payment', 'Email patient a payment link'].includes(String(node.children.join(''))));
+  const problems = [
+    writes.length < 20 ? `expected demo write controls on every eligible row, found ${writes.length}` : '',
+    writes.some(button => !button.props.disabled) ? 'a demo subscription write control is enabled' : '',
+  ].filter(Boolean);
+  if (problems.length) { failures += 1; console.error(`FAIL subscription demo mutation guard: ${problems.join('; ')}`); }
+  else console.log('ok subscription demo mutation guard');
+  await act(async () => { renderer!.unmount(); });
+}
+
+{
+  let chosen = '';
+  let confirmed = 0;
+  const row = DEMO_SUBSCRIPTIONS[1];
+  const quote = {
+    current: { product_id: row.product_id, product_name: row.product_name, unit_price_cents: row.unit_price_cents },
+    next: { product_id: 'catalog-3', product_name: 'Detox', unit_price_cents: 8999, shipping_charge_cents: 1000, application_fee_cents: 4599 },
+    effective_at: '2026-10-13T00:00:00Z',
+  };
+  let renderer: ReturnType<typeof create> | undefined;
+  await act(async () => {
+    renderer = create(
+      <ChangeProductDialog
+        open row={row} productId="catalog-3"
+        products={DEMO_CATALOG.products}
+        quote={quote} pendingQuote={false} quoteError={null} pendingChange={false}
+        onOpenChange={() => undefined}
+        onProductChange={(id) => { chosen = id; }}
+        onConfirm={() => { confirmed += 1; }}
+      />,
+    );
+  });
+  const text = JSON.stringify(renderer!.toJSON());
+  const select = renderer!.root.find(node => node.type === 'select');
+  const confirm = renderer!.root.find(node => node.type === 'button' && String(node.children.join('')) === 'Confirm product change');
+  await act(async () => { select.props.onChange({ target: { value: 'catalog-4' } }); confirm.props.onClick(); });
+  const problems = [
+    !['Current product price', 'Current shipping', 'Current THINNR fee', 'Next product price', 'Next shipping', 'Next THINNR fee', 'Effective date', '$89.99', 'Oct 13, 2026'].every(value => text.includes(value))
+      ? 'quote does not show the complete current/next fee comparison' : '',
+    chosen !== 'catalog-4' ? `product selection reported ${chosen || '(nothing)'}` : '',
+    confirmed !== 1 ? `confirm callback ran ${confirmed} times` : '',
+  ].filter(Boolean);
+  if (problems.length) { failures += 1; console.error(`FAIL change product quote dialog: ${problems.join('; ')}`); }
+  else console.log('ok change product quote dialog');
+  await act(async () => { renderer!.unmount(); });
+}
 
 {
   // Overview: activity rows are real links to the transaction, and the chart carries a spoken summary.

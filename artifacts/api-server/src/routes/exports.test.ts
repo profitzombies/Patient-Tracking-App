@@ -26,7 +26,7 @@ async function call(path: string, method = "GET", body?: unknown, token = "t") {
   return fetch(base + path, { method, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
 }
 const hq = (departmentRole: string) => ({ userId: "hq-user", role: "hq_admin", departmentRole });
-const officeScope = { kind: "ok", scope: { providerId: "p1", officeName: "One", providerName: "Dr One", onboardingCode: null, actorUserId: "office-user", actorKind: "provider" } };
+const officeScope = { kind: "ok", scope: { providerId: "p1", officeName: "One", providerName: "Dr One", onboardingCode: null, actorUserId: "office-user", actorKind: "provider", officeRole: "owner", teamMemberId: null } };
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
 const jobRow = (overrides: Record<string, unknown> = {}) => ({
   id: JOB_ID, kind: "office_comparison", status: "ready", requested_by: "hq-user", requester_kind: "hq", requester_role: "admin",
@@ -118,6 +118,16 @@ describe("requesting exports", () => {
     expect(mocks.scope.mock.calls[0][0].explicitOfficeId).toBeNull();
     expect((await call("/exports", "POST", { kind: "provider_directory" })).status).toBe(403);
   });
+  it("denies billing exports to office staff", async () => {
+    mocks.staff.mockReturnValue(null);
+    mocks.scope.mockResolvedValue({ ...officeScope, scope: { ...officeScope.scope, actorKind: "team_member", officeRole: "staff" } });
+    adminScript({});
+    const res = await call("/exports", "POST", {
+      kind: "billing_transactions", start: "2026-08-01", end: "2026-09-06",
+    });
+    expect(res.status).toBe(403);
+    expect(mocks.admin.mock.calls.some(([method]) => method === "POST")).toBe(false);
+  });
   it("denies support the comparison but allows the directory, and denies content everything but training", async () => {
     mocks.staff.mockReturnValue(hq("support"));
     adminScript({});
@@ -126,6 +136,14 @@ describe("requesting exports", () => {
     mocks.staff.mockReturnValue(hq("content"));
     expect((await call("/exports", "POST", { kind: "audit_events", start: "2026-08-01", end: "2026-09-06" })).status).toBe(403);
     expect((await call("/exports", "POST", { kind: "training_completion", start: "2026-08-01", end: "2026-09-06" })).status).toBe(202);
+  });
+  it("keeps billing exports behind HQ financial_read", async () => {
+    mocks.staff.mockReturnValue(hq("clinical"));
+    adminScript({});
+    const res = await call("/exports", "POST", {
+      kind: "billing_payouts", start: "2026-08-01", end: "2026-09-06",
+    });
+    expect(res.status).toBe(403);
   });
   it("caps the per-requester backlog", async () => {
     mocks.staff.mockReturnValue(hq("admin"));
@@ -198,8 +216,11 @@ describe("job DTO and kind menu", () => {
     expect(exportJobDto(jobRow(), Date.parse("2026-01-01T00:00:00Z")).downloadable).toBe(true);
   });
   it("offers office staff everything except the directory, and flags HQ patient activity as office-bound", () => {
-    const office = availableKinds({ kind: "office", userId: "o", actorKind: "team_member", providerId: "p1", officeName: "One" });
-    expect(office.map((k) => k.kind)).toEqual(["office_comparison", "patient_activity", "audit_events", "training_completion"]);
+    const office = availableKinds({ kind: "office", userId: "o", actorKind: "team_member", providerId: "p1", officeName: "One", officeRole: "admin" });
+    expect(office.map((k) => k.kind)).toEqual([
+      "office_comparison", "patient_activity", "audit_events", "training_completion",
+      "billing_transactions", "billing_subscriptions", "billing_payouts",
+    ]);
     expect(office.every((k) => !k.needsOffice)).toBe(true);
     const admin = availableKinds({ kind: "hq", userId: "h", identity: { userId: "h", role: "hq_admin", departmentRole: "super_admin" } });
     expect(admin.find((k) => k.kind === "patient_activity")?.needsOffice).toBe(true);

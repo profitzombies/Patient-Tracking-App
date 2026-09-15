@@ -90,6 +90,9 @@ export const AUDIT_ACTIONS = [
   "billing_subscription_cancelled",
   "billing_subscription_payment_retried",
   "billing_subscription_payment_email_sent",
+  "billing_subscription_paused",
+  "billing_subscription_resumed",
+  "billing_subscription_changed",
   "billing_order_fulfillment_updated",
   "billing_prices_updated",
   "billing_payment_link_created",
@@ -120,7 +123,7 @@ export const AUDIT_METADATA_KEYS = [
   "policyVersion", "photoAnalysis", "attempt", "step", "objects", "tables", "purgeAfter", "exportId", "requestId",
   "page", "assigneeUserId", "previousAssigneeUserId", "self", "messageClientId", "length", "department", "escalationId", "hasNote",
   "order_id", "subscription_id", "link_id", "product_id", "amount_cents", "floor_price_cents",
-  "at_period_end", "fulfillment_status", "has_tracking", "keys_changed", "products_changed", "active",
+  "at_period_end", "fulfillment_status", "has_tracking", "keys_changed", "products_changed", "active", "max_uses",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 
@@ -181,6 +184,9 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "billing_subscription_cancelled",
   "billing_subscription_payment_retried",
   "billing_subscription_payment_email_sent",
+  "billing_subscription_paused",
+  "billing_subscription_resumed",
+  "billing_subscription_changed",
   "billing_prices_updated",
   "billing_payment_link_created",
   "billing_payment_link_updated",
@@ -406,6 +412,7 @@ const TARGET_KIND_LABEL: Record<string, string> = {
   training_video: "Training video",
   training_media: "Training media",
   training_attachment: "Training attachment",
+  billing_subscription: "Subscription",
   organization_settings: "Organization settings",
   data_export: "Data export",
   support_chat: "AI support chat",

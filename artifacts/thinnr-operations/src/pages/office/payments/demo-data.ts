@@ -172,6 +172,23 @@ export const DEMO_LINKS: PaymentLink[] = [
     uses: 12,
     last_used_at: '2026-10-10T14:00:00Z',
     created_at: '2026-09-01T12:00:00Z',
+    product_id: null,
+    product_name: null,
+    expires_at: null,
+    max_uses: null,
+    usable: true,
+  },
+  {
+    id: 'demo-link-2', token: 'single', url: 'https://example.com/pay/single', provider_id: 'demo',
+    patient_id: 'patient-1', patient_name: 'Maya Thompson', label: 'Control follow-up', active: true,
+    uses: 1, last_used_at: '2026-10-09T14:00:00Z', created_at: '2026-10-08T12:00:00Z',
+    product_id: 'control', product_name: 'Control', expires_at: null, max_uses: 1, usable: false,
+  },
+  {
+    id: 'demo-link-3', token: 'expired', url: 'https://example.com/pay/expired', provider_id: 'demo',
+    patient_id: null, patient_name: null, label: 'September campaign', active: true, uses: 3,
+    last_used_at: '2026-09-18T14:00:00Z', created_at: '2026-09-01T12:00:00Z',
+    product_id: null, product_name: null, expires_at: '2026-09-20T12:00:00Z', max_uses: null, usable: false,
   },
 ];
 
@@ -196,6 +213,17 @@ export const DEMO_SUBSCRIPTIONS: SubscriptionRow[] = [
     renewals: 3,
     livemode: false,
     created_at: '2026-08-15T00:00:00Z',
+    paused_at: null,
+    pending_change: { product_id: 'fiber', product_name: 'Fiber', unit_price_cents: 4499, effective_at: '2026-11-07T00:00:00Z' },
+  },
+  {
+    id: 'demo-sub-2', provider_id: 'demo', office_name: 'Jenkins Wellness',
+    payer: { id: 'payer-2', patient_id: 'patient-2', name: 'Daniel Ortiz', email: 'daniel@example.com', phone: null },
+    product_id: 'control', product_name: 'Control', status: 'active', unit_price_cents: 7999,
+    shipping_charge_cents: 1000, application_fee_cents: 4599, current_period_end: '2026-10-24T00:00:00Z',
+    cancel_at_period_end: false, canceled_at: null, payment_failure_count: 0, last_payment_failed_at: null,
+    last_failure_message: null, renewals: 5, livemode: false, created_at: '2026-05-09T00:00:00Z',
+    paused_at: '2026-10-10T15:00:00Z', pending_change: null,
   },
 ];
 

@@ -175,7 +175,7 @@ export async function completeOauth(code: string, state: string): Promise<Connec
 
 export const ACCOUNT_COMPONENTS = [
   "account_onboarding", "account_management", "payouts", "balances", "payments", "tax_settings",
-  "tax_registrations", "notification_banner", "documents", "payment_details",
+  "tax_registrations", "notification_banner", "documents", "payment_details", "disputes_list", "payment_disputes",
 ] as const;
 export type AccountComponent = typeof ACCOUNT_COMPONENTS[number];
 
@@ -186,7 +186,12 @@ export async function createAccountSession(providerId: string, components: Accou
   if (requested.some((component) => !ACCOUNT_COMPONENTS.includes(component))) {
     throw new BillingAccountError("An unsupported account component was requested.", 400);
   }
-  const enabled = Object.fromEntries(requested.map((component) => [component, { enabled: true }]));
+  const paymentFeatures = { dispute_management: true, refund_management: true, capture_payments: false };
+  const enabled = Object.fromEntries(requested.map((component) => [
+    component,
+    component === "disputes_list" || component === "payments" || component === "payment_details"
+      ? { enabled: true, features: paymentFeatures } : { enabled: true },
+  ]));
   try {
     const session = await (await getStripe()).accountSessions.create(
       { account: row.stripe_account_id, components: enabled } as Stripe.AccountSessionCreateParams,

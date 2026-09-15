@@ -29,6 +29,7 @@ import {
 } from "../exports/kinds";
 import { drainQueuedExports, type ExportJobRow } from "../exports/worker";
 import { loadOrgPolicy } from "../lib/org-policy";
+import { hasHqPermission } from "../lib/staff-auth";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -285,8 +286,10 @@ export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; 
   const all: ExportKind[] = [...EXPORT_KINDS];
   const kinds =
     who.kind === "office"
-      ? all.filter((kind) => kind !== "provider_directory")
+      ? all.filter((kind) => kind !== "provider_directory" &&
+          (!kind.startsWith("billing_") || who.officeRole !== "staff"))
       : all.filter((kind) => {
+          if (kind.startsWith("billing_")) return hasHqPermission(who.identity, "financial_read");
           const role = who.identity.departmentRole;
           if (role === "super_admin" || role === "admin") return true;
           if (role === "clinical") return kind === "office_comparison" || kind === "training_completion";

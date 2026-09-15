@@ -26,3 +26,6 @@ description: Principle for getting the browser tester past code-login screens wi
 **How to apply:** mirror the real SDK session envelope without exposing it in tool output. On the direct Expo domain, helper paths and redirects are root-relative, not prefixed by the artifact preview path.
 
 **Prefer a self-cleaning fixture harness over ad-hoc identities.** When a feature already has a live smoke harness that mints throwaway identities and session-seeding helper pages, reuse it for browser verification instead of hand-creating accounts: it tears rows, auth users, helper files and git excludes down in one command, so nothing leaks past the session. **Why:** hand-seeded testers left symlinks, exclude lines and fixture rows behind more than once.
+
+## Care-team smoke harness helper is not auto-served
+The api-server care-team live-smoke harness writes helper HTML under `tmp/` but only *removes* the `artifacts/*/public/<helper-dir>` symlinks at cleanup — it never creates them. After `prepare`/`helper`, symlink the helper dir into the web artifact's `public/` yourself (and add the path to `.git/info/exclude`), or the helper URL SPA-falls-back to index.html and the tester lands on the sign-in card with an empty localStorage. Cleanup removes both.

@@ -127,3 +127,4 @@
 - [UTC instants on staff screens](utc-instant-display.md) — never slice server ISO timestamps for the date on live screens; format in device tz; live greetings follow the local hour, demo stays anchored.
 - [Revenue chart conventions](revenue-chart-conventions.md) — hover-only readouts (nothing pinned at rest); "today" series are running totals with a signed y-domain; sr-only live text only while engaged.
 - [HQ file drive](hq-file-drive.md) — replace = CAS swap; one-row responses enrich like listings; archived rows stay real; providers read-only via shared read module; downloads open a new tab.
+- [Fixed-layout table width budget](fixed-table-width-budget.md) — truncate needs table-fixed; reserve widths for all but one column and keep the sum under the card width or the free column starves.

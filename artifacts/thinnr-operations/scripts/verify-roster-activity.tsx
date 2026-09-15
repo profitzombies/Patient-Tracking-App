@@ -198,8 +198,9 @@ function rowFor(root: ReactTestInstance, name: string): ReactTestInstance | unde
 }
 
 /** Text of a row's two activity cells only (weight-loss column excluded). */
+// Columns: patient, status, start date, logging, check-ins, meds, weight, action.
 function activityText(row: ReactTestInstance): string {
-  return row.findAll((node) => node.type === 'td').slice(5, 7).map(textOf).join(' | ');
+  return row.findAll((node) => node.type === 'td').slice(3, 5).map(textOf).join(' | ');
 }
 
 function selectByLabel(root: ReactTestInstance, label: string): ReactTestInstance {

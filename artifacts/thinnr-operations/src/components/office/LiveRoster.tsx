@@ -194,22 +194,22 @@ export function InvitePatientAction({ office }: { office: string | null }) {
   );
 }
 
+/**
+ * Invitation state chip. Verified is the normal case and gets no badge: the
+ * roster's status chip already speaks for the patient. Only a pending or
+ * failed invitation earns a chip, so the Status column shows one chip per row.
+ */
 export function InvitationChip({ patient }: { patient: OfficePatient }) {
-  if (!patient.invitation) return null;
-  const pending = patient.invitation.state === 'pending';
-  const failed = pending && patient.invitation.emailStatus === 'failed';
+  if (!patient.invitation || patient.invitation.state !== 'pending') return null;
+  const failed = patient.invitation.emailStatus === 'failed';
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${
-        failed
-          ? 'border-destructive/40 bg-destructive/10 text-destructive'
-          : pending
-          ? 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]'
-          : 'border-accent-border bg-accent text-primary'
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${
+        failed ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]'
       }`}
     >
       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
-      {failed ? 'Delivery failed' : pending ? 'Invite pending' : 'Verified'}
+      {failed ? 'Delivery failed' : 'Invite pending'}
     </span>
   );
 }

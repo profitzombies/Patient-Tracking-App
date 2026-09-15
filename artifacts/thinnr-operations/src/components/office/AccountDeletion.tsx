@@ -38,7 +38,7 @@ export function DeletionChip({ deletion, testId }: { deletion: PatientDeletionSt
   return (
     <span
       data-testid={testId}
-      className="inline-flex items-center gap-1.5 rounded-sm border border-[#d5a7a7] bg-[#fff0f0] px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] text-destructive"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border border-[#d5a7a7] bg-[#fff0f0] px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] text-destructive"
       title={`The patient requested account deletion on ${formatDate(deletion.requestedAt)}. They can cancel by signing in before the purge.`}
     >
       <ShieldAlert size={10} aria-hidden="true" />

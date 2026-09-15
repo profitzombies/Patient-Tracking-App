@@ -122,6 +122,17 @@ export function LiveEngagementCell({ activity, align = 'left' }: { activity: Ros
   if (activity.kind !== 'known') return <UnavailableCell what="Check-ins" align={align} />;
   const { signals } = activity;
   const noCheckIns = signals.checkInStreak === null || signals.checkInRate30 === null;
+  // A patient who has never checked in and has no averages, moods, or side
+  // effects gets one line; repeating "no data" per family says nothing new.
+  const nothingYet = noCheckIns && signals.avgCalories7 == null && signals.avgWater7 == null && signals.moodCounts == null && signals.topSideEffects == null;
+  if (nothingYet) {
+    return (
+      <div className={align === 'right' ? 'text-right' : ''} data-state="no-data" title="No check-ins have been recorded in the companion app yet">
+        <b className="text-xs font-semibold text-navy">No check-ins yet</b>
+        <span className="mt-1 block text-[10px] text-muted-foreground">Check-ins not started</span>
+      </div>
+    );
+  }
   return (
     <div className={`space-y-1 ${align === 'right' ? 'flex flex-col items-end text-right' : ''}`} data-state={noCheckIns ? 'no-data' : 'known'}>
       {noCheckIns ? (

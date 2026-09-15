@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Search, Filter, ArrowUpDown, ChevronRight } from "lucide-react";
+import { Search, Filter, ArrowUpDown, ChevronRight, Check } from "lucide-react";
 import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
 import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
 import { getNudgeAssessment } from "@/data/stall-nudge";
@@ -46,14 +46,26 @@ function StatusChip({ status }: { status: string }) {
           : 'border-[#d5a7a7] bg-[#fff0f0] text-destructive';
   const displayStatus = status === 'unknown' ? 'activity unknown' : status.replace('_', ' ');
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${tone}`} title={status === 'unknown' ? 'Activity signals did not load for this patient' : undefined}>
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${tone}`} title={status === 'unknown' ? 'Activity signals did not load for this patient' : undefined}>
       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
       {displayStatus}
     </span>
   );
 }
 
-function FollowUpAction({ patientId, reason, currentStatus, office }: {
+const FOLLOW_UP_LABEL: Record<PatientOperationalFollowUpReason, string> = {
+  check_in_overdue: 'Overdue',
+  logging_lapsed: 'Lapsed',
+  no_activity_14d: 'Inactive',
+};
+
+/**
+ * One follow-up reason as a small toggle pill. Open reasons read in the warm
+ * "watch" tint; clicking marks the follow-up reviewed, which mutes the pill
+ * and adds a check so the reason stays visible (staff review never hides the
+ * live risk). Clicking a reviewed pill reopens it.
+ */
+function FollowUpPill({ patientId, reason, currentStatus, office }: {
   patientId: string;
   reason: PatientOperationalFollowUpReason;
   currentStatus: 'open' | 'resolved';
@@ -64,6 +76,7 @@ function FollowUpAction({ patientId, reason, currentStatus, office }: {
   const { toast } = useToast();
 
   const isResolved = currentStatus === 'resolved';
+  const spoken = reason.replaceAll('_', ' ');
 
   const toggle = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -90,16 +103,45 @@ function FollowUpAction({ patientId, reason, currentStatus, office }: {
 
   return (
     <button
+      type="button"
       onClick={toggle}
       disabled={updateFollowUp.isPending}
-      aria-label={`${isResolved ? 'Reopen' : 'Mark'} ${reason.replaceAll('_', ' ')} ${isResolved ? 'follow-up' : 'reviewed'}`}
-      title={`${isResolved ? 'Reopen' : 'Mark'} ${reason.replaceAll('_', ' ')} ${isResolved ? 'follow-up' : 'reviewed'}`}
-      className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm border transition-colors ${
-        isResolved ? 'bg-secondary text-muted-foreground border-border hover:bg-muted' : 'bg-primary text-primary-foreground border-primary hover:bg-navy'
+      aria-pressed={isResolved}
+      aria-label={`Mark ${spoken} reviewed`}
+      title={isResolved ? `Reviewed. Click to reopen the ${spoken} follow-up.` : `Click to mark ${spoken} reviewed.`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-sm border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 ${
+        isResolved
+          ? 'border-border bg-secondary text-muted-foreground line-through decoration-muted-foreground/60 hover:bg-muted'
+          : 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22] hover:bg-[#ffe9d1]'
       }`}
     >
-      {updateFollowUp.isPending ? 'Saving...' : (isResolved ? 'Reopen' : 'Review')}
+      {isResolved ? <Check size={9} strokeWidth={3} aria-hidden="true" /> : <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />}
+      {updateFollowUp.isPending ? 'Saving' : FOLLOW_UP_LABEL[reason] ?? spoken}
     </button>
+  );
+}
+
+/** Status column body: exactly one chip, then the follow-up pills in one row. */
+function StatusCell({ patient, office, align = 'left' }: {
+  patient: { id: string; status: string; isLive: boolean; showResend: boolean; rawLive?: OfficePatient };
+  office: string | null;
+  align?: 'left' | 'right';
+}) {
+  const reasons = patient.isLive ? patient.rawLive?.operational?.reasons ?? [] : [];
+  return (
+    <div className={`flex flex-col gap-1.5 ${align === 'right' ? 'items-end' : 'items-start'}`}>
+      {patient.rawLive && <InvitationChip patient={patient.rawLive} />}
+      {!patient.showResend && <StatusChip status={patient.status} />}
+      {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
+      {reasons.length > 0 && (
+        <div className={`flex flex-wrap gap-1 ${align === 'right' ? 'justify-end' : ''}`} onClick={(e) => e.stopPropagation()} data-testid={`follow-ups-${patient.id}`}>
+          {reasons.map((reason) => {
+            const followUp = patient.rawLive?.operational?.followUps?.find((item) => item.reason === reason);
+            return <FollowUpPill key={reason} patientId={patient.id} reason={reason} currentStatus={followUp?.status ?? 'open'} office={office} />;
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -360,7 +402,7 @@ export default function Patients() {
   };
 
   return (
-    <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8">
+    <div className="mx-auto max-w-[1560px] px-5 py-7 md:px-8">
       <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="font-serif text-[32px] font-bold leading-none tracking-tight text-navy">Patient Roster</h1>
@@ -477,25 +519,7 @@ export default function Patients() {
                       <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{patient.providerName}</span>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    {patient.isLive && patient.rawLive?.invitation && <InvitationChip patient={patient.rawLive} />}
-                    {!patient.showResend && <StatusChip status={patient.status} />}
-                    {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
-
-                    {patient.isLive && patient.rawLive?.operational?.reasons.map((reason) => {
-                      const followUp = patient.rawLive?.operational?.followUps?.find((item) => item.reason === reason);
-                      const status = followUp?.status ?? 'open';
-                      const displayReason = reason === 'check_in_overdue' ? 'Overdue' :
-                                            reason === 'logging_lapsed' ? 'Lapsed' :
-                                            'Inactive';
-                      return (
-                        <div key={reason} className="mt-0.5 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
-                          <span className="text-[9px] text-warn font-semibold uppercase tracking-wider">{displayReason}</span>
-                          <FollowUpAction patientId={patient.id} reason={reason} currentStatus={status} office={liveOffice} />
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <StatusCell patient={patient} office={liveOffice} align="right" />
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
                   <div>
@@ -571,39 +595,37 @@ export default function Patients() {
 
         {/* Table */}
         <div className="hidden overflow-x-auto md:block">
-          <table className={`w-full text-left text-xs ${liveEnabled ? "min-w-[1180px]" : "min-w-[920px]"}`}>
+          <table className={`w-full table-fixed text-left text-xs ${liveEnabled ? "min-w-[1040px]" : "min-w-[840px]"}`}>
             <thead className="border-b border-border bg-secondary text-[10px] uppercase tracking-[.11em] text-muted-foreground">
               <tr>
-                <th className="px-4 py-3 font-semibold w-1/4">
+                <th className={`${liveEnabled ? "w-[21%]" : "w-[34%]"} px-3 py-3 font-semibold`}>
                   <button onClick={() => handleSort('name')} className="flex items-center gap-1 rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Patient {sortField === 'name' && <ArrowUpDown size={12} className="text-primary" />}
                   </button>
                 </th>
-                <th className="px-4 py-3 font-semibold">
+                <th className="w-[10.5rem] whitespace-nowrap px-3 py-3 font-semibold">
                   <button onClick={() => handleSort('status')} className="flex items-center gap-1 rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Status {sortField === 'status' && <ArrowUpDown size={12} className="text-primary" />}
                   </button>
                 </th>
-                <th className="px-4 py-3 font-semibold">Stage</th>
-                <th className="px-4 py-3 font-semibold">Provider</th>
-                <th className="px-4 py-3 font-semibold">
+                <th className="w-[7.5rem] whitespace-nowrap px-3 py-3 font-semibold">
                   <button onClick={() => handleSort('startDate')} className="flex items-center gap-1 rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Start Date {sortField === 'startDate' && <ArrowUpDown size={12} className="text-primary" />}
                   </button>
                 </th>
-                <th className="px-4 py-3 font-semibold">
+                <th className={`${liveEnabled ? "w-[7.75rem]" : ""} whitespace-nowrap px-3 py-3 font-semibold`}>
                   <button onClick={() => handleSort('logging')} className="flex items-center gap-1 rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Logging (7d) {sortField === 'logging' && <ArrowUpDown size={12} className="text-primary" />}
                   </button>
                 </th>
-                {liveEnabled && <th className="px-4 py-3 font-semibold">Check-ins &amp; wellbeing</th>}
-                {liveEnabled && <th className="px-4 py-3 font-semibold">Meds</th>}
-                <th className="px-4 py-3 font-semibold text-right">
+                {liveEnabled && <th className="whitespace-nowrap px-3 py-3 font-semibold">Check-ins &amp; wellbeing</th>}
+                {liveEnabled && <th className="w-[3.75rem] px-3 py-3 font-semibold">Meds</th>}
+                <th className="w-[6rem] whitespace-nowrap px-3 py-3 font-semibold text-right">
                   <button onClick={() => handleSort('weightLoss')} className="flex items-center justify-end gap-1 w-full rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Weight Loss {sortField === 'weightLoss' && <ArrowUpDown size={12} className="text-primary" />}
                   </button>
                 </th>
-                <th className="px-4 py-3 font-semibold w-12"></th>
+                <th className={`${liveEnabled ? "w-[8.25rem]" : "w-12"} px-3 py-3 font-semibold`}></th>
               </tr>
             </thead>
             <tbody>
@@ -627,79 +649,57 @@ export default function Patients() {
                     }}
                     className="group cursor-pointer border-b border-border last:border-0 transition-colors hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3">
                       <div className="flex items-center gap-3">
                         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent text-[10px] font-bold text-primary">
                           {patient.initials}
                         </span>
-                        <div>
+                        <div className="min-w-0">
                           <span className="flex items-center gap-2">
                             <b className="block font-serif text-sm font-semibold leading-tight text-navy">{patient.name}</b>
                             {patient.outreachChip && <NudgeChip outreach={patient.outreachChip} />}
                           </span>
-                          <span className="text-[10px] text-muted-foreground">{patient.email}</span>
+                          <span className="block truncate text-[10px] text-muted-foreground" title={patient.email ?? undefined}>
+                            {patient.email}
+                            {patient.providerName !== '—' && <span> · {patient.providerName}</span>}
+                          </span>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col items-start gap-1">
-                        {patient.isLive && patient.rawLive?.invitation && <InvitationChip patient={patient.rawLive} />}
-                        {!patient.showResend && <StatusChip status={patient.status} />}
-                        {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
-
-                        {patient.isLive && patient.rawLive?.operational?.reasons.map((reason) => {
-                          const followUp = patient.rawLive?.operational?.followUps?.find((item) => item.reason === reason);
-                          const status = followUp?.status ?? 'open';
-                          const displayReason = reason === 'check_in_overdue' ? 'Overdue' :
-                                                reason === 'logging_lapsed' ? 'Lapsed' :
-                                                'Inactive';
-                          return (
-                            <div key={reason} className="mt-1 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
-                              <span className="text-[9px] text-warn font-semibold uppercase tracking-wider">{displayReason}</span>
-                              <FollowUpAction patientId={patient.id} reason={reason} currentStatus={status} office={liveOffice} />
-                            </div>
-                          );
-                        })}
-                      </div>
+                    <td className="px-3 py-3">
+                      <StatusCell patient={patient} office={liveOffice} />
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="text-foreground/80 capitalize">
-                        {patient.stageDisplay}
-                      </span>
+                    <td className="whitespace-nowrap px-3 py-3 text-foreground/80">
+                      <span className="block">{patient.startDateDisplay}</span>
+                      {patient.stageDisplay !== '—' && <span className="block text-[10px] capitalize text-muted-foreground">{patient.stageDisplay}</span>}
                     </td>
-                    <td className="px-4 py-3 text-foreground/80">
-                      {patient.providerName}
-                    </td>
-                    <td className="px-4 py-3 text-foreground/80">
-                      {patient.startDateDisplay}
-                    </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-3">
                       {patient.activity ? <LiveLoggingCell activity={patient.activity} /> : patient.stats && <LoggingSignal stats={patient.stats} />}
                     </td>
                     {liveEnabled && (
-                      <td className="px-4 py-3 min-w-[240px]">
+                      <td className="px-3 py-3">
                         {patient.activity && <LiveEngagementCell activity={patient.activity} />}
                       </td>
                     )}
                     {liveEnabled && (
                       <td
-                        className="px-4 py-3 font-mono font-semibold text-navy"
+                        className="px-3 py-3 font-mono font-semibold text-navy"
                         data-testid={`medication-adherence-${patient.id}`}
                         title={patient.medicationAdherence ? `${patient.medicationAdherence.taken}/${patient.medicationAdherence.due} in 30 days` : undefined}
                       >
                         {patient.medicationAdherence?.rate == null ? '—' : `${patient.medicationAdherence.rate}%`}
                       </td>
                     )}
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-3 text-right">
                       <b className="block font-mono font-semibold text-navy">{patient.weightLossDisplay}</b>
                       <span className="text-[10px] text-muted-foreground">{patient.percentLossDisplay}</span>
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-3 text-right">
                       {patient.showResend ? (
                         <button
                           type="button"
                           data-testid={`button-resend-invite-${patient.id}`}
-                          className={`${BTN_SECONDARY} h-8 px-3 whitespace-nowrap`}
+                          className={`${BTN_SECONDARY} h-8 whitespace-nowrap px-2.5`}
                           disabled={resending === patient.id}
                           onClick={(e) => {
                             e.preventDefault();
@@ -725,21 +725,21 @@ export default function Patients() {
 
               {liveEnabled && liveRosterIsLoading && (
                 <tr>
-                  <td colSpan={liveEnabled ? 9 : 8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={liveEnabled ? 7 : 6} className="px-4 py-12 text-center text-muted-foreground">
                     Loading patients…
                   </td>
                 </tr>
               )}
               {liveEnabled && liveRosterIsError && (
                 <tr>
-                  <td colSpan={liveEnabled ? 9 : 8} className="px-4 py-12 text-center text-destructive">
+                  <td colSpan={liveEnabled ? 7 : 6} className="px-4 py-12 text-center text-destructive">
                     {liveRosterError instanceof Error ? liveRosterError.message : 'The roster could not be loaded.'}
                   </td>
                 </tr>
               )}
               {(!liveEnabled || liveRosterData) && filteredAndSortedPatients.length === 0 && (
                 <tr>
-                  <td colSpan={liveEnabled ? 9 : 8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={liveEnabled ? 7 : 6} className="px-4 py-12 text-center text-muted-foreground">
                     No patients found matching your search.
                   </td>
                 </tr>
